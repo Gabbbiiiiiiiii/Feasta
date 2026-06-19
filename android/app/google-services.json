@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "668846874331",
+    "project_id": "feasta-catering-system",
+    "storage_bucket": "feasta-catering-system.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:668846874331:android:93bf5327f1fefb127d36fe",
+        "android_client_info": {
+          "package_name": "com.example.feasta"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "668846874331-qjrs5e47h3qt9d49fuvh9bj2e284jl6q.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.feasta",
+            "certificate_hash": "f92f576a6e3693e0ba8ef9cb1ec47f7dea349722"
+          }
+        },
+        {
+          "client_id": "668846874331-u32m6qjuou15ojv3lsuj5u81bs6tt3g1.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBRJGhqy1oJ2fJ6GpBa60q33GI3fsDclQU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "668846874331-u32m6qjuou15ojv3lsuj5u81bs6tt3g1.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "668846874331-13r2vf1v0qgh4tpngfqf0va0sfkcuqtr.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.feasta"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

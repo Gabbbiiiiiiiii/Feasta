@@ -1,0 +1,38 @@
+{
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ]
+    }
+  ],
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "feasta-catering-system",
+          "appId": "1:668846874331:android:93bf5327f1fefb127d36fe",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "feasta-catering-system",
+          "configurations": {
+            "android": "1:668846874331:android:93bf5327f1fefb127d36fe",
+            "ios": "1:668846874331:ios:a294daec18e300af7d36fe",
+            "macos": "1:668846874331:ios:a294daec18e300af7d36fe",
+            "web": "1:668846874331:web:d3a0a4ba870c22877d36fe",
+            "windows": "1:668846874331:web:d82b11b567b7a9817d36fe"
+          }
+        }
+      }
+    }
+  }
+}
