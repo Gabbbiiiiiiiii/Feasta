@@ -2,8 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../../screens/auth/login_screen.dart';
-import '../../screens/customer/phone_verification_screen.dart';
+import '../../mobile/auth/login_screen.dart';
+import '../../mobile/customer/phone_verification_screen.dart';
 
 Future<bool> requireVerifiedPhoneForBooking(BuildContext context) async {
   final user = FirebaseAuth.instance.currentUser;

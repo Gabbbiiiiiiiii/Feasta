@@ -2,6 +2,8 @@ import {initializeApp} from "firebase-admin/app";
 import * as logger from "firebase-functions/logger";
 import {defineSecret} from "firebase-functions/params";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
+import * as functions from 'firebase-functions';
+import {getMessaging} from 'firebase-admin/messaging';
 
 initializeApp();
 
@@ -496,3 +498,68 @@ function isAbortError(error: unknown): boolean {
     (error as {name?: string}).name === "AbortError"
   );
 }
+
+// --- Promotion notifications (FCM) ---
+
+async function sendTopicNotification(topic: string, title: string, body: string, data?: Record<string, string>) {
+  try {
+    const message: any = {
+      topic,
+      notification: {title, body},
+      data: data ?? {},
+    };
+
+    const res = await getMessaging().send(message);
+    logger.log('FCM message sent', {topic, messageId: res});
+    return res;
+  } catch (err) {
+    logger.error('FCM send failed', err);
+    throw err;
+  }
+}
+
+const promotionsCollection = 'promotions';
+
+export const onPromotionWrite = functions.region(functionRegion).firestore.document(`${promotionsCollection}/{promoId}`).onWrite(async (change, context) => {
+  try {
+    const before = change.before.exists ? change.before.data() : null;
+    const after = change.after.exists ? change.after.data() : null;
+    if (!after) return;
+
+    const afterActive = !!after['isActive'];
+    const beforeActive = !!(before && before['isActive']);
+
+    const now = Date.now();
+
+    // 1) Promotion became active
+    if (!beforeActive && afterActive) {
+      const title = after['title'] ?? 'New Promotion';
+      const body = after['subtitle'] ?? after['description'] ?? 'A new promotion is now active.';
+      await sendTopicNotification('promotions', title.toString(), body.toString(), {promotionId: context.params.promoId});
+    }
+
+    // 2) Featured provider changed
+    const beforeType = before ? (before['promotionType'] ?? '') : '';
+    const afterType = after['promotionType'] ?? '';
+    const beforeProvider = before ? (before['providerId'] ?? '') : '';
+    const afterProvider = after['providerId'] ?? '';
+
+    if (afterActive && afterType === 'featured_provider' && (beforeType !== afterType || beforeProvider !== afterProvider)) {
+      const title = 'Featured Provider Updated';
+      const body = after['subtitle'] ?? after['description'] ?? 'A featured provider promotion has been updated.';
+      await sendTopicNotification('featured_provider', title, body, {promotionId: context.params.promoId, providerId: afterProvider?.toString() ?? ''});
+    }
+
+    // 3) Birthday promotion started
+    if (afterActive && afterType === 'birthday') {
+      // If it wasn't birthday before or activation changed, notify
+      if (beforeType !== 'birthday' || (!beforeActive && afterActive)) {
+        const title = after['title'] ?? 'Birthday Promotion Started';
+        const body = after['subtitle'] ?? after['description'] ?? 'A birthday promotion is now live.';
+        await sendTopicNotification('birthday_promotions', title.toString(), body.toString(), {promotionId: context.params.promoId});
+      }
+    }
+  } catch (err) {
+    logger.error('onPromotionWrite handler failed', err);
+  }
+});

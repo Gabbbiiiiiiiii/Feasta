@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../core/constants/firestore_collections.dart';
@@ -244,18 +245,25 @@ class AuthRepository {
   }
 
   Future<String?> providerVerificationStatusForOwner(String ownerId) async {
-    final snapshot = await _db
-        .collection(FirestoreCollections.providers)
-        .where('ownerId', isEqualTo: ownerId)
-        .limit(1)
-        .get();
+    try {
+      final snapshot = await _db
+          .collection(FirestoreCollections.providers)
+          .where('ownerId', isEqualTo: ownerId)
+          .limit(1)
+          .get()
+          .timeout(const Duration(seconds: 8));
 
-    if (snapshot.docs.isEmpty) {
+      if (snapshot.docs.isEmpty) {
+        return null;
+      }
+
+      final status = snapshot.docs.first.data()['verificationStatus'];
+      return status is String ? status : ProviderVerificationStatus.pending;
+    } catch (error, stackTrace) {
+      debugPrint('Failed to load provider verification status: $error');
+      debugPrint(stackTrace.toString());
       return null;
     }
-
-    final status = snapshot.docs.first.data()['verificationStatus'];
-    return status is String ? status : ProviderVerificationStatus.pending;
   }
 
   Future<void> logout() async {

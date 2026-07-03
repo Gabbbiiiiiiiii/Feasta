@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'screens/splash/splash_screen.dart';
+import 'mobile/splash/splash_screen.dart';
 
 class FeastaApp extends StatelessWidget {
   const FeastaApp({super.key});

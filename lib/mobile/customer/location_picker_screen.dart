@@ -19,7 +19,7 @@ class LocationPickerScreen extends StatefulWidget {
   const LocationPickerScreen({super.key});
 
   @override
-  State<LocationPickerScreen> createState() => _LocationPickerScreenState();
+  State createState() => _LocationPickerScreenState();
 }
 
 class _LocationPickerScreenState extends State<LocationPickerScreen> {
@@ -251,9 +251,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _toggleMapType() async {
-    final nextType = mapType == MapType.normal
-        ? MapType.satellite
-        : MapType.normal;
+    final nextType = mapType == MapType.normal ? MapType.satellite : MapType.normal;
 
     setState(() {
       mapType = nextType;
@@ -291,8 +289,8 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       isDefault: true,
       createdAt:
           address.createdAt == CustomerAddressModel.defaultOrmoc.createdAt
-          ? DateTime.now()
-          : address.createdAt,
+              ? DateTime.now()
+              : address.createdAt,
     );
 
     try {
@@ -314,11 +312,12 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     CustomerAddressModel? address,
     bool editCurrent = false,
   }) async {
-    final result = await Navigator.push<CustomerAddressModel>(
+    final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ManualAddressScreen(
-          initialAddress: editCurrent ? address ?? previewAddress : null,
+        builder: (context) => ManualAddressScreen(
+          initialAddress:
+              editCurrent ? address ?? previewAddress : null,
           preserveAddressId: editCurrent,
         ),
       ),
@@ -368,7 +367,9 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _MapCloseButton(onTap: () => Navigator.pop(context)),
+                        _MapCloseButton(
+                          onTap: () => Navigator.pop(context),
+                        ),
                         const SizedBox(width: 10),
                         Expanded(
                           child: _SearchPanel(
@@ -394,6 +395,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                     isLocating: isLocating,
                     onConfirm: _confirmPreviewAddress,
                     onUseCurrentLocation: _useCurrentLocation,
+                    onDismiss: () => Navigator.pop(context),
                     onManualEntry: () => _openManualAddress(),
                     onEditAddress: (address) =>
                         _openManualAddress(address: address, editCurrent: true),
@@ -479,14 +481,14 @@ class _SearchPanel extends StatelessWidget {
                       ),
                     )
                   : controller.text.isEmpty
-                  ? null
-                  : IconButton(
-                      onPressed: () {
-                        controller.clear();
-                        onChanged('');
-                      },
-                      icon: const Icon(Icons.close_rounded),
-                    ),
+                      ? null
+                      : IconButton(
+                          onPressed: () {
+                            controller.clear();
+                            onChanged('');
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
               filled: true,
               fillColor: _background,
               border: OutlineInputBorder(
@@ -505,10 +507,9 @@ class _SearchPanel extends StatelessWidget {
                 padding: EdgeInsets.zero,
                 shrinkWrap: true,
                 itemCount: suggestions.length,
-                separatorBuilder: (_, _) => const Divider(height: 1),
+                separatorBuilder: (_, __) => const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final suggestion = suggestions[index];
-
                   return ListTile(
                     leading: const Icon(Icons.location_on_outlined),
                     title: Text(
@@ -562,54 +563,54 @@ class _MapPickerArea extends StatelessWidget {
     final target = LatLng(address.latitude, address.longitude);
 
     return Stack(
-      children: [
-        GoogleMap(
-          initialCameraPosition: CameraPosition(target: target, zoom: 18),
-          mapType: mapType,
-          myLocationButtonEnabled: false,
-          zoomControlsEnabled: false,
-          mapToolbarEnabled: false,
-          onMapCreated: onMapCreated,
-          onCameraMove: onCameraMove,
-          onCameraIdle: onCameraIdle,
+  children: [
+    GoogleMap(
+      initialCameraPosition: CameraPosition(target: target, zoom: 18),
+      mapType: mapType,
+      myLocationButtonEnabled: false,
+      zoomControlsEnabled: false,
+      mapToolbarEnabled: false,
+      onMapCreated: onMapCreated,
+      onCameraMove: onCameraMove,
+      onCameraIdle: onCameraIdle,
+    ),
+    const IgnorePointer(
+      child: Center(
+        child: Padding(
+          padding: EdgeInsets.only(bottom: 42),
+          child: Icon(Icons.location_pin, color: _primary, size: 52),
         ),
-        const IgnorePointer(
-          child: Center(
-            child: Padding(
-              padding: EdgeInsets.only(bottom: 42),
-              child: Icon(Icons.location_pin, color: _primary, size: 52),
-            ),
+      ),
+    ),
+    Positioned(
+      right: 18,
+      bottom: 360,
+      child: Column(
+        children: [
+          _FloatingMapButton(
+            tooltip: mapType == MapType.normal ? 'Satellite' : 'Map',
+            icon: mapType == MapType.normal
+                ? Icons.satellite_alt_outlined
+                : Icons.map_outlined,
+            onTap: onToggleMapType,
           ),
-        ),
-        Positioned(
-          right: 18,
-          bottom: 360,
-          child: Column(
-            children: [
-              _FloatingMapButton(
-                tooltip: mapType == MapType.normal ? 'Satellite' : 'Map',
-                icon: mapType == MapType.normal
-                    ? Icons.satellite_alt_outlined
-                    : Icons.map_outlined,
-                onTap: onToggleMapType,
-              ),
-              const SizedBox(height: 10),
-              _FloatingMapButton(
-                tooltip: 'Use current location',
-                icon: isLocating
-                    ? Icons.hourglass_top_rounded
-                    : Icons.my_location_rounded,
-                onTap: isLocating ? null : onUseCurrentLocation,
-              ),
-            ],
+          const SizedBox(height: 10),
+          _FloatingMapButton(
+            tooltip: 'Use current location',
+            icon: isLocating
+                ? Icons.hourglass_top_rounded
+                : Icons.my_location_rounded,
+            onTap: isLocating ? null : onUseCurrentLocation,
           ),
-        ),
-      ],
+        ],
+      ),
+    ),
+  ],
     );
   }
 }
 
-class _LocationActionPanel extends StatelessWidget {
+class _LocationActionPanel extends StatefulWidget {
   final CustomerAddressModel address;
   final String? errorMessage;
   final String? accuracyWarning;
@@ -618,6 +619,7 @@ class _LocationActionPanel extends StatelessWidget {
   final bool isLocating;
   final VoidCallback onConfirm;
   final VoidCallback onUseCurrentLocation;
+  final VoidCallback onDismiss;
   final VoidCallback onManualEntry;
   final ValueChanged<CustomerAddressModel> onEditAddress;
 
@@ -630,124 +632,167 @@ class _LocationActionPanel extends StatelessWidget {
     required this.isLocating,
     required this.onConfirm,
     required this.onUseCurrentLocation,
+    required this.onDismiss,
     required this.onManualEntry,
     required this.onEditAddress,
   });
 
   @override
+  State<_LocationActionPanel> createState() => _LocationActionPanelState();
+}
+
+class _LocationActionPanelState extends State<_LocationActionPanel> {
+  double dragDistance = 0;
+
+  void _resetDrag() {
+    dragDistance = 0;
+  }
+
+  void _handleDragUpdate(DragUpdateDetails details) {
+    final delta = details.primaryDelta ?? 0;
+    if (delta > 0) {
+      dragDistance += delta;
+    }
+  }
+
+  void _handleDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final shouldDismiss = dragDistance > 72 || velocity > 650;
+    _resetDrag();
+
+    if (shouldDismiss) {
+      widget.onDismiss();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final bottomPadding = MediaQuery.of(context).padding.bottom;
 
-    return SizedBox(
-      height: MediaQuery.of(context).size.height * 0.36,
-      child: Container(
-        decoration: const BoxDecoration(
-          color: _background,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: ListView(
-            padding: EdgeInsets.fromLTRB(18, 12, 18, 14 + bottomPadding),
-            children: [
-              Center(
-                child: Container(
-                  width: 38,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: _border,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              if (isResolvingAddress) ...[
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: const LinearProgressIndicator(
-                    minHeight: 3,
-                    color: _primary,
-                    backgroundColor: Color(0xFFFFD9CC),
-                  ),
-                ),
-                const SizedBox(height: 10),
-              ],
-
-              if (errorMessage != null) ...[
-                _ErrorNotice(message: errorMessage!, onManualEntry: onManualEntry),
-                const SizedBox(height: 10),
-              ],
-
-              _SelectedAddressCard(
-                address: address,
-                onEdit: () => onEditAddress(address),
-              ),
-
-              const SizedBox(height: 10),
-
-              _EventLocationInfo(message: accuracyWarning),
-
-              const SizedBox(height: 10),
-
-              SizedBox(
-                height: 48,
-                child: OutlinedButton.icon(
-                  onPressed: isLocating ? null : onUseCurrentLocation,
-                  icon: isLocating
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.my_location_rounded),
-                  label: Text(isLocating ? 'Locating...' : 'Use Current Location'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _primary,
-                    side: const BorderSide(color: _border),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    textStyle: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w900,
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onVerticalDragStart: (_) => _resetDrag(),
+      onVerticalDragUpdate: _handleDragUpdate,
+      onVerticalDragEnd: _handleDragEnd,
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.40,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: _background,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(18, 12, 18, 14 + bottomPadding),
+              child: Column(
+                mainAxisSize: MainAxisSize.max,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 38,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: _border,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
                     ),
                   ),
-                ),
-              ),
-
-              const SizedBox(height: 10),
-
-              SizedBox(
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: isSaving ? null : onConfirm,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _primary,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                  const SizedBox(height: 12),
+                  if (widget.isResolvingAddress) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: const LinearProgressIndicator(
+                        minHeight: 3,
+                        color: _primary,
+                        backgroundColor: Color(0xFFFFD9CC),
+                      ),
                     ),
+                    const SizedBox(height: 10),
+                  ],
+                  if (widget.errorMessage != null) ...[
+                    _ErrorNotice(
+                      message: widget.errorMessage!,
+                      onManualEntry: widget.onManualEntry,
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  _SelectedAddressCard(
+                    address: widget.address,
+                    onEdit: () => widget.onEditAddress(widget.address),
                   ),
-                  child: isSaving
-                      ? const SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.4,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Text(
-                          'Confirm Event Location',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w900,
-                          ),
+                  const SizedBox(height: 10),
+                  _EventLocationInfo(message: widget.accuracyWarning),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      onPressed: widget.isLocating
+                          ? null
+                          : widget.onUseCurrentLocation,
+                      icon: widget.isLocating
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.my_location_rounded),
+                      label: Text(
+                        widget.isLocating
+                            ? 'Locating...'
+                            : 'Use Current Location',
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _primary,
+                        side: const BorderSide(color: _border),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
                         ),
-                ),
+                        textStyle: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: Align(
+                      alignment: Alignment.bottomCenter,
+                      child: SizedBox(
+                        height: 52,
+                        child: ElevatedButton(
+                          onPressed: widget.isSaving ? null : widget.onConfirm,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _primary,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          child: widget.isSaving
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.4,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Text(
+                                  'Confirm Event Location',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -759,7 +804,10 @@ class _SelectedAddressCard extends StatelessWidget {
   final CustomerAddressModel address;
   final VoidCallback onEdit;
 
-  const _SelectedAddressCard({required this.address, required this.onEdit});
+  const _SelectedAddressCard({
+    required this.address,
+    required this.onEdit,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -904,7 +952,10 @@ class _ErrorNotice extends StatelessWidget {
   final String message;
   final VoidCallback onManualEntry;
 
-  const _ErrorNotice({required this.message, required this.onManualEntry});
+  const _ErrorNotice({
+    required this.message,
+    required this.onManualEntry,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -930,7 +981,10 @@ class _ErrorNotice extends StatelessWidget {
               ),
             ),
           ),
-          TextButton(onPressed: onManualEntry, child: const Text('Enter')),
+          TextButton(
+            onPressed: onManualEntry,
+            child: const Text('Enter'),
+          ),
         ],
       ),
     );
@@ -978,7 +1032,11 @@ BoxDecoration _cardDecoration({Color borderColor = _border}) {
     borderRadius: BorderRadius.circular(18),
     border: Border.all(color: borderColor),
     boxShadow: const [
-      BoxShadow(color: Color(0x08000000), blurRadius: 14, offset: Offset(0, 6)),
+      BoxShadow(
+        color: Color(0x08000000),
+        blurRadius: 14,
+        offset: Offset(0, 6),
+      ),
     ],
   );
 }
