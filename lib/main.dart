@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'app.dart';
 import 'core/utils/startup_guard.dart';
 import 'firebase_options.dart';
-import 'web/admin_app.dart';
+import 'web/admin/admin_app.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

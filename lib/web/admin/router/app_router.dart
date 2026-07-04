@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 
-import '../admin/pages/bookings_page.dart';
-import '../admin/pages/dashboard_page.dart';
-import '../admin/pages/providers_page.dart';
-import '../admin/pages/promotions_page.dart';
-import '../admin/pages/reports_page.dart';
-import '../admin/pages/settings_page.dart';
-import '../admin/pages/users_page.dart';
+import '../../admin/pages/bookings_page.dart';
+import '../../admin/pages/dashboard_page.dart';
+import '../../admin/pages/providers_page.dart';
+import '../../admin/pages/promotions_page.dart';
+import '../../admin/pages/reports_page.dart';
+import '../../admin/pages/settings_page.dart';
+import '../../admin/pages/users_page.dart';
 
 class AdminRoute {
   AdminRoute._();

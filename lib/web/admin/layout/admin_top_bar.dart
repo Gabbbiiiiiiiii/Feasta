@@ -1,7 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../../router/app_router.dart';
+import '../../admin/router/app_router.dart';
 
 class AdminTopBar extends StatelessWidget {
   final VoidCallback onMenuPressed;
