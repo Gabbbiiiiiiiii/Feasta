@@ -46,10 +46,17 @@ flutter_launcher_icons:
   image_path: "assets/images/mobile_logo.png"
   adaptive_icon_background: "#FF6333"
   adaptive_icon_foreground: "assets/images/mobile_logo.png"
+  remove_alpha_ios: true
 
 flutter_native_splash:
   color: "#FF6333"
-  image: assets/images/feasta_logo.png
+  image: assets/images/mobile_logo.png
+
+  android: true
+  ios: true
+  web: true
+
+  fullscreen: true
 
   android_12:
     color: "#FF6333"
