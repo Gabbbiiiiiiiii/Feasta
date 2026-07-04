@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../services/promotion_service.dart';
+import '../../../services/promotion_service.dart';
 import '../widgets/promotion_list_widget.dart';
 
 class PromotionsPage extends StatelessWidget {

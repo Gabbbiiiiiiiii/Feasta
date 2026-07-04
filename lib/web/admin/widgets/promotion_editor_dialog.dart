@@ -3,8 +3,8 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../../models/promotion_model.dart';
-import '../../services/promotion_service.dart';
+import '../../../models/promotion_model.dart';
+import '../../../services/promotion_service.dart';
 import 'image_uploader_widget.dart';
 
 class PromotionEditorDialog extends StatefulWidget {

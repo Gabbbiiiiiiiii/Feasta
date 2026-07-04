@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../layout/admin_shell.dart';
+import '../admin/layout/admin_shell.dart';
 
 class AdminAuthGate extends StatefulWidget {
   const AdminAuthGate({super.key});

@@ -7,7 +7,6 @@ import '../../core/constants/firestore_collections.dart';
 import '../../core/constants/status_constants.dart';
 import '../../core/utils/startup_guard.dart';
 import '../../repositories/auth_repository.dart';
-import '../admin/admin_dashboard_screen.dart';
 import '../auth/email_verification_screen.dart';
 import '../auth/login_screen.dart';
 import '../auth/pending_approval_screen.dart';
@@ -181,11 +180,6 @@ class _SplashScreenState extends State<SplashScreen> {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => const ProviderDashboardScreen()),
-        );
-      } else if (role == UserRoles.admin) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
         );
       } else {
         await _auth.signOut();

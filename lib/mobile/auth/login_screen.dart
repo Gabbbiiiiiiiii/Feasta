@@ -5,7 +5,6 @@ import 'package:google_sign_in/google_sign_in.dart';
 import '../../core/constants/firestore_collections.dart';
 import '../../core/constants/status_constants.dart';
 import '../../repositories/auth_repository.dart';
-import '../admin/admin_dashboard_screen.dart';
 import '../customer/customer_main_screen.dart';
 import '../customer/phone_verification_screen.dart';
 import '../provider/provider_dashboard_screen.dart';
@@ -117,17 +116,6 @@ class _LoginScreenState extends State<LoginScreen> {
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const ProviderDashboardScreen()),
-        (_) => false,
-      );
-      return;
-    }
-
-    if (role == UserRoles.admin) {
-      if (!mounted) return;
-
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const AdminDashboardScreen()),
         (_) => false,
       );
       return;

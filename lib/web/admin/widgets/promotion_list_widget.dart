@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../models/promotion_model.dart';
-import '../../services/promotion_service.dart';
+import '../../../models/promotion_model.dart';
+import '../../../services/promotion_service.dart';
 import 'promotion_actions.dart';
 import 'promotion_filters.dart';
 
