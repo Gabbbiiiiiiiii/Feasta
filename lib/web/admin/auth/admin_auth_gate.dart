@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import 'package:feasta/web/admin/widgets/login/admin_login_page.dart';
+import 'package:feasta/web/admin/auth/admin_login_page.dart';
 import '../layout/admin_shell.dart';
 import '../services/admin_auth_service.dart';
 
@@ -30,9 +30,30 @@ class AdminAuthGate extends StatelessWidget {
         return FutureBuilder<bool>(
           future: AdminAuthService().isAdmin(),
           builder: (context, adminSnap) {
-            if (!adminSnap.hasData) {
+            if (adminSnap.connectionState == ConnectionState.waiting) {
               return const Scaffold(
                 body: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            if (adminSnap.hasError) {
+              final errorMessage = adminSnap.error.toString();
+              debugPrint('AdminAuthGate error: $errorMessage');
+              return Scaffold(
+                body: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Text(
+                      'Authentication failed: $errorMessage',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        color: Colors.red,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
               );
             }
 
