@@ -1,87 +1,358 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../repositories/feasta_repository.dart';
 import 'package:flutter/material.dart';
+import 'package:feasta/core/constants/firestore_collections.dart';
+
+import '../widgets/dashboard_widgets.dart';
 
 class DashboardPage extends StatelessWidget {
-  const DashboardPage({super.key});
+  final List<StatData> stats;
+  final List<ProviderData> topProviders;
+  final List<String> quickActions;
+  final List<ActivityItem> activities;
+  final Map<String, String> platformHealth;
 
-  @override
-  Widget build(BuildContext context) {
-    final cards = [
-      _StatCard(title: 'Total Users', value: '0', subtitle: 'Registered accounts'),
-      _StatCard(title: 'Providers', value: '0', subtitle: 'Verified providers'),
-      _StatCard(title: 'Bookings', value: '0', subtitle: 'Live and completed bookings'),
-      _StatCard(title: 'Promotions', value: '0', subtitle: 'Active campaign banners'),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Dashboard',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'A central view of Feasta operations.',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        const SizedBox(height: 24),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final crossAxisCount = constraints.maxWidth > 1000 ? 4 : 2;
-            return GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: crossAxisCount,
-                childAspectRatio: 1.4,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-              ),
-              itemCount: cards.length,
-              itemBuilder: (context, index) => cards[index],
-            );
-          },
-        ),
-      ],
-    );
-  }
-}
-
-class _StatCard extends StatelessWidget {
-  final String title;
-  final String value;
-  final String subtitle;
-
-  const _StatCard({
-    required this.title,
-    required this.value,
-    required this.subtitle,
+  const DashboardPage({
+    super.key,
+    this.stats = const [],
+    this.topProviders = const [],
+    this.quickActions = const [],
+    this.activities = const [],
+    this.platformHealth = const {},
   });
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection(FirestoreCollections.appSettings)
+          .doc('adminDashboard')
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Text('Failed to load dashboard settings'),
+          );
+        }
+
+        final config = snapshot.data?.data() ?? {};
+
+        return SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(28, 28, 28, 28),
+            child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            Text(
-              value,
-              style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
+            children: [
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final width = constraints.maxWidth;
+                  final isDesktop = width >= 900;
+
+                  final titleSection = Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                    Text(
+                      config['title'] ?? 'Admin Dashboard',
+                        style: Theme.of(context)
+                            .textTheme
+                            .headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        config['subtitle'] ?? 'FEASTA Platform · Ormoc City',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              color: const Color(0xFF6B7280),
+                              fontWeight: FontWeight.w500,
+                            ),
+                      ),
+                    ],
+                  );
+
+                  if (isDesktop) {
+                    return Row(
+                      children: [
+                        Expanded(child: titleSection),
+                        const _HeaderActions(),
+                      ],
+                    );
+                  }
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      titleSection,
+                      const SizedBox(height: 12),
+                      const _HeaderActions(),
+                    ],
+                  );
+                },
+              ),
+
+              const SizedBox(height: 28),
+
+              _StatsGrid(config: config),
+
+              const SizedBox(height: 24),
+
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final isWide = constraints.maxWidth >= 1000;
+
+                  if (!isWide) {
+                    return Column(
+                      children: [
+                        RevenueChartCard(
+                          title: config['chartTitle'] ?? 'Platform Revenue',
+                        ),
+                        const SizedBox(height: 18),
+                        TopProvidersCard(
+                          providers: topProviders,
+                          title: config['topProvidersTitle'] ?? 'Top Providers',
+                        ),
+                        const SizedBox(height: 18),
+
+                        QuickActionsCard(
+                          actions: quickActions,
+                          title: config['quickActionsTitle'] ?? 'Quick Actions',
+                        ),
+                        const SizedBox(height: 18),
+
+                        PlatformHealthCard(
+                          metrics: platformHealth,
+                          title: config['platformHealthTitle'] ?? 'Platform Health',
+                        ),
+                        const SizedBox(height: 18),
+
+                        RecentActivitiesCard(
+                          activities: activities,
+                          title: config['recentActivitiesTitle'] ?? 'Recent Activities',
+                        ),
+                      ],
+                    );
+                  }
+                  
+
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 68,
+                        child: Column(
+                          children: [
+                            RevenueChartCard(
+                              title: config['chartTitle'] ?? 'Platform Revenue',
+                            ),
+
+                            const SizedBox(height: 24),
+
+                            RecentActivitiesCard(
+                              activities: activities,
+                              title: config['recentActivitiesTitle'] ?? 'Recent Activities',
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 24),
+                      Expanded(
+                        flex: 32,
+                        child: Column(
+                          children: [
+                            TopProvidersCard(
+                              providers: topProviders,
+                              title: config['topProvidersTitle'] ?? 'Top Providers',
+                            ),
+
+                            const SizedBox(height: 16),
+
+                            QuickActionsCard(
+                              actions: quickActions,
+                              title: config['quickActionsTitle'] ?? 'Quick Actions',
+                            ),
+
+                            const SizedBox(height: 16),
+
+                            PlatformHealthCard(
+                              metrics: platformHealth,
+                              title: config['platformHealthTitle'] ?? 'Platform Health',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
             ),
-            const SizedBox(height: 8),
-            Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-          ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _HeaderActions extends StatelessWidget {
+  const _HeaderActions({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final repository = FeastaRepository();
+
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: repository.myNotifications(),
+        builder: (context, snap) {
+          final docs = [...?snap.data?.docs];
+          final unread = docs.where((d) => d.data()['isRead'] != true).length;
+
+          return Tooltip(
+            message: 'Notifications',
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: Material(
+                color: const Color(0xFFF8F9FB),
+                borderRadius: BorderRadius.circular(14),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(14),
+                  overlayColor: MaterialStateProperty.resolveWith((states) => states.contains(MaterialState.hovered) || states.contains(MaterialState.focused) ? Colors.black.withOpacity(0.04) : null),
+                  onTap: () {
+                    try {
+                      Navigator.pushNamed(context, 'notifications');
+                    } catch (_) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notifications page not available')));
+                    }
+                  },
+                  child: Semantics(
+                    button: true,
+                    label: 'Notifications',
+                    child: Stack(clipBehavior: Clip.none, children: [
+                      const Padding(padding: EdgeInsets.all(12), child: Icon(Icons.notifications_none_rounded, size: 20, color: Color(0xFF111827))),
+                      if (unread > 0)
+                        Positioned(
+                          right: -2,
+                          top: -2,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(color: const Color(0xFFEF4444), borderRadius: BorderRadius.circular(999)),
+                            constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                            child: Center(child: Text(unread.toString(), style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w700))),
+                          ),
+                        )
+                    ]),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+      const SizedBox(width: 12),
+      Tooltip(
+        message: 'View Profile',
+        child: MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: Material(
+            color: const Color(0xFFF8F9FB),
+            borderRadius: BorderRadius.circular(999),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(999),
+              overlayColor: MaterialStateProperty.resolveWith((states) => states.contains(MaterialState.hovered) || states.contains(MaterialState.focused) ? Colors.black.withOpacity(0.04) : null),
+              onTap: () {
+                try {
+                  Navigator.pushNamed(context, 'admin_profile');
+                } catch (_) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile page not available')));
+                }
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(borderRadius: BorderRadius.circular(999), border: Border.all(color: const Color(0xFFE9EDF3))),
+                child: Row(children: [
+                  CircleAvatar(radius: 16, backgroundColor: const Color(0xFF111827), child: Text(FirebaseAuth.instance.currentUser?.email?.split('@').first.substring(0, 1).toUpperCase() ?? 'A', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+                  const SizedBox(width: 10),
+                  Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                    Text(FirebaseAuth.instance.currentUser?.email?.split('@').first ?? 'Admin', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                    Text('Super Admin', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xFF6B7280))),
+                  ])
+                ]),
+              ),
+            ),
+          ),
         ),
       ),
+    ]);
+  }
+}
+
+class _StatsGrid extends StatelessWidget {
+  final Map<String, dynamic> config;
+
+  const _StatsGrid({required this.config});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final w = constraints.maxWidth;
+        final double maxExtent =
+            w >= 1200 ? 360 : w >= 900 ? 320 : w >= 700 ? 300 : w;
+        final double childAspect =
+            w >= 1200 ? 2.5
+            : w >= 900 ? 2.35
+            : w >= 700 ? 2.15
+            : 1.85;
+
+        return GridView(
+          gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: maxExtent,
+            childAspectRatio: childAspect,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+          ),
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            FirestoreStatCard(
+              title: config['revenueTitle'] ?? 'Platform Revenue',
+              symbol: '₱',
+              accent: const Color(0xFFFF6B00),
+              collection: FirestoreCollections.payments,
+              sumField: 'amount',
+            ),
+            FirestoreStatCard(
+              title: config['usersTitle'] ?? 'Users',
+              
+              icon: Icons.people_alt_rounded,
+              accent: const Color(0xFFFF6B00),
+              collection: FirestoreCollections.users,
+            ),
+            FirestoreStatCard(
+              title: config['bookingsTitle'] ?? 'Bookings',
+              
+              icon: Icons.event_note_rounded,
+              accent: const Color(0xFFF59E0B),
+              collection: FirestoreCollections.bookings,
+            ),
+            FirestoreStatCard(
+              title: config['pendingVerificationTitle'] ?? 'Pending Verification',
+            
+              icon: Icons.verified_user_rounded,
+              accent: const Color(0xFF22C55E),
+              collection: FirestoreCollections.providerVerifications,
+              filterKey: 'status',
+              filterValue: 'pending',
+            ),
+          ],
+        );
+      },
     );
   }
 }

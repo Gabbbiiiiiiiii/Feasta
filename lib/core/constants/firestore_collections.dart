@@ -21,4 +21,5 @@ class FirestoreCollections {
   static const String reports = 'reports';
   static const String adminLogs = 'adminLogs';
   static const bookingRecoveryOffers = 'bookingRecoveryOffers';
+  static const appSettings = 'appSettings';
 }

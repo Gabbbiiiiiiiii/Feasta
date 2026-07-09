@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../admin/pages/bookings_page.dart';
 import '../../admin/pages/dashboard_page.dart';
 import '../../admin/pages/providers_page.dart';
+import '../../admin/pages/verification_page.dart';
 import '../../admin/pages/promotions_page.dart';
 import '../../admin/pages/reports_page.dart';
 import '../../admin/pages/settings_page.dart';
@@ -14,6 +15,7 @@ class AdminRoute {
   static const String dashboard = '/dashboard';
   static const String users = '/users';
   static const String providers = '/providers';
+  static const String verification = '/verification';
   static const String bookings = '/bookings';
   static const String promotions = '/promotions';
   static const String reports = '/reports';
@@ -27,6 +29,8 @@ class AdminRouter {
         return const UsersPage();
       case AdminRoute.providers:
         return const ProvidersPage();
+      case AdminRoute.verification:
+        return const VerificationPage();
       case AdminRoute.bookings:
         return const BookingsPage();
       case AdminRoute.promotions:

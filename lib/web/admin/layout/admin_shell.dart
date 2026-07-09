@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../admin/router/app_router.dart';
 import 'admin_sidebar.dart';
-import 'admin_top_bar.dart';
 
 class AdminShell extends StatefulWidget {
   const AdminShell({super.key});
@@ -25,21 +24,40 @@ class _AdminShellState extends State<AdminShell> {
     final isCompact = MediaQuery.of(context).size.width < 900;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF6F7FB),
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(72),
-        child: AdminTopBar(
-          onMenuPressed: () {
-            Scaffold.of(context).openDrawer();
-          },
-          currentRoute: _currentRoute,
-          onNavigate: _navigate,
-        ),
-      ),
+      backgroundColor: const Color(0xFFF8F9FB),
+      appBar: isCompact
+          ? PreferredSize(
+              preferredSize: const Size.fromHeight(72),
+              child: AppBar(
+                automaticallyImplyLeading: false,
+                elevation: 0,
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFF111827),
+                titleSpacing: 0,
+                title: Padding(
+                  padding: const EdgeInsets.only(left: 12),
+                  child: IconButton(
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFFF8F9FB),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    onPressed: () {
+                      Scaffold.of(context).openDrawer();
+                    },
+                    icon: const Icon(Icons.menu_rounded),
+                  ),
+                ),
+              ),
+            )
+          : null,
       drawer: isCompact
-          ? AdminSidebar(
-              currentRoute: _currentRoute,
-              onNavigate: _navigate,
+          ? Drawer(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              child: AdminSidebar(
+                currentRoute: _currentRoute,
+                onNavigate: _navigate,
+              ),
             )
           : null,
       body: Row(
@@ -52,8 +70,10 @@ class _AdminShellState extends State<AdminShell> {
             ),
           Expanded(
             child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: AdminRouter.buildPage(_currentRoute),
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+              child: SingleChildScrollView(
+                child: AdminRouter.buildPage(_currentRoute),
+              ),
             ),
           ),
         ],
