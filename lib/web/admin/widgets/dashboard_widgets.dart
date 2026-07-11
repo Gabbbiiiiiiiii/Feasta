@@ -2,6 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'dart:math' as math;
+
+import 'package:fl_chart/fl_chart.dart';
 
 DateTime? _extractDate(dynamic raw) {
   if (raw == null) return null;
@@ -184,294 +187,271 @@ class StatCard extends StatelessWidget {
   }
 }
 
+enum RevenueRange {
+  sevenDays,
+  oneMonth,
+  threeMonths,
+  oneYear,
+}
+
 class RevenueChartCard extends StatefulWidget {
   final String title;
   final String collection;
   final String sumField;
 
-  const RevenueChartCard({super.key, required this.title, this.collection = 'payments', this.sumField = 'amount'});
+  const RevenueChartCard({
+    super.key,
+    required this.title,
+    this.collection = 'payments',
+    this.sumField = 'amount',
+  });
 
   @override
   State<RevenueChartCard> createState() => _RevenueChartCardState();
 }
 
-enum RevenueRange { sevenDays, oneMonth, threeMonths, oneYear }
-
 class _RevenueChartCardState extends State<RevenueChartCard> {
-  RevenueRange _range = RevenueRange.sevenDays;
+  RevenueRange _selectedRange = RevenueRange.oneMonth;
 
-  DateTime _startForRange(RevenueRange r) {
-    final now = DateTime.now();
-    switch (r) {
+  static const Color _primaryColor = Color(0xFFFF6333);
+
+  DateTime get _now => DateTime.now();
+
+  DateTime _startForRange(RevenueRange range) {
+    final now = _now;
+
+    switch (range) {
       case RevenueRange.sevenDays:
-        return DateTime(now.year, now.month, now.day).subtract(const Duration(days: 6));
+        return DateTime(now.year, now.month, now.day)
+            .subtract(const Duration(days: 6));
+
       case RevenueRange.oneMonth:
         return DateTime(now.year, now.month, 1);
+
       case RevenueRange.threeMonths:
-        return DateTime(
-          now.year,
-          now.month - 2,
-          1,
-        );
+        return DateTime(now.year, now.month - 2, 1);
+
       case RevenueRange.oneYear:
-        return DateTime(
-          now.year,
-          now.month - 11,
-          1,
-        );
+        return DateTime(now.year, now.month - 11, 1);
     }
   }
 
-  List<DateTime> _bucketsForRange(RevenueRange r) {
-    final now = DateTime.now();
+  List<DateTime> _bucketsForRange(RevenueRange range) {
+    final now = _now;
 
-    switch (r) {
-      // 7D
+    switch (range) {
       case RevenueRange.sevenDays:
         return List.generate(
           7,
-          (i) => DateTime(
-            now.year,
-            now.month,
-            now.day,
-          ).subtract(Duration(days: 6 - i)),
+          (index) {
+            return DateTime(now.year, now.month, now.day)
+                .subtract(Duration(days: 6 - index));
+          },
         );
 
       case RevenueRange.oneMonth:
         final firstDay = DateTime(now.year, now.month, 1);
-        final lastDay = DateTime(now.year, now.month + 1, 0);
-
-        final weekCount =
-            ((lastDay.day - 1) ~/ 7) + 1;
+        final totalDays = DateTime(now.year, now.month + 1, 0).day;
 
         return List.generate(
-          weekCount,
-          (i) => firstDay.add(Duration(days: i * 7)),
+          totalDays,
+          (index) => firstDay.add(Duration(days: index)),
         );
 
       case RevenueRange.threeMonths:
-        // 3 monthly buckets
         return List.generate(
           3,
-          (i) => DateTime(
+          (index) => DateTime(
             now.year,
-            now.month - 2 + i,
+            now.month - 2 + index,
             1,
           ),
         );
 
       case RevenueRange.oneYear:
-        // 12 monthly buckets
         return List.generate(
           12,
-          (i) => DateTime(now.year, now.month - 11 + i, 1),
+          (index) => DateTime(
+            now.year,
+            now.month - 11 + index,
+            1,
+          ),
         );
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final start = _startForRange(_range);
-        return LayoutBuilder(
-        builder: (context, constraints) {
-        final maxW = constraints.maxWidth.isFinite ? constraints.maxWidth : 800.0;
-        final chartHeight = maxW >= 900 ? 270.0 : 300.0;
+  DateTime? _extractPaymentDate(Map<String, dynamic> data) {
+    return _extractDate(data['paidAt']);
+  }
 
-        return SizedBox(
-          height: chartHeight,
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFE9EDF3))),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          widget.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                    Wrap(
-                      spacing: 8,
-                        children: [
-                          _rangeChip(RevenueRange.sevenDays, '7D'),
-                          const SizedBox(width: 6),
-                          _rangeChip(RevenueRange.oneMonth, '1M'),
-                          const SizedBox(width: 6),
-                          _rangeChip(RevenueRange.threeMonths, '3M'),
-                          const SizedBox(width: 6),
-                          _rangeChip(RevenueRange.oneYear, '1Y'),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
+  double _extractAmount(Map<String, dynamic> data) {
+    final rawAmount = data[widget.sumField] ?? data['amount'];
 
-                  Expanded(
-                    child: StreamBuilder(
-                      stream: FirebaseFirestore.instance.collection(widget.collection).where('createdAt', isGreaterThanOrEqualTo: start).snapshots(),
-                      builder: (context, snap) {
-                        if (snap.hasError) {
-                          return Center(child: Text('Error', style: Theme.of(context).textTheme.bodySmall));
-                        }
-                        if (!snap.hasData) {
-                          return const Center(child: CircularProgressIndicator());
-                        }
-
-                        final docs = snap.data!.docs;
-                        final buckets = _bucketsForRange(_range);
-                        final sums = List<double>.filled(buckets.length, 0.0);
-
-                        for (final d in docs) {
-                          final data = d.data() as Map<String, dynamic>;
-                          DateTime? dt;
-                          dt = dt ?? _extractDate(data['createdAt']);
-                          dt = dt ?? _extractDate(data['timestamp']);
-                          dt = dt ?? _extractDate(data['time']);
-                          dt = dt ?? _extractDate(data['date']);
-                          if (dt == null) continue;
-
-                          double amount = 0.0;
-                          if (data.containsKey(widget.sumField)) {
-                            amount = (data[widget.sumField] is num)
-                                ? (data[widget.sumField] as num).toDouble()
-                                : double.tryParse('${data[widget.sumField]}') ?? 0.0;
-                          }
-
-                          for (var i = 0; i < buckets.length; i++) {
-                            final b = buckets[i];
-                            var matches = false;
-                            switch (_range) {
-                              case RevenueRange.sevenDays:
-                                matches =
-                                    dt.year == b.year &&
-                                    dt.month == b.month &&
-                                    dt.day == b.day;
-                                break;
-
-                              case RevenueRange.oneMonth:
-                                final monthEnd = DateTime(b.year, b.month + 1, 1);
-
-                                final end = b.add(const Duration(days: 7));
-
-                                final bucketEnd =
-                                    end.isBefore(monthEnd)
-                                        ? end
-                                        : monthEnd;
-
-                                matches =
-                                    !dt.isBefore(b) &&
-                                    dt.isBefore(bucketEnd);
-                                break;
-
-                              case RevenueRange.threeMonths:
-                                matches =
-                                    dt.year == b.year &&
-                                    dt.month == b.month;
-                                break;
-
-                              case RevenueRange.oneYear:
-                                matches =
-                                    dt.year == b.year &&
-                                    dt.month == b.month;
-                                break;
-                            }
-
-                            if (matches) {
-                              sums[i] += amount;
-                              break;
-                            }
-                          }
-                        }
-
-                        final maxSum = sums.isNotEmpty ? sums.reduce((a, b) => a > b ? a : b) : 0.0;
-                        final total = sums.fold(0.0, (double acc, double amount) => acc + amount);
-
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Total: ₱${total.toStringAsFixed(2)}', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
-                              const SizedBox(height: 8),
-                              Flexible(
-                                child: RepaintBoundary(
-                                  child: SizedBox(
-                                    height: 120,
-                                    child: Row(
-                                      crossAxisAlignment: CrossAxisAlignment.end,
-                                      children: sums.asMap().entries.map((entry) {
-                                        final idx = entry.key;
-                                        final v = entry.value;
-
-                                        final label = _bucketLabel(
-                                          buckets[idx],
-                                          _range,
-                                        );
-
-                                        final heightFactor = maxSum > 0 ? (v / maxSum) : 0.0;
-
-                                        final barHeight = maxSum == 0
-                                          ? 8.0
-                                          : (heightFactor * 100).clamp(8.0, 100.0);
-
-                                        return Expanded(
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                                            child: Column(
-                                              mainAxisAlignment: MainAxisAlignment.end,
-                                              children: [
-                                                Tooltip(
-                                                  message: '₱${v.toStringAsFixed(2)}',
-                                                  child: Align(
-                                                    alignment: Alignment.bottomCenter,
-                                                    child: Container(
-                                                      width: 20,
-                                                      height: barHeight,
-                                                      decoration: BoxDecoration(
-                                                        color: const Color(0xFF3B82F6),
-                                                        borderRadius: BorderRadius.circular(6),
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                                const SizedBox(height: 8),
-                                                Text(
-                                                  label,
-                                                  textAlign: TextAlign.center,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        );
-                                      }).toList(),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      );
+    if (rawAmount is num) {
+      return rawAmount.toDouble();
     }
 
-  String _bucketLabel(DateTime dt, RevenueRange r) {
-    switch (r) {
+    if (rawAmount is String) {
+      return double.tryParse(rawAmount) ?? 0;
+    }
+
+    return 0;
+  }
+
+  bool _isSuccessfulPayment(Map<String, dynamic> data) {
+    final status = data['status']
+        ?.toString()
+        .trim()
+        .toLowerCase();
+
+    return status == 'paid' ||
+        status == 'completed' ||
+        status == 'successful' ||
+        status == 'success';
+  }
+
+  bool _dateMatchesBucket(
+    DateTime paymentDate,
+    DateTime bucket,
+    RevenueRange range,
+  ) {
+    switch (range) {
       case RevenueRange.sevenDays:
-        const days = [
+      case RevenueRange.oneMonth:
+        return paymentDate.year == bucket.year &&
+            paymentDate.month == bucket.month &&
+            paymentDate.day == bucket.day;
+
+      case RevenueRange.threeMonths:
+      case RevenueRange.oneYear:
+        return paymentDate.year == bucket.year &&
+            paymentDate.month == bucket.month;
+    }
+  }
+
+  List<double> _calculateRevenue(
+    List<QueryDocumentSnapshot> documents,
+    List<DateTime> buckets,
+  ) {
+    final values = List<double>.filled(buckets.length, 0);
+
+    for (final document in documents) {
+      final data = document.data() as Map<String, dynamic>;
+
+      if (!_isSuccessfulPayment(data)) {
+        continue;
+      }
+
+      final paymentDate = _extractPaymentDate(data);
+
+      if (paymentDate == null) {
+        continue;
+      }
+
+      final amount = _extractAmount(data);
+
+      if (amount <= 0) {
+        continue;
+      }
+
+      for (var index = 0; index < buckets.length; index++) {
+        if (_dateMatchesBucket(
+          paymentDate,
+          buckets[index],
+          _selectedRange,
+        )) {
+          values[index] += amount;
+          break;
+        }
+      }
+    }
+
+    return values;
+  }
+
+  double _calculateYAxisMaximum(List<double> values) {
+    if (values.isEmpty) return 1000;
+
+    final highestValue = values.reduce(math.max);
+
+    if (highestValue <= 0) return 1000;
+
+    final paddedValue = highestValue * 1.20;
+    final roughInterval = paddedValue / 4;
+    final interval = _niceNumber(roughInterval);
+
+    return interval * 4;
+  }
+
+  double _niceNumber(double value) {
+    if (value <= 0) return 250;
+
+    final exponent = math.pow(
+      10,
+      (math.log(value) / math.ln10).floor(),
+    ).toDouble();
+
+    final fraction = value / exponent;
+
+    double niceFraction;
+
+    if (fraction <= 1) {
+      niceFraction = 1;
+    } else if (fraction <= 2) {
+      niceFraction = 2;
+    } else if (fraction <= 2.5) {
+      niceFraction = 2.5;
+    } else if (fraction <= 5) {
+      niceFraction = 5;
+    } else {
+      niceFraction = 10;
+    }
+
+    return niceFraction * exponent;
+  }
+
+  String _formatCurrency(double value) {
+    if (value == 0) return '₱0';
+
+    if (value >= 1000000) {
+      final millions = value / 1000000;
+
+      return millions % 1 == 0
+          ? '₱${millions.toStringAsFixed(0)}M'
+          : '₱${millions.toStringAsFixed(1)}M';
+    }
+
+    if (value >= 1000) {
+      final thousands = value / 1000;
+
+      return thousands % 1 == 0
+          ? '₱${thousands.toStringAsFixed(0)}K'
+          : '₱${thousands.toStringAsFixed(1)}K';
+    }
+
+    return '₱${value.toStringAsFixed(0)}';
+  }
+
+  String _formatTooltipCurrency(double value) {
+    return '₱${value.toStringAsFixed(2).replaceAllMapped(
+      RegExp(r'\B(?=(\d{3})+(?!\d))'),
+      (match) => ',',
+    )}';
+  }
+
+  String _bottomLabel(
+    int index,
+    List<DateTime> buckets,
+  ) {
+    if (index < 0 || index >= buckets.length) {
+      return '';
+    }
+
+    final date = buckets[index];
+
+    switch (_selectedRange) {
+      case RevenueRange.sevenDays:
+        const weekdayLabels = [
           'Mon',
           'Tue',
           'Wed',
@@ -480,31 +460,26 @@ class _RevenueChartCardState extends State<RevenueChartCard> {
           'Sat',
           'Sun',
         ];
-        return days[dt.weekday - 1];
+
+        return weekdayLabels[date.weekday - 1];
 
       case RevenueRange.oneMonth:
-        final firstDay = DateTime(dt.year, dt.month, 1);
-        final week = ((dt.difference(firstDay).inDays) ~/ 7) + 1;
-        return 'Week $week';
+        // Avoid showing all 28–31 day labels.
+        final visibleIndexes = <int>{
+          0,
+          (buckets.length * 0.25).floor(),
+          (buckets.length * 0.50).floor(),
+          (buckets.length * 0.75).floor(),
+          buckets.length - 1,
+        };
+
+        if (!visibleIndexes.contains(index)) {
+          return '';
+        }
+
+        return '${date.day}';
 
       case RevenueRange.threeMonths:
-        const months = [
-          '',
-          'Jan',
-          'Feb',
-          'Mar',
-          'Apr',
-          'May',
-          'Jun',
-          'Jul',
-          'Aug',
-          'Sep',
-          'Oct',
-          'Nov',
-          'Dec',
-        ];
-        return months[dt.month];
-
       case RevenueRange.oneYear:
         const months = [
           '',
@@ -521,31 +496,552 @@ class _RevenueChartCardState extends State<RevenueChartCard> {
           'Nov',
           'Dec',
         ];
-        return months[dt.month];
+
+        return months[date.month];
     }
   }
 
-  String _rangeLabel(RevenueRange r) {
-    switch (r) {
+  String _tooltipDate(DateTime date) {
+    const months = [
+      '',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
+    switch (_selectedRange) {
       case RevenueRange.sevenDays:
-        return '7D';
       case RevenueRange.oneMonth:
-        return '1M';
+        return '${months[date.month]} ${date.day}, ${date.year}';
+
       case RevenueRange.threeMonths:
-        return '3M';
       case RevenueRange.oneYear:
-        return '1Y';
+        return '${months[date.month]} ${date.year}';
     }
   }
 
-  Widget _rangeChip(RevenueRange r, String label) {
-    final selected = _range == r;
-    return GestureDetector(
-      onTap: () => setState(() => _range = r),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(color: selected ? const Color(0xFF3B82F6) : const Color(0xFFF3F4F6), borderRadius: BorderRadius.circular(8)),
-        child: Text(label, style: TextStyle(color: selected ? Colors.white : const Color(0xFF374151), fontWeight: FontWeight.w600)),
+  @override
+  Widget build(BuildContext context) {
+    final startDate = _startForRange(_selectedRange);
+
+    return Container(
+      constraints: const BoxConstraints(
+        minHeight: 340,
+      ),
+      padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFE6EAF0),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.045),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _ChartHeader(
+            title: widget.title,
+            selectedRange: _selectedRange,
+            onRangeChanged: (range) {
+              if (_selectedRange == range) {
+                return;
+              }
+
+              setState(() {
+                _selectedRange = range;
+              });
+            },
+          ),
+          const SizedBox(height: 20),
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+              .collection(widget.collection)
+              .where(
+                'paidAt',
+                isGreaterThanOrEqualTo: Timestamp.fromDate(startDate),
+              )
+              .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return const SizedBox(
+                  height: 250,
+                  child: _RevenueChartMessage(
+                    icon: Icons.error_outline_rounded,
+                    title: 'Unable to load revenue',
+                    message:
+                        'Revenue data could not be retrieved. Please try again.',
+                  ),
+                );
+              }
+
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const SizedBox(
+                  height: 250,
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.5,
+                      color: _primaryColor,
+                    ),
+                  ),
+                );
+              }
+
+              final buckets = _bucketsForRange(_selectedRange);
+              final values = _calculateRevenue(
+                snapshot.data?.docs ?? [],
+                buckets,
+              );
+
+              return _RevenueLineChart(
+                buckets: buckets,
+                values: values,
+                selectedRange: _selectedRange,
+                maximumY: _calculateYAxisMaximum(values),
+                bottomLabel: (index) => _bottomLabel(index, buckets),
+                tooltipDate: _tooltipDate,
+                formatCurrency: _formatCurrency,
+                formatTooltipCurrency: _formatTooltipCurrency,
+                bottomTitleInterval: 1,
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+class _ChartHeader extends StatelessWidget {
+  final String title;
+  final RevenueRange selectedRange;
+  final ValueChanged<RevenueRange> onRangeChanged;
+
+  const _ChartHeader({
+    required this.title,
+    required this.selectedRange,
+    required this.onRangeChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final rangeButtons = Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            _RevenueRangeButton(
+              label: '7D',
+              selected: selectedRange == RevenueRange.sevenDays,
+              onTap: () => onRangeChanged(RevenueRange.sevenDays),
+            ),
+            _RevenueRangeButton(
+              label: '1M',
+              selected: selectedRange == RevenueRange.oneMonth,
+              onTap: () => onRangeChanged(RevenueRange.oneMonth),
+            ),
+            _RevenueRangeButton(
+              label: '3M',
+              selected: selectedRange == RevenueRange.threeMonths,
+              onTap: () => onRangeChanged(RevenueRange.threeMonths),
+            ),
+            _RevenueRangeButton(
+              label: '1Y',
+              selected: selectedRange == RevenueRange.oneYear,
+              onTap: () => onRangeChanged(RevenueRange.oneYear),
+            ),
+          ],
+        );
+
+        if (constraints.maxWidth < 520) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: const Color(0xFF0F172A),
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+              const SizedBox(height: 14),
+              rangeButtons,
+            ],
+          );
+        }
+
+        return Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: const Color(0xFF0F172A),
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+            ),
+            const SizedBox(width: 20),
+            rangeButtons,
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _RevenueRangeButton extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _RevenueRangeButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected
+          ? const Color(0xFFFF6333)
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(999),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 13,
+            vertical: 8,
+          ),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              color: selected
+                  ? Colors.white
+                  : const Color(0xFF98A2B3),
+              fontWeight: selected
+                  ? FontWeight.w700
+                  : FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RevenueLineChart extends StatelessWidget {
+  final List<DateTime> buckets;
+  final List<double> values;
+  final RevenueRange selectedRange;
+  final double maximumY;
+  final String Function(int index) bottomLabel;
+  final String Function(DateTime date) tooltipDate;
+  final String Function(double value) formatCurrency;
+  final String Function(double value) formatTooltipCurrency;
+  final double bottomTitleInterval;
+
+  const _RevenueLineChart({
+    required this.buckets,
+    required this.values,
+    required this.selectedRange,
+    required this.maximumY,
+    required this.bottomLabel,
+    required this.tooltipDate,
+    required this.formatCurrency,
+    required this.formatTooltipCurrency,
+    required this.bottomTitleInterval,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final spots = List.generate(
+      values.length,
+      (index) => FlSpot(
+        index.toDouble(),
+        values[index],
+      ),
+    );
+    
+
+    final horizontalInterval = maximumY / 4;
+
+    return SizedBox(
+      height: 250,
+      child: LineChart(
+        LineChartData(
+          minX: 0,
+          maxX: math.max(0, values.length - 1).toDouble(),
+          minY: 0,
+          maxY: maximumY,
+          clipData: const FlClipData.all(),
+          borderData: FlBorderData(
+            show: false,
+          ),
+          gridData: FlGridData(
+            show: true,
+            drawVerticalLine: true,
+            horizontalInterval: horizontalInterval,
+            verticalInterval: _verticalGridInterval(),
+            getDrawingHorizontalLine: (_) {
+              return const FlLine(
+                color: Color(0xFFEFF2F6),
+                strokeWidth: 1,
+                dashArray: [4, 4],
+              );
+            },
+            getDrawingVerticalLine: (_) {
+              return const FlLine(
+                color: Color(0xFFF3F5F8),
+                strokeWidth: 1,
+                dashArray: [4, 4],
+              );
+            },
+          ),
+          titlesData: FlTitlesData(
+            topTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            rightTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 62,
+                interval: horizontalInterval,
+                getTitlesWidget: (value, meta) {
+                  return SideTitleWidget(
+                    meta: meta,
+                    space: 10,
+                    child: Text(
+                      formatCurrency(value),
+                      style: const TextStyle(
+                        color: Color(0xFF98A2B3),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 34,
+                interval: bottomTitleInterval,
+                getTitlesWidget: (value, meta) {
+                  final index = value.round();
+
+                  if (value != index.toDouble()) {
+                    return const SizedBox.shrink();
+                  }
+
+                  final label = bottomLabel(index);
+
+                  if (label.isEmpty) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return SideTitleWidget(
+                    meta: meta,
+                    space: 10,
+                    child: Text(
+                      label,
+                      style: const TextStyle(
+                        color: Color(0xFF98A2B3),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          lineTouchData: LineTouchData(
+            enabled: true,
+            handleBuiltInTouches: true,
+            touchTooltipData: LineTouchTooltipData(
+              getTooltipColor: (_) => const Color(0xFF111827),
+              tooltipBorderRadius: BorderRadius.circular(10),
+              tooltipPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              tooltipMargin: 14,
+              getTooltipItems: (touchedSpots) {
+                return touchedSpots.map((spot) {
+                  final index = spot.x.round();
+
+                  if (index < 0 || index >= buckets.length) {
+                    return null;
+                  }
+
+                  return LineTooltipItem(
+                    '${tooltipDate(buckets[index])}\n',
+                    const TextStyle(
+                      color: Color(0xFFCBD5E1),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    children: [
+                      TextSpan(
+                        text: formatTooltipCurrency(spot.y),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  );
+                }).toList();
+              },
+            ),
+            getTouchedSpotIndicator: (barData, spotIndexes) {
+              return spotIndexes.map((index) {
+                return TouchedSpotIndicatorData(
+                  const FlLine(
+                    color: Color(0x66FF6333),
+                    strokeWidth: 1,
+                    dashArray: [4, 4],
+                  ),
+                  FlDotData(
+                    show: true,
+                    getDotPainter: (
+                      spot,
+                      percent,
+                      barData,
+                      index,
+                    ) {
+                      return FlDotCirclePainter(
+                        radius: 5,
+                        color: const Color(0xFFFF6333),
+                        strokeWidth: 3,
+                        strokeColor: Colors.white,
+                      );
+                    },
+                  ),
+                );
+              }).toList();
+            },
+          ),
+          lineBarsData: [
+            LineChartBarData(
+              spots: spots,
+              isCurved: true,
+              curveSmoothness: 0.25,
+              preventCurveOverShooting: true,
+              color: const Color(0xFF111827),
+              barWidth: 2.5,
+              isStrokeCapRound: true,
+              dotData: const FlDotData(
+                show: false,
+              ),
+              belowBarData: BarAreaData(
+                show: true,
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    const Color(0xFF111827).withOpacity(0.10),
+                    const Color(0xFF111827).withOpacity(0.015),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        duration: const Duration(milliseconds: 450),
+        curve: Curves.easeOutCubic,
+      ),
+    );
+  }
+
+  double _verticalGridInterval() {
+    switch (selectedRange) {
+      case RevenueRange.sevenDays:
+        return 1;
+
+      case RevenueRange.oneMonth:
+        return 7;
+
+      case RevenueRange.threeMonths:
+      case RevenueRange.oneYear:
+        return 1;
+    }
+  }
+}
+
+class _RevenueChartMessage extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String message;
+
+  const _RevenueChartMessage({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 28,
+            color: const Color(0xFF98A2B3),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: const Color(0xFF344054),
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: const Color(0xFF98A2B3),
+                ),
+          ),
+        ],
       ),
     );
   }

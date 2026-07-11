@@ -17,67 +17,96 @@ class _AdminShellState extends State<AdminShell> {
     setState(() {
       _currentRoute = route;
     });
+
+    final scaffoldState = Scaffold.maybeOf(context);
+
+    if (scaffoldState?.isDrawerOpen ?? false) {
+      Navigator.of(context).pop();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final isCompact = MediaQuery.of(context).size.width < 900;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Lowered slightly so normal laptop widths still use the sidebar.
+        final isCompact = constraints.maxWidth < 760;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FB),
-      appBar: isCompact
-          ? PreferredSize(
-              preferredSize: const Size.fromHeight(72),
-              child: AppBar(
-                automaticallyImplyLeading: false,
-                elevation: 0,
-                backgroundColor: Colors.white,
-                foregroundColor: const Color(0xFF111827),
-                titleSpacing: 0,
-                title: Padding(
-                  padding: const EdgeInsets.only(left: 12),
-                  child: IconButton(
-                    style: IconButton.styleFrom(
-                      backgroundColor: const Color(0xFFF8F9FB),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        return Scaffold(
+          backgroundColor: const Color(0xFFF8F9FB),
+
+          // Only create an AppBar on genuinely small screens.
+          appBar: isCompact
+              ? AppBar(
+                  toolbarHeight: 64,
+                  automaticallyImplyLeading: false,
+                  elevation: 0,
+                  backgroundColor: Colors.white,
+                  foregroundColor: const Color(0xFF111827),
+                  surfaceTintColor: Colors.transparent,
+                  titleSpacing: 12,
+                  title: Align(
+                    alignment: Alignment.centerLeft,
+                    child: IconButton(
+                      tooltip: 'Open navigation',
+                      style: IconButton.styleFrom(
+                        backgroundColor: const Color(0xFFF8F9FB),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      onPressed: () {
+                        Scaffold.of(context).openDrawer();
+                      },
+                      icon: const Icon(Icons.menu_rounded),
                     ),
-                    onPressed: () {
-                      Scaffold.of(context).openDrawer();
-                    },
-                    icon: const Icon(Icons.menu_rounded),
+                  ),
+                )
+              : null,
+
+          drawer: isCompact
+              ? Drawer(
+                  width: 280,
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  child: AdminSidebar(
+                    currentRoute: _currentRoute,
+                    onNavigate: _navigate,
+                  ),
+                )
+              : null,
+
+          body: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (!isCompact)
+                AdminSidebar(
+                  currentRoute: _currentRoute,
+                  onNavigate: _navigate,
+                  compact: true,
+                ),
+
+              Expanded(
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      isCompact ? 16 : 28,
+                      24,
+                      isCompact ? 16 : 28,
+                      28,
+                    ),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: AdminRouter.buildPage(_currentRoute),
+                    ),
                   ),
                 ),
               ),
-            )
-          : null,
-      drawer: isCompact
-          ? Drawer(
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              child: AdminSidebar(
-                currentRoute: _currentRoute,
-                onNavigate: _navigate,
-              ),
-            )
-          : null,
-      body: Row(
-        children: [
-          if (!isCompact)
-            AdminSidebar(
-              currentRoute: _currentRoute,
-              onNavigate: _navigate,
-              compact: true,
-            ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-              child: SingleChildScrollView(
-                child: AdminRouter.buildPage(_currentRoute),
-              ),
-            ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

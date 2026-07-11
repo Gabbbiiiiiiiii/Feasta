@@ -178,7 +178,7 @@ class AuthRepository {
       'availableStaffCount': 0,
       'availableEquipmentCount': 0,
       'acceptsMultipleEventsPerDay': false,
-      'isActive': true,
+      'isActive': false,
       'isFeatured': false,
       'createdAt': now,
       'updatedAt': now,
@@ -238,10 +238,25 @@ class AuthRepository {
     required String email,
     required String password,
   }) async {
-    await _auth.signInWithEmailAndPassword(
+    final credential = await _auth.signInWithEmailAndPassword(
       email: email.trim(),
       password: password.trim(),
     );
+
+    final user = credential.user;
+
+    if (user == null) {
+      throw Exception('Unable to load the signed-in account.');
+    }
+
+    await _db
+        .collection(FirestoreCollections.users)
+        .doc(user.uid)
+        .update({
+      'lastLoginAt': FieldValue.serverTimestamp(),
+      'isEmailVerified': user.emailVerified,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
   }
 
   Future<String?> providerVerificationStatusForOwner(String ownerId) async {

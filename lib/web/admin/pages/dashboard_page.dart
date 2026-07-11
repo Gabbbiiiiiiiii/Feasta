@@ -31,25 +31,37 @@ class DashboardPage extends StatelessWidget {
           .snapshots(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(),
+          return const Align(
+            alignment: Alignment.topCenter,
+            child: Padding(
+              padding: EdgeInsets.only(top: 80),
+              child: CircularProgressIndicator(),
+            ),
           );
         }
 
         if (snapshot.hasError) {
-          return Center(
-            child: Text('Failed to load dashboard settings'),
+          return const Align(
+            alignment: Alignment.topCenter,
+            child: Padding(
+              padding: EdgeInsets.only(top: 80),
+              child: Text('Failed to load dashboard settings'),
+            ),
           );
         }
 
         final config = snapshot.data?.data() ?? {};
 
         return SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(28, 28, 28, 28),
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxWidth: 1500,
+            ),
             child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
               LayoutBuilder(
                 builder: (context, constraints) {
                   final width = constraints.maxWidth;
@@ -109,8 +121,8 @@ class DashboardPage extends StatelessWidget {
                   if (!isWide) {
                     return Column(
                       children: [
-                        RevenueChartCard(
-                          title: config['chartTitle'] ?? 'Platform Revenue',
+                        const RevenueChartCard(
+                          title: 'Platform Revenue',
                         ),
                         const SizedBox(height: 18),
                         TopProvidersCard(
@@ -147,8 +159,8 @@ class DashboardPage extends StatelessWidget {
                         flex: 68,
                         child: Column(
                           children: [
-                            RevenueChartCard(
-                              title: config['chartTitle'] ?? 'Platform Revenue',
+                            const RevenueChartCard(
+                              title: 'Platform Revenue',
                             ),
 
                             const SizedBox(height: 24),
@@ -182,15 +194,16 @@ class DashboardPage extends StatelessWidget {
                             PlatformHealthCard(
                               metrics: platformHealth,
                               title: config['platformHealthTitle'] ?? 'Platform Health',
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  );
-                },
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
               ),
-            ],
             ),
           ),
         );
@@ -321,28 +334,28 @@ class _StatsGrid extends StatelessWidget {
           physics: const NeverScrollableScrollPhysics(),
           children: [
             FirestoreStatCard(
-              title: config['revenueTitle'] ?? 'Platform Revenue',
+              title: 'Platform Revenue',
               symbol: '₱',
               accent: const Color(0xFFFF6B00),
               collection: FirestoreCollections.payments,
               sumField: 'amount',
             ),
             FirestoreStatCard(
-              title: config['usersTitle'] ?? 'Users',
+              title: 'Active Users',
               
               icon: Icons.people_alt_rounded,
               accent: const Color(0xFFFF6B00),
               collection: FirestoreCollections.users,
             ),
             FirestoreStatCard(
-              title: config['bookingsTitle'] ?? 'Bookings',
+              title: 'Total Bookings',
               
               icon: Icons.event_note_rounded,
               accent: const Color(0xFFF59E0B),
               collection: FirestoreCollections.bookings,
             ),
             FirestoreStatCard(
-              title: config['pendingVerificationTitle'] ?? 'Pending Verification',
+              title: 'Verification Queue',
             
               icon: Icons.verified_user_rounded,
               accent: const Color(0xFF22C55E),
