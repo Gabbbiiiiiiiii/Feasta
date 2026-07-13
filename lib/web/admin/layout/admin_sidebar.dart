@@ -55,7 +55,7 @@ class AdminSidebar extends StatelessWidget {
     ];
 
     return Container(
-      width: compact ? 252 : 292,
+      width: compact ? 238 : 270,
       decoration: const BoxDecoration(
         color: Colors.white,
         borderRadius: const BorderRadius.only(
@@ -72,11 +72,11 @@ class AdminSidebar extends StatelessWidget {
       ),
       child: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 24, 16, 20),
+          padding: const EdgeInsets.fromLTRB(14, 18, 14, 16),
           child: Column(
             children: [
               Padding(
-                padding: const EdgeInsets.only(bottom: 24),
+                padding: const EdgeInsets.only(bottom: 16),
                 child: Material(
                   color: Colors.transparent,
                   child: InkWell(
@@ -98,9 +98,9 @@ class AdminSidebar extends StatelessWidget {
                         children: [
                           Image.asset(
                             'assets/images/feasta_logo.png',
-                            height: 42,
+                            height: 38,
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 10),
                           Text(
                             'FEASTA',
                             style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -119,7 +119,8 @@ class AdminSidebar extends StatelessWidget {
                 child: ListView.separated(
                   padding: EdgeInsets.zero,
                   itemCount: items.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 10),
+                  separatorBuilder: (context, index) =>
+                    const SizedBox(height: 6),
                   itemBuilder: (context, index) {
                     final item = items[index];
                     final isActive = currentRoute == item.route;
@@ -133,7 +134,10 @@ class AdminSidebar extends StatelessWidget {
                           hoverColor: const Color(0x1AFF6B00),
                           onTap: () => onNavigate(item.route),
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
                             decoration: BoxDecoration(
                               color: isActive ? const Color(0xFFFFF3EB) : Colors.white,
                               borderRadius: BorderRadius.circular(16),
@@ -141,19 +145,19 @@ class AdminSidebar extends StatelessWidget {
                             child: Row(
                               children: [
                                 Container(
-                                  width: 40,
-                                  height: 40,
+                                  width: 36,
+                                  height: 36,
                                   decoration: BoxDecoration(
                                     color: isActive ? const Color(0xFFFFE9DB) : const Color(0xFFF8F9FB),
-                                    borderRadius: BorderRadius.circular(14),
+                                    borderRadius: BorderRadius.circular(12),
                                   ),
                                   child: Icon(
                                     item.icon,
-                                    size: 20,
+                                    size: 18,
                                     color: isActive ? const Color(0xFFFF6B00) : const Color(0xFF6B7280),
                                   ),
                                 ),
-                                const SizedBox(width: 14),
+                                const SizedBox(width: 10),
                                 Expanded(
                                   child: Text(
                                     item.label,
@@ -166,7 +170,7 @@ class AdminSidebar extends StatelessWidget {
                                 if (isActive)
                                   Container(
                                     width: 4,
-                                    height: 40,
+                                    height: 32,
                                     decoration: const BoxDecoration(
                                       color: Color(0xFFFF6B00),
                                       borderRadius: BorderRadius.horizontal(left: Radius.circular(999)),
@@ -181,7 +185,7 @@ class AdminSidebar extends StatelessWidget {
                   },
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
               MouseRegion(
                 cursor: SystemMouseCursors.click,
                 child: Material(
@@ -192,7 +196,10 @@ class AdminSidebar extends StatelessWidget {
                     onTap: () => onNavigate(AdminRoute.dashboard),
                     child: Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 10,
+                        horizontal: 12,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(16),
