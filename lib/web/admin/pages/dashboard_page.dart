@@ -4,7 +4,7 @@ import '../../../repositories/feasta_repository.dart';
 import 'package:flutter/material.dart';
 import 'package:feasta/core/constants/firestore_collections.dart';
 
-import '../widgets/dashboard_widgets.dart';
+import '../widgets/dashboard/dashboard_widgets.dart';
 
 class DashboardPage extends StatelessWidget {
   final List<StatData> stats;

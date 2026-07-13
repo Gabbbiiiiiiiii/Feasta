@@ -3,7 +3,7 @@ import 'package:rxdart/rxdart.dart';
 
 import 'package:feasta/core/constants/firestore_collections.dart';
 import 'package:feasta/core/constants/status_constants.dart';
-import 'package:feasta/web/admin/models/admin_statistics.dart';
+import 'package:feasta/web/admin/models/dashboard/admin_statistics.dart';
 
 class AdminStatisticsService {
   AdminStatisticsService({

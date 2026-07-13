@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../services/promotion_service.dart';
-import '../widgets/promotion_list_widget.dart';
+import '../widgets/promotion/promotion_list_widget.dart';
 
 class PromotionsPage extends StatelessWidget {
   const PromotionsPage({super.key});

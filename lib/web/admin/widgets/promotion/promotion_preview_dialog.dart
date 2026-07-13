@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../../models/promotion_model.dart';
+import '../../../../models/promotion_model.dart';
 
 class PromotionPreviewDialog extends StatelessWidget {
   const PromotionPreviewDialog({super.key, required this.promotion});

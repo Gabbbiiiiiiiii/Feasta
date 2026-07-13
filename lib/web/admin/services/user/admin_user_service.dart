@@ -2,8 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:feasta/core/constants/firestore_collections.dart';
-import 'package:feasta/web/admin/models/admin_user.dart';
-import 'package:feasta/web/admin/models/admin_user_page.dart';
+import 'package:feasta/web/admin/models/user/admin_user.dart';
+import 'package:feasta/web/admin/models/user/admin_user_page.dart';
 
 class AdminUserService {
   AdminUserService({FirebaseFirestore? firestore, FirebaseAuth? auth})

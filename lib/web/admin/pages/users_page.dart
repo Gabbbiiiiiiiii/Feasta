@@ -5,9 +5,9 @@ import 'package:feasta/core/constants/firestore_collections.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../models/admin_user.dart';
-import '../models/admin_user_page.dart';
-import '../services/admin_user_service.dart';
+import '../models/user/admin_user.dart';
+import '../models/user/admin_user_page.dart';
+import '../services/user/admin_user_service.dart';
 import '../widgets/users/user_role_badge.dart';
 import '../widgets/users/user_status_badge.dart';
 import '../widgets/users/verification_badge.dart';
@@ -3446,12 +3446,12 @@ class _UserAvatar extends StatelessWidget {
                 filterQuality: FilterQuality.medium,
                 webHtmlElementStrategy:
                     WebHtmlElementStrategy.fallback,
-                // errorBuilder: (context, error, stackTrace) {
-                //   debugPrint('Profile image failed: $error');
-                //   debugPrint('Profile image URL: $imageUrl');
+                errorBuilder: (context, error, stackTrace) {
+                  debugPrint('Profile image failed: $error');
+                  debugPrint('Profile image URL: $imageUrl');
 
-                //   return fallback();
-                // },
+                  return fallback();
+                },
                 loadingBuilder: (context, child, loadingProgress) {
                   if (loadingProgress == null) {
                     return child;
