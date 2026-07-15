@@ -1,9 +1,12 @@
 import {initializeApp} from "firebase-admin/app";
+import {
+  getMessaging,
+  type Message,
+} from "firebase-admin/messaging";
 import * as logger from "firebase-functions/logger";
 import {defineSecret} from "firebase-functions/params";
+import {onDocumentWritten} from "firebase-functions/v2/firestore";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
-import * as functions from 'firebase-functions';
-import {getMessaging} from 'firebase-admin/messaging';
 
 initializeApp();
 
@@ -501,65 +504,211 @@ function isAbortError(error: unknown): boolean {
 
 // --- Promotion notifications (FCM) ---
 
-async function sendTopicNotification(topic: string, title: string, body: string, data?: Record<string, string>) {
+type PromotionData = {
+  isActive?: boolean;
+  promotionType?: string;
+  providerId?: string;
+  title?: string;
+  subtitle?: string;
+  description?: string;
+};
+
+async function sendTopicNotification(
+  topic: string,
+  title: string,
+  body: string,
+  data: Record<string, string> = {},
+): Promise<string> {
   try {
-    const message: any = {
+    const message: Message = {
       topic,
-      notification: {title, body},
-      data: data ?? {},
+      notification: {
+        title,
+        body,
+      },
+      data,
     };
 
-    const res = await getMessaging().send(message);
-    logger.log('FCM message sent', {topic, messageId: res});
-    return res;
-  } catch (err) {
-    logger.error('FCM send failed', err);
-    throw err;
+    const messageId = await getMessaging().send(message);
+
+    logger.info("FCM topic notification sent", {
+      topic,
+      messageId,
+    });
+
+    return messageId;
+  } catch (error) {
+    logger.error("FCM topic notification failed", {
+      topic,
+      error,
+    });
+
+    throw error;
   }
 }
 
-const promotionsCollection = 'promotions';
+const promotionsCollection = "promotions";
 
-export const onPromotionWrite = functions.region(functionRegion).firestore.document(`${promotionsCollection}/{promoId}`).onWrite(async (change, context) => {
-  try {
-    const before = change.before.exists ? change.before.data() : null;
-    const after = change.after.exists ? change.after.data() : null;
-    if (!after) return;
+export const onPromotionWrite = onDocumentWritten(
+  {
+    document: `${promotionsCollection}/{promoId}`,
+    region: functionRegion,
+  },
+  async (event): Promise<void> => {
+    try {
+      const beforeSnapshot = event.data?.before;
+      const afterSnapshot = event.data?.after;
+      const promoId = event.params.promoId;
 
-    const afterActive = !!after['isActive'];
-    const beforeActive = !!(before && before['isActive']);
-
-    const now = Date.now();
-
-    // 1) Promotion became active
-    if (!beforeActive && afterActive) {
-      const title = after['title'] ?? 'New Promotion';
-      const body = after['subtitle'] ?? after['description'] ?? 'A new promotion is now active.';
-      await sendTopicNotification('promotions', title.toString(), body.toString(), {promotionId: context.params.promoId});
-    }
-
-    // 2) Featured provider changed
-    const beforeType = before ? (before['promotionType'] ?? '') : '';
-    const afterType = after['promotionType'] ?? '';
-    const beforeProvider = before ? (before['providerId'] ?? '') : '';
-    const afterProvider = after['providerId'] ?? '';
-
-    if (afterActive && afterType === 'featured_provider' && (beforeType !== afterType || beforeProvider !== afterProvider)) {
-      const title = 'Featured Provider Updated';
-      const body = after['subtitle'] ?? after['description'] ?? 'A featured provider promotion has been updated.';
-      await sendTopicNotification('featured_provider', title, body, {promotionId: context.params.promoId, providerId: afterProvider?.toString() ?? ''});
-    }
-
-    // 3) Birthday promotion started
-    if (afterActive && afterType === 'birthday') {
-      // If it wasn't birthday before or activation changed, notify
-      if (beforeType !== 'birthday' || (!beforeActive && afterActive)) {
-        const title = after['title'] ?? 'Birthday Promotion Started';
-        const body = after['subtitle'] ?? after['description'] ?? 'A birthday promotion is now live.';
-        await sendTopicNotification('birthday_promotions', title.toString(), body.toString(), {promotionId: context.params.promoId});
+      if (!beforeSnapshot || !afterSnapshot) {
+        logger.warn("Promotion event has no snapshot data", {
+          promoId,
+        });
+        return;
       }
+
+      // Do not send notifications when a promotion is deleted.
+      if (!afterSnapshot.exists) {
+        logger.info("Promotion deleted; no notification sent", {
+          promoId,
+        });
+        return;
+      }
+
+      const before = beforeSnapshot.exists
+        ? beforeSnapshot.data() as PromotionData
+        : null;
+
+      const after = afterSnapshot.data() as PromotionData;
+
+      const beforeActive = before?.isActive === true;
+      const afterActive = after.isActive === true;
+
+      const beforeType = before?.promotionType?.trim() ?? "";
+      const afterType = after.promotionType?.trim() ?? "";
+
+      const beforeProviderId = before?.providerId?.trim() ?? "";
+      const afterProviderId = after.providerId?.trim() ?? "";
+
+      /*
+       * 1. Promotion became active.
+       *
+       * This runs when:
+       * - a newly created promotion is active; or
+       * - an existing promotion changes from inactive to active.
+       */
+      if (!beforeActive && afterActive) {
+        const title = normalizeNotificationText(
+          after.title,
+          "New Promotion",
+        );
+
+        const body = normalizeNotificationText(
+          after.subtitle ?? after.description,
+          "A new promotion is now active.",
+        );
+
+        await sendTopicNotification(
+          "promotions",
+          title,
+          body,
+          {
+            promotionId: promoId,
+            notificationType: "promotion_activated",
+          },
+        );
+      }
+
+      /*
+       * 2. Featured provider changed.
+       *
+       * Send only when the promotion is active and:
+       * - it changed into a featured-provider promotion; or
+       * - its featured provider changed.
+       */
+      const featuredProviderChanged =
+        afterActive &&
+        afterType === "featured_provider" &&
+        (
+          beforeType !== afterType ||
+          beforeProviderId !== afterProviderId
+        );
+
+      if (featuredProviderChanged) {
+        const body = normalizeNotificationText(
+          after.subtitle ?? after.description,
+          "A featured provider promotion has been updated.",
+        );
+
+        await sendTopicNotification(
+          "featured_provider",
+          "Featured Provider Updated",
+          body,
+          {
+            promotionId: promoId,
+            providerId: afterProviderId,
+            notificationType: "featured_provider_updated",
+          },
+        );
+      }
+
+      /*
+       * 3. Birthday promotion became active.
+       *
+       * Avoid sending repeatedly for unrelated updates to an already active
+       * birthday promotion.
+       */
+      const birthdayPromotionStarted =
+        afterActive &&
+        afterType === "birthday" &&
+        (
+          beforeType !== "birthday" ||
+          !beforeActive
+        );
+
+      if (birthdayPromotionStarted) {
+        const title = normalizeNotificationText(
+          after.title,
+          "Birthday Promotion Started",
+        );
+
+        const body = normalizeNotificationText(
+          after.subtitle ?? after.description,
+          "A birthday promotion is now live.",
+        );
+
+        await sendTopicNotification(
+          "birthday_promotions",
+          title,
+          body,
+          {
+            promotionId: promoId,
+            notificationType: "birthday_promotion_started",
+          },
+        );
+      }
+    } catch (error) {
+      logger.error("onPromotionWrite handler failed", {
+        promoId: event.params.promoId,
+        error,
+      });
+
+      throw error;
     }
-  } catch (err) {
-    logger.error('onPromotionWrite handler failed', err);
+  },
+);
+
+function normalizeNotificationText(
+  value: unknown,
+  fallback: string,
+): string {
+  if (typeof value !== "string") {
+    return fallback;
   }
-});
+
+  const normalized = value.trim();
+
+  return normalized.length > 0
+    ? normalized
+    : fallback;
+}
