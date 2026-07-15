@@ -8,13 +8,17 @@
         ".git",
         "firebase-debug.log",
         "firebase-debug.*.log",
-        "*.local"
+        "*.local",
+        "lib"
       ]
     }
   ],
   "firestore": {
-    "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
+    "rules": "firebase/firestore.rules",
+    "indexes": "firebase/firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "firebase/storage.rules"
   },
   "flutter": {
     "platforms": {
@@ -22,11 +26,11 @@
         "default": {
           "projectId": "feasta-catering-system",
           "appId": "1:668846874331:android:93bf5327f1fefb127d36fe",
-          "fileOutput": "android/app/google-services.json"
+          "fileOutput": "apps/customer_mobile/android/app/google-services.json"
         }
       },
       "dart": {
-        "lib/firebase_options.dart": {
+        "apps/customer_mobile/lib/firebase_options.dart": {
           "projectId": "feasta-catering-system",
           "configurations": {
             "android": "1:668846874331:android:93bf5327f1fefb127d36fe",
@@ -38,5 +42,24 @@
         }
       }
     }
+  },
+  "emulators": {
+    "auth": {
+      "port": 9099
+    },
+    "functions": {
+      "port": 5001
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "storage": {
+      "port": 9199
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4000
+    },
+    "singleProjectMode": true
   }
 }
