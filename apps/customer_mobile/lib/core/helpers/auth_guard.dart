@@ -1,7 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../../mobile/auth/login_screen.dart';
+import '../../features/presentation/screens/login_screen.dart';
 
 bool get isGuestUser {
   return FirebaseAuth.instance.currentUser == null;

@@ -2,8 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../../mobile/auth/login_screen.dart';
-import '../../mobile/customer/phone_verification_screen.dart';
+import '../../features/presentation/screens/login_screen.dart';
+import '../../features/customer/phone_verification_screen.dart';
 import '../constants/firestore_collections.dart';
 
 Future<bool> requireVerifiedPhoneForBooking(BuildContext context) async {

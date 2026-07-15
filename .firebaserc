@@ -1,6 +1,7 @@
 {
   "projects": {
-    "default": "feasta-catering-system"
+    "default": "feasta-catering-system",
+    "prod": "feasta-catering-system"
   },
   "targets": {},
   "etags": {}
