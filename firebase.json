@@ -1,24 +1,44 @@
 {
   "functions": [
-    {
-      "source": "functions",
-      "codebase": "default",
-      "ignore": [
-        "node_modules",
-        ".git",
-        "firebase-debug.log",
-        "firebase-debug.*.log",
-        "*.local",
-        "lib"
-      ]
-    }
-  ],
+  {
+    "source": "functions",
+    "codebase": "default",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
+      "*.local"
+    ],
+    "predeploy": [
+      "pnpm --dir \"$RESOURCE_DIR\" run build"
+    ]
+  }
+],
   "firestore": {
     "rules": "firebase/firestore.rules",
     "indexes": "firebase/firestore.indexes.json"
   },
   "storage": {
     "rules": "firebase/storage.rules"
+  },
+  "hosting": {
+    "public": "firebase/hosting",
+    "cleanUrls": true,
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/health",
+        "function": {
+          "functionId": "healthCheck",
+          "region": "asia-southeast1"
+        }
+      }
+    ]
   },
   "flutter": {
     "platforms": {
@@ -45,19 +65,28 @@
   },
   "emulators": {
     "auth": {
+      "host": "0.0.0.0",
       "port": 9099
     },
-    "functions": {
-      "port": 5001
-    },
     "firestore": {
+      "host": "0.0.0.0",
       "port": 8080
     },
+    "functions": {
+      "host": "0.0.0.0",
+      "port": 5001
+    },
     "storage": {
+      "host": "0.0.0.0",
       "port": 9199
+    },
+    "hosting": {
+      "host": "127.0.0.1",
+      "port": 5000
     },
     "ui": {
       "enabled": true,
+      "host": "127.0.0.1",
       "port": 4000
     },
     "singleProjectMode": true

@@ -9,18 +9,37 @@ class UserRoles {
 class ProviderVerificationStatus {
   ProviderVerificationStatus._();
 
-  static const String pending = 'pending';
-  static const String verified = 'verified';
-  static const String rejected = 'rejected';
-  static const String suspended = 'suspended';
-}
-
-class ProviderVerificationRequestStatus {
-  ProviderVerificationRequestStatus._();
-
-  static const String pending = 'pending';
+  static const String draft = 'draft';
+  static const String submitted = 'submitted';
+  static const String underReview = 'under_review';
+  static const String resubmissionRequired = 'resubmission_required';
   static const String approved = 'approved';
   static const String rejected = 'rejected';
+  static const String suspended = 'suspended';
+
+  static const List<String> values = [
+    draft,
+    submitted,
+    underReview,
+    resubmissionRequired,
+    approved,
+    rejected,
+    suspended,
+  ];
+
+  static const Map<String, List<String>> allowedTransitions = {
+    draft: [submitted],
+    submitted: [underReview],
+    underReview: [approved, rejected, resubmissionRequired],
+    resubmissionRequired: [submitted],
+    approved: [suspended],
+    rejected: [],
+    suspended: [],
+  };
+
+  static bool canTransition(String from, String to) {
+    return allowedTransitions[from]?.contains(to) ?? false;
+  }
 }
 
 class BookingStatus {

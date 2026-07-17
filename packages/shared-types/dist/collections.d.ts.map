@@ -1,0 +1,1 @@
+{"version":3,"file":"collections.d.ts","sourceRoot":"","sources":["../src/collections.ts"],"names":[],"mappings":"AAAA,eAAO,MAAM,qBAAqB;;;;;;;;;;;;;;;;;;;;;CA0BxB,CAAC;AAEX,eAAO,MAAM,wBAAwB;;;;;CAK3B,CAAC;AAEX,MAAM,MAAM,uBAAuB,GACjC,CAAC,OAAO,qBAAqB,CAAC,CAAC,MAAM,OAAO,qBAAqB,CAAC,CAAC;AAErE,MAAM,MAAM,0BAA0B,GACpC,CAAC,OAAO,wBAAwB,CAAC,CAAC,MAAM,OAAO,wBAAwB,CAAC,CAAC"}

@@ -226,7 +226,7 @@ final Map<String, String> addonCategories = {
               const SizedBox(height: 18),
 
               DropdownButtonFormField<String>(
-              value: selectedProviderServiceType,
+              initialValue: selectedProviderServiceType,
               decoration: const InputDecoration(
                 labelText: 'Provider Type',
               ),
@@ -258,7 +258,7 @@ final Map<String, String> addonCategories = {
             const SizedBox(height: 16),
 
             DropdownButtonFormField<String>(
-              value: selectedProviderCategory,
+              initialValue: selectedProviderCategory,
               decoration: const InputDecoration(
                 labelText: 'Provider Category',
               ),

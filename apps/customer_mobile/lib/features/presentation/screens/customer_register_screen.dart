@@ -109,7 +109,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
     final firstName = firstNameController.text.trim();
     final lastName = lastNameController.text.trim();
     final email = emailController.text.trim();
-    final password = passwordController.text.trim();
+    final password = passwordController.text;
 
 
     bool hasError = false;
@@ -176,13 +176,16 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
         ),
         (_) => false,
       );
-    } catch (e) {
-      if (!mounted) return;
+    } catch (e, stackTrace) {
+    debugPrint('REGISTER ERROR: $e');
+    debugPrintStack(stackTrace: stackTrace);
 
-      setState(() {
-        generalError = _friendlyErrorMessage(e.toString());
-      });
-    } finally {
+    if (!mounted) return;
+
+    setState(() {
+      generalError = _friendlyErrorMessage(e.toString());
+    });
+  } finally {
       if (mounted) {
         setState(() => isLoading = false);
       }

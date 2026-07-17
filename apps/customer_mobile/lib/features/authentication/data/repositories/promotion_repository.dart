@@ -4,7 +4,7 @@ import '../../../../core/constants/promotion_firestore_schema.dart';
 import '../../../../core/firestore/query_builder.dart';
 import '../../../../core/cache/promotion_cache.dart';
 import '../../../../shared/models/promotion_model.dart';
-import 'package:cloud_firestore/cloud_firestore.dart' as _fs;
+import 'package:cloud_firestore/cloud_firestore.dart' as fs;
 
 class PromotionRepository {
   PromotionRepository({FirebaseFirestore? firestore})
@@ -48,7 +48,7 @@ class PromotionRepository {
     int? limit,
   }) async {
     // Try cache first for read-heavy list queries
-    final cacheKey = 'promotions:${includeInactive ? 'all' : 'active'}:${promotionType ?? ''}:${providerId ?? ''}:${isFeatured == null ? '' : isFeatured}:${includeDeleted ? 'del' : 'nodelete'}:$orderByField:${descending ? 'desc' : 'asc'}:${limit ?? 'nolimit'}';
+    final cacheKey = 'promotions:${includeInactive ? 'all' : 'active'}:${promotionType ?? ''}:${providerId ?? ''}:${isFeatured ?? ''}:${includeDeleted ? 'del' : 'nodelete'}:$orderByField:${descending ? 'desc' : 'asc'}:${limit ?? 'nolimit'}';
     final cached = PromotionCache.instance.get<List<PromotionModel>>(cacheKey);
     if (cached != null) return cached;
 
@@ -132,7 +132,7 @@ class PromotionRepository {
       // increment promotion impressions
       final promoSnap = await tx.get(promoRef);
       if (!promoSnap.exists) throw Exception('Promotion not found');
-      tx.update(promoRef, {PromotionFirestoreSchema.impressionsField: _fs.FieldValue.increment(1), PromotionFirestoreSchema.updatedAtField: _fs.FieldValue.serverTimestamp()});
+      tx.update(promoRef, {PromotionFirestoreSchema.impressionsField: fs.FieldValue.increment(1), PromotionFirestoreSchema.updatedAtField: fs.FieldValue.serverTimestamp()});
 
       // update daily stats
       final statsSnap = await tx.get(statsRef);
@@ -145,7 +145,7 @@ class PromotionRepository {
           'providerId': providerId,
         });
       } else {
-        tx.update(statsRef, {'impressions': _fs.FieldValue.increment(1)});
+        tx.update(statsRef, {'impressions': fs.FieldValue.increment(1)});
       }
     });
   }
@@ -159,9 +159,9 @@ class PromotionRepository {
       final promoSnap = await tx.get(promoRef);
       if (!promoSnap.exists) throw Exception('Promotion not found');
       tx.update(promoRef, {
-        PromotionFirestoreSchema.clicksField: _fs.FieldValue.increment(1),
-        PromotionFirestoreSchema.lastClickedAtField: _fs.FieldValue.serverTimestamp(),
-        PromotionFirestoreSchema.updatedAtField: _fs.FieldValue.serverTimestamp(),
+        PromotionFirestoreSchema.clicksField: fs.FieldValue.increment(1),
+        PromotionFirestoreSchema.lastClickedAtField: fs.FieldValue.serverTimestamp(),
+        PromotionFirestoreSchema.updatedAtField: fs.FieldValue.serverTimestamp(),
       });
 
       final statsSnap = await tx.get(statsRef);
@@ -174,7 +174,7 @@ class PromotionRepository {
           'providerId': providerId,
         });
       } else {
-        tx.update(statsRef, {'clicks': _fs.FieldValue.increment(1)});
+        tx.update(statsRef, {'clicks': fs.FieldValue.increment(1)});
       }
     });
   }

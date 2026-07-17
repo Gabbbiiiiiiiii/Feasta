@@ -3,6 +3,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class QueryBuilder {
   QueryBuilder._();
 
+  static const int defaultPageSize = 20;
+  static const int maximumPageSize = 50;
+
   static Query<Map<String, dynamic>> applyFilters(
     Query<Map<String, dynamic>> query, {
     String? promotionType,
@@ -39,7 +42,9 @@ class QueryBuilder {
     required String orderByField,
     bool descending = false,
   }) {
-    return query.orderBy(orderByField, descending: descending);
+    return query
+        .orderBy(orderByField, descending: descending)
+        .orderBy(FieldPath.documentId, descending: descending);
   }
 
   static Query<Map<String, dynamic>> applyPagination(
@@ -48,7 +53,7 @@ class QueryBuilder {
     int? limit,
   }) {
     if (startAfter != null) query = query.startAfterDocument(startAfter);
-    if (limit != null && limit > 0) query = query.limit(limit);
-    return query;
+    final boundedLimit = (limit ?? defaultPageSize).clamp(1, maximumPageSize);
+    return query.limit(boundedLimit);
   }
 }

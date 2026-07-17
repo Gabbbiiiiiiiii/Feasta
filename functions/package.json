@@ -9,6 +9,9 @@
     "build": "tsc",
     "lint": "eslint \"src/**/*.ts\"",
     "lint:fix": "eslint \"src/**/*.ts\" --fix",
+    "test": "pnpm build && node --test test/*.test.cjs",
+    "test:rules": "firebase emulators:exec --config ../firebase.test.json --project demo-feasta-phase3 --only firestore,storage \"node --test --test-concurrency=1 test/rules/*.test.cjs\"",
+    "migrate:query-policy": "pnpm build && node lib/scripts/backfill-query-policy.js",
     "serve": "pnpm build && firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions"
   },
@@ -17,9 +20,12 @@
     "firebase-functions": "^7.2.5"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.1",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
     "eslint": "^9.39.5",
+    "firebase": "12.16.0",
+    "firebase-tools": "^15.24.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.64.0"
   }

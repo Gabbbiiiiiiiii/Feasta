@@ -1485,7 +1485,7 @@ class _HorizontalProviderCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (provider.isVerified)
+                          if (provider.isApproved)
                         const Icon(
                           Icons.verified,
                           color: Colors.green,

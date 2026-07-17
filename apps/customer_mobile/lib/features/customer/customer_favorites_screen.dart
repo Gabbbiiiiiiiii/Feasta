@@ -246,7 +246,7 @@ class FavoriteProviderCard extends StatelessWidget {
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const Spacer(),
-                      if (provider.isVerified)
+                    if (provider.isApproved)
                         const Row(
                           children: [
                             Icon(

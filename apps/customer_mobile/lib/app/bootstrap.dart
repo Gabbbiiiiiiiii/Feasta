@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -24,11 +22,10 @@ Future<void> bootstrap() async {
   );
 
   if (firebaseApp == null) {
-    debugPrint(
+    throw StateError(
       'Firebase initialization failed. '
-      'The app will continue with limited functionality.',
+      'The application cannot continue safely.',
     );
-    return;
   }
 
   const useFirebaseEmulators = bool.fromEnvironment(
@@ -36,20 +33,41 @@ Future<void> bootstrap() async {
     defaultValue: false,
   );
 
-  if (useFirebaseEmulators) {
-    await runStartupStep<void>(
-      stepName: 'Firebase emulator connection',
-      operation: _connectFirebaseEmulators(),
-      timeout: const Duration(seconds: 10),
-      fallbackValue: null,
+  if (!useFirebaseEmulators) {
+    debugPrint(
+      'Firebase emulators are disabled. '
+      'Using the configured Firebase project.',
+    );
+    return;
+  }
+
+  final emulatorConnected = await runStartupStep<bool>(
+    stepName: 'Firebase emulator connection',
+    operation: _connectFirebaseEmulators(),
+    timeout: const Duration(seconds: 15),
+    fallbackValue: false,
+  );
+
+  if (!emulatorConnected) {
+    throw StateError(
+      'Firebase emulator connection failed. '
+      'The application will not continue against production Firebase '
+      'while emulator mode is enabled.',
     );
   }
 }
 
-Future<void> _connectFirebaseEmulators() async {
+Future<bool> _connectFirebaseEmulators() async {
   final host = _firebaseEmulatorHost;
 
-  await FirebaseAuth.instance.useAuthEmulator(host, 9099);
+  debugPrint(
+    'Connecting to Firebase emulators at $host...',
+  );
+
+  await FirebaseAuth.instance.useAuthEmulator(
+    host,
+    9099,
+  );
 
   FirebaseFirestore.instance.useFirestoreEmulator(
     host,
@@ -68,17 +86,41 @@ Future<void> _connectFirebaseEmulators() async {
     9199,
   );
 
-  debugPrint('Connected to Firebase emulators at $host');
+  debugPrint(
+    'Connected to Firebase emulators at $host',
+  );
+
+  return true;
 }
 
 String get _firebaseEmulatorHost {
+  const configuredHost = String.fromEnvironment(
+    'FIREBASE_EMULATOR_HOST',
+    defaultValue: '',
+  );
+
+  final normalizedHost = configuredHost.trim();
+
+  if (normalizedHost.isNotEmpty) {
+    return normalizedHost;
+  }
+
   if (kIsWeb) {
     return '127.0.0.1';
   }
 
-  if (Platform.isAndroid) {
-    return '10.0.2.2';
-  }
+  switch (defaultTargetPlatform) {
+    case TargetPlatform.android:
+      // Android emulator only.
+      // For a physical Android phone, pass FIREBASE_EMULATOR_HOST
+      // using your computer's LAN IP or use adb reverse.
+      return '10.0.2.2';
 
-  return '127.0.0.1';
+    case TargetPlatform.iOS:
+    case TargetPlatform.macOS:
+    case TargetPlatform.windows:
+    case TargetPlatform.linux:
+    case TargetPlatform.fuchsia:
+      return '127.0.0.1';
+  }
 }

@@ -2,6 +2,279 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function currentUserId() {
+      return request.auth.uid;
+    }
+
+    function userExists() {
+      return isSignedIn() &&
+        firestore.exists(
+          /databases/(default)/documents/users/$(currentUserId())
+        );
+    }
+
+    function currentUser() {
+      return firestore.get(
+        /databases/(default)/documents/users/$(currentUserId())
+      ).data;
+    }
+
+    function isAdmin() {
+      return userExists() &&
+        currentUser().role == 'admin' &&
+        currentUser().accountStatus == 'active' &&
+        currentUser().isBlocked != true;
+    }
+
+    function isActiveUser() {
+      return userExists() &&
+        currentUser().accountStatus == 'active' &&
+        currentUser().isActive != false &&
+        currentUser().isBlocked != true;
+    }
+
+    function isAllowedImage() {
+      return request.resource.contentType.matches(
+        'image/(jpeg|png|webp)'
+      );
+    }
+
+    function isAllowedVerificationFile() {
+      return request.resource.contentType.matches(
+        'image/(jpeg|png|webp)'
+      ) ||
+      request.resource.contentType ==
+        'application/pdf';
+    }
+
+    function providerExists(providerId) {
+      return firestore.exists(
+        /databases/(default)/documents/providers/$(providerId)
+      );
+    }
+
+    function ownsProvider(providerId) {
+      return isActiveUser() &&
+        providerExists(providerId) &&
+        firestore.get(
+          /databases/(default)/documents/providers/$(providerId)
+        ).data.ownerId == currentUserId();
+    }
+
+    function providerVerificationIsEditable(providerId) {
+      return firestore.get(
+        /databases/(default)/documents/providers/$(providerId)
+      ).data.verificationStatus in [
+        'draft',
+        'resubmission_required'
+      ];
+    }
+
+    function bookingExists(bookingId) {
+      return firestore.exists(
+        /databases/(default)/documents/bookings/$(bookingId)
+      );
+    }
+
+    function bookingData(bookingId) {
+      return firestore.get(
+        /databases/(default)/documents/bookings/$(bookingId)
+      ).data;
+    }
+
+    function isBookingParticipant(bookingId) {
+      return isActiveUser() &&
+        bookingExists(bookingId) &&
+        (
+          bookingData(bookingId).customerId == currentUserId() ||
+          (
+            bookingData(bookingId).providerId is string &&
+            ownsProvider(bookingData(bookingId).providerId)
+          ) ||
+          (
+            bookingData(bookingId).providerIds is list &&
+            currentUser().providerId is string &&
+            bookingData(bookingId).providerIds.hasAny([
+              currentUser().providerId
+            ])
+          ) ||
+          isAdmin()
+        );
+    }
+
+    function complaintExists(complaintId) {
+      return firestore.exists(
+        /databases/(default)/documents/complaints/$(complaintId)
+      );
+    }
+
+    function complaintData(complaintId) {
+      return firestore.get(
+        /databases/(default)/documents/complaints/$(complaintId)
+      ).data;
+    }
+
+    function isComplaintCreator(complaintId) {
+      return isActiveUser() &&
+        complaintExists(complaintId) &&
+        complaintData(complaintId).userId == currentUserId();
+    }
+
+    function isRelatedComplaintProvider(complaintId) {
+      return isActiveUser() &&
+        complaintExists(complaintId) &&
+        complaintData(complaintId).providerId is string &&
+        ownsProvider(complaintData(complaintId).providerId);
+    }
+
+    function isVerificationDocumentType(documentType) {
+      return documentType in [
+        'business_permit',
+        'dti_registration',
+        'bir_registration',
+        'valid_id',
+        'sanitary_permit',
+        'mayors_permit',
+        'other'
+      ];
+    }
+
+    function isUnderSize(maxBytes) {
+      return request.resource.size > 0 &&
+        request.resource.size <= maxBytes;
+    }
+
+    match /users/{userId}/profile/{fileName} {
+      allow read: if isSignedIn() &&
+        (
+          currentUserId() == userId ||
+          isAdmin()
+        );
+
+      allow create, update: if isActiveUser() &&
+        currentUserId() == userId &&
+        isAllowedImage() &&
+        isUnderSize(5 * 1024 * 1024);
+
+      allow delete: if isActiveUser() &&
+        currentUserId() == userId;
+    }
+
+    match /providers/{providerId}/logo/{fileName} {
+      allow read: if true;
+
+      allow create, update: if ownsProvider(providerId) &&
+        isAllowedImage() &&
+        isUnderSize(5 * 1024 * 1024);
+
+      allow delete: if ownsProvider(providerId);
+    }
+
+    match /providers/{providerId}/cover/{fileName} {
+      allow read: if true;
+
+      allow create, update: if ownsProvider(providerId) &&
+        isAllowedImage() &&
+        isUnderSize(10 * 1024 * 1024);
+
+      allow delete: if ownsProvider(providerId);
+    }
+
+    match /providers/{providerId}/verification/{documentType}/{fileName} {
+      allow read: if isActiveUser() &&
+        (
+          ownsProvider(providerId) ||
+          isAdmin()
+        );
+
+      allow create, update: if ownsProvider(providerId) &&
+        providerVerificationIsEditable(providerId) &&
+        isVerificationDocumentType(documentType) &&
+        isAllowedVerificationFile() &&
+        isUnderSize(10 * 1024 * 1024);
+
+      allow delete: if false;
+    }
+
+    match /providers/{providerId}/packages/{fileName} {
+      allow read: if true;
+
+      allow create, update: if ownsProvider(providerId) &&
+        isAllowedImage() &&
+        isUnderSize(10 * 1024 * 1024);
+
+      allow delete: if ownsProvider(providerId);
+    }
+
+    match /bookings/{bookingId}/attachments/{fileName} {
+      allow read: if isBookingParticipant(bookingId);
+
+      allow create, update: if isBookingParticipant(bookingId) &&
+        isAllowedVerificationFile() &&
+        isUnderSize(10 * 1024 * 1024);
+
+      // Booking evidence is retained for the event audit trail.
+      allow delete: if false;
+    }
+
+    match /mainEvents/{mainEventId}/attachments/{fileName} {
+      allow read: if isActiveUser() &&
+        (
+          firestore.get(
+            /databases/(default)/documents/mainEvents/$(mainEventId)
+          ).data.customerId == currentUserId() ||
+          isAdmin()
+        );
+
+      allow create, update: if isActiveUser() &&
+        firestore.get(
+          /databases/(default)/documents/mainEvents/$(mainEventId)
+        ).data.customerId == currentUserId() &&
+        isUnderSize(10 * 1024 * 1024);
+
+      allow delete: if false;
+    }
+
+    match /providerRequests/{providerRequestId}/attachments/{fileName} {
+      allow read: if isActiveUser() &&
+        (
+          firestore.get(
+            /databases/(default)/documents/providerRequests/$(providerRequestId)
+          ).data.customerId == currentUserId() ||
+          firestore.get(
+            /databases/(default)/documents/providers/$(
+              firestore.get(
+                /databases/(default)/documents/providerRequests/$(providerRequestId)
+              ).data.providerId
+            )
+          ).data.ownerId == currentUserId() ||
+          isAdmin()
+        );
+
+      allow create, update: if false;
+      allow delete: if false;
+    }
+
+    match /complaints/{complaintId}/evidence/{fileName} {
+      allow read: if isActiveUser() &&
+        (
+          isComplaintCreator(complaintId) ||
+          isRelatedComplaintProvider(complaintId) ||
+          isAdmin()
+        );
+
+      allow create, update: if isComplaintCreator(complaintId) &&
+        isAllowedVerificationFile() &&
+        isUnderSize(10 * 1024 * 1024);
+
+      allow delete: if false;
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

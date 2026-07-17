@@ -235,7 +235,8 @@ class ProviderModel {
     this.updatedAt,
   });
 
-  bool get isVerified => verificationStatus == 'verified';
+  bool get isApproved =>
+      verificationStatus == ProviderVerificationStatus.approved;
 
   factory ProviderModel.fromDoc(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
@@ -265,7 +266,8 @@ class ProviderModel {
           ((data['totalCompletedBookings'] ?? 0) as num).toInt(),
       totalViews: ((data['totalViews'] ?? 0) as num).toInt(),
       favoriteCount: ((data['favoriteCount'] ?? 0) as num).toInt(),
-      verificationStatus: data['verificationStatus'] ?? 'pending',
+      verificationStatus:
+          data['verificationStatus'] ?? ProviderVerificationStatus.draft,
       providerServiceType: data['providerServiceType'] ?? 'catering',
       providerCategory: data['providerCategory'] ?? 'catering_service',
       businessPermitUrl: data['businessPermitUrl'],

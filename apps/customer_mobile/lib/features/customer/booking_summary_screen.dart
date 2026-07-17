@@ -138,7 +138,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
               ),
               _SummaryRow(
                 label: 'Status',
-                value: widget.provider.isVerified ? 'Verified' : 'Pending',
+                value: widget.provider.isApproved ? 'Approved' : 'Not approved',
               ),
             ],
           ),

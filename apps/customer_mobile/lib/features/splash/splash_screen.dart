@@ -128,8 +128,9 @@ class _SplashScreenState extends State<SplashScreen> {
       final role = data['role'];
       final isActive = data['isActive'] ?? true;
       final isBlocked = data['isBlocked'] ?? false;
+      final accountStatus = data['accountStatus'] as String? ?? 'disabled';
 
-      if (!isActive || isBlocked) {
+      if (!isActive || isBlocked || accountStatus != 'active') {
         await _auth.signOut();
 
         if (!mounted) return;
@@ -168,7 +169,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
         if (!mounted) return;
 
-        if (verificationStatus != ProviderVerificationStatus.verified) {
+        if (verificationStatus != ProviderVerificationStatus.approved) {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const PendingApprovalScreen()),

@@ -8,3 +8,4 @@ allowBuilds:
   unrs-resolver: true
   "@firebase/util": true
   protobufjs: true
+  re2: true

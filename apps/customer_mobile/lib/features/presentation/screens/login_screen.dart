@@ -64,8 +64,9 @@ class _LoginScreenState extends State<LoginScreen> {
     final role = data['role'];
     final isActive = data['isActive'] ?? true;
     final isBlocked = data['isBlocked'] ?? false;
+    final accountStatus = data['accountStatus'] as String? ?? 'disabled';
 
-    if (!isActive || isBlocked) {
+    if (!isActive || isBlocked || accountStatus != 'active') {
       await _authRepository.logout();
       throw Exception('Your account is inactive or blocked.');
     }
@@ -103,7 +104,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (!mounted) return;
 
-      if (verificationStatus != ProviderVerificationStatus.verified) {
+      if (verificationStatus != ProviderVerificationStatus.approved) {
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const PendingApprovalScreen()),
@@ -190,15 +191,6 @@ class _LoginScreenState extends State<LoginScreen> {
         await _authRepository.logout();
         throw Exception('User data not found in Firestore.');
       }
-
-      await _db
-          .collection(FirestoreCollections.users)
-          .doc(refreshedUser.uid)
-          .update({
-        'isEmailVerified': true,
-        'lastLoginAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
 
       final data = userDoc.data()!;
       await _routeAfterSignIn(uid: refreshedUser.uid, data: data);

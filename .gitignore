@@ -143,3 +143,4 @@ out/
 firestore-debug.log
 storage-debug.log
 firebase/emulator-data/
+firebase/emulator-data-*/

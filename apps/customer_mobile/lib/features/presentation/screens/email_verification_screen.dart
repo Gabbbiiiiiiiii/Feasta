@@ -50,6 +50,24 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   }
 
   Future<void> _goToLogin() async {
+    try {
+      final verified =
+          await _authRepository.refreshEmailVerificationStatus();
+      if (!verified) {
+        if (!mounted) return;
+        _showMessage(
+          'Your email is not verified yet. Open the newest verification link, then try again.',
+        );
+        return;
+      }
+    } catch (_) {
+      if (!mounted) return;
+      _showMessage(
+        'Unable to refresh your verification status. Please try again.',
+      );
+      return;
+    }
+
     await _authRepository.logout();
 
     if (!mounted) return;

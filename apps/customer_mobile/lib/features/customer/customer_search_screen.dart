@@ -1232,7 +1232,7 @@ class SearchProviderCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                        if (provider.isVerified)
+                    if (provider.isApproved)
                           const Icon(
                             Icons.verified_rounded,
                             color: Colors.green,

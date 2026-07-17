@@ -23,11 +23,14 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
   final FeastaRepository repository = FeastaRepository();
+
   bool showUnreadOnly = false;
   bool isMarkingAll = false;
 
   Future<void> _markAllAsRead(int unreadCount) async {
-    if (unreadCount == 0 || isMarkingAll) return;
+    if (unreadCount == 0 || isMarkingAll) {
+      return;
+    }
 
     setState(() {
       isMarkingAll = true;
@@ -39,17 +42,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('All notifications marked as read.'),
-        ),
+        const SnackBar(content: Text('All notifications marked as read.')),
       );
-    } catch (e) {
+    } catch (error) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceAll('Exception: ', '')),
-        ),
+        SnackBar(content: Text(error.toString().replaceAll('Exception: ', ''))),
       );
     } finally {
       if (mounted) {
@@ -70,14 +69,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           builder: (context, snapshot) {
             final isLoading =
                 snapshot.connectionState == ConnectionState.waiting;
+
             final docs = [...?snapshot.data?.docs];
 
-            docs.sort((a, b) {
-              final aDate = a.data()['createdAt'];
-              final bDate = b.data()['createdAt'];
+            docs.sort((first, second) {
+              final firstDate = first.data()['createdAt'];
+              final secondDate = second.data()['createdAt'];
 
-              if (aDate is Timestamp && bDate is Timestamp) {
-                return bDate.compareTo(aDate);
+              if (firstDate is Timestamp && secondDate is Timestamp) {
+                return secondDate.compareTo(firstDate);
               }
 
               return 0;
@@ -96,8 +96,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 _NotificationInboxHeader(
                   unreadCount: unreadCount,
                   isMarkingAll: isMarkingAll,
-                  onBack: () => Navigator.of(context).maybePop(),
-                  onMarkAll: () => _markAllAsRead(unreadCount),
+                  onBack: () {
+                    Navigator.of(context).maybePop();
+                  },
+                  onMarkAll: () {
+                    _markAllAsRead(unreadCount);
+                  },
                 ),
                 Expanded(
                   child: Container(
@@ -158,7 +162,8 @@ class _NotificationInboxHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final subtitle = unreadCount == 0
         ? "You're all caught up"
-        : '$unreadCount unread update${unreadCount == 1 ? '' : 's'}';
+        : '$unreadCount unread update'
+              '${unreadCount == 1 ? '' : 's'}';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(6, 10, 16, 22),
@@ -190,7 +195,7 @@ class _NotificationInboxHeader extends StatelessWidget {
                 Text(
                   subtitle,
                   style: TextStyle(
-                    color: Colors.white.withOpacity(0.82),
+                    color: Colors.white.withValues(alpha: 0.82),
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                   ),
@@ -202,14 +207,11 @@ class _NotificationInboxHeader extends StatelessWidget {
             onPressed: unreadCount == 0 || isMarkingAll ? null : onMarkAll,
             style: TextButton.styleFrom(
               foregroundColor: _primary,
-              disabledForegroundColor: Colors.white.withOpacity(0.55),
+              disabledForegroundColor: Colors.white.withValues(alpha: 0.55),
               backgroundColor: unreadCount == 0
-                  ? Colors.white.withOpacity(0.12)
+                  ? Colors.white.withValues(alpha: 0.12)
                   : Colors.white,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(999),
               ),
@@ -255,13 +257,17 @@ class _NotificationFilterBar extends StatelessWidget {
           _FilterPill(
             label: 'All',
             selected: !showUnreadOnly,
-            onTap: () => onChanged(false),
+            onTap: () {
+              onChanged(false);
+            },
           ),
           const SizedBox(width: 10),
           _FilterPill(
             label: unreadCount == 0 ? 'Unread' : 'Unread $unreadCount',
             selected: showUnreadOnly,
-            onTap: () => onChanged(true),
+            onTap: () {
+              onChanged(true);
+            },
           ),
         ],
       ),
@@ -341,7 +347,8 @@ class _NotificationBody extends StatelessWidget {
         title: showUnreadOnly ? 'No unread notifications' : 'No notifications',
         message: showUnreadOnly
             ? "You're all caught up for now."
-            : 'Booking updates, chat messages, and payment notices will appear here.',
+            : 'Booking updates, chat messages, '
+                  'and payment notices will appear here.',
       );
     }
 
@@ -396,7 +403,7 @@ class _NotificationLoadingList extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
       itemCount: 5,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
       itemBuilder: (context, index) {
         return Container(
           height: 104,
@@ -478,11 +485,7 @@ class _NotificationInfoState extends StatelessWidget {
                 color: const Color(0xFFFFF1EB),
                 borderRadius: BorderRadius.circular(28),
               ),
-              child: Icon(
-                icon,
-                size: 38,
-                color: _primary,
-              ),
+              child: Icon(icon, size: 38, color: _primary),
             ),
             const SizedBox(height: 18),
             Text(
@@ -523,17 +526,24 @@ class NotificationCard extends StatelessWidget {
     required this.repository,
   });
 
-  String get title => data['title'] ?? 'Notification';
-  String get message => data['message'] ?? '';
-  String get type => data['type'] ?? 'system';
-  bool get isRead => data['isRead'] ?? false;
+  String get title => data['title']?.toString() ?? 'Notification';
+
+  String get message => data['message']?.toString() ?? '';
+
+  String get type => data['type']?.toString() ?? NotificationType.system;
+
+  bool get isRead => data['isRead'] == true;
+
   Timestamp? get createdAt {
     final value = data['createdAt'];
+
     return value is Timestamp ? value : null;
   }
 
   IconData get icon => _notificationIcon(type);
+
   Color get color => _notificationColor(type);
+
   String get typeLabel => _notificationTypeLabel(type);
 
   Future<void> _markAsRead(BuildContext context) async {
@@ -541,15 +551,59 @@ class NotificationCard extends StatelessWidget {
 
     try {
       await repository.markNotificationAsRead(notificationId);
-    } catch (e) {
+    } catch (error) {
       if (!context.mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceAll('Exception: ', '')),
-        ),
+        SnackBar(content: Text(error.toString().replaceAll('Exception: ', ''))),
       );
     }
+  }
+
+  bool _isMainEventCollection(String? collectionName) {
+    return collectionName == FirestoreCollections.mainEvents ||
+        collectionName == FirestoreCollections.bookings;
+  }
+
+  String _resolveMainEventCollection(String? collectionName) {
+    if (collectionName == FirestoreCollections.bookings) {
+      return FirestoreCollections.bookings;
+    }
+
+    return FirestoreCollections.mainEvents;
+  }
+
+  Future<BookingModel?> _getBookingById({
+    required String bookingId,
+    String? preferredCollection,
+  }) async {
+    final collectionsToTry = <String>[];
+
+    if (preferredCollection != null &&
+        _isMainEventCollection(preferredCollection)) {
+      collectionsToTry.add(_resolveMainEventCollection(preferredCollection));
+    }
+
+    if (!collectionsToTry.contains(FirestoreCollections.mainEvents)) {
+      collectionsToTry.add(FirestoreCollections.mainEvents);
+    }
+
+    if (!collectionsToTry.contains(FirestoreCollections.bookings)) {
+      collectionsToTry.add(FirestoreCollections.bookings);
+    }
+
+    for (final collectionName in collectionsToTry) {
+      final bookingDoc = await FirebaseFirestore.instance
+          .collection(collectionName)
+          .doc(bookingId)
+          .get();
+
+      if (bookingDoc.exists) {
+        return BookingModel.fromDoc(bookingDoc);
+      }
+    }
+
+    return null;
   }
 
   Future<BookingModel?> _getBookingFromChatRoom(String chatRoomId) async {
@@ -558,23 +612,26 @@ class NotificationCard extends StatelessWidget {
         .doc(chatRoomId)
         .get();
 
-    if (!chatRoomDoc.exists) return null;
-
-    final data = chatRoomDoc.data();
-    final bookingId = data?['bookingId'];
-
-    if (bookingId == null || bookingId.toString().isEmpty) {
+    if (!chatRoomDoc.exists) {
       return null;
     }
 
-    final bookingDoc = await FirebaseFirestore.instance
-        .collection(FirestoreCollections.bookings)
-        .doc(bookingId)
-        .get();
+    final chatRoomData = chatRoomDoc.data();
 
-    if (!bookingDoc.exists) return null;
+    final bookingId =
+        chatRoomData?['mainEventId']?.toString() ??
+        chatRoomData?['bookingId']?.toString();
 
-    return BookingModel.fromDoc(bookingDoc);
+    if (bookingId == null || bookingId.isEmpty) {
+      return null;
+    }
+
+    final relatedCollection = chatRoomData?['relatedCollection']?.toString();
+
+    return _getBookingById(
+      bookingId: bookingId,
+      preferredCollection: relatedCollection,
+    );
   }
 
   Future<void> _openNotification(BuildContext context) async {
@@ -582,25 +639,35 @@ class NotificationCard extends StatelessWidget {
 
     if (!context.mounted) return;
 
-    final relatedId = data['relatedId']?.toString() ?? '';
-    final relatedCollection = data['relatedCollection']?.toString() ?? '';
+    final relatedCollection = data['relatedCollection']?.toString();
 
-    if (relatedId.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No related item found.')),
-      );
+    final relatedId = data['relatedId']?.toString();
+
+    if (relatedId == null || relatedId.isEmpty) {
       return;
     }
 
-    if (relatedCollection == FirestoreCollections.bookings) {
-      Navigator.push(
-        context,
+    if (_isMainEventCollection(relatedCollection)) {
+      final booking = await _getBookingById(
+        bookingId: relatedId,
+        preferredCollection: relatedCollection,
+      );
+
+      if (!context.mounted) return;
+
+      if (booking == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Booking details could not be found.')),
+        );
+        return;
+      }
+
+      Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => BookingDetailsScreen(
-            bookingId: relatedId,
-          ),
+          builder: (_) => BookingDetailsScreen(bookingId: booking.id),
         ),
       );
+
       return;
     }
 
@@ -616,8 +683,7 @@ class NotificationCard extends StatelessWidget {
         return;
       }
 
-      Navigator.push(
-        context,
+      Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => ChatScreen(
             booking: booking,
@@ -627,21 +693,29 @@ class NotificationCard extends StatelessWidget {
           ),
         ),
       );
+
       return;
     }
 
     if (relatedCollection == FirestoreCollections.addonRequests) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Add-on request details screen will be connected next.'),
+          content: Text(
+            'Add-on request details screen '
+            'will be connected next.',
+          ),
         ),
       );
+
       return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('This notification type is not connected yet.'),
+        content: Text(
+          'This notification type is not '
+          'connected yet.',
+        ),
       ),
     );
   }
@@ -655,14 +729,16 @@ class NotificationCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(22),
       child: InkWell(
         borderRadius: BorderRadius.circular(22),
-        onTap: () => _openNotification(context),
+        onTap: () {
+          _openNotification(context);
+        },
         child: Container(
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: isRead ? Colors.white : _softSurface,
             borderRadius: BorderRadius.circular(22),
             border: Border.all(
-              color: isRead ? _border : color.withOpacity(0.36),
+              color: isRead ? _border : color.withValues(alpha: 0.36),
             ),
             boxShadow: const [
               BoxShadow(
@@ -691,14 +767,10 @@ class NotificationCard extends StatelessWidget {
                           height: 48,
                           width: 48,
                           decoration: BoxDecoration(
-                            color: color.withOpacity(0.12),
+                            color: color.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(17),
                           ),
-                          child: Icon(
-                            icon,
-                            color: color,
-                            size: 25,
-                          ),
+                          child: Icon(icon, color: color, size: 25),
                         ),
                         const SizedBox(width: 13),
                         Expanded(
@@ -801,17 +873,14 @@ class _NotificationTypeChip extends StatelessWidget {
   final String label;
   final Color color;
 
-  const _NotificationTypeChip({
-    required this.label,
-    required this.color,
-  });
+  const _NotificationTypeChip({required this.label, required this.color});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.11),
+        color: color.withValues(alpha: 0.11),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
@@ -830,10 +899,7 @@ class _NotificationGroup {
   final String label;
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
 
-  const _NotificationGroup({
-    required this.label,
-    required this.docs,
-  });
+  const _NotificationGroup({required this.label, required this.docs});
 }
 
 List<_NotificationGroup> _groupNotifications(
@@ -843,6 +909,7 @@ List<_NotificationGroup> _groupNotifications(
 
   for (final doc in docs) {
     final createdAt = doc.data()['createdAt'];
+
     final label = createdAt is Timestamp
         ? _notificationSectionLabel(createdAt.toDate())
         : 'Earlier';
@@ -859,28 +926,52 @@ List<_NotificationGroup> _groupNotifications(
 
 String _notificationSectionLabel(DateTime date) {
   final now = DateTime.now();
+
   final today = DateTime(now.year, now.month, now.day);
+
   final target = DateTime(date.year, date.month, date.day);
+
   final dayDifference = today.difference(target).inDays;
 
-  if (dayDifference == 0) return 'Today';
-  if (dayDifference == 1) return 'Yesterday';
-  if (dayDifference < 7) return 'This week';
+  if (dayDifference == 0) {
+    return 'Today';
+  }
+
+  if (dayDifference == 1) {
+    return 'Yesterday';
+  }
+
+  if (dayDifference < 7) {
+    return 'This week';
+  }
 
   return '${_monthName(date.month)} ${date.year}';
 }
 
 String _relativeNotificationTime(Timestamp? timestamp) {
-  if (timestamp == null) return '';
+  if (timestamp == null) {
+    return '';
+  }
 
   final date = timestamp.toDate();
   final now = DateTime.now();
   final difference = now.difference(date);
 
-  if (difference.inMinutes < 1) return 'Now';
-  if (difference.inMinutes < 60) return '${difference.inMinutes}m';
-  if (difference.inHours < 24) return '${difference.inHours}h';
-  if (difference.inDays < 7) return '${difference.inDays}d';
+  if (difference.inMinutes < 1) {
+    return 'Now';
+  }
+
+  if (difference.inMinutes < 60) {
+    return '${difference.inMinutes}m';
+  }
+
+  if (difference.inHours < 24) {
+    return '${difference.inHours}h';
+  }
+
+  if (difference.inDays < 7) {
+    return '${difference.inDays}d';
+  }
 
   return '${date.month}/${date.day}/${date.year}';
 }
@@ -889,14 +980,19 @@ IconData _notificationIcon(String type) {
   switch (type) {
     case NotificationType.booking:
       return Icons.event_available_rounded;
+
     case NotificationType.payment:
       return Icons.account_balance_wallet_rounded;
+
     case NotificationType.chat:
       return Icons.chat_bubble_rounded;
+
     case NotificationType.review:
       return Icons.star_rounded;
+
     case NotificationType.verification:
       return Icons.verified_user_rounded;
+
     case NotificationType.system:
     default:
       return Icons.notifications_rounded;
@@ -907,14 +1003,19 @@ Color _notificationColor(String type) {
   switch (type) {
     case NotificationType.booking:
       return _primary;
+
     case NotificationType.payment:
       return const Color(0xFF16A34A);
+
     case NotificationType.chat:
       return const Color(0xFF2563EB);
+
     case NotificationType.review:
       return const Color(0xFFF59E0B);
+
     case NotificationType.verification:
       return const Color(0xFF7C3AED);
+
     case NotificationType.system:
     default:
       return const Color(0xFF6B7280);
@@ -925,14 +1026,19 @@ String _notificationTypeLabel(String type) {
   switch (type) {
     case NotificationType.booking:
       return 'Booking';
+
     case NotificationType.payment:
       return 'Payment';
+
     case NotificationType.chat:
       return 'Message';
+
     case NotificationType.review:
       return 'Review';
+
     case NotificationType.verification:
       return 'Account';
+
     case NotificationType.system:
     default:
       return 'Update';
@@ -955,6 +1061,9 @@ String _monthName(int month) {
     'Dec',
   ];
 
-  if (month < 1 || month > names.length) return 'Earlier';
+  if (month < 1 || month > names.length) {
+    return 'Earlier';
+  }
+
   return names[month - 1];
 }

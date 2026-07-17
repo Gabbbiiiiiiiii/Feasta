@@ -206,7 +206,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                             ),
                           ),
                         ),
-                        if (widget.provider.isVerified)
+                    if (widget.provider.isApproved)
                           const Icon(
                             Icons.verified,
                             color: Colors.green,

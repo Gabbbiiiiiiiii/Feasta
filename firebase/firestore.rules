@@ -2,8 +2,1154 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // ============================================================
+    // Authentication helpers
+    // ============================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function currentUserId() {
+      return request.auth.uid;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && currentUserId() == userId;
+    }
+
+    function currentUserExists() {
+      return isSignedIn() &&
+          exists(/databases/$(database)/documents/users/$(currentUserId()));
+    }
+
+    function currentUserData() {
+      return get(
+        /databases/$(database)/documents/users/$(currentUserId())
+      ).data;
+    }
+
+    function hasRole(role) {
+      return currentUserExists() &&
+          currentUserData().role == role;
+    }
+
+    function isCustomer() {
+      return hasRole('customer');
+    }
+
+    function isProviderUser() {
+      return hasRole('provider');
+    }
+
+    function isAdmin() {
+      return hasRole('admin') && isActiveAccount();
+    }
+
+    function isActiveAccount() {
+      return currentUserExists() &&
+          currentUserData().accountStatus == 'active' &&
+          currentUserData().isActive != false &&
+          currentUserData().isBlocked != true;
+    }
+
+    function isActiveSignedInUser() {
+      return isSignedIn() && isActiveAccount();
+    }
+
+    // ============================================================
+    // Field-change helpers
+    // ============================================================
+
+    function changedFields() {
+      return request.resource.data
+          .diff(resource.data)
+          .affectedKeys();
+    }
+
+    function changesOnly(fields) {
+      return changedFields().hasOnly(fields);
+    }
+
+    function changesNone(fields) {
+      return !changedFields().hasAny(fields);
+    }
+
+    function isNotDeleted(data) {
+      return !('isDeleted' in data) || data.isDeleted == false;
+    }
+
+    function validSoftDelete() {
+      return isActiveSignedInUser() &&
+          isNotDeleted(resource.data) &&
+          request.resource.data.isDeleted == true &&
+          request.resource.data.deletedAt == request.time &&
+          request.resource.data.deletedBy == currentUserId() &&
+          request.resource.data.deletionReason is string &&
+          request.resource.data.deletionReason.size() > 0;
+    }
+
+    function incomingUserData(userId) {
+      return getAfter(
+        /databases/$(database)/documents/users/$(userId)
+      ).data;
+    }
+
+    // ============================================================
+    // Provider ownership helpers
+    // ============================================================
+
+    function providerExists(providerId) {
+      return exists(
+        /databases/$(database)/documents/providers/$(providerId)
+      );
+    }
+
+    function providerData(providerId) {
+      return get(
+        /databases/$(database)/documents/providers/$(providerId)
+      ).data;
+    }
+
+    function ownsProvider(providerId) {
+      return isActiveSignedInUser() &&
+          providerExists(providerId) &&
+          providerData(providerId).ownerId == currentUserId();
+    }
+
+    function ownsProviderFromExistingDocument() {
+      return resource.data.providerId is string &&
+          ownsProvider(resource.data.providerId);
+    }
+
+    function ownsProviderFromIncomingDocument() {
+      return request.resource.data.providerId is string &&
+          ownsProvider(request.resource.data.providerId);
+    }
+
+    // ============================================================
+    // Main-event ownership helpers
+    // ============================================================
+
+    function mainEventExists(mainEventId) {
+      return exists(
+        /databases/$(database)/documents/mainEvents/$(mainEventId)
+      );
+    }
+
+    function mainEventData(mainEventId) {
+      return get(
+        /databases/$(database)/documents/mainEvents/$(mainEventId)
+      ).data;
+    }
+
+    function ownsMainEvent(mainEventId) {
+      return isActiveSignedInUser() &&
+          mainEventExists(mainEventId) &&
+          mainEventData(mainEventId).customerId == currentUserId();
+    }
+
+    function ownsExistingMainEvent() {
+      return resource.data.customerId == currentUserId();
+    }
+
+    // ============================================================
+    // Provider-request helpers
+    // ============================================================
+
+    function providerRequestExists(providerRequestId) {
+      return exists(
+        /databases/$(database)/documents/providerRequests/$(providerRequestId)
+      );
+    }
+
+    function providerRequestData(providerRequestId) {
+      return get(
+        /databases/$(database)/documents/providerRequests/$(providerRequestId)
+      ).data;
+    }
+
+    function ownsProviderRequestAsCustomer(providerRequestId) {
+      return isActiveSignedInUser() &&
+          providerRequestExists(providerRequestId) &&
+          providerRequestData(providerRequestId).customerId ==
+              currentUserId();
+    }
+
+    function ownsProviderRequestAsProvider(providerRequestId) {
+      return isActiveSignedInUser() &&
+          providerRequestExists(providerRequestId) &&
+          ownsProvider(
+            providerRequestData(providerRequestId).providerId
+          );
+    }
+
+    function canReadExistingProviderRequest() {
+      return isActiveSignedInUser() &&
+          (
+            resource.data.customerId == currentUserId() ||
+            ownsProvider(resource.data.providerId) ||
+            isAdmin()
+          );
+    }
+
+    // ============================================================
+    // Chat helpers
+    // ============================================================
+
+    function isChatParticipantFromData(chatData) {
+      return isActiveSignedInUser() &&
+          (
+            chatData.customerId == currentUserId() ||
+            chatData.providerOwnerId == currentUserId() ||
+            (
+              chatData.providerId is string &&
+              ownsProvider(chatData.providerId)
+            ) ||
+            isAdmin()
+          );
+    }
+
+    function isChatParticipant(chatRoomId) {
+      return exists(
+          /databases/$(database)/documents/chatRooms/$(chatRoomId)
+        ) &&
+        isChatParticipantFromData(
+          get(
+            /databases/$(database)/documents/chatRooms/$(chatRoomId)
+          ).data
+        );
+    }
+
+    // ============================================================
+    // users
+    // ============================================================
+
+    match /users/{userId} {
+      /*
+       * A client may bootstrap only its own profile when a trusted Auth token
+       * role claim fixes the role to customer or provider. Admin identities
+       * and later trusted-field changes remain server-only.
+       */
+      allow create: if isOwner(userId) &&
+          request.auth.token.role in ['customer', 'provider'] &&
+          request.resource.data.keys().hasAll([
+            'uid',
+            'role',
+            'accountStatus',
+            'providerId',
+            'isActive',
+            'isBlocked',
+            'isEmailVerified',
+            'isPhoneVerified',
+            'createdAt',
+            'updatedAt'
+          ]) &&
+          request.resource.data.keys().hasOnly([
+            'uid',
+            'firstName',
+            'lastName',
+            'email',
+            'phoneNumber',
+            'role',
+            'accountStatus',
+            'providerId',
+            'profileImageUrl',
+            'isActive',
+            'isBlocked',
+            'isEmailVerified',
+            'isPhoneVerified',
+            'authProvider',
+            'createdAt',
+            'updatedAt',
+            'lastLoginAt'
+          ]) &&
+          request.resource.data.uid == userId &&
+          request.resource.data.role == request.auth.token.role &&
+          request.resource.data.accountStatus == 'active' &&
+          request.resource.data.providerId == null &&
+          request.resource.data.isActive == true &&
+          request.resource.data.isBlocked == false &&
+          request.resource.data.isEmailVerified ==
+              (request.auth.token.email_verified == true) &&
+          request.resource.data.isPhoneVerified == false;
+
+      allow read: if isOwner(userId) || isAdmin();
+
+      allow update: if (
+          isOwner(userId) &&
+          changesNone([
+            'role',
+            'uid',
+            'email',
+            'accountStatus',
+            'isActive',
+            'isBlocked',
+            'isEmailVerified',
+            'isPhoneVerified',
+            'providerId',
+            'authProvider',
+            'createdAt'
+          ])
+        ) || (
+          isAdmin() &&
+          changesOnly([
+            'accountStatus',
+            'isActive',
+            'isBlocked',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if false;
+    }
+
+    // ============================================================
+    // customers
+    // ============================================================
+
+    match /customers/{customerId} {
+      allow create: if isOwner(customerId) &&
+          request.resource.data.userId == customerId &&
+          incomingUserData(customerId).uid == customerId &&
+          incomingUserData(customerId).role == 'customer' &&
+          incomingUserData(customerId).accountStatus == 'active' &&
+          incomingUserData(customerId).isBlocked == false;
+
+      allow read: if isOwner(customerId) || isAdmin();
+
+      allow update: if (
+          isOwner(customerId) &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.email == resource.data.email &&
+          request.resource.data.createdAt == resource.data.createdAt
+        ) || (
+          isAdmin() &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.createdAt == resource.data.createdAt
+        );
+
+      allow delete: if false;
+    }
+
+    // ============================================================
+    // providers
+    // ============================================================
+
+    match /providers/{providerId} {
+      allow read: if (
+          resource.data.verificationStatus == 'approved' &&
+          resource.data.isActive == true &&
+          resource.data.isSuspended != true &&
+          isNotDeleted(resource.data)
+        ) ||
+        ownsProvider(providerId) ||
+        isAdmin();
+
+      allow create: if false;
+
+      allow update: if (
+          ownsProvider(providerId) &&
+          validSoftDelete() &&
+          request.resource.data.isActive == false &&
+          changesOnly([
+            'isDeleted',
+            'deletedAt',
+            'deletedBy',
+            'deletionReason',
+            'isActive',
+            'updatedAt'
+          ])
+        ) || (
+          ownsProvider(providerId) &&
+          request.resource.data.ownerId == resource.data.ownerId &&
+          changesNone([
+            'ownerId',
+            'verificationStatus',
+            'isActive',
+            'isFeatured',
+            'isSuspended',
+            'suspendedAt',
+            'suspendedBy',
+            'searchTokens',
+            'isDeleted',
+            'deletedAt',
+            'deletedBy',
+            'deletionReason',
+            'createdAt'
+          ])
+        ) || (
+          isAdmin() &&
+          changesNone([
+            'ownerId',
+            'verificationStatus',
+            'isActive',
+            'isFeatured',
+            'isSuspended',
+            'suspendedAt',
+            'suspendedBy',
+            'searchTokens',
+            'isDeleted',
+            'deletedAt',
+            'deletedBy',
+            'deletionReason',
+            'createdAt'
+          ])
+        );
+
+      allow delete: if false;
+    }
+
+    // ============================================================
+    // providerVerifications
+    // ============================================================
+
+    match /providerVerifications/{verificationId} {
+      function ownsVerification() {
+        return resource.data.providerId is string &&
+            ownsProvider(resource.data.providerId);
+      }
+
+      allow create: if false;
+
+      allow read: if ownsVerification() || isAdmin();
+
+      // Verification state and metadata are mutated only by trusted callables.
+      allow update: if false;
+
+      allow delete: if false;
+
+      match /documents/{documentId} {
+        allow read: if isAdmin() ||
+            (
+              isActiveSignedInUser() &&
+              ownsProvider(
+                get(
+                  /databases/$(database)/documents/providerVerifications/$(verificationId)
+                ).data.providerId
+              )
+            );
+
+        // Storage is uploaded by the owner, then metadata is registered by a
+        // callable after the object and its actual metadata are verified.
+        allow create, update: if false;
+
+        allow delete: if false;
+      }
+    }
+
+    // ============================================================
+    // Provider-owned catalog
+    // ============================================================
+
+    match /packages/{packageId} {
+      allow read: if (
+          isNotDeleted(resource.data) &&
+          (resource.data.status == 'active' ||
+            resource.data.isActive == true)
+        ) ||
+          ownsProviderFromExistingDocument() ||
+          isAdmin();
+
+      allow create: if isProviderUser() &&
+          ownsProviderFromIncomingDocument() &&
+          isNotDeleted(request.resource.data);
+
+      allow update: if (
+          ownsProviderFromExistingDocument() &&
+          request.resource.data.providerId ==
+              resource.data.providerId &&
+          request.resource.data.createdAt ==
+              resource.data.createdAt &&
+          (
+            !changedFields().hasAny([
+              'isDeleted', 'deletedAt', 'deletedBy', 'deletionReason'
+            ]) || validSoftDelete()
+          )
+        ) || isAdmin();
+
+      allow delete: if false;
+    }
+
+    match /menuItems/{menuItemId} {
+      allow read: if resource.data.isActive == true ||
+          ownsProviderFromExistingDocument() ||
+          isAdmin();
+
+      allow create: if isProviderUser() &&
+          ownsProviderFromIncomingDocument() &&
+          isNotDeleted(request.resource.data);
+
+      allow update: if (
+          ownsProviderFromExistingDocument() &&
+          request.resource.data.providerId ==
+              resource.data.providerId &&
+          request.resource.data.createdAt ==
+              resource.data.createdAt &&
+          (
+            !changedFields().hasAny([
+              'isDeleted', 'deletedAt', 'deletedBy', 'deletionReason'
+            ]) || validSoftDelete()
+          )
+        ) || isAdmin();
+
+      allow delete: if false;
+    }
+
+    match /addons/{addonId} {
+      allow read: if (
+          resource.data.isActive == true &&
+          resource.data.isAvailable == true &&
+          isNotDeleted(resource.data)
+        ) ||
+        ownsProviderFromExistingDocument() ||
+        isAdmin();
+
+      allow create: if isProviderUser() &&
+          ownsProviderFromIncomingDocument() &&
+          isNotDeleted(request.resource.data);
+
+      allow update: if (
+          ownsProviderFromExistingDocument() &&
+          request.resource.data.providerId ==
+              resource.data.providerId &&
+          request.resource.data.createdAt ==
+              resource.data.createdAt &&
+          (
+            !changedFields().hasAny([
+              'isDeleted', 'deletedAt', 'deletedBy', 'deletionReason'
+            ]) || validSoftDelete()
+          )
+        ) || isAdmin();
+
+      allow delete: if false;
+    }
+
+    // ============================================================
+    // mainEvents
+    // ============================================================
+
+    match /mainEvents/{mainEventId} {
+      allow create: if isActiveSignedInUser() &&
+          isCustomer() &&
+          isNotDeleted(request.resource.data) &&
+          request.resource.data.customerId ==
+              currentUserId() &&
+          request.resource.data.status in [
+            'draft',
+            'pending_provider_approval'
+          ];
+
+      allow read: if (
+          isActiveSignedInUser() &&
+          resource.data.customerId == currentUserId()
+        ) || (
+          isAdmin() &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.createdAt == resource.data.createdAt
+        );
+
+      /*
+       * During the canonical architecture, customers may edit event
+       * information but may not directly mutate aggregate lifecycle,
+       * payment, ownership, or audit fields.
+       */
+      allow update: if (
+          isActiveSignedInUser() &&
+          resource.data.customerId == currentUserId() &&
+          request.resource.data.customerId ==
+              resource.data.customerId &&
+          changesNone([
+            'customerId',
+            'status',
+            'requiredProviderRequestCount',
+            'confirmedRequiredProviderRequestCount',
+            'completedRequiredProviderRequestCount',
+            'needsProviderReplacement',
+            'confirmedAt',
+            'startedAt',
+            'completedAt',
+            'expiredAt',
+            'statusUpdatedAt',
+            'createdAt'
+          ])
+        ) || (
+          isAdmin() &&
+          changesNone([
+            'customerId',
+            'status',
+            'requiredProviderRequestCount',
+            'confirmedRequiredProviderRequestCount',
+            'completedRequiredProviderRequestCount',
+            'needsProviderReplacement',
+            'confirmedAt',
+            'startedAt',
+            'completedAt',
+            'expiredAt',
+            'statusUpdatedAt',
+            'createdAt'
+          ])
+        );
+
+      allow delete: if false;
+
+      match /timeline/{timelineId} {
+        allow read: if ownsMainEvent(mainEventId) ||
+            isAdmin();
+
+        // Canonical timeline entries are backend-controlled.
+        allow create, update, delete: if false;
+      }
+
+      match /statusHistory/{historyId} {
+        allow read: if ownsMainEvent(mainEventId) ||
+            isAdmin();
+
+        allow create, update, delete: if false;
+      }
+    }
+
+    // ============================================================
+    // providerRequests
+    // ============================================================
+
+    match /providerRequests/{providerRequestId} {
+      allow create: if isActiveSignedInUser() &&
+          isCustomer() &&
+          request.resource.data.customerId ==
+              currentUserId() &&
+          request.resource.data.mainEventId is string &&
+          ownsMainEvent(request.resource.data.mainEventId) &&
+          request.resource.data.status == 'pending';
+
+      allow read: if canReadExistingProviderRequest();
+
+      // Provider-request lifecycle changes are backend-controlled.
+      allow update: if (
+          ownsProvider(resource.data.providerId) &&
+          request.resource.data.providerId ==
+              resource.data.providerId &&
+          request.resource.data.customerId ==
+              resource.data.customerId &&
+          request.resource.data.mainEventId ==
+              resource.data.mainEventId &&
+          changesNone([
+            'status',
+            'acceptedAt',
+            'rejectedAt',
+            'rejectedReason',
+            'startedAt',
+            'completedAt',
+            'cancelledAt',
+            'statusUpdatedAt',
+            'createdAt'
+          ])
+        ) || (
+          isAdmin() &&
+          changesNone([
+            'status',
+            'acceptedAt',
+            'rejectedAt',
+            'rejectedReason',
+            'startedAt',
+            'completedAt',
+            'cancelledAt',
+            'statusUpdatedAt',
+            'createdAt'
+          ])
+        );
+
+      allow delete: if false;
+
+      match /statusHistory/{historyId} {
+        allow read: if (
+            ownsProviderRequestAsCustomer(providerRequestId) ||
+            ownsProviderRequestAsProvider(providerRequestId) ||
+            isAdmin()
+          );
+
+        allow create, update, delete: if false;
+      }
+    }
+
+    // ============================================================
+    // payments
+    // ============================================================
+
+    match /payments/{paymentId} {
+      allow read: if isActiveSignedInUser() &&
+          (
+            resource.data.customerId == currentUserId() ||
+            (
+              resource.data.providerId is string &&
+              ownsProvider(resource.data.providerId)
+            ) ||
+            isAdmin()
+          );
+
+      /*
+       * Canonical payment creation and all status mutations must be
+       * performed by trusted backend code using the Admin SDK.
+       */
+      allow create, update, delete: if false;
+
+      match /events/{eventId} {
+        allow read: if isAdmin() ||
+            (
+              isActiveSignedInUser() &&
+              get(
+                /databases/$(database)/documents/payments/$(paymentId)
+              ).data.customerId == currentUserId()
+            );
+
+        allow create, update, delete: if false;
+      }
+    }
+
+    // ============================================================
+    // chatRooms and messages
+    // ============================================================
+
+    match /chatRooms/{chatRoomId} {
+      allow create: if isActiveSignedInUser() &&
+          isChatParticipantFromData(
+            request.resource.data
+          );
+
+      allow read: if isChatParticipantFromData(
+        resource.data
+      );
+
+      allow update: if isChatParticipantFromData(
+          resource.data
+        ) &&
+        request.resource.data.customerId ==
+            resource.data.customerId &&
+        request.resource.data.providerId ==
+            resource.data.providerId &&
+        changesOnly([
+          'lastMessage',
+          'lastMessageAt',
+          'lastMessageSenderId',
+          'unreadCountCustomer',
+          'unreadCountProvider',
+          'isActive',
+          'updatedAt'
+        ]);
+
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isChatParticipant(chatRoomId);
+
+        allow create: if isChatParticipant(chatRoomId) &&
+            request.resource.data.senderId ==
+                currentUserId();
+
+        allow update, delete: if false;
+      }
+    }
+
+    // ============================================================
+    // reviews
+    // ============================================================
+
+    match /reviews/{reviewId} {
+      allow read: if (
+          isNotDeleted(resource.data) &&
+          (resource.data.moderationStatus == 'published' ||
+            resource.data.isVisible == true)
+        ) ||
+          resource.data.customerId ==
+              currentUserId() ||
+          (
+            resource.data.providerId is string &&
+            ownsProvider(resource.data.providerId)
+          ) ||
+          isAdmin();
+
+      // Review creation is rate-limited and idempotent in submitReview.
+      allow create: if false;
+
+      allow update: if (
+          resource.data.customerId == currentUserId() &&
+          validSoftDelete() &&
+          changesOnly([
+            'isDeleted',
+            'deletedAt',
+            'deletedBy',
+            'deletionReason',
+            'isVisible',
+            'updatedAt'
+          ]) &&
+          request.resource.data.isVisible == false
+        ) || (
+          resource.data.customerId ==
+              currentUserId() &&
+          changesOnly([
+            'rating',
+            'comment',
+            'updatedAt'
+          ])
+        ) ||
+        (
+          resource.data.providerId is string &&
+          ownsProvider(resource.data.providerId) &&
+          changesOnly([
+            'providerReply',
+            'providerReplyAt',
+            'updatedAt'
+          ])
+        ) ||
+        isAdmin();
+
+      allow delete: if false;
+    }
+
+    // ============================================================
+    // favorites
+    // ============================================================
+
+    match /favorites/{favoriteId} {
+      allow create: if isActiveSignedInUser() &&
+          request.resource.data.customerId ==
+              currentUserId();
+
+      allow read: if isActiveSignedInUser() &&
+          resource.data.customerId ==
+              currentUserId();
+
+      allow update: if false;
+
+      allow delete: if isActiveSignedInUser() &&
+          resource.data.customerId ==
+              currentUserId();
+    }
+
+    // ============================================================
+    // notifications
+    // ============================================================
+
+    match /notifications/{notificationId} {
+      allow read: if isActiveSignedInUser() &&
+          resource.data.userId == currentUserId();
+
+      allow update: if isActiveSignedInUser() &&
+          resource.data.userId == currentUserId() &&
+          request.resource.data.userId ==
+              resource.data.userId &&
+          changesOnly([
+            'isRead',
+            'readAt'
+          ]);
+
+      /*
+       * Temporary compatibility: current Flutter booking workflows create
+       * notifications for their counterpart. New trusted workflows use
+       * Cloud Functions. Remove this create rule with the client migration.
+       */
+      allow create: if isActiveSignedInUser() &&
+          request.resource.data.userId is string &&
+          request.resource.data.isRead == false;
+
+      allow delete: if false;
+    }
+
+    // ============================================================
+    // complaints
+    // ============================================================
+
+    match /complaints/{complaintId} {
+      // Complaint creation is rate-limited and idempotent in createComplaint.
+      allow create: if false;
+
+      allow read: if (
+          isActiveSignedInUser() &&
+          resource.data.userId ==
+              currentUserId()
+        ) ||
+        (
+          resource.data.providerId is string &&
+          ownsProvider(resource.data.providerId)
+        ) ||
+        isAdmin();
+
+      allow update: if (
+          isActiveSignedInUser() &&
+          resource.data.userId ==
+              currentUserId() &&
+          changesOnly([
+            'description',
+            'evidenceUrls',
+            'updatedAt'
+          ])
+        ) || (
+          isAdmin() &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.createdAt == resource.data.createdAt &&
+          changesOnly([
+            'status',
+            'resolution',
+            'resolvedAt',
+            'resolvedBy',
+            'updatedAt'
+          ])
+        ) || (
+          resource.data.userId == currentUserId() &&
+          resource.data.status == 'submitted' &&
+          validSoftDelete() &&
+          changesOnly([
+            'isDeleted',
+            'deletedAt',
+            'deletedBy',
+            'deletionReason',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if false;
+    }
+
+    // ============================================================
+    // reports
+    // ============================================================
+
+    match /reports/{reportId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // ============================================================
+    // adminLogs
+    // ============================================================
+
+    match /adminLogs/{logId} {
+      allow read: if isAdmin();
+
+      // Admin SDK bypasses Firestore client security rules.
+      allow create, update, delete: if false;
+    }
+
+    // Server-only abuse-control state. Admin SDK bypasses these rules.
+    match /rateLimits/{limitId} {
+      allow read, write: if false;
+    }
+
+    match /idempotencyKeys/{keyId} {
+      allow read, write: if false;
+    }
+
+    // ============================================================
+    // announcements
+    // ============================================================
+
+    match /announcements/{announcementId} {
+      allow read: if (
+          resource.data.status == 'published' &&
+          isNotDeleted(resource.data) &&
+          (
+            resource.data.audience == 'everyone' ||
+            (
+              isSignedIn() &&
+              (
+                resource.data.audience ==
+                  currentUserData().role + 's'
+              )
+            )
+          )
+        ) || isAdmin();
+
+      allow create: if isAdmin() && isNotDeleted(request.resource.data);
+      allow update: if isAdmin() &&
+          (
+            !changedFields().hasAny([
+              'isDeleted', 'deletedAt', 'deletedBy', 'deletionReason'
+            ]) || validSoftDelete()
+          );
+      allow delete: if false;
+    }
+
+    // ============================================================
+    // bookingRecoveryOffers
+    // ============================================================
+
+    match /bookingRecoveryOffers/{offerId} {
+      allow create: if isActiveSignedInUser() &&
+          isProviderUser() &&
+          request.resource.data.offeringProviderId
+              is string &&
+          ownsProvider(
+            request.resource.data.offeringProviderId
+          );
+
+      allow read: if isActiveSignedInUser() &&
+          (
+            resource.data.customerId ==
+                currentUserId() ||
+            ownsProvider(
+              resource.data.offeringProviderId
+            ) ||
+            isAdmin()
+          );
+
+      allow update: if (
+          ownsProvider(
+            resource.data.offeringProviderId
+          ) &&
+          changesOnly([
+            'status',
+            'withdrawnAt',
+            'updatedAt'
+          ])
+        ) ||
+        (
+          resource.data.customerId ==
+              currentUserId() &&
+          changesOnly([
+            'status',
+            'selectedAt',
+            'updatedAt'
+          ])
+        ) ||
+        isAdmin();
+
+      allow delete: if false;
+    }
+
+    // ============================================================
+    // appSettings
+    // ============================================================
+
+    match /appSettings/{settingId} {
+      allow read: if resource.data.isPublic == true ||
+          isAdmin();
+
+      allow create, update: if isAdmin();
+      allow delete: if false;
+    }
+
+    // ============================================================
+    // Temporary legacy collections
+    // ============================================================
+
+    /*
+     * These rules exist only while the current Flutter implementation
+     * is being migrated. Do not use these collections for new web or
+     * Cloud Function workflows.
+     */
+
+    match /bookings/{bookingId} {
+      allow read: if isActiveSignedInUser() &&
+          (
+            resource.data.customerId ==
+                currentUserId() ||
+            (
+              resource.data.providerId is string &&
+              ownsProvider(resource.data.providerId)
+            ) ||
+            isAdmin()
+          );
+
+      allow create: if isActiveSignedInUser() &&
+          isCustomer() &&
+          request.resource.data.customerId ==
+              currentUserId();
+
+      allow update: if isActiveSignedInUser() &&
+          (
+            resource.data.customerId ==
+                currentUserId() ||
+            (
+              resource.data.providerId is string &&
+              ownsProvider(resource.data.providerId)
+            ) ||
+            isAdmin()
+          ) &&
+          request.resource.data.customerId == resource.data.customerId &&
+          request.resource.data.providerId == resource.data.providerId &&
+          changesNone([
+            'customerId',
+            'providerId',
+            'providerIds',
+            'status',
+            'paymentStatus',
+            'paidAmount',
+            'totalAmount',
+            'confirmedAt',
+            'startedAt',
+            'completedAt',
+            'cancelledAt',
+            'statusUpdatedAt',
+            'createdAt'
+          ]);
+
+      allow delete: if false;
+    }
+
+    match /addonRequests/{requestId} {
+      allow read: if isActiveSignedInUser() &&
+          (
+            resource.data.customerId ==
+                currentUserId() ||
+            (
+              resource.data.addonProviderId
+                  is string &&
+              ownsProvider(
+                resource.data.addonProviderId
+              )
+            ) ||
+            isAdmin()
+          );
+
+      allow create: if isActiveSignedInUser() &&
+          request.resource.data.customerId ==
+              currentUserId();
+
+      allow update: if isActiveSignedInUser() &&
+          (
+            resource.data.customerId ==
+                currentUserId() ||
+            (
+              resource.data.addonProviderId
+                  is string &&
+              ownsProvider(
+                resource.data.addonProviderId
+              )
+            ) ||
+            isAdmin()
+          );
+
+      allow delete: if false;
+    }
+
+    match /bookingTimelines/{timelineId} {
+      allow read: if isActiveSignedInUser();
+
+      // Temporary compatibility for the current Flutter application.
+      allow create: if isActiveSignedInUser();
+
+      allow update, delete: if false;
+    }
+
+    /*
+     * Legacy top-level messages are denied. Current chat messages
+     * already use chatRooms/{chatRoomId}/messages/{messageId}.
+     */
+    match /messages/{messageId} {
+      allow read, write: if false;
+    }
+
+    match /bookingProviderRequests/{requestId} {
+      allow read, write: if false;
+    }
+
+    // ============================================================
+    // Default deny
+    // ============================================================
+
     match /{document=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

@@ -1,4 +1,5 @@
 import {initializeApp} from "firebase-admin/app";
+import "./shared/firebase-admin.js";
 import {
   getMessaging,
   type Message,
@@ -7,6 +8,49 @@ import * as logger from "firebase-functions/logger";
 import {defineSecret} from "firebase-functions/params";
 import {onDocumentWritten} from "firebase-functions/v2/firestore";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
+import {
+  enforceCallableRateLimit,
+  enforceRateLimit,
+} from "./shared/rate-limit.js";
+import {
+  createIdempotencyKey,
+  executeIdempotently,
+} from "./shared/idempotency.js";
+export {
+  ensureUserProfile,
+} from "./auth/ensure-user-profile.js";
+
+export {
+  syncUserAuthState,
+} from "./auth/sync-user-auth-state.js";
+
+export {
+  ensureProviderIdentity,
+} from "./auth/ensure-provider-identity.js";
+
+export {
+  healthCheck,
+} from "./system/health-check.js";
+
+export {
+  registerProvider,
+} from "./providers/register-provider.js";
+export {
+  submitProviderVerification,
+} from "./verification/submit-provider-verification.js";
+
+export {
+  reviewProviderVerification,
+} from "./verification/review-provider-verification.js";
+
+export {
+  registerVerificationDocument,
+} from "./verification/register-verification-document.js";
+
+export {submitReview} from "./content/submit-review.js";
+export {createComplaint} from "./content/create-complaint.js";
+
+
 
 initializeApp();
 
@@ -105,6 +149,11 @@ const callableOptions = {
 
 export const searchPlaces = onCall(callableOptions, async (request) => {
   try {
+    await enforceCallableRateLimit(request, {
+      scope: "maps.searchPlaces",
+      limit: 30,
+      windowSeconds: 60,
+    });
     const data = asRecord(request.data);
     const query = requireString(data, "query", 2, 120);
     const apiKey = getGoogleMapsApiKey();
@@ -169,6 +218,11 @@ export const searchPlaces = onCall(callableOptions, async (request) => {
 
 export const reverseGeocode = onCall(callableOptions, async (request) => {
   try {
+    await enforceCallableRateLimit(request, {
+      scope: "maps.reverseGeocode",
+      limit: 30,
+      windowSeconds: 60,
+    });
     const data = asRecord(request.data);
     const latitude = requireCoordinate(data, "latitude", -90, 90);
     const longitude = requireCoordinate(data, "longitude", -180, 180);
@@ -222,6 +276,11 @@ export const reverseGeocode = onCall(callableOptions, async (request) => {
 
 export const getPlaceDetails = onCall(callableOptions, async (request) => {
   try {
+    await enforceCallableRateLimit(request, {
+      scope: "maps.getPlaceDetails",
+      limit: 30,
+      windowSeconds: 60,
+    });
     const data = asRecord(request.data);
     const placeId = requireString(data, "placeId", 4, 220);
     const apiKey = getGoogleMapsApiKey();
@@ -266,6 +325,11 @@ export const getPlaceDetails = onCall(callableOptions, async (request) => {
 
 export const getDirections = onCall(callableOptions, async (request) => {
   try {
+    await enforceCallableRateLimit(request, {
+      scope: "maps.getDirections",
+      limit: 20,
+      windowSeconds: 60,
+    });
     const data = asRecord(request.data);
     const originLat = requireCoordinate(data, "originLat", -90, 90);
     const originLng = requireCoordinate(data, "originLng", -180, 180);
@@ -547,6 +611,43 @@ async function sendTopicNotification(
   }
 }
 
+async function sendIdempotentTopicNotification(input: {
+  eventId: string;
+  promoId: string;
+  topic: string;
+  title: string;
+  body: string;
+  data: Record<string, string>;
+}): Promise<void> {
+  const operation = `promotionNotification:${input.data.notificationType}`;
+  const key = createIdempotencyKey({
+    operation,
+    actorId: "system",
+    clientKey: input.eventId,
+  });
+
+  await executeIdempotently({
+    key,
+    operation,
+    actorId: "system",
+    handler: async () => {
+      await enforceRateLimit({
+        scope: "notifications.promotionFanout",
+        subject: `promotion:${input.promoId}`,
+        limit: 6,
+        windowSeconds: 60 * 60,
+      });
+      const messageId = await sendTopicNotification(
+        input.topic,
+        input.title,
+        input.body,
+        input.data,
+      );
+      return {messageId};
+    },
+  });
+}
+
 const promotionsCollection = "promotions";
 
 export const onPromotionWrite = onDocumentWritten(
@@ -608,15 +709,17 @@ export const onPromotionWrite = onDocumentWritten(
           "A new promotion is now active.",
         );
 
-        await sendTopicNotification(
-          "promotions",
+        await sendIdempotentTopicNotification({
+          eventId: event.id,
+          promoId,
+          topic: "promotions",
           title,
           body,
-          {
+          data: {
             promotionId: promoId,
             notificationType: "promotion_activated",
           },
-        );
+        });
       }
 
       /*
@@ -640,16 +743,18 @@ export const onPromotionWrite = onDocumentWritten(
           "A featured provider promotion has been updated.",
         );
 
-        await sendTopicNotification(
-          "featured_provider",
-          "Featured Provider Updated",
+        await sendIdempotentTopicNotification({
+          eventId: event.id,
+          promoId,
+          topic: "featured_provider",
+          title: "Featured Provider Updated",
           body,
-          {
+          data: {
             promotionId: promoId,
             providerId: afterProviderId,
             notificationType: "featured_provider_updated",
           },
-        );
+        });
       }
 
       /*
@@ -677,15 +782,17 @@ export const onPromotionWrite = onDocumentWritten(
           "A birthday promotion is now live.",
         );
 
-        await sendTopicNotification(
-          "birthday_promotions",
+        await sendIdempotentTopicNotification({
+          eventId: event.id,
+          promoId,
+          topic: "birthday_promotions",
           title,
           body,
-          {
+          data: {
             promotionId: promoId,
             notificationType: "birthday_promotion_started",
           },
-        );
+        });
       }
     } catch (error) {
       logger.error("onPromotionWrite handler failed", {

@@ -1,20 +1,23 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../../../core/constants/firestore_collections.dart';
 import '../../../../core/constants/status_constants.dart';
+import '../services/registration_rollback.dart';
 
 class AuthRepository {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: 'asia-southeast1',
+  );
 
   User? get currentUser => _auth.currentUser;
 
-  Stream<User?> authStateChanges() {
-    return _auth.authStateChanges();
-  }
+  Stream<User?> authStateChanges() => _auth.authStateChanges();
 
   Future<void> registerCustomer({
     required String firstName,
@@ -23,68 +26,59 @@ class AuthRepository {
     required String phoneNumber,
     required String password,
   }) async {
-    final credential = await _auth.createUserWithEmailAndPassword(
-      email: email.trim(),
-      password: password.trim(),
-    );
+    final normalizedEmail = email.trim().toLowerCase();
 
-    final user = credential.user;
+    try {
+      final createdUser = await createIdentityAndProfile<User>(
+        createIdentity: () async {
+          final credential = await _auth.createUserWithEmailAndPassword(
+            email: normalizedEmail,
+            password: password,
+          );
+          final user = credential.user;
+          if (user == null) {
+            throw StateError(
+              'Firebase Authentication did not return a user.',
+            );
+          }
+          return user;
+        },
+        createProfile: (_) => _ensureCustomerProfile(
+          firstName: firstName,
+          lastName: lastName,
+          phoneNumber: phoneNumber,
+        ),
+        rollbackIdentity: (user) => user.delete(),
+        onProfileError: (error, stackTrace) {
+          debugPrint('Customer profile creation failed: $error');
+          debugPrintStack(stackTrace: stackTrace);
+        },
+        onRollbackError: (rollbackError, rollbackStackTrace) {
+          debugPrint('Auth rollback failed: $rollbackError');
+          debugPrintStack(stackTrace: rollbackStackTrace);
+        },
+      );
 
-    if (user == null) {
-      throw Exception('Failed to create customer account.');
+      // A mail delivery failure does not roll back a fully-created account.
+      await createdUser.sendEmailVerification();
+    } catch (error, stackTrace) {
+      debugPrint('Customer registration failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      rethrow;
     }
+  }
 
-    final uid = user.uid;
-    final now = FieldValue.serverTimestamp();
+  Future<bool> refreshEmailVerificationStatus() async {
+    final user = _auth.currentUser;
+    if (user == null) return false;
 
-    final batch = _db.batch();
+    await user.reload();
+    final refreshedUser = _auth.currentUser;
+    if (refreshedUser == null) return false;
 
-    final userRef = _db.collection(FirestoreCollections.users).doc(uid);
-    final customerRef = _db.collection(FirestoreCollections.customers).doc(uid);
-
-    batch.set(userRef, {
-      'uid': uid,
-      'firstName': firstName.trim(),
-      'lastName': lastName.trim(),
-      'email': email.trim(),
-      'phoneNumber': phoneNumber.trim(),
-      'role': UserRoles.customer,
-      'profileImageUrl': null,
-      'isEmailVerified': user.emailVerified,
-      'isPhoneVerified': false,
-      'isActive': true,
-      'isBlocked': false,
-      'createdAt': now,
-      'updatedAt': now,
-      'lastLoginAt': now,
-    });
-
-    batch.set(customerRef, {
-      'userId': uid,
-      'firstName': firstName.trim(),
-      'lastName': lastName.trim(),
-      'email': email.trim(),
-      'phoneNumber': phoneNumber.trim(),
-      'address': '',
-      'city': 'Ormoc City',
-      'province': 'Leyte',
-      'profileImageUrl': null,
-      'totalBookings': 0,
-      'completedBookings': 0,
-      'cancelledBookings': 0,
-      'isActive': true,
-      'createdAt': now,
-      'updatedAt': now,
-    });
-
-    await batch.commit();
-
-    await user.sendEmailVerification();
-
-    await userRef.update({
-      'isEmailVerified': false,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    // Synchronize trusted profile metadata through Admin SDK code.
+    await _syncUserAuthState();
+    return refreshedUser.emailVerified;
   }
 
   Future<void> registerProvider({
@@ -105,158 +99,101 @@ class AuthRepository {
     required String providerServiceType,
     required String providerCategory,
   }) async {
-    final credential = await _auth.createUserWithEmailAndPassword(
-      email: email.trim(),
-      password: password.trim(),
-    );
+    User? createdUser;
 
-    final user = credential.user;
+    try {
+      final credential = await _auth.createUserWithEmailAndPassword(
+        email: email.trim().toLowerCase(),
+        password: password,
+      );
+      createdUser = credential.user;
 
-    if (user == null) {
-      throw Exception('Failed to create provider account.');
+      if (createdUser == null) {
+        throw StateError('Firebase Authentication did not return a user.');
+      }
+
+      final ensureIdentity = _functions.httpsCallable(
+        'ensureProviderIdentity',
+      );
+      await ensureIdentity.call(<String, dynamic>{
+        'firstName': firstName.trim(),
+        'lastName': lastName.trim(),
+        'phoneNumber': phoneNumber.trim(),
+      });
+
+      final callable = _functions.httpsCallable('registerProvider');
+      await callable.call(<String, dynamic>{
+        'ownerFirstName': firstName.trim(),
+        'ownerLastName': lastName.trim(),
+        'businessName': businessName.trim(),
+        'businessPhone': businessPhone.trim(),
+        'businessEmail': businessEmail.trim().toLowerCase(),
+        'address': businessAddress.trim(),
+        'city': city.trim(),
+        'province': province.trim(),
+        'description': description.trim(),
+        'serviceAreas': serviceAreas,
+        'eventTypesSupported': eventTypesSupported,
+        'providerServiceType': providerServiceType,
+        'providerCategory': providerCategory,
+      });
+
+      await createdUser.sendEmailVerification();
+    } catch (error) {
+      if (createdUser != null) {
+        try {
+          final userDoc = await _db
+              .collection(FirestoreCollections.users)
+              .doc(createdUser.uid)
+              .get();
+          if (!userDoc.exists) await createdUser.delete();
+        } catch (_) {
+          // Preserve the original registration error.
+        }
+      }
+      rethrow;
     }
-
-    final uid = user.uid;
-    final now = FieldValue.serverTimestamp();
-
-    final providerRef = _db.collection(FirestoreCollections.providers).doc();
-    final verificationRef =
-        _db.collection(FirestoreCollections.providerVerifications).doc();
-
-    final batch = _db.batch();
-
-    final userRef = _db.collection(FirestoreCollections.users).doc(uid);
-
-    batch.set(userRef, {
-      'uid': uid,
-      'firstName': firstName.trim(),
-      'lastName': lastName.trim(),
-      'email': email.trim(),
-      'phoneNumber': phoneNumber.trim(),
-      'role': UserRoles.provider,
-      'profileImageUrl': null,
-      'isEmailVerified': user.emailVerified,
-      'isPhoneVerified': false,
-      'isActive': true,
-      'isBlocked': false,
-      'createdAt': now,
-      'updatedAt': now,
-      'lastLoginAt': now,
-    });
-
-    batch.set(providerRef, {
-      'ownerId': uid,
-      'businessName': businessName.trim(),
-      'businessEmail': businessEmail.trim(),
-      'businessPhone': businessPhone.trim(),
-      'ownerFirstName': firstName.trim(),
-      'ownerLastName': lastName.trim(),
-      'description': description.trim(),
-      'location': '$city, $province',
-      'address': businessAddress.trim(),
-      'city': city.trim(),
-      'province': province.trim(),
-      'coverImageUrl': null,
-      'logoUrl': null,
-      'serviceAreas': serviceAreas,
-      'eventTypesSupported': eventTypesSupported,
-      'providerServiceType': providerServiceType,
-      'providerCategory': providerCategory,
-      'minPrice': 0,
-      'maxPrice': 0,
-      'ratingAverage': 0,
-      'reviewCount': 0,
-      'totalCompletedBookings': 0,
-      'totalViews': 0,
-      'favoriteCount': 0,
-      'verificationStatus': ProviderVerificationStatus.pending,
-      'businessPermitUrl': null,
-      'validIdUrl': null,
-      'birDocumentUrl': null,
-      'dtiDocumentUrl': null,
-      'maxEventsPerDay': 1,
-      'availableStaffCount': 0,
-      'availableEquipmentCount': 0,
-      'acceptsMultipleEventsPerDay': false,
-      'isActive': false,
-      'isFeatured': false,
-      'createdAt': now,
-      'updatedAt': now,
-    });
-
-    batch.set(verificationRef, {
-      'providerId': providerRef.id,
-      'ownerId': uid,
-      'businessName': businessName.trim(),
-      'providerServiceType': providerServiceType,
-      'businessPermitUrl': null,
-      'validIdUrl': null,
-      'birDocumentUrl': null,
-      'dtiDocumentUrl': null,
-      'status': ProviderVerificationRequestStatus.pending,
-      'submittedAt': now,
-      'reviewedAt': null,
-      'reviewedBy': null,
-      'rejectionReason': null,
-      'createdAt': now,
-      'updatedAt': now,
-    });
-
-    await batch.commit();
-
-    await user.sendEmailVerification();
-
-    await userRef.update({
-      'isEmailVerified': false,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
   }
 
   Future<void> sendCurrentUserEmailVerification() async {
     final user = _auth.currentUser;
-
-    if (user == null) {
-      throw Exception('No user is currently logged in.');
-    }
+    if (user == null) throw StateError('No user is currently logged in.');
 
     await user.reload();
-
     final refreshedUser = _auth.currentUser;
-
     if (refreshedUser == null) {
-      throw Exception('No user is currently logged in.');
+      throw StateError('No user is currently logged in.');
     }
-
-    if (refreshedUser.emailVerified) {
-      return;
+    if (!refreshedUser.emailVerified) {
+      await refreshedUser.sendEmailVerification();
     }
-
-    await refreshedUser.sendEmailVerification();
   }
 
   Future<void> login({
     required String email,
     required String password,
   }) async {
-    final credential = await _auth.signInWithEmailAndPassword(
-      email: email.trim(),
-      password: password.trim(),
-    );
+    try {
+      final credential = await _auth.signInWithEmailAndPassword(
+        email: email.trim().toLowerCase(),
+        password: password,
+      );
+      if (credential.user == null) {
+        throw StateError('Unable to load the signed-in account.');
+      }
 
-    final user = credential.user;
-
-    if (user == null) {
-      throw Exception('Unable to load the signed-in account.');
+      try {
+        await _syncUserAuthState();
+      } on FirebaseFunctionsException catch (error) {
+        if (error.code != 'not-found') rethrow;
+        await _ensureCustomerProfile();
+        await _syncUserAuthState();
+      }
+      await _loadActiveProfile(credential.user!.uid);
+    } catch (_) {
+      await _auth.signOut();
+      rethrow;
     }
-
-    await _db
-        .collection(FirestoreCollections.users)
-        .doc(user.uid)
-        .update({
-      'lastLoginAt': FieldValue.serverTimestamp(),
-      'isEmailVerified': user.emailVerified,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
   }
 
   Future<String?> providerVerificationStatusForOwner(String ownerId) async {
@@ -267,133 +204,98 @@ class AuthRepository {
           .limit(1)
           .get()
           .timeout(const Duration(seconds: 8));
-
-      if (snapshot.docs.isEmpty) {
-        return null;
-      }
+      if (snapshot.docs.isEmpty) return null;
 
       final status = snapshot.docs.first.data()['verificationStatus'];
-      return status is String ? status : ProviderVerificationStatus.pending;
+      return status is String ? status : ProviderVerificationStatus.draft;
     } catch (error, stackTrace) {
       debugPrint('Failed to load provider verification status: $error');
-      debugPrint(stackTrace.toString());
+      debugPrintStack(stackTrace: stackTrace);
       return null;
     }
   }
 
   Future<void> logout() async {
     try {
-      await GoogleSignIn.instance.disconnect();
+      await GoogleSignIn.instance.signOut();
     } catch (_) {
-      try {
-        await GoogleSignIn.instance.signOut();
-      } catch (_) {}
+      // Firebase sign-out must still run if the Google SDK has no session.
     }
-
     await _auth.signOut();
   }
 
   Future<void> signInWithGoogleAsCustomer() async {
-    await GoogleSignIn.instance.initialize();
+    try {
+      await GoogleSignIn.instance.initialize();
+      final googleUser = await GoogleSignIn.instance.authenticate();
+      final googleAuth = googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        idToken: googleAuth.idToken,
+      );
+      final userCredential = await _auth.signInWithCredential(credential);
+      final user = userCredential.user;
 
-    final GoogleSignInAccount googleUser =
-        await GoogleSignIn.instance.authenticate();
+      if (user == null) throw StateError('Google sign-in failed.');
 
-    final GoogleSignInAuthentication googleAuth = googleUser.authentication;
-
-    final credential = GoogleAuthProvider.credential(
-      idToken: googleAuth.idToken,
-    );
-
-    final userCredential = await _auth.signInWithCredential(credential);
-    final user = userCredential.user;
-
-    if (user == null) {
-      throw Exception('Google sign-in failed.');
-    }
-
-    final uid = user.uid;
-    final now = FieldValue.serverTimestamp();
-
-    final userRef = _db.collection(FirestoreCollections.users).doc(uid);
-    final customerRef = _db.collection(FirestoreCollections.customers).doc(uid);
-
-    final userDoc = await userRef.get();
-
-    if (!userDoc.exists) {
-      final displayName = user.displayName ?? '';
-      final nameParts = displayName.trim().split(' ');
-
-      final firstName = nameParts.isNotEmpty && nameParts.first.isNotEmpty
-          ? nameParts.first
-          : 'Customer';
-
-      final lastName =
-          nameParts.length > 1 ? nameParts.sublist(1).join(' ') : '';
-
-      final batch = _db.batch();
-
-      batch.set(userRef, {
-        'uid': uid,
-        'firstName': firstName,
-        'lastName': lastName,
-        'email': user.email ?? googleUser.email,
-        'phoneNumber': user.phoneNumber ?? '',
-        'role': UserRoles.customer,
-        'profileImageUrl': user.photoURL,
-        'isEmailVerified': user.emailVerified,
-        'isPhoneVerified': false,
-        'isActive': true,
-        'isBlocked': false,
-        'createdAt': now,
-        'updatedAt': now,
-        'lastLoginAt': now,
-        'authProvider': 'google',
-      });
-
-      batch.set(customerRef, {
-        'userId': uid,
-        'firstName': firstName,
-        'lastName': lastName,
-        'email': user.email ?? googleUser.email,
-        'phoneNumber': user.phoneNumber ?? '',
-        'address': '',
-        'city': 'Ormoc City',
-        'province': 'Leyte',
-        'profileImageUrl': user.photoURL,
-        'totalBookings': 0,
-        'completedBookings': 0,
-        'cancelledBookings': 0,
-        'isActive': true,
-        'createdAt': now,
-        'updatedAt': now,
-      });
-
-      await batch.commit();
-    } else {
-      final data = userDoc.data();
-      final role = data?['role'];
-
-      if (role != UserRoles.customer) {
-        await logout();
-        throw Exception(
-          'Google sign-in is only available for customer accounts.',
-        );
-      }
-
-      await userRef.update({
-        'lastLoginAt': now,
-        'updatedAt': now,
-        'authProvider': 'google',
-      });
+      await _ensureCustomerProfile();
+      await _loadActiveCustomerProfile(user.uid);
+    } catch (_) {
+      await logout();
+      rethrow;
     }
   }
 
-  Future<void> sendPasswordResetEmail({
-    required String email,
+  Future<void> sendPasswordResetEmail({required String email}) async {
+    final normalizedEmail = email.trim().toLowerCase();
+    if (normalizedEmail.isEmpty) {
+      throw ArgumentError('Email address is required.');
+    }
+    await _auth.sendPasswordResetEmail(email: normalizedEmail);
+  }
+
+  Future<void> _ensureCustomerProfile({
+    String? firstName,
+    String? lastName,
+    String? phoneNumber,
   }) async {
-    await _auth.sendPasswordResetEmail(
-      email: email.trim(),
-    );
+    final callable = _functions.httpsCallable('ensureUserProfile');
+    await callable.call(<String, dynamic>{
+      if (firstName != null) 'firstName': firstName.trim(),
+      if (lastName != null) 'lastName': lastName.trim(),
+      if (phoneNumber != null) 'phoneNumber': phoneNumber.trim(),
+    });
+  }
+
+  Future<Map<String, dynamic>> _loadActiveCustomerProfile(String uid) async {
+    final data = await _loadActiveProfile(uid);
+    if (data['role'] != UserRoles.customer) {
+      throw StateError('This sign-in is only available to customers.');
+    }
+    return data;
+  }
+
+  Future<Map<String, dynamic>> _loadActiveProfile(String uid) async {
+    final snapshot = await _db
+        .collection(FirestoreCollections.users)
+        .doc(uid)
+        .get();
+    final data = snapshot.data();
+
+    if (!snapshot.exists || data == null) {
+      throw StateError('Your account profile could not be recovered.');
+    }
+    final accountStatus = data['accountStatus'] as String? ?? 'disabled';
+    if (data['isBlocked'] == true || accountStatus == 'blocked') {
+      throw StateError('This account has been blocked. Please contact support.');
+    }
+    if (data['isActive'] != true || accountStatus != 'active') {
+      throw StateError('This account is currently disabled.');
+    }
+    return data;
+  }
+
+  Future<void> _syncUserAuthState() async {
+    final callable = _functions.httpsCallable('syncUserAuthState');
+    await callable.call<void>();
   }
 }
