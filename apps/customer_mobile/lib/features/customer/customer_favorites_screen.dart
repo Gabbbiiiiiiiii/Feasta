@@ -2,16 +2,23 @@ import 'package:flutter/material.dart';
 
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
-import '../../shared/widgets/loading_skeleton.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/widgets/widgets.dart';
 import 'provider_profile_screen.dart';
 
-class CustomerFavoritesScreen extends StatelessWidget {
+class CustomerFavoritesScreen extends StatefulWidget {
   const CustomerFavoritesScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final FeastaRepository repository = FeastaRepository();
+  State<CustomerFavoritesScreen> createState() =>
+      _CustomerFavoritesScreenState();
+}
 
+class _CustomerFavoritesScreenState extends State<CustomerFavoritesScreen> {
+  final FeastaRepository repository = FeastaRepository();
+
+  @override
+  Widget build(BuildContext context) {
     return SafeArea(
       child: Scaffold(
         appBar: AppBar(
@@ -25,19 +32,21 @@ class CustomerFavoritesScreen extends StatelessWidget {
           stream: repository.favoriteProviders(),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const FeastaSkeletonList(
+              return const FeastaListSkeleton(
                 itemCount: 4,
                 padding: EdgeInsets.all(20),
-                showLeading: false,
-                showTrailing: false,
                 showImage: true,
-                imageHeight: 180,
               );
             }
 
             if (snapshot.hasError) {
               return Center(
-                child: Text('Error: ${snapshot.error}'),
+                child: FeastaApplicationErrorState(
+                  kind: FeastaErrorKind.load,
+                  message:
+                      'We could not load your favorites. Please try again.',
+                  onRetry: () => setState(() {}),
+                ),
               );
             }
 
@@ -45,35 +54,11 @@ class CustomerFavoritesScreen extends StatelessWidget {
 
             if (providers.isEmpty) {
               return const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(28),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.favorite_border,
-                        size: 80,
-                        color: Colors.grey,
-                      ),
-                      SizedBox(height: 18),
-                      Text(
-                        'No favorites yet',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Save catering providers you like so you can find them easily later.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.grey,
-                          height: 1.4,
-                        ),
-                      ),
-                    ],
-                  ),
+                child: FeastaEmptyState(
+                  title: 'No favorites yet',
+                  message:
+                      'Save providers you like so you can find them easily later.',
+                  icon: Icons.favorite_border,
                 ),
               );
             }
@@ -81,7 +66,7 @@ class CustomerFavoritesScreen extends StatelessWidget {
             return ListView.separated(
               padding: const EdgeInsets.all(20),
               itemCount: providers.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 16),
+              separatorBuilder: (_, _) => const SizedBox(height: 16),
               itemBuilder: (context, index) {
                 final provider = providers[index];
 
@@ -98,7 +83,7 @@ class CustomerFavoritesScreen extends StatelessWidget {
   }
 }
 
-class FavoriteProviderCard extends StatelessWidget {
+class FavoriteProviderCard extends StatefulWidget {
   final ProviderModel provider;
   final FeastaRepository repository;
 
@@ -108,197 +93,201 @@ class FavoriteProviderCard extends StatelessWidget {
     required this.repository,
   });
 
+  @override
+  State<FavoriteProviderCard> createState() => _FavoriteProviderCardState();
+}
+
+class _FavoriteProviderCardState extends State<FavoriteProviderCard> {
+  bool _isRemoving = false;
+
+  ProviderModel get provider => widget.provider;
+
   Future<void> _removeFavorite(BuildContext context) async {
-    final confirm = await showDialog<bool>(
+    if (_isRemoving) return;
+
+    await showDialog<void>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Remove Favorite'),
-          content: Text(
-            'Remove ${provider.businessName} from your favorites?',
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) => FeastaConfirmationDialog(
+            title: 'Remove favorite?',
+            message: 'Remove ${provider.businessName} from your favorites?',
+            confirmLabel: 'Remove',
+            isDestructive: true,
+            isLoading: _isRemoving,
+            onConfirm: () async {
+              if (_isRemoving) return;
+              setState(() => _isRemoving = true);
+              setDialogState(() {});
+              try {
+                await widget.repository.removeFromFavorites(provider.id);
+                if (!dialogContext.mounted) return;
+                Navigator.of(dialogContext).pop();
+                if (!context.mounted) return;
+                FeastaSnackbars.show(
+                  context,
+                  message: 'Removed from favorites.',
+                  tone: FeastaSnackbarTone.success,
+                );
+              } catch (_) {
+                if (!dialogContext.mounted) return;
+                if (mounted) setState(() => _isRemoving = false);
+                setDialogState(() {});
+                FeastaSnackbars.show(
+                  dialogContext,
+                  message: 'We could not remove this favorite. Try again.',
+                  tone: FeastaSnackbarTone.error,
+                );
+              }
+            },
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('Remove'),
-            ),
-          ],
         );
       },
     );
-
-    if (confirm != true) return;
-
-    try {
-      await repository.removeFromFavorites(provider.id);
-
-      if (!context.mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Removed from favorites.'),
-        ),
-      );
-    } catch (e) {
-      if (!context.mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceAll('Exception: ', '')),
-        ),
-      );
-    }
+    if (mounted && _isRemoving) setState(() => _isRemoving = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFFF6333);
+    const primary = AppColors.primaryStrong;
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ProviderProfileScreen(provider: provider),
+    return Semantics(
+      container: true,
+      explicitChildNodes: true,
+      label:
+          '${provider.businessName}. Rating '
+          '${provider.ratingAverage.toStringAsFixed(1)} from '
+          '${provider.reviewCount} reviews. ${provider.location}.',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ProviderProfileScreen(provider: provider),
+            ),
+          );
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+            borderRadius: BorderRadius.circular(18),
           ),
-        );
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: const Color(0xFFE5E7EB)),
-          borderRadius: BorderRadius.circular(18),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            provider.coverImageUrl == null || provider.coverImageUrl!.isEmpty
-                ? Container(
-                    height: 180,
-                    width: double.infinity,
-                    color: Colors.grey.shade200,
-                    child: const Icon(
-                      Icons.image_outlined,
-                      size: 60,
-                      color: Colors.grey,
-                    ),
-                  )
-                : Image.network(
-                    provider.coverImageUrl!,
-                    height: 180,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) {
-                      return Container(
-                        height: 180,
-                        width: double.infinity,
-                        color: Colors.grey.shade200,
-                        child: const Icon(Icons.broken_image),
-                      );
-                    },
-                  ),
-            Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          provider.businessName,
-                          style: const TextStyle(
-                            fontSize: 21,
-                            fontWeight: FontWeight.w900,
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              FeastaImage.network(
+                imageUrl: provider.coverImageUrl,
+                description: '${provider.businessName} cover image',
+                fallbackLabel: '${provider.businessName} image unavailable',
+                height: 180,
+                width: double.infinity,
+              ),
+              Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            provider.businessName,
+                            style: const TextStyle(
+                              fontSize: 21,
+                              fontWeight: FontWeight.w900,
+                            ),
                           ),
                         ),
-                      ),
-                      IconButton(
-                        onPressed: () => _removeFavorite(context),
-                        icon: const Icon(
-                          Icons.favorite,
-                          color: primary,
+                        IconButton(
+                          tooltip:
+                              'Remove ${provider.businessName} from favorites',
+                          onPressed: _isRemoving
+                              ? null
+                              : () => _removeFavorite(context),
+                          icon: const Icon(Icons.favorite, color: primary),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.star,
-                        color: Colors.amber,
-                        size: 22,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        '${provider.ratingAverage.toStringAsFixed(1)} (${provider.reviewCount})',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      const Spacer(),
-                    if (provider.isApproved)
-                        const Row(
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 16,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
-                              Icons.verified,
-                              color: Colors.green,
-                              size: 18,
+                            const Icon(
+                              Icons.star,
+                              color: Colors.amber,
+                              size: 22,
                             ),
-                            SizedBox(width: 4),
+                            const SizedBox(width: 5),
                             Text(
-                              'Verified',
-                              style: TextStyle(
-                                color: Colors.green,
-                                fontWeight: FontWeight.w800,
+                              '${provider.ratingAverage.toStringAsFixed(1)} (${provider.reviewCount})',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ],
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    '₱${provider.minPrice.toStringAsFixed(0)} - ₱${provider.maxPrice.toStringAsFixed(0)}',
-                    style: const TextStyle(
-                      color: primary,
-                      fontWeight: FontWeight.w900,
+                        if (provider.isApproved)
+                          const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.verified,
+                                color: AppColors.success,
+                                size: 18,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                'Verified',
+                                style: TextStyle(
+                                  color: AppColors.success,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.location_on_outlined,
-                        color: Colors.grey,
-                        size: 20,
+                    const SizedBox(height: 10),
+                    Text(
+                      '${FeastaPriceFormatter.format(provider.minPrice, decimalDigits: 0)} '
+                      'to ${FeastaPriceFormatter.format(provider.maxPrice, decimalDigits: 0)}',
+                      style: const TextStyle(
+                        color: primary,
+                        fontWeight: FontWeight.w900,
                       ),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          provider.location,
-                          style: const TextStyle(color: Colors.grey),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.location_on_outlined,
+                          color: Colors.grey,
+                          size: 20,
                         ),
-                      ),
-                      const Icon(
-                        Icons.chevron_right,
-                        color: Colors.grey,
-                      ),
-                    ],
-                  ),
-                ],
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            provider.location,
+                            style: const TextStyle(color: Colors.grey),
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right, color: Colors.grey),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

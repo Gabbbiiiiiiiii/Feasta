@@ -6,15 +6,13 @@ import '../../shared/widgets/loading_skeleton.dart';
 import 'package_details_screen.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/helpers/auth_guard.dart';
-
+import '../../core/theme/app_colors.dart';
+import '../../core/widgets/widgets.dart';
 
 class ProviderProfileScreen extends StatefulWidget {
   final ProviderModel provider;
 
-  const ProviderProfileScreen({
-    super.key,
-    required this.provider,
-  });
+  const ProviderProfileScreen({super.key, required this.provider});
 
   @override
   State<ProviderProfileScreen> createState() => _ProviderProfileScreenState();
@@ -25,14 +23,9 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
 
   int selectedTab = 0;
 
-  final List<String> tabs = [
-    'Packages',
-    'Menu',
-    'Photos',
-    'Reviews',
-  ];
+  final List<String> tabs = ['Packages', 'Menu', 'Photos', 'Reviews'];
 
-   @override
+  @override
   void initState() {
     super.initState();
 
@@ -41,7 +34,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFFF6333);
+    const primary = AppColors.primaryStrong;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -124,7 +117,9 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                                 backgroundColor: Colors.white,
                                 child: IconButton(
                                   icon: Icon(
-                                    isFavorite ? Icons.favorite : Icons.favorite_border,
+                                    isFavorite
+                                        ? Icons.favorite
+                                        : Icons.favorite_border,
                                     color: isFavorite
                                         ? const Color(0xFFFF6333)
                                         : Colors.black,
@@ -138,9 +133,13 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
 
                                         if (!mounted) return;
 
-                                        ScaffoldMessenger.of(context).showSnackBar(
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
                                           const SnackBar(
-                                            content: Text('Removed from favorites.'),
+                                            content: Text(
+                                              'Removed from favorites.',
+                                            ),
                                           ),
                                         );
                                       } else {
@@ -150,19 +149,28 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
 
                                         if (!mounted) return;
 
-                                        ScaffoldMessenger.of(context).showSnackBar(
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
                                           const SnackBar(
-                                            content: Text('Added to favorites.'),
+                                            content: Text(
+                                              'Added to favorites.',
+                                            ),
                                           ),
                                         );
                                       }
                                     } catch (e) {
                                       if (!mounted) return;
 
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
                                         SnackBar(
                                           content: Text(
-                                            e.toString().replaceAll('Exception: ', ''),
+                                            e.toString().replaceAll(
+                                              'Exception: ',
+                                              '',
+                                            ),
                                           ),
                                         ),
                                       );
@@ -206,7 +214,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                             ),
                           ),
                         ),
-                    if (widget.provider.isApproved)
+                        if (widget.provider.isApproved)
                           const Icon(
                             Icons.verified,
                             color: Colors.green,
@@ -217,17 +225,11 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                     const SizedBox(height: 10),
                     Row(
                       children: [
-                        const Icon(
-                          Icons.star,
-                          color: Colors.amber,
-                          size: 22,
-                        ),
+                        const Icon(Icons.star, color: Colors.amber, size: 22),
                         const SizedBox(width: 5),
                         Text(
                           '${widget.provider.ratingAverage.toStringAsFixed(1)} (${widget.provider.reviewCount} reviews)',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                          ),
+                          style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                         const SizedBox(width: 16),
                         const Icon(
@@ -261,7 +263,8 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                             onPressed: () async {
                               final allowed = await requireLogin(
                                 context,
-                                message: 'Please log in or create an account to message this provider.',
+                                message:
+                                    'Please log in or create an account to message this provider.',
                               );
 
                               if (!allowed || !context.mounted) return;
@@ -305,7 +308,9 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
 
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('Please choose a package below to continue booking.'),
+                                  content: Text(
+                                    'Please choose a package below to continue booking.',
+                                  ),
                                 ),
                               );
                             },
@@ -393,7 +398,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                   if (snapshot.hasError) {
                     return SliverFillRemaining(
                       child: Center(
-                        child: Text('Error: ${snapshot.error}'),
+                        child: Text('Unable to load provider details.'),
                       ),
                     );
                   }
@@ -437,9 +442,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
               )
             else if (selectedTab == 2)
               const SliverFillRemaining(
-                child: Center(
-                  child: Text('Photos will be connected next.'),
-                ),
+                child: Center(child: Text('Photos will be connected next.')),
               )
             else
               StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -460,7 +463,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                   if (snapshot.hasError) {
                     return SliverFillRemaining(
                       child: Center(
-                        child: Text('Error: ${snapshot.error}'),
+                        child: Text('Unable to load provider packages.'),
                       ),
                     );
                   }
@@ -488,8 +491,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
 
                         final customerFirstName =
                             data['customerFirstName'] ?? '';
-                        final customerLastName =
-                            data['customerLastName'] ?? '';
+                        final customerLastName = data['customerLastName'] ?? '';
                         final rating = data['rating'] ?? 0;
                         final comment = data['comment'] ?? '';
                         final createdAt = data['createdAt'];
@@ -505,9 +507,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
                           padding: const EdgeInsets.all(18),
                           decoration: BoxDecoration(
                             color: Colors.white,
-                            border: Border.all(
-                              color: const Color(0xFFE5E7EB),
-                            ),
+                            border: Border.all(color: const Color(0xFFE5E7EB)),
                             borderRadius: BorderRadius.circular(18),
                           ),
                           child: Column(
@@ -619,30 +619,13 @@ class PackageCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            eventPackage.imageUrl == null || eventPackage.imageUrl!.isEmpty
-                ? Container(
-                    height: 180,
-                    width: double.infinity,
-                    color: Colors.grey.shade300,
-                    child: const Icon(
-                      Icons.image_outlined,
-                      size: 60,
-                      color: Colors.grey,
-                    ),
-                  )
-                : Image.network(
-                    eventPackage.imageUrl!,
-                    height: 180,
-                    width: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) {
-                      return Container(
-                        height: 180,
-                        color: Colors.grey.shade300,
-                        child: const Icon(Icons.broken_image),
-                      );
-                    },
-                  ),
+            FeastaImage.network(
+              imageUrl: eventPackage.imageUrl,
+              description: '${eventPackage.name} package image',
+              fallbackLabel: '${eventPackage.name} image unavailable',
+              width: double.infinity,
+              height: 180,
+            ),
             Padding(
               padding: const EdgeInsets.all(18),
               child: Column(
@@ -664,28 +647,31 @@ class PackageCard extends StatelessWidget {
                         size: 20,
                       ),
                       const SizedBox(width: 6),
-                      Text(
-                        'Good for ${eventPackage.guestCapacity} guests',
-                        style: const TextStyle(color: Colors.grey),
+                      Expanded(
+                        child: Text(
+                          'Good for ${eventPackage.guestCapacity} guests',
+                          style: const TextStyle(
+                            color: AppColors.secondaryTextAccessible,
+                          ),
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
-                      Text(
-                        '₱${eventPackage.price.toStringAsFixed(0)}',
-                        style: const TextStyle(
-                          color: primary,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
+                      Expanded(
+                        child: FeastaPriceText(
+                          amount: eventPackage.price,
+                          decimalDigits: 0,
+                          style: const TextStyle(
+                            color: primary,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
                       ),
-                      const Spacer(),
-                      const Icon(
-                        Icons.chevron_right,
-                        color: Colors.grey,
-                      ),
+                      const Icon(Icons.chevron_right, color: Colors.grey),
                     ],
                   ),
                 ],
@@ -730,7 +716,7 @@ class ProviderMenuSection extends StatelessWidget {
         if (snapshot.hasError) {
           return Padding(
             padding: const EdgeInsets.all(24),
-            child: Text('Error: ${snapshot.error}'),
+            child: Text('Unable to load provider reviews.'),
           );
         }
 
@@ -793,10 +779,7 @@ class ProviderMenuSection extends StatelessWidget {
                         color: primary.withOpacity(0.10),
                         borderRadius: BorderRadius.circular(14),
                       ),
-                      child: const Icon(
-                        Icons.restaurant_menu,
-                        color: primary,
-                      ),
+                      child: const Icon(Icons.restaurant_menu, color: primary),
                     ),
                   const SizedBox(width: 14),
                   Expanded(

@@ -1,5 +1,6 @@
-import {initializeApp} from "firebase-admin/app";
+import {createHash} from "node:crypto";
 import "./shared/firebase-admin.js";
+import {Timestamp} from "firebase-admin/firestore";
 import {
   getMessaging,
   type Message,
@@ -16,6 +17,13 @@ import {
   createIdempotencyKey,
   executeIdempotently,
 } from "./shared/idempotency.js";
+import {appCheckCallableOptions} from "./shared/function-options.js";
+import {requireAuth} from "./shared/auth.js";
+import {requireActiveUser} from "./shared/authorization.js";
+import {logError} from "./shared/logger.js";
+import {db} from "./shared/firestore.js";
+import {serverTimestamp} from "./shared/timestamps.js";
+import {logSecurityEvent} from "./shared/security-events.js";
 export {
   ensureUserProfile,
 } from "./auth/ensure-user-profile.js";
@@ -23,6 +31,19 @@ export {
 export {
   syncUserAuthState,
 } from "./auth/sync-user-auth-state.js";
+
+export {
+  syncPhoneVerification,
+} from "./auth/sync-phone-verification.js";
+
+export {deactivateCustomerAccount} from "./auth/manage-customer-account.js";
+export {revokeAllCustomerSessions} from "./auth/manage-customer-account.js";
+export {updateCustomerPreferences} from "./auth/manage-customer-account.js";
+export {updateCustomerProfile} from "./auth/manage-customer-account.js";
+
+export {
+  onUserSecurityStateChanged,
+} from "./auth/audit-account-security-state.js";
 
 export {
   ensureProviderIdentity,
@@ -49,10 +70,12 @@ export {
 
 export {submitReview} from "./content/submit-review.js";
 export {createComplaint} from "./content/create-complaint.js";
+export {submitBookingRequest} from "./bookings/submit-booking-request.js";
+export {createPaymentSession} from "./payments/create-payment-session.js";
+export {payMongoWebhook} from "./payments/paymongo-webhook.js";
+export {requestPaymentRefund} from "./payments/request-refund.js";
 
 
-
-initializeApp();
 
 // Use a server-side Google Maps web-services key here, not the Android Maps SDK key.
 const googleMapsApiKey = defineSecret("GOOGLE_MAPS_API_KEY");
@@ -141,7 +164,7 @@ type StructuredAddress = {
 };
 
 const callableOptions = {
-  region: functionRegion,
+  ...appCheckCallableOptions,
   secrets: [googleMapsApiKey],
   timeoutSeconds: 20,
   memory: "256MiB" as const,
@@ -149,6 +172,8 @@ const callableOptions = {
 
 export const searchPlaces = onCall(callableOptions, async (request) => {
   try {
+    const user = requireAuth(request);
+    await requireActiveUser(user.uid);
     await enforceCallableRateLimit(request, {
       scope: "maps.searchPlaces",
       limit: 30,
@@ -157,7 +182,7 @@ export const searchPlaces = onCall(callableOptions, async (request) => {
     const data = asRecord(request.data);
     const query = requireString(data, "query", 2, 120);
     const apiKey = getGoogleMapsApiKey();
-    const response = await fetchGoogleJson<PlacesAutocompleteResponse>(
+    const response = await fetchCachedGoogleJson<PlacesAutocompleteResponse>(
       "https://places.googleapis.com/v1/places:autocomplete",
       {
         method: "POST",
@@ -183,6 +208,7 @@ export const searchPlaces = onCall(callableOptions, async (request) => {
           },
         }),
       },
+      5 * 60,
     );
 
     return (response.suggestions ?? [])
@@ -218,6 +244,8 @@ export const searchPlaces = onCall(callableOptions, async (request) => {
 
 export const reverseGeocode = onCall(callableOptions, async (request) => {
   try {
+    const user = requireAuth(request);
+    await requireActiveUser(user.uid);
     await enforceCallableRateLimit(request, {
       scope: "maps.reverseGeocode",
       limit: 30,
@@ -226,13 +254,18 @@ export const reverseGeocode = onCall(callableOptions, async (request) => {
     const data = asRecord(request.data);
     const latitude = requireCoordinate(data, "latitude", -90, 90);
     const longitude = requireCoordinate(data, "longitude", -180, 180);
+    requirePhilippinesLocation(latitude, longitude);
     const apiKey = getGoogleMapsApiKey();
     const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
     url.searchParams.set("latlng", `${latitude},${longitude}`);
     url.searchParams.set("key", apiKey);
     url.searchParams.set("region", "ph");
 
-    const response = await fetchGoogleJson<GeocodingResponse>(url.toString());
+    const response = await fetchCachedGoogleJson<GeocodingResponse>(
+      url.toString(),
+      {},
+      24 * 60 * 60,
+    );
 
     if (response.status === "ZERO_RESULTS") {
       throw new HttpsError(
@@ -276,6 +309,8 @@ export const reverseGeocode = onCall(callableOptions, async (request) => {
 
 export const getPlaceDetails = onCall(callableOptions, async (request) => {
   try {
+    const user = requireAuth(request);
+    await requireActiveUser(user.uid);
     await enforceCallableRateLimit(request, {
       scope: "maps.getPlaceDetails",
       limit: 30,
@@ -283,12 +318,15 @@ export const getPlaceDetails = onCall(callableOptions, async (request) => {
     });
     const data = asRecord(request.data);
     const placeId = requireString(data, "placeId", 4, 220);
+    if (!/^(?:places\/)?[A-Za-z0-9_-]{4,200}$/u.test(placeId)) {
+      throw new HttpsError("invalid-argument", "placeId is invalid.");
+    }
     const apiKey = getGoogleMapsApiKey();
     const placeResource = placeId.startsWith("places/")
       ? placeId
       : `places/${encodeURIComponent(placeId)}`;
 
-    const response = await fetchGoogleJson<PlaceDetailsResponse>(
+    const response = await fetchCachedGoogleJson<PlaceDetailsResponse>(
       `https://places.googleapis.com/v1/${placeResource}`,
       {
         headers: {
@@ -300,6 +338,7 @@ export const getPlaceDetails = onCall(callableOptions, async (request) => {
           ].join(","),
         },
       },
+      24 * 60 * 60,
     );
 
     const latitude = response.location?.latitude;
@@ -325,6 +364,8 @@ export const getPlaceDetails = onCall(callableOptions, async (request) => {
 
 export const getDirections = onCall(callableOptions, async (request) => {
   try {
+    const user = requireAuth(request);
+    await requireActiveUser(user.uid);
     await enforceCallableRateLimit(request, {
       scope: "maps.getDirections",
       limit: 20,
@@ -335,6 +376,8 @@ export const getDirections = onCall(callableOptions, async (request) => {
     const originLng = requireCoordinate(data, "originLng", -180, 180);
     const destinationLat = requireCoordinate(data, "destinationLat", -90, 90);
     const destinationLng = requireCoordinate(data, "destinationLng", -180, 180);
+    requirePhilippinesLocation(originLat, originLng);
+    requirePhilippinesLocation(destinationLat, destinationLng);
     const apiKey = getGoogleMapsApiKey();
     const url = new URL("https://maps.googleapis.com/maps/api/directions/json");
     url.searchParams.set("origin", `${originLat},${originLng}`);
@@ -343,7 +386,11 @@ export const getDirections = onCall(callableOptions, async (request) => {
     url.searchParams.set("region", "ph");
     url.searchParams.set("key", apiKey);
 
-    const response = await fetchGoogleJson<DirectionsResponse>(url.toString());
+    const response = await fetchCachedGoogleJson<DirectionsResponse>(
+      url.toString(),
+      {},
+      10 * 60,
+    );
 
     if (response.status === "ZERO_RESULTS") {
       throw new HttpsError("not-found", "No route was found for this trip.");
@@ -382,6 +429,12 @@ export const getDirections = onCall(callableOptions, async (request) => {
 function getGoogleMapsApiKey(): string {
   const apiKey = googleMapsApiKey.value();
   if (!apiKey) {
+    logSecurityEvent({
+      action: "configuration_failure",
+      outcome: "failed",
+      targetId: "googleMaps",
+      reasonCode: "api_key_missing",
+    });
     throw new HttpsError(
       "failed-precondition",
       "Google Maps API key is not configured on Firebase Functions.",
@@ -439,6 +492,15 @@ function requireCoordinate(
   return coordinate;
 }
 
+function requirePhilippinesLocation(latitude: number, longitude: number): void {
+  if (latitude < 4 || latitude > 22 || longitude < 116 || longitude > 127) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Map coordinates must be within the supported Philippines region.",
+    );
+  }
+}
+
 async function fetchGoogleJson<T>(
   url: string,
   init: RequestInit = {},
@@ -453,10 +515,8 @@ async function fetchGoogleJson<T>(
     });
 
     if (!response.ok) {
-      const body = await response.text();
       logger.warn("Google Maps API HTTP error", {
         status: response.status,
-        body,
       });
       throw new HttpsError(
         "unavailable",
@@ -477,6 +537,39 @@ async function fetchGoogleJson<T>(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchCachedGoogleJson<T>(
+  url: string,
+  init: RequestInit,
+  ttlSeconds: number,
+): Promise<T> {
+  const cacheUrl = new URL(url);
+  cacheUrl.searchParams.delete("key");
+  const cacheKey = createHash("sha256").update(JSON.stringify({
+    url: cacheUrl.toString(),
+    method: init.method ?? "GET",
+    body: typeof init.body === "string" ? init.body : null,
+  })).digest("hex");
+  const reference = db.collection("internalMapsCache").doc(cacheKey);
+  const snapshot = await reference.get();
+  const cached = snapshot.data();
+  if (cached?.expiresAt instanceof Timestamp &&
+      cached.expiresAt.toMillis() > Date.now() &&
+      cached.response && typeof cached.response === "object") {
+    return cached.response as T;
+  }
+
+  const response = await fetchGoogleJson<T>(url, init);
+  const serialized = JSON.stringify(response);
+  if (Buffer.byteLength(serialized, "utf8") <= 256 * 1024) {
+    await reference.set({
+      response,
+      expiresAt: Timestamp.fromMillis(Date.now() + ttlSeconds * 1000),
+      updatedAt: serverTimestamp(),
+    });
+  }
+  return response;
 }
 
 function buildStructuredAddress(params: {
@@ -548,7 +641,7 @@ function componentValue(
 function toHttpsError(error: unknown, fallbackMessage: string): HttpsError {
   if (error instanceof HttpsError) return error;
 
-  logger.error(fallbackMessage, error);
+  logError(fallbackMessage, error);
 
   if (isAbortError(error)) {
     return new HttpsError("deadline-exceeded", "The request timed out.");
@@ -602,10 +695,7 @@ async function sendTopicNotification(
 
     return messageId;
   } catch (error) {
-    logger.error("FCM topic notification failed", {
-      topic,
-      error,
-    });
+    logError("FCM topic notification failed", error, {topic});
 
     throw error;
   }
@@ -795,9 +885,8 @@ export const onPromotionWrite = onDocumentWritten(
         });
       }
     } catch (error) {
-      logger.error("onPromotionWrite handler failed", {
+      logError("onPromotionWrite handler failed", error, {
         promoId: event.params.promoId,
-        error,
       });
 
       throw error;

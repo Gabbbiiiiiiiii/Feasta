@@ -22,6 +22,8 @@ import {logError, logInfo} from "../shared/logger.js";
 import {createNotificationInTransaction} from "../shared/notifications.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
+import {logSecurityEvent} from "../shared/security-events.js";
+import {appCheckCallableOptions} from "../shared/function-options.js";
 import {
   requireEnum,
   requireObject,
@@ -46,9 +48,7 @@ const REVIEWABLE_STATUSES = [
 ] as const;
 
 export const reviewProviderVerification = onCall(
-  {
-    region: "asia-southeast1",
-  },
+  appCheckCallableOptions,
   async (request) => {
     const authenticatedUser = requireAuth(request);
 
@@ -348,6 +348,19 @@ export const reviewProviderVerification = onCall(
           action,
         },
       );
+      logSecurityEvent({
+        action: "provider_verification_decision",
+        outcome: "succeeded",
+        actorUid: authenticatedUser.uid,
+        targetId: result.verificationId,
+        correlationId: authenticatedUser.correlationId,
+        reasonCode: action,
+        metadata: {
+          providerId: result.providerId,
+          previousStatus: result.previousStatus,
+          status: result.status,
+        },
+      });
 
       const response = {
         success: true,

@@ -12,9 +12,10 @@ import {createNotificationInTransaction} from "../shared/notifications.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {requireObject, requireString} from "../shared/validation.js";
+import {appCheckCallableOptions} from "../shared/function-options.js";
 
 export const submitReview = onCall(
-  {region: "asia-southeast1"},
+  appCheckCallableOptions,
   async (request) => {
     const user = requireAuth(request);
     await enforceCallableRateLimit(request, {

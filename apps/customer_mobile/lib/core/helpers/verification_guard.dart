@@ -15,9 +15,7 @@ Future<bool> requireVerifiedPhoneForBooking(BuildContext context) async {
 
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const LoginScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
     );
 
     return false;
@@ -32,9 +30,7 @@ Future<bool> requireVerifiedPhoneForBooking(BuildContext context) async {
 
     await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const LoginScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
     );
 
     return false;
@@ -44,9 +40,7 @@ Future<bool> requireVerifiedPhoneForBooking(BuildContext context) async {
     if (!context.mounted) return false;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Please verify your email before booking.'),
-      ),
+      const SnackBar(content: Text('Please verify your email before booking.')),
     );
 
     return false;
@@ -63,14 +57,29 @@ Future<bool> requireVerifiedPhoneForBooking(BuildContext context) async {
   if (!isPhoneVerified) {
     if (!context.mounted) return false;
 
-    await Navigator.push(
+    final verified = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
-        builder: (_) => const PhoneVerificationScreen(),
+        builder: (_) => const PhoneVerificationScreen(requiredForBooking: true),
       ),
     );
+    if (verified != true || !context.mounted) return false;
 
-    return false;
+    await refreshedUser.reload();
+    final postVerificationUser = auth.currentUser;
+    if (postVerificationUser == null || !postVerificationUser.emailVerified) {
+      return false;
+    }
+    final refreshedProfile = await FirebaseFirestore.instance
+        .collection(FirestoreCollections.users)
+        .doc(postVerificationUser.uid)
+        .get();
+    final refreshedData = refreshedProfile.data();
+    return refreshedData?['role'] == 'customer' &&
+        refreshedData?['accountStatus'] == 'active' &&
+        refreshedData?['isActive'] == true &&
+        refreshedData?['isBlocked'] != true &&
+        refreshedData?['isPhoneVerified'] == true;
   }
 
   return true;

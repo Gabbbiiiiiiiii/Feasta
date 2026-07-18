@@ -44,6 +44,13 @@ class UserModel {
   final bool isPhoneVerified;
   final bool isActive;
   final bool isBlocked;
+  final String accountStatus;
+  final bool marketingConsent;
+  final bool pushNotificationsEnabled;
+  final bool emailNotificationsEnabled;
+  final String termsPolicyVersion;
+  final String privacyPolicyVersion;
+  final DateTime? preferencesUpdatedAt;
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final DateTime? lastLoginAt;
@@ -61,6 +68,13 @@ class UserModel {
     required this.isPhoneVerified,
     required this.isActive,
     required this.isBlocked,
+    this.accountStatus = 'active',
+    this.marketingConsent = false,
+    this.pushNotificationsEnabled = true,
+    this.emailNotificationsEnabled = true,
+    this.termsPolicyVersion = 'unversioned',
+    this.privacyPolicyVersion = 'unversioned',
+    this.preferencesUpdatedAt,
     this.createdAt,
     this.updatedAt,
     this.lastLoginAt,
@@ -84,6 +98,13 @@ class UserModel {
       isPhoneVerified: data['isPhoneVerified'] ?? false,
       isActive: data['isActive'] ?? true,
       isBlocked: data['isBlocked'] ?? false,
+      accountStatus: data['accountStatus'] ?? 'disabled',
+      marketingConsent: data['marketingConsent'] ?? false,
+      pushNotificationsEnabled: data['pushNotificationsEnabled'] ?? true,
+      emailNotificationsEnabled: data['emailNotificationsEnabled'] ?? true,
+      termsPolicyVersion: data['termsPolicyVersion'] ?? 'unversioned',
+      privacyPolicyVersion: data['privacyPolicyVersion'] ?? 'unversioned',
+      preferencesUpdatedAt: dateFromTimestamp(data['preferencesUpdatedAt']),
       createdAt: dateFromTimestamp(data['createdAt']),
       updatedAt: dateFromTimestamp(data['updatedAt']),
       lastLoginAt: dateFromTimestamp(data['lastLoginAt']),
@@ -262,8 +283,8 @@ class ProviderModel {
       maxPrice: doubleFromValue(data['maxPrice']),
       ratingAverage: doubleFromValue(data['ratingAverage']),
       reviewCount: intFromValue(data['reviewCount']),
-      totalCompletedBookings:
-          ((data['totalCompletedBookings'] ?? 0) as num).toInt(),
+      totalCompletedBookings: ((data['totalCompletedBookings'] ?? 0) as num)
+          .toInt(),
       totalViews: ((data['totalViews'] ?? 0) as num).toInt(),
       favoriteCount: ((data['favoriteCount'] ?? 0) as num).toInt(),
       verificationStatus:
@@ -506,7 +527,8 @@ class AddonRequestModel {
 
       linkStatus: data['linkStatus'] ?? AddonLinkStatus.active,
       mainBookingStatus: data['mainBookingStatus'] ?? BookingStatus.pending,
-      currentMainBookingId: data['currentMainBookingId'] ?? data['bookingId'] ?? '',
+      currentMainBookingId:
+          data['currentMainBookingId'] ?? data['bookingId'] ?? '',
       originalCateringProviderId: data['originalCateringProviderId'] ?? '',
       currentCateringProviderId: data['currentCateringProviderId'],
 
@@ -570,20 +592,18 @@ class AddonModel {
     );
   }
 
-Map<String, dynamic> toBookingMap({
-  String source = 'catering_provider',
-}) {
-  return {
-    'addonId': id,
-    'providerId': providerId,
-    'providerBusinessName': providerBusinessName,
-    'providerType': providerType,
-    'name': name,
-    'category': category,
-    'price': price,
-    'source': source,
-  };
-}
+  Map<String, dynamic> toBookingMap({String source = 'catering_provider'}) {
+    return {
+      'addonId': id,
+      'providerId': providerId,
+      'providerBusinessName': providerBusinessName,
+      'providerType': providerType,
+      'name': name,
+      'category': category,
+      'price': price,
+      'source': source,
+    };
+  }
 }
 
 class BookingModel {
@@ -746,7 +766,8 @@ class BookingModel {
       rejectedReason: data['rejectedReason'],
 
       recoveryStatus: data['recoveryStatus'] ?? BookingRecoveryStatus.none,
-      originalProviderId: data['originalProviderId'] ?? data['providerId'] ?? '',
+      originalProviderId:
+          data['originalProviderId'] ?? data['providerId'] ?? '',
       currentProviderId: data['currentProviderId'] ?? data['providerId'] ?? '',
       rejectedByProviderIds: stringListFromValue(data['rejectedByProviderIds']),
       selectedRecoveryOfferId: data['selectedRecoveryOfferId'],
@@ -813,8 +834,7 @@ class RecoveryOfferModel {
       customerId: data['customerId'] ?? '',
       originalProviderId: data['originalProviderId'] ?? '',
       offeringProviderId: data['offeringProviderId'] ?? '',
-      offeringProviderBusinessName:
-          data['offeringProviderBusinessName'] ?? '',
+      offeringProviderBusinessName: data['offeringProviderBusinessName'] ?? '',
       message: data['message'] ?? '',
       estimatedPrice: doubleFromValue(data['estimatedPrice']),
       status: data['status'] ?? 'offered',

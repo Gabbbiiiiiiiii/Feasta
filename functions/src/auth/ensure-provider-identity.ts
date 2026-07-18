@@ -2,17 +2,24 @@ import {getAuth} from "firebase-admin/auth";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 
 import {requireAuth} from "../shared/auth.js";
-import {FUNCTION_REGION, USER_ROLES} from "../shared/constants.js";
+import {USER_ROLES} from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
 import {logError, logInfo} from "../shared/logger.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {requireObject, requireString} from "../shared/validation.js";
+import {appCheckCallableOptions} from "../shared/function-options.js";
+import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 
 /** Creates the trusted users/{uid} provider identity before registration. */
 export const ensureProviderIdentity = onCall(
-  {region: FUNCTION_REGION},
+  appCheckCallableOptions,
   async (request) => {
     const authenticatedUser = requireAuth(request);
+    await enforceCallableRateLimit(request, {
+      scope: "ensureProviderIdentity",
+      limit: 5,
+      windowSeconds: 15 * 60,
+    });
 
     try {
       const input = requireObject(request.data);
@@ -29,6 +36,9 @@ export const ensureProviderIdentity = onCall(
         maxLength: 30,
       });
       const authUser = await getAuth().getUser(authenticatedUser.uid);
+      if (authUser.disabled) {
+        throw new HttpsError("permission-denied", "This account is disabled.");
+      }
       const userReference = db.collection("users").doc(authenticatedUser.uid);
 
       const result = await db.runTransaction(async (transaction) => {

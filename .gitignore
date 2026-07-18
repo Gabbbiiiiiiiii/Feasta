@@ -93,12 +93,18 @@ functions/node_modules/
 functions/lib/
 functions/.env
 functions/.env.*
+!functions/.env.example
 functions/.runtimeconfig.json
 
 # ------------------------------------------------------------------------------
 # Secrets (DO NOT COMMIT)
 # ------------------------------------------------------------------------------
 secrets/
+service-account*.json
+*service-account*.json
+firebase-adminsdk*.json
+google-application-credentials*.json
+secret-scan-report*.json
 *.pem
 *.p12
 *.key

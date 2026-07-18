@@ -26,6 +26,7 @@ before(async () => {
 
 beforeEach(async () => {
   await testEnv.clearFirestore();
+  await testEnv.clearStorage();
   await seedDocuments(testEnv, {
     "users/customer-owner": userData("customer-owner", "customer"),
     "users/customer-other": userData("customer-other", "customer"),
@@ -36,6 +37,13 @@ beforeEach(async () => {
       providerId: "provider-two",
     }),
     "users/admin-one": userData("admin-one", "admin"),
+    "users/customer-blocked": userData("customer-blocked", "customer", {
+      isBlocked: true,
+    }),
+    "users/customer-disabled": userData("customer-disabled", "customer", {
+      accountStatus: "disabled",
+      isActive: false,
+    }),
     "providers/provider-one": {
       ownerId: "provider-owner",
       verificationStatus: "draft",
@@ -55,6 +63,10 @@ beforeEach(async () => {
       userId: "customer-owner",
       providerId: "provider-one",
       status: "submitted",
+    },
+    "mainEvents/event-one": {
+      customerId: "customer-owner",
+      status: "draft",
     },
   });
 });
@@ -105,6 +117,64 @@ test("profile uploads reject invalid MIME and files over 5 MB", async () => {
     bytes(5 * 1024 * 1024 + 1),
     imageMetadata(),
   ));
+  await assertFails(uploadBytes(
+    ref(ownerStorage, "users/customer-owner/profile/unknown.bin"),
+    bytes(),
+    {contentType: "application/octet-stream"},
+  ));
+  await assertFails(uploadBytes(
+    ref(ownerStorage, "users/customer-owner/profile/page.html"),
+    bytes(),
+    {contentType: "text/html"},
+  ));
+  await assertFails(uploadBytes(
+    ref(ownerStorage, "users/customer-owner/profile/renamed.exe"),
+    bytes(),
+    imageMetadata(),
+  ));
+  await assertFails(uploadBytes(
+    ref(ownerStorage, "users/customer-owner/profile/mismatched.jpg"),
+    bytes(),
+    {contentType: "image/png"},
+  ));
+});
+
+test("blocked and disabled accounts cannot upload protected files", async () => {
+  const blockedStorage = authenticated(
+    testEnv,
+    "customer-blocked",
+    "customer",
+  ).storage();
+  const disabledStorage = authenticated(
+    testEnv,
+    "customer-disabled",
+    "customer",
+  ).storage();
+
+  await assertFails(uploadBytes(
+    ref(blockedStorage, "users/customer-blocked/profile/avatar.png"),
+    bytes(),
+    imageMetadata(),
+  ));
+  await assertFails(uploadBytes(
+    ref(disabledStorage, "users/customer-disabled/profile/avatar.png"),
+    bytes(),
+    imageMetadata(),
+  ));
+});
+
+test("protected uploads reject ownership-like custom metadata", async () => {
+  const ownerStorage = authenticated(testEnv, "customer-owner", "customer")
+    .storage();
+
+  await assertFails(uploadBytes(
+    ref(ownerStorage, "users/customer-owner/profile/spoofed.png"),
+    bytes(),
+    {
+      contentType: "image/png",
+      customMetadata: {ownerId: "customer-other"},
+    },
+  ));
 });
 
 test("profile delete is owner-only", async () => {
@@ -131,16 +201,16 @@ test("provider logo, cover, and package assets resolve provider ownership", asyn
   const otherStorage = authenticated(testEnv, "provider-other", "provider")
     .storage();
   const paths = [
-    "providers/provider-one/logo/logo.png",
-    "providers/provider-one/cover/cover.webp",
-    "providers/provider-one/packages/package.jpg",
+    ["providers/provider-one/logo/logo.png", "image/png"],
+    ["providers/provider-one/cover/cover.webp", "image/webp"],
+    ["providers/provider-one/packages/package.jpg", "image/jpeg"],
   ];
 
-  for (const path of paths) {
+  for (const [path, contentType] of paths) {
     await assertSucceeds(uploadBytes(
       ref(ownerStorage, path),
       bytes(),
-      imageMetadata(),
+      {contentType},
     ));
     await assertFails(uploadBytes(
       ref(otherStorage, path.replace(/\.(png|webp|jpg)$/, "-other.png")),
@@ -229,7 +299,37 @@ test("booking attachments are restricted to participants and valid files", async
     bytes(),
     {contentType: "application/javascript"},
   ));
+  await assertFails(uploadBytes(
+    ref(customerStorage, customerPath),
+    bytes(12),
+    imageMetadata(),
+  ));
   await assertFails(deleteObject(ref(customerStorage, customerPath)));
+});
+
+test("main event attachments use the private attachment allowlist", async () => {
+  const customerStorage = authenticated(testEnv, "customer-owner", "customer")
+    .storage();
+  const unrelatedStorage = authenticated(testEnv, "customer-other", "customer")
+    .storage();
+  const path = "mainEvents/event-one/attachments/details.pdf";
+
+  await assertSucceeds(uploadBytes(
+    ref(customerStorage, path),
+    bytes(),
+    {contentType: "application/pdf"},
+  ));
+  await assertFails(getBytes(ref(unrelatedStorage, path)));
+  await assertFails(uploadBytes(
+    ref(customerStorage, "mainEvents/event-one/attachments/archive.zip"),
+    bytes(),
+    {contentType: "application/zip"},
+  ));
+  await assertFails(uploadBytes(
+    ref(customerStorage, path),
+    bytes(12),
+    {contentType: "application/pdf"},
+  ));
 });
 
 test("complaint evidence follows the documented creator/provider/admin policy", async () => {
@@ -259,6 +359,11 @@ test("complaint evidence follows the documented creator/provider/admin policy", 
     ref(creatorStorage, "complaints/complaint-one/evidence/malware.exe"),
     bytes(),
     {contentType: "application/octet-stream"},
+  ));
+  await assertFails(uploadBytes(
+    ref(creatorStorage, path),
+    bytes(12),
+    imageMetadata(),
   ));
   await assertFails(deleteObject(ref(creatorStorage, path)));
 });

@@ -84,16 +84,20 @@ export const PROVIDER_REQUEST_TYPES = [
 ];
 export const PAYMENT_STATUSES = [
     "pending",
-    "checkout_created",
     "processing",
     "paid",
     "failed",
     "expired",
-    "cancelled",
-    "refund_pending",
-    "partially_refunded",
     "refunded",
 ];
+export const PAYMENT_STATUS_TRANSITIONS = {
+    pending: ["processing", "paid", "failed", "expired"],
+    processing: ["paid", "failed", "expired"],
+    paid: ["refunded"],
+    failed: ["processing"],
+    expired: ["processing"],
+    refunded: [],
+};
 export const PAYMENT_TYPES = [
     "provider_down_payment",
     "provider_balance",

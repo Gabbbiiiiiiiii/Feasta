@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../shared/models/feasta_models.dart';
+import '../../core/security/runtime_security.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
-import 'payment_success_screen.dart';
 
 class PaymentRequiredScreen extends StatefulWidget {
   final BookingModel booking;
@@ -20,37 +21,28 @@ class _PaymentRequiredScreenState extends State<PaymentRequiredScreen> {
   final FeastaRepository repository = FeastaRepository();
 
   bool isProcessing = false;
-  String selectedPaymentMethod = 'paymongo';
 
   Future<void> _continueToPayment() async {
     setState(() => isProcessing = true);
 
     try {
-      final paymentId = await repository.createPaymentRecord(
-      booking: widget.booking,
-      paymentMethod: selectedPaymentMethod,
-    );
-
-    await Future.delayed(const Duration(seconds: 2));
-
-    await repository.markDownPaymentPaid(
-      booking: widget.booking,
-      paymentId: paymentId,
-      paymongoCheckoutId:
-          'checkout_placeholder_${DateTime.now().millisecondsSinceEpoch}',
-      paymongoPaymentIntentId: 'payment_intent_placeholder',
-      paymongoReferenceNumber: 'REF${DateTime.now().millisecondsSinceEpoch}',
-    );
+      final session = await repository.createPaymentSession(
+        booking: widget.booking,
+      );
+        final checkoutUri = RuntimeSecurity.requireTrustedPayMongoCheckout(
+          session.checkoutUrl,
+        );
+        final opened = await launchUrl(
+          checkoutUri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened) throw Exception('Unable to open the secure checkout page.');
 
       if (!mounted) return;
-
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => PaymentSuccessScreen(
-            bookingId: widget.booking.id,
-            providerName: widget.booking.providerBusinessName,
-            amountPaid: widget.booking.downPaymentAmount,
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Complete payment in PayMongo. FEASTA will confirm it after the secure webhook is received.',
           ),
         ),
       );
@@ -87,9 +79,9 @@ class _PaymentRequiredScreenState extends State<PaymentRequiredScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
-              color: primary.withOpacity(0.08),
+              color: primary.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: primary.withOpacity(0.3)),
+              border: Border.all(color: primary.withValues(alpha: 0.3)),
             ),
             child: Column(
               children: [
@@ -165,37 +157,13 @@ class _PaymentRequiredScreenState extends State<PaymentRequiredScreen> {
           _PaymentCard(
             title: 'Payment Method',
             children: [
-              RadioListTile<String>(
-                value: 'paymongo',
-                groupValue: selectedPaymentMethod,
-                activeColor: primary,
-                title: const Text(
+              const ListTile(
+                leading: Icon(Icons.verified_user_outlined, color: primary),
+                title: Text(
                   'PayMongo',
                   style: TextStyle(fontWeight: FontWeight.w800),
                 ),
-                subtitle: const Text('GCash, Maya, card, and online payments'),
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() {
-                    selectedPaymentMethod = value;
-                  });
-                },
-              ),
-              RadioListTile<String>(
-                value: 'cash',
-                groupValue: selectedPaymentMethod,
-                activeColor: primary,
-                title: const Text(
-                  'Cash / Manual Payment',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                subtitle: const Text('For testing only'),
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() {
-                    selectedPaymentMethod = value;
-                  });
-                },
+                subtitle: Text('GCash, Maya, card, and online payments'),
               ),
             ],
           ),
@@ -203,9 +171,11 @@ class _PaymentRequiredScreenState extends State<PaymentRequiredScreen> {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.orange.withOpacity(0.1),
+              color: Colors.orange.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.orange.withOpacity(0.4)),
+              border: Border.all(
+                color: Colors.orange.withValues(alpha: 0.4),
+              ),
             ),
             child: const Row(
               crossAxisAlignment: CrossAxisAlignment.start,

@@ -5,12 +5,15 @@ import '../../core/helpers/auth_guard.dart';
 import '../../core/services/device_permission_service.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/auth_repository.dart';
+import '../authentication/application/customer_auth_scope.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../../shared/widgets/loading_skeleton.dart';
 import '../presentation/screens/login_screen.dart';
 import '../presentation/screens/role_selection_screen.dart';
 import '../notifications/notifications_screen.dart';
+import 'customer_main_screen.dart';
 import 'phone_verification_screen.dart';
+import 'account/presentation/customer_account_management_screen.dart';
 
 const Color _primary = Color(0xFFFF6333);
 const Color _textPrimary = Color(0xFF242126);
@@ -22,10 +25,7 @@ const String _appVersion = '1.0.0';
 class CustomerAccountScreen extends StatefulWidget {
   final ValueChanged<int>? onOpenTab;
 
-  const CustomerAccountScreen({
-    super.key,
-    this.onOpenTab,
-  });
+  const CustomerAccountScreen({super.key, this.onOpenTab});
 
   @override
   State<CustomerAccountScreen> createState() => _CustomerAccountScreenState();
@@ -68,53 +68,60 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
   void _openLogin() {
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(
-        builder: (_) => const LoginScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
       (_) => false,
     );
   }
 
   Future<void> _logout() async {
-    await authRepository.logout();
+    final gateController = CustomerAuthenticationScope.maybeOf(context);
+    if (gateController != null) {
+      await gateController.signOut();
+    } else {
+      await authRepository.logout();
+    }
 
     if (!mounted) return;
-    _openLogin();
+    Navigator.popUntil(context, (route) => route.isFirst);
+    if (gateController == null) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (_) => const CustomerMainScreen()),
+        (_) => false,
+      );
+    }
   }
 
-  void _openSettings() {
-    Navigator.push(
+  Future<void> _openSettings() async {
+    await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => const AccountSettingsScreen(),
+        builder: (_) => isGuestUser
+            ? const AccountSettingsScreen()
+            : const CustomerAccountManagementScreen(),
       ),
     );
+    if (mounted && !isGuestUser) await _refresh();
   }
 
   void _openNotifications() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const NotificationsScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => const NotificationsScreen()),
     );
   }
 
   void _openProviderSignup() {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => const RoleSelectionScreen(),
-      ),
+      MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
     );
   }
 
   void _showComingSoon(String title) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$title is coming soon.'),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$title is coming soon.')));
   }
 
   @override
@@ -123,10 +130,7 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
       backgroundColor: _surface,
       body: SafeArea(
         child: isGuestUser
-            ? _SignedOutAccount(
-                onLogin: _openLogin,
-                onSettings: _openSettings,
-              )
+            ? _SignedOutAccount(onLogin: _openLogin, onSettings: _openSettings)
             : StreamBuilder<UserModel?>(
                 stream: repository.currentUserData(),
                 builder: (context, userSnapshot) {
@@ -139,7 +143,8 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
 
                   if (userSnapshot.hasError) {
                     return _AccountErrorState(
-                      message: userSnapshot.error.toString(),
+                      message:
+                          'We could not load your account. Check your connection and try again.',
                       onRetry: () => setState(() {}),
                     );
                   }
@@ -218,7 +223,8 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
                                 _AccountMenuItem(
                                   icon: Icons.workspace_premium_outlined,
                                   title: 'Feasta rewards',
-                                  onTap: () => _showComingSoon('Feasta rewards'),
+                                  onTap: () =>
+                                      _showComingSoon('Feasta rewards'),
                                 ),
                                 _AccountMenuItem(
                                   icon: Icons.local_offer_outlined,
@@ -228,7 +234,8 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
                                 _AccountMenuItem(
                                   icon: Icons.card_giftcard_outlined,
                                   title: 'Invite friends',
-                                  onTap: () => _showComingSoon('Invite friends'),
+                                  onTap: () =>
+                                      _showComingSoon('Invite friends'),
                                 ),
                               ],
                             ),
@@ -254,8 +261,12 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
                               ],
                             ),
                             Padding(
-                              padding:
-                                  const EdgeInsets.fromLTRB(20, 18, 20, 12),
+                              padding: const EdgeInsets.fromLTRB(
+                                20,
+                                18,
+                                20,
+                                12,
+                              ),
                               child: OutlinedButton(
                                 onPressed: _logout,
                                 style: OutlinedButton.styleFrom(
@@ -306,9 +317,7 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
 class _AccountTopBar extends StatelessWidget {
   final VoidCallback onSettings;
 
-  const _AccountTopBar({
-    required this.onSettings,
-  });
+  const _AccountTopBar({required this.onSettings});
 
   @override
   Widget build(BuildContext context) {
@@ -382,11 +391,7 @@ class _AccountIdentityCard extends StatelessWidget {
             backgroundColor: const Color(0xFFFFE3DA),
             backgroundImage: imageUrl == null ? null : NetworkImage(imageUrl),
             child: imageUrl == null
-                ? const Icon(
-                    Icons.person_rounded,
-                    color: _primary,
-                    size: 34,
-                  )
+                ? const Icon(Icons.person_rounded, color: _primary, size: 34)
                 : null,
           ),
           const SizedBox(width: 14),
@@ -443,10 +448,7 @@ class _AccountStatusPill extends StatelessWidget {
   final String label;
   final bool verified;
 
-  const _AccountStatusPill({
-    required this.label,
-    required this.verified,
-  });
+  const _AccountStatusPill({required this.label, required this.verified});
 
   @override
   Widget build(BuildContext context) {
@@ -474,10 +476,7 @@ class _AccountSection extends StatelessWidget {
   final String title;
   final List<Widget> children;
 
-  const _AccountSection({
-    required this.title,
-    required this.children,
-  });
+  const _AccountSection({required this.title, required this.children});
 
   @override
   Widget build(BuildContext context) {
@@ -508,11 +507,7 @@ class _AccountSection extends StatelessWidget {
                 for (var i = 0; i < children.length; i++) ...[
                   children[i],
                   if (i != children.length - 1)
-                    const Divider(
-                      height: 1,
-                      indent: 64,
-                      color: _divider,
-                    ),
+                    const Divider(height: 1, indent: 64, color: _divider),
                 ],
               ],
             ),
@@ -649,9 +644,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
 
   void _editLanguage() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Language selection is coming soon.'),
-      ),
+      const SnackBar(content: Text('Language selection is coming soon.')),
     );
   }
 
@@ -662,9 +655,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            _SettingsTopBar(
-              onBack: () => Navigator.pop(context),
-            ),
+            _SettingsTopBar(onBack: () => Navigator.pop(context)),
             Expanded(
               child: isLoading
                   ? const FeastaSkeletonList(
@@ -717,9 +708,7 @@ class _AccountSettingsScreenState extends State<AccountSettingsScreen> {
 class _SettingsTopBar extends StatelessWidget {
   final VoidCallback onBack;
 
-  const _SettingsTopBar({
-    required this.onBack,
-  });
+  const _SettingsTopBar({required this.onBack});
 
   @override
   Widget build(BuildContext context) {
@@ -731,11 +720,7 @@ class _SettingsTopBar extends StatelessWidget {
           IconButton(
             tooltip: 'Back',
             onPressed: onBack,
-            icon: const Icon(
-              Icons.arrow_back,
-              color: _textPrimary,
-              size: 30,
-            ),
+            icon: const Icon(Icons.arrow_back, color: _textPrimary, size: 30),
           ),
           const SizedBox(width: 8),
           const Text(
@@ -755,9 +740,7 @@ class _SettingsTopBar extends StatelessWidget {
 class _LanguageCard extends StatelessWidget {
   final VoidCallback onEdit;
 
-  const _LanguageCard({
-    required this.onEdit,
-  });
+  const _LanguageCard({required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -853,10 +836,7 @@ class _SignedOutAccount extends StatelessWidget {
   final VoidCallback onLogin;
   final VoidCallback onSettings;
 
-  const _SignedOutAccount({
-    required this.onLogin,
-    required this.onSettings,
-  });
+  const _SignedOutAccount({required this.onLogin, required this.onSettings});
 
   @override
   Widget build(BuildContext context) {
@@ -932,10 +912,7 @@ class _AccountErrorState extends StatelessWidget {
   final String message;
   final VoidCallback onRetry;
 
-  const _AccountErrorState({
-    required this.message,
-    required this.onRetry,
-  });
+  const _AccountErrorState({required this.message, required this.onRetry});
 
   @override
   Widget build(BuildContext context) {
@@ -945,11 +922,7 @@ class _AccountErrorState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.error_outline_rounded,
-              color: _primary,
-              size: 68,
-            ),
+            const Icon(Icons.error_outline_rounded, color: _primary, size: 68),
             const SizedBox(height: 14),
             const Text(
               'Account could not load',
@@ -964,16 +937,10 @@ class _AccountErrorState extends StatelessWidget {
             Text(
               message.replaceAll('Exception: ', ''),
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: _textSecondary,
-                height: 1.35,
-              ),
+              style: const TextStyle(color: _textSecondary, height: 1.35),
             ),
             const SizedBox(height: 18),
-            ElevatedButton(
-              onPressed: onRetry,
-              child: const Text('Try again'),
-            ),
+            ElevatedButton(onPressed: onRetry, child: const Text('Try again')),
           ],
         ),
       ),
@@ -987,11 +954,7 @@ BoxDecoration _settingsCardDecoration() {
     borderRadius: BorderRadius.circular(18),
     border: Border.all(color: _divider),
     boxShadow: const [
-      BoxShadow(
-        color: Color(0x0D000000),
-        blurRadius: 16,
-        offset: Offset(0, 6),
-      ),
+      BoxShadow(color: Color(0x0D000000), blurRadius: 16, offset: Offset(0, 6)),
     ],
   );
 }

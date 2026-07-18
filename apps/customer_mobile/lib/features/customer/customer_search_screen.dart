@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
 
 import '../../core/helpers/provider_category_helper.dart';
+import '../../core/theme/app_breakpoints.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/widgets/widgets.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../../shared/widgets/loading_skeleton.dart';
 import 'provider_profile_screen.dart';
 
-const Color kCard = Colors.white;
-const Color kBorder = Color(0xFFE8E1DB);
-const Color kTextPrimary = Color(0xFF2B211D);
-const Color kTextSecondary = Color(0xFF8C817A);
-const Color kPrimary = Color(0xFFFF6333);
-const Color kChipBg = Color(0xFFFFF1EB);
+const Color kCard = AppColors.surface;
+const Color kBorder = AppColors.border;
+const Color kTextPrimary = AppColors.mainText;
+const Color kTextSecondary = AppColors.secondaryTextAccessible;
+const Color kPrimary = AppColors.primary;
+const Color kChipBg = AppColors.primarySubtle;
 
 class CustomerSearchScreen extends StatefulWidget {
   final String initialEventType;
@@ -222,11 +225,9 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
                       onSearchTap: (value) {
                         setState(() {
                           searchController.text = value;
-                          searchController.selection =
-                              TextSelection.fromPosition(
-                            TextPosition(
-                              offset: searchController.text.length,
-                            ),
+                          searchController
+                              .selection = TextSelection.fromPosition(
+                            TextPosition(offset: searchController.text.length),
                           );
 
                           recentSearches.remove(value);
@@ -306,9 +307,7 @@ class _DirectSearchHeader extends StatelessWidget {
                   height: 46,
                   width: 46,
                   child: Icon(
-                    showFilters
-                        ? Icons.tune_rounded
-                        : Icons.tune_outlined,
+                    showFilters ? Icons.tune_rounded : Icons.tune_outlined,
                     color: showFilters ? Colors.white : kTextPrimary,
                     size: 23,
                   ),
@@ -340,7 +339,6 @@ class _SearchFilterPanel extends StatelessWidget {
   final VoidCallback onApply;
 
   const _SearchFilterPanel({
-    super.key,
     this.showSearchField = true,
     required this.searchController,
     required this.locationController,
@@ -401,7 +399,7 @@ class _SearchFilterPanel extends StatelessWidget {
             ],
             if (showFilters) ...[
               DropdownButtonFormField<String>(
-                value: selectedEventType,
+                initialValue: selectedEventType,
                 decoration: _softInputDecoration(
                   hintText: 'Event Type',
                   prefixIcon: const Icon(
@@ -416,10 +414,7 @@ class _SearchFilterPanel extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
                 items: eventTypes.map((type) {
-                  return DropdownMenuItem(
-                    value: type,
-                    child: Text(type),
-                  );
+                  return DropdownMenuItem(value: type, child: Text(type));
                 }).toList(),
                 onChanged: (value) {
                   if (value == null) return;
@@ -446,9 +441,7 @@ class _SearchFilterPanel extends StatelessWidget {
                       controller: minBudgetController,
                       keyboardType: TextInputType.number,
                       onChanged: onSearchChanged,
-                      decoration: _softInputDecoration(
-                        hintText: 'Min Budget',
-                      ),
+                      decoration: _softInputDecoration(hintText: 'Min Budget'),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -457,9 +450,7 @@ class _SearchFilterPanel extends StatelessWidget {
                       controller: maxBudgetController,
                       keyboardType: TextInputType.number,
                       onChanged: onSearchChanged,
-                      decoration: _softInputDecoration(
-                        hintText: 'Max Budget',
-                      ),
+                      decoration: _softInputDecoration(hintText: 'Max Budget'),
                     ),
                   ),
                 ],
@@ -527,7 +518,6 @@ class _CollapsedSearchBar extends StatelessWidget {
   final ValueChanged<String> onSubmitted;
 
   const _CollapsedSearchBar({
-    super.key,
     required this.searchController,
     required this.searchFocusNode,
     required this.onChanged,
@@ -568,10 +558,7 @@ class _CollapsedSearchBar extends StatelessWidget {
                     searchController.clear();
                     onChanged('');
                   },
-                  icon: const Icon(
-                    Icons.close_rounded,
-                    color: kTextPrimary,
-                  ),
+                  icon: const Icon(Icons.close_rounded, color: kTextPrimary),
                 ),
           filled: true,
           fillColor: const Color(0xFFF5F5F3),
@@ -585,10 +572,7 @@ class _CollapsedSearchBar extends StatelessWidget {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(999),
-            borderSide: const BorderSide(
-              color: kPrimary,
-              width: 1.2,
-            ),
+            borderSide: const BorderSide(color: kPrimary, width: 1.2),
           ),
         ),
       ),
@@ -653,7 +637,7 @@ class _SearchResultsList extends StatelessWidget {
         return ListView.separated(
           padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
           itemCount: providers.length + 1,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          separatorBuilder: (_, _) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             if (index == 0) {
               return Padding(
@@ -762,9 +746,7 @@ class _SearchLandingContent extends StatelessWidget {
 class _PopularServiceRail extends StatelessWidget {
   final ValueChanged<String> onSearchTap;
 
-  const _PopularServiceRail({
-    required this.onSearchTap,
-  });
+  const _PopularServiceRail({required this.onSearchTap});
 
   static const List<_PopularServiceShortcut> items = [
     _PopularServiceShortcut(
@@ -800,7 +782,7 @@ class _PopularServiceRail extends StatelessWidget {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: items.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
         itemBuilder: (context, index) {
           final item = items[index];
 
@@ -818,11 +800,7 @@ class _PopularServiceRail extends StatelessWidget {
                       color: const Color(0xFFF3F1F0),
                       borderRadius: BorderRadius.circular(22),
                     ),
-                    child: Icon(
-                      item.icon,
-                      color: kPrimary,
-                      size: 34,
-                    ),
+                    child: Icon(item.icon, color: kPrimary, size: 34),
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -862,10 +840,7 @@ class _ProviderMiniSlider extends StatelessWidget {
   final Stream<List<ProviderModel>> stream;
   final String emptyText;
 
-  const _ProviderMiniSlider({
-    required this.stream,
-    required this.emptyText,
-  });
+  const _ProviderMiniSlider({required this.stream, required this.emptyText});
 
   @override
   Widget build(BuildContext context) {
@@ -897,7 +872,7 @@ class _ProviderMiniSlider extends StatelessWidget {
           return ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: providers.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 12),
+            separatorBuilder: (_, _) => const SizedBox(width: 12),
             itemBuilder: (context, index) {
               return _MiniProviderCard(provider: providers[index]);
             },
@@ -912,10 +887,7 @@ class _SearchSectionTitle extends StatelessWidget {
   final String title;
   final String? subtitle;
 
-  const _SearchSectionTitle({
-    required this.title,
-    this.subtitle,
-  });
+  const _SearchSectionTitle({required this.title, this.subtitle});
 
   @override
   Widget build(BuildContext context) {
@@ -955,10 +927,7 @@ class _RecentSearchTile extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
-  const _RecentSearchTile({
-    required this.label,
-    required this.onTap,
-  });
+  const _RecentSearchTile({required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1000,10 +969,7 @@ class _SoftSearchChip extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
-  const _SoftSearchChip({
-    required this.label,
-    required this.onTap,
-  });
+  const _SoftSearchChip({required this.label, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -1014,10 +980,7 @@ class _SoftSearchChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 15,
-            vertical: 11,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 11),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(999),
             border: Border.all(color: const Color(0xFFFFD8CA)),
@@ -1039,9 +1002,7 @@ class _SoftSearchChip extends StatelessWidget {
 class _MiniProviderCard extends StatelessWidget {
   final ProviderModel provider;
 
-  const _MiniProviderCard({
-    required this.provider,
-  });
+  const _MiniProviderCard({required this.provider});
 
   @override
   Widget build(BuildContext context) {
@@ -1080,7 +1041,7 @@ class _MiniProviderCard extends StatelessWidget {
                     height: 86,
                     width: double.infinity,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) {
+                    errorBuilder: (_, _, _) {
                       return Container(
                         height: 86,
                         width: double.infinity,
@@ -1159,14 +1120,14 @@ class _MiniProviderCard extends StatelessWidget {
 class SearchProviderCard extends StatelessWidget {
   final ProviderModel provider;
 
-  const SearchProviderCard({
-    super.key,
-    required this.provider,
-  });
+  const SearchProviderCard({super.key, required this.provider});
 
   @override
   Widget build(BuildContext context) {
-    final imageUrl = provider.coverImageUrl ?? '';
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final isMobile = MediaQuery.sizeOf(context).width < AppBreakpoints.tablet;
+    final cardHeight = (220 + ((textScale - 1).clamp(0, 1.5) * 240)).toDouble();
+    final imageWidth = isMobile ? 104.0 : 140.0;
 
     return InkWell(
       borderRadius: BorderRadius.circular(22),
@@ -1179,39 +1140,18 @@ class SearchProviderCard extends StatelessWidget {
         );
       },
       child: Container(
-        height: 152,
+        height: cardHeight,
         decoration: _softCardDecoration(),
         clipBehavior: Clip.antiAlias,
         child: Row(
           children: [
-            imageUrl.isEmpty
-                ? Container(
-                    width: 120,
-                    height: double.infinity,
-                    color: const Color(0xFFF1ECE8),
-                    child: const Icon(
-                      Icons.image_outlined,
-                      color: kTextSecondary,
-                      size: 38,
-                    ),
-                  )
-                : Image.network(
-                    imageUrl,
-                    width: 120,
-                    height: double.infinity,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) {
-                      return Container(
-                        width: 120,
-                        height: double.infinity,
-                        color: const Color(0xFFF1ECE8),
-                        child: const Icon(
-                          Icons.broken_image_outlined,
-                          color: kTextSecondary,
-                        ),
-                      );
-                    },
-                  ),
+            FeastaImage.network(
+              imageUrl: provider.coverImageUrl,
+              description: '${provider.businessName} cover image',
+              fallbackLabel: '${provider.businessName} image unavailable',
+              width: imageWidth,
+              height: double.infinity,
+            ),
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(13, 12, 13, 12),
@@ -1223,7 +1163,7 @@ class SearchProviderCard extends StatelessWidget {
                         Expanded(
                           child: Text(
                             provider.businessName,
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 16,
@@ -1232,7 +1172,7 @@ class SearchProviderCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                    if (provider.isApproved)
+                        if (provider.isApproved)
                           const Icon(
                             Icons.verified_rounded,
                             color: Colors.green,
@@ -1262,14 +1202,16 @@ class SearchProviderCard extends StatelessWidget {
                       ),
                     ),
                     const Spacer(),
-                    Row(
+                    Wrap(
+                      spacing: 3,
+                      runSpacing: 2,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         const Icon(
                           Icons.star_rounded,
                           color: Colors.amber,
                           size: 17,
                         ),
-                        const SizedBox(width: 3),
                         Text(
                           provider.ratingAverage.toStringAsFixed(1),
                           style: const TextStyle(
@@ -1277,7 +1219,6 @@ class SearchProviderCard extends StatelessWidget {
                             color: kTextPrimary,
                           ),
                         ),
-                        const SizedBox(width: 3),
                         Text(
                           '(${provider.reviewCount})',
                           style: const TextStyle(
@@ -1288,10 +1229,11 @@ class SearchProviderCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 7),
-                    Text(
-                      '₱${provider.minPrice.toStringAsFixed(0)} - ₱${provider.maxPrice.toStringAsFixed(0)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    FeastaPriceText(
+                      amount: provider.minPrice,
+                      decimalDigits: 0,
+                      semanticLabel:
+                          'Starting price ${FeastaPriceFormatter.format(provider.minPrice, decimalDigits: 0)}',
                       style: const TextStyle(
                         color: kPrimary,
                         fontWeight: FontWeight.w900,
@@ -1310,7 +1252,7 @@ class SearchProviderCard extends StatelessWidget {
                         Expanded(
                           child: Text(
                             provider.location,
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               color: kTextSecondary,
@@ -1343,11 +1285,7 @@ class _EmptySearchState extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.search_off_rounded,
-              size: 76,
-              color: kTextSecondary,
-            ),
+            Icon(Icons.search_off_rounded, size: 76, color: kTextSecondary),
             SizedBox(height: 18),
             Text(
               'No results found',
@@ -1380,11 +1318,7 @@ BoxDecoration _softCardDecoration() {
     borderRadius: BorderRadius.circular(22),
     border: Border.all(color: kBorder),
     boxShadow: const [
-      BoxShadow(
-        color: Color(0x0F000000),
-        blurRadius: 18,
-        offset: Offset(0, 8),
-      ),
+      BoxShadow(color: Color(0x0F000000), blurRadius: 18, offset: Offset(0, 8)),
     ],
   );
 }
@@ -1405,10 +1339,7 @@ InputDecoration _softInputDecoration({
     suffixIcon: suffixIcon,
     filled: true,
     fillColor: Colors.white,
-    contentPadding: const EdgeInsets.symmetric(
-      horizontal: 16,
-      vertical: 15,
-    ),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(18),
       borderSide: const BorderSide(color: kBorder),

@@ -129,19 +129,24 @@ export type ProviderRequestType =
 
 export const PAYMENT_STATUSES = [
   "pending",
-  "checkout_created",
   "processing",
   "paid",
   "failed",
   "expired",
-  "cancelled",
-  "refund_pending",
-  "partially_refunded",
   "refunded",
 ] as const;
 
 export type PaymentStatus =
   (typeof PAYMENT_STATUSES)[number];
+
+export const PAYMENT_STATUS_TRANSITIONS = {
+  pending: ["processing", "paid", "failed", "expired"],
+  processing: ["paid", "failed", "expired"],
+  paid: ["refunded"],
+  failed: ["processing"],
+  expired: ["processing"],
+  refunded: [],
+} as const satisfies Record<PaymentStatus, readonly PaymentStatus[]>;
 
 export const PAYMENT_TYPES = [
   "provider_down_payment",

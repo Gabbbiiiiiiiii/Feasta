@@ -38,11 +38,9 @@ extensions.configure<ApplicationExtension>("android") {
         manifestPlaceholders["MAPS_API_KEY"] = mapsKey
     }
 
-    buildTypes {
-        release {
-            signingConfig = signingConfigs.getByName("debug")
-        }
-    }
+    // Release signing is supplied by the trusted CI/release environment.
+    // Never fall back to the debug certificate: Play Integrity registration
+    // must match the production Play App Signing/release certificate.
 }
 
 extensions.configure<KotlinAndroidProjectExtension>("kotlin") {

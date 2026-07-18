@@ -1,7 +1,10 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import '../../app/router/customer_route_guard.dart';
 import '../../core/helpers/auth_guard.dart';
 import '../../core/services/device_permission_service.dart';
+import '../authentication/application/customer_auth_scope.dart';
 import 'customer_account_screen.dart';
 import 'customer_bookings_screen.dart';
 import 'customer_favorites_screen.dart';
@@ -9,18 +12,22 @@ import 'customer_home_screen.dart';
 import 'customer_search_screen.dart';
 
 class CustomerMainScreen extends StatefulWidget {
-  const CustomerMainScreen({super.key});
+  const CustomerMainScreen({this.initialIndex = 0, super.key})
+    : assert(initialIndex >= 0 && initialIndex <= 4);
+
+  final int initialIndex;
 
   @override
   State<CustomerMainScreen> createState() => _CustomerMainScreenState();
 }
 
 class _CustomerMainScreenState extends State<CustomerMainScreen> {
-  int selectedIndex = 0;
+  late int selectedIndex;
 
   @override
   void initState() {
     super.initState();
+    selectedIndex = widget.initialIndex;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       DevicePermissionService.requestCorePermissionsIfNeeded(context);
@@ -31,6 +38,13 @@ class _CustomerMainScreenState extends State<CustomerMainScreen> {
     final protectedTab = index == 2 || index == 3 || index == 4;
 
     if (protectedTab) {
+      if (FirebaseAuth.instance.currentUser == null) {
+        final controller = CustomerAuthenticationScope.maybeOf(context);
+        if (controller != null) {
+          controller.requestIntendedLocation(_locationForTab(index));
+          return;
+        }
+      }
       final allowed = await requireLogin(
         context,
         message: 'Please log in or create an account to view this section.',
@@ -42,6 +56,15 @@ class _CustomerMainScreenState extends State<CustomerMainScreen> {
     setState(() {
       selectedIndex = index;
     });
+  }
+
+  String _locationForTab(int index) {
+    return switch (index) {
+      2 => CustomerAppLocations.bookings,
+      3 => CustomerAppLocations.favorites,
+      4 => CustomerAppLocations.account,
+      _ => CustomerAppLocations.customer,
+    };
   }
 
   Widget _buildScreen() {
@@ -82,10 +105,7 @@ class _CustomerMainScreenState extends State<CustomerMainScreen> {
             activeIcon: Icon(Icons.home),
             label: 'Home',
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.search),
-            label: 'Search',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.search), label: 'Search'),
           BottomNavigationBarItem(
             icon: Icon(Icons.calendar_month_outlined),
             activeIcon: Icon(Icons.calendar_month),

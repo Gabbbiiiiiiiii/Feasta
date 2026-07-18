@@ -17,6 +17,8 @@ import {
 import {logError, logInfo} from "../shared/logger.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
+import {appCheckCallableOptions} from "../shared/function-options.js";
+import {logSecurityEvent} from "../shared/security-events.js";
 import {
   requireObject,
   requireString,
@@ -28,9 +30,7 @@ const SUBMITTABLE_STATUSES = [
 ] as const;
 
 export const submitProviderVerification = onCall(
-  {
-    region: "asia-southeast1",
-  },
+  appCheckCallableOptions,
   async (request) => {
     const authenticatedUser = requireAuth(request);
 
@@ -322,6 +322,14 @@ export const submitProviderVerification = onCall(
             result.verificationId,
         },
       );
+      logSecurityEvent({
+        action: "provider_verification_submission",
+        outcome: "succeeded",
+        actorUid: authenticatedUser.uid,
+        targetId: result.verificationId,
+        correlationId: authenticatedUser.correlationId,
+        metadata: {providerId: result.providerId},
+      });
 
       const response = {
         success: true,

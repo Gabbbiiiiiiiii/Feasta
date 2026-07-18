@@ -6,6 +6,10 @@ import {HttpsError} from "firebase-functions/v2/https";
 
 import {db} from "./firestore.js";
 import {serverTimestamp} from "./timestamps.js";
+import {
+  correlationIdFromCallable,
+  logSecurityEvent,
+} from "./security-events.js";
 
 export interface RateLimitPolicy {
   scope: string;
@@ -26,11 +30,20 @@ export async function enforceCallableRateLimit(
 
   const subject = uid ? `user:${uid}` :
     appId ? `app:${appId}:ip:${ip}` : `ip:${ip}`;
-  await enforceRateLimit({...policy, subject});
+  await enforceRateLimit({
+    ...policy,
+    subject,
+    actorUid: uid,
+    correlationId: correlationIdFromCallable(request),
+  });
 }
 
 export async function enforceRateLimit(
-  input: RateLimitPolicy & {subject: string},
+  input: RateLimitPolicy & {
+    subject: string;
+    actorUid?: string;
+    correlationId?: string;
+  },
 ): Promise<void> {
   if (!Number.isInteger(input.limit) || input.limit < 1) {
     throw new Error("Rate-limit count must be a positive integer.");
@@ -61,6 +74,19 @@ export async function enforceRateLimit(
         1,
         Math.ceil((windowEndsAt.toMillis() - now.toMillis()) / 1000),
       );
+      logSecurityEvent({
+        action: "rate_limit_rejected",
+        outcome: "denied",
+        actorUid: input.actorUid,
+        targetId: input.scope,
+        correlationId: input.correlationId,
+        reasonCode: "quota_exceeded",
+        metadata: {
+          retryAfterSeconds,
+          limit: input.limit,
+          windowSeconds: input.windowSeconds,
+        },
+      });
       throw new HttpsError(
         "resource-exhausted",
         `Too many requests. Retry in ${retryAfterSeconds} seconds.`,

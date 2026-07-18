@@ -1,21 +1,23 @@
 import {LogoutButton} from "@/components/auth/logout-button";
+import {PageHeading} from "@/components/layout/page-heading";
 import {requireRole, type UserRole} from "@/lib/auth/session";
 
 export async function RoleHome({role}: {role: UserRole}) {
   const user = await requireRole([role]);
   return (
-    <main className="mx-auto max-w-3xl p-8">
-      <section className="rounded-3xl border border-black/5 bg-white p-8 shadow-sm">
-        <p className="text-sm font-semibold uppercase tracking-widest text-[#FF6333]">
-          {role} session
+    <div className="grid gap-8">
+      <PageHeading
+        eyebrow={`${role} session`}
+        title="Authenticated FEASTA access"
+        description={`Signed in as ${user.email ?? user.uid}. This workspace is protected by a verified, revocation-aware server session and Firestore role check.`}
+        actions={<LogoutButton />}
+      />
+      <section className="rounded-card border border-border bg-card p-6 shadow-card sm:p-8" aria-labelledby="workspace-summary-title">
+        <h2 id="workspace-summary-title" className="text-xl font-bold">Workspace ready</h2>
+        <p className="mt-2 text-muted-foreground">
+          Use the role-specific navigation to access available FEASTA tools.
         </p>
-        <h1 className="mt-3 text-3xl font-bold">Authenticated FEASTA access</h1>
-        <p className="mt-3 text-[#8C817A]">
-          Signed in as {user.email ?? user.uid}. This page is protected by a
-          verified, revocation-aware server session and Firestore role check.
-        </p>
-        <div className="mt-6"><LogoutButton /></div>
       </section>
-    </main>
+    </div>
   );
 }

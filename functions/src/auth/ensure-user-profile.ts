@@ -2,22 +2,32 @@ import {getAuth} from "firebase-admin/auth";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 
 import {requireAuth} from "../shared/auth.js";
-import {FUNCTION_REGION, USER_ROLES} from "../shared/constants.js";
+import {USER_ROLES} from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
 import {logError, logInfo} from "../shared/logger.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {requireObject, requireString} from "../shared/validation.js";
+import {appCheckCallableOptions} from "../shared/function-options.js";
+import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 
 /**
  * Creates or repairs the customer Firestore profile for the authenticated
  * Firebase Auth user. The caller never chooses trusted role/account fields.
  */
 export const ensureUserProfile = onCall(
-  {region: FUNCTION_REGION},
+  appCheckCallableOptions,
   async (request) => {
     const authenticatedUser = requireAuth(request);
+    await enforceCallableRateLimit(request, {
+      scope: "ensureUserProfile",
+      limit: 10,
+      windowSeconds: 10 * 60,
+    });
     const input = requireObject(request.data ?? {});
     const authUser = await getAuth().getUser(authenticatedUser.uid);
+    if (authUser.disabled) {
+      throw new HttpsError("permission-denied", "This account is disabled.");
+    }
 
     const suppliedFirstName = optionalName(input.firstName, "firstName");
     const suppliedLastName = optionalName(input.lastName, "lastName");
@@ -32,6 +42,8 @@ export const ensureUserProfile = onCall(
       (authUser.phoneNumber ?? "");
     const email = authUser.email ?? authenticatedUser.email ?? null;
     const provider = authUser.providerData[0]?.providerId ?? "password";
+    const acceptedTerms = input.acceptedTerms === true;
+    const acceptedPrivacy = input.acceptedPrivacy === true;
 
     const userReference = db.collection("users").doc(authenticatedUser.uid);
     const customerReference = db
@@ -52,6 +64,7 @@ export const ensureUserProfile = onCall(
             throw new HttpsError(
               "permission-denied",
               "Customer sign-in cannot be used for this account role.",
+              {reason: "unsupported-role"},
             );
           }
 
@@ -63,6 +76,7 @@ export const ensureUserProfile = onCall(
             throw new HttpsError(
               "permission-denied",
               "This account is blocked or disabled.",
+              {reason: existing.isBlocked === true ? "blocked" : "disabled"},
             );
           }
 
@@ -76,6 +90,10 @@ export const ensureUserProfile = onCall(
             authProvider: provider,
             updatedAt: serverTimestamp(),
             lastLoginAt: serverTimestamp(),
+            ...(acceptedTerms && existing?.termsAcceptedAt == null ?
+              {termsAcceptedAt: serverTimestamp()} : {}),
+            ...(acceptedPrivacy && existing?.privacyAcceptedAt == null ?
+              {privacyAcceptedAt: serverTimestamp()} : {}),
           });
         } else {
           transaction.create(userReference, {
@@ -96,6 +114,8 @@ export const ensureUserProfile = onCall(
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
             lastLoginAt: serverTimestamp(),
+            ...(acceptedTerms ? {termsAcceptedAt: serverTimestamp()} : {}),
+            ...(acceptedPrivacy ? {privacyAcceptedAt: serverTimestamp()} : {}),
           });
         }
 

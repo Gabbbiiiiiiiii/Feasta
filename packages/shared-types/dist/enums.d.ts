@@ -27,8 +27,16 @@ export declare const PROVIDER_REQUEST_STATUSES: readonly ["pending", "accepted",
 export type ProviderRequestStatus = (typeof PROVIDER_REQUEST_STATUSES)[number];
 export declare const PROVIDER_REQUEST_TYPES: readonly ["catering", "addon"];
 export type ProviderRequestType = (typeof PROVIDER_REQUEST_TYPES)[number];
-export declare const PAYMENT_STATUSES: readonly ["pending", "checkout_created", "processing", "paid", "failed", "expired", "cancelled", "refund_pending", "partially_refunded", "refunded"];
+export declare const PAYMENT_STATUSES: readonly ["pending", "processing", "paid", "failed", "expired", "refunded"];
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+export declare const PAYMENT_STATUS_TRANSITIONS: {
+    readonly pending: readonly ["processing", "paid", "failed", "expired"];
+    readonly processing: readonly ["paid", "failed", "expired"];
+    readonly paid: readonly ["refunded"];
+    readonly failed: readonly ["processing"];
+    readonly expired: readonly ["processing"];
+    readonly refunded: readonly [];
+};
 export declare const PAYMENT_TYPES: readonly ["provider_down_payment", "provider_balance", "refund", "adjustment"];
 export type PaymentType = (typeof PAYMENT_TYPES)[number];
 export declare const PAYMENT_GATEWAYS: readonly ["paymongo"];

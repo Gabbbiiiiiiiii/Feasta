@@ -44,8 +44,9 @@ Completed calls replay their stored normalized result with
 timing. Processing leases expire after 60 seconds, failed calls may be retried,
 and records are retained for 24 hours by default.
 
-Payment creation/webhooks and trusted booking-transition callables do not yet
-exist in this repository. When introduced, they must claim an idempotency key
-before provider API calls and use provider event IDs for webhook keys. Canonical
-payment events, booking history, audit logs, and notification outbox records
-must use deterministic IDs or transactional creation.
+Payment creation claims a deterministic idempotency key before calling PayMongo.
+The webhook uses the provider event ID and a Firestore transaction so replayed
+events have no duplicate effects. Canonical payment events, booking history,
+audit logs, and notification records use deterministic IDs or transactional
+creation. Future booking-transition callables must use the same shared
+idempotency policy before creating lifecycle or notification side effects.

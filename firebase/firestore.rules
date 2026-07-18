@@ -32,6 +32,7 @@ service cloud.firestore {
 
     function hasRole(role) {
       return currentUserExists() &&
+          currentUserData().role is string &&
           currentUserData().role == role;
     }
 
@@ -49,13 +50,23 @@ service cloud.firestore {
 
     function isActiveAccount() {
       return currentUserExists() &&
+          currentUserData().accountStatus is string &&
+          currentUserData().isActive is bool &&
+          currentUserData().isBlocked is bool &&
           currentUserData().accountStatus == 'active' &&
-          currentUserData().isActive != false &&
-          currentUserData().isBlocked != true;
+          currentUserData().isActive == true &&
+          currentUserData().isBlocked == false;
     }
 
     function isActiveSignedInUser() {
       return isSignedIn() && isActiveAccount();
+    }
+
+    function isVerifiedCustomer() {
+      return isCustomer() &&
+          request.auth.token.email_verified == true &&
+          currentUserData().isEmailVerified == true &&
+          currentUserData().isPhoneVerified == true;
     }
 
     // ============================================================
@@ -77,15 +88,40 @@ service cloud.firestore {
     }
 
     function isNotDeleted(data) {
-      return !('isDeleted' in data) || data.isDeleted == false;
+      return !('isDeleted' in data) ||
+          (data.isDeleted is bool && data.isDeleted == false);
+    }
+
+    function validOptionalString(data, field, maximumLength) {
+      return !(field in data) ||
+          data[field] == null ||
+          (
+            data[field] is string &&
+            data[field].size() <= maximumLength
+          );
+    }
+
+    function validSafeUserProfile(data) {
+      return validOptionalString(data, 'firstName', 80) &&
+          validOptionalString(data, 'lastName', 80) &&
+          validOptionalString(data, 'phoneNumber', 30) &&
+          validOptionalString(data, 'profileImageUrl', 2048) &&
+          'updatedAt' in data &&
+          data.updatedAt is timestamp;
     }
 
     function validSoftDelete() {
       return isActiveSignedInUser() &&
           isNotDeleted(resource.data) &&
+          'isDeleted' in request.resource.data &&
+          request.resource.data.isDeleted is bool &&
           request.resource.data.isDeleted == true &&
+          'deletedAt' in request.resource.data &&
           request.resource.data.deletedAt == request.time &&
+          'deletedBy' in request.resource.data &&
+          request.resource.data.deletedBy is string &&
           request.resource.data.deletedBy == currentUserId() &&
+          'deletionReason' in request.resource.data &&
           request.resource.data.deletionReason is string &&
           request.resource.data.deletionReason.size() > 0;
     }
@@ -94,6 +130,12 @@ service cloud.firestore {
       return getAfter(
         /databases/$(database)/documents/users/$(userId)
       ).data;
+    }
+
+    function incomingUserExists(userId) {
+      return existsAfter(
+        /databases/$(database)/documents/users/$(userId)
+      );
     }
 
     // ============================================================
@@ -114,7 +156,9 @@ service cloud.firestore {
 
     function ownsProvider(providerId) {
       return isActiveSignedInUser() &&
+          providerId is string &&
           providerExists(providerId) &&
+          providerData(providerId).ownerId is string &&
           providerData(providerId).ownerId == currentUserId();
     }
 
@@ -146,12 +190,16 @@ service cloud.firestore {
 
     function ownsMainEvent(mainEventId) {
       return isActiveSignedInUser() &&
+          mainEventId is string &&
           mainEventExists(mainEventId) &&
+          mainEventData(mainEventId).customerId is string &&
           mainEventData(mainEventId).customerId == currentUserId();
     }
 
     function ownsExistingMainEvent() {
-      return resource.data.customerId == currentUserId();
+      return isActiveSignedInUser() &&
+          resource.data.customerId is string &&
+          resource.data.customerId == currentUserId();
     }
 
     // ============================================================
@@ -173,6 +221,7 @@ service cloud.firestore {
     function ownsProviderRequestAsCustomer(providerRequestId) {
       return isActiveSignedInUser() &&
           providerRequestExists(providerRequestId) &&
+          providerRequestData(providerRequestId).customerId is string &&
           providerRequestData(providerRequestId).customerId ==
               currentUserId();
     }
@@ -180,6 +229,7 @@ service cloud.firestore {
     function ownsProviderRequestAsProvider(providerRequestId) {
       return isActiveSignedInUser() &&
           providerRequestExists(providerRequestId) &&
+          providerRequestData(providerRequestId).providerId is string &&
           ownsProvider(
             providerRequestData(providerRequestId).providerId
           );
@@ -188,8 +238,43 @@ service cloud.firestore {
     function canReadExistingProviderRequest() {
       return isActiveSignedInUser() &&
           (
-            resource.data.customerId == currentUserId() ||
-            ownsProvider(resource.data.providerId) ||
+            (
+              resource.data.customerId is string &&
+              resource.data.customerId == currentUserId()
+            ) ||
+            (
+              resource.data.providerId is string &&
+              ownsProvider(resource.data.providerId)
+            ) ||
+            isAdmin()
+          );
+    }
+
+    function legacyBookingExists(bookingId) {
+      return exists(
+        /databases/$(database)/documents/bookings/$(bookingId)
+      );
+    }
+
+    function legacyBookingData(bookingId) {
+      return get(
+        /databases/$(database)/documents/bookings/$(bookingId)
+      ).data;
+    }
+
+    function canReadLegacyBooking(bookingId) {
+      return isActiveSignedInUser() &&
+          bookingId is string &&
+          legacyBookingExists(bookingId) &&
+          (
+            (
+              legacyBookingData(bookingId).customerId is string &&
+              legacyBookingData(bookingId).customerId == currentUserId()
+            ) ||
+            (
+              legacyBookingData(bookingId).providerId is string &&
+              ownsProvider(legacyBookingData(bookingId).providerId)
+            ) ||
             isAdmin()
           );
     }
@@ -201,13 +286,18 @@ service cloud.firestore {
     function isChatParticipantFromData(chatData) {
       return isActiveSignedInUser() &&
           (
-            chatData.customerId == currentUserId() ||
-            chatData.providerOwnerId == currentUserId() ||
+            (
+              chatData.customerId is string &&
+              chatData.customerId == currentUserId()
+            ) ||
+            (
+              chatData.providerOwnerId is string &&
+              chatData.providerOwnerId == currentUserId()
+            ) ||
             (
               chatData.providerId is string &&
               ownsProvider(chatData.providerId)
-            ) ||
-            isAdmin()
+            )
           );
     }
 
@@ -233,6 +323,7 @@ service cloud.firestore {
        * and later trusted-field changes remain server-only.
        */
       allow create: if isOwner(userId) &&
+          request.auth.token.role is string &&
           request.auth.token.role in ['customer', 'provider'] &&
           request.resource.data.keys().hasAll([
             'uid',
@@ -265,33 +356,41 @@ service cloud.firestore {
             'updatedAt',
             'lastLoginAt'
           ]) &&
+          request.resource.data.uid is string &&
           request.resource.data.uid == userId &&
+          request.resource.data.role is string &&
           request.resource.data.role == request.auth.token.role &&
+          request.resource.data.accountStatus is string &&
           request.resource.data.accountStatus == 'active' &&
           request.resource.data.providerId == null &&
+          request.resource.data.isActive is bool &&
           request.resource.data.isActive == true &&
+          request.resource.data.isBlocked is bool &&
           request.resource.data.isBlocked == false &&
+          request.resource.data.isEmailVerified is bool &&
           request.resource.data.isEmailVerified ==
               (request.auth.token.email_verified == true) &&
-          request.resource.data.isPhoneVerified == false;
+          request.resource.data.isPhoneVerified is bool &&
+          request.resource.data.isPhoneVerified == false &&
+          request.resource.data.createdAt is timestamp &&
+          request.resource.data.updatedAt is timestamp &&
+          validSafeUserProfile(request.resource.data);
 
-      allow read: if isOwner(userId) || isAdmin();
+      allow read: if (
+          isActiveSignedInUser() && isOwner(userId)
+        ) || isAdmin();
 
       allow update: if (
           isOwner(userId) &&
-          changesNone([
-            'role',
-            'uid',
-            'email',
-            'accountStatus',
-            'isActive',
-            'isBlocked',
-            'isEmailVerified',
-            'isPhoneVerified',
-            'providerId',
-            'authProvider',
-            'createdAt'
-          ])
+          isActiveSignedInUser() &&
+          changesOnly([
+            'firstName',
+            'lastName',
+            'phoneNumber',
+            'profileImageUrl',
+            'updatedAt'
+          ]) &&
+          validSafeUserProfile(request.resource.data)
         ) || (
           isAdmin() &&
           changesOnly([
@@ -311,22 +410,65 @@ service cloud.firestore {
 
     match /customers/{customerId} {
       allow create: if isOwner(customerId) &&
+          incomingUserExists(customerId) &&
+          request.resource.data.keys().hasOnly([
+            'userId', 'firstName', 'lastName', 'email', 'phoneNumber',
+            'address', 'city', 'province', 'postalCode', 'latitude',
+            'longitude', 'profileImageUrl', 'totalBookings',
+            'completedBookings', 'cancelledBookings', 'isActive',
+            'createdAt', 'updatedAt'
+          ]) &&
+          request.resource.data.userId is string &&
           request.resource.data.userId == customerId &&
+          request.resource.data.email is string &&
+          request.resource.data.createdAt is timestamp &&
+          (!('totalBookings' in request.resource.data) ||
+            request.resource.data.totalBookings == 0) &&
+          (!('completedBookings' in request.resource.data) ||
+            request.resource.data.completedBookings == 0) &&
+          (!('cancelledBookings' in request.resource.data) ||
+            request.resource.data.cancelledBookings == 0) &&
+          (!('isActive' in request.resource.data) ||
+            (
+              request.resource.data.isActive is bool &&
+              request.resource.data.isActive == true
+            )) &&
+          incomingUserData(customerId).uid is string &&
           incomingUserData(customerId).uid == customerId &&
+          incomingUserData(customerId).role is string &&
           incomingUserData(customerId).role == 'customer' &&
+          incomingUserData(customerId).accountStatus is string &&
           incomingUserData(customerId).accountStatus == 'active' &&
+          incomingUserData(customerId).isBlocked is bool &&
           incomingUserData(customerId).isBlocked == false;
 
-      allow read: if isOwner(customerId) || isAdmin();
+      allow read: if (
+          isActiveSignedInUser() && isOwner(customerId)
+        ) || isAdmin();
 
       allow update: if (
+          isActiveSignedInUser() &&
           isOwner(customerId) &&
           request.resource.data.userId == resource.data.userId &&
           request.resource.data.email == resource.data.email &&
-          request.resource.data.createdAt == resource.data.createdAt
+          request.resource.data.createdAt == resource.data.createdAt &&
+          changesOnly([
+            'firstName',
+            'lastName',
+            'phoneNumber',
+            'address',
+            'city',
+            'province',
+            'postalCode',
+            'latitude',
+            'longitude',
+            'profileImageUrl',
+            'updatedAt'
+          ])
         ) || (
           isAdmin() &&
           request.resource.data.userId == resource.data.userId &&
+          request.resource.data.email == resource.data.email &&
           request.resource.data.createdAt == resource.data.createdAt
         );
 
@@ -339,9 +481,17 @@ service cloud.firestore {
 
     match /providers/{providerId} {
       allow read: if (
+          resource.data.verificationStatus is string &&
           resource.data.verificationStatus == 'approved' &&
+          resource.data.isActive is bool &&
           resource.data.isActive == true &&
-          resource.data.isSuspended != true &&
+          (
+            !('isSuspended' in resource.data) ||
+            (
+              resource.data.isSuspended is bool &&
+              resource.data.isSuspended == false
+            )
+          ) &&
           isNotDeleted(resource.data)
         ) ||
         ownsProvider(providerId) ||
@@ -424,6 +574,12 @@ service cloud.firestore {
         allow read: if isAdmin() ||
             (
               isActiveSignedInUser() &&
+              exists(
+                /databases/$(database)/documents/providerVerifications/$(verificationId)
+              ) &&
+              get(
+                /databases/$(database)/documents/providerVerifications/$(verificationId)
+              ).data.providerId is string &&
               ownsProvider(
                 get(
                   /databases/$(database)/documents/providerVerifications/$(verificationId)
@@ -532,23 +688,30 @@ service cloud.firestore {
 
     match /mainEvents/{mainEventId} {
       allow create: if isActiveSignedInUser() &&
-          isCustomer() &&
+          isVerifiedCustomer() &&
           isNotDeleted(request.resource.data) &&
+          request.resource.data.customerId is string &&
           request.resource.data.customerId ==
               currentUserId() &&
-          request.resource.data.status in [
-            'draft',
-            'pending_provider_approval'
-          ];
+          request.resource.data.status is string &&
+          request.resource.data.status == 'draft' &&
+          !request.resource.data.keys().hasAny([
+            'paymentStatus',
+            'paymentId',
+            'paidAt',
+            'paidAmount',
+            'providerPayoutStatus',
+            'providerPayoutAt',
+            'paymongoCheckoutId',
+            'paymongoPaymentIntentId',
+            'paymongoReferenceNumber'
+          ]);
 
       allow read: if (
           isActiveSignedInUser() &&
+          resource.data.customerId is string &&
           resource.data.customerId == currentUserId()
-        ) || (
-          isAdmin() &&
-          request.resource.data.userId == resource.data.userId &&
-          request.resource.data.createdAt == resource.data.createdAt
-        );
+        ) || isAdmin();
 
       /*
        * During the canonical architecture, customers may edit event
@@ -557,38 +720,38 @@ service cloud.firestore {
        */
       allow update: if (
           isActiveSignedInUser() &&
+          resource.data.customerId is string &&
           resource.data.customerId == currentUserId() &&
-          request.resource.data.customerId ==
-              resource.data.customerId &&
+          request.resource.data.customerId == resource.data.customerId &&
+          request.resource.data.keys().hasOnly(resource.data.keys()) &&
+          resource.data.keys().hasOnly(request.resource.data.keys()) &&
           changesNone([
-            'customerId',
-            'status',
-            'requiredProviderRequestCount',
+            'customerId', 'providerId', 'providerIds', 'currentProviderId',
+            'status', 'paymentStatus', 'paymentId', 'paidAt', 'paidAmount',
+            'totalAmount', 'downPaymentAmount', 'remainingBalance', 'currency',
+            'providerPayoutStatus', 'providerPayoutAt', 'providerPayoutAmount',
+            'paymongoCheckoutId', 'paymongoPaymentIntentId',
+            'paymongoReferenceNumber', 'requiredProviderRequestCount',
             'confirmedRequiredProviderRequestCount',
-            'completedRequiredProviderRequestCount',
-            'needsProviderReplacement',
-            'confirmedAt',
-            'startedAt',
-            'completedAt',
-            'expiredAt',
-            'statusUpdatedAt',
-            'createdAt'
+            'completedRequiredProviderRequestCount', 'needsProviderReplacement',
+            'confirmedAt', 'startedAt', 'completedAt', 'expiredAt',
+            'statusUpdatedAt', 'createdAt', 'createdBy', 'updatedBy'
           ])
         ) || (
           isAdmin() &&
+          request.resource.data.keys().hasOnly(resource.data.keys()) &&
+          resource.data.keys().hasOnly(request.resource.data.keys()) &&
           changesNone([
-            'customerId',
-            'status',
-            'requiredProviderRequestCount',
+            'customerId', 'providerId', 'providerIds', 'currentProviderId',
+            'status', 'paymentStatus', 'paymentId', 'paidAt', 'paidAmount',
+            'totalAmount', 'downPaymentAmount', 'remainingBalance', 'currency',
+            'providerPayoutStatus', 'providerPayoutAt', 'providerPayoutAmount',
+            'paymongoCheckoutId', 'paymongoPaymentIntentId',
+            'paymongoReferenceNumber', 'requiredProviderRequestCount',
             'confirmedRequiredProviderRequestCount',
-            'completedRequiredProviderRequestCount',
-            'needsProviderReplacement',
-            'confirmedAt',
-            'startedAt',
-            'completedAt',
-            'expiredAt',
-            'statusUpdatedAt',
-            'createdAt'
+            'completedRequiredProviderRequestCount', 'needsProviderReplacement',
+            'confirmedAt', 'startedAt', 'completedAt', 'expiredAt',
+            'statusUpdatedAt', 'createdAt', 'createdBy', 'updatedBy'
           ])
         );
 
@@ -617,47 +780,54 @@ service cloud.firestore {
     match /providerRequests/{providerRequestId} {
       allow create: if isActiveSignedInUser() &&
           isCustomer() &&
+          request.resource.data.customerId is string &&
           request.resource.data.customerId ==
               currentUserId() &&
           request.resource.data.mainEventId is string &&
           ownsMainEvent(request.resource.data.mainEventId) &&
-          request.resource.data.status == 'pending';
+          request.resource.data.providerId is string &&
+          providerExists(request.resource.data.providerId) &&
+          providerData(request.resource.data.providerId).verificationStatus
+              is string &&
+          providerData(request.resource.data.providerId).verificationStatus ==
+              'approved' &&
+          providerData(request.resource.data.providerId).isActive is bool &&
+          providerData(request.resource.data.providerId).isActive == true &&
+          (
+            !('isSuspended' in
+              providerData(request.resource.data.providerId)) ||
+            (
+              providerData(request.resource.data.providerId).isSuspended
+                  is bool &&
+              providerData(request.resource.data.providerId).isSuspended ==
+                  false
+            )
+          ) &&
+          request.resource.data.status is string &&
+          request.resource.data.status == 'pending' &&
+          !request.resource.data.keys().hasAny([
+            'paymentStatus', 'paymentId', 'paidAt',
+            'providerPayoutStatus', 'providerPayoutAt',
+            'paymongoCheckoutId', 'paymongoPaymentIntentId',
+            'paymongoReferenceNumber'
+          ]);
 
       allow read: if canReadExistingProviderRequest();
 
       // Provider-request lifecycle changes are backend-controlled.
       allow update: if (
+          resource.data.providerId is string &&
           ownsProvider(resource.data.providerId) &&
-          request.resource.data.providerId ==
-              resource.data.providerId &&
-          request.resource.data.customerId ==
-              resource.data.customerId &&
-          request.resource.data.mainEventId ==
-              resource.data.mainEventId &&
-          changesNone([
-            'status',
-            'acceptedAt',
-            'rejectedAt',
-            'rejectedReason',
-            'startedAt',
-            'completedAt',
-            'cancelledAt',
-            'statusUpdatedAt',
-            'createdAt'
-          ])
+          request.resource.data.providerId == resource.data.providerId &&
+          request.resource.data.customerId == resource.data.customerId &&
+          request.resource.data.mainEventId == resource.data.mainEventId &&
+          changesOnly(['providerNotes', 'updatedAt'])
         ) || (
           isAdmin() &&
-          changesNone([
-            'status',
-            'acceptedAt',
-            'rejectedAt',
-            'rejectedReason',
-            'startedAt',
-            'completedAt',
-            'cancelledAt',
-            'statusUpdatedAt',
-            'createdAt'
-          ])
+          request.resource.data.providerId == resource.data.providerId &&
+          request.resource.data.customerId == resource.data.customerId &&
+          request.resource.data.mainEventId == resource.data.mainEventId &&
+          changesOnly(['adminNotes', 'updatedAt'])
         );
 
       allow delete: if false;
@@ -680,7 +850,10 @@ service cloud.firestore {
     match /payments/{paymentId} {
       allow read: if isActiveSignedInUser() &&
           (
-            resource.data.customerId == currentUserId() ||
+            (
+              resource.data.customerId is string &&
+              resource.data.customerId == currentUserId()
+            ) ||
             (
               resource.data.providerId is string &&
               ownsProvider(resource.data.providerId)
@@ -698,6 +871,12 @@ service cloud.firestore {
         allow read: if isAdmin() ||
             (
               isActiveSignedInUser() &&
+              exists(
+                /databases/$(database)/documents/payments/$(paymentId)
+              ) &&
+              get(
+                /databases/$(database)/documents/payments/$(paymentId)
+              ).data.customerId is string &&
               get(
                 /databases/$(database)/documents/payments/$(paymentId)
               ).data.customerId == currentUserId()
@@ -707,12 +886,46 @@ service cloud.firestore {
       }
     }
 
+    // Minimal, backend-generated PayMongo event receipts used for replay
+    // prevention. Raw gateway payloads are never client-readable.
+    match /paymentWebhookEvents/{eventId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
     // ============================================================
     // chatRooms and messages
     // ============================================================
 
     match /chatRooms/{chatRoomId} {
       allow create: if isActiveSignedInUser() &&
+          request.resource.data.bookingId is string &&
+          request.resource.data.customerId is string &&
+          request.resource.data.providerId is string &&
+          (
+            (
+              mainEventExists(request.resource.data.bookingId) &&
+              mainEventData(request.resource.data.bookingId).customerId
+                  is string &&
+              mainEventData(request.resource.data.bookingId).providerId
+                  is string &&
+              mainEventData(request.resource.data.bookingId).customerId ==
+                  request.resource.data.customerId &&
+              mainEventData(request.resource.data.bookingId).providerId ==
+                  request.resource.data.providerId
+            ) ||
+            (
+              legacyBookingExists(request.resource.data.bookingId) &&
+              legacyBookingData(request.resource.data.bookingId).customerId
+                  is string &&
+              legacyBookingData(request.resource.data.bookingId).providerId
+                  is string &&
+              legacyBookingData(request.resource.data.bookingId).customerId ==
+                  request.resource.data.customerId &&
+              legacyBookingData(request.resource.data.bookingId).providerId ==
+                  request.resource.data.providerId
+            )
+          ) &&
           isChatParticipantFromData(
             request.resource.data
           );
@@ -728,6 +941,8 @@ service cloud.firestore {
             resource.data.customerId &&
         request.resource.data.providerId ==
             resource.data.providerId &&
+        request.resource.data.bookingId ==
+            resource.data.bookingId &&
         changesOnly([
           'lastMessage',
           'lastMessageAt',
@@ -744,8 +959,29 @@ service cloud.firestore {
         allow read: if isChatParticipant(chatRoomId);
 
         allow create: if isChatParticipant(chatRoomId) &&
+            request.resource.data.keys().hasAll([
+              'chatRoomId', 'senderId', 'senderRole', 'message',
+              'messageType', 'isRead', 'createdAt'
+            ]) &&
+            request.resource.data.keys().hasOnly([
+              'chatRoomId', 'senderId', 'senderRole', 'message',
+              'messageType', 'attachmentUrl', 'isRead', 'readAt', 'createdAt'
+            ]) &&
+            request.resource.data.chatRoomId is string &&
+            request.resource.data.chatRoomId == chatRoomId &&
+            request.resource.data.senderId is string &&
             request.resource.data.senderId ==
-                currentUserId();
+                currentUserId() &&
+            request.resource.data.senderRole is string &&
+            request.resource.data.senderRole == currentUserData().role &&
+            request.resource.data.message is string &&
+            request.resource.data.message.size() > 0 &&
+            request.resource.data.message.size() <= 4000 &&
+            request.resource.data.messageType is string &&
+            request.resource.data.messageType in ['text', 'image', 'file'] &&
+            request.resource.data.isRead is bool &&
+            request.resource.data.isRead == false &&
+            request.resource.data.createdAt == request.time;
 
         allow update, delete: if false;
       }
@@ -758,11 +994,22 @@ service cloud.firestore {
     match /reviews/{reviewId} {
       allow read: if (
           isNotDeleted(resource.data) &&
-          (resource.data.moderationStatus == 'published' ||
-            resource.data.isVisible == true)
+          (
+            (
+              resource.data.moderationStatus is string &&
+              resource.data.moderationStatus == 'published'
+            ) ||
+            (
+              resource.data.isVisible is bool &&
+              resource.data.isVisible == true
+            )
+          )
         ) ||
-          resource.data.customerId ==
-              currentUserId() ||
+          (
+            isActiveSignedInUser() &&
+            resource.data.customerId is string &&
+            resource.data.customerId == currentUserId()
+          ) ||
           (
             resource.data.providerId is string &&
             ownsProvider(resource.data.providerId)
@@ -773,6 +1020,8 @@ service cloud.firestore {
       allow create: if false;
 
       allow update: if (
+          isActiveSignedInUser() &&
+          resource.data.customerId is string &&
           resource.data.customerId == currentUserId() &&
           validSoftDelete() &&
           changesOnly([
@@ -784,14 +1033,6 @@ service cloud.firestore {
             'updatedAt'
           ]) &&
           request.resource.data.isVisible == false
-        ) || (
-          resource.data.customerId ==
-              currentUserId() &&
-          changesOnly([
-            'rating',
-            'comment',
-            'updatedAt'
-          ])
         ) ||
         (
           resource.data.providerId is string &&
@@ -800,9 +1041,22 @@ service cloud.firestore {
             'providerReply',
             'providerReplyAt',
             'updatedAt'
-          ])
+          ]) &&
+          request.resource.data.providerReply is string &&
+          request.resource.data.providerReply.size() <= 2000
         ) ||
-        isAdmin();
+        (
+          isAdmin() &&
+          changesOnly([
+            'moderationStatus',
+            'isVisible',
+            'isReported',
+            'moderationReason',
+            'moderatedAt',
+            'moderatedBy',
+            'updatedAt'
+          ])
+        );
 
       allow delete: if false;
     }
@@ -813,16 +1067,20 @@ service cloud.firestore {
 
     match /favorites/{favoriteId} {
       allow create: if isActiveSignedInUser() &&
+          request.resource.data.customerId is string &&
+          request.resource.data.providerId is string &&
           request.resource.data.customerId ==
               currentUserId();
 
       allow read: if isActiveSignedInUser() &&
+          resource.data.customerId is string &&
           resource.data.customerId ==
               currentUserId();
 
       allow update: if false;
 
       allow delete: if isActiveSignedInUser() &&
+          resource.data.customerId is string &&
           resource.data.customerId ==
               currentUserId();
     }
@@ -833,25 +1091,27 @@ service cloud.firestore {
 
     match /notifications/{notificationId} {
       allow read: if isActiveSignedInUser() &&
+          resource.data.userId is string &&
           resource.data.userId == currentUserId();
 
       allow update: if isActiveSignedInUser() &&
+          resource.data.userId is string &&
           resource.data.userId == currentUserId() &&
           request.resource.data.userId ==
               resource.data.userId &&
           changesOnly([
             'isRead',
             'readAt'
-          ]);
+          ]) &&
+          request.resource.data.isRead is bool &&
+          'readAt' in request.resource.data &&
+          (
+            request.resource.data.readAt == null ||
+            request.resource.data.readAt is timestamp
+          );
 
-      /*
-       * Temporary compatibility: current Flutter booking workflows create
-       * notifications for their counterpart. New trusted workflows use
-       * Cloud Functions. Remove this create rule with the client migration.
-       */
-      allow create: if isActiveSignedInUser() &&
-          request.resource.data.userId is string &&
-          request.resource.data.isRead == false;
+      // Notification content and ownership are always backend-controlled.
+      allow create: if false;
 
       allow delete: if false;
     }
@@ -866,6 +1126,7 @@ service cloud.firestore {
 
       allow read: if (
           isActiveSignedInUser() &&
+          resource.data.userId is string &&
           resource.data.userId ==
               currentUserId()
         ) ||
@@ -877,8 +1138,11 @@ service cloud.firestore {
 
       allow update: if (
           isActiveSignedInUser() &&
+          resource.data.userId is string &&
           resource.data.userId ==
               currentUserId() &&
+          resource.data.status is string &&
+          resource.data.status == 'submitted' &&
           changesOnly([
             'description',
             'evidenceUrls',
@@ -896,6 +1160,8 @@ service cloud.firestore {
             'updatedAt'
           ])
         ) || (
+          isActiveSignedInUser() &&
+          resource.data.userId is string &&
           resource.data.userId == currentUserId() &&
           resource.data.status == 'submitted' &&
           validSoftDelete() &&
@@ -940,21 +1206,28 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /internalMapsCache/{cacheId} {
+      allow read, write: if false;
+    }
+
     // ============================================================
     // announcements
     // ============================================================
 
     match /announcements/{announcementId} {
       allow read: if (
+          resource.data.status is string &&
           resource.data.status == 'published' &&
           isNotDeleted(resource.data) &&
+          resource.data.audience is string &&
           (
             resource.data.audience == 'everyone' ||
             (
-              isSignedIn() &&
+              isActiveSignedInUser() &&
               (
-                resource.data.audience ==
-                  currentUserData().role + 's'
+                (isCustomer() && resource.data.audience == 'customers') ||
+                (isProviderUser() && resource.data.audience == 'providers') ||
+                (isAdmin() && resource.data.audience == 'admins')
               )
             )
           )
@@ -1022,7 +1295,10 @@ service cloud.firestore {
     // ============================================================
 
     match /appSettings/{settingId} {
-      allow read: if resource.data.isPublic == true ||
+      allow read: if (
+          resource.data.isPublic is bool &&
+          resource.data.isPublic == true
+        ) ||
           isAdmin();
 
       allow create, update: if isAdmin();
@@ -1042,8 +1318,10 @@ service cloud.firestore {
     match /bookings/{bookingId} {
       allow read: if isActiveSignedInUser() &&
           (
-            resource.data.customerId ==
-                currentUserId() ||
+            (
+              resource.data.customerId is string &&
+              resource.data.customerId == currentUserId()
+            ) ||
             (
               resource.data.providerId is string &&
               ownsProvider(resource.data.providerId)
@@ -1051,38 +1329,8 @@ service cloud.firestore {
             isAdmin()
           );
 
-      allow create: if isActiveSignedInUser() &&
-          isCustomer() &&
-          request.resource.data.customerId ==
-              currentUserId();
-
-      allow update: if isActiveSignedInUser() &&
-          (
-            resource.data.customerId ==
-                currentUserId() ||
-            (
-              resource.data.providerId is string &&
-              ownsProvider(resource.data.providerId)
-            ) ||
-            isAdmin()
-          ) &&
-          request.resource.data.customerId == resource.data.customerId &&
-          request.resource.data.providerId == resource.data.providerId &&
-          changesNone([
-            'customerId',
-            'providerId',
-            'providerIds',
-            'status',
-            'paymentStatus',
-            'paidAmount',
-            'totalAmount',
-            'confirmedAt',
-            'startedAt',
-            'completedAt',
-            'cancelledAt',
-            'statusUpdatedAt',
-            'createdAt'
-          ]);
+      // Legacy booking creation and lifecycle changes are backend-only.
+      allow create, update: if false;
 
       allow delete: if false;
     }
@@ -1090,8 +1338,10 @@ service cloud.firestore {
     match /addonRequests/{requestId} {
       allow read: if isActiveSignedInUser() &&
           (
-            resource.data.customerId ==
-                currentUserId() ||
+            (
+              resource.data.customerId is string &&
+              resource.data.customerId == currentUserId()
+            ) ||
             (
               resource.data.addonProviderId
                   is string &&
@@ -1102,34 +1352,17 @@ service cloud.firestore {
             isAdmin()
           );
 
-      allow create: if isActiveSignedInUser() &&
-          request.resource.data.customerId ==
-              currentUserId();
-
-      allow update: if isActiveSignedInUser() &&
-          (
-            resource.data.customerId ==
-                currentUserId() ||
-            (
-              resource.data.addonProviderId
-                  is string &&
-              ownsProvider(
-                resource.data.addonProviderId
-              )
-            ) ||
-            isAdmin()
-          );
+      // Legacy add-on pricing, lifecycle, and payment state are backend-only.
+      allow create, update: if false;
 
       allow delete: if false;
     }
 
     match /bookingTimelines/{timelineId} {
-      allow read: if isActiveSignedInUser();
+      allow read: if resource.data.bookingId is string &&
+          canReadLegacyBooking(resource.data.bookingId);
 
-      // Temporary compatibility for the current Flutter application.
-      allow create: if isActiveSignedInUser();
-
-      allow update, delete: if false;
+      allow create, update, delete: if false;
     }
 
     /*

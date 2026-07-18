@@ -10,11 +10,14 @@ import {
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {requireObject, requireString} from "../shared/validation.js";
+import {appCheckCallableOptions} from "../shared/function-options.js";
+import {requireActiveUser} from "../shared/authorization.js";
 
 export const createComplaint = onCall(
-  {region: "asia-southeast1"},
+  appCheckCallableOptions,
   async (request) => {
     const user = requireAuth(request);
+    await requireActiveUser(user.uid);
     await enforceCallableRateLimit(request, {
       scope: "createComplaint",
       limit: 3,

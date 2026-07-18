@@ -13,6 +13,7 @@ $env:FIREBASE_ADMIN_STORAGE_BUCKET = "$($env:GCLOUD_PROJECT).appspot.com"
 $env:USE_FIREBASE_EMULATORS = "true"
 $env:FIREBASE_FUNCTIONS_EMULATOR_HOST = "127.0.0.1:55001"
 $env:PHASE3_WEB_URL = "http://127.0.0.1:$webPort"
+$env:WEB_ALLOWED_ORIGINS = $env:PHASE3_WEB_URL
 
 Push-Location $root
 try {

@@ -18,6 +18,7 @@ import {
   logInfo,
 } from "../shared/logger.js";
 import {serverTimestamp} from "../shared/timestamps.js";
+import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {
   requireEnum,
@@ -46,9 +47,7 @@ function buildSearchTokens(values: readonly string[]): string[] {
 }
 
 export const registerProvider = onCall(
-  {
-    region: "asia-southeast1",
-  },
+  appCheckCallableOptions,
   async (request) => {
     const authenticatedUser = requireAuth(request);
 

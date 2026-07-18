@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/constants/firestore_collections.dart';
 import '../../core/constants/status_constants.dart';
+import '../../core/widgets/widgets.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../customer/booking_details_screen.dart';
@@ -44,11 +45,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('All notifications marked as read.')),
       );
-    } catch (error) {
+    } catch (_) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString().replaceAll('Exception: ', ''))),
+        const SnackBar(content: Text('Unable to update notifications.')),
       );
     } finally {
       if (mounted) {
@@ -130,6 +131,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             docs: visibleDocs,
                             showUnreadOnly: showUnreadOnly,
                             repository: repository,
+                            onRetry: () => setState(() {}),
                           ),
                         ),
                       ],
@@ -316,6 +318,7 @@ class _NotificationBody extends StatelessWidget {
   final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
   final bool showUnreadOnly;
   final FeastaRepository repository;
+  final VoidCallback onRetry;
 
   const _NotificationBody({
     required this.isLoading,
@@ -323,24 +326,30 @@ class _NotificationBody extends StatelessWidget {
     required this.docs,
     required this.showUnreadOnly,
     required this.repository,
+    required this.onRetry,
   });
 
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return const _NotificationLoadingList();
+      return const FeastaListSkeleton(
+        itemCount: 5,
+        padding: EdgeInsets.fromLTRB(16, 20, 16, 24),
+      );
     }
 
     if (error != null) {
-      return _NotificationInfoState(
-        icon: Icons.wifi_off_rounded,
-        title: 'Could not load notifications',
-        message: error.toString(),
+      return Center(
+        child: FeastaApplicationErrorState(
+          kind: FeastaErrorKind.load,
+          message: 'We could not load your notifications. Please try again.',
+          onRetry: onRetry,
+        ),
       );
     }
 
     if (docs.isEmpty) {
-      return _NotificationInfoState(
+      return FeastaEmptyState(
         icon: showUnreadOnly
             ? Icons.mark_email_read_rounded
             : Icons.notifications_none_rounded,
@@ -395,125 +404,6 @@ class _NotificationBody extends StatelessWidget {
   }
 }
 
-class _NotificationLoadingList extends StatelessWidget {
-  const _NotificationLoadingList();
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
-      itemCount: 5,
-      separatorBuilder: (_, _) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        return Container(
-          height: 104,
-          decoration: BoxDecoration(
-            color: _softSurface,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: _border),
-          ),
-          child: Row(
-            children: [
-              const SizedBox(width: 16),
-              Container(
-                height: 46,
-                width: 46,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEFE8E2),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      height: 13,
-                      width: 150,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEFE8E2),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Container(
-                      height: 11,
-                      width: double.infinity,
-                      margin: const EdgeInsets.only(right: 34),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEFE8E2),
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _NotificationInfoState extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String message;
-
-  const _NotificationInfoState({
-    required this.icon,
-    required this.title,
-    required this.message,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              height: 82,
-              width: 82,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF1EB),
-                borderRadius: BorderRadius.circular(28),
-              ),
-              child: Icon(icon, size: 38, color: _primary),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: _textPrimary,
-                fontSize: 22,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: _textSecondary,
-                height: 1.4,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class NotificationCard extends StatelessWidget {
   final String notificationId;
   final Map<String, dynamic> data;
@@ -551,11 +441,11 @@ class NotificationCard extends StatelessWidget {
 
     try {
       await repository.markNotificationAsRead(notificationId);
-    } catch (error) {
+    } catch (_) {
       if (!context.mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.toString().replaceAll('Exception: ', ''))),
+        const SnackBar(content: Text('Unable to update this notification.')),
       );
     }
   }

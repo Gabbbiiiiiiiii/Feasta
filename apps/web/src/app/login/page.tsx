@@ -3,6 +3,10 @@
 import {FormEvent, useState} from "react";
 import {useRouter} from "next/navigation";
 
+import {FormField} from "@/components/forms/form-field";
+import {PasswordInput} from "@/components/forms/password-input";
+import {Button} from "@/components/ui/button";
+import {Input} from "@/components/ui/input";
 import {
   signInWithEmail,
   signInWithGoogle,
@@ -14,6 +18,23 @@ const destinations: Record<WebUserRole, string> = {
   provider: "/provider",
   admin: "/admin",
 };
+
+function accessibleSignInError(caught: unknown) {
+  const code = typeof caught === "object" && caught !== null && "code" in caught
+    ? String(caught.code)
+    : "";
+  const message = caught instanceof Error ? caught.message.toLowerCase() : "";
+  if (code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("user-not-found")) {
+    return "The email address or password is incorrect.";
+  }
+  if (code.includes("network-request-failed")) return "Check your internet connection and try again.";
+  if (code.includes("popup-closed")) return "Google sign-in was closed before it finished.";
+  if (message.includes("blocked")) return "This account is blocked. Contact FEASTA support for help.";
+  if (message.includes("disabled")) return "This account is disabled. Contact FEASTA support for help.";
+  if (message.includes("profile")) return "We could not find the FEASTA profile for this account.";
+  if (message.includes("role")) return "This account cannot use the selected FEASTA workspace.";
+  return "We could not sign you in. Check your details and try again.";
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -30,7 +51,7 @@ export default function LoginPage() {
       router.replace(destinations[role]);
       router.refresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Sign-in failed.");
+      setError(accessibleSignInError(caught));
     } finally {
       setLoading(false);
     }
@@ -43,51 +64,47 @@ export default function LoginPage() {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md items-center px-6">
-      <section className="w-full rounded-3xl border border-black/5 bg-white p-8 shadow-sm">
-        <h1 className="text-3xl font-bold text-[#2B211D]">Sign in to FEASTA</h1>
-        <p className="mt-2 text-[#8C817A]">
+      <section className="w-full rounded-card border border-border bg-card p-8 shadow-card">
+        <h1 className="text-3xl font-bold text-card-foreground">Sign in to FEASTA</h1>
+        <p className="mt-2 text-muted-foreground">
           Your Firebase credential is exchanged for a secure server session.
         </p>
 
-        <form className="mt-8 space-y-4" onSubmit={submit}>
-          <input
-            className="w-full rounded-xl border border-[#E7DED8] px-4 py-3"
+        <form className="mt-8 space-y-4" onSubmit={submit} aria-describedby={error ? "sign-in-error" : undefined}>
+          <FormField label="Email address" required disabled={loading}>
+            <Input
             type="email"
             autoComplete="email"
-            placeholder="Email"
+            inputMode="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            required
-          />
-          <input
-            className="w-full rounded-xl border border-[#E7DED8] px-4 py-3"
-            type="password"
-            autoComplete="current-password"
-            placeholder="Password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-          />
-          <button
-            className="w-full rounded-xl bg-[#FF6333] px-4 py-3 font-semibold text-white disabled:opacity-60"
-            type="submit"
-            disabled={loading}
-          >
-            {loading ? "Signing in..." : "Sign in"}
-          </button>
+            />
+          </FormField>
+          <FormField label="Password" required disabled={loading}>
+            <PasswordInput
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </FormField>
+          <Button type="submit" fullWidth loading={loading} loadingLabel="Signing in">
+            Sign in
+          </Button>
         </form>
 
-        <button
-          className="mt-4 w-full rounded-xl border border-[#E7DED8] px-4 py-3 font-semibold text-[#2B211D] disabled:opacity-60"
+        <Button
+          className="mt-4"
           type="button"
+          variant="secondary"
+          fullWidth
           disabled={loading}
           onClick={() => void completeSignIn(signInWithGoogle)}
         >
           Continue with Google
-        </button>
+        </Button>
 
         {error && (
-          <p className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
+          <p id="sign-in-error" className="mt-4 rounded-lg bg-destructive-subtle p-3 text-sm font-medium text-destructive" role="alert" aria-live="assertive">
             {error}
           </p>
         )}

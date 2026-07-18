@@ -5,6 +5,7 @@ import {HttpsError} from "firebase-functions/v2/https";
 
 import {db} from "./firestore.js";
 import {serverTimestamp} from "./timestamps.js";
+import {logSecurityEvent} from "./security-events.js";
 
 export interface IdempotencyRecord {
   key: string;
@@ -66,6 +67,13 @@ export async function beginIdempotentOperation(
       }
 
       if (data?.status === "completed") {
+        logSecurityEvent({
+          action: "idempotency_replay",
+          outcome: "replayed",
+          actorUid: input.actorId,
+          targetId: input.operation,
+          reasonCode: "completed_request_replayed",
+        });
         return {
           state: "completed" as const,
           key: input.key,
@@ -84,6 +92,14 @@ export async function beginIdempotentOperation(
           1,
           Math.ceil((leaseExpiresAt.toMillis() - now.toMillis()) / 1000),
         );
+        logSecurityEvent({
+          action: "idempotency_replay",
+          outcome: "denied",
+          actorUid: input.actorId,
+          targetId: input.operation,
+          reasonCode: "request_already_processing",
+          metadata: {retryAfterSeconds},
+        });
         throw new HttpsError(
           "aborted",
           `This operation is already processing. Retry in ${retryAfterSeconds} seconds.`,

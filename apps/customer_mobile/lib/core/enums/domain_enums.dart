@@ -29,14 +29,10 @@ enum BookingStatus {
 
 enum PaymentStatus {
   pending,
-  checkoutCreated,
   processing,
   paid,
   failed,
   expired,
-  cancelled,
-  refundPending,
-  partiallyRefunded,
   refunded,
 }
 

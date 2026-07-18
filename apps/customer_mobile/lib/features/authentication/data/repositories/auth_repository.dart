@@ -1,14 +1,23 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../../../core/constants/firestore_collections.dart';
 import '../../../../core/constants/status_constants.dart';
+import '../../domain/account_recovery.dart';
+import '../../domain/customer_login.dart';
+import '../../domain/customer_registration.dart';
 import '../services/registration_rollback.dart';
+import '../../../../core/security/secure_debug_log.dart';
 
-class AuthRepository {
+class AuthRepository
+    implements
+        CustomerRegistrationGateway,
+        CustomerLoginGateway,
+        EmailVerificationGateway,
+        PasswordResetGateway,
+        FirebaseActionCodeGateway {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
@@ -19,66 +28,127 @@ class AuthRepository {
 
   Stream<User?> authStateChanges() => _auth.authStateChanges();
 
-  Future<void> registerCustomer({
-    required String firstName,
-    required String lastName,
-    required String email,
-    required String phoneNumber,
-    required String password,
-  }) async {
-    final normalizedEmail = email.trim().toLowerCase();
+  @override
+  Future<CustomerRegistrationResult> registerCustomer(
+    CustomerRegistrationInput rawInput,
+  ) async {
+    final input = rawInput.normalized();
+    final normalizedEmail = input.email;
 
     try {
-      final createdUser = await createIdentityAndProfile<User>(
-        createIdentity: () async {
-          final credential = await _auth.createUserWithEmailAndPassword(
-            email: normalizedEmail,
-            password: password,
-          );
-          final user = credential.user;
-          if (user == null) {
-            throw StateError(
-              'Firebase Authentication did not return a user.',
+      final signedInUser = _auth.currentUser;
+      final recoverExisting =
+          signedInUser != null &&
+          signedInUser.email?.trim().toLowerCase() == normalizedEmail;
+      if (signedInUser != null && !recoverExisting) {
+        throw const CustomerRegistrationException(
+          CustomerRegistrationFailureKind.emailAlreadyInUse,
+        );
+      }
+
+      final user = recoverExisting
+          ? signedInUser
+          : await createIdentityAndProfile<User>(
+              createIdentity: () async {
+                final credential = await _auth.createUserWithEmailAndPassword(
+                  email: normalizedEmail,
+                  password: input.password,
+                );
+                final created = credential.user;
+                if (created == null) {
+                  throw StateError(
+                    'Firebase Authentication did not return a user.',
+                  );
+                }
+                return created;
+              },
+              createProfile: (_) => _ensureCustomerProfile(
+                firstName: input.firstName,
+                lastName: input.lastName,
+                phoneNumber: input.phoneNumber,
+                acceptedTerms: input.acceptedTerms,
+                acceptedPrivacy: input.acceptedPrivacy,
+              ),
+              rollbackIdentity: (created) => created.delete(),
+              onProfileError: (error, stackTrace) {
+                secureDebugLog(
+                  'Customer profile creation failed',
+                  error: error,
+                  stackTrace: stackTrace,
+                );
+              },
+              onRollbackError: (rollbackError, rollbackStackTrace) {
+                secureDebugLog(
+                  'Auth rollback failed',
+                  error: rollbackError,
+                  stackTrace: rollbackStackTrace,
+                );
+              },
             );
-          }
-          return user;
-        },
-        createProfile: (_) => _ensureCustomerProfile(
-          firstName: firstName,
-          lastName: lastName,
-          phoneNumber: phoneNumber,
-        ),
-        rollbackIdentity: (user) => user.delete(),
-        onProfileError: (error, stackTrace) {
-          debugPrint('Customer profile creation failed: $error');
-          debugPrintStack(stackTrace: stackTrace);
-        },
-        onRollbackError: (rollbackError, rollbackStackTrace) {
-          debugPrint('Auth rollback failed: $rollbackError');
-          debugPrintStack(stackTrace: rollbackStackTrace);
-        },
-      );
+
+      if (recoverExisting) {
+        await _ensureCustomerProfile(
+          firstName: input.firstName,
+          lastName: input.lastName,
+          phoneNumber: input.phoneNumber,
+          acceptedTerms: input.acceptedTerms,
+          acceptedPrivacy: input.acceptedPrivacy,
+        );
+      }
 
       // A mail delivery failure does not roll back a fully-created account.
-      await createdUser.sendEmailVerification();
-    } catch (error, stackTrace) {
-      debugPrint('Customer registration failed: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      var verificationEmailSent = true;
+      try {
+        if (!user.emailVerified) await user.sendEmailVerification();
+      } catch (error, stackTrace) {
+        verificationEmailSent = false;
+        secureDebugLog(
+          'Verification email delivery failed after registration',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+      return CustomerRegistrationResult(
+        email: normalizedEmail,
+        verificationEmailSent: verificationEmailSent,
+        recoveredExistingIdentity: recoverExisting,
+      );
+    } on CustomerRegistrationException {
       rethrow;
+    } catch (error, stackTrace) {
+      secureDebugLog(
+        'Customer registration failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      throw CustomerRegistrationException(_registrationFailureKind(error));
     }
   }
 
-  Future<bool> refreshEmailVerificationStatus() async {
+  @override
+  Future<bool> refreshVerification() async {
     final user = _auth.currentUser;
-    if (user == null) return false;
-
-    await user.reload();
-    final refreshedUser = _auth.currentUser;
-    if (refreshedUser == null) return false;
-
-    // Synchronize trusted profile metadata through Admin SDK code.
-    await _syncUserAuthState();
-    return refreshedUser.emailVerified;
+    if (user == null) {
+      throw const AccountRecoveryException(
+        AccountRecoveryFailureKind.sessionExpired,
+      );
+    }
+    try {
+      await user.reload();
+      final refreshedUser = _auth.currentUser;
+      if (refreshedUser == null) {
+        throw const AccountRecoveryException(
+          AccountRecoveryFailureKind.sessionExpired,
+        );
+      }
+      await refreshedUser.getIdToken(true);
+      await _syncUserAuthState();
+      return refreshedUser.emailVerified;
+    } on AccountRecoveryException {
+      rethrow;
+    } catch (error) {
+      throw AccountRecoveryException(_recoveryFailureKind(error));
+    }
   }
 
   Future<void> registerProvider({
@@ -112,9 +182,7 @@ class AuthRepository {
         throw StateError('Firebase Authentication did not return a user.');
       }
 
-      final ensureIdentity = _functions.httpsCallable(
-        'ensureProviderIdentity',
-      );
+      final ensureIdentity = _functions.httpsCallable('ensureProviderIdentity');
       await ensureIdentity.call(<String, dynamic>{
         'firstName': firstName.trim(),
         'lastName': lastName.trim(),
@@ -155,21 +223,35 @@ class AuthRepository {
     }
   }
 
-  Future<void> sendCurrentUserEmailVerification() async {
+  @override
+  Future<void> resendVerification() async {
     final user = _auth.currentUser;
-    if (user == null) throw StateError('No user is currently logged in.');
-
-    await user.reload();
-    final refreshedUser = _auth.currentUser;
-    if (refreshedUser == null) {
-      throw StateError('No user is currently logged in.');
+    if (user == null) {
+      throw const AccountRecoveryException(
+        AccountRecoveryFailureKind.sessionExpired,
+      );
     }
-    if (!refreshedUser.emailVerified) {
-      await refreshedUser.sendEmailVerification();
+
+    try {
+      await user.reload();
+      final refreshedUser = _auth.currentUser;
+      if (refreshedUser == null) {
+        throw const AccountRecoveryException(
+          AccountRecoveryFailureKind.sessionExpired,
+        );
+      }
+      if (!refreshedUser.emailVerified) {
+        await refreshedUser.sendEmailVerification();
+      }
+    } on AccountRecoveryException {
+      rethrow;
+    } catch (error) {
+      throw AccountRecoveryException(_recoveryFailureKind(error));
     }
   }
 
-  Future<void> login({
+  @override
+  Future<CustomerLoginResult> signInWithEmail({
     required String email,
     required String password,
   }) async {
@@ -189,10 +271,19 @@ class AuthRepository {
         await _ensureCustomerProfile();
         await _syncUserAuthState();
       }
-      await _loadActiveProfile(credential.user!.uid);
-    } catch (_) {
+      await _loadActiveCustomerProfile(credential.user!.uid);
+      await credential.user!.getIdToken(true);
+      return CustomerLoginResult(
+        uid: credential.user!.uid,
+        email: credential.user!.email,
+        emailVerified: credential.user!.emailVerified,
+      );
+    } on CustomerLoginException {
       await _auth.signOut();
       rethrow;
+    } catch (error) {
+      await _auth.signOut();
+      throw CustomerLoginException(_loginFailureKind(error));
     }
   }
 
@@ -209,12 +300,16 @@ class AuthRepository {
       final status = snapshot.docs.first.data()['verificationStatus'];
       return status is String ? status : ProviderVerificationStatus.draft;
     } catch (error, stackTrace) {
-      debugPrint('Failed to load provider verification status: $error');
-      debugPrintStack(stackTrace: stackTrace);
+      secureDebugLog(
+        'Failed to load provider verification status',
+        error: error,
+        stackTrace: stackTrace,
+      );
       return null;
     }
   }
 
+  @override
   Future<void> logout() async {
     try {
       await GoogleSignIn.instance.signOut();
@@ -224,7 +319,8 @@ class AuthRepository {
     await _auth.signOut();
   }
 
-  Future<void> signInWithGoogleAsCustomer() async {
+  @override
+  Future<CustomerLoginResult> signInWithGoogle() async {
     try {
       await GoogleSignIn.instance.initialize();
       final googleUser = await GoogleSignIn.instance.authenticate();
@@ -239,37 +335,131 @@ class AuthRepository {
 
       await _ensureCustomerProfile();
       await _loadActiveCustomerProfile(user.uid);
-    } catch (_) {
+      await user.getIdToken(true);
+      return CustomerLoginResult(
+        uid: user.uid,
+        email: user.email,
+        emailVerified: user.emailVerified,
+      );
+    } on GoogleSignInException catch (error) {
+      await logout();
+      if (error.code == GoogleSignInExceptionCode.canceled) {
+        throw const CustomerLoginException(CustomerLoginFailureKind.cancelled);
+      }
+      throw const CustomerLoginException(CustomerLoginFailureKind.unknown);
+    } on CustomerLoginException {
       await logout();
       rethrow;
+    } catch (error) {
+      await logout();
+      throw CustomerLoginException(_loginFailureKind(error));
     }
   }
 
-  Future<void> sendPasswordResetEmail({required String email}) async {
+  @override
+  Future<void> requestPasswordReset(String email) async {
     final normalizedEmail = email.trim().toLowerCase();
     if (normalizedEmail.isEmpty) {
-      throw ArgumentError('Email address is required.');
+      throw const AccountRecoveryException(
+        AccountRecoveryFailureKind.invalidEmail,
+      );
     }
-    await _auth.sendPasswordResetEmail(email: normalizedEmail);
+    try {
+      await _auth.sendPasswordResetEmail(email: normalizedEmail);
+    } on FirebaseAuthException catch (error) {
+      if (error.code == 'user-not-found') return;
+      throw AccountRecoveryException(_recoveryFailureKind(error));
+    }
+  }
+
+  @override
+  Future<FirebaseActionResult> handleActionCode(FirebaseActionLink link) async {
+    try {
+      if (link.mode == FirebaseActionMode.resetPassword) {
+        final email = await _auth.verifyPasswordResetCode(link.oobCode);
+        return FirebaseActionResult(
+          FirebaseActionResultKind.passwordResetRequired,
+          maskedEmail: maskEmail(email),
+        );
+      }
+
+      await _auth.checkActionCode(link.oobCode);
+      await _auth.applyActionCode(link.oobCode);
+
+      if (link.mode == FirebaseActionMode.verifyEmail) {
+        final user = _auth.currentUser;
+        if (user != null) {
+          await user.reload();
+          await _auth.currentUser?.getIdToken(true);
+          await _syncUserAuthState();
+        }
+        return const FirebaseActionResult(
+          FirebaseActionResultKind.emailVerified,
+        );
+      }
+
+      return const FirebaseActionResult(
+        FirebaseActionResultKind.emailRecovered,
+      );
+    } catch (error) {
+      throw AccountRecoveryException(_recoveryFailureKind(error));
+    }
   }
 
   Future<void> _ensureCustomerProfile({
     String? firstName,
     String? lastName,
     String? phoneNumber,
+    bool? acceptedTerms,
+    bool? acceptedPrivacy,
   }) async {
     final callable = _functions.httpsCallable('ensureUserProfile');
     await callable.call(<String, dynamic>{
       if (firstName != null) 'firstName': firstName.trim(),
       if (lastName != null) 'lastName': lastName.trim(),
       if (phoneNumber != null) 'phoneNumber': phoneNumber.trim(),
+      'acceptedTerms': ?acceptedTerms,
+      'acceptedPrivacy': ?acceptedPrivacy,
     });
+  }
+
+  CustomerRegistrationFailureKind _registrationFailureKind(Object error) {
+    if (error is FirebaseAuthException) {
+      return switch (error.code) {
+        'email-already-in-use' =>
+          CustomerRegistrationFailureKind.emailAlreadyInUse,
+        'weak-password' => CustomerRegistrationFailureKind.weakPassword,
+        'invalid-email' => CustomerRegistrationFailureKind.invalidEmail,
+        'network-request-failed' => CustomerRegistrationFailureKind.network,
+        'too-many-requests' => CustomerRegistrationFailureKind.tooManyRequests,
+        'operation-not-allowed' ||
+        'app-not-authorized' => CustomerRegistrationFailureKind.configuration,
+        _ => CustomerRegistrationFailureKind.unknown,
+      };
+    }
+    if (error is FirebaseFunctionsException) {
+      return switch (error.code) {
+        'permission-denied' => CustomerRegistrationFailureKind.blockedAccount,
+        'resource-exhausted' => CustomerRegistrationFailureKind.tooManyRequests,
+        'unavailable' ||
+        'deadline-exceeded' => CustomerRegistrationFailureKind.network,
+        'failed-precondition' ||
+        'internal' ||
+        'unknown' => CustomerRegistrationFailureKind.profileCreation,
+        _ => CustomerRegistrationFailureKind.profileCreation,
+      };
+    }
+    return error is StateError
+        ? CustomerRegistrationFailureKind.configuration
+        : CustomerRegistrationFailureKind.profileCreation;
   }
 
   Future<Map<String, dynamic>> _loadActiveCustomerProfile(String uid) async {
     final data = await _loadActiveProfile(uid);
     if (data['role'] != UserRoles.customer) {
-      throw StateError('This sign-in is only available to customers.');
+      throw const CustomerLoginException(
+        CustomerLoginFailureKind.unsupportedRole,
+      );
     }
     return data;
   }
@@ -282,14 +472,16 @@ class AuthRepository {
     final data = snapshot.data();
 
     if (!snapshot.exists || data == null) {
-      throw StateError('Your account profile could not be recovered.');
+      throw const CustomerLoginException(
+        CustomerLoginFailureKind.missingProfile,
+      );
     }
     final accountStatus = data['accountStatus'] as String? ?? 'disabled';
     if (data['isBlocked'] == true || accountStatus == 'blocked') {
-      throw StateError('This account has been blocked. Please contact support.');
+      throw const CustomerLoginException(CustomerLoginFailureKind.blocked);
     }
     if (data['isActive'] != true || accountStatus != 'active') {
-      throw StateError('This account is currently disabled.');
+      throw const CustomerLoginException(CustomerLoginFailureKind.disabled);
     }
     return data;
   }
@@ -297,5 +489,76 @@ class AuthRepository {
   Future<void> _syncUserAuthState() async {
     final callable = _functions.httpsCallable('syncUserAuthState');
     await callable.call<void>();
+  }
+
+  CustomerLoginFailureKind _loginFailureKind(Object error) {
+    if (error is FirebaseAuthException) {
+      return switch (error.code) {
+        'wrong-password' ||
+        'invalid-credential' ||
+        'user-not-found' => CustomerLoginFailureKind.invalidCredentials,
+        'invalid-email' => CustomerLoginFailureKind.invalidEmail,
+        'too-many-requests' => CustomerLoginFailureKind.tooManyRequests,
+        'network-request-failed' => CustomerLoginFailureKind.network,
+        'user-disabled' => CustomerLoginFailureKind.disabled,
+        'id-token-revoked' ||
+        'user-token-expired' ||
+        'invalid-user-token' => CustomerLoginFailureKind.sessionExpired,
+        'operation-not-allowed' ||
+        'app-not-authorized' => CustomerLoginFailureKind.configuration,
+        _ => CustomerLoginFailureKind.unknown,
+      };
+    }
+    if (error is FirebaseFunctionsException) {
+      final details = error.details;
+      final reason = details is Map ? details['reason'] : null;
+      if (reason == 'unsupported-role') {
+        return CustomerLoginFailureKind.unsupportedRole;
+      }
+      if (reason == 'disabled') return CustomerLoginFailureKind.disabled;
+      if (reason == 'blocked') return CustomerLoginFailureKind.blocked;
+      return switch (error.code) {
+        'permission-denied' => CustomerLoginFailureKind.blocked,
+        'not-found' => CustomerLoginFailureKind.missingProfile,
+        'resource-exhausted' => CustomerLoginFailureKind.tooManyRequests,
+        'unavailable' ||
+        'deadline-exceeded' => CustomerLoginFailureKind.network,
+        'failed-precondition' => CustomerLoginFailureKind.configuration,
+        _ => CustomerLoginFailureKind.unknown,
+      };
+    }
+    return CustomerLoginFailureKind.unknown;
+  }
+
+  AccountRecoveryFailureKind _recoveryFailureKind(Object error) {
+    if (error is FirebaseAuthException) {
+      return switch (error.code) {
+        'too-many-requests' => AccountRecoveryFailureKind.tooManyRequests,
+        'user-disabled' => AccountRecoveryFailureKind.disabled,
+        'user-token-expired' ||
+        'invalid-user-token' ||
+        'id-token-revoked' => AccountRecoveryFailureKind.sessionExpired,
+        'network-request-failed' => AccountRecoveryFailureKind.network,
+        'invalid-email' => AccountRecoveryFailureKind.invalidEmail,
+        'invalid-action-code' => AccountRecoveryFailureKind.invalidActionCode,
+        'expired-action-code' => AccountRecoveryFailureKind.expiredActionCode,
+        'operation-not-allowed' ||
+        'app-not-authorized' => AccountRecoveryFailureKind.configuration,
+        _ => AccountRecoveryFailureKind.unknown,
+      };
+    }
+    if (error is FirebaseFunctionsException) {
+      final details = error.details;
+      final reason = details is Map ? details['reason'] : null;
+      if (reason == 'disabled') return AccountRecoveryFailureKind.disabled;
+      return switch (error.code) {
+        'permission-denied' => AccountRecoveryFailureKind.sessionExpired,
+        'resource-exhausted' => AccountRecoveryFailureKind.tooManyRequests,
+        'unavailable' ||
+        'deadline-exceeded' => AccountRecoveryFailureKind.network,
+        _ => AccountRecoveryFailureKind.unknown,
+      };
+    }
+    return AccountRecoveryFailureKind.unknown;
   }
 }

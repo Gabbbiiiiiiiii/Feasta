@@ -1,5 +1,69 @@
 import 'domain_enums.dart';
 
+String userRoleToJson(UserRole role) => role.name;
+
+UserRole? tryParseUserRole(Object? value) {
+  final normalized = _normalizeAuthValue(value);
+  return switch (normalized) {
+    'customer' => UserRole.customer,
+    'provider' => UserRole.provider,
+    'admin' => UserRole.admin,
+    _ => null,
+  };
+}
+
+String accountStatusToJson(AccountStatus status) {
+  return switch (status) {
+    AccountStatus.active => 'active',
+    AccountStatus.blocked => 'blocked',
+    AccountStatus.disabled => 'disabled',
+    AccountStatus.pendingDeletion => 'pending_deletion',
+  };
+}
+
+AccountStatus? tryParseAccountStatus(Object? value) {
+  final normalized = _normalizeAuthValue(value);
+  return switch (normalized) {
+    'active' => AccountStatus.active,
+    'blocked' => AccountStatus.blocked,
+    'disabled' => AccountStatus.disabled,
+    'pending_deletion' || 'pendingdeletion' => AccountStatus.pendingDeletion,
+    _ => null,
+  };
+}
+
+String providerVerificationStatusToJson(ProviderVerificationStatus status) {
+  return switch (status) {
+    ProviderVerificationStatus.draft => 'draft',
+    ProviderVerificationStatus.submitted => 'submitted',
+    ProviderVerificationStatus.underReview => 'under_review',
+    ProviderVerificationStatus.resubmissionRequired => 'resubmission_required',
+    ProviderVerificationStatus.approved => 'approved',
+    ProviderVerificationStatus.rejected => 'rejected',
+    ProviderVerificationStatus.suspended => 'suspended',
+  };
+}
+
+ProviderVerificationStatus? tryParseProviderVerificationStatus(Object? value) {
+  final normalized = _normalizeAuthValue(value);
+  return switch (normalized) {
+    'draft' => ProviderVerificationStatus.draft,
+    'submitted' => ProviderVerificationStatus.submitted,
+    'under_review' || 'underreview' => ProviderVerificationStatus.underReview,
+    'resubmission_required' ||
+    'resubmissionrequired' => ProviderVerificationStatus.resubmissionRequired,
+    'approved' => ProviderVerificationStatus.approved,
+    'rejected' => ProviderVerificationStatus.rejected,
+    'suspended' => ProviderVerificationStatus.suspended,
+    _ => null,
+  };
+}
+
+String _normalizeAuthValue(Object? value) {
+  if (value is! String) return '';
+  return value.trim().toLowerCase().replaceAll('-', '_');
+}
+
 String mainEventStatusToJson(MainEventStatus status) {
   return switch (status) {
     MainEventStatus.draft => 'draft',

@@ -7,7 +7,7 @@ export function proxy(request: NextRequest) {
     request.nextUrl.pathname === prefix ||
     request.nextUrl.pathname.startsWith(`${prefix}/`),
   );
-  if (protectedPath && !request.cookies.has("__session")) {
+  if (protectedPath && !request.cookies.has("feasta_session")) {
     const login = new URL("/login", request.url);
     login.searchParams.set("next", request.nextUrl.pathname);
     return NextResponse.redirect(login);

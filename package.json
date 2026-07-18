@@ -3,17 +3,26 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "security:secrets": "node scripts/scan-secrets.mjs",
+    "security:coverage": "node scripts/verify-phase4-coverage.mjs",
+    "design-system:coverage": "node scripts/verify-phase5-coverage.mjs",
+    "flutter:security:test": "node scripts/verify-flutter-security.mjs",
     "emulator:start": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-emulators.ps1",
     "emulator:seed": "node --experimental-strip-types scripts/seed-emulators.ts",
     "emulator:export": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/export-emulators.ps1",
     "emulator:reset": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/reset-emulators.ps1",
     "emulator:test": "pnpm --dir functions test:rules",
     "emulator:tooling:test": "firebase emulators:exec --config firebase.tooling.test.json --project demo-feasta-phase3 --only auth,firestore,storage \"powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-emulator-tooling.ps1\"",
-    "emulator:hosting:test": "firebase emulators:exec --config firebase.acceptance.json --project demo-feasta-phase3 --only functions,hosting \"node scripts/verify-hosting.mjs\"",
+    "emulator:hosting:test": "firebase emulators:exec --config firebase.hosting.test.json --project demo-feasta-phase3 --only functions,hosting \"node scripts/verify-hosting.mjs\"",
     "emulator:auth-web:test": "firebase emulators:exec --config firebase.acceptance.json --project demo-feasta-phase3 --only auth,firestore,functions \"powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-auth-web.ps1\"",
     "emulator:provider-workflow:test": "firebase emulators:exec --config firebase.provider.test.json --project demo-feasta-phase3 --only auth,firestore,functions,storage \"powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-provider-workflow.ps1\"",
+    "emulator:payment:test": "firebase emulators:exec --config firebase.payment.test.json --project demo-feasta-phase3 --only firestore \"node functions/test/emulator/payment-webhook.integration.cjs\"",
     "emulator:roundtrip:test": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-emulator-roundtrip.ps1",
-    "phase3:verify": "pnpm --dir packages/shared-types build && pnpm --dir functions build && pnpm --dir functions lint && pnpm --dir apps/web lint && pnpm --dir apps/web typecheck && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-flutter-phase3.ps1 && pnpm --dir functions test && pnpm emulator:test && pnpm emulator:tooling:test && pnpm emulator:auth-web:test && pnpm emulator:provider-workflow:test && pnpm emulator:roundtrip:test && pnpm emulator:hosting:test"
+    "phase3:verify": "pnpm security:secrets && pnpm --dir packages/shared-types build && pnpm --dir functions build && pnpm --dir functions lint && pnpm --dir apps/web lint && pnpm --dir apps/web typecheck && pnpm --dir apps/web test:security && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-flutter-phase3.ps1 && pnpm --dir functions test && pnpm emulator:test && pnpm emulator:tooling:test && pnpm emulator:auth-web:test && pnpm emulator:provider-workflow:test && pnpm emulator:payment:test && pnpm emulator:roundtrip:test && pnpm emulator:hosting:test",
+    "phase4:local": "pnpm security:coverage && pnpm flutter:security:test",
+    "phase4:verify": "pnpm phase4:local && pnpm phase3:verify",
+    "phase5:flutter": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-flutter-phase5.ps1",
+    "phase5:verify": "node scripts/verify-phase5.mjs"
   },
   "devDependencies": {
     "firebase-admin": "^13.10.0",

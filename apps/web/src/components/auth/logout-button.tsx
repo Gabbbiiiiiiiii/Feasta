@@ -3,28 +3,31 @@
 import {useRouter} from "next/navigation";
 import {useState} from "react";
 
+import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
+import {Button} from "@/components/ui/button";
 import {logoutWebSession} from "@/lib/auth/client-session";
 
 export function LogoutButton() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
 
   return (
-    <button
-      className="rounded-xl border border-[#E7DED8] px-4 py-2 font-semibold"
-      disabled={loading}
-      onClick={async () => {
-        setLoading(true);
+    <ConfirmationDialog
+      open={open}
+      onOpenChange={setOpen}
+      title="Sign out of FEASTA?"
+      description="You will need to sign in again to access this protected workspace."
+      confirmLabel="Sign out"
+      onConfirm={async () => {
         try {
           await logoutWebSession();
           router.replace("/login");
           router.refresh();
         } finally {
-          setLoading(false);
+          setOpen(false);
         }
       }}
-    >
-      {loading ? "Signing out…" : "Sign out"}
-    </button>
+      trigger={<Button variant="secondary">Sign out</Button>}
+    />
   );
 }

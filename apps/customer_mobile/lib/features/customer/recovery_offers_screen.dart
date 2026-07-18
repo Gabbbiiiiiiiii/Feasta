@@ -242,7 +242,7 @@ class RecoveryOffersScreen extends StatelessWidget {
 
           if (snapshot.hasError) {
             return Center(
-              child: Text('Error: ${snapshot.error}'),
+              child: Text('Unable to load recovery offers.'),
             );
           }
 

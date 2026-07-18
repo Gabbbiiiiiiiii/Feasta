@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   applicationDefault,
+  cert,
   getApps,
   initializeApp,
   type AppOptions,
@@ -20,11 +21,25 @@ if (!projectId) {
 
 const useEmulators =
   process.env.USE_FIREBASE_EMULATORS === "true";
+const adminClientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL?.trim();
+const adminPrivateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY
+  ?.replace(/\\n/g, "\n")
+  .trim();
+
+if (!useEmulators && Boolean(adminClientEmail) !== Boolean(adminPrivateKey)) {
+  throw new Error(
+    "FIREBASE_ADMIN_CLIENT_EMAIL and FIREBASE_ADMIN_PRIVATE_KEY must be configured together.",
+  );
+}
 
 const options: AppOptions = {
   projectId,
   storageBucket: process.env.FIREBASE_ADMIN_STORAGE_BUCKET,
-  ...(useEmulators ? {} : {credential: applicationDefault()}),
+  ...(useEmulators ? {} : {
+    credential: adminClientEmail && adminPrivateKey ?
+      cert({projectId, clientEmail: adminClientEmail, privateKey: adminPrivateKey}) :
+      applicationDefault(),
+  }),
 };
 
 const adminApp =

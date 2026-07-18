@@ -1,30 +1,32 @@
 import "server-only";
 
+import {
+  parseAccountStatus,
+  parseUserRole,
+  type UserRole,
+} from "@feasta/shared-types";
 import {cookies} from "next/headers";
 import {redirect} from "next/navigation";
 
 import {adminAuth, adminDb} from "@/lib/firebase/admin";
+import {
+  sessionCookiePolicy,
+  verifyRevocationAwareSession,
+  isRoleAllowed,
+} from "@/lib/security/policy";
+import {logWebSecurityEvent} from "@/lib/security/logging";
+import type {ServerAccountContext} from "@/lib/auth/account-context";
 
-export const SESSION_COOKIE_NAME = "__session";
+export const SESSION_COOKIE_NAME = "feasta_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 5;
 
-export const USER_ROLES = ["customer", "provider", "admin"] as const;
-export type UserRole = (typeof USER_ROLES)[number];
+export type {UserRole} from "@feasta/shared-types";
+export type SessionUser = ServerAccountContext;
 
-export interface SessionUser {
-  uid: string;
-  email: string | null;
-  emailVerified: boolean;
-  role: UserRole;
-}
-
-export const sessionCookieOptions = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax" as const,
-  path: "/",
-  maxAge: SESSION_MAX_AGE_SECONDS,
-};
+export const sessionCookieOptions = sessionCookiePolicy(
+  process.env.NODE_ENV === "production",
+  SESSION_MAX_AGE_SECONDS,
+);
 
 export async function createVerifiedSession(idToken: string): Promise<{
   cookie: string;
@@ -51,7 +53,10 @@ export async function createVerifiedSession(idToken: string): Promise<{
 export async function verifySessionCookie(
   sessionCookie: string,
 ): Promise<SessionUser> {
-  const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+  const decoded = await verifyRevocationAwareSession(
+    sessionCookie,
+    (value, checkRevoked) => adminAuth.verifySessionCookie(value, checkRevoked),
+  );
   return loadActiveUser(
     decoded.uid,
     decoded.email ?? null,
@@ -67,6 +72,11 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   try {
     return await verifySessionCookie(value);
   } catch {
+    logWebSecurityEvent({
+      action: "session_access_denied",
+      outcome: "denied",
+      reasonCode: "invalid_expired_or_revoked_session",
+    });
     return null;
   }
 }
@@ -81,7 +91,16 @@ export async function requireRole(
   allowedRoles: readonly UserRole[],
 ): Promise<SessionUser> {
   const user = await requireSessionUser();
-  if (!allowedRoles.includes(user.role)) redirect("/unauthorized");
+  if (!isRoleAllowed(user.role, allowedRoles)) {
+    logWebSecurityEvent({
+      action: "role_access_denied",
+      outcome: "denied",
+      actorUid: user.uid,
+      targetId: allowedRoles.join(","),
+      reasonCode: "role_not_allowed",
+    });
+    redirect("/unauthorized");
+  }
   return user;
 }
 
@@ -93,15 +112,41 @@ async function loadActiveUser(
   const snapshot = await adminDb.collection("users").doc(uid).get();
   const data = snapshot.data();
 
-  if (!snapshot.exists || !data) throw new Error("User profile not found.");
-  if (!USER_ROLES.includes(data.role as UserRole)) {
+  if (!snapshot.exists || !data) {
+    logWebSecurityEvent({
+      action: "account_access_denied",
+      outcome: "denied",
+      actorUid: uid,
+      targetId: uid,
+      reasonCode: "profile_missing",
+    });
+    throw new Error("User profile not found.");
+  }
+  const role = parseUserRole(data.role);
+  const accountStatus = parseAccountStatus(data.accountStatus);
+  if (!role || !accountStatus) {
+    logWebSecurityEvent({
+      action: "role_access_denied",
+      outcome: "denied",
+      actorUid: uid,
+      targetId: uid,
+      reasonCode: "invalid_role",
+    });
     throw new Error("User role is invalid.");
   }
   if (
-    data.accountStatus !== "active" ||
-    data.isActive === false ||
-    data.isBlocked === true
+    accountStatus !== "active" ||
+    data.isActive !== true ||
+    data.isBlocked !== false
   ) {
+    logWebSecurityEvent({
+      action: "account_access_denied",
+      outcome: "denied",
+      actorUid: uid,
+      targetId: uid,
+      reasonCode: data.isBlocked === true ? "account_blocked" :
+        "account_inactive",
+    });
     throw new Error("Account is blocked or disabled.");
   }
 
@@ -109,6 +154,13 @@ async function loadActiveUser(
     uid,
     email,
     emailVerified,
-    role: data.role as UserRole,
+    role,
+    accountStatus,
+    isActive: data.isActive === true,
+    isBlocked: data.isBlocked === true,
+    isPhoneVerified: data.isPhoneVerified === true,
+    providerId: typeof data.providerId === "string" && data.providerId.length > 0
+      ? data.providerId
+      : null,
   };
 }

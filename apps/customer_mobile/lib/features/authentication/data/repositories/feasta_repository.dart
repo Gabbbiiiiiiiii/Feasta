@@ -25,6 +25,34 @@ class FeastaRepository {
     return user.uid;
   }
 
+  Future<void> _requireVerifiedActiveCustomer() async {
+    final user = _auth.currentUser;
+    if (user == null) throw Exception('Please log in to continue.');
+    await user.reload();
+    final refreshedUser = _auth.currentUser;
+    if (refreshedUser == null || !refreshedUser.emailVerified) {
+      throw Exception('Verify your email before creating a booking.');
+    }
+    final snapshot = await _db
+        .collection(FirestoreCollections.users)
+        .doc(refreshedUser.uid)
+        .get();
+    final data = snapshot.data();
+    final unavailable =
+        data == null ||
+        data['role'] != UserRoles.customer ||
+        data['isActive'] != true ||
+        data['isBlocked'] == true ||
+        data['accountStatus'] != 'active';
+    if (unavailable) {
+      await _auth.signOut();
+      throw Exception('Your account is currently unavailable.');
+    }
+    if (data['isPhoneVerified'] != true) {
+      throw Exception('Verify your phone number before creating a booking.');
+    }
+  }
+
   Future<CustomerModel> getCurrentCustomer() async {
     final doc = await _db
         .collection(FirestoreCollections.customers)
@@ -92,6 +120,7 @@ class FeastaRepository {
           isEqualTo: ProviderVerificationStatus.approved,
         )
         .where('isActive', isEqualTo: true)
+        .where('isSuspended', isEqualTo: false)
         .where('providerServiceType', isEqualTo: 'catering')
         .where('isDeleted', isEqualTo: false)
         .orderBy('favoriteCount', descending: true)
@@ -118,6 +147,7 @@ class FeastaRepository {
             isEqualTo: ProviderVerificationStatus.approved,
           )
           .where('isActive', isEqualTo: true)
+          .where('isSuspended', isEqualTo: false)
           .where('providerServiceType', isEqualTo: 'catering')
           .where('isDeleted', isEqualTo: false)
           .orderBy('favoriteCount', descending: true)
@@ -239,6 +269,7 @@ class FeastaRepository {
           isEqualTo: ProviderVerificationStatus.approved,
         )
         .where('isActive', isEqualTo: true)
+        .where('isSuspended', isEqualTo: false)
         .where('providerServiceType', isEqualTo: 'addon')
         .where('isDeleted', isEqualTo: false)
         .orderBy('favoriteCount', descending: true)
@@ -264,6 +295,7 @@ class FeastaRepository {
           isEqualTo: ProviderVerificationStatus.approved,
         )
         .where('isActive', isEqualTo: true)
+        .where('isSuspended', isEqualTo: false)
         .where('isFeatured', isEqualTo: true)
         .where('providerServiceType', isEqualTo: 'catering')
         .where('isDeleted', isEqualTo: false)
@@ -767,6 +799,62 @@ class FeastaRepository {
     required String customerArrangedAddOnsNote,
     required String specialRequest,
   }) async {
+    await _requireVerifiedActiveCustomer();
+    final requestId = '${currentUid}_${DateTime.now().microsecondsSinceEpoch}';
+    final result = await _functions.httpsCallable('submitBookingRequest').call({
+      'clientRequestId': requestId,
+      'providerId': provider.id,
+      'packageId': package.id,
+      'eventType': eventType,
+      'eventDate': eventDate.toUtc().toIso8601String(),
+      'eventTime': eventTime,
+      'eventEndTime': eventEndTime,
+      'guestCount': guestCount,
+      'eventLocation': eventLocation,
+      'eventAddress': eventAddress,
+      'selectedFoods': selectedFoods,
+      'selectedDecorations': selectedDecorations,
+      'selectedFurniture': selectedFurniture,
+      'addonIds': selectedAddOns
+          .map((addon) => addon['addonId']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .toList(),
+      'willArrangeOwnAddOns': willArrangeOwnAddOns,
+      'customerArrangedAddOnsNote': customerArrangedAddOnsNote,
+      'specialRequest': specialRequest,
+    });
+    final data = Map<String, dynamic>.from(result.data as Map);
+    final bookingId = data['bookingId'];
+    if (bookingId is! String || bookingId.isEmpty) {
+      throw Exception('Booking submission did not return a valid reference.');
+    }
+    return bookingId;
+  }
+
+  // Kept temporarily as a migration reference while downstream add-on request
+  // consumers move to the canonical server submission result.
+  // ignore: unused_element
+  Future<String> _createBookingRequestLegacy({
+    required CustomerModel customer,
+    required ProviderModel provider,
+    required PackageModel package,
+    required String eventType,
+    required DateTime eventDate,
+    required String eventTime,
+    required String eventEndTime,
+    required int guestCount,
+    required String eventLocation,
+    required String eventAddress,
+    required List<String> selectedFoods,
+    required List<String> selectedDecorations,
+    required List<String> selectedFurniture,
+    required List<Map<String, dynamic>> selectedAddOns,
+    required bool willArrangeOwnAddOns,
+    required String customerArrangedAddOnsNote,
+    required String specialRequest,
+  }) async {
+    await _requireVerifiedActiveCustomer();
     final cateringAddOns = selectedAddOns
         .where((addon) => addon['source'] == 'catering_provider')
         .toList();
@@ -1526,10 +1614,35 @@ class FeastaRepository {
     await batch.commit();
   }
 
+  Future<({String paymentId, String checkoutUrl})> createPaymentSession({
+    required BookingModel booking,
+  }) async {
+    final response = await _functions
+        .httpsCallable('createPaymentSession')
+        .call({
+          'bookingId': booking.id,
+          'idempotencyKey': 'booking:${booking.id}:provider_down_payment',
+        });
+    final data = Map<String, dynamic>.from(response.data as Map);
+    final paymentId = data['paymentId'];
+    final checkoutUrl = data['checkoutUrl'];
+    if (paymentId is! String || checkoutUrl is! String) {
+      throw Exception('The secure payment session response was invalid.');
+    }
+    return (paymentId: paymentId, checkoutUrl: checkoutUrl);
+  }
+
+  @Deprecated(
+    'Canonical payment records are created only by createPaymentSession.',
+  )
   Future<String> createPaymentRecord({
     required BookingModel booking,
     required String paymentMethod,
   }) async {
+    throw UnsupportedError(
+      'Direct client payment creation is disabled. Use createPaymentSession.',
+    );
+    /* Legacy implementation retained temporarily for migration reference.
     final now = FieldValue.serverTimestamp();
 
     final paymentRef = _db.collection(FirestoreCollections.payments).doc();
@@ -1553,7 +1666,7 @@ class FeastaRepository {
       'updatedAt': now,
     });
 
-    return paymentRef.id;
+    return paymentRef.id; */
   }
 
   Future<void> markDownPaymentPaid({
@@ -1563,6 +1676,10 @@ class FeastaRepository {
     String? paymongoPaymentIntentId,
     String? paymongoReferenceNumber,
   }) async {
+    throw UnsupportedError(
+      'Payment status is confirmed only by the signed PayMongo webhook.',
+    );
+    /* Legacy implementation retained temporarily for migration reference.
     final now = FieldValue.serverTimestamp();
 
     final batch = _db.batch();
@@ -1688,7 +1805,7 @@ class FeastaRepository {
       }
     }
 
-    await batch.commit();
+    await batch.commit(); */
   }
 
   Future<String> createAddonPaymentRecord({
@@ -1696,6 +1813,10 @@ class FeastaRepository {
     required AddonRequestModel addonRequest,
     required String paymentMethod,
   }) async {
+    throw UnsupportedError(
+      'Direct add-on payment creation is disabled until its backend flow is available.',
+    );
+    /* Legacy implementation retained temporarily for migration reference.
     if (booking.status != BookingStatus.confirmed) {
       throw Exception(
         'Main catering booking must be confirmed before paying external add-ons.',
@@ -1744,7 +1865,7 @@ class FeastaRepository {
       'updatedAt': now,
     });
 
-    return paymentRef.id;
+    return paymentRef.id; */
   }
 
   Future<void> markAddonPaymentPaid({
@@ -1755,6 +1876,10 @@ class FeastaRepository {
     String? paymongoPaymentIntentId,
     String? paymongoReferenceNumber,
   }) async {
+    throw UnsupportedError(
+      'Add-on payment status is confirmed only by a signed backend webhook.',
+    );
+    /* Legacy implementation retained temporarily for migration reference.
     if (booking.status != BookingStatus.confirmed) {
       throw Exception(
         'Main catering booking must be confirmed before paying external add-ons.',
@@ -1827,7 +1952,7 @@ class FeastaRepository {
       });
     }
 
-    await batch.commit();
+    await batch.commit(); */
   }
 
   Future<void> addToFavorites({required ProviderModel provider}) async {
@@ -2439,6 +2564,7 @@ class FeastaRepository {
           isEqualTo: ProviderVerificationStatus.approved,
         )
         .where('isActive', isEqualTo: true)
+        .where('isSuspended', isEqualTo: false)
         .where('providerServiceType', isEqualTo: 'catering')
         .where('isDeleted', isEqualTo: false);
 
@@ -2520,6 +2646,7 @@ class FeastaRepository {
           isEqualTo: ProviderVerificationStatus.approved,
         )
         .where('isActive', isEqualTo: true)
+        .where('isSuspended', isEqualTo: false)
         .where('isDeleted', isEqualTo: false);
 
     if (normalizedTerm.isNotEmpty) {

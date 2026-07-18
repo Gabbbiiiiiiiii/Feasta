@@ -42,7 +42,7 @@ class BookingDetailsScreen extends StatelessWidget {
 
           if (bookingSnapshot.hasError) {
             return Center(
-              child: Text('Error: ${bookingSnapshot.error}'),
+                  child: Text('Unable to load booking details.'),
             );
           }
 

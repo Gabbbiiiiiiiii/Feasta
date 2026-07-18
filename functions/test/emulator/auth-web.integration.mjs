@@ -119,18 +119,26 @@ async function testBlockedAndDisabledAccounts() {
 }
 
 async function testWebSessionsAndRoles() {
+  assert.equal((await webGet("/admin", "")).status, 307);
+
   const customer = await createCustomer("acceptance.web.customer@feasta.test");
   const customerSession = await createWebSession(await customer.getIdToken(true));
-  assert.match(customerSession.cookie, /__session=/);
+  assert.match(customerSession.cookie, /feasta_session=/);
   assert.match(customerSession.cookie, /HttpOnly/i);
   assert.match(customerSession.cookie, /SameSite=Lax/i);
   assert.equal((await webGet("/customer", customerSession.cookie)).status, 200);
+  assert.equal((await webGet("/admin", customerSession.cookie)).status, 307);
   const wrongRole = await webGet("/provider", customerSession.cookie);
   assert.equal(wrongRole.status, 307);
   assert.match(wrongRole.headers.get("location") ?? "", /\/unauthorized$/);
 
   const logout = await fetch(`${webUrl}/api/auth/logout`, {
-    method: "POST", headers: {cookie: customerSession.cookie},
+    method: "POST",
+    headers: {
+      cookie: customerSession.cookie,
+      origin: webUrl,
+      "x-feasta-csrf": customerSession.csrf.token,
+    },
   });
   assert.equal(logout.status, 200);
   assert.match(logout.headers.get("set-cookie") ?? "", /Max-Age=0/i);
@@ -144,11 +152,45 @@ async function testWebSessionsAndRoles() {
   assert.equal((await webGet("/customer", adminSession.cookie)).status, 307);
   await signOut(auth);
 
+  const providerUser = await createUser("acceptance.web.provider@feasta.test");
+  await writeUserProfile(providerUser.uid, "provider");
+  const providerSession = await createWebSession(await providerUser.getIdToken(true));
+  assert.equal((await webGet("/provider", providerSession.cookie)).status, 200);
+  assert.equal((await webGet("/admin", providerSession.cookie)).status, 307);
+  await signOut(auth);
+
   const blocked = await createCustomer("acceptance.web.blocked@feasta.test");
   const blockedToken = await blocked.getIdToken(true);
   await db.collection("users").doc(blocked.uid).update({isBlocked: true});
-  assert.equal((await postSession(blockedToken)).status, 401);
+  assert.equal((await postSession(blockedToken, await getCsrf())).status, 401);
   await signOut(auth);
+
+  const disabled = await createCustomer("acceptance.web.disabled@feasta.test");
+  const disabledSession = await createWebSession(await disabled.getIdToken(true));
+  await adminAuth.updateUser(disabled.uid, {disabled: true});
+  assert.equal((await webGet("/customer", disabledSession.cookie)).status, 307);
+
+  const csrf = await getCsrf();
+  const invalidCsrf = await fetch(`${webUrl}/api/auth/session`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: webUrl,
+      cookie: csrf.cookie,
+      "x-feasta-csrf": "invalid",
+    },
+    body: JSON.stringify({idToken: blockedToken}),
+  });
+  assert.equal(invalidCsrf.status, 403);
+  const badOrigin = await fetch(`${webUrl}/api/auth/logout`, {
+    method: "POST",
+    headers: {
+      origin: "https://evil.example",
+      cookie: csrf.cookie,
+      "x-feasta-csrf": csrf.token,
+    },
+  });
+  assert.equal(badOrigin.status, 403);
 }
 
 async function createCustomer(email) {
@@ -189,17 +231,33 @@ async function oobCodes(email, requestType) {
 }
 
 async function createWebSession(idToken) {
-  const response = await postSession(idToken);
+  const csrf = await getCsrf();
+  const response = await postSession(idToken, csrf);
   assert.equal(response.status, 200, await response.text());
-  return {cookie: response.headers.get("set-cookie") ?? ""};
+  return {
+    cookie: `${csrf.cookie}; ${response.headers.get("set-cookie") ?? ""}`,
+    csrf,
+  };
 }
 
-function postSession(idToken) {
+function postSession(idToken, csrf) {
   return fetch(`${webUrl}/api/auth/session`, {
     method: "POST",
-    headers: {"content-type": "application/json", origin: webUrl},
+    headers: {
+      "content-type": "application/json",
+      origin: webUrl,
+      cookie: csrf.cookie,
+      "x-feasta-csrf": csrf.token,
+    },
     body: JSON.stringify({idToken}),
   });
+}
+
+async function getCsrf() {
+  const response = await fetch(`${webUrl}/api/auth/csrf`);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  return {token: body.token, cookie: response.headers.get("set-cookie") ?? ""};
 }
 
 function webGet(path, cookie) {

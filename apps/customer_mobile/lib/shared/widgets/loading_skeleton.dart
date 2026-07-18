@@ -1,17 +1,14 @@
 import 'package:flutter/material.dart';
 
-const Color _skeletonBase = Color(0xFFF1ECE8);
-const Color _skeletonHighlight = Color(0xFFE6DED8);
-const Color _skeletonSurface = Color(0xFFFFFBF8);
-const Color _skeletonBorder = Color(0xFFE8E1DB);
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_durations.dart';
+import '../../core/theme/app_radius.dart';
+import '../../core/theme/app_sizes.dart';
 
 class FeastaSkeletonPulse extends StatefulWidget {
   final Widget child;
 
-  const FeastaSkeletonPulse({
-    super.key,
-    required this.child,
-  });
+  const FeastaSkeletonPulse({super.key, required this.child});
 
   @override
   State<FeastaSkeletonPulse> createState() => _FeastaSkeletonPulseState();
@@ -28,12 +25,23 @@ class _FeastaSkeletonPulseState extends State<FeastaSkeletonPulse>
 
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
-
-    _opacity = Tween<double>(begin: 0.55, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+      duration: AppDurations.skeletonPulse,
     );
+
+    _opacity = Tween<double>(
+      begin: 0.55,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
+      _controller.stop();
+    } else if (!_controller.isAnimating) {
+      _controller.repeat(reverse: true);
+    }
   }
 
   @override
@@ -44,10 +52,7 @@ class _FeastaSkeletonPulseState extends State<FeastaSkeletonPulse>
 
   @override
   Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: _opacity,
-      child: widget.child,
-    );
+    return FadeTransition(opacity: _opacity, child: widget.child);
   }
 }
 
@@ -61,8 +66,8 @@ class FeastaSkeletonBox extends StatelessWidget {
     super.key,
     this.width,
     required this.height,
-    this.radius = 12,
-    this.color = _skeletonBase,
+    this.radius = AppRadius.medium,
+    this.color = AppColors.skeleton,
   });
 
   @override
@@ -81,10 +86,7 @@ class FeastaSkeletonBox extends StatelessWidget {
 class FeastaSkeletonCircle extends StatelessWidget {
   final double size;
 
-  const FeastaSkeletonCircle({
-    super.key,
-    this.size = 48,
-  });
+  const FeastaSkeletonCircle({super.key, this.size = AppSizes.avatarDefault});
 
   @override
   Widget build(BuildContext context) {
@@ -92,7 +94,7 @@ class FeastaSkeletonCircle extends StatelessWidget {
       height: size,
       width: size,
       decoration: const BoxDecoration(
-        color: _skeletonBase,
+        color: AppColors.skeleton,
         shape: BoxShape.circle,
       ),
     );
@@ -125,7 +127,7 @@ class FeastaSkeletonList extends StatelessWidget {
       child: ListView.separated(
         padding: padding,
         itemCount: itemCount,
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        separatorBuilder: (_, _) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
           return _SkeletonCard(
             showLeading: showLeading,
@@ -163,7 +165,7 @@ class FeastaSkeletonHorizontalCards extends StatelessWidget {
           padding: padding,
           scrollDirection: Axis.horizontal,
           itemCount: itemCount,
-          separatorBuilder: (_, __) => const SizedBox(width: 12),
+          separatorBuilder: (_, _) => const SizedBox(width: 12),
           itemBuilder: (context, index) {
             return SizedBox(
               width: width,
@@ -331,9 +333,9 @@ class _SkeletonCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: _skeletonSurface,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(cardRadius),
-        border: Border.all(color: _skeletonBorder),
+        border: Border.all(color: AppColors.border),
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -342,7 +344,7 @@ class _SkeletonCard extends StatelessWidget {
             FeastaSkeletonBox(
               height: imageHeight,
               radius: 0,
-              color: _skeletonHighlight,
+              color: AppColors.skeletonHighlight,
             ),
           Padding(
             padding: const EdgeInsets.all(16),

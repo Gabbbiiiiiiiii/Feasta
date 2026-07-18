@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../shared/models/event_customization_data.dart';
 import '../../shared/models/feasta_models.dart';
+import '../../core/helpers/verification_guard.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import 'booking_submitted_screen.dart';
 
@@ -27,9 +28,9 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   bool isSubmitting = false;
 
   List<Map<String, dynamic>> get cateringProviderAddOns {
-  return widget.customization.selectedAddOns
-      .where((addon) => addon['source'] == 'catering_provider')
-      .toList();
+    return widget.customization.selectedAddOns
+        .where((addon) => addon['source'] == 'catering_provider')
+        .toList();
   }
 
   List<Map<String, dynamic>> get marketplaceAddOns {
@@ -59,6 +60,9 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   }
 
   Future<void> _submitBookingRequest() async {
+    if (isSubmitting) return;
+    final canSubmit = await requireVerifiedPhoneForBooking(context);
+    if (!mounted || !canSubmit) return;
     setState(() => isSubmitting = true);
 
     try {
@@ -101,11 +105,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            e.toString().replaceAll('Exception: ', ''),
-          ),
-        ),
+        SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
       );
     } finally {
       if (mounted) {
@@ -119,9 +119,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     const primary = Color(0xFFFF6333);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Booking Summary'),
-      ),
+      appBar: AppBar(title: const Text('Booking Summary')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -132,10 +130,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                 label: 'Provider',
                 value: widget.provider.businessName,
               ),
-              _SummaryRow(
-                label: 'Location',
-                value: widget.provider.location,
-              ),
+              _SummaryRow(label: 'Location', value: widget.provider.location),
               _SummaryRow(
                 label: 'Status',
                 value: widget.provider.isApproved ? 'Approved' : 'Not approved',
@@ -146,10 +141,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           _SummaryCard(
             title: 'Selected Package',
             children: [
-              _SummaryRow(
-                label: 'Package',
-                value: widget.eventPackage.name,
-              ),
+              _SummaryRow(label: 'Package', value: widget.eventPackage.name),
               _SummaryRow(
                 label: 'Event Type',
                 value: widget.customization.eventType,
@@ -164,10 +156,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           _SummaryCard(
             title: 'Event Details',
             children: [
-              _SummaryRow(
-                label: 'Date',
-                value: formattedDate,
-              ),
+              _SummaryRow(label: 'Date', value: formattedDate),
               _SummaryRow(
                 label: 'Time',
                 value:
@@ -225,10 +214,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                   widget.customization.customerArrangedAddOnsNote.isEmpty
                       ? 'Customer will arrange their own add-ons.'
                       : widget.customization.customerArrangedAddOnsNote,
-                  style: const TextStyle(
-                    color: Colors.grey,
-                    height: 1.4,
-                  ),
+                  style: const TextStyle(color: Colors.grey, height: 1.4),
                 ),
               ],
             ),
@@ -241,10 +227,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
               children: [
                 Text(
                   widget.customization.specialRequest,
-                  style: const TextStyle(
-                    color: Colors.grey,
-                    height: 1.4,
-                  ),
+                  style: const TextStyle(color: Colors.grey, height: 1.4),
                 ),
               ],
             ),
@@ -308,9 +291,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         padding: const EdgeInsets.all(18),
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE5E7EB)),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
         ),
         child: SafeArea(
           child: SizedBox(
@@ -340,10 +321,7 @@ class _SummaryCard extends StatelessWidget {
   final String title;
   final List<Widget> children;
 
-  const _SummaryCard({
-    required this.title,
-    required this.children,
-  });
+  const _SummaryCard({required this.title, required this.children});
 
   @override
   Widget build(BuildContext context) {
@@ -360,10 +338,7 @@ class _SummaryCard extends StatelessWidget {
         children: [
           Text(
             title,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-            ),
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 14),
           ...children,
@@ -393,10 +368,7 @@ class _SummaryRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: const TextStyle(color: Colors.grey),
-          ),
+          Text(label, style: const TextStyle(color: Colors.grey)),
           const SizedBox(width: 16),
           Expanded(
             child: Text(
@@ -418,10 +390,7 @@ class _ListSummaryCard extends StatelessWidget {
   final String title;
   final List<String> items;
 
-  const _ListSummaryCard({
-    required this.title,
-    required this.items,
-  });
+  const _ListSummaryCard({required this.title, required this.items});
 
   @override
   Widget build(BuildContext context) {
@@ -429,10 +398,7 @@ class _ListSummaryCard extends StatelessWidget {
       return _SummaryCard(
         title: title,
         children: const [
-          Text(
-            'No selected items.',
-            style: TextStyle(color: Colors.grey),
-          ),
+          Text('No selected items.', style: TextStyle(color: Colors.grey)),
         ],
       );
     }
@@ -444,11 +410,7 @@ class _ListSummaryCard extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 8),
           child: Row(
             children: [
-              const Icon(
-                Icons.check_circle,
-                color: Colors.green,
-                size: 20,
-              ),
+              const Icon(Icons.check_circle, color: Colors.green, size: 20),
               const SizedBox(width: 10),
               Expanded(child: Text(item)),
             ],
@@ -487,22 +449,15 @@ class _AddOnGroupCard extends StatelessWidget {
         children: [
           Text(
             title,
-            style: const TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-            ),
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 12),
           if (addOns.isEmpty)
-            Text(
-              emptyText,
-              style: const TextStyle(color: Colors.grey),
-            )
+            Text(emptyText, style: const TextStyle(color: Colors.grey))
           else
             ...addOns.map((addon) {
               final name = addon['name'] ?? '';
-              final providerBusinessName =
-                  addon['providerBusinessName'] ?? '';
+              final providerBusinessName = addon['providerBusinessName'] ?? '';
               final category = addon['category'] ?? '';
               final price = ((addon['price'] ?? 0) as num).toDouble();
 
@@ -523,9 +478,7 @@ class _AddOnGroupCard extends StatelessWidget {
                         children: [
                           Text(
                             name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w900,
-                            ),
+                            style: const TextStyle(fontWeight: FontWeight.w900),
                           ),
                           const SizedBox(height: 3),
                           Text(

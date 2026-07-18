@@ -13,6 +13,16 @@ export const USER_ROLES = {
 export type UserRole =
   (typeof USER_ROLES)[keyof typeof USER_ROLES];
 
+export const ACCOUNT_STATUSES = [
+  "active",
+  "blocked",
+  "disabled",
+  "pending_deletion",
+] as const;
+
+export type AccountStatus =
+  (typeof ACCOUNT_STATUSES)[number];
+
 export const PROVIDER_VERIFICATION_STATUSES = [
   "draft",
   "submitted",
@@ -25,6 +35,34 @@ export const PROVIDER_VERIFICATION_STATUSES = [
 
 export type ProviderVerificationStatus =
   (typeof PROVIDER_VERIFICATION_STATUSES)[number];
+
+export function parseUserRole(value: unknown): UserRole | null {
+  const normalized = normalizeStatusValue(value);
+  return Object.values(USER_ROLES).includes(normalized as UserRole) ?
+    normalized as UserRole :
+    null;
+}
+
+export function parseAccountStatus(value: unknown): AccountStatus | null {
+  const normalized = normalizeStatusValue(value, {
+    pendingdeletion: "pending_deletion",
+  });
+  return ACCOUNT_STATUSES.includes(normalized as AccountStatus) ?
+    normalized as AccountStatus :
+    null;
+}
+
+export function parseProviderVerificationStatus(
+  value: unknown,
+): ProviderVerificationStatus | null {
+  const normalized = normalizeStatusValue(value, {
+    underreview: "under_review",
+    resubmissionrequired: "resubmission_required",
+  });
+  return PROVIDER_VERIFICATION_STATUSES.includes(
+    normalized as ProviderVerificationStatus,
+  ) ? normalized as ProviderVerificationStatus : null;
+}
 
 export const PROVIDER_VERIFICATION_TRANSITIONS = {
   draft: ["submitted"],
@@ -89,3 +127,41 @@ export function isRequiredVerificationDocumentType(
   return (REQUIRED_VERIFICATION_DOCUMENT_TYPES as readonly string[])
     .includes(type);
 }
+
+function normalizeStatusValue(
+  value: unknown,
+  aliases: Readonly<Record<string, string>> = {},
+): string {
+  if (typeof value !== "string") return "";
+  const normalized = value.trim().toLowerCase().replaceAll("-", "_");
+  return aliases[normalized] ?? normalized;
+}
+
+export const PAYMENT_STATUSES = [
+  "pending",
+  "processing",
+  "paid",
+  "failed",
+  "expired",
+  "refunded",
+] as const;
+
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+
+export const PAYMENT_STATUS_TRANSITIONS = {
+  pending: ["processing", "paid", "failed", "expired"],
+  processing: ["paid", "failed", "expired"],
+  paid: ["refunded"],
+  failed: ["processing"],
+  expired: ["processing"],
+  refunded: [],
+} as const satisfies Record<PaymentStatus, readonly PaymentStatus[]>;
+
+export function isPaymentStatusTransitionAllowed(
+  from: PaymentStatus,
+  to: PaymentStatus,
+): boolean {
+  return (PAYMENT_STATUS_TRANSITIONS[from] as readonly string[]).includes(to);
+}
+
+export const PAYMENT_CURRENCY = "PHP" as const;

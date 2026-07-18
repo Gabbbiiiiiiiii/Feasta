@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../shared/models/feasta_models.dart';
-import '../authentication/data/repositories/feasta_repository.dart';
 
 class AddonPaymentRequiredScreen extends StatefulWidget {
   final BookingModel booking;
@@ -20,8 +19,6 @@ class AddonPaymentRequiredScreen extends StatefulWidget {
 
 class _AddonPaymentRequiredScreenState
     extends State<AddonPaymentRequiredScreen> {
-  final FeastaRepository repository = FeastaRepository();
-
   String selectedPaymentMethod = 'gcash';
   bool isProcessing = false;
 
@@ -29,29 +26,9 @@ class _AddonPaymentRequiredScreenState
     setState(() => isProcessing = true);
 
     try {
-      final paymentId = await repository.createAddonPaymentRecord(
-        booking: widget.booking,
-        addonRequest: widget.addonRequest,
-        paymentMethod: selectedPaymentMethod,
+      throw Exception(
+        'Secure add-on checkout is not available yet. No payment was created.',
       );
-
-      await repository.markAddonPaymentPaid(
-        booking: widget.booking,
-        addonRequest: widget.addonRequest,
-        paymentId: paymentId,
-        paymongoReferenceNumber:
-            'ADDON-${DateTime.now().millisecondsSinceEpoch}',
-      );
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Add-on payment completed.'),
-        ),
-      );
-
-      Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
 

@@ -1,8 +1,12 @@
+import 'dart:convert';
+
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../shared/models/customer_address_model.dart';
 
 class CustomerAddressStorageService {
+  static const FlutterSecureStorage _secureStorage = FlutterSecureStorage();
   static const String _selectedAddressIdKey =
       'feasta_selected_customer_address_id';
   static const String _selectedAddressKey = 'feasta_selected_customer_address';
@@ -11,7 +15,11 @@ class CustomerAddressStorageService {
 
   Future<CustomerAddressModel?> getSelectedAddress() async {
     final prefs = await SharedPreferences.getInstance();
-    final selectedId = prefs.getString(_selectedAddressIdKey);
+    final selectedId = await _readSecureOrMigrate(
+      _selectedAddressIdKey,
+      prefs.getString(_selectedAddressIdKey),
+      prefs,
+    );
     final savedAddresses = await getSavedAddresses();
 
     if (selectedId != null && selectedId.isNotEmpty) {
@@ -24,7 +32,11 @@ class CustomerAddressStorageService {
       if (address.isDefault) return address;
     }
 
-    final rawSelectedAddress = prefs.getString(_selectedAddressKey);
+    final rawSelectedAddress = await _readSecureOrMigrate(
+      _selectedAddressKey,
+      prefs.getString(_selectedAddressKey),
+      prefs,
+    );
     if (rawSelectedAddress == null || rawSelectedAddress.trim().isEmpty) {
       return null;
     }
@@ -32,7 +44,7 @@ class CustomerAddressStorageService {
     try {
       return CustomerAddressModel.fromJson(rawSelectedAddress);
     } catch (_) {
-      await prefs.remove(_selectedAddressKey);
+      await _secureStorage.delete(key: _selectedAddressKey);
       return null;
     }
   }
@@ -43,7 +55,13 @@ class CustomerAddressStorageService {
 
   Future<List<CustomerAddressModel>> getSavedAddresses() async {
     final prefs = await SharedPreferences.getInstance();
-    final rawAddresses = prefs.getStringList(_savedAddressesKey) ?? [];
+    final legacyAddresses = prefs.getStringList(_savedAddressesKey);
+    final storedAddresses = await _readSecureOrMigrate(
+      _savedAddressesKey,
+      legacyAddresses == null ? null : jsonEncode(legacyAddresses),
+      prefs,
+    );
+    final rawAddresses = _decodeAddressList(storedAddresses);
     final addresses = <CustomerAddressModel>[];
 
     for (final rawAddress in rawAddresses) {
@@ -95,7 +113,6 @@ class CustomerAddressStorageService {
   }
 
   Future<void> deleteAddress(String addressId) async {
-    final prefs = await SharedPreferences.getInstance();
     final addresses = await getSavedAddresses();
     final nextAddresses = addresses
         .where((address) => address.id != addressId)
@@ -104,18 +121,23 @@ class CustomerAddressStorageService {
     if (nextAddresses.isNotEmpty &&
         !nextAddresses.any((address) => address.isDefault)) {
       nextAddresses[0] = nextAddresses[0].copyWith(isDefault: true);
-      await prefs.setString(_selectedAddressIdKey, nextAddresses[0].id);
-      await prefs.setString(_selectedAddressKey, nextAddresses[0].toJson());
+      await _secureStorage.write(
+        key: _selectedAddressIdKey,
+        value: nextAddresses[0].id,
+      );
+      await _secureStorage.write(
+        key: _selectedAddressKey,
+        value: nextAddresses[0].toJson(),
+      );
     } else if (nextAddresses.isEmpty) {
-      await prefs.remove(_selectedAddressIdKey);
-      await prefs.remove(_selectedAddressKey);
+      await _secureStorage.delete(key: _selectedAddressIdKey);
+      await _secureStorage.delete(key: _selectedAddressKey);
     }
 
     await _writeSavedAddresses(_normalizeDefaults(nextAddresses));
   }
 
   Future<void> setDefaultAddress(String addressId) async {
-    final prefs = await SharedPreferences.getInstance();
     final addresses = await getSavedAddresses();
     final nextAddresses = addresses.map((address) {
       return address.copyWith(isDefault: address.id == addressId);
@@ -129,10 +151,13 @@ class CustomerAddressStorageService {
     }
 
     await _writeSavedAddresses(nextAddresses);
-    await prefs.setString(_selectedAddressIdKey, addressId);
+    await _secureStorage.write(key: _selectedAddressIdKey, value: addressId);
 
     if (selectedAddress != null) {
-      await prefs.setString(_selectedAddressKey, selectedAddress.toJson());
+      await _secureStorage.write(
+        key: _selectedAddressKey,
+        value: selectedAddress.toJson(),
+      );
     }
   }
 
@@ -147,19 +172,47 @@ class CustomerAddressStorageService {
   }
 
   Future<void> clearSelectedAddress() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_selectedAddressIdKey);
-    await prefs.remove(_selectedAddressKey);
+    await _secureStorage.delete(key: _selectedAddressIdKey);
+    await _secureStorage.delete(key: _selectedAddressKey);
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.remove(_selectedAddressIdKey);
+    await preferences.remove(_selectedAddressKey);
   }
 
   Future<void> _writeSavedAddresses(
     List<CustomerAddressModel> addresses,
   ) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(
-      _savedAddressesKey,
-      addresses.map((address) => address.toJson()).toList(),
+    await _secureStorage.write(
+      key: _savedAddressesKey,
+      value: jsonEncode(addresses.map((address) => address.toJson()).toList()),
     );
+  }
+
+  Future<String?> _readSecureOrMigrate(
+    String key,
+    String? legacyValue,
+    SharedPreferences preferences,
+  ) async {
+    final secureValue = await _secureStorage.read(key: key);
+    if (secureValue != null) {
+      if (legacyValue != null) await preferences.remove(key);
+      return secureValue;
+    }
+    if (legacyValue == null || legacyValue.isEmpty) return null;
+    await _secureStorage.write(key: key, value: legacyValue);
+    await preferences.remove(key);
+    return legacyValue;
+  }
+
+  List<String> _decodeAddressList(String? value) {
+    if (value == null || value.isEmpty) return [];
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is! List) return [];
+      return decoded.whereType<String>().toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   List<CustomerAddressModel> _normalizeDefaults(

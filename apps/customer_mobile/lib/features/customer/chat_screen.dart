@@ -146,7 +146,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
                       if (snapshot.hasError) {
                         return Center(
-                          child: Text('Error: ${snapshot.error}'),
+              child: Text('Unable to load messages.'),
                         );
                       }
 

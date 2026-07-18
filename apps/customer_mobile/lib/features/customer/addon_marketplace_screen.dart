@@ -70,7 +70,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
 
           if (snapshot.hasError) {
             return Center(
-              child: Text('Error: ${snapshot.error}'),
+              child: Text('Unable to load add-on providers.'),
             );
           }
 

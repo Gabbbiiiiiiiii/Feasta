@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import '../security/secure_debug_log.dart';
 
 Future<T> runStartupStep<T>({
   required String stepName,
@@ -11,12 +11,18 @@ Future<T> runStartupStep<T>({
   try {
     return await operation.timeout(timeout);
   } on TimeoutException catch (error, stackTrace) {
-    debugPrint('Startup timeout at $stepName: $error');
-    debugPrint(stackTrace.toString());
+    secureDebugLog(
+      'Startup timeout at $stepName',
+      error: error,
+      stackTrace: stackTrace,
+    );
     return fallbackValue;
   } catch (error, stackTrace) {
-    debugPrint('Startup failure at $stepName: $error');
-    debugPrint(stackTrace.toString());
+    secureDebugLog(
+      'Startup failure at $stepName',
+      error: error,
+      stackTrace: stackTrace,
+    );
     return fallbackValue;
   }
 }

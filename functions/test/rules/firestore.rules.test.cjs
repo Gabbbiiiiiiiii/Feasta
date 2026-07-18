@@ -1,15 +1,20 @@
 const {after, before, beforeEach, test} = require("node:test");
+const assert = require("node:assert/strict");
 const {
   assertFails,
   assertSucceeds,
 } = require("@firebase/rules-unit-testing");
 const {
+  collection,
   doc,
   deleteDoc,
   getDoc,
+  getDocs,
+  query,
   serverTimestamp,
   setDoc,
   updateDoc,
+  where,
   writeBatch,
 } = require("firebase/firestore");
 
@@ -78,7 +83,18 @@ test("users cannot change trusted fields and admin has bounded controls", async 
   await assertFails(updateDoc(customerRef, {role: "admin"}));
   await assertFails(updateDoc(customerRef, {providerId: "provider-one"}));
   await assertFails(updateDoc(customerRef, {isBlocked: true}));
+  await assertFails(updateDoc(customerRef, {isEmailVerified: false}));
+  await assertFails(updateDoc(customerRef, {isPhoneVerified: true}));
   await assertFails(updateDoc(customerRef, {accountStatus: "disabled"}));
+  await assertFails(updateDoc(customerRef, {accountStatus: "pending_deletion"}));
+  await assertFails(updateDoc(customerRef, {marketingConsent: true}));
+  await assertFails(updateDoc(customerRef, {preferencesUpdatedAt: new Date()}));
+  await assertFails(updateDoc(customerRef, {email: "attacker@example.test"}));
+  await assertFails(updateDoc(customerRef, {adminNotes: "self-assigned"}));
+  await assertSucceeds(updateDoc(customerRef, {
+    firstName: "Updated",
+    updatedAt: new Date(),
+  }));
   await assertSucceeds(updateDoc(
     doc(admin, "users/customer-one"),
     {isBlocked: true, accountStatus: "blocked", updatedAt: new Date()},
@@ -133,6 +149,14 @@ test("customer profiles are private and retain immutable userId", async () => {
     doc(owner, "customers/customer-one"),
     {userId: "customer-two"},
   ));
+  await assertFails(updateDoc(
+    doc(owner, "customers/customer-one"),
+    {email: "unverified@example.test"},
+  ));
+  await assertSucceeds(updateDoc(
+    doc(owner, "customers/customer-one"),
+    {address: "Main Street", city: "Ormoc", province: "Leyte"},
+  ));
 });
 
 test("provider visibility and lifecycle fields follow trusted ownership", async () => {
@@ -180,6 +204,10 @@ test("provider visibility and lifecycle fields follow trusted ownership", async 
   await assertSucceeds(getDoc(doc(publicDb, "providers/provider-approved")));
   await assertFails(getDoc(doc(publicDb, "providers/provider-draft")));
   await assertSucceeds(getDoc(doc(owner, "providers/provider-draft")));
+  await assertSucceeds(updateDoc(
+    doc(owner, "providers/provider-draft"),
+    {businessName: "Updated Draft"},
+  ));
   await assertFails(updateDoc(
     doc(other, "providers/provider-draft"),
     {businessName: "Hijacked"},
@@ -192,6 +220,36 @@ test("provider visibility and lifecycle fields follow trusted ownership", async 
     doc(owner, "providers/provider-draft"),
     {isActive: true},
   ));
+});
+
+test("public provider list queries constrain every visibility field", async () => {
+  await seedDocuments(testEnv, {
+    "providers/provider-approved": {
+      ownerId: "owner-one",
+      verificationStatus: "approved",
+      isActive: true,
+      isSuspended: false,
+      isDeleted: false,
+    },
+    "providers/provider-suspended": {
+      ownerId: "owner-two",
+      verificationStatus: "approved",
+      isActive: true,
+      isSuspended: true,
+      isDeleted: false,
+    },
+  });
+  const publicDb = testEnv.unauthenticatedContext().firestore();
+  const safeQuery = query(
+    collection(publicDb, "providers"),
+    where("verificationStatus", "==", "approved"),
+    where("isActive", "==", true),
+    where("isSuspended", "==", false),
+    where("isDeleted", "==", false),
+  );
+  const snapshot = await assertSucceeds(getDocs(safeQuery));
+  assert.equal(snapshot.size, 1);
+  assert.equal(snapshot.docs[0].id, "provider-approved");
 });
 
 test("sparse account data and inconsistent suspended providers fail safely", async () => {
@@ -276,10 +334,10 @@ test("provider verification is private and review mutations are callable-only", 
     "users/provider-owner": userData("provider-owner", "provider", {
       providerId: "provider-one",
     }),
+    "users/admin-one": userData("admin-one", "admin"),
     "users/provider-other": userData("provider-other", "provider", {
       providerId: "provider-two",
     }),
-    "users/admin-one": userData("admin-one", "admin"),
     "providers/provider-one": {
       ownerId: "provider-owner",
       verificationStatus: "draft",
@@ -397,10 +455,51 @@ test("booking, event, and provider-request reads require participation", async (
   ));
 });
 
+test("only verified customers create main events", async () => {
+  await seedDocuments(testEnv, {
+    "users/unverified-customer": userData("unverified-customer", "customer"),
+    "users/verified-customer": userData("verified-customer", "customer", {
+      isPhoneVerified: true,
+    }),
+  });
+  const unverified = authenticated(
+    testEnv,
+    "unverified-customer",
+    "customer",
+  ).firestore();
+  const verified = authenticated(
+    testEnv,
+    "verified-customer",
+    "customer",
+  ).firestore();
+
+  await assertFails(setDoc(doc(unverified, "mainEvents/unverified-event"), {
+    customerId: "unverified-customer",
+    status: "draft",
+    createdAt: new Date(),
+  }));
+  await assertSucceeds(setDoc(doc(verified, "mainEvents/verified-event"), {
+    customerId: "verified-customer",
+    status: "draft",
+    createdAt: new Date(),
+  }));
+  await assertFails(setDoc(doc(unverified, "mainEvents/unverified-submit"), {
+    customerId: "unverified-customer",
+    status: "pending",
+    createdAt: new Date(),
+  }));
+  await assertFails(setDoc(doc(verified, "mainEvents/client-submit"), {
+    customerId: "verified-customer",
+    status: "pending",
+    createdAt: new Date(),
+  }));
+});
+
 test("canonical payments are readable by participants and never client-written", async () => {
   await seedDocuments(testEnv, {
     "users/customer-one": userData("customer-one", "customer"),
     "users/customer-other": userData("customer-other", "customer"),
+    "users/admin-one": userData("admin-one", "admin"),
     "users/provider-owner": userData("provider-owner", "provider", {
       providerId: "provider-one",
     }),
@@ -415,6 +514,11 @@ test("canonical payments are readable by participants and never client-written",
       status: "pending",
       amount: 1000,
     },
+    "paymentWebhookEvents/event-one": {
+      eventId: "event-one",
+      paymentId: "payment-one",
+      status: "processed",
+    },
   });
   const customer = authenticated(testEnv, "customer-one", "customer")
     .firestore();
@@ -422,6 +526,7 @@ test("canonical payments are readable by participants and never client-written",
     .firestore();
   const unrelated = authenticated(testEnv, "customer-other", "customer")
     .firestore();
+  const admin = authenticated(testEnv, "admin-one", "admin").firestore();
 
   await assertSucceeds(getDoc(doc(customer, "payments/payment-one")));
   await assertSucceeds(getDoc(doc(provider, "payments/payment-one")));
@@ -434,6 +539,24 @@ test("canonical payments are readable by participants and never client-written",
     doc(customer, "payments/payment-one"),
     {status: "paid"},
   ));
+  await assertFails(updateDoc(
+    doc(provider, "payments/payment-one"),
+    {status: "paid", paidAt: new Date()},
+  ));
+  await assertFails(updateDoc(
+    doc(customer, "payments/payment-one"),
+    {amount: 1, currency: "PHP"},
+  ));
+  await assertFails(updateDoc(
+    doc(admin, "payments/payment-one"),
+    {status: "refunded", refundedAt: new Date()},
+  ));
+  await assertFails(getDoc(doc(customer, "paymentWebhookEvents/event-one")));
+  await assertSucceeds(getDoc(doc(admin, "paymentWebhookEvents/event-one")));
+  await assertFails(setDoc(doc(admin, "paymentWebhookEvents/forged"), {
+    eventId: "forged",
+    status: "processed",
+  }));
 });
 
 test("admin logs are admin-readable and immutable to all clients", async () => {
@@ -479,6 +602,154 @@ test("notifications expose only owner reads and read-state updates", async () =>
     doc(owner, "notifications/notification-one"),
     {userId: "customer-other"},
   ));
+  await assertFails(setDoc(doc(owner, "notifications/forged"), {
+    userId: "customer-other",
+    title: "System notice",
+    message: "Forged",
+    type: "admin",
+    isRead: false,
+    createdAt: new Date(),
+  }));
+});
+
+test("blocked and disabled users cannot perform protected actions", async () => {
+  await seedDocuments(testEnv, {
+    "users/blocked-customer": userData("blocked-customer", "customer", {
+      accountStatus: "blocked",
+      isActive: false,
+      isBlocked: true,
+    }),
+    "users/blocked-provider": userData("blocked-provider", "provider", {
+      providerId: "provider-blocked",
+      accountStatus: "blocked",
+      isActive: false,
+      isBlocked: true,
+    }),
+    "users/disabled-customer": userData("disabled-customer", "customer", {
+      accountStatus: "disabled",
+      isActive: false,
+      isBlocked: false,
+    }),
+    "users/deactivated-customer": userData("deactivated-customer", "customer", {
+      accountStatus: "pending_deletion",
+      isActive: false,
+      isBlocked: false,
+    }),
+    "providers/provider-blocked": {
+      ownerId: "blocked-provider",
+      businessName: "Blocked Provider",
+      verificationStatus: "approved",
+      isActive: true,
+      isFeatured: false,
+      isSuspended: false,
+      createdAt: new Date(),
+    },
+    "mainEvents/disabled-event": {
+      customerId: "disabled-customer",
+      status: "draft",
+      createdAt: new Date(),
+    },
+    "mainEvents/deactivated-event": {
+      customerId: "deactivated-customer",
+      status: "draft",
+      createdAt: new Date(),
+    },
+  });
+  const customer = authenticated(
+    testEnv,
+    "blocked-customer",
+    "customer",
+  ).firestore();
+  const provider = authenticated(
+    testEnv,
+    "blocked-provider",
+    "provider",
+  ).firestore();
+  const disabled = authenticated(
+    testEnv,
+    "disabled-customer",
+    "customer",
+  ).firestore();
+  const deactivated = authenticated(
+    testEnv,
+    "deactivated-customer",
+    "customer",
+  ).firestore();
+
+  await assertFails(setDoc(doc(customer, "mainEvents/blocked-event"), {
+    customerId: "blocked-customer",
+    status: "draft",
+    createdAt: new Date(),
+  }));
+  await assertFails(setDoc(doc(customer, "bookings/blocked-booking"), {
+    customerId: "blocked-customer",
+    status: "pending",
+    paymentStatus: "unpaid",
+    createdAt: new Date(),
+  }));
+  await assertFails(updateDoc(
+    doc(provider, "providers/provider-blocked"),
+    {businessName: "Still blocked"},
+  ));
+  await assertFails(getDoc(doc(disabled, "mainEvents/disabled-event")));
+  await assertFails(updateDoc(doc(disabled, "users/disabled-customer"), {
+    firstName: "Still disabled",
+    updatedAt: new Date(),
+  }));
+  await assertFails(getDoc(doc(
+    deactivated,
+    "mainEvents/deactivated-event",
+  )));
+});
+
+test("event and legacy add-on payment state is backend-only", async () => {
+  await seedDocuments(testEnv, {
+    "users/customer-one": userData("customer-one", "customer"),
+    "users/provider-owner": userData("provider-owner", "provider", {
+      providerId: "provider-one",
+    }),
+    "providers/provider-one": {
+      ownerId: "provider-owner",
+      verificationStatus: "approved",
+      isActive: true,
+      isSuspended: false,
+    },
+    "mainEvents/event-one": {
+      customerId: "customer-one",
+      status: "draft",
+      paymentStatus: "unpaid",
+      totalAmount: 5000,
+      createdAt: new Date(),
+    },
+    "addonRequests/addon-one": {
+      customerId: "customer-one",
+      addonProviderId: "provider-one",
+      status: "accepted",
+      paymentStatus: "waiting_payment",
+      price: 1000,
+      createdAt: new Date(),
+    },
+  });
+  const customer = authenticated(testEnv, "customer-one", "customer")
+    .firestore();
+  const provider = authenticated(testEnv, "provider-owner", "provider")
+    .firestore();
+
+  await assertFails(updateDoc(doc(customer, "mainEvents/event-one"), {
+    paymentStatus: "paid",
+    paidAt: new Date(),
+  }));
+  await assertFails(updateDoc(doc(customer, "mainEvents/event-one"), {
+    totalAmount: 1,
+  }));
+  await assertFails(updateDoc(doc(customer, "addonRequests/addon-one"), {
+    paymentStatus: "paid",
+    paymentId: "forged",
+  }));
+  await assertFails(updateDoc(doc(provider, "addonRequests/addon-one"), {
+    price: 1,
+    status: "completed",
+  }));
 });
 
 test("complaints are creator-owned and administratively resolvable", async () => {
@@ -516,4 +787,134 @@ test("complaints are creator-owned and administratively resolvable", async () =>
     doc(admin, "complaints/complaint-one"),
     {userId: "customer-other"},
   ));
+});
+
+test("chat participants are immutable and message senders cannot be forged", async () => {
+  await seedDocuments(testEnv, {
+    "users/customer-one": userData("customer-one", "customer"),
+    "users/customer-other": userData("customer-other", "customer"),
+    "users/provider-owner": userData("provider-owner", "provider", {
+      providerId: "provider-one",
+    }),
+    "providers/provider-one": {
+      ownerId: "provider-owner",
+      verificationStatus: "approved",
+      isActive: true,
+      isSuspended: false,
+    },
+    "chatRooms/room-one": {
+      customerId: "customer-one",
+      providerId: "provider-one",
+      providerOwnerId: "provider-owner",
+      lastMessage: "",
+      isActive: true,
+      createdAt: new Date(),
+    },
+  });
+  const customer = authenticated(testEnv, "customer-one", "customer")
+    .firestore();
+  const unrelated = authenticated(testEnv, "customer-other", "customer")
+    .firestore();
+
+  await assertSucceeds(getDoc(doc(customer, "chatRooms/room-one")));
+  await assertFails(getDoc(doc(unrelated, "chatRooms/room-one")));
+  await assertFails(updateDoc(doc(customer, "chatRooms/room-one"), {
+    providerOwnerId: "customer-other",
+  }));
+  await assertFails(setDoc(
+    doc(customer, "chatRooms/room-one/messages/forged"),
+    {
+      chatRoomId: "room-one",
+      senderId: "customer-other",
+      senderRole: "customer",
+      message: "Forged sender",
+      messageType: "text",
+      isRead: false,
+      createdAt: serverTimestamp(),
+    },
+  ));
+  await assertSucceeds(setDoc(
+    doc(customer, "chatRooms/room-one/messages/valid"),
+    {
+      chatRoomId: "room-one",
+      senderId: "customer-one",
+      senderRole: "customer",
+      message: "Hello",
+      messageType: "text",
+      isRead: false,
+      createdAt: serverTimestamp(),
+    },
+  ));
+});
+
+test("review content and moderation fields stay within role boundaries", async () => {
+  await seedDocuments(testEnv, {
+    "users/customer-one": userData("customer-one", "customer"),
+    "users/provider-owner": userData("provider-owner", "provider", {
+      providerId: "provider-one",
+    }),
+    "users/admin-one": userData("admin-one", "admin"),
+    "providers/provider-one": {
+      ownerId: "provider-owner",
+      verificationStatus: "approved",
+      isActive: true,
+      isSuspended: false,
+    },
+    "reviews/review-one": {
+      customerId: "customer-one",
+      providerId: "provider-one",
+      rating: 5,
+      comment: "Excellent",
+      providerReply: null,
+      isVisible: true,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+  });
+  const customer = authenticated(testEnv, "customer-one", "customer")
+    .firestore();
+  const provider = authenticated(testEnv, "provider-owner", "provider")
+    .firestore();
+  const admin = authenticated(testEnv, "admin-one", "admin").firestore();
+
+  await assertFails(updateDoc(doc(customer, "reviews/review-one"), {
+    rating: 1,
+    comment: "Changed",
+  }));
+  await assertSucceeds(updateDoc(doc(provider, "reviews/review-one"), {
+    providerReply: "Thank you",
+    providerReplyAt: new Date(),
+    updatedAt: new Date(),
+  }));
+  await assertFails(updateDoc(doc(provider, "reviews/review-one"), {
+    isVisible: false,
+  }));
+  await assertSucceeds(updateDoc(doc(admin, "reviews/review-one"), {
+    moderationStatus: "hidden",
+    isVisible: false,
+    updatedAt: new Date(),
+  }));
+});
+
+test("app settings distinguish public reads from active admin writes", async () => {
+  await seedDocuments(testEnv, {
+    "users/customer-one": userData("customer-one", "customer"),
+    "users/admin-one": userData("admin-one", "admin"),
+    "appSettings/public": {isPublic: true, value: "public"},
+    "appSettings/private": {isPublic: false, value: "private"},
+  });
+  const publicDb = testEnv.unauthenticatedContext().firestore();
+  const customer = authenticated(testEnv, "customer-one", "customer")
+    .firestore();
+  const admin = authenticated(testEnv, "admin-one", "admin").firestore();
+
+  await assertSucceeds(getDoc(doc(publicDb, "appSettings/public")));
+  await assertFails(getDoc(doc(customer, "appSettings/private")));
+  await assertSucceeds(getDoc(doc(admin, "appSettings/private")));
+  await assertFails(updateDoc(doc(customer, "appSettings/public"), {
+    value: "tampered",
+  }));
+  await assertSucceeds(updateDoc(doc(admin, "appSettings/private"), {
+    value: "updated",
+  }));
 });

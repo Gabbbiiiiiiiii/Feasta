@@ -24,6 +24,7 @@ import {
 } from "../shared/logger.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
+import {appCheckCallableOptions} from "../shared/function-options.js";
 import {
   requireEnum,
   requireObject,
@@ -38,9 +39,7 @@ const EDITABLE_VERIFICATION_STATUSES =
 
 export const registerVerificationDocument =
   onCall(
-    {
-      region: "asia-southeast1",
-    },
+    appCheckCallableOptions,
     async (request) => {
       const authenticatedUser =
         requireAuth(request);
@@ -379,6 +378,27 @@ export const registerVerificationDocument =
               const isRequired =
                 isRequiredVerificationDocumentType(documentType);
 
+              if (
+                existingDocument.exists &&
+                previousData?.storagePath === storagePath &&
+                previousData?.displayName === displayName &&
+                previousData?.originalFileName === originalFileName &&
+                previousData?.contentType === actualContentType &&
+                previousData?.fileSize === actualFileSize &&
+                previousData?.status === "pending"
+              ) {
+                return {
+                  verificationId,
+                  providerId,
+                  documentId: documentReference.id,
+                  documentType,
+                  storagePath,
+                  isRequired,
+                  replaced: false,
+                  idempotentReplay: true,
+                };
+              }
+
               transaction.set(
                 documentReference,
                 {
@@ -485,6 +505,7 @@ export const registerVerificationDocument =
                 replaced:
                   existingDocument
                     .exists,
+                idempotentReplay: false,
               };
             },
           );

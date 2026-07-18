@@ -22,7 +22,7 @@ async function createRulesTestEnvironment() {
   const storage = emulatorAddress("FIREBASE_STORAGE_EMULATOR_HOST", 39199);
   const repositoryRoot = path.resolve(__dirname, "../../..");
 
-  return initializeTestEnvironment({
+  const configuration = {
     projectId,
     firestore: {
       ...firestore,
@@ -31,14 +31,17 @@ async function createRulesTestEnvironment() {
         "utf8",
       ),
     },
-    storage: {
+  };
+  if (process.env.RULES_FIRESTORE_ONLY !== "true") {
+    configuration.storage = {
       ...storage,
       rules: readFileSync(
         path.join(repositoryRoot, "firebase/storage.rules"),
         "utf8",
       ),
-    },
-  });
+    };
+  }
+  return initializeTestEnvironment(configuration);
 }
 
 function authenticated(testEnv, uid, role) {

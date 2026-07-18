@@ -9,7 +9,9 @@ create profiles and synchronize Auth-owned metadata.
 
 - `ensureUserProfile` creates or repairs customer `users/{uid}` and
   `customers/{uid}` documents. The role is always `customer` and cannot be
-  supplied by the caller.
+  supplied by the caller. When customer registration supplies accepted terms
+  and privacy consent, their timestamps are recorded by the server and existing
+  consent timestamps are preserved.
 - `registerProvider` creates the provider user/profile/application atomically.
 - `syncUserAuthState` validates active status and synchronizes verified email
   state and last-login timestamps.
@@ -18,12 +20,19 @@ Customer Google profile creation is idempotent. Existing provider/admin
 profiles are rejected by the customer profile callable, and blocked or
 disabled profiles cannot be refreshed into an active state.
 
+Flutter customer login uses Firebase Auth persistence directly. It does not
+store ID tokens or trusted role/account context manually. Email and Google
+login both pass through the trusted profile synchronization/recovery callables,
+validate the customer role, and refresh the ID token before the central account
+gate grants a customer destination. Terminal account/session failures sign out
+the local session while preserving a safe user-facing reason.
+
 ## Web sessions
 
 The web client signs in with the Firebase client SDK using in-memory
 persistence and immediately exchanges a fresh ID token at
 `POST /api/auth/session`. The server verifies the token and Firestore profile,
-then creates the `__session` cookie with:
+then creates the `feasta_session` cookie with:
 
 - `HttpOnly`
 - `SameSite=Lax`

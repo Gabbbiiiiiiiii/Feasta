@@ -1,5 +1,15 @@
 # Phase 3 backend foundation
 
+Security references: [secret management](domain/secret-management.md),
+[Cloud Functions security inventory](domain/cloud-functions-security.md), and
+[payments](domain/payments.md).
+
+Phase 4 security references: [security logging and monitoring](security/security-logging-and-monitoring.md),
+[Flutter security](security/flutter-security.md), and
+[adversarial test matrix](security/adversarial-test-matrix.md).
+The combined verification entry point is documented in
+[Phase 4 security hardening](phase-4-security-hardening.md).
+
 ## Status
 
 Phase 3 establishes the trusted Firebase backend, client authentication
@@ -62,7 +72,7 @@ server-side rate limiter.
    persistence.
 2. A fresh ID token is posted to `/api/auth/session`.
 3. Firebase Admin verifies the token and active Firestore profile.
-4. The server creates the `__session` cookie with `HttpOnly`, `SameSite=Lax`,
+4. The server creates the `feasta_session` cookie with `HttpOnly`, `SameSite=Lax`,
    root scope, a five-day lifetime, and `Secure` in production.
 5. Server-only guards verify the cookie with revocation checking, reload the
    account record, and enforce customer/provider/admin role access.
@@ -131,11 +141,18 @@ The minimum server-owned document policy requires `business_permit` and
 | Booking attachment | `bookings/{bookingId}/attachments/{fileName}` | 10 MB |
 | Complaint evidence | `complaints/{complaintId}/evidence/{fileName}` | 10 MB |
 
-Verification, booking, and complaint files are private retention paths. The
+Verification, booking, and complaint files are private, immutable client-side
+retention paths. Booking and complaint corrections use a new unique object name;
+client overwrite and delete are denied. The
 verification callable checks actual Storage existence, MIME type, size, and
 exact provider/document-type path; public download URLs are not required.
 
 ## Security model
+
+App Check and web request hardening are documented in
+[`domain/app-check-and-web-security.md`](domain/app-check-and-web-security.md).
+The backend-owned PayMongo lifecycle, signed webhook, refund boundary, and
+validation commands are documented in [`domain/payments.md`](domain/payments.md).
 
 - Firestore and Storage use default deny.
 - Account roles and active/block state come from trusted server records.

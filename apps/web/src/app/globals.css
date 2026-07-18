@@ -1,26 +1,197 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+
+  --background: #f8f6f3;
+  --foreground: #2b211d;
+  --card: #ffffff;
+  --card-foreground: #2b211d;
+  --primary: #ff6333;
+  --primary-foreground: #2b211d;
+  --primary-hover: #f85d2f;
+  --primary-pressed: #f05729;
+  --primary-strong: #b83a12;
+  --secondary: #fff3ee;
+  --secondary-foreground: #2b211d;
+  --muted: #f1ece8;
+  --muted-foreground: #6b625d;
+  --border: #e8e1db;
+  --input: #8c817a;
+  --ring: #b83a12;
+  --destructive: #b42318;
+  --destructive-foreground: #ffffff;
+  --destructive-subtle: #fff1f0;
+  --success: #166534;
+  --success-foreground: #ffffff;
+  --success-subtle: #ecfdf3;
+  --warning: #92400e;
+  --warning-foreground: #ffffff;
+  --warning-subtle: #fff7e6;
+  --info: #1d4ed8;
+  --info-foreground: #ffffff;
+  --info-subtle: #eff6ff;
+  --disabled: #d7cec8;
+  --overlay: rgb(0 0 0 / 60%);
+  --skeleton: #f1ece8;
+  --skeleton-highlight: #e6ded8;
+
+  --feasta-radius-sm: 0.5rem;
+  --feasta-radius-md: 0.75rem;
+  --feasta-radius-lg: 1rem;
+  --feasta-radius-card: 1.25rem;
+  --feasta-radius-dialog: 1.5rem;
+  --feasta-radius-pill: 9999px;
+
+  --sidebar-collapsed: 4.5rem;
+  --sidebar-expanded: 17.5rem;
+
+  --feasta-shadow-card: 0 1px 2px rgb(43 33 29 / 6%);
+  --feasta-shadow-floating: 0 4px 12px rgb(43 33 29 / 10%);
+  --feasta-shadow-modal: 0 12px 32px rgb(43 33 29 / 16%);
+
+  --feasta-duration-instant: 100ms;
+  --feasta-duration-fast: 160ms;
+  --feasta-duration-normal: 240ms;
+  --feasta-duration-slow: 360ms;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: Arial, Helvetica, sans-serif;
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-pressed: var(--primary-pressed);
+  --color-primary-strong: var(--primary-strong);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-subtle: var(--destructive-subtle);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-subtle: var(--info-subtle);
+  --color-disabled: var(--disabled);
+  --color-overlay: var(--overlay);
+  --color-skeleton: var(--skeleton);
+  --color-skeleton-highlight: var(--skeleton-highlight);
+
+  --radius-sm: var(--feasta-radius-sm);
+  --radius-md: var(--feasta-radius-md);
+  --radius-lg: var(--feasta-radius-lg);
+  --radius-card: var(--feasta-radius-card);
+  --radius-dialog: var(--feasta-radius-dialog);
+  --radius-pill: var(--feasta-radius-pill);
+
+  --shadow-card: var(--feasta-shadow-card);
+  --shadow-floating: var(--feasta-shadow-floating);
+  --shadow-modal: var(--feasta-shadow-modal);
+
+  --duration-instant: var(--feasta-duration-instant);
+  --duration-fast: var(--feasta-duration-fast);
+  --duration-normal: var(--feasta-duration-normal);
+  --duration-slow: var(--feasta-duration-slow);
+
+  --breakpoint-sm: 37.5rem;
+  --breakpoint-md: 64rem;
+  --breakpoint-lg: 80rem;
+  --breakpoint-xl: 96rem;
+
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
   --font-mono: "Cascadia Mono", Consolas, monospace;
 }
 
+/* The starter already followed OS dark mode. Preserve it with complete tokens. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    color-scheme: dark;
+    --background: #1c1714;
+    --foreground: #f8f6f3;
+    --card: #2b211d;
+    --card-foreground: #f8f6f3;
+    --primary: #ff6333;
+    --primary-foreground: #2b211d;
+    --primary-hover: #ff7a52;
+    --primary-pressed: #ff8a66;
+    --primary-strong: #ff9d80;
+    --secondary: #3a302b;
+    --secondary-foreground: #f8f6f3;
+    --muted: #3a302b;
+    --muted-foreground: #d7cec8;
+    --border: #6b625d;
+    --input: #b8b0aa;
+    --ring: #ff9d80;
+    --destructive: #ffb4ab;
+    --destructive-foreground: #2b211d;
+    --destructive-subtle: #4a201d;
+    --success: #86d993;
+    --success-foreground: #132a18;
+    --success-subtle: #17351e;
+    --warning: #f4c56a;
+    --warning-foreground: #352508;
+    --warning-subtle: #3d2d0e;
+    --info: #a8c7ff;
+    --info-foreground: #102a56;
+    --info-subtle: #172b4d;
+    --disabled: #4f4742;
+    --overlay: rgb(0 0 0 / 72%);
+    --skeleton: #3a302b;
+    --skeleton-highlight: #514640;
   }
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+}
+
 body {
+  min-height: 100vh;
+  margin: 0;
+  overflow-x: clip;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+::selection {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

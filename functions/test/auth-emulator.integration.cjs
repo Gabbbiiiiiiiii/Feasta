@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const {getApps, initializeApp} = require("firebase-admin/app");
 const {getFirestore} = require("firebase-admin/firestore");
 
-const projectId = "feasta-catering-system";
+const projectId = process.env.GCLOUD_PROJECT ?? "feasta-catering-system";
 const authBase = "http://127.0.0.1:39099";
 const functionsBase =
   `http://127.0.0.1:35001/${projectId}/asia-southeast1`;
@@ -74,6 +74,8 @@ async function main() {
   const first = await callEnsure(google.idToken, {
     firstName: "Google",
     lastName: "Customer",
+    acceptedTerms: true,
+    acceptedPrivacy: true,
   });
   assert.equal(first.response.ok, true, JSON.stringify(first.body));
 
@@ -86,6 +88,8 @@ async function main() {
   assert.equal(firstUser.data().role, "customer");
   assert.equal(firstUser.data().accountStatus, "active");
   assert.equal(firstUser.data().providerId, null);
+  assert.ok(firstUser.data().termsAcceptedAt);
+  assert.ok(firstUser.data().privacyAcceptedAt);
   const createdAt = firstUser.data().createdAt.toMillis();
 
   const second = await callEnsure(google.idToken);
@@ -114,6 +118,28 @@ async function main() {
     isActive: false,
   });
   assert.equal((await callEnsure(disabled.idToken)).response.ok, false);
+
+  const partial = await googleSignIn("google-customer-partial-profile");
+  assert.equal((await callEnsure(partial.idToken)).response.ok, true);
+  await db.collection("customers").doc(partial.uid).delete();
+  assert.equal((await callEnsure(partial.idToken)).response.ok, true);
+  assert.equal(
+    (await db.collection("customers").doc(partial.uid).get()).exists,
+    true,
+  );
+  await Promise.all([
+    db.collection("users").doc(partial.uid).delete(),
+    db.collection("customers").doc(partial.uid).delete(),
+  ]);
+  assert.equal((await callEnsure(partial.idToken)).response.ok, true);
+  assert.equal(
+    (await db.collection("users").doc(partial.uid).get()).data().role,
+    "customer",
+  );
+  assert.equal(
+    (await db.collection("customers").doc(partial.uid).get()).exists,
+    true,
+  );
 
   console.log("Auth emulator integration assertions passed.");
 }

@@ -1,5 +1,10 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import {
+  initializeAppCheck,
+  ReCaptchaEnterpriseProvider,
+  type AppCheck,
+} from "firebase/app-check";
+import {
   connectAuthEmulator,
   getAuth,
 } from "firebase/auth";
@@ -50,10 +55,33 @@ const useEmulators =
 
 type EmulatorGlobal = typeof globalThis & {
   __feastaFirebaseEmulatorsConnected?: boolean;
+  __feastaBrowserAppCheck?: AppCheck;
 };
 
 
 const emulatorGlobal = globalThis as EmulatorGlobal;
+
+export function initializeBrowserAppCheck(): AppCheck | null {
+  if (typeof window === "undefined" || useEmulators) return null;
+  if (emulatorGlobal.__feastaBrowserAppCheck) {
+    return emulatorGlobal.__feastaBrowserAppCheck;
+  }
+
+  const siteKey = process.env.NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY?.trim();
+  if (!siteKey) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Firebase App Check site key is required in production.");
+    }
+    console.warn("Firebase App Check is not configured for this web environment.");
+    return null;
+  }
+
+  emulatorGlobal.__feastaBrowserAppCheck = initializeAppCheck(firebaseApp, {
+    provider: new ReCaptchaEnterpriseProvider(siteKey),
+    isTokenAutoRefreshEnabled: true,
+  });
+  return emulatorGlobal.__feastaBrowserAppCheck;
+}
 
 if (
   typeof window !== "undefined" &&
@@ -89,4 +117,6 @@ if (
   emulatorGlobal.__feastaFirebaseEmulatorsConnected = true;
 
   console.info("FEASTA connected to Firebase emulators.");
+} else if (typeof window !== "undefined") {
+  initializeBrowserAppCheck();
 }
