@@ -2,6 +2,11 @@ import {getApps, initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
 import {Timestamp, getFirestore} from "firebase-admin/firestore";
 
+import {
+  AUTH_FIXTURE_ACCOUNTS,
+  AUTH_FIXTURE_MARKER,
+} from "./auth-emulator-fixtures.ts";
+
 const projectId = process.env.GCLOUD_PROJECT ?? "feasta-catering-system";
 const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST ?? "127.0.0.1:9099";
 const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST ?? "127.0.0.1:8080";
@@ -24,22 +29,15 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const password = "FeastaTest!2026";
 
-const accounts = [
-  {uid: "dev-customer", email: "customer@feasta.test", role: "customer"},
-  {uid: "dev-provider-pending", email: "provider.pending@feasta.test", role: "provider"},
-  {uid: "dev-provider-submitted", email: "provider.submitted@feasta.test", role: "provider"},
-  {uid: "dev-provider-approved", email: "provider.approved@feasta.test", role: "provider"},
-  {uid: "dev-admin", email: "admin@feasta.test", role: "admin"},
-] as const;
-
-for (const account of accounts) {
+for (const account of AUTH_FIXTURE_ACCOUNTS) {
   try {
     await auth.getUser(account.uid);
     await auth.updateUser(account.uid, {
       email: account.email,
       password,
-      emailVerified: true,
-      disabled: false,
+      emailVerified: account.emailVerified,
+      disabled: account.disabled ?? false,
+      phoneNumber: account.phoneNumber ?? null,
       displayName: account.email.split("@")[0],
     });
   } catch (error) {
@@ -48,8 +46,9 @@ for (const account of accounts) {
       uid: account.uid,
       email: account.email,
       password,
-      emailVerified: true,
-      disabled: false,
+      emailVerified: account.emailVerified,
+      disabled: account.disabled ?? false,
+      phoneNumber: account.phoneNumber,
       displayName: account.email.split("@")[0],
     });
   }
@@ -236,10 +235,61 @@ const documents: Record<string, Record<string, unknown>> = {
   },
 };
 
+for (const account of AUTH_FIXTURE_ACCOUNTS) {
+  if (account.omitFirestoreProfile) continue;
+  const accountStatus = account.accountStatus ?? "active";
+  const isActive = accountStatus === "active";
+  const providerId = account.providerId ?? null;
+  documents[`users/${account.uid}`] = {
+    ...activeUser(account.uid, account.email, account.role, providerId),
+    accountStatus,
+    isActive,
+    isBlocked: account.isBlocked ?? false,
+    isEmailVerified: account.emailVerified,
+    isPhoneVerified: account.isPhoneVerified ?? false,
+    phoneNumber: account.phoneNumber ?? "",
+  };
+  if (account.role === "customer") {
+    documents[`customers/${account.uid}`] = {
+      userId: account.uid,
+      email: account.email,
+      firstName: "Fixture",
+      lastName: "Customer",
+      phoneNumber: account.phoneNumber ?? "",
+      accountStatus,
+      isActive,
+      isBlocked: account.isBlocked ?? false,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+  if (
+    account.role === "provider" &&
+    providerId &&
+    account.providerVerificationStatus
+  ) {
+    const status = account.providerVerificationStatus;
+    const providerIsActive = status === "approved" && !account.isBlocked;
+    documents[`providers/${providerId}`] = provider(
+      account.uid,
+      fixtureBusinessName(status),
+      status,
+      providerIsActive,
+      {blocked: account.isBlocked ?? false},
+    );
+    documents[`providerVerifications/verification-${providerId}`] =
+      verification(providerId, account.uid, status);
+  }
+}
+
 let batch = db.batch();
 let writes = 0;
 for (const [path, data] of Object.entries(documents)) {
-  batch.set(db.doc(path), data, {merge: true});
+  batch.set(
+    db.doc(path),
+    {...data, emulatorFixture: AUTH_FIXTURE_MARKER},
+    {merge: true},
+  );
   writes++;
   if (writes % 400 === 0) {
     await batch.commit();
@@ -248,10 +298,18 @@ for (const [path, data] of Object.entries(documents)) {
 }
 if (writes % 400 !== 0) await batch.commit();
 
-console.log(`Seeded ${accounts.length} Auth users and ${writes} Firestore documents.`);
+console.log(
+  `Seeded ${AUTH_FIXTURE_ACCOUNTS.length} Auth users and ${writes} Firestore documents.`,
+);
 console.log(`Test password: ${password}`);
 
-function provider(ownerId: string, businessName: string, verificationStatus: string, isActive: boolean) {
+function provider(
+  ownerId: string,
+  businessName: string,
+  verificationStatus: string,
+  isActive: boolean,
+  options: {blocked?: boolean} = {},
+) {
   return {
     ownerId,
     businessName,
@@ -275,7 +333,8 @@ function provider(ownerId: string, businessName: string, verificationStatus: str
     reviewCount: isActive ? 1 : 0,
     isActive,
     isFeatured: isActive,
-    isSuspended: false,
+    isSuspended: verificationStatus === "suspended",
+    accountBlocked: options.blocked ?? false,
     ...retained,
     createdAt: now,
     updatedAt: now,
@@ -283,21 +342,42 @@ function provider(ownerId: string, businessName: string, verificationStatus: str
 }
 
 function verification(providerId: string, ownerId: string, status: string) {
+  const reviewed = [
+    "approved",
+    "rejected",
+    "resubmission_required",
+    "suspended",
+  ].includes(status);
   return {
     providerId,
     ownerId,
     businessName: providerId,
     providerServiceType: "catering",
     status,
-    submittedAt: status === "submitted" || status === "approved" ? now : null,
-    reviewedAt: status === "approved" ? now : null,
-    reviewedBy: status === "approved" ? "dev-admin" : null,
+    submittedAt: status === "draft" ? null : now,
+    reviewStartedAt: status === "under_review" ? now : null,
+    reviewedAt: reviewed ? now : null,
+    reviewedBy: reviewed ? "dev-admin" : null,
     approvedAt: status === "approved" ? now : null,
-    rejectionReason: null,
-    remarks: null,
+    rejectionReason: status === "rejected"
+      ? "Fixture rejection for emulator testing."
+      : null,
+    resubmissionReason: status === "resubmission_required"
+      ? "Fixture documents require replacement."
+      : null,
+    suspensionReason: status === "suspended"
+      ? "Fixture suspension for emulator testing."
+      : null,
+    remarks: status === "resubmission_required"
+      ? "Replace the required fixture documents."
+      : null,
     createdAt: now,
     updatedAt: now,
   };
+}
+
+function fixtureBusinessName(status: string): string {
+  return `Fixture ${status.replaceAll("_", " ")} provider`;
 }
 
 function verificationDocument(verificationId: string, providerId: string, ownerId: string, documentType: string) {

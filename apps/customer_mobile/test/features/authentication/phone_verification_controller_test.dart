@@ -45,11 +45,33 @@ void main() {
     final gateway = FakePhoneGateway();
     final controller = PhoneVerificationController(gateway: gateway);
     await controller.sendCode('09171234567');
+    await controller.sendCode('09171234567');
     await controller.sendCode('09171234567', resend: true);
     expect(gateway.requestCalls, 1);
     expect(controller.state.cooldownSeconds, greaterThan(0));
     controller.dispose();
   });
+
+  test(
+    'OTP confirmation attempts are bounded per verification session',
+    () async {
+      final gateway = FakePhoneGateway(
+        confirmFailure: PhoneVerificationFailureKind.invalidCode,
+      );
+      final controller = PhoneVerificationController(
+        gateway: gateway,
+        maximumConfirmationAttempts: 3,
+      );
+      await controller.sendCode('09171234567');
+      for (var attempt = 0; attempt < 3; attempt++) {
+        expect(await controller.confirmCode('123456'), isFalse);
+      }
+      expect(await controller.confirmCode('123456'), isFalse);
+      expect(gateway.confirmCalls, 3);
+      expect(controller.state.codeError, contains('Too many code attempts'));
+      controller.dispose();
+    },
+  );
 
   test('attempt, association, session, and blocked errors are typed', () async {
     for (final entry in {
@@ -75,6 +97,7 @@ class FakePhoneGateway implements PhoneVerificationGateway {
   int requestCalls = 0;
   String? requestedPhone;
   String? confirmedCode;
+  int confirmCalls = 0;
 
   @override
   Future<void> requestCode({
@@ -98,6 +121,7 @@ class FakePhoneGateway implements PhoneVerificationGateway {
     required String verificationId,
     required String smsCode,
   }) async {
+    confirmCalls++;
     confirmedCode = smsCode;
     if (confirmFailure != null) {
       throw PhoneVerificationException(confirmFailure!);

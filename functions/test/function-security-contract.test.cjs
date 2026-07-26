@@ -15,8 +15,13 @@ const policies = [
   ["updateCustomerPreferences", "auth/manage-customer-account.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["deactivateCustomerAccount", "auth/manage-customer-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "revokeRefreshTokens", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["revokeAllCustomerSessions", "auth/manage-customer-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "revokeRefreshTokens", "appCheckCallableOptions"]],
+  ["updateRoleAccountProfile", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "rejectUnknownFields", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  ["updateAccountPreferences", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "rejectUnknownFields", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  ["revokeAllAccountSessions", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "enforceCallableRateLimit", "revokeRefreshTokens", "appCheckCallableOptions"]],
+  ["deactivateProviderAccount", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "enforceCallableRateLimit", "activeProviderRequestStatuses", "revokeRefreshTokens", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["submitBookingRequest", "bookings/submit-booking-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "assertBookingSubmissionAllowed", "runTransaction", "appCheckCallableOptions"]],
   ["registerProvider", "providers/register-provider.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction"]],
+  ["saveProviderOnboardingDraft", "providers/save-provider-onboarding-draft.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "runTransaction"]],
   ["registerVerificationDocument", "verification/register-verification-document.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "idempotentReplay", "writeAuditLogInTransaction"]],
   ["submitProviderVerification", "verification/submit-provider-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction"]],
   ["reviewProviderVerification", "verification/review-provider-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "createNotificationInTransaction"]],
@@ -56,14 +61,18 @@ test("all deployed exports remain in the reviewed inventory", () => {
   for (const match of index.matchAll(/export\s*\{\s*(\w+)[\s,}]/gu)) names.add(match[1]);
   assert.deepEqual([...names].sort(), [
     "createComplaint", "createPaymentSession", "deactivateCustomerAccount",
+    "deactivateProviderAccount",
     "ensureProviderIdentity",
     "ensureUserProfile", "getDirections", "getPlaceDetails", "healthCheck",
     "onPromotionWrite", "onUserSecurityStateChanged", "payMongoWebhook",
-    "registerProvider", "revokeAllCustomerSessions",
+    "registerProvider", "revokeAllAccountSessions", "revokeAllCustomerSessions",
+    "saveProviderOnboardingDraft",
     "registerVerificationDocument", "requestPaymentRefund", "reverseGeocode",
     "reviewProviderVerification", "searchPlaces", "submitProviderVerification",
     "submitBookingRequest", "submitReview", "syncPhoneVerification",
-    "syncUserAuthState", "updateCustomerPreferences", "updateCustomerProfile",
+    "syncUserAuthState", "updateAccountPreferences",
+    "updateCustomerPreferences", "updateCustomerProfile",
+    "updateRoleAccountProfile",
   ].sort());
   assert.equal(index.includes("onSchedule"), false);
 });
@@ -91,6 +100,18 @@ test("customer profile creation forces the customer role and trusted flags", () 
   assert.equal(content.includes("input.role"), false);
   assert.equal(content.includes("input.isEmailVerified"), false);
   assert.equal(content.includes("input.isPhoneVerified"), false);
+});
+
+test("provider identity creation ignores client role and verification flags", () => {
+  const content = source("auth/ensure-provider-identity.ts");
+  assert.ok(content.includes("role: USER_ROLES.provider"));
+  assert.ok(content.includes("isEmailVerified: authUser.emailVerified"));
+  assert.ok(content.includes("isPhoneVerified: false"));
+  assert.ok(content.includes("accountStatus: \"active\""));
+  assert.equal(content.includes("input.role"), false);
+  assert.equal(content.includes("input.isEmailVerified"), false);
+  assert.equal(content.includes("input.isPhoneVerified"), false);
+  assert.equal(content.includes("input.isActive"), false);
 });
 
 test("Maps proxy cache and timeout controls do not persist API keys", () => {

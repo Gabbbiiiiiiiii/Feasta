@@ -4,6 +4,8 @@ import 'package:feasta/features/customer/account/application/customer_account_co
 import 'package:feasta/features/customer/account/domain/customer_account_management.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+const _testCredential = 'fixture credential';
+
 void main() {
   group('CustomerAccountController', () {
     test('passes only the explicit editable profile model', () async {
@@ -52,8 +54,8 @@ void main() {
 
       expect(
         await controller.changePassword(
-          currentPassword: 'old password',
-          newPassword: 'new password',
+          currentPassword: _testCredential,
+          newPassword: _testCredential,
         ),
         isFalse,
       );
@@ -68,7 +70,7 @@ void main() {
       expect(
         await controller.changePassword(
           currentPassword: '',
-          newPassword: 'new password',
+          newPassword: _testCredential,
         ),
         isFalse,
       );
@@ -83,13 +85,13 @@ void main() {
 
         expect(
           await controller.requestEmailUpdate(
-            currentPassword: 'current password',
+            currentPassword: _testCredential,
             newEmail: 'new@example.test',
           ),
           isTrue,
         );
         expect(gateway.newEmail, 'new@example.test');
-        expect(gateway.currentPassword, 'current password');
+        expect(gateway.currentPassword, _testCredential);
       },
     );
 
@@ -99,14 +101,14 @@ void main() {
 
       expect(
         await controller.deactivate(
-          currentPassword: 'password',
+          currentPassword: _testCredential,
           reason: 'customer_requested',
         ),
         isTrue,
       );
       expect(gateway.deactivated, isTrue);
       expect(
-        await controller.revokeAllSessions(currentPassword: 'password'),
+        await controller.revokeAllSessions(currentPassword: _testCredential),
         isTrue,
       );
       expect(gateway.revokedAllSessions, isTrue);

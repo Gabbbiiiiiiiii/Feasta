@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/constants/status_constants.dart';
+import '../../core/enums/domain_enum_serializers.dart' as domain;
+import '../../core/domain/provider_onboarding.dart';
 
 DateTime? dateFromTimestamp(dynamic value) {
   if (value == null) return null;
@@ -212,6 +214,10 @@ class ProviderModel {
   final bool acceptsMultipleEventsPerDay;
   final bool isActive;
   final bool isFeatured;
+  final bool isSuspended;
+  final bool isDeleted;
+  final int maxGuestsPerEvent;
+  final ProviderLocationCoordinates? locationCoordinates;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -252,6 +258,10 @@ class ProviderModel {
     required this.acceptsMultipleEventsPerDay,
     required this.isActive,
     required this.isFeatured,
+    this.isSuspended = false,
+    this.isDeleted = false,
+    this.maxGuestsPerEvent = 0,
+    this.locationCoordinates,
     this.createdAt,
     this.updatedAt,
   });
@@ -259,8 +269,19 @@ class ProviderModel {
   bool get isApproved =>
       verificationStatus == ProviderVerificationStatus.approved;
 
+  bool get isPubliclyAvailable =>
+      isApproved && isActive && !isSuspended && !isDeleted;
+
   factory ProviderModel.fromDoc(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    final rawVerificationStatus = data['verificationStatus'];
+    final parsedVerificationStatus = domain.tryParseProviderVerificationStatus(
+      rawVerificationStatus,
+    );
+    final rawServiceType = data['providerServiceType'];
+    final parsedServiceType = domain.tryParseProviderServiceType(
+      rawServiceType,
+    );
 
     return ProviderModel(
       id: doc.id,
@@ -287,9 +308,16 @@ class ProviderModel {
           .toInt(),
       totalViews: ((data['totalViews'] ?? 0) as num).toInt(),
       favoriteCount: ((data['favoriteCount'] ?? 0) as num).toInt(),
-      verificationStatus:
-          data['verificationStatus'] ?? ProviderVerificationStatus.draft,
-      providerServiceType: data['providerServiceType'] ?? 'catering',
+      verificationStatus: rawVerificationStatus == null
+          ? ProviderVerificationStatus.draft
+          : parsedVerificationStatus == null
+          ? ''
+          : domain.providerVerificationStatusToJson(parsedVerificationStatus),
+      providerServiceType: rawServiceType == null
+          ? 'catering'
+          : parsedServiceType == null
+          ? ''
+          : domain.providerServiceTypeToJson(parsedServiceType),
       providerCategory: data['providerCategory'] ?? 'catering_service',
       businessPermitUrl: data['businessPermitUrl'],
       validIdUrl: data['validIdUrl'],
@@ -299,12 +327,48 @@ class ProviderModel {
       availableStaffCount: intFromValue(data['availableStaffCount']),
       availableEquipmentCount: intFromValue(data['availableEquipmentCount']),
       acceptsMultipleEventsPerDay: data['acceptsMultipleEventsPerDay'] ?? false,
-      isActive: data['isActive'] ?? true,
-      isFeatured: data['isFeatured'] ?? false,
+      isActive: data['isActive'] is bool ? data['isActive'] as bool : false,
+      isFeatured: data['isFeatured'] is bool
+          ? data['isFeatured'] as bool
+          : false,
+      isSuspended: data['isSuspended'] is bool
+          ? data['isSuspended'] as bool
+          : data['isSuspended'] != null,
+      isDeleted: data['isDeleted'] is bool
+          ? data['isDeleted'] as bool
+          : data['isDeleted'] != null,
+      maxGuestsPerEvent: intFromValue(
+        data['maxGuestsPerEvent'] ?? data['guestCapacity'],
+      ),
+      locationCoordinates: _providerCoordinates(data['locationCoordinates']),
       createdAt: dateFromTimestamp(data['createdAt']),
       updatedAt: dateFromTimestamp(data['updatedAt']),
     );
   }
+}
+
+ProviderLocationCoordinates? _providerCoordinates(dynamic value) {
+  if (value is GeoPoint) {
+    return ProviderLocationCoordinates(
+      latitude: value.latitude,
+      longitude: value.longitude,
+    );
+  }
+  if (value is! Map) return null;
+  final latitude = value['latitude'];
+  final longitude = value['longitude'];
+  if (latitude is! num ||
+      longitude is! num ||
+      latitude < -90 ||
+      latitude > 90 ||
+      longitude < -180 ||
+      longitude > 180) {
+    return null;
+  }
+  return ProviderLocationCoordinates(
+    latitude: latitude.toDouble(),
+    longitude: longitude.toDouble(),
+  );
 }
 
 class PackageModel {

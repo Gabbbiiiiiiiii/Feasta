@@ -102,6 +102,121 @@ export const VERIFICATION_DOCUMENT_TYPES = [
 export type VerificationDocumentType =
   (typeof VERIFICATION_DOCUMENT_TYPES)[number];
 
+export function parseVerificationDocumentType(
+  value: unknown,
+): VerificationDocumentType | null {
+  const normalized = normalizeStatusValue(value, {
+    mayor_permit: "mayors_permit",
+    validid: "valid_id",
+  });
+  return VERIFICATION_DOCUMENT_TYPES.includes(
+    normalized as VerificationDocumentType,
+  ) ? normalized as VerificationDocumentType : null;
+}
+
+export const VERIFICATION_DOCUMENT_STATUSES = [
+  "pending",
+  "verified",
+  "rejected",
+  "expired",
+] as const;
+
+export type VerificationDocumentStatus =
+  (typeof VERIFICATION_DOCUMENT_STATUSES)[number];
+
+export function parseVerificationDocumentStatus(
+  value: unknown,
+): VerificationDocumentStatus | null {
+  const normalized = normalizeStatusValue(value);
+  return VERIFICATION_DOCUMENT_STATUSES.includes(
+    normalized as VerificationDocumentStatus,
+  ) ? normalized as VerificationDocumentStatus : null;
+}
+
+export const PROVIDER_SERVICE_TYPES = [
+  "catering",
+  "addon",
+  "both",
+] as const;
+
+export type ProviderServiceType =
+  (typeof PROVIDER_SERVICE_TYPES)[number];
+
+export const PROVIDER_SERVICE_CATEGORIES = [
+  "catering_service",
+  "food_trays_packed_meals",
+  "catering_event_styling",
+  "photographer",
+  "videographer",
+  "photo_booth",
+  "event_coordinator",
+  "event_host_emcee",
+  "sound_system",
+  "lights_and_sounds",
+  "singer_band",
+  "dancer_performer",
+  "decorator_event_stylist",
+  "florist",
+  "cake_provider",
+  "gown_suit_rental",
+  "car_rental",
+  "venue_provider",
+  "tables_chairs_rental",
+  "other_event_service",
+] as const;
+
+export type ProviderServiceCategory =
+  (typeof PROVIDER_SERVICE_CATEGORIES)[number];
+
+export const CATERING_SERVICE_CATEGORIES = [
+  "catering_service",
+  "food_trays_packed_meals",
+  "catering_event_styling",
+] as const satisfies readonly ProviderServiceCategory[];
+
+export const PROVIDER_EVENT_TYPES = [
+  "birthday",
+  "wedding",
+  "anniversary",
+  "reunion",
+  "corporate",
+  "baptism",
+  "graduation",
+  "other",
+] as const;
+
+export const PROVIDER_OPERATING_DAYS = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+] as const;
+
+export function serviceCategoryMatchesProviderType(
+  category: ProviderServiceCategory,
+  providerServiceType: ProviderServiceType,
+): boolean {
+  const catering = (CATERING_SERVICE_CATEGORIES as readonly string[])
+    .includes(category);
+  return providerServiceType === "both" ||
+    (providerServiceType === "catering" ? catering : !catering);
+}
+
+export function parseProviderServiceType(
+  value: unknown,
+): ProviderServiceType | null {
+  const normalized = normalizeStatusValue(value, {
+    add_on: "addon",
+    addons: "addon",
+  });
+  return PROVIDER_SERVICE_TYPES.includes(
+    normalized as ProviderServiceType,
+  ) ? normalized as ProviderServiceType : null;
+}
+
 /**
  * FEASTA's minimum provider-verification policy. This is deliberately
  * server-owned; callable input cannot mark a document required or optional.

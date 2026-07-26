@@ -23,7 +23,8 @@ const allowedPublicGoogleConfig = new Set([
   "apps/customer_mobile/android/app/google-services.json",
   "apps/customer_mobile/lib/firebase_options.dart",
 ]);
-const allowedDevelopmentPasswords = /^(?:scripts\/seed-emulators\.ts|functions\/test\/)/u;
+const allowedDevelopmentPasswords =
+  /^(?:scripts\/seed-emulators\.ts|functions\/test\/|apps\/[^/]+\/test\/)/u;
 const findings = [];
 
 for (const file of files) {

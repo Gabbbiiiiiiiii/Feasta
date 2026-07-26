@@ -56,6 +56,48 @@ class BookingStatus {
   static const String expired = 'expired';
 }
 
+class ProviderServiceTypes {
+  ProviderServiceTypes._();
+
+  static const String catering = 'catering';
+  static const String addon = 'addon';
+  static const String both = 'both';
+  static const List<String> values = [catering, addon, both];
+}
+
+class VerificationDocumentTypes {
+  VerificationDocumentTypes._();
+
+  static const String businessPermit = 'business_permit';
+  static const String dtiRegistration = 'dti_registration';
+  static const String birRegistration = 'bir_registration';
+  static const String validId = 'valid_id';
+  static const String sanitaryPermit = 'sanitary_permit';
+  static const String mayorsPermit = 'mayors_permit';
+  static const String other = 'other';
+
+  static const List<String> values = [
+    businessPermit,
+    dtiRegistration,
+    birRegistration,
+    validId,
+    sanitaryPermit,
+    mayorsPermit,
+    other,
+  ];
+  static const Set<String> required = {businessPermit, validId};
+}
+
+class VerificationDocumentStatuses {
+  VerificationDocumentStatuses._();
+
+  static const String pending = 'pending';
+  static const String verified = 'verified';
+  static const String rejected = 'rejected';
+  static const String expired = 'expired';
+  static const List<String> values = [pending, verified, rejected, expired];
+}
+
 class PaymentStatus {
   PaymentStatus._();
 

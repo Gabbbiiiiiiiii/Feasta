@@ -24,6 +24,13 @@ export const updateCustomerProfile = onCall(
       windowSeconds: 10 * 60,
     });
     const input = requireObject(request.data ?? {});
+    rejectUnknownFields(input, [
+      "firstName",
+      "lastName",
+      "address",
+      "city",
+      "province",
+    ]);
     const firstName = requireString(input.firstName, "firstName", {
       minLength: 1,
       maxLength: 80,
@@ -83,6 +90,11 @@ export const updateCustomerPreferences = onCall(
       windowSeconds: 10 * 60,
     });
     const input = requireObject(request.data ?? {});
+    rejectUnknownFields(input, [
+      "marketingConsent",
+      "pushNotificationsEnabled",
+      "emailNotificationsEnabled",
+    ]);
     const marketingConsent = requireBoolean(input.marketingConsent, "marketingConsent");
     const pushNotificationsEnabled = requireBoolean(
       input.pushNotificationsEnabled,
@@ -139,6 +151,7 @@ export const deactivateCustomerAccount = onCall(
       windowSeconds: 24 * 60 * 60,
     });
     const input = requireObject(request.data ?? {});
+    rejectUnknownFields(input, ["reason"]);
     const reason = optionalString(input.reason, "reason", 300);
     const userReference = db.collection("users").doc(actor.uid);
     const customerReference = db.collection("customers").doc(actor.uid);
@@ -220,4 +233,17 @@ function requireBoolean(value: unknown, field: string): boolean {
     throw new HttpsError("invalid-argument", `${field} must be a boolean.`);
   }
   return value;
+}
+
+function rejectUnknownFields(
+  input: Record<string, unknown>,
+  allowed: readonly string[],
+): void {
+  const unknown = Object.keys(input).filter((field) => !allowed.includes(field));
+  if (unknown.length > 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Unsupported account fields: ${unknown.join(", ")}.`,
+    );
+  }
 }

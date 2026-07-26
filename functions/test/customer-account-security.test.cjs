@@ -17,12 +17,41 @@ test("profile callable accepts an explicit safe-field allowlist", () => {
   for (const field of ["firstName", "lastName", "address", "city", "province"]) {
     assert.ok(content.includes(`input.${field}`));
   }
+  assert.ok(content.includes("rejectUnknownFields(input"));
   for (const protectedField of [
     "input.role", "input.accountStatus", "input.isActive", "input.isBlocked",
     "input.isEmailVerified", "input.isPhoneVerified", "input.providerId",
   ]) {
     assert.equal(content.includes(protectedField), false);
   }
+});
+
+test("provider and admin account management preserve trusted fields", () => {
+  const content = source("auth/manage-role-account.ts");
+  assert.ok(content.includes('requireRole(actor.uid, ["provider", "admin"])'));
+  assert.ok(content.includes("editableVerificationStatuses"));
+  assert.ok(content.includes("activeProviderRequestStatuses"));
+  assert.ok(content.includes("Resolve active event obligations"));
+  assert.ok(content.includes("provider_account_deactivated"));
+  assert.equal(content.includes("transaction.delete"), false);
+  for (const protectedField of [
+    "input.role",
+    "input.accountStatus",
+    "input.isActive",
+    "input.isBlocked",
+    "input.verificationStatus",
+    "input.isFeatured",
+  ]) {
+    assert.equal(content.includes(protectedField), false);
+  }
+});
+
+test("shared preference and session mutations require trusted roles", () => {
+  const content = source("auth/manage-role-account.ts");
+  assert.ok(content.includes('"customer",\n      "provider",\n      "admin"'));
+  assert.ok(content.includes("requireRecentAuthentication"));
+  assert.ok(content.includes("revokeRefreshTokens(actor.uid)"));
+  assert.ok(content.includes("account_sessions_revoked"));
 });
 
 test("deactivation is soft, audited, and revokes sessions", () => {

@@ -72,6 +72,11 @@ the entire `mainEvents` aggregate.
 | `providerVerifications/{verificationId}` | `documents` | Registered document metadata |
 | `complaints/{complaintId}` | `activity` | Complaint activity history |
 
+Provider onboarding fields and writer authority are defined in
+`provider-onboarding-schema.md`. Verification decision history remains in the
+immutable backend-written `adminLogs` collection rather than a client-writable
+array on the verification record.
+
 ## Deterministic IDs
 
 Firestore-generated IDs remain the default unless uniqueness or idempotency

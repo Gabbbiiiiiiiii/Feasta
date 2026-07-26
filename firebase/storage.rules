@@ -91,6 +91,17 @@ service firebase.storage {
         ).data.ownerId == currentUserId();
     }
 
+    function ownsProviderMediaPath(providerId) {
+      return ownsProvider(providerId) ||
+        (
+          isActiveUser() &&
+          currentUser().role == 'provider' &&
+          providerId == currentUserId() &&
+          !providerExists(providerId) &&
+          currentUser().providerId == null
+        );
+    }
+
     function providerVerificationIsEditable(providerId) {
       return firestore.get(
         /databases/(default)/documents/providers/$(providerId)
@@ -208,23 +219,23 @@ service firebase.storage {
     match /providers/{providerId}/logo/{fileName} {
       allow read: if true;
 
-      allow create, update: if ownsProvider(providerId) &&
+      allow create, update: if ownsProviderMediaPath(providerId) &&
         hasNoSpoofedOwnershipMetadata() &&
         isAllowedImage(fileName) &&
         isUnderSize(5 * 1024 * 1024);
 
-      allow delete: if ownsProvider(providerId);
+      allow delete: if ownsProviderMediaPath(providerId);
     }
 
     match /providers/{providerId}/cover/{fileName} {
       allow read: if true;
 
-      allow create, update: if ownsProvider(providerId) &&
+      allow create, update: if ownsProviderMediaPath(providerId) &&
         hasNoSpoofedOwnershipMetadata() &&
         isAllowedImage(fileName) &&
         isUnderSize(10 * 1024 * 1024);
 
-      allow delete: if ownsProvider(providerId);
+      allow delete: if ownsProviderMediaPath(providerId);
     }
 
     match /providers/{providerId}/verification/{documentType}/{fileName} {

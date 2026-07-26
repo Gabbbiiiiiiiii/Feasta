@@ -40,6 +40,10 @@ export {deactivateCustomerAccount} from "./auth/manage-customer-account.js";
 export {revokeAllCustomerSessions} from "./auth/manage-customer-account.js";
 export {updateCustomerPreferences} from "./auth/manage-customer-account.js";
 export {updateCustomerProfile} from "./auth/manage-customer-account.js";
+export {deactivateProviderAccount} from "./auth/manage-role-account.js";
+export {revokeAllAccountSessions} from "./auth/manage-role-account.js";
+export {updateAccountPreferences} from "./auth/manage-role-account.js";
+export {updateRoleAccountProfile} from "./auth/manage-role-account.js";
 
 export {
   onUserSecurityStateChanged,
@@ -56,6 +60,9 @@ export {
 export {
   registerProvider,
 } from "./providers/register-provider.js";
+export {
+  saveProviderOnboardingDraft,
+} from "./providers/save-provider-onboarding-draft.js";
 export {
   submitProviderVerification,
 } from "./verification/submit-provider-verification.js";

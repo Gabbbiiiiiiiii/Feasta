@@ -63,17 +63,18 @@ class PhoneVerificationController extends ChangeNotifier {
   PhoneVerificationController({
     required this.gateway,
     this.resendCooldown = const Duration(seconds: 60),
-  });
+    this.maximumConfirmationAttempts = 5,
+  }) : assert(maximumConfirmationAttempts > 0);
 
   final PhoneVerificationGateway gateway;
   final Duration resendCooldown;
+  final int maximumConfirmationAttempts;
   PhoneVerificationState state = const PhoneVerificationState();
   Timer? _timer;
+  int _confirmationAttempts = 0;
 
   Future<void> sendCode(String rawPhone, {bool resend = false}) async {
-    if (state.isSending ||
-        state.isConfirming ||
-        (resend && state.cooldownSeconds > 0)) {
+    if (state.isSending || state.isConfirming || state.cooldownSeconds > 0) {
       return;
     }
     final phone = normalizePhilippineMobile(rawPhone);
@@ -96,6 +97,7 @@ class PhoneVerificationController extends ChangeNotifier {
         phoneNumber: phone,
         resendToken: resend ? state.resendToken : null,
         onCodeSent: (verificationId, resendToken) {
+          _confirmationAttempts = 0;
           state = state.copyWith(
             verificationId: verificationId,
             resendToken: resendToken,
@@ -131,6 +133,14 @@ class PhoneVerificationController extends ChangeNotifier {
 
   Future<bool> confirmCode(String code) async {
     if (state.isSending || state.isConfirming) return false;
+    if (_confirmationAttempts >= maximumConfirmationAttempts) {
+      state = state.copyWith(
+        codeError: 'Too many code attempts. Request a new code.',
+        clearErrors: true,
+      );
+      notifyListeners();
+      return false;
+    }
     if (state.verificationId == null) {
       state = state.copyWith(
         codeError: 'Request a verification code first.',
@@ -148,6 +158,7 @@ class PhoneVerificationController extends ChangeNotifier {
       return false;
     }
     state = state.copyWith(isConfirming: true, clearErrors: true);
+    _confirmationAttempts++;
     notifyListeners();
     try {
       await gateway.confirmCode(

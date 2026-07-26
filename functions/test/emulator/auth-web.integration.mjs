@@ -14,6 +14,10 @@ import {
   signInWithCredential,
   signInWithEmailAndPassword,
   signOut,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword,
+  verifyBeforeUpdateEmail,
 } from "firebase/auth";
 
 const projectId = process.env.GCLOUD_PROJECT ?? "demo-feasta-phase3";
@@ -32,15 +36,204 @@ const db = getFirestore(adminApp);
 
 try {
   await waitForWeb();
+  await testDeterministicFixtureWorkflows();
   await testEmailCustomerFlow();
   await testGoogleCustomerFlow();
+  await testPhoneVerificationWorkflow();
   await testBlockedAndDisabledAccounts();
+  await testAccountManagementWorkflows();
+  await clearWebSessionRateLimits();
   await testWebSessionsAndRoles();
   console.log("Auth/web acceptance passed.");
 } finally {
   await signOut(auth).catch(() => undefined);
   await deleteApp(clientApp);
   await deleteAdminApp(adminApp);
+}
+
+async function testDeterministicFixtureWorkflows() {
+  await clearWebSessionRateLimits();
+
+  const activeCustomer = await signInWithEmailAndPassword(
+    auth,
+    "customer@feasta.test",
+    password,
+  );
+  const customerSession = await createWebSession(
+    await activeCustomer.user.getIdToken(true),
+    "/customer",
+    "customer",
+  );
+  assert.equal((await webGet("/customer", customerSession.cookie)).status, 200);
+  await signOut(auth);
+
+  const unverified = await signInWithEmailAndPassword(
+    auth,
+    "customer.unverified@feasta.test",
+    password,
+  );
+  const unverifiedSession = await createWebSession(
+    await unverified.user.getIdToken(true),
+    "/customer",
+    "customer",
+  );
+  const unverifiedAccess = await webGet(
+    "/customer",
+    unverifiedSession.cookie,
+  );
+  assert.equal(unverifiedAccess.status, 307);
+  assert.match(
+    unverifiedAccess.headers.get("location") ?? "",
+    /\/verify-email$/,
+  );
+  await signOut(auth);
+
+  const blocked = await signInWithEmailAndPassword(
+    auth,
+    "customer.blocked@feasta.test",
+    password,
+  );
+  const blockedResponse = await postSession(
+    await blocked.user.getIdToken(true),
+    await getCsrf(),
+    "/customer",
+    "customer",
+  );
+  assert.equal(blockedResponse.status, 403);
+  assert.equal((await blockedResponse.json()).reason, "blocked");
+  await signOut(auth);
+
+  const deactivated = await signInWithEmailAndPassword(
+    auth,
+    "customer.deactivated@feasta.test",
+    password,
+  );
+  const deactivatedResponse = await postSession(
+    await deactivated.user.getIdToken(true),
+    await getCsrf(),
+    "/customer",
+    "customer",
+  );
+  assert.equal(deactivatedResponse.status, 403);
+  assert.equal((await deactivatedResponse.json()).reason, "deactivated");
+  await signOut(auth);
+
+  const missingProfile = await signInWithEmailAndPassword(
+    auth,
+    "customer.missing-profile@feasta.test",
+    password,
+  );
+  const missingProfileResponse = await postSession(
+    await missingProfile.user.getIdToken(true),
+    await getCsrf(),
+    "/customer",
+    "customer",
+  );
+  assert.equal(missingProfileResponse.status, 403);
+  assert.equal((await missingProfileResponse.json()).reason, "missing_profile");
+  await signOut(auth);
+
+  const setupProvider = await signInWithEmailAndPassword(
+    auth,
+    "provider.missing-setup@feasta.test",
+    password,
+  );
+  const setupProviderSession = await createWebSession(
+    await setupProvider.user.getIdToken(true),
+    "/provider",
+    "provider",
+  );
+  const setupAccess = await webGet("/provider", setupProviderSession.cookie);
+  assert.equal(setupAccess.status, 307);
+  assert.match(
+    setupAccess.headers.get("location") ?? "",
+    /\/provider\/onboarding$/,
+  );
+  await signOut(auth);
+
+  const approvedProvider = await signInWithEmailAndPassword(
+    auth,
+    "provider.approved@feasta.test",
+    password,
+  );
+  const approvedProviderSession = await createWebSession(
+    await approvedProvider.user.getIdToken(true),
+    "/provider",
+    "provider",
+  );
+  assert.equal(
+    (await webGet("/provider", approvedProviderSession.cookie)).status,
+    200,
+  );
+  await signOut(auth);
+
+  const activeAdmin = await signInWithEmailAndPassword(
+    auth,
+    "admin@feasta.test",
+    password,
+  );
+  const activeAdminSession = await createWebSession(
+    await activeAdmin.user.getIdToken(true),
+    "/admin",
+    "admin",
+  );
+  assert.equal((await webGet("/admin", activeAdminSession.cookie)).status, 200);
+  await signOut(auth);
+
+  await assert.rejects(
+    () => signInWithEmailAndPassword(
+      auth,
+      "admin.disabled@feasta.test",
+      password,
+    ),
+    /user-disabled/i,
+  );
+
+  const expectedProviderStates = new Map([
+    ["provider-pending", "draft"],
+    ["provider-submitted", "submitted"],
+    ["provider-under-review", "under_review"],
+    ["provider-resubmission", "resubmission_required"],
+    ["provider-rejected", "rejected"],
+    ["provider-suspended", "suspended"],
+    ["provider-approved", "approved"],
+    ["provider-blocked", "approved"],
+  ]);
+  for (const [providerId, status] of expectedProviderStates) {
+    const provider = await db.collection("providers").doc(providerId).get();
+    const verification = await db
+      .collection("providerVerifications")
+      .doc(`verification-${providerId}`)
+      .get();
+    assert.equal(provider.data()?.verificationStatus, status);
+    assert.equal(verification.data()?.status, status);
+  }
+
+  await clearWebSessionRateLimits();
+}
+
+async function testPhoneVerificationWorkflow() {
+  const customer = await createVerifiedCustomer(
+    "acceptance.phone@feasta.test",
+  );
+  const userRef = db.collection("users").doc(customer.uid);
+  await assert.rejects(
+    () => callFunction("syncPhoneVerification", customer, {}),
+    /failed[_-]precondition/i,
+  );
+
+  const emulatorPhone = "+639000009999";
+  await adminAuth.updateUser(customer.uid, {phoneNumber: emulatorPhone});
+  await customer.reload();
+  const result = await callFunction("syncPhoneVerification", customer, {});
+  assert.equal(result.phoneNumber, emulatorPhone);
+  assert.equal((await userRef.get()).data()?.isPhoneVerified, true);
+  assert.equal(
+    (await db.collection("customers").doc(customer.uid).get()).data()
+      ?.phoneNumber,
+    emulatorPhone,
+  );
+  await signOut(auth);
 }
 
 async function testEmailCustomerFlow() {
@@ -98,6 +291,14 @@ async function testGoogleCustomerFlow() {
   assert.equal(user?.providerId, null);
   assert.equal(user?.authProvider, "google.com");
 
+  const session = await createWebSession(
+    await signedIn.user.getIdToken(true),
+    "/customer",
+  );
+  assert.equal(session.body.role, "customer");
+  assert.equal(session.body.destination, "/customer");
+  assert.equal((await webGet("/customer", session.cookie)).status, 200);
+
   await ref.update({role: "provider"});
   await assert.rejects(() => callFunction("ensureUserProfile", signedIn.user, {}), /permission[_-]denied/i);
   await signOut(auth);
@@ -118,16 +319,282 @@ async function testBlockedAndDisabledAccounts() {
   );
 }
 
-async function testWebSessionsAndRoles() {
-  assert.equal((await webGet("/admin", "")).status, 307);
+async function testAccountManagementWorkflows() {
+  const customer = await createCustomer(
+    "acceptance.account.customer@feasta.test",
+  );
+  await callFunction("updateCustomerProfile", customer, {
+    firstName: "Updated",
+    lastName: "Customer",
+    address: "Account Street",
+    city: "Ormoc City",
+    province: "Leyte",
+  });
+  const customerProfile = (
+    await db.collection("customers").doc(customer.uid).get()
+  ).data();
+  assert.equal(customerProfile?.firstName, "Updated");
+  assert.equal(customerProfile?.address, "Account Street");
+  await assert.rejects(
+    () => callFunction("updateCustomerProfile", customer, {
+      firstName: "Unsafe",
+      lastName: "Mutation",
+      address: "",
+      city: "",
+      province: "",
+      role: "admin",
+    }),
+    /invalid[_-]argument/i,
+  );
+  await callFunction("updateAccountPreferences", customer, {
+    marketingConsent: true,
+    pushNotificationsEnabled: false,
+    emailNotificationsEnabled: true,
+  });
+  assert.equal(
+    (await db.collection("users").doc(customer.uid).get()).data()
+      ?.marketingConsent,
+    true,
+  );
 
-  const customer = await createCustomer("acceptance.web.customer@feasta.test");
-  const customerSession = await createWebSession(await customer.getIdToken(true));
+  await assert.rejects(
+    () => reauthenticateWithCredential(
+      customer,
+      EmailAuthProvider.credential(customer.email, "incorrect-password"),
+    ),
+    /invalid-credential|wrong-password/i,
+  );
+  await reauthenticateWithCredential(
+    customer,
+    EmailAuthProvider.credential(customer.email, password),
+  );
+  await updatePassword(customer, `${password}Changed`);
+  await verifyBeforeUpdateEmail(
+    customer,
+    "acceptance.account.changed@feasta.test",
+  );
+  const emailCodes = await emailChangeCodes(
+    "acceptance.account.changed@feasta.test",
+  );
+  assert.ok(emailCodes.length > 0, "Email update verification was not sent.");
+  await fetchOk(emailCodes.at(-1).oobLink);
+  await customer.reload();
+  await callFunction("syncUserAuthState", customer, {});
+  assert.equal(
+    (await db.collection("users").doc(customer.uid).get()).data()?.email,
+    "acceptance.account.changed@feasta.test",
+  );
+  assert.equal(
+    (await db.collection("customers").doc(customer.uid).get()).data()?.email,
+    "acceptance.account.changed@feasta.test",
+  );
+  await signOut(auth);
+  const changedPassword = await signInWithEmailAndPassword(
+    auth,
+    "acceptance.account.changed@feasta.test",
+    `${password}Changed`,
+  );
+  assert.equal(changedPassword.user.uid, customer.uid);
+  await signOut(auth);
+
+  const deactivatedCustomer = await createCustomer(
+    "acceptance.account.deactivate-customer@feasta.test",
+  );
+  await callFunction("deactivateCustomerAccount", deactivatedCustomer, {
+    reason: "Acceptance test",
+  });
+  assert.equal(
+    (await db.collection("users").doc(deactivatedCustomer.uid).get()).data()
+      ?.accountStatus,
+    "pending_deletion",
+  );
+  await signOut(auth);
+
+  const provider = await createUser(
+    "acceptance.account.provider@feasta.test",
+  );
+  await writeUserProfile(provider.uid, "provider");
+  await db.collection("users").doc(provider.uid).update({
+    providerId: "acceptance-account-provider",
+    firstName: "Provider",
+    lastName: "Owner",
+  });
+  await db.collection("providers").doc("acceptance-account-provider").set({
+    ownerId: provider.uid,
+    ownerFirstName: "Provider",
+    ownerLastName: "Owner",
+    businessName: "Original Account Catering",
+    businessEmail: "original-account@feasta.test",
+    businessPhone: "+639171111111",
+    description: "Original provider description for account acceptance.",
+    address: "Original address",
+    city: "Ormoc City",
+    province: "Leyte",
+    providerServiceType: "catering",
+    providerCategory: "full_service",
+    verificationStatus: "draft",
+    isActive: false,
+    isSuspended: false,
+  });
+  await db.collection("providerVerifications")
+    .doc("acceptance-account-provider-verification")
+    .set({
+      providerId: "acceptance-account-provider",
+      ownerId: provider.uid,
+      businessName: "Original Account Catering",
+      status: "draft",
+    });
+  await callFunction("updateRoleAccountProfile", provider, {
+    ownerFirstName: "Updated",
+    ownerLastName: "Provider",
+    businessName: "Updated Account Catering",
+    businessEmail: "updated-account@feasta.test",
+    businessPhone: "+639172222222",
+    description: "Updated provider description for account acceptance.",
+    address: "Updated address",
+    city: "Ormoc City",
+    province: "Leyte",
+  });
+  assert.equal(
+    (await db.collection("providers")
+      .doc("acceptance-account-provider").get()).data()?.businessName,
+    "Updated Account Catering",
+  );
+  await db.collection("providers").doc("acceptance-account-provider").update({
+    verificationStatus: "approved",
+    isActive: true,
+  });
+  await assert.rejects(
+    () => callFunction("updateRoleAccountProfile", provider, {
+      ownerFirstName: "Updated",
+      ownerLastName: "Provider",
+      businessName: "Unreviewed Legal Name",
+      businessEmail: "unreviewed@feasta.test",
+      businessPhone: "+639172222222",
+      description: "Updated provider description for account acceptance.",
+      address: "Updated address",
+      city: "Ormoc City",
+      province: "Leyte",
+    }),
+    /failed[_-]precondition/i,
+  );
+  await db.collection("providerRequests").doc("active-account-obligation").set({
+    providerId: "acceptance-account-provider",
+    customerId: "customer-obligation",
+    mainEventId: "event-obligation",
+    status: "confirmed",
+    createdAt: new Date(),
+  });
+  await assert.rejects(
+    () => callFunction("deactivateProviderAccount", provider, {
+      reason: "Should be blocked",
+    }),
+    /failed[_-]precondition/i,
+  );
+  await db.collection("providerRequests")
+    .doc("active-account-obligation")
+    .update({status: "completed"});
+  await callFunction("deactivateProviderAccount", provider, {
+    reason: "No active obligations",
+  });
+  assert.equal(
+    (await db.collection("providers")
+      .doc("acceptance-account-provider").get()).data()?.isActive,
+    false,
+  );
+  await signOut(auth);
+
+  const admin = await createUser("acceptance.account.admin@feasta.test");
+  await writeUserProfile(admin.uid, "admin");
+  await callFunction("updateRoleAccountProfile", admin, {
+    firstName: "Updated",
+    lastName: "Administrator",
+  });
+  assert.equal(
+    (await db.collection("users").doc(admin.uid).get()).data()?.firstName,
+    "Updated",
+  );
+  await assert.rejects(
+    () => callFunction("updateRoleAccountProfile", admin, {
+      firstName: "Unsafe",
+      lastName: "Admin",
+      role: "super_admin",
+    }),
+    /invalid[_-]argument/i,
+  );
+  await assert.rejects(
+    () => callFunction("deactivateProviderAccount", admin, {}),
+    /permission[_-]denied/i,
+  );
+  const adminSession = await createWebSession(
+    await admin.getIdToken(true),
+    "/admin/account",
+    "admin",
+  );
+  await callFunction("revokeAllAccountSessions", admin, {});
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  const revokedAccess = await webGet("/admin/account", adminSession.cookie);
+  assert.equal(revokedAccess.status, 307);
+  await assertInvalidSessionIsCleared(revokedAccess, adminSession.cookie);
+  await signOut(auth);
+}
+
+async function testWebSessionsAndRoles() {
+  const anonymousAdmin = await webGet("/admin", "");
+  assert.equal(anonymousAdmin.status, 307);
+  assert.match(
+    anonymousAdmin.headers.get("location") ?? "",
+    /\/admin-login\?next=%2Fadmin$/,
+  );
+  const anonymousProvider = await webGet("/provider", "");
+  assert.equal(anonymousProvider.status, 307);
+  assert.match(
+    anonymousProvider.headers.get("location") ?? "",
+    /\/provider-login\?next=%2Fprovider$/,
+  );
+  assert.equal((await webGet("/provider-login", "")).status, 200);
+  assert.equal((await webGet("/provider-register", "")).status, 200);
+  assert.equal((await webGet("/admin-login", "")).status, 200);
+  assert.notEqual((await webGet("/admin-register", "")).status, 200);
+  assert.equal((await webGet("/register", "")).status, 200);
+  assert.equal((await webGet("/forgot-password", "")).status, 200);
+
+  const unverified = await createCustomer("acceptance.web.unverified@feasta.test");
+  const unverifiedSession = await createWebSession(await unverified.getIdToken(true));
+  const verificationGate = await webGet("/customer", unverifiedSession.cookie);
+  assert.equal(verificationGate.status, 307);
+  assert.match(verificationGate.headers.get("location") ?? "", /\/verify-email$/);
+  await signOut(auth);
+
+  const customer = await createVerifiedCustomer("acceptance.web.customer@feasta.test");
+  const customerSession = await createWebSession(
+    await customer.getIdToken(true),
+    "/customer/bookings",
+    "customer",
+  );
   assert.match(customerSession.cookie, /feasta_session=/);
   assert.match(customerSession.cookie, /HttpOnly/i);
   assert.match(customerSession.cookie, /SameSite=Lax/i);
+  assert.equal(customerSession.body.destination, "/customer/bookings");
   assert.equal((await webGet("/customer", customerSession.cookie)).status, 200);
+  assert.equal((await webGet("/customer/account", customerSession.cookie)).status, 200);
+  const customerAtProviderPortal = await postSession(
+    await customer.getIdToken(true),
+    await getCsrf(),
+    "/provider",
+    "provider",
+  );
+  assert.equal(customerAtProviderPortal.status, 403);
+  assert.equal((await customerAtProviderPortal.json()).reason, "wrong_role");
   assert.equal((await webGet("/admin", customerSession.cookie)).status, 307);
+  const customerAtAdminPortal = await postSession(
+    await customer.getIdToken(true),
+    await getCsrf(),
+    "/admin",
+    "admin",
+  );
+  assert.equal(customerAtAdminPortal.status, 403);
+  assert.equal((await customerAtAdminPortal.json()).reason, "wrong_role");
   const wrongRole = await webGet("/provider", customerSession.cookie);
   assert.equal(wrongRole.status, 307);
   assert.match(wrongRole.headers.get("location") ?? "", /\/unauthorized$/);
@@ -145,30 +612,257 @@ async function testWebSessionsAndRoles() {
   assert.equal((await webGet("/customer", customerSession.cookie)).status, 307);
   await signOut(auth);
 
+  const throttledEmail = "acceptance.web.throttled-admin@feasta.test";
+  const adminAttemptCsrf = await getCsrf();
+  let adminRateLimited;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const response = await postAdminAttempt(throttledEmail, adminAttemptCsrf);
+    if (response.status === 429) {
+      adminRateLimited = response;
+      break;
+    }
+    assert.equal(response.status, 204);
+  }
+  assert.ok(adminRateLimited, "Admin account rate limit was not enforced.");
+  assert.ok(Number(adminRateLimited.headers.get("retry-after")) > 0);
+  await clearAdminLoginRateLimits();
+  assert.equal(
+    (await postAdminAttempt(throttledEmail, await getCsrf())).status,
+    204,
+    "Admin login should recover after the temporary throttle window clears.",
+  );
+
   const adminUser = await createUser("acceptance.web.admin@feasta.test");
   await writeUserProfile(adminUser.uid, "admin");
-  const adminSession = await createWebSession(await adminUser.getIdToken(true));
+  const adminSession = await createWebSession(
+    await adminUser.getIdToken(true),
+    "https://evil.example/steal",
+    "admin",
+  );
+  assert.equal(adminSession.body.destination, "/admin");
   assert.equal((await webGet("/admin", adminSession.cookie)).status, 200);
+  assert.equal((await webGet("/admin/account", adminSession.cookie)).status, 200);
   assert.equal((await webGet("/customer", adminSession.cookie)).status, 307);
+  const adminLogout = await fetch(`${webUrl}/api/auth/logout`, {
+    method: "POST",
+    headers: {
+      cookie: adminSession.cookie,
+      origin: webUrl,
+      "x-feasta-csrf": adminSession.csrf.token,
+    },
+  });
+  assert.equal(adminLogout.status, 200);
+  assert.match(adminLogout.headers.get("set-cookie") ?? "", /Max-Age=0/i);
+  await signOut(auth);
+
+  await assertRejectedAdminState("blocked", {
+    isBlocked: true,
+    accountStatus: "blocked",
+  });
+  await assertRejectedAdminState("deactivated", {
+    isActive: false,
+    accountStatus: "pending_deletion",
+  });
+  const disabledAdmin = await createUser(
+    "acceptance.web.admin.disabled@feasta.test",
+  );
+  await writeUserProfile(disabledAdmin.uid, "admin");
+  const disabledAdminSession = await createWebSession(
+    await disabledAdmin.getIdToken(true),
+    "/admin",
+    "admin",
+  );
+  await adminAuth.updateUser(disabledAdmin.uid, {disabled: true});
+  const disabledAdminAccess = await webGet(
+    "/admin",
+    disabledAdminSession.cookie,
+  );
+  assert.equal(disabledAdminAccess.status, 307);
+  await assertInvalidSessionIsCleared(
+    disabledAdminAccess,
+    disabledAdminSession.cookie,
+  );
+  await signOut(auth);
+  const revokedAdmin = await createUser(
+    "acceptance.web.admin.revoked@feasta.test",
+  );
+  await writeUserProfile(revokedAdmin.uid, "admin");
+  const revokedAdminSession = await createWebSession(
+    await revokedAdmin.getIdToken(true),
+    "/admin",
+    "admin",
+  );
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  await adminAuth.revokeRefreshTokens(revokedAdmin.uid);
+  const revokedAdminAccess = await webGet(
+    "/admin",
+    revokedAdminSession.cookie,
+  );
+  assert.equal(revokedAdminAccess.status, 307);
+  await assertInvalidSessionIsCleared(
+    revokedAdminAccess,
+    revokedAdminSession.cookie,
+  );
+  await signOut(auth);
+  await clearWebSessionRateLimits();
+
+  const setupProvider = await createUser("acceptance.web.provider.setup@feasta.test");
+  await writeUserProfile(setupProvider.uid, "provider");
+  await adminAuth.updateUser(setupProvider.uid, {emailVerified: true});
+  await setupProvider.reload();
+  const setupSession = await createWebSession(
+    await setupProvider.getIdToken(true),
+    "/provider",
+    "provider",
+  );
+  const setupRedirect = await webGet("/provider", setupSession.cookie);
+  assert.equal(setupRedirect.status, 307);
+  assert.match(setupRedirect.headers.get("location") ?? "", /\/provider\/onboarding$/);
+  assert.equal((await webGet("/provider/onboarding", setupSession.cookie)).status, 200);
+  assert.equal((await webGet("/provider/account", setupSession.cookie)).status, 200);
   await signOut(auth);
 
   const providerUser = await createUser("acceptance.web.provider@feasta.test");
   await writeUserProfile(providerUser.uid, "provider");
-  const providerSession = await createWebSession(await providerUser.getIdToken(true));
+  await db.collection("users").doc(providerUser.uid).update({
+    providerId: "acceptance-provider",
+  });
+  await db.collection("providers").doc("acceptance-provider").set({
+    ownerId: providerUser.uid,
+    verificationStatus: "approved",
+    isActive: true,
+    isSuspended: false,
+  });
+  await db.collection("providerVerifications").doc("acceptance-provider-verification").set({
+    providerId: "acceptance-provider",
+    ownerId: providerUser.uid,
+    status: "approved",
+    remarks: null,
+    rejectionReason: null,
+    resubmissionReason: null,
+    suspensionReason: null,
+  });
+  const unverifiedProviderSession = await createWebSession(
+    await providerUser.getIdToken(true),
+    "/provider",
+    "provider",
+  );
+  const unverifiedProviderAccess = await webGet(
+    "/provider",
+    unverifiedProviderSession.cookie,
+  );
+  assert.equal(unverifiedProviderAccess.status, 307);
+  assert.match(
+    unverifiedProviderAccess.headers.get("location") ?? "",
+    /\/provider-verify-email$/,
+  );
+  await adminAuth.updateUser(providerUser.uid, {emailVerified: true});
+  await providerUser.reload();
+  const providerSession = await createWebSession(
+    await providerUser.getIdToken(true),
+    "/provider",
+    "provider",
+  );
   assert.equal((await webGet("/provider", providerSession.cookie)).status, 200);
+  assert.equal((await webGet("/provider/account", providerSession.cookie)).status, 200);
+  assert.equal((await webGet("/provider/packages", providerSession.cookie)).status, 200);
   assert.equal((await webGet("/admin", providerSession.cookie)).status, 307);
+
+  await assertProviderState(
+    "draft",
+    {isActive: false, isSuspended: false},
+    providerSession.cookie,
+    "/provider/verification",
+  );
+  await assertProviderState(
+    "submitted",
+    {isActive: false, isSuspended: false},
+    providerSession.cookie,
+    "/provider/status",
+  );
+  await assertProviderState(
+    "under_review",
+    {isActive: false, isSuspended: false},
+    providerSession.cookie,
+    "/provider/status",
+  );
+  await assertProviderState(
+    "resubmission_required",
+    {isActive: false, isSuspended: false},
+    providerSession.cookie,
+    "/provider/verification",
+  );
+  await assertProviderState(
+    "rejected",
+    {isActive: false, isSuspended: false},
+    providerSession.cookie,
+    "/provider/status",
+  );
+  await assertProviderState(
+    "suspended",
+    {isActive: false, isSuspended: true},
+    providerSession.cookie,
+    "/provider/status",
+  );
+  await db.collection("providers").doc("acceptance-provider").update({
+    verificationStatus: "approved",
+    isActive: true,
+    isSuspended: false,
+  });
+  await db.collection("providerVerifications")
+    .doc("acceptance-provider-verification")
+    .update({status: "approved"});
   await signOut(auth);
+  await clearWebSessionRateLimits();
 
   const blocked = await createCustomer("acceptance.web.blocked@feasta.test");
   const blockedToken = await blocked.getIdToken(true);
   await db.collection("users").doc(blocked.uid).update({isBlocked: true});
-  assert.equal((await postSession(blockedToken, await getCsrf())).status, 401);
+  const blockedResponse = await postSession(blockedToken, await getCsrf());
+  assert.equal(blockedResponse.status, 403);
+  assert.equal((await blockedResponse.json()).reason, "blocked");
   await signOut(auth);
 
   const disabled = await createCustomer("acceptance.web.disabled@feasta.test");
   const disabledSession = await createWebSession(await disabled.getIdToken(true));
   await adminAuth.updateUser(disabled.uid, {disabled: true});
-  assert.equal((await webGet("/customer", disabledSession.cookie)).status, 307);
+  const disabledAccess = await webGet("/customer", disabledSession.cookie);
+  assert.equal(disabledAccess.status, 307);
+  await assertInvalidSessionIsCleared(disabledAccess, disabledSession.cookie);
+
+  const missingProfile = await createUser("acceptance.web.missing@feasta.test");
+  assert.equal((await postSession(
+    await missingProfile.getIdToken(true),
+    await getCsrf(),
+  )).status, 403);
+  await signOut(auth);
+
+  const deactivated = await createCustomer("acceptance.web.deactivated@feasta.test");
+  const deactivatedToken = await deactivated.getIdToken(true);
+  await db.collection("users").doc(deactivated.uid).update({
+    accountStatus: "pending_deletion",
+    isActive: false,
+  });
+  const deactivatedResponse = await postSession(
+    deactivatedToken,
+    await getCsrf(),
+  );
+  assert.equal(deactivatedResponse.status, 403);
+  assert.equal((await deactivatedResponse.json()).reason, "deactivated");
+  await signOut(auth);
+
+  const revoked = await createCustomer("acceptance.web.revoked@feasta.test");
+  const revokedSession = await createWebSession(await revoked.getIdToken(true));
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+  await adminAuth.revokeRefreshTokens(revoked.uid);
+  const revokedAccess = await webGet("/customer", revokedSession.cookie);
+  assert.equal(revokedAccess.status, 307);
+  await assertInvalidSessionIsCleared(revokedAccess, revokedSession.cookie);
+
+  const malformedCookie = "feasta_session=malformed";
+  const malformedAccess = await webGet("/customer", malformedCookie);
+  assert.equal(malformedAccess.status, 307);
+  await assertInvalidSessionIsCleared(malformedAccess, malformedCookie);
 
   const csrf = await getCsrf();
   const invalidCsrf = await fetch(`${webUrl}/api/auth/session`, {
@@ -191,11 +885,124 @@ async function testWebSessionsAndRoles() {
     },
   });
   assert.equal(badOrigin.status, 403);
+
+  const authAttemptCsrf = await getCsrf();
+  const crossOriginAttempt = await fetch(`${webUrl}/api/auth/attempt`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "https://evil.example",
+      cookie: authAttemptCsrf.cookie,
+      "x-feasta-csrf": authAttemptCsrf.token,
+    },
+    body: JSON.stringify({
+      action: "password_reset",
+      identifier: "acceptance.customer@feasta.test",
+    }),
+  });
+  assert.equal(crossOriginAttempt.status, 403);
+
+  const blockedAttempt = await postAuthAttempt(
+    {
+      action: "email_verification_resend",
+      idToken: blockedToken,
+    },
+    authAttemptCsrf,
+  );
+  assert.equal(blockedAttempt.status, 401);
+
+  let resetRateLimited;
+  for (let attempt = 0; attempt < 7; attempt += 1) {
+    const response = await postAuthAttempt(
+      {
+        action: "password_reset",
+        identifier: "rapid-reset@feasta.test",
+      },
+      authAttemptCsrf,
+    );
+    if (response.status === 429) {
+      resetRateLimited = response;
+      break;
+    }
+    assert.equal(response.status, 204);
+  }
+  assert.ok(resetRateLimited, "Password-reset preflight was not rate limited.");
+  assert.ok(Number(resetRateLimited.headers.get("retry-after")) > 0);
+
+  const resendUser = await createCustomer(
+    "acceptance.web.rapid-resend@feasta.test",
+  );
+  const resendToken = await resendUser.getIdToken(true);
+  let resendRateLimited;
+  for (let attempt = 0; attempt < 7; attempt += 1) {
+    const response = await postAuthAttempt(
+      {
+        action: "email_verification_resend",
+        idToken: resendToken,
+      },
+      authAttemptCsrf,
+    );
+    if (response.status === 429) {
+      resendRateLimited = response;
+      break;
+    }
+    assert.equal(response.status, 204);
+  }
+  assert.ok(
+    resendRateLimited,
+    "Verification-email preflight was not rate limited.",
+  );
+  await signOut(auth);
+
+  const rateLimitCsrf = await getCsrf();
+  let rateLimitedResponse;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const response = await postSession("x".repeat(120), rateLimitCsrf);
+    if (response.status === 429) {
+      rateLimitedResponse = response;
+      break;
+    }
+    assert.equal(response.status, 401);
+  }
+  assert.ok(rateLimitedResponse, "Session creation rate limit was not enforced.");
+  assert.ok(Number(rateLimitedResponse.headers.get("retry-after")) > 0);
+}
+
+async function postAuthAttempt(body, csrf) {
+  return fetch(`${webUrl}/api/auth/attempt`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: webUrl,
+      cookie: csrf.cookie,
+      "x-feasta-csrf": csrf.token,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+async function assertInvalidSessionIsCleared(response, cookie) {
+  const location = response.headers.get("location") ?? "";
+  assert.match(location, /\/api\/auth\/session\/invalid/u);
+  const invalidUrl = new URL(location, webUrl);
+  const cleared = await fetch(invalidUrl, {
+    headers: {cookie},
+    redirect: "manual",
+  });
+  assert.equal(cleared.status, 307);
+  assert.match(cleared.headers.get("set-cookie") ?? "", /Max-Age=0/i);
 }
 
 async function createCustomer(email) {
   const user = await createUser(email);
   await callFunction("ensureUserProfile", user, {});
+  return user;
+}
+
+async function createVerifiedCustomer(email) {
+  const user = await createCustomer(email);
+  await adminAuth.updateUser(user.uid, {emailVerified: true});
+  await user.reload();
   return user;
 }
 
@@ -230,17 +1037,32 @@ async function oobCodes(email, requestType) {
   return (body.oobCodes ?? []).filter((item) => item.email === email && item.requestType === requestType);
 }
 
-async function createWebSession(idToken) {
+async function emailChangeCodes(newEmail) {
+  const response = await fetch(
+    `http://${authHost}/emulator/v1/projects/${projectId}/oobCodes`,
+  );
+  const body = await response.json();
+  return (body.oobCodes ?? []).filter(
+    (item) =>
+      item.requestType === "VERIFY_AND_CHANGE_EMAIL" &&
+      item.newEmail === newEmail,
+  );
+}
+
+async function createWebSession(idToken, returnTo, expectedRole) {
   const csrf = await getCsrf();
-  const response = await postSession(idToken, csrf);
-  assert.equal(response.status, 200, await response.text());
+  const response = await postSession(idToken, csrf, returnTo, expectedRole);
+  const responseText = await response.text();
+  assert.equal(response.status, 200, responseText);
+  const body = JSON.parse(responseText);
   return {
     cookie: `${csrf.cookie}; ${response.headers.get("set-cookie") ?? ""}`,
     csrf,
+    body,
   };
 }
 
-function postSession(idToken, csrf) {
+function postSession(idToken, csrf, returnTo, expectedRole) {
   return fetch(`${webUrl}/api/auth/session`, {
     method: "POST",
     headers: {
@@ -249,8 +1071,80 @@ function postSession(idToken, csrf) {
       cookie: csrf.cookie,
       "x-feasta-csrf": csrf.token,
     },
-    body: JSON.stringify({idToken}),
+    body: JSON.stringify({idToken, returnTo, expectedRole}),
   });
+}
+
+function postAdminAttempt(email, csrf) {
+  return fetch(`${webUrl}/api/auth/admin/attempt`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: webUrl,
+      cookie: csrf.cookie,
+      "x-feasta-csrf": csrf.token,
+    },
+    body: JSON.stringify({email}),
+  });
+}
+
+async function assertProviderState(
+  status,
+  providerFlags,
+  cookie,
+  expectedLocation,
+) {
+  await db.collection("providers").doc("acceptance-provider").update({
+    verificationStatus: status,
+    ...providerFlags,
+  });
+  await db.collection("providerVerifications")
+    .doc("acceptance-provider-verification")
+    .update({status});
+  const dashboard = await webGet("/provider", cookie);
+  assert.equal(dashboard.status, 307);
+  assert.match(
+    dashboard.headers.get("location") ?? "",
+    new RegExp(`${expectedLocation}$`),
+  );
+  assert.equal((await webGet(expectedLocation, cookie)).status, 200);
+  const packages = await webGet("/provider/packages", cookie);
+  assert.equal(packages.status, 307);
+}
+
+async function clearWebSessionRateLimits() {
+  const snapshot = await db.collection("rateLimits")
+    .where("scope", "==", "web.session.create")
+    .get();
+  const batch = db.batch();
+  snapshot.docs.forEach((document) => batch.delete(document.ref));
+  await batch.commit();
+}
+
+async function clearAdminLoginRateLimits() {
+  const snapshot = await db.collection("rateLimits").get();
+  const batch = db.batch();
+  snapshot.docs
+    .filter((document) =>
+      String(document.data().scope).startsWith("web.admin.login."),
+    )
+    .forEach((document) => batch.delete(document.ref));
+  await batch.commit();
+}
+
+async function assertRejectedAdminState(label, profileChanges) {
+  const user = await createUser(`acceptance.web.admin.${label}@feasta.test`);
+  await writeUserProfile(user.uid, "admin");
+  const session = await createWebSession(
+    await user.getIdToken(true),
+    "/admin",
+    "admin",
+  );
+  await db.collection("users").doc(user.uid).update(profileChanges);
+  const access = await webGet("/admin", session.cookie);
+  assert.equal(access.status, 307);
+  await assertInvalidSessionIsCleared(access, session.cookie);
+  await signOut(auth);
 }
 
 async function getCsrf() {

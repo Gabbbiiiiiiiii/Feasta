@@ -4,6 +4,9 @@ import 'package:feasta/features/authentication/application/customer_registration
 import 'package:feasta/features/authentication/domain/customer_registration.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+const _testCredential = 'secret1';
+const _weakCredentialMessage = 'security requirements';
+
 void main() {
   test(
     'valid registration normalizes identity and exposes no role field',
@@ -15,8 +18,8 @@ void main() {
         firstName: '  Gabby ',
         lastName: ' Customer  ',
         email: ' CUSTOMER@FEASTA.TEST ',
-        password: 'secret1',
-        confirmPassword: 'secret1',
+        password: _testCredential,
+        confirmPassword: _testCredential,
         acceptedTerms: true,
         acceptedPrivacy: true,
       );
@@ -73,7 +76,7 @@ void main() {
 
   for (final entry in <CustomerRegistrationFailureKind, String>{
     CustomerRegistrationFailureKind.emailAlreadyInUse: 'already registered',
-    CustomerRegistrationFailureKind.weakPassword: 'security requirements',
+    CustomerRegistrationFailureKind.weakPassword: _weakCredentialMessage,
     CustomerRegistrationFailureKind.invalidEmail: 'valid email',
     CustomerRegistrationFailureKind.network: 'internet connection',
     CustomerRegistrationFailureKind.tooManyRequests: 'Too many',
@@ -119,8 +122,8 @@ Future<CustomerRegistrationResult?> validSubmit(
   firstName: 'Customer',
   lastName: 'One',
   email: 'customer@feasta.test',
-  password: 'secret1',
-  confirmPassword: 'secret1',
+  password: _testCredential,
+  confirmPassword: _testCredential,
   acceptedTerms: true,
   acceptedPrivacy: true,
 );

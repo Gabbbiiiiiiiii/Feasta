@@ -201,6 +201,7 @@ must run the documented query-policy backfill before clients begin filtering on
 ```powershell
 pnpm emulator:start
 pnpm emulator:seed
+pnpm emulator:fixtures:clear
 pnpm emulator:export
 pnpm emulator:reset
 pnpm emulator:test
@@ -212,26 +213,57 @@ pnpm emulator:hosting:test
 pnpm phase3:verify
 ```
 
-Exports use ignored `firebase/emulator-data`. Reset accepts only localhost
-emulator endpoints and clears Auth, Firestore, and Storage. Hosting validation
-runs on port 5000 and tests a static page plus `/api/health`; normal Next.js
-development remains `pnpm --dir apps/web dev`.
+Exports use ignored `firebase/emulator-data`. `emulator:fixtures:clear` accepts
+only localhost endpoints and deletes exact seeded Auth UIDs plus Firestore
+documents carrying the deterministic fixture marker. It preserves unrelated
+emulator data. `emulator:reset` remains the explicitly destructive full reset:
+it accepts only localhost endpoints and clears all Auth, Firestore, and Storage
+emulator data. Hosting validation runs on port 5000 and tests a static page
+plus `/api/health`; normal Next.js development remains
+`pnpm --dir apps/web dev`.
 
 ## Seed accounts
 
-All accounts use password `FeastaTest!2026`.
+These credentials are fake, local-emulator-only fixtures. They must never be
+copied to Firebase production, staging, shared demos, or real user accounts.
+All password accounts use the local test password `FeastaTest!2026`.
 
 | Email | State |
 |---|---|
-| `customer@feasta.test` | Active customer |
+| `customer@feasta.test` | Active email- and phone-verified customer |
+| `customer.unverified@feasta.test` | Email-unverified customer |
+| `customer.phone-unverified@feasta.test` | Active email-verified, phone-unverified customer |
+| `customer.blocked@feasta.test` | Blocked customer |
+| `customer.deactivated@feasta.test` | Soft-deactivated customer |
+| `customer.missing-profile@feasta.test` | Auth-only customer for missing-profile recovery |
+| `provider.missing-setup@feasta.test` | Provider identity without business setup |
 | `provider.pending@feasta.test` | Draft provider |
 | `provider.submitted@feasta.test` | Submitted provider |
+| `provider.under-review@feasta.test` | Provider under review |
+| `provider.resubmission@feasta.test` | Provider requiring resubmission |
+| `provider.rejected@feasta.test` | Rejected provider |
+| `provider.suspended@feasta.test` | Suspended provider |
 | `provider.approved@feasta.test` | Approved provider |
+| `provider.blocked@feasta.test` | Approved provider with a blocked owner account |
 | `admin@feasta.test` | Active admin |
+| `admin.blocked@feasta.test` | Blocked admin |
+| `admin.disabled@feasta.test` | Firebase Auth-disabled admin |
 
 Seed data uses fixed IDs and includes profiles, verification variants,
 catalog, event/request, legacy booking compatibility, payment, notification,
-review, complaint, announcement, and app settings.
+review, complaint, announcement, and app settings. Synthetic phone values use
+the reserved local fixture pattern `+63900000XXXX`; the Auth emulator is the
+only supported target. The missing-profile fixture intentionally has no
+Firestore profile. All other Auth and Firestore verification, disabled,
+blocked, role, provider-link, and account-status values are synchronized.
+
+Running `pnpm emulator:seed` repeatedly is safe and restores the canonical
+fixture state with merge writes and deterministic Auth UIDs. The tooling
+acceptance seeds twice, validates the complete matrix, creates unrelated
+sentinel data, runs targeted fixture cleanup, proves the sentinel survived,
+and finally exercises the existing full reset. Windows acceptance wrappers
+clean orphaned Java Firestore listeners on the dedicated test ports and refuse
+to stop unrelated process types.
 
 ## Verification command
 

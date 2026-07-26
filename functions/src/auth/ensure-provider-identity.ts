@@ -23,6 +23,15 @@ export const ensureProviderIdentity = onCall(
 
     try {
       const input = requireObject(request.data);
+      rejectUnknownFields(input, [
+        "firstName",
+        "lastName",
+        "phoneNumber",
+        "acceptedTerms",
+        "acceptedPrivacy",
+        "termsPolicyVersion",
+        "privacyPolicyVersion",
+      ]);
       const firstName = requireString(input.firstName, "firstName", {
         minLength: 1,
         maxLength: 80,
@@ -35,6 +44,16 @@ export const ensureProviderIdentity = onCall(
         minLength: 7,
         maxLength: 30,
       });
+      const acceptedTerms = input.acceptedTerms === true;
+      const acceptedPrivacy = input.acceptedPrivacy === true;
+      const termsPolicyVersion = policyVersion(
+        input.termsPolicyVersion,
+        "termsPolicyVersion",
+      );
+      const privacyPolicyVersion = policyVersion(
+        input.privacyPolicyVersion,
+        "privacyPolicyVersion",
+      );
       const authUser = await getAuth().getUser(authenticatedUser.uid);
       if (authUser.disabled) {
         throw new HttpsError("permission-denied", "This account is disabled.");
@@ -72,6 +91,14 @@ export const ensureProviderIdentity = onCall(
             isEmailVerified: authUser.emailVerified,
             authProvider: authUser.providerData[0]?.providerId ?? "password",
             updatedAt: serverTimestamp(),
+            ...(acceptedTerms && existing.termsAcceptedAt == null ? {
+              termsAcceptedAt: serverTimestamp(),
+              termsPolicyVersion,
+            } : {}),
+            ...(acceptedPrivacy && existing.privacyAcceptedAt == null ? {
+              privacyAcceptedAt: serverTimestamp(),
+              privacyPolicyVersion,
+            } : {}),
           });
         } else {
           transaction.create(userReference, {
@@ -89,6 +116,14 @@ export const ensureProviderIdentity = onCall(
             isActive: true,
             isBlocked: false,
             authProvider: authUser.providerData[0]?.providerId ?? "password",
+            ...(acceptedTerms ? {
+              termsAcceptedAt: serverTimestamp(),
+              termsPolicyVersion,
+            } : {}),
+            ...(acceptedPrivacy ? {
+              privacyAcceptedAt: serverTimestamp(),
+              privacyPolicyVersion,
+            } : {}),
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           });
@@ -114,3 +149,22 @@ export const ensureProviderIdentity = onCall(
     }
   },
 );
+
+function policyVersion(value: unknown, field: string): string {
+  if (value === undefined) return "unversioned";
+  return requireString(value, field, {minLength: 1, maxLength: 80});
+}
+
+function rejectUnknownFields(
+  input: Record<string, unknown>,
+  allowedFields: readonly string[],
+): void {
+  const unknownFields = Object.keys(input)
+    .filter((field) => !allowedFields.includes(field));
+  if (unknownFields.length > 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Unknown provider identity fields: ${unknownFields.join(", ")}.`,
+    );
+  }
+}

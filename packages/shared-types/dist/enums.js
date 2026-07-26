@@ -37,6 +37,15 @@ export const VERIFICATION_DOCUMENT_STATUSES = [
     "rejected",
     "expired",
 ];
+export const VERIFICATION_DOCUMENT_TYPES = [
+    "business_permit",
+    "dti_registration",
+    "bir_registration",
+    "valid_id",
+    "sanitary_permit",
+    "mayors_permit",
+    "other",
+];
 export const PROVIDER_SERVICE_TYPES = [
     "catering",
     "addon",

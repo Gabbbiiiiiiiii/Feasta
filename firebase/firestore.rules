@@ -886,6 +886,12 @@ service cloud.firestore {
       }
     }
 
+    // Provider onboarding drafts are written by the trusted callable and read
+    // by the server-rendered onboarding shell through the Admin SDK.
+    match /providerOnboardingDrafts/{userId} {
+      allow read, create, update, delete: if false;
+    }
+
     // Minimal, backend-generated PayMongo event receipts used for replay
     // prevention. Raw gateway payloads are never client-readable.
     match /paymentWebhookEvents/{eventId} {

@@ -24,6 +24,132 @@ export const AUTHENTICATION_GATE_KINDS = [
     "configurationError",
     "invalidAccountState",
 ];
+/**
+ * Canonical user-facing terminology for account-state decisions.
+ *
+ * Authorization remains a server/backend responsibility. Clients may use this
+ * copy to explain a trusted decision, but must never use it to grant access.
+ */
+export const AUTHENTICATION_GATE_PRESENTATION = {
+    loading: {
+        label: "Checking account",
+        message: "FEASTA is checking your account.",
+        recoveryAction: null,
+    },
+    unauthenticated: {
+        label: "Sign in required",
+        message: "Sign in to continue.",
+        recoveryAction: "Sign in",
+    },
+    missingUserProfile: {
+        label: "Profile unavailable",
+        message: "We could not find the FEASTA profile for this account.",
+        recoveryAction: "Retry or contact FEASTA support",
+    },
+    disabledAuthAccount: {
+        label: "Account disabled",
+        message: "This account is disabled. Contact FEASTA support for help.",
+        recoveryAction: "Contact FEASTA support",
+    },
+    disabledAccount: {
+        label: "Account disabled",
+        message: "This account is disabled. Contact FEASTA support for help.",
+        recoveryAction: "Contact FEASTA support",
+    },
+    blocked: {
+        label: "Account blocked",
+        message: "This account is blocked. Contact FEASTA support for help.",
+        recoveryAction: "Contact FEASTA support",
+    },
+    deactivated: {
+        label: "Account deactivated",
+        message: "This account is deactivated. Contact FEASTA support if you want to restore access.",
+        recoveryAction: "Contact FEASTA support",
+    },
+    emailVerificationRequired: {
+        label: "Email verification required",
+        message: "Verify your email address to continue.",
+        recoveryAction: "Check or resend verification",
+    },
+    customerReady: {
+        label: "Customer account ready",
+        message: "Your customer account is ready.",
+        recoveryAction: null,
+    },
+    customerPhoneVerificationRequired: {
+        label: "Phone verification required",
+        message: "Verify your phone number before submitting a booking.",
+        recoveryAction: "Verify phone number",
+    },
+    providerBusinessSetupRequired: {
+        label: "Business setup required",
+        message: "Complete your provider business setup to continue.",
+        recoveryAction: "Continue business setup",
+    },
+    providerVerificationDraft: {
+        label: "Verification draft",
+        message: "Complete and submit your provider verification documents.",
+        recoveryAction: "Continue verification",
+    },
+    providerVerificationSubmitted: {
+        label: "Verification submitted",
+        message: "Your provider verification is waiting for FEASTA review.",
+        recoveryAction: "View verification status",
+    },
+    providerUnderReview: {
+        label: "Verification under review",
+        message: "A FEASTA administrator is reviewing your submission.",
+        recoveryAction: "View verification status",
+    },
+    providerResubmissionRequired: {
+        label: "Resubmission required",
+        message: "FEASTA requested changes to your verification documents.",
+        recoveryAction: "Update verification documents",
+    },
+    providerRejected: {
+        label: "Provider application rejected",
+        message: "This provider profile was not approved.",
+        recoveryAction: "Review FEASTA feedback",
+    },
+    providerSuspended: {
+        label: "Provider account suspended",
+        message: "Provider business operations are currently disabled.",
+        recoveryAction: "Contact FEASTA support",
+    },
+    providerApproved: {
+        label: "Provider approved",
+        message: "Your provider account is approved.",
+        recoveryAction: null,
+    },
+    adminReady: {
+        label: "Admin account ready",
+        message: "Your administrator account is ready.",
+        recoveryAction: null,
+    },
+    forbiddenRole: {
+        label: "Account not supported",
+        message: "This account cannot use the selected FEASTA app or portal.",
+        recoveryAction: "Use the correct FEASTA app or portal",
+    },
+    sessionExpired: {
+        label: "Session ended",
+        message: "Your session ended. Sign in again to continue.",
+        recoveryAction: "Sign in again",
+    },
+    configurationError: {
+        label: "Configuration error",
+        message: "FEASTA could not start securely. Please try again later.",
+        recoveryAction: "Retry",
+    },
+    invalidAccountState: {
+        label: "Account unavailable",
+        message: "This account is in an unsupported state. Contact FEASTA support.",
+        recoveryAction: "Contact FEASTA support",
+    },
+};
+export function authenticationGatePresentation(kind) {
+    return AUTHENTICATION_GATE_PRESENTATION[kind];
+}
 export function parseUserRole(value) {
     const normalized = normalizeWireValue(value);
     return USER_ROLES.includes(normalized)

@@ -5,7 +5,15 @@ import {
 import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
-import {USER_ROLES} from "../shared/constants.js";
+import {
+  PROVIDER_EVENT_TYPES,
+  PROVIDER_OPERATING_DAYS,
+  PROVIDER_SERVICE_CATEGORIES,
+  PROVIDER_SERVICE_TYPES,
+  USER_ROLES,
+  serviceCategoryMatchesProviderType,
+  type ProviderServiceCategory,
+} from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
 import {
   beginIdempotentOperation,
@@ -25,13 +33,6 @@ import {
   requireObject,
   requireString,
 } from "../shared/validation.js";
-
-const PROVIDER_SERVICE_TYPES = [
-  "catering",
-  "addon",
-  "both",
-] as const;
-
 function buildSearchTokens(values: readonly string[]): string[] {
   const tokens = new Set<string>();
   for (const value of values) {
@@ -79,10 +80,25 @@ export const registerProvider = onCall(
       "address",
       "city",
       "province",
+      "locationCoordinates",
       "providerServiceType",
       "providerCategory",
+      "serviceCategories",
       "serviceAreas",
+      "maxServiceDistanceKm",
       "eventTypesSupported",
+      "minGuestsPerEvent",
+      "maxGuestsPerEvent",
+      "guestCapacity",
+      "acceptsMultipleEventsPerDay",
+      "maxEventsPerDay",
+      "availableStaffCount",
+      "availableEquipmentCount",
+      "operatingDays",
+      "bookingLeadTimeDays",
+      "unavailableDates",
+      "logoStoragePath",
+      "coverStoragePath",
       "idempotencyKey",
     ]);
 
@@ -113,14 +129,14 @@ export const registerProvider = onCall(
       );
     }
 
-    const businessPhone = requireString(
+    const businessPhone = normalizePhilippinePhone(requireString(
       input.businessPhone,
       "businessPhone",
       {
         minLength: 7,
         maxLength: 30,
       },
-    );
+    ), "businessPhone");
 
     const ownerFirstName = requireString(
       input.ownerFirstName,
@@ -186,10 +202,103 @@ export const registerProvider = onCall(
       "providerCategory",
       {minLength: 2, maxLength: 100},
     );
+    const serviceCategories = optionalEnumList(
+      input.serviceCategories,
+      "serviceCategories",
+      PROVIDER_SERVICE_CATEGORIES,
+    );
+    if (
+      serviceCategories.some((category) =>
+        !serviceCategoryMatchesProviderType(
+          category as ProviderServiceCategory,
+          providerServiceType,
+        )
+      ) ||
+      (serviceCategories.length > 0 &&
+        serviceCategories[0] !== providerCategory)
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Service categories must match the provider service type and primary category.",
+      );
+    }
     const serviceAreas = optionalStringList(input.serviceAreas, "serviceAreas");
-    const eventTypesSupported = optionalStringList(
-      input.eventTypesSupported,
-      "eventTypesSupported",
+    const eventTypesSupported = input.serviceCategories === undefined
+      ? optionalStringList(input.eventTypesSupported, "eventTypesSupported")
+      : optionalEnumList(
+          input.eventTypesSupported,
+          "eventTypesSupported",
+          PROVIDER_EVENT_TYPES,
+        );
+    const maxServiceDistanceKm = optionalNumber(
+      input.maxServiceDistanceKm,
+      "maxServiceDistanceKm",
+      {minimum: 1, maximum: 1000},
+    );
+    const locationCoordinates = optionalCoordinates(
+      input.locationCoordinates,
+    );
+    const maxGuestsPerEvent = compatibleGuestCapacity(input);
+    const minGuestsPerEvent = optionalInteger(
+      input.minGuestsPerEvent,
+      "minGuestsPerEvent",
+      {minimum: 0, maximum: 100000, fallback: 0},
+    );
+    if (
+      maxGuestsPerEvent > 0 &&
+      minGuestsPerEvent > maxGuestsPerEvent
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Minimum guests cannot exceed maximum guests.",
+      );
+    }
+    const acceptsMultipleEventsPerDay = optionalBoolean(
+      input.acceptsMultipleEventsPerDay,
+      "acceptsMultipleEventsPerDay",
+      false,
+    );
+    const maxEventsPerDay = optionalInteger(
+      input.maxEventsPerDay,
+      "maxEventsPerDay",
+      {minimum: 1, maximum: 100, fallback: 1},
+    );
+    if (!acceptsMultipleEventsPerDay && maxEventsPerDay !== 1) {
+      throw new HttpsError(
+        "invalid-argument",
+        "maxEventsPerDay must be 1 when multiple daily events are disabled.",
+      );
+    }
+    const availableStaffCount = optionalInteger(
+      input.availableStaffCount,
+      "availableStaffCount",
+      {minimum: 0, maximum: 100000, fallback: 0},
+    );
+    const availableEquipmentCount = optionalInteger(
+      input.availableEquipmentCount,
+      "availableEquipmentCount",
+      {minimum: 0, maximum: 100000, fallback: 0},
+    );
+    const operatingDays = optionalEnumList(
+      input.operatingDays,
+      "operatingDays",
+      PROVIDER_OPERATING_DAYS,
+    );
+    const bookingLeadTimeDays = optionalInteger(
+      input.bookingLeadTimeDays,
+      "bookingLeadTimeDays",
+      {minimum: 0, maximum: 365, fallback: 0},
+    );
+    const unavailableDates = optionalIsoDateList(input.unavailableDates);
+    const logoStoragePath = optionalProviderMediaPath(
+      input.logoStoragePath,
+      authenticatedUser.uid,
+      "logo",
+    );
+    const coverStoragePath = optionalProviderMediaPath(
+      input.coverStoragePath,
+      authenticatedUser.uid,
+      "cover",
     );
 
     const idempotencyKey = createIdempotencyKey({
@@ -222,6 +331,9 @@ export const registerProvider = onCall(
 
     const newVerificationReference = db
       .collection("providerVerifications")
+      .doc(authenticatedUser.uid);
+    const onboardingDraftReference = db
+      .collection("providerOnboardingDrafts")
       .doc(authenticatedUser.uid);
 
     const existingProviderQuery = db
@@ -458,23 +570,36 @@ export const registerProvider = onCall(
               businessPhone,
               ownerFirstName,
               ownerLastName,
+              ownerEmail:
+                typeof userData?.email === "string"
+                  ? userData.email.trim().toLowerCase()
+                  : null,
+              ownerPhone:
+                typeof userData?.phoneNumber === "string"
+                  ? userData.phoneNumber.trim()
+                  : null,
               description,
               location:
                 `${city}, ${province}`,
               address,
               city,
               province,
+              locationCoordinates,
               coverImageUrl: null,
               logoUrl: null,
+              coverStoragePath,
+              logoStoragePath,
 
               providerServiceType,
               providerCategory,
+              serviceCategories,
               searchTokens: buildSearchTokens([
                 businessName,
                 city,
                 province,
                 providerServiceType,
                 providerCategory,
+                ...serviceCategories,
                 ...serviceAreas,
                 ...eventTypesSupported,
               ]),
@@ -482,13 +607,18 @@ export const registerProvider = onCall(
 
               eventTypesSupported,
               serviceAreas,
+              maxServiceDistanceKm,
 
               acceptsMultipleEventsPerDay:
-                false,
-              maxEventsPerDay: 1,
-              availableStaffCount: 0,
-              availableEquipmentCount: 0,
-              maxGuestsPerEvent: 0,
+                acceptsMultipleEventsPerDay,
+              maxEventsPerDay,
+              availableStaffCount,
+              availableEquipmentCount,
+              operatingDays,
+              bookingLeadTimeDays,
+              unavailableDates,
+              minGuestsPerEvent,
+              maxGuestsPerEvent,
 
               minPrice: 0,
               maxPrice: 0,
@@ -552,6 +682,8 @@ export const registerProvider = onCall(
                 serverTimestamp(),
             },
           );
+
+          transaction.delete(onboardingDraftReference);
 
           writeAuditLogInTransaction(
             transaction,
@@ -656,6 +788,209 @@ function optionalStringList(value: unknown, field: string): string[] {
   ));
 
   return [...new Set(normalized)];
+}
+
+function optionalEnumList<T extends string>(
+  value: unknown,
+  field: string,
+  allowed: readonly T[],
+): T[] {
+  const values = optionalStringList(value, field);
+  if (values.some((item) => !allowed.includes(item as T))) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${field} contains an unsupported value.`,
+    );
+  }
+  return values as T[];
+}
+
+function optionalNumber(
+  value: unknown,
+  field: string,
+  options: {minimum: number; maximum: number},
+): number | null {
+  if (value === undefined || value === null) return null;
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < options.minimum ||
+    value > options.maximum
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${field} must be between ${options.minimum} and ${options.maximum}.`,
+    );
+  }
+  return value;
+}
+
+function optionalIsoDateList(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 366) {
+    throw new HttpsError(
+      "invalid-argument",
+      "unavailableDates must be a list of at most 366 dates.",
+    );
+  }
+  const dates = value.map((item, index) => requireString(
+    item,
+    `unavailableDates[${index}]`,
+    {minLength: 10, maxLength: 10},
+  ));
+  if (dates.some((date) =>
+    !/^\d{4}-\d{2}-\d{2}$/u.test(date) ||
+    Number.isNaN(Date.parse(`${date}T00:00:00Z`))
+  )) {
+    throw new HttpsError(
+      "invalid-argument",
+      "unavailableDates must use YYYY-MM-DD.",
+    );
+  }
+  return [...new Set(dates)].sort();
+}
+
+function optionalCoordinates(
+  value: unknown,
+): {latitude: number; longitude: number} | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "locationCoordinates must contain latitude and longitude.",
+    );
+  }
+  const coordinates = value as Record<string, unknown>;
+  const unknownFields = Object.keys(coordinates)
+    .filter((field) => !["latitude", "longitude"].includes(field));
+  const latitude = coordinates.latitude;
+  const longitude = coordinates.longitude;
+  if (
+    unknownFields.length > 0 ||
+    typeof latitude !== "number" ||
+    !Number.isFinite(latitude) ||
+    latitude < -90 ||
+    latitude > 90 ||
+    typeof longitude !== "number" ||
+    !Number.isFinite(longitude) ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "locationCoordinates are invalid.",
+    );
+  }
+  return {latitude, longitude};
+}
+
+function compatibleGuestCapacity(
+  input: Record<string, unknown>,
+): number {
+  const canonical = input.maxGuestsPerEvent;
+  const legacy = input.guestCapacity;
+  if (
+    canonical !== undefined &&
+    legacy !== undefined &&
+    canonical !== legacy
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Guest capacity fields do not match.",
+    );
+  }
+  return optionalInteger(
+    canonical ?? legacy,
+    "maxGuestsPerEvent",
+    {minimum: 0, maximum: 100000, fallback: 0},
+  );
+}
+
+function optionalInteger(
+  value: unknown,
+  field: string,
+  options: {
+    minimum: number;
+    maximum: number;
+    fallback: number;
+  },
+): number {
+  if (value === undefined) return options.fallback;
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < options.minimum ||
+    value > options.maximum
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${field} must be an integer between ${options.minimum} and ` +
+        `${options.maximum}.`,
+    );
+  }
+  return value;
+}
+
+function optionalBoolean(
+  value: unknown,
+  field: string,
+  fallback: boolean,
+): boolean {
+  if (value === undefined) return fallback;
+  if (typeof value !== "boolean") {
+    throw new HttpsError(
+      "invalid-argument",
+      `${field} must be a boolean.`,
+    );
+  }
+  return value;
+}
+
+function normalizePhilippinePhone(value: string, field: string): string {
+  const compact = value.replace(/[\s().-]/gu, "");
+  const normalized = compact.startsWith("+63")
+    ? compact
+    : compact.startsWith("63")
+      ? `+${compact}`
+      : compact.startsWith("0")
+        ? `+63${compact.slice(1)}`
+        : "";
+  if (!/^\+63\d{8,10}$/u.test(normalized)) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${field} must be a valid Philippine phone number.`,
+    );
+  }
+  return normalized;
+}
+
+function optionalProviderMediaPath(
+  value: unknown,
+  ownerId: string,
+  mediaType: "logo" | "cover",
+): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string" || value.length > 500) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${mediaType}StoragePath is invalid.`,
+    );
+  }
+  const prefix = `providers/${ownerId}/${mediaType}/`;
+  const fileName = value.startsWith(prefix)
+    ? value.slice(prefix.length)
+    : "";
+  if (
+    fileName.length === 0 ||
+    fileName.includes("/") ||
+    !/\.(?:jpe?g|png|webp)$/iu.test(fileName)
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${mediaType}StoragePath is invalid.`,
+    );
+  }
+  return value;
 }
 
 function rejectUnknownFields(

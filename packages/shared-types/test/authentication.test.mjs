@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  AUTHENTICATION_GATE_KINDS,
+  authenticationGatePresentation,
   parseAccountStatus,
   parseProviderVerificationStatus,
   parseUserRole,
@@ -92,4 +94,30 @@ test("resolves admin and fails closed for role violations", () => {
     requiredRoles: ["admin"],
   }).kind, "forbiddenRole");
   assert.equal(gate({userProfile: active({role: "owner"})}).kind, "forbiddenRole");
+});
+
+test("every account gate has canonical user-facing terminology", () => {
+  for (const kind of AUTHENTICATION_GATE_KINDS) {
+    const presentation = authenticationGatePresentation(kind);
+    assert.ok(presentation.label.trim().length > 0, `${kind} label`);
+    assert.ok(presentation.message.trim().length > 0, `${kind} message`);
+  }
+  assert.equal(
+    authenticationGatePresentation("customerPhoneVerificationRequired").message,
+    "Verify your phone number before submitting a booking.",
+  );
+  assert.equal(
+    authenticationGatePresentation("sessionExpired").message,
+    "Your session ended. Sign in again to continue.",
+  );
+});
+
+test("matrix includes unauthenticated and expired/revoked session outcomes", () => {
+  assert.equal(resolveAuthenticationGate({
+    authenticated: false,
+  }).kind, "unauthenticated");
+  assert.equal(resolveAuthenticationGate({
+    authenticated: true,
+    sessionExpired: true,
+  }).kind, "sessionExpired");
 });

@@ -14,6 +14,10 @@ the provider in `draft`, creates its verification in `draft`, links
 the same IDs with `created=false`. Missing, cross-owner, or incomplete existing
 links fail safely.
 
+The canonical owner, business, operational-capacity, consent, and field-writer
+contract is documented in
+[`provider-onboarding-schema.md`](provider-onboarding-schema.md).
+
 ## Document policy
 
 The accepted document types are:

@@ -15,6 +15,8 @@ export declare const PROVIDER_VERIFICATION_TRANSITIONS: {
 };
 export declare const VERIFICATION_DOCUMENT_STATUSES: readonly ["pending", "verified", "rejected", "expired"];
 export type VerificationDocumentStatus = (typeof VERIFICATION_DOCUMENT_STATUSES)[number];
+export declare const VERIFICATION_DOCUMENT_TYPES: readonly ["business_permit", "dti_registration", "bir_registration", "valid_id", "sanitary_permit", "mayors_permit", "other"];
+export type VerificationDocumentType = (typeof VERIFICATION_DOCUMENT_TYPES)[number];
 export declare const PROVIDER_SERVICE_TYPES: readonly ["catering", "addon", "both"];
 export type ProviderServiceType = (typeof PROVIDER_SERVICE_TYPES)[number];
 export declare const PACKAGE_STATUSES: readonly ["draft", "active", "inactive", "archived"];

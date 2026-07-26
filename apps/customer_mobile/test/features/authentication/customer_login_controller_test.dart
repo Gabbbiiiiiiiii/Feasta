@@ -4,15 +4,21 @@ import 'package:feasta/features/authentication/application/customer_login_contro
 import 'package:feasta/features/authentication/domain/customer_login.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+const _testCredential = 'secret1';
+const _spacedTestCredential = ' secret ';
+
 void main() {
   test('correct email login is normalized without changing password', () async {
     final gateway = FakeLoginGateway();
     final result = await CustomerLoginController(
       gateway: gateway,
-    ).signInWithEmail(email: ' CUSTOMER@FEASTA.TEST ', password: ' secret ');
+    ).signInWithEmail(
+      email: ' CUSTOMER@FEASTA.TEST ',
+      password: _spacedTestCredential,
+    );
     expect(result?.uid, 'customer-one');
     expect(gateway.email, 'customer@feasta.test');
-    expect(gateway.password, ' secret ');
+    expect(gateway.password, _spacedTestCredential);
   });
 
   test('invalid email and empty password fail locally', () async {
@@ -32,7 +38,7 @@ void main() {
     final controller = CustomerLoginController(gateway: gateway);
     final first = controller.signInWithEmail(
       email: 'customer@feasta.test',
-      password: 'secret1',
+      password: _testCredential,
     );
     await Future<void>.delayed(Duration.zero);
     final second = await controller.signInWithGoogle();
@@ -71,7 +77,7 @@ void main() {
       expect(
         await controller.signInWithEmail(
           email: 'customer@feasta.test',
-          password: 'secret1',
+          password: _testCredential,
         ),
         isNull,
       );

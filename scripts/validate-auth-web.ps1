@@ -17,6 +17,15 @@ $env:WEB_ALLOWED_ORIGINS = $env:PHASE3_WEB_URL
 
 Push-Location $root
 try {
+  & node --experimental-strip-types scripts/seed-emulators.ts
+  if ($LASTEXITCODE -ne 0) {
+    throw "Authentication fixture seed failed."
+  }
+  & node --experimental-strip-types scripts/seed-emulators.ts
+  if ($LASTEXITCODE -ne 0) {
+    throw "Authentication fixture idempotency replay failed."
+  }
+
   $webProcess = Start-Process -FilePath "node.exe" `
     -ArgumentList @($nextBin, "dev", "-p", $webPort) `
     -WorkingDirectory (Join-Path $root "apps\web") `
@@ -30,6 +39,7 @@ try {
 } finally {
   if ($null -ne $webProcess -and !$webProcess.HasExited) {
     Stop-Process -Id $webProcess.Id -Force -ErrorAction SilentlyContinue
+    Wait-Process -Id $webProcess.Id -Timeout 10 -ErrorAction SilentlyContinue
   }
   Pop-Location
 }

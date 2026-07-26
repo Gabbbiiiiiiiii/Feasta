@@ -59,6 +59,70 @@ ProviderVerificationStatus? tryParseProviderVerificationStatus(Object? value) {
   };
 }
 
+String providerServiceTypeToJson(ProviderServiceType type) {
+  return switch (type) {
+    ProviderServiceType.catering => 'catering',
+    ProviderServiceType.addon => 'addon',
+    ProviderServiceType.both => 'both',
+  };
+}
+
+ProviderServiceType? tryParseProviderServiceType(Object? value) {
+  final normalized = _normalizeAuthValue(value);
+  return switch (normalized) {
+    'catering' => ProviderServiceType.catering,
+    'addon' || 'add_on' || 'addons' => ProviderServiceType.addon,
+    'both' => ProviderServiceType.both,
+    _ => null,
+  };
+}
+
+String verificationDocumentTypeToJson(VerificationDocumentType type) {
+  return switch (type) {
+    VerificationDocumentType.businessPermit => 'business_permit',
+    VerificationDocumentType.dtiRegistration => 'dti_registration',
+    VerificationDocumentType.birRegistration => 'bir_registration',
+    VerificationDocumentType.validId => 'valid_id',
+    VerificationDocumentType.sanitaryPermit => 'sanitary_permit',
+    VerificationDocumentType.mayorsPermit => 'mayors_permit',
+    VerificationDocumentType.other => 'other',
+  };
+}
+
+VerificationDocumentType? tryParseVerificationDocumentType(Object? value) {
+  final normalized = _normalizeAuthValue(value);
+  return switch (normalized) {
+    'business_permit' => VerificationDocumentType.businessPermit,
+    'dti_registration' => VerificationDocumentType.dtiRegistration,
+    'bir_registration' => VerificationDocumentType.birRegistration,
+    'valid_id' || 'validid' => VerificationDocumentType.validId,
+    'sanitary_permit' => VerificationDocumentType.sanitaryPermit,
+    'mayors_permit' || 'mayor_permit' => VerificationDocumentType.mayorsPermit,
+    'other' => VerificationDocumentType.other,
+    _ => null,
+  };
+}
+
+String verificationDocumentStatusToJson(VerificationDocumentStatus status) {
+  return switch (status) {
+    VerificationDocumentStatus.pending => 'pending',
+    VerificationDocumentStatus.verified => 'verified',
+    VerificationDocumentStatus.rejected => 'rejected',
+    VerificationDocumentStatus.expired => 'expired',
+  };
+}
+
+VerificationDocumentStatus? tryParseVerificationDocumentStatus(Object? value) {
+  final normalized = _normalizeAuthValue(value);
+  return switch (normalized) {
+    'pending' => VerificationDocumentStatus.pending,
+    'verified' => VerificationDocumentStatus.verified,
+    'rejected' => VerificationDocumentStatus.rejected,
+    'expired' => VerificationDocumentStatus.expired,
+    _ => null,
+  };
+}
+
 String _normalizeAuthValue(Object? value) {
   if (value is! String) return '';
   return value.trim().toLowerCase().replaceAll('-', '_');

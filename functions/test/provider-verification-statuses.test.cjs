@@ -10,6 +10,9 @@ const {
   MAX_VERIFICATION_DOCUMENT_SIZE_BYTES,
   isRequiredVerificationDocumentType,
   isProviderVerificationTransitionAllowed,
+  parseProviderServiceType,
+  parseVerificationDocumentStatus,
+  parseVerificationDocumentType,
 } = require("../lib/shared/constants.js");
 
 const expectedStatuses = [
@@ -80,4 +83,14 @@ test("provider verification permits exactly the documented transitions", () => {
       );
     }
   }
+});
+
+test("provider onboarding parsers align and fail closed", () => {
+  assert.equal(parseProviderServiceType("catering"), "catering");
+  assert.equal(parseProviderServiceType("add-on"), "addon");
+  assert.equal(parseProviderServiceType("venue"), null);
+  assert.equal(parseVerificationDocumentType("mayor_permit"), "mayors_permit");
+  assert.equal(parseVerificationDocumentType("passport"), null);
+  assert.equal(parseVerificationDocumentStatus("verified"), "verified");
+  assert.equal(parseVerificationDocumentStatus("approved"), null);
 });

@@ -36,6 +36,11 @@ beforeEach(async () => {
     "users/provider-other": userData("provider-other", "provider", {
       providerId: "provider-two",
     }),
+    "users/provider-onboarding": userData(
+      "provider-onboarding",
+      "provider",
+      {providerId: null},
+    ),
     "users/admin-one": userData("admin-one", "admin"),
     "users/customer-blocked": userData("customer-blocked", "customer", {
       isBlocked: true,
@@ -218,6 +223,49 @@ test("provider logo, cover, and package assets resolve provider ownership", asyn
       imageMetadata(),
     ));
   }
+});
+
+test("pre-registration provider media uses deterministic UID ownership", async () => {
+  const ownerStorage = authenticated(
+    testEnv,
+    "provider-onboarding",
+    "provider",
+  ).storage();
+  const otherStorage = authenticated(
+    testEnv,
+    "provider-other",
+    "provider",
+  ).storage();
+  const logoPath =
+    "providers/provider-onboarding/logo/onboarding-logo.png";
+  const coverPath =
+    "providers/provider-onboarding/cover/onboarding-cover.webp";
+  const logo = ref(ownerStorage, logoPath);
+
+  await assertSucceeds(uploadBytes(logo, bytes(4), imageMetadata()));
+  await assertSucceeds(uploadBytes(logo, bytes(9), imageMetadata()));
+  assert.equal((await getBytes(logo)).byteLength, 9);
+  await assertSucceeds(uploadBytes(
+    ref(ownerStorage, coverPath),
+    bytes(),
+    {contentType: "image/webp"},
+  ));
+  await assertFails(uploadBytes(
+    ref(otherStorage, logoPath),
+    bytes(),
+    imageMetadata(),
+  ));
+  await assertFails(uploadBytes(
+    ref(ownerStorage, "providers/provider-onboarding/logo/script.html"),
+    bytes(),
+    {contentType: "text/html"},
+  ));
+  await assertFails(uploadBytes(
+    ref(ownerStorage, "providers/provider-onboarding/logo/large.png"),
+    bytes(5 * 1024 * 1024 + 1),
+    imageMetadata(),
+  ));
+  await assertSucceeds(deleteObject(logo));
 });
 
 test("verification files are owner-uploaded and privately reviewed", async () => {

@@ -36,6 +36,8 @@ try {
 
   Write-Host "Seed, export, fresh import, and imported-state validation passed."
 } finally {
+  & (Join-Path $PSScriptRoot "stop-emulator-listeners.ps1") `
+    -Ports @(48480, 48280)
   Pop-Location
   if (Test-Path -LiteralPath $exportDir) {
     Remove-Item -LiteralPath $exportDir -Recurse -Force

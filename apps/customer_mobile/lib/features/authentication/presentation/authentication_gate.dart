@@ -7,6 +7,7 @@ import '../../presentation/screens/email_verification_screen.dart';
 import '../../presentation/screens/login_screen.dart';
 import '../../splash/splash_screen.dart';
 import '../application/customer_auth_controller.dart';
+import '../domain/auth_account_presentation.dart';
 import '../domain/auth_account_state.dart';
 
 typedef AuthenticationGateBuilder =
@@ -99,12 +100,11 @@ class AuthenticationGate extends StatelessWidget {
     }
 
     if (kind == AuthenticationGateKind.missingUserProfile) {
+      final presentation = authenticationGatePresentation(kind);
       return _StateScaffold(
         child: FeastaErrorState(
-          title: 'Your customer profile needs attention',
-          message:
-              'We could not load both parts of your FEASTA customer profile. '
-              'Try again, or sign out and contact support if this continues.',
+          title: presentation.label,
+          message: presentation.message,
           retryLabel: 'Try again',
           onRetry: controller.refresh,
         ),
@@ -126,8 +126,8 @@ class AuthenticationGate extends StatelessWidget {
 
     return _StateScaffold(
       child: FeastaErrorState(
-        title: _unavailableTitle(kind),
-        message: _unavailableMessage(kind),
+        title: authenticationGatePresentation(kind).label,
+        message: authenticationGatePresentation(kind).message,
         retryLabel: 'Sign out',
         onRetry: controller.signOut,
       ),
@@ -145,30 +145,6 @@ class AuthenticationGate extends StatelessWidget {
         kind == AuthenticationGateKind.providerSuspended ||
         kind == AuthenticationGateKind.providerApproved ||
         kind == AuthenticationGateKind.adminReady;
-  }
-
-  static String _unavailableTitle(AuthenticationGateKind kind) {
-    return switch (kind) {
-      AuthenticationGateKind.blocked => 'This account is blocked',
-      AuthenticationGateKind.deactivated => 'This account is deactivated',
-      AuthenticationGateKind.disabledAuthAccount ||
-      AuthenticationGateKind.disabledAccount => 'This account is disabled',
-      AuthenticationGateKind.configurationError =>
-        'FEASTA could not start securely',
-      _ => 'This account is unavailable',
-    };
-  }
-
-  static String _unavailableMessage(AuthenticationGateKind kind) {
-    return switch (kind) {
-      AuthenticationGateKind.blocked =>
-        'Contact FEASTA support if you believe this restriction is incorrect.',
-      AuthenticationGateKind.deactivated =>
-        'Sign in again only after your account has been restored.',
-      AuthenticationGateKind.configurationError =>
-        'Install the latest app version or try again later.',
-      _ => 'This account cannot access protected customer features.',
-    };
   }
 
   static int _tabForLocation(String location) {

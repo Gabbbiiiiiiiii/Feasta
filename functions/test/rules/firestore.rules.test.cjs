@@ -918,3 +918,36 @@ test("app settings distinguish public reads from active admin writes", async () 
     value: "updated",
   }));
 });
+
+test("provider onboarding drafts remain callable and server only", async () => {
+  await seedDocuments(testEnv, {
+    "users/provider-owner": userData("provider-owner", "provider"),
+    "users/admin-one": userData("admin-one", "admin"),
+    "providerOnboardingDrafts/provider-owner": {
+      ownerId: "provider-owner",
+      completedSteps: [1],
+      currentStep: 2,
+      ownerFirstName: "Test",
+    },
+  });
+  const provider = authenticated(
+    testEnv,
+    "provider-owner",
+    "provider",
+  ).firestore();
+  const admin = authenticated(testEnv, "admin-one", "admin").firestore();
+  const draft = doc(
+    provider,
+    "providerOnboardingDrafts/provider-owner",
+  );
+
+  await assertFails(getDoc(draft));
+  await assertFails(updateDoc(draft, {currentStep: 8}));
+  await assertFails(setDoc(
+    doc(provider, "providerOnboardingDrafts/other-provider"),
+    {ownerId: "provider-owner", completedSteps: [1, 2, 3, 4, 5, 6]},
+  ));
+  await assertFails(getDoc(
+    doc(admin, "providerOnboardingDrafts/provider-owner"),
+  ));
+});

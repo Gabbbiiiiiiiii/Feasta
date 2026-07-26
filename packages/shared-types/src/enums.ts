@@ -56,6 +56,19 @@ export const VERIFICATION_DOCUMENT_STATUSES = [
 export type VerificationDocumentStatus =
   (typeof VERIFICATION_DOCUMENT_STATUSES)[number];
 
+export const VERIFICATION_DOCUMENT_TYPES = [
+  "business_permit",
+  "dti_registration",
+  "bir_registration",
+  "valid_id",
+  "sanitary_permit",
+  "mayors_permit",
+  "other",
+] as const;
+
+export type VerificationDocumentType =
+  (typeof VERIFICATION_DOCUMENT_TYPES)[number];
+
 export const PROVIDER_SERVICE_TYPES = [
   "catering",
   "addon",

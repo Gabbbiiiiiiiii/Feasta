@@ -1,0 +1,14 @@
+# Root analyzer scope for the FEASTA monorepo.
+#
+# Flutter application lint rules remain defined by the nested
+# apps/customer_mobile/analysis_options.yaml. These exclusions prevent Dart
+# from treating third-party Firebase CLI templates and generated output as
+# FEASTA source when `flutter analyze` is run from the repository root.
+analyzer:
+  exclude:
+    - "node_modules/**"
+    - "**/node_modules/**"
+    - "**/.dart_tool/**"
+    - "**/build/**"
+    - "functions/lib/**"
+    - "apps/web/.next/**"

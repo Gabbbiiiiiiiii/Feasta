@@ -6,11 +6,25 @@ enum ProviderVerificationStatus {
   draft,
   submitted,
   underReview,
+  resubmissionRequired,
   approved,
   rejected,
-  resubmissionRequired,
   suspended,
 }
+
+enum ProviderServiceType { catering, addon, both }
+
+enum VerificationDocumentType {
+  businessPermit,
+  dtiRegistration,
+  birRegistration,
+  validId,
+  sanitaryPermit,
+  mayorsPermit,
+  other,
+}
+
+enum VerificationDocumentStatus { pending, verified, rejected, expired }
 
 enum BookingStatus {
   draft,
@@ -27,14 +41,7 @@ enum BookingStatus {
   disputed,
 }
 
-enum PaymentStatus {
-  pending,
-  processing,
-  paid,
-  failed,
-  expired,
-  refunded,
-}
+enum PaymentStatus { pending, processing, paid, failed, expired, refunded }
 
 enum ComplaintStatus {
   submitted,
