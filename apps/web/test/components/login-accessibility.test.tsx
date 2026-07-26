@@ -11,15 +11,18 @@ vi.mock("next/navigation", () => ({useRouter: () => ({replace: vi.fn(), refresh:
 vi.mock("@/lib/auth/client-session", () => ({
   signInWithEmail: auth.signInWithEmail,
   signInWithGoogle: auth.signInWithGoogle,
+  WebAuthenticationError: class WebAuthenticationError extends Error {
+    reason?: string;
+  },
 }));
 
-import LoginPage from "@/app/login/page";
+import {LoginForm} from "@/app/login/login-form";
 
 describe("login accessibility", () => {
   it("uses visible labels, autocomplete, logical controls, and a linked safe error", async () => {
     const user = userEvent.setup();
     auth.signInWithEmail.mockRejectedValueOnce(Object.assign(new Error("Firebase internal detail"), {code: "auth/invalid-credential"}));
-    render(<LoginPage />);
+    render(<LoginForm />);
 
     const email = screen.getByRole("textbox", {name: /Email address/});
     const password = screen.getByLabelText(/Password/);
@@ -32,6 +35,7 @@ describe("login accessibility", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("The email address or password is incorrect.");
     expect(alert).not.toHaveTextContent(/firebase|internal/i);
+    expect(alert).toHaveFocus();
     expect(alert.closest("section")?.querySelector("form")).toHaveAttribute("aria-describedby", alert.id);
   });
 });

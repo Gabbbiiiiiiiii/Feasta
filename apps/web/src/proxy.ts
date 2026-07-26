@@ -8,7 +8,13 @@ export function proxy(request: NextRequest) {
     request.nextUrl.pathname.startsWith(`${prefix}/`),
   );
   if (protectedPath && !request.cookies.has("feasta_session")) {
-    const login = new URL("/login", request.url);
+    const path = request.nextUrl.pathname;
+    const loginPath = path === "/provider" || path.startsWith("/provider/")
+      ? "/provider-login"
+      : path === "/admin" || path.startsWith("/admin/")
+        ? "/admin-login"
+        : "/login";
+    const login = new URL(loginPath, request.url);
     login.searchParams.set("next", request.nextUrl.pathname);
     return NextResponse.redirect(login);
   }

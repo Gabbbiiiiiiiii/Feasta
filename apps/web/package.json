@@ -10,8 +10,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test:components": "vitest run",
-    "test:accessibility": "vitest run test/components/accessibility-hardening.test.tsx test/components/login-accessibility.test.tsx",
-    "test:responsive": "vitest run test/components/responsive-layout.test.tsx test/components/representative-screens.test.tsx",
+    "test:accessibility": "vitest run test/components/accessibility-hardening.test.tsx test/components/login-accessibility.test.tsx test/components/customer-authentication.test.tsx test/components/customer-verification.test.tsx test/components/provider-authentication.test.tsx test/components/admin-authentication.test.tsx test/components/account-management.test.tsx",
+    "test:responsive": "vitest run test/components/responsive-layout.test.tsx test/components/representative-screens.test.tsx test/components/customer-authentication.test.tsx test/components/provider-authentication.test.tsx test/components/admin-authentication.test.tsx test/components/account-management.test.tsx",
     "test:security": "node --experimental-strip-types --test test/*.test.mts"
   },
   "dependencies": {
@@ -26,6 +26,7 @@
     "next": "16.2.10",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "recharts": "^3.10.0",
     "server-only": "^0.0.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0"

@@ -43,6 +43,17 @@ const contentSecurityPolicy = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "lh3.googleusercontent.com",
+        pathname: "/**",
+      },
+    ],
+  },
+  
   async headers() {
     const headers = [
       {key: "Content-Security-Policy", value: contentSecurityPolicy},

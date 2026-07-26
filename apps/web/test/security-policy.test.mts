@@ -27,6 +27,8 @@ test("external and protocol-relative redirects are rejected", () => {
   assert.equal(isSafeRelativeReturnTo("https://evil.example"), false);
   assert.equal(isSafeRelativeReturnTo("//evil.example"), false);
   assert.equal(isSafeRelativeReturnTo("/\\evil.example"), false);
+  assert.equal(isSafeRelativeReturnTo("/%2f%2fevil.example"), false);
+  assert.equal(isSafeRelativeReturnTo("/%5cevil.example"), false);
 });
 
 test("production session cookies have required security flags", () => {
@@ -71,6 +73,19 @@ test("expired and revoked session failures propagate and checks are revocation-a
   }
 });
 
+test("revocation checks may be relaxed only when explicitly requested", async () => {
+  let checkRevoked: boolean | undefined;
+  await verifyRevocationAwareSession(
+    "signed-cookie",
+    async (_value, check) => {
+      checkRevoked = check;
+      return {uid: "customer-one"};
+    },
+    false,
+  );
+  assert.equal(checkRevoked, false);
+});
+
 test("missing and tampered session cookies are denied", async () => {
   await assert.rejects(
     verifyRevocationAwareSession("", async () => ({uid: "never"})),
@@ -100,14 +115,76 @@ test("route layouts enforce their server-side role", () => {
     path.dirname(fileURLToPath(import.meta.url)),
     "../src/app",
   );
-  for (const [route, role] of [
-    ["admin", "admin"],
-    ["provider", "provider"],
-    ["customer", "customer"],
+  for (const [route, helper] of [
+    ["admin", "requireAdmin"],
+    ["provider", "requireProvider"],
+    ["customer", "requireCustomer"],
   ]) {
     const layout = readFileSync(path.join(appRoot, route, "layout.tsx"), "utf8");
-    assert.match(layout, new RegExp(`requireRole\\(\\["${role}"\\]\\)`));
+    assert.match(layout, new RegExp(`${helper}\\(\\)`));
   }
+});
+
+test("session creation preserves origin, CSRF, rate-limit, and fixation controls", () => {
+  const route = readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../src/app/api/auth/session/route.ts",
+    ),
+    "utf8",
+  );
+  const trustedMutation = route.indexOf("assertTrustedMutation(request)");
+  const rateLimit = route.indexOf("enforceSessionCreationRateLimit(request)");
+  const create = route.indexOf("createSession(body.idToken)");
+  assert.ok(trustedMutation >= 0 && trustedMutation < rateLimit);
+  assert.ok(rateLimit < create);
+  assert.match(route, /response\.cookies\.set\(SESSION_COOKIE_NAME/u);
+  assert.match(route, /Sign-in could not be completed\./u);
+  assert.doesNotMatch(route, /error\.message.*401|idToken.*console/u);
+});
+
+test("trusted account loading checks Auth state and provider ownership", () => {
+  const session = readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../src/lib/auth/session.ts",
+    ),
+    "utf8",
+  );
+  assert.match(session, /adminAuth\.verifyIdToken\(idToken, true\)/u);
+  assert.match(session, /adminAuth\.getUser\(uid\)/u);
+  assert.match(session, /collection\("users"\)/u);
+  assert.match(session, /collection\("customers"\)/u);
+  assert.match(session, /collection\("providers"\)/u);
+  assert.match(session, /resolveTrustedAccountContext/u);
+});
+
+test("invalid-session endpoint never clears a verified session", () => {
+  const route = readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../src/app/api/auth/session/invalid/route.ts",
+    ),
+    "utf8",
+  );
+  assert.ok(route.indexOf("verifySessionCookie(cookie)") <
+    route.indexOf("destroySession(response)"));
+  assert.match(route, /homeForAccount\(account\)/u);
+  assert.match(route, /isSafeRelativeReturnTo/u);
+});
+
+test("session rate limiting is persistent and transaction-safe", () => {
+  const rateLimit = readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../src/lib/security/session-rate-limit.ts",
+    ),
+    "utf8",
+  );
+  assert.match(rateLimit, /adminDb\.runTransaction/u);
+  assert.match(rateLimit, /collection\("rateLimits"\)/u);
+  assert.match(rateLimit, /Retry|retryAfterSeconds/u);
+  assert.doesNotMatch(rateLimit, /new Map|setInterval/u);
 });
 
 test("CSP denies unexpected script origins and dangerous object embedding", () => {

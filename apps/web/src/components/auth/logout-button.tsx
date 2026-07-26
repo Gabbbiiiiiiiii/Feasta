@@ -7,7 +7,11 @@ import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
 import {Button} from "@/components/ui/button";
 import {logoutWebSession} from "@/lib/auth/client-session";
 
-export function LogoutButton() {
+export function LogoutButton({
+  destination = "/login",
+}: {
+  destination?: "/login" | "/provider-login" | "/admin-login";
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
 
@@ -21,7 +25,7 @@ export function LogoutButton() {
       onConfirm={async () => {
         try {
           await logoutWebSession();
-          router.replace("/login");
+          router.replace(destination);
           router.refresh();
         } finally {
           setOpen(false);

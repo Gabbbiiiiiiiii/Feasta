@@ -2,23 +2,14 @@ import "server-only";
 
 import {
   resolveAuthenticationGate,
-  type AccountStatus,
   type AuthenticationGateResult,
   type AuthenticationProviderProfileInput,
   type UserRole,
 } from "@feasta/shared-types";
 
-export interface ServerAccountContext {
-  uid: string;
-  email: string | null;
-  emailVerified: boolean;
-  role: UserRole;
-  accountStatus: AccountStatus;
-  isActive: boolean;
-  isBlocked: boolean;
-  isPhoneVerified: boolean;
-  providerId: string | null;
-}
+import type {ServerAccountContext} from "./account-policy";
+
+export type {ServerAccountContext} from "./account-policy";
 
 export function resolveServerAuthenticationGate(input: {
   account: ServerAccountContext;
@@ -36,7 +27,13 @@ export function resolveServerAuthenticationGate(input: {
       isPhoneVerified: input.account.isPhoneVerified,
       providerId: input.account.providerId,
     },
-    providerProfile: input.providerProfile,
+    providerProfile: input.providerProfile ?? (input.account.provider
+      ? {
+          verificationStatus: input.account.provider.verificationStatus,
+          isActive: input.account.provider.isActive,
+          isSuspended: input.account.provider.isSuspended,
+        }
+      : null),
     requiredRoles: input.requiredRoles,
   });
 }

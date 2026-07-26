@@ -16,17 +16,27 @@ const projectId =
   process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 
 if (!projectId) {
-  throw new Error("FIREBASE_ADMIN_PROJECT_ID is required.");
+  throw new Error(
+    "FIREBASE_ADMIN_PROJECT_ID or NEXT_PUBLIC_FIREBASE_PROJECT_ID is required.",
+  );
 }
 
 const useEmulators =
-  process.env.USE_FIREBASE_EMULATORS === "true";
-const adminClientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL?.trim();
-const adminPrivateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY
-  ?.replace(/\\n/g, "\n")
-  .trim();
+  process.env.USE_FIREBASE_EMULATORS === "true" ||
+  process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS === "true";
 
-if (!useEmulators && Boolean(adminClientEmail) !== Boolean(adminPrivateKey)) {
+const adminClientEmail =
+  process.env.FIREBASE_ADMIN_CLIENT_EMAIL?.trim();
+
+const adminPrivateKey =
+  process.env.FIREBASE_ADMIN_PRIVATE_KEY
+    ?.replace(/\\n/g, "\n")
+    .trim();
+
+if (
+  !useEmulators &&
+  Boolean(adminClientEmail) !== Boolean(adminPrivateKey)
+) {
   throw new Error(
     "FIREBASE_ADMIN_CLIENT_EMAIL and FIREBASE_ADMIN_PRIVATE_KEY must be configured together.",
   );
@@ -34,13 +44,21 @@ if (!useEmulators && Boolean(adminClientEmail) !== Boolean(adminPrivateKey)) {
 
 const options: AppOptions = {
   projectId,
-  storageBucket: process.env.FIREBASE_ADMIN_STORAGE_BUCKET,
-  ...(useEmulators ? {} : {
-    credential: adminClientEmail && adminPrivateKey ?
-      cert({projectId, clientEmail: adminClientEmail, privateKey: adminPrivateKey}) :
-      applicationDefault(),
-  }),
+  storageBucket:
+    process.env.FIREBASE_ADMIN_STORAGE_BUCKET ??
+    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
 };
+
+if (!useEmulators) {
+  options.credential =
+    adminClientEmail && adminPrivateKey
+      ? cert({
+          projectId,
+          clientEmail: adminClientEmail,
+          privateKey: adminPrivateKey,
+        })
+      : applicationDefault();
+}
 
 const adminApp =
   getApps().length > 0

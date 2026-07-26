@@ -6,6 +6,7 @@ import {useRef} from "react";
 
 import {LogoutButton} from "@/components/auth/logout-button";
 import {roleActions, roleHome, roleLabels, type ShellRole} from "@/components/layout/navigation";
+import Image from "next/image";
 
 type ApplicationHeaderProps = {
   role: ShellRole;
@@ -13,15 +14,35 @@ type ApplicationHeaderProps = {
   pageTitle?: string;
 };
 
-function Brand({role}: {role: ShellRole}) {
+type BrandProps = {
+  role: ShellRole;
+  compact?: boolean;
+};
+
+function Brand({
+  role,
+  compact = false,
+}: BrandProps) {
   return (
     <Link
       href={roleHome[role]}
-      className="inline-flex min-h-12 items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="inline-flex min-h-12 items-center gap-3 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       aria-label={`FEASTA ${roleLabels[role]} home`}
     >
-      <span aria-hidden="true" className="grid size-10 place-items-center rounded-lg bg-primary text-xl font-black text-primary-foreground">F</span>
-      <span className="hidden text-xl font-black tracking-tight sm:inline">FEASTA</span>
+      <Image
+        src="/images/feasta_logo.png"
+        alt=""
+        width={48}
+        height={48}
+        priority
+        className="size-12 shrink-0 object-contain"
+      />
+
+      {!compact ? (
+        <span className="text-xl font-black tracking-[0.08em] text-foreground">
+          FEASTA
+        </span>
+      ) : null}
     </Link>
   );
 }
@@ -36,7 +57,7 @@ function ApplicationHeader({role, accountLabel, pageTitle}: ApplicationHeaderPro
     accountSummary.current?.focus();
   };
   return (
-    <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+    <header className="sticky top-0 z-30 border-b border-[#E6E9EF] bg-[#F7F8FA]">
       <div className="flex min-h-16 min-w-0 items-center gap-3 px-4 sm:px-6 md:px-8">
         <div className="md:hidden"><Brand role={role} /></div>
         {pageTitle ? (
@@ -77,7 +98,13 @@ function ApplicationHeader({role, accountLabel, pageTitle}: ApplicationHeaderPro
             <Link href={actions.profileHref} className="flex min-h-12 items-center rounded-md px-3 font-semibold hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
               Account settings
             </Link>
-            <LogoutButton />
+            <LogoutButton destination={
+              role === "admin"
+                ? "/admin-login"
+                : role === "provider"
+                  ? "/provider-login"
+                  : "/login"
+            } />
           </div>
         </details>
       </div>

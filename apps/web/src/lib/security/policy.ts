@@ -28,12 +28,22 @@ export function configuredAllowedOrigins(value: string | undefined): string[] {
 }
 
 export function isSafeRelativeReturnTo(value: unknown): value is string {
-  return typeof value === "string" &&
-    value.startsWith("/") &&
-    !value.startsWith("//") &&
-    !value.includes("\\") &&
-    !value.includes("\r") &&
-    !value.includes("\n");
+  if (typeof value !== "string" || !value.startsWith("/")) return false;
+  try {
+    const decoded = decodeURIComponent(value);
+    if (
+      decoded.startsWith("//") ||
+      decoded.includes("\\") ||
+      decoded.includes("\r") ||
+      decoded.includes("\n")
+    ) {
+      return false;
+    }
+    const base = new URL("https://feasta.invalid");
+    return new URL(value, base).origin === base.origin;
+  } catch {
+    return false;
+  }
 }
 
 export function parseCookie(cookieHeader: string | null, name: string): string | null {
@@ -63,9 +73,10 @@ export function sessionCookiePolicy(production: boolean, maxAge: number) {
 export async function verifyRevocationAwareSession<T>(
   cookie: string,
   verifier: (value: string, checkRevoked: boolean) => Promise<T>,
+  checkRevoked = true,
 ): Promise<T> {
   if (!cookie) throw new Error("Session cookie is missing.");
-  return verifier(cookie, true);
+  return verifier(cookie, checkRevoked);
 }
 
 export function isRoleAllowed(

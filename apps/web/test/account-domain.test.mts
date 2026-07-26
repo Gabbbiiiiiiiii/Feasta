@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  authenticationGatePresentation,
   parseAccountStatus,
   parseUserRole,
   resolveAuthenticationGate,
@@ -23,4 +24,19 @@ test("web consumes the shared fail-closed account domain", () => {
     },
     requiredRoles: ["admin"],
   }).kind, "forbiddenRole");
+});
+
+test("web uses canonical cross-platform account-state messages", () => {
+  assert.equal(
+    authenticationGatePresentation("blocked").message,
+    "This account is blocked. Contact FEASTA support for help.",
+  );
+  assert.equal(
+    authenticationGatePresentation("providerResubmissionRequired").label,
+    "Resubmission required",
+  );
+  assert.equal(
+    authenticationGatePresentation("sessionExpired").message,
+    "Your session ended. Sign in again to continue.",
+  );
 });

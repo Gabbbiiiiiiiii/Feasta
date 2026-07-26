@@ -3,7 +3,7 @@
 :root {
   color-scheme: light;
 
-  --background: #f8f6f3;
+  --background: #f7f8fa;
   --foreground: #2b211d;
   --card: #ffffff;
   --card-foreground: #2b211d;
@@ -173,6 +173,17 @@ body {
   color: var(--foreground);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
+}
+
+/* Hide browser-native search controls.
+   SearchInput already provides its own clear button. */
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration,
+input[type="search"]::-webkit-search-results-button,
+input[type="search"]::-webkit-search-results-decoration {
+  display: none;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 :where(a, button, input, select, textarea, [tabindex]):focus-visible {

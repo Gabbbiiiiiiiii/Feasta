@@ -8,6 +8,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/auth/client-session", () => ({logoutWebSession: vi.fn().mockResolvedValue(undefined)}));
 
 import {ChartContainer, DataTable, DetailDrawer, FilterToolbar, ManagementModal, SummaryCard, type DataTableColumn} from "@/components/data";
+import {AuthCard} from "@/components/auth/auth-card";
 import {FormField} from "@/components/forms/form-field";
 import {ApplicationShell} from "@/components/layout/application-shell";
 import {PageHeading} from "@/components/layout/page-heading";
@@ -16,6 +17,35 @@ import {Input} from "@/components/ui/input";
 import {Select} from "@/components/ui/select";
 
 const widths = [360, 390, 600, 768, 900, 1024, 1280, 1440] as const;
+const webAuthenticationWidths = [360, 390, 768, 1024, 1280, 1440] as const;
+
+describe.each(webAuthenticationWidths)("responsive authentication layout at %i px", (width) => {
+  it("keeps each portal bounded with one semantic page heading", () => {
+    Object.defineProperty(window, "innerWidth", {configurable: true, value: width});
+    window.dispatchEvent(new Event("resize"));
+    render(
+      <AuthCard
+        portal="provider"
+        title="Create a provider account with a deliberately long heading"
+        description="Authentication content remains readable without forcing horizontal body overflow."
+      >
+        <Button fullWidth>Continue securely</Button>
+      </AuthCard>,
+    );
+
+    const main = screen.getByRole("main");
+    expect(main).toHaveClass("min-w-0", "overflow-x-clip", "max-w-lg");
+    expect(screen.getAllByRole("heading", {level: 1})).toHaveLength(1);
+    expect(screen.getByText("Provider portal").closest("section")).toHaveAttribute(
+      "data-auth-portal",
+      "provider",
+    );
+    expect(screen.getByRole("button", {name: "Continue securely"})).toHaveClass(
+      "min-h-12",
+      "w-full",
+    );
+  });
+});
 
 describe.each(widths)("responsive management layout at %i px", (width) => {
   it("keeps shared content bounded and overflow local", () => {
