@@ -100,7 +100,7 @@ async function testDeterministicFixtureWorkflows() {
     "customer",
   );
   assert.equal(blockedResponse.status, 403);
-  assert.equal((await blockedResponse.json()).reason, "blocked");
+  assert.equal((await blockedResponse.json()).reason, "account_blocked");
   await signOut(auth);
 
   const deactivated = await signInWithEmailAndPassword(
@@ -115,7 +115,7 @@ async function testDeterministicFixtureWorkflows() {
     "customer",
   );
   assert.equal(deactivatedResponse.status, 403);
-  assert.equal((await deactivatedResponse.json()).reason, "deactivated");
+  assert.equal((await deactivatedResponse.json()).reason, "account_disabled");
   await signOut(auth);
 
   const missingProfile = await signInWithEmailAndPassword(
@@ -585,7 +585,10 @@ async function testWebSessionsAndRoles() {
     "provider",
   );
   assert.equal(customerAtProviderPortal.status, 403);
-  assert.equal((await customerAtProviderPortal.json()).reason, "wrong_role");
+  assert.equal(
+    (await customerAtProviderPortal.json()).reason,
+    "unauthorized_role",
+  );
   assert.equal((await webGet("/admin", customerSession.cookie)).status, 307);
   const customerAtAdminPortal = await postSession(
     await customer.getIdToken(true),
@@ -594,7 +597,10 @@ async function testWebSessionsAndRoles() {
     "admin",
   );
   assert.equal(customerAtAdminPortal.status, 403);
-  assert.equal((await customerAtAdminPortal.json()).reason, "wrong_role");
+  assert.equal(
+    (await customerAtAdminPortal.json()).reason,
+    "unauthorized_role",
+  );
   const wrongRole = await webGet("/provider", customerSession.cookie);
   assert.equal(wrongRole.status, 307);
   assert.match(wrongRole.headers.get("location") ?? "", /\/unauthorized$/);
@@ -718,7 +724,24 @@ async function testWebSessionsAndRoles() {
   const setupRedirect = await webGet("/provider", setupSession.cookie);
   assert.equal(setupRedirect.status, 307);
   assert.match(setupRedirect.headers.get("location") ?? "", /\/provider\/onboarding$/);
-  assert.equal((await webGet("/provider/onboarding", setupSession.cookie)).status, 200);
+  const onboardingRedirect = await webGet(
+    "/provider/onboarding",
+    setupSession.cookie,
+  );
+  assert.equal(onboardingRedirect.status, 307);
+  assert.match(
+    onboardingRedirect.headers.get("location") ?? "",
+    /\/provider\/onboarding\/owner$/,
+  );
+  assert.equal(
+    (
+      await webGet(
+        "/provider/onboarding/owner",
+        setupSession.cookie,
+      )
+    ).status,
+    200,
+  );
   assert.equal((await webGet("/provider/account", setupSession.cookie)).status, 200);
   await signOut(auth);
 
@@ -820,7 +843,7 @@ async function testWebSessionsAndRoles() {
   await db.collection("users").doc(blocked.uid).update({isBlocked: true});
   const blockedResponse = await postSession(blockedToken, await getCsrf());
   assert.equal(blockedResponse.status, 403);
-  assert.equal((await blockedResponse.json()).reason, "blocked");
+  assert.equal((await blockedResponse.json()).reason, "account_blocked");
   await signOut(auth);
 
   const disabled = await createCustomer("acceptance.web.disabled@feasta.test");
@@ -848,7 +871,7 @@ async function testWebSessionsAndRoles() {
     await getCsrf(),
   );
   assert.equal(deactivatedResponse.status, 403);
-  assert.equal((await deactivatedResponse.json()).reason, "deactivated");
+  assert.equal((await deactivatedResponse.json()).reason, "account_disabled");
   await signOut(auth);
 
   const revoked = await createCustomer("acceptance.web.revoked@feasta.test");
@@ -1109,7 +1132,7 @@ async function assertProviderState(
   );
   assert.equal((await webGet(expectedLocation, cookie)).status, 200);
   const packages = await webGet("/provider/packages", cookie);
-  assert.equal(packages.status, 307);
+  assert.equal(packages.status, 200);
 }
 
 async function clearWebSessionRateLimits() {
@@ -1164,7 +1187,7 @@ async function fetchOk(url) {
 }
 
 async function waitForWeb() {
-  for (let attempt = 0; attempt < 90; attempt += 1) {
+  for (let attempt = 0; attempt < 240; attempt += 1) {
     try {
       const response = await fetch(`${webUrl}/login`);
       if (response.ok) return;

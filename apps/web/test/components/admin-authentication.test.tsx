@@ -88,7 +88,7 @@ describe("admin authentication", () => {
       screen.getByRole("textbox", {name: /admin email/i}),
       "missing@feasta.test",
     );
-    await user.type(screen.getByLabelText(/^Password/), "wrong");
+    await user.type(screen.getByLabelText(/^Password/), "wrongpass");
     await user.click(screen.getByRole("button", {name: /sign in as admin/i}));
     const generic = await screen.findByRole("alert");
     expect(generic).toHaveTextContent(

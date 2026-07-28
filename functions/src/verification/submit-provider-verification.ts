@@ -1,11 +1,17 @@
 import {HttpsError, onCall} from "firebase-functions/v2/https";
+import {getAuth} from "firebase-admin/auth";
+import {getStorage} from "firebase-admin/storage";
 
 import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
 import {
-  REQUIRED_VERIFICATION_DOCUMENT_TYPES,
+  providerVerificationDocumentPolicy,
+  providerSubmissionProfileIssues,
   USER_ROLES,
+  VERIFICATION_DOCUMENT_CONTENT_TYPES,
+  MAX_VERIFICATION_DOCUMENT_SIZE_BYTES,
+  verificationDocumentsSatisfyPolicy,
 } from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
 import {
@@ -15,10 +21,12 @@ import {
   failIdempotentOperation,
 } from "../shared/idempotency.js";
 import {logError, logInfo} from "../shared/logger.js";
+import {createNotificationInTransaction} from "../shared/notifications.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {logSecurityEvent} from "../shared/security-events.js";
+import {writeVerificationHistoryInTransaction} from "../shared/verification-history.js";
 import {
   requireObject,
   requireString,
@@ -53,6 +61,28 @@ export const submitProviderVerification = onCall(
       );
     }
 
+    let emailVerified: boolean;
+    try {
+      emailVerified = (await getAuth().getUser(authenticatedUser.uid))
+        .emailVerified;
+    } catch (error) {
+      logError(
+        "Provider Auth state lookup failed",
+        error,
+        {uid: authenticatedUser.uid},
+      );
+      throw new HttpsError(
+        "internal",
+        "The provider account could not be verified.",
+      );
+    }
+    if (!emailVerified) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Verify your email address before submitting provider verification.",
+      );
+    }
+
     const input = requireObject(request.data);
 
     const providerId = requireString(
@@ -67,6 +97,9 @@ export const submitProviderVerification = onCall(
     const providerReference = db
       .collection("providers")
       .doc(providerId);
+    const userReference = db
+      .collection("users")
+      .doc(authenticatedUser.uid);
 
     const idempotencyKey = createIdempotencyKey({
       operation: "submitProviderVerification",
@@ -86,9 +119,10 @@ export const submitProviderVerification = onCall(
     try {
       const result = await db.runTransaction(
         async (transaction) => {
-          const providerSnapshot =
-            await transaction.get(
+          const [providerSnapshot, userSnapshot] =
+            await transaction.getAll(
               providerReference,
+              userReference,
             );
 
           if (!providerSnapshot.exists) {
@@ -100,6 +134,7 @@ export const submitProviderVerification = onCall(
 
           const providerData =
             providerSnapshot.data();
+          const userData = userSnapshot.data();
 
           if (
             providerData?.ownerId !==
@@ -108,6 +143,27 @@ export const submitProviderVerification = onCall(
             throw new HttpsError(
               "permission-denied",
               "You do not own this provider profile.",
+            );
+          }
+
+          if (providerData?.isDeleted === true) {
+            throw new HttpsError(
+              "permission-denied",
+              "This provider profile is unavailable.",
+            );
+          }
+
+          if (
+            !userSnapshot.exists ||
+            userData?.role !== USER_ROLES.provider ||
+            userData?.accountStatus !== "active" ||
+            userData?.isActive !== true ||
+            userData?.isBlocked !== false ||
+            userData?.providerId !== providerId
+          ) {
+            throw new HttpsError(
+              "permission-denied",
+              "The provider account is not active or correctly linked.",
             );
           }
 
@@ -144,6 +200,27 @@ export const submitProviderVerification = onCall(
             verificationData.status;
 
           if (
+            providerData?.verificationStatus !== currentStatus
+          ) {
+            throw new HttpsError(
+              "failed-precondition",
+              "The provider and verification statuses are inconsistent.",
+            );
+          }
+
+          if (currentStatus === "submitted") {
+            return {
+              providerId,
+              verificationId:
+                verificationDocument.id,
+              previousStatus:
+                currentStatus,
+              status: "submitted",
+              alreadySubmitted: true,
+            };
+          }
+
+          if (
             !SUBMITTABLE_STATUSES.includes(
               currentStatus,
             )
@@ -151,6 +228,31 @@ export const submitProviderVerification = onCall(
             throw new HttpsError(
               "failed-precondition",
               "This verification cannot be submitted from its current status.",
+            );
+          }
+
+          const profileIssues = providerSubmissionProfileIssues(
+            providerData ?? {},
+          );
+          if (profileIssues.length > 0) {
+            throw new HttpsError(
+              "failed-precondition",
+              "Complete every required provider profile section before submitting.",
+              {missingOrInvalidProfileFields: profileIssues},
+            );
+          }
+
+          if (
+            verificationData.termsAcceptedAt == null ||
+            verificationData.privacyAcceptedAt == null ||
+            typeof verificationData.termsPolicyVersion !== "string" ||
+            verificationData.termsPolicyVersion.trim() === "" ||
+            typeof verificationData.privacyPolicyVersion !== "string" ||
+            verificationData.privacyPolicyVersion.trim() === ""
+          ) {
+            throw new HttpsError(
+              "failed-precondition",
+              "Accept the required Terms and Privacy Policy before submitting.",
             );
           }
 
@@ -168,77 +270,70 @@ export const submitProviderVerification = onCall(
             );
           }
 
-          const uploadedDocumentTypes = new Set(
-            documentsSnapshot.docs.map((document) => {
-              const type = document.data().documentType;
-
-              return typeof type === "string"
-                ? type
+          const policy = providerVerificationDocumentPolicy(
+            providerData ?? {},
+          );
+          const readyDocumentTypes = new Set(
+            documentsSnapshot.docs.flatMap((document) => {
+              const data = document.data();
+              const type = typeof data.documentType === "string"
+                ? data.documentType
                 : "";
+              const storagePath = typeof data.storagePath === "string"
+                ? data.storagePath.trim()
+                : "";
+              return type &&
+                storagePath &&
+                ["pending", "verified"].includes(data.status)
+                ? [type]
+                : [];
             }),
           );
-
-          const missingDocumentTypes =
-            REQUIRED_VERIFICATION_DOCUMENT_TYPES.filter(
-              (type) => !uploadedDocumentTypes.has(type),
+          if (!verificationDocumentsSatisfyPolicy(
+            readyDocumentTypes,
+            policy,
+          )) {
+            const missingDocumentTypes = policy.requiredAll.filter(
+              (type) => !readyDocumentTypes.has(type),
             );
-
-          if (missingDocumentTypes.length > 0) {
-            throw new HttpsError(
-              "failed-precondition",
-              "Upload all required verification documents before submitting.",
-              {
-                missingDocumentTypes,
-              },
+            const missingAlternativeGroups = policy.requiredOneOf.filter(
+              (group) => !group.some((type) => readyDocumentTypes.has(type)),
             );
-          }
-
-          const requiredDocuments =
-            documentsSnapshot.docs.filter(
-              (document) => {
-                const type = document.data().documentType;
-
-                return (
-                  typeof type === "string" &&
-                  REQUIRED_VERIFICATION_DOCUMENT_TYPES.includes(
-                    type as
-                      (typeof REQUIRED_VERIFICATION_DOCUMENT_TYPES)[number],
-                  )
-                );
-              },
-            );
-
-          const incompleteRequiredDocuments =
-            requiredDocuments.filter(
-              (document) => {
-                const data =
-                  document.data();
-
-                const storagePath =
-                  typeof data.storagePath ===
-                    "string"
-                    ? data.storagePath.trim()
-                    : "";
-
-                return (
-                  storagePath.length === 0 ||
-                  data.status !== "pending"
-                );
-              },
-            );
-
-          if (incompleteRequiredDocuments.length > 0) {
             throw new HttpsError(
               "failed-precondition",
               "Complete all required verification documents before submitting.",
               {
-                incompleteDocumentIds:
-                  incompleteRequiredDocuments.map(
-                    (document) => document.id,
-                  ),
+                missingDocumentTypes,
+                missingAlternativeGroups,
               },
             );
           }
+
+          const readyDocumentsByType = new Map(
+            documentsSnapshot.docs.flatMap((document) => {
+              const data = document.data();
+              return readyDocumentTypes.has(String(data.documentType))
+                ? [[String(data.documentType), data] as const]
+                : [];
+            }),
+          );
+          const requiredDocumentRecords = [
+            ...policy.requiredAll.map(
+              (type) => readyDocumentsByType.get(type),
+            ),
+            ...policy.requiredOneOf.map(
+              (group) => group.map(
+                (type) => readyDocumentsByType.get(type),
+              ).find((document) => document != null),
+            ),
+          ].filter(
+            (document): document is Record<string, unknown> =>
+              document != null,
+          );
+          await assertRequiredStorageObjectsPresent(
+            providerId,
+            requiredDocumentRecords,
+          );
 
           transaction.update(
             verificationDocument.ref,
@@ -272,7 +367,7 @@ export const submitProviderVerification = onCall(
             },
           );
 
-          writeAuditLogInTransaction(
+          const auditLogReference = writeAuditLogInTransaction(
             transaction,
             {
               actorId:
@@ -296,7 +391,35 @@ export const submitProviderVerification = onCall(
               metadata: {
                 providerId,
                 requiredDocumentCount:
-                  requiredDocuments.length,
+                  policy.requiredAll.length +
+                  policy.requiredOneOf.length,
+              },
+            },
+          );
+          writeVerificationHistoryInTransaction(transaction, {
+            verificationId: verificationDocument.id,
+            providerId,
+            actorId: authenticatedUser.uid,
+            actorRole: USER_ROLES.provider,
+            eventType: "verification_submitted",
+            fromStatus: currentStatus,
+            toStatus: "submitted",
+            auditLogId: auditLogReference.id,
+          });
+
+          createNotificationInTransaction(
+            transaction,
+            {
+              userId: authenticatedUser.uid,
+              title: "Provider verification submitted",
+              message:
+                "Your provider verification was submitted to FEASTA for review.",
+              type: "verification",
+              relatedId: verificationDocument.id,
+              relatedCollection: "providerVerifications",
+              metadata: {
+                providerId,
+                status: "submitted",
               },
             },
           );
@@ -308,12 +431,15 @@ export const submitProviderVerification = onCall(
             previousStatus:
               currentStatus,
             status: "submitted",
+            alreadySubmitted: false,
           };
         },
       );
 
       logInfo(
-        "Provider verification submitted",
+        result.alreadySubmitted
+          ? "Provider verification submission replayed"
+          : "Provider verification submitted",
         {
           uid: authenticatedUser.uid,
           providerId:
@@ -324,7 +450,7 @@ export const submitProviderVerification = onCall(
       );
       logSecurityEvent({
         action: "provider_verification_submission",
-        outcome: "succeeded",
+        outcome: result.alreadySubmitted ? "replayed" : "succeeded",
         actorUid: authenticatedUser.uid,
         targetId: result.verificationId,
         correlationId: authenticatedUser.correlationId,
@@ -365,3 +491,45 @@ export const submitProviderVerification = onCall(
     }
   },
 );
+
+async function assertRequiredStorageObjectsPresent(
+  providerId: string,
+  documents: readonly Record<string, unknown>[],
+): Promise<void> {
+  try {
+    await Promise.all(documents.map(async (document) => {
+      const documentType = document.documentType;
+      const storagePath = document.storagePath;
+      if (
+        typeof documentType !== "string" ||
+        typeof storagePath !== "string" ||
+        !storagePath.startsWith(
+          `providers/${providerId}/verification/${documentType}/`,
+        )
+      ) {
+        throw new Error("invalid_document_path");
+      }
+      const [metadata] = await getStorage()
+        .bucket()
+        .file(storagePath)
+        .getMetadata();
+      const size = Number(metadata.size);
+      if (
+        !VERIFICATION_DOCUMENT_CONTENT_TYPES.includes(
+          String(metadata.contentType) as
+            (typeof VERIFICATION_DOCUMENT_CONTENT_TYPES)[number],
+        ) ||
+        !Number.isFinite(size) ||
+        size <= 0 ||
+        size > MAX_VERIFICATION_DOCUMENT_SIZE_BYTES
+      ) {
+        throw new Error("invalid_document_metadata");
+      }
+    }));
+  } catch {
+    throw new HttpsError(
+      "failed-precondition",
+      "A required verification document is missing or invalid. Upload it again before submitting.",
+    );
+  }
+}

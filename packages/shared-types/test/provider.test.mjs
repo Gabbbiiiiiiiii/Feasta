@@ -9,6 +9,8 @@ import {
   parseProviderVerificationStatusStrict,
   parseVerificationDocumentStatus,
   parseVerificationDocumentType,
+  providerVerificationDocumentPolicy,
+  verificationDocumentsSatisfyPolicy,
   normalizePhilippinePhone,
   normalizeProviderEmail,
   validateProviderOnboardingInput,
@@ -194,6 +196,30 @@ test("safe parsers accept explicit compatibility aliases and reject unknowns", (
 test("required verification policy remains server-aligned", () => {
   assert.deepEqual(
     REQUIRED_VERIFICATION_DOCUMENT_TYPES,
-    ["business_permit", "valid_id"],
+    [
+      "business_permit",
+      "dti_registration",
+      "bir_registration",
+      "valid_id",
+    ],
   );
+});
+
+test("provider document policy dynamically requires food permits", () => {
+  const catering = providerVerificationDocumentPolicy({
+    providerServiceType: "catering",
+    serviceCategories: ["catering_service"],
+  });
+  assert.deepEqual(catering.requiredOneOf, [[
+    "sanitary_permit",
+    "mayors_permit",
+  ]]);
+  assert.equal(verificationDocumentsSatisfyPolicy(new Set([
+    ...catering.requiredAll,
+    "mayors_permit",
+  ]), catering), true);
+  assert.equal(verificationDocumentsSatisfyPolicy(
+    new Set(catering.requiredAll),
+    catering,
+  ), false);
 });

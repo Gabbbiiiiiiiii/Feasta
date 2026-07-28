@@ -39,9 +39,7 @@ export async function POST(request: Request) {
         {status: 400},
       );
     }
-    if (process.env.NODE_ENV === "production") {
-      await enforceAdminLoginAttemptRateLimit(request, body.email);
-    }
+    await enforceAdminLoginAttemptRateLimit(request, body.email);
     logWebSecurityEvent({
       action: "admin_login_attempt",
       outcome: "succeeded",

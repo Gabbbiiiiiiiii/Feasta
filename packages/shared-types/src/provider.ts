@@ -11,8 +11,27 @@ import {
 
 export const REQUIRED_VERIFICATION_DOCUMENT_TYPES = [
   "business_permit",
+  "dti_registration",
+  "bir_registration",
   "valid_id",
 ] as const satisfies readonly VerificationDocumentType[];
+
+export const FOOD_SERVICE_CATEGORIES = [
+  "catering_service",
+  "food_trays_packed_meals",
+  "catering_event_styling",
+  "cake_provider",
+] as const satisfies readonly ProviderServiceCategory[];
+
+export const FOOD_PERMIT_ALTERNATIVES = [
+  "sanitary_permit",
+  "mayors_permit",
+] as const satisfies readonly VerificationDocumentType[];
+
+export interface ProviderVerificationDocumentPolicy {
+  requiredAll: readonly VerificationDocumentType[];
+  requiredOneOf: readonly (readonly VerificationDocumentType[])[];
+}
 
 export const UNVERSIONED_POLICY_VERSION = "unversioned" as const;
 
@@ -91,12 +110,16 @@ export const PROVIDER_OWNER_IDENTITY_CLIENT_FIELDS = [
 
 export const PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS = [
   {type: "business_permit", label: "Business permit", required: true},
-  {type: "dti_registration", label: "DTI registration", required: false},
-  {type: "bir_registration", label: "BIR registration", required: false},
-  {type: "valid_id", label: "Valid ID", required: true},
+  {
+    type: "dti_registration",
+    label: "DTI or SEC registration",
+    required: true,
+  },
+  {type: "bir_registration", label: "BIR documentation", required: true},
+  {type: "valid_id", label: "Valid government ID", required: true},
   {type: "sanitary_permit", label: "Sanitary permit", required: false},
   {type: "mayors_permit", label: "Mayor's permit", required: false},
-  {type: "other", label: "Other", required: false},
+  {type: "other", label: "Other supporting document", required: false},
 ] as const satisfies readonly {
   type: VerificationDocumentType;
   label: string;
@@ -253,6 +276,10 @@ export interface ProviderVerification {
   rejectionReason: string | null;
   resubmissionReason: string | null;
   suspensionReason: string | null;
+  termsPolicyVersion: string;
+  privacyPolicyVersion: string;
+  termsAcceptedAt: ProviderTimestamp | null;
+  privacyAcceptedAt: ProviderTimestamp | null;
   submittedAt: ProviderTimestamp | null;
   reviewedAt: ProviderTimestamp | null;
   reviewedBy: string | null;
@@ -271,6 +298,7 @@ export interface ProviderVerificationDocument {
   documentType: VerificationDocumentType;
   displayName: string;
   isRequired: boolean;
+  requirement: "required" | "one_of" | "optional";
   storagePath: string;
   originalFileName: string;
   contentType: string;
@@ -281,6 +309,50 @@ export interface ProviderVerificationDocument {
   verifiedBy: string | null;
   createdAt: ProviderTimestamp;
   updatedAt: ProviderTimestamp;
+}
+
+export function providerVerificationDocumentPolicy(input: {
+  providerServiceType: ProviderServiceType;
+  serviceCategories?: readonly string[];
+}): ProviderVerificationDocumentPolicy {
+  const categories = input.serviceCategories ?? [];
+  const requiresFoodPermit =
+    input.providerServiceType === "catering" ||
+    input.providerServiceType === "both" ||
+    categories.some((category) =>
+      (FOOD_SERVICE_CATEGORIES as readonly string[]).includes(category)
+    );
+  const requiresMayorsPermit = categories.includes("venue_provider");
+  return {
+    requiredAll: [
+      ...REQUIRED_VERIFICATION_DOCUMENT_TYPES,
+      ...(requiresMayorsPermit ? ["mayors_permit" as const] : []),
+    ],
+    requiredOneOf: requiresFoodPermit && !requiresMayorsPermit
+      ? [FOOD_PERMIT_ALTERNATIVES]
+      : [],
+  };
+}
+
+export function verificationDocumentRequirement(
+  documentType: VerificationDocumentType,
+  policy: ProviderVerificationDocumentPolicy,
+): "required" | "one_of" | "optional" {
+  if (policy.requiredAll.includes(documentType)) return "required";
+  if (policy.requiredOneOf.some((group) => group.includes(documentType))) {
+    return "one_of";
+  }
+  return "optional";
+}
+
+export function verificationDocumentsSatisfyPolicy(
+  documentTypes: ReadonlySet<string>,
+  policy: ProviderVerificationDocumentPolicy,
+): boolean {
+  return policy.requiredAll.every((type) => documentTypes.has(type)) &&
+    policy.requiredOneOf.every((group) =>
+      group.some((type) => documentTypes.has(type))
+    );
 }
 
 export interface ProviderVerificationHistoryEntry {

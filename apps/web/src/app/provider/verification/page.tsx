@@ -27,12 +27,11 @@ export default async function ProviderVerificationPage({
   if (!verification) {
     return <ApplicationErrorState kind="load" description="The trusted provider verification record is missing. Contact FEASTA support." />;
   }
-  const documents = new Map(
-    verification.documents.map((document) => [document.id, document]),
-  );
-  const requiredDocumentsReady = ["business_permit", "valid_id"].every(
-    (documentType) => documents.get(documentType)?.status === "pending",
-  );
+  const consentReady =
+    verification.consent.termsAccepted &&
+    verification.consent.privacyAccepted;
+  const requiredDocumentsReady =
+    verification.requiredDocumentsReady && consentReady;
   const requestedStage = (await searchParams).stage;
   const reviewing = requiredDocumentsReady && requestedStage !== "documents";
   const currentStep = PROVIDER_ONBOARDING_STEPS[reviewing ? 7 : 6];
@@ -53,6 +52,10 @@ export default async function ProviderVerificationPage({
         providerId={account.provider.id}
         verificationId={verification.id}
         canSubmit={requiredDocumentsReady}
+        editable={verification.editable}
+        documents={verification.documents}
+        policy={verification.policy}
+        consent={verification.consent}
         reviewMode={reviewing}
       />
     </ProviderOnboardingShell>

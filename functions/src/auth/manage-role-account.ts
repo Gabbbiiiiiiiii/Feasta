@@ -10,6 +10,7 @@ import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {requireRecentAuthentication} from "../shared/recent-auth.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {requireObject, requireString} from "../shared/validation.js";
+import {shouldPublishProvider} from "../shared/constants.js";
 
 const policyVersionPlaceholder = "unversioned";
 const editableVerificationStatuses = new Set([
@@ -193,6 +194,22 @@ export const updateRoleAccountProfile = onCall(
           stringValue(provider.providerServiceType),
           stringValue(provider.providerCategory),
         ]),
+        publiclyVisible: shouldPublishProvider(
+          {
+            ...provider,
+            id: providerId,
+            ownerFirstName,
+            ownerLastName,
+            businessName,
+            businessEmail,
+            businessPhone,
+            description,
+            address,
+            city,
+            province,
+          },
+          userSnapshot.data() ?? {},
+        ),
         updatedAt: serverTimestamp(),
       });
       if (verificationSnapshot && !verificationSnapshot.empty) {
@@ -385,6 +402,7 @@ export const deactivateProviderAccount = onCall(
       });
       transaction.update(providerReference, {
         isActive: false,
+        publiclyVisible: false,
         deactivatedAt: serverTimestamp(),
         deactivationReason: reason || null,
         updatedAt: serverTimestamp(),

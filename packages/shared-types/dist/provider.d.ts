@@ -1,5 +1,11 @@
 import { type ProviderServiceType, type ProviderVerificationStatus, type VerificationDocumentStatus, type VerificationDocumentType } from "./enums.js";
-export declare const REQUIRED_VERIFICATION_DOCUMENT_TYPES: readonly ["business_permit", "valid_id"];
+export declare const REQUIRED_VERIFICATION_DOCUMENT_TYPES: readonly ["business_permit", "dti_registration", "bir_registration", "valid_id"];
+export declare const FOOD_SERVICE_CATEGORIES: readonly ["catering_service", "food_trays_packed_meals", "catering_event_styling", "cake_provider"];
+export declare const FOOD_PERMIT_ALTERNATIVES: readonly ["sanitary_permit", "mayors_permit"];
+export interface ProviderVerificationDocumentPolicy {
+    requiredAll: readonly VerificationDocumentType[];
+    requiredOneOf: readonly (readonly VerificationDocumentType[])[];
+}
 export declare const UNVERSIONED_POLICY_VERSION: "unversioned";
 export declare const PROVIDER_SERVICE_CATEGORIES: readonly ["catering_service", "food_trays_packed_meals", "catering_event_styling", "photographer", "videographer", "photo_booth", "event_coordinator", "event_host_emcee", "sound_system", "lights_and_sounds", "singer_band", "dancer_performer", "decorator_event_stylist", "florist", "cake_provider", "gown_suit_rental", "car_rental", "venue_provider", "tables_chairs_rental", "other_event_service"];
 export type ProviderServiceCategory = (typeof PROVIDER_SERVICE_CATEGORIES)[number];
@@ -16,15 +22,15 @@ export declare const PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS: readonly [{
     readonly required: true;
 }, {
     readonly type: "dti_registration";
-    readonly label: "DTI registration";
-    readonly required: false;
+    readonly label: "DTI or SEC registration";
+    readonly required: true;
 }, {
     readonly type: "bir_registration";
-    readonly label: "BIR registration";
-    readonly required: false;
+    readonly label: "BIR documentation";
+    readonly required: true;
 }, {
     readonly type: "valid_id";
-    readonly label: "Valid ID";
+    readonly label: "Valid government ID";
     readonly required: true;
 }, {
     readonly type: "sanitary_permit";
@@ -36,7 +42,7 @@ export declare const PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS: readonly [{
     readonly required: false;
 }, {
     readonly type: "other";
-    readonly label: "Other";
+    readonly label: "Other supporting document";
     readonly required: false;
 }];
 export declare const PROVIDER_ONBOARDING_CLIENT_FIELDS: readonly ["ownerFirstName", "ownerLastName", "businessName", "businessEmail", "businessPhone", "description", "address", "city", "province", "locationCoordinates", "providerServiceType", "providerCategory", "serviceCategories", "serviceAreas", "maxServiceDistanceKm", "eventTypesSupported", "minGuestsPerEvent", "maxGuestsPerEvent", "guestCapacity", "acceptsMultipleEventsPerDay", "maxEventsPerDay", "availableStaffCount", "availableEquipmentCount", "operatingDays", "bookingLeadTimeDays", "unavailableDates", "logoStoragePath", "coverStoragePath", "idempotencyKey"];
@@ -124,6 +130,10 @@ export interface ProviderVerification {
     rejectionReason: string | null;
     resubmissionReason: string | null;
     suspensionReason: string | null;
+    termsPolicyVersion: string;
+    privacyPolicyVersion: string;
+    termsAcceptedAt: ProviderTimestamp | null;
+    privacyAcceptedAt: ProviderTimestamp | null;
     submittedAt: ProviderTimestamp | null;
     reviewedAt: ProviderTimestamp | null;
     reviewedBy: string | null;
@@ -141,6 +151,7 @@ export interface ProviderVerificationDocument {
     documentType: VerificationDocumentType;
     displayName: string;
     isRequired: boolean;
+    requirement: "required" | "one_of" | "optional";
     storagePath: string;
     originalFileName: string;
     contentType: string;
@@ -152,6 +163,12 @@ export interface ProviderVerificationDocument {
     createdAt: ProviderTimestamp;
     updatedAt: ProviderTimestamp;
 }
+export declare function providerVerificationDocumentPolicy(input: {
+    providerServiceType: ProviderServiceType;
+    serviceCategories?: readonly string[];
+}): ProviderVerificationDocumentPolicy;
+export declare function verificationDocumentRequirement(documentType: VerificationDocumentType, policy: ProviderVerificationDocumentPolicy): "required" | "one_of" | "optional";
+export declare function verificationDocumentsSatisfyPolicy(documentTypes: ReadonlySet<string>, policy: ProviderVerificationDocumentPolicy): boolean;
 export interface ProviderVerificationHistoryEntry {
     actorId: string;
     actorRole: "provider" | "admin" | "system";

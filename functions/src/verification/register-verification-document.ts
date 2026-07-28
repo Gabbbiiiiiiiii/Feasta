@@ -11,11 +11,12 @@ import {
   requireRole,
 } from "../shared/authorization.js";
 import {
-  isRequiredVerificationDocumentType,
   MAX_VERIFICATION_DOCUMENT_SIZE_BYTES,
+  providerVerificationDocumentPolicy,
   USER_ROLES,
   VERIFICATION_DOCUMENT_CONTENT_TYPES,
   VERIFICATION_DOCUMENT_TYPES,
+  verificationDocumentRequirement,
 } from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
 import {
@@ -30,6 +31,7 @@ import {
   requireObject,
   requireString,
 } from "../shared/validation.js";
+import {writeVerificationHistoryInTransaction} from "../shared/verification-history.js";
 
 const EDITABLE_VERIFICATION_STATUSES =
   new Set([
@@ -92,8 +94,7 @@ export const registerVerificationDocument =
           VERIFICATION_DOCUMENT_TYPES,
         );
 
-      const displayName =
-        requireString(
+      requireString(
           input.displayName,
           "displayName",
           {
@@ -101,6 +102,7 @@ export const registerVerificationDocument =
             maxLength: 120,
           },
         );
+      const displayName = documentLabel(documentType);
 
       const storagePath =
         requireString(
@@ -240,6 +242,12 @@ export const registerVerificationDocument =
             "The verification file path must contain one unique file name.",
           );
         }
+        const providerData = providerSnapshot.data() ?? {};
+        const policy = providerVerificationDocumentPolicy(providerData);
+        const requirement = verificationDocumentRequirement(
+          documentType,
+          policy,
+        );
 
         /*
          * Confirm that the file exists in Storage and
@@ -287,6 +295,12 @@ export const registerVerificationDocument =
           throw new HttpsError(
             "failed-precondition",
             "The uploaded file size is invalid or exceeds 10 MB.",
+          );
+        }
+        if (!fileNameMatchesContentType(uniqueFileName, actualContentType)) {
+          throw new HttpsError(
+            "failed-precondition",
+            "The uploaded file extension does not match its content type.",
           );
         }
 
@@ -375,8 +389,7 @@ export const registerVerificationDocument =
                   ? existingDocument.data()
                   : null;
 
-              const isRequired =
-                isRequiredVerificationDocumentType(documentType);
+              const isRequired = requirement !== "optional";
 
               if (
                 existingDocument.exists &&
@@ -394,8 +407,10 @@ export const registerVerificationDocument =
                   documentType,
                   storagePath,
                   isRequired,
+                  requirement,
                   replaced: false,
                   idempotentReplay: true,
+                  previousStoragePath: null,
                 };
               }
 
@@ -443,7 +458,7 @@ export const registerVerificationDocument =
                 },
               );
 
-              writeAuditLogInTransaction(
+              const auditLogReference = writeAuditLogInTransaction(
                 transaction,
                 {
                   actorId:
@@ -467,9 +482,6 @@ export const registerVerificationDocument =
                           documentType:
                             previousData
                               .documentType,
-                          storagePath:
-                            previousData
-                              .storagePath,
                           status:
                             previousData
                               .status,
@@ -477,7 +489,6 @@ export const registerVerificationDocument =
                       : null,
                   after: {
                     documentType,
-                    storagePath,
                     status:
                       "pending",
                     isRequired,
@@ -494,6 +505,26 @@ export const registerVerificationDocument =
                 },
               );
 
+              writeVerificationHistoryInTransaction(transaction, {
+                verificationId,
+                providerId,
+                actorId: authenticatedUser.uid,
+                actorRole: USER_ROLES.provider,
+                eventType: existingDocument.exists ?
+                  "document_replaced" :
+                  "document_uploaded",
+                documentType,
+                documentStatus: "pending",
+                auditLogId: auditLogReference.id,
+                metadata: {
+                  replaced: existingDocument.exists,
+                  previousStatus:
+                    typeof previousData?.status === "string" ?
+                      previousData.status :
+                      null,
+                },
+              });
+
               return {
                 verificationId,
                 providerId,
@@ -502,13 +533,37 @@ export const registerVerificationDocument =
                 documentType,
                 storagePath,
                 isRequired,
+                requirement,
                 replaced:
                   existingDocument
                     .exists,
                 idempotentReplay: false,
-              };
+                previousStoragePath:
+                  typeof previousData?.storagePath === "string"
+                    ? previousData.storagePath
+                    : null,
+                };
             },
           );
+
+        if (
+          typeof result.previousStoragePath === "string" &&
+          result.previousStoragePath !== storagePath
+        ) {
+          await getStorage().bucket().file(result.previousStoragePath)
+            .delete({ignoreNotFound: true})
+            .catch((error) => {
+              logError(
+                "Obsolete verification object cleanup failed",
+                error,
+                {
+                  uid: authenticatedUser.uid,
+                  verificationId,
+                  documentType,
+                },
+              );
+            });
+        }
 
         logInfo(
           "Verification document registered",
@@ -528,7 +583,15 @@ export const registerVerificationDocument =
 
         return {
           success: true,
-          ...result,
+          verificationId: result.verificationId,
+          providerId: result.providerId,
+          documentId: result.documentId,
+          documentType: result.documentType,
+          storagePath: result.storagePath,
+          isRequired: result.isRequired,
+          requirement: result.requirement,
+          replaced: result.replaced,
+          idempotentReplay: result.idempotentReplay,
         };
       } catch (error) {
         logError(
@@ -539,7 +602,6 @@ export const registerVerificationDocument =
               authenticatedUser.uid,
             verificationId,
             documentType,
-            storagePath,
           },
         );
 
@@ -571,4 +633,32 @@ function rejectUnknownFields(
       `Unknown document fields: ${unknownFields.join(", ")}.`,
     );
   }
+}
+
+function documentLabel(
+  type: (typeof VERIFICATION_DOCUMENT_TYPES)[number],
+): string {
+  const labels: Record<(typeof VERIFICATION_DOCUMENT_TYPES)[number], string> = {
+    business_permit: "Business permit",
+    dti_registration: "DTI or SEC registration",
+    bir_registration: "BIR documentation",
+    valid_id: "Valid government ID",
+    sanitary_permit: "Sanitary permit",
+    mayors_permit: "Mayor's permit",
+    other: "Other supporting document",
+  };
+  return labels[type];
+}
+
+function fileNameMatchesContentType(
+  fileName: string,
+  contentType: string,
+): boolean {
+  const patterns: Readonly<Record<string, RegExp>> = {
+    "application/pdf": /\.pdf$/iu,
+    "image/jpeg": /\.jpe?g$/iu,
+    "image/png": /\.png$/iu,
+    "image/webp": /\.webp$/iu,
+  };
+  return patterns[contentType]?.test(fileName) === true;
 }

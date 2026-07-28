@@ -35,9 +35,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    if (process.env.NODE_ENV === "production") {
-      await enforceSessionCreationRateLimit(request);
-    }
+    await enforceSessionCreationRateLimit(request);
     const body = await request.json() as {
       idToken?: unknown;
       returnTo?: unknown;

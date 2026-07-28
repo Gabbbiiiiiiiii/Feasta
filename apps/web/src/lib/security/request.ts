@@ -5,7 +5,11 @@ import {
   timingSafeEqual,
 } from "node:crypto";
 
-import {parseCookie} from "./policy";
+import {
+  configuredAllowedOrigins,
+  isAllowedOrigin,
+  parseCookie,
+} from "./policy";
 
 export const CSRF_COOKIE_NAME = "feasta_csrf";
 export const CSRF_HEADER_NAME = "x-feasta-csrf";
@@ -41,8 +45,12 @@ export function assertTrustedMutation(request: Request): void {
   const isSameOrigin =
     parsedOrigin.protocol === requestUrl.protocol &&
     parsedOrigin.host === requestUrl.host;
+  const isExplicitlyAllowed = isAllowedOrigin(
+    parsedOrigin.origin,
+    configuredAllowedOrigins(process.env.WEB_ALLOWED_ORIGINS),
+  );
 
-  if (!isSameOrigin) {
+  if (!isSameOrigin && !isExplicitlyAllowed) {
     throw new Error("Request origin is not allowed.");
   }
 

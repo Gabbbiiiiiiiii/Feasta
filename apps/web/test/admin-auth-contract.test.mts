@@ -64,16 +64,35 @@ test("admin routes use revocation-aware server authorization", async () => {
 
 test("no unguarded Next.js admin route handlers or server actions exist", async () => {
   const apiAdmin = new URL("app/api/admin/", sourceRoot);
-  await assert.rejects(readdir(apiAdmin));
+  const adminApiFiles = await readdir(apiAdmin, {recursive: true});
+  const routeFiles = adminApiFiles.filter((file) =>
+    /route\.ts$/u.test(file.toString())
+  );
+  assert.ok(routeFiles.length > 0);
+  for (const routeFile of routeFiles) {
+    const route = await readFile(
+      new URL(routeFile.toString().replaceAll("\\", "/"), apiAdmin),
+      "utf8",
+    );
+    assert.match(route, /getOptionalAccountContext\(\{checkRevoked: true\}\)/u);
+    assert.match(route, /account\.role !== "admin"/u);
+  }
   const adminFiles = await readdir(new URL("app/admin/", sourceRoot), {
     recursive: true,
   });
-  assert.equal(
-    adminFiles.some((file) =>
-      /(?:route|actions?)\.(?:ts|tsx)$/u.test(file.toString()),
-    ),
-    false,
+  const privilegedFiles = adminFiles.filter((file) =>
+    /(?:route|actions?)\.(?:ts|tsx)$/u.test(file.toString())
   );
+  for (const privilegedFile of privilegedFiles) {
+    const privilegedSource = await readFile(
+      new URL(
+        privilegedFile.toString().replaceAll("\\", "/"),
+        new URL("app/admin/", sourceRoot),
+      ),
+      "utf8",
+    );
+    assert.match(privilegedSource, /requireAdmin\(\)/u);
+  }
 });
 
 test("trusted provisioning requires an existing Auth user and explicit confirmation", async () => {

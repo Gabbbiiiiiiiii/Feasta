@@ -18,7 +18,11 @@ const db = getFirestore(app);
     assert.equal((await db.doc("mainEvents/booking-one").get()).data().status, "confirmed");
     const logsBefore = (await db.collection("adminLogs").get()).size;
     const notificationsBefore = (await db.collection("notifications").get()).size;
-    assert.deepEqual(await processPayMongoWebhook(paid), {duplicate: true, applied: false});
+    assert.deepEqual(await processPayMongoWebhook(paid), {
+      duplicate: true,
+      applied: false,
+      reason: "webhook_already_processed",
+    });
     assert.equal((await db.collection("adminLogs").get()).size, logsBefore);
     assert.equal((await db.collection("notifications").get()).size, notificationsBefore);
 
@@ -49,6 +53,7 @@ async function seed(paymentId, status, overrides = {}) {
   batch.set(db.doc(`payments/${paymentId}`), {
     paymentId,
     bookingId: "booking-one",
+    providerRequestId: "provider-request-one",
     customerId: "customer-one",
     providerId: "provider-one",
     amount: 13500,
@@ -60,6 +65,13 @@ async function seed(paymentId, status, overrides = {}) {
   batch.set(db.doc("mainEvents/booking-one"), {
     customerId: overrides.bookingCustomerId ?? "customer-one",
     providerId: "provider-one",
+    status: "waiting_for_down_payment",
+  });
+  batch.set(db.doc("providerRequests/provider-request-one"), {
+    mainEventId: "booking-one",
+    customerId: "customer-one",
+    providerId: "provider-one",
+    paymentId,
     status: "waiting_for_down_payment",
   });
   batch.set(db.doc("providers/provider-one"), {ownerId: "provider-owner"});

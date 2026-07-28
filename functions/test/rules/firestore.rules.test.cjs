@@ -27,6 +27,24 @@ const {
 
 let testEnv;
 
+function publicProviderData(ownerId, overrides = {}) {
+  return {
+    ownerId,
+    businessName: "Public FEASTA Provider",
+    description: "Complete public provider profile.",
+    address: "123 Event Street",
+    city: "Ormoc City",
+    province: "Leyte",
+    providerServiceType: "catering",
+    verificationStatus: "approved",
+    publiclyVisible: true,
+    isActive: true,
+    isSuspended: false,
+    isDeleted: false,
+    ...overrides,
+  };
+}
+
 before(async () => {
   testEnv = await createRulesTestEnvironment();
 });
@@ -162,7 +180,7 @@ test("customer profiles are private and retain immutable userId", async () => {
 test("provider visibility and lifecycle fields follow trusted ownership", async () => {
   await seedDocuments(testEnv, {
     "users/provider-owner": userData("provider-owner", "provider", {
-      providerId: "provider-draft",
+      providerId: "provider-approved",
     }),
     "users/provider-other": userData("provider-other", "provider", {
       providerId: "provider-other",
@@ -177,12 +195,9 @@ test("provider visibility and lifecycle fields follow trusted ownership", async 
       createdAt: new Date(),
     },
     "providers/provider-approved": {
-      ownerId: "provider-owner",
+      ...publicProviderData("provider-owner"),
       businessName: "Approved",
-      verificationStatus: "approved",
-      isActive: true,
       isFeatured: false,
-      isSuspended: false,
       createdAt: new Date(),
     },
     "providers/provider-other": {
@@ -222,27 +237,128 @@ test("provider visibility and lifecycle fields follow trusted ownership", async 
   ));
 });
 
-test("public provider list queries constrain every visibility field", async () => {
+test("unapproved providers can keep draft packages but cannot publish or operate", async () => {
   await seedDocuments(testEnv, {
-    "providers/provider-approved": {
-      ownerId: "owner-one",
-      verificationStatus: "approved",
-      isActive: true,
+    "users/provider-owner": userData("provider-owner", "provider", {
+      providerId: "provider-approved",
+    }),
+    "users/customer-one": userData("customer-one", "customer"),
+    "providers/provider-draft": {
+      ownerId: "provider-owner",
+      verificationStatus: "draft",
+      isActive: false,
       isSuspended: false,
       isDeleted: false,
     },
-    "providers/provider-suspended": {
-      ownerId: "owner-two",
-      verificationStatus: "approved",
-      isActive: true,
-      isSuspended: true,
-      isDeleted: false,
+    "providers/provider-approved": publicProviderData("provider-owner"),
+    "mainEvents/event-one": {
+      customerId: "customer-one",
+      status: "draft",
     },
+  });
+  const owner = authenticated(testEnv, "provider-owner", "provider")
+    .firestore();
+  const customer = authenticated(testEnv, "customer-one", "customer")
+    .firestore();
+  const publicDb = testEnv.unauthenticatedContext().firestore();
+  const draftPackage = {
+    providerId: "provider-draft",
+    name: "Private draft",
+    status: "draft",
+    isActive: false,
+    isPublished: false,
+    publishedAt: null,
+    isDeleted: false,
+    createdAt: new Date(),
+  };
+
+  await assertSucceeds(setDoc(
+    doc(owner, "packages/private-draft"),
+    draftPackage,
+  ));
+  await assertSucceeds(updateDoc(
+    doc(owner, "packages/private-draft"),
+    {name: "Updated private draft"},
+  ));
+  await assertFails(getDoc(doc(publicDb, "packages/private-draft")));
+  await assertFails(updateDoc(
+    doc(owner, "packages/private-draft"),
+    {status: "published", isActive: true, isPublished: true},
+  ));
+  await assertFails(setDoc(doc(owner, "menuItems/forged-live-item"), {
+    providerId: "provider-draft",
+    name: "Forged live item",
+    isActive: true,
+    isDeleted: false,
+    createdAt: new Date(),
+  }));
+  await assertFails(setDoc(doc(owner, "addons/forged-live-addon"), {
+    providerId: "provider-draft",
+    name: "Forged live add-on",
+    isActive: true,
+    isAvailable: true,
+    isDeleted: false,
+    createdAt: new Date(),
+  }));
+  await assertSucceeds(setDoc(doc(owner, "packages/approved-package"), {
+    providerId: "provider-approved",
+    name: "Approved package",
+    status: "published",
+    isActive: true,
+    isPublished: true,
+    providerPubliclyVisible: true,
+    publishedAt: new Date(),
+    isDeleted: false,
+    createdAt: new Date(),
+  }));
+  await assertSucceeds(getDoc(doc(publicDb, "packages/approved-package")));
+  const publicPackages = query(
+    collection(publicDb, "packages"),
+    where("providerId", "==", "provider-approved"),
+    where("status", "==", "published"),
+    where("isActive", "==", true),
+    where("isPublished", "==", true),
+    where("providerPubliclyVisible", "==", true),
+    where("isDeleted", "==", false),
+  );
+  assert.equal((await assertSucceeds(getDocs(publicPackages))).size, 1);
+  await assertFails(getDocs(query(
+    collection(publicDb, "packages"),
+    where("providerId", "==", "provider-approved"),
+  )));
+  await assertFails(setDoc(doc(customer, "providerRequests/forged-request"), {
+    customerId: "customer-one",
+    mainEventId: "event-one",
+    providerId: "provider-draft",
+    status: "pending",
+  }));
+  await assertFails(setDoc(doc(owner, "payments/forged-payment"), {
+    customerId: "customer-one",
+    providerId: "provider-draft",
+    status: "paid",
+    amount: 1,
+  }));
+});
+
+test("public provider list queries constrain every visibility field", async () => {
+  await seedDocuments(testEnv, {
+    "users/owner-one": userData("owner-one", "provider", {
+      providerId: "provider-approved",
+    }),
+    "users/owner-two": userData("owner-two", "provider", {
+      providerId: "provider-suspended",
+    }),
+    "providers/provider-approved": publicProviderData("owner-one"),
+    "providers/provider-suspended": publicProviderData("owner-two", {
+      isSuspended: true,
+      publiclyVisible: false,
+    }),
   });
   const publicDb = testEnv.unauthenticatedContext().firestore();
   const safeQuery = query(
     collection(publicDb, "providers"),
     where("verificationStatus", "==", "approved"),
+    where("publiclyVisible", "==", true),
     where("isActive", "==", true),
     where("isSuspended", "==", false),
     where("isDeleted", "==", false),
@@ -250,6 +366,85 @@ test("public provider list queries constrain every visibility field", async () =
   const snapshot = await assertSucceeds(getDocs(safeQuery));
   assert.equal(snapshot.size, 1);
   assert.equal(snapshot.docs[0].id, "provider-approved");
+});
+
+test("blocked and deactivated provider projections remain non-public", async () => {
+  await seedDocuments(testEnv, {
+    "users/provider-active": userData("provider-active", "provider", {
+      providerId: "provider-active",
+    }),
+    "users/provider-blocked": userData("provider-blocked", "provider", {
+      providerId: "provider-blocked",
+      isBlocked: true,
+    }),
+    "users/provider-deactivated": userData(
+      "provider-deactivated",
+      "provider",
+      {
+        providerId: "provider-deactivated",
+        accountStatus: "pending_deletion",
+        isActive: false,
+      },
+    ),
+    "providers/provider-active": publicProviderData("provider-active"),
+    "providers/provider-blocked": publicProviderData("provider-blocked", {
+      publiclyVisible: false,
+    }),
+    "providers/provider-deactivated": publicProviderData(
+      "provider-deactivated",
+      {publiclyVisible: false, isActive: false},
+    ),
+  });
+  const publicDb = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(getDoc(doc(publicDb, "providers/provider-active")));
+  await assertFails(getDoc(doc(publicDb, "providers/provider-blocked")));
+  await assertFails(getDoc(doc(publicDb, "providers/provider-deactivated")));
+});
+
+test("verification history is immutable and visible only to owner and admin", async () => {
+  await seedDocuments(testEnv, {
+    "users/provider-owner": userData("provider-owner", "provider", {
+      providerId: "provider-one",
+    }),
+    "users/provider-other": userData("provider-other", "provider", {
+      providerId: "provider-other",
+    }),
+    "users/admin-one": userData("admin-one", "admin"),
+    "providers/provider-one": {
+      ownerId: "provider-owner",
+      verificationStatus: "submitted",
+      isActive: false,
+    },
+    "providerVerifications/verification-one": {
+      providerId: "provider-one",
+      ownerId: "provider-owner",
+      status: "submitted",
+    },
+    "providerVerifications/verification-one/history/history-one": {
+      providerId: "provider-one",
+      verificationId: "verification-one",
+      eventType: "verification_submitted",
+      actorId: "provider-owner",
+      actorRole: "provider",
+      auditLogId: "audit-one",
+      createdAt: new Date(),
+    },
+  });
+  const owner = authenticated(testEnv, "provider-owner", "provider")
+    .firestore();
+  const other = authenticated(testEnv, "provider-other", "provider")
+    .firestore();
+  const admin = authenticated(testEnv, "admin-one", "admin").firestore();
+  const historyPath =
+    "providerVerifications/verification-one/history/history-one";
+  await assertSucceeds(getDoc(doc(owner, historyPath)));
+  await assertSucceeds(getDoc(doc(admin, historyPath)));
+  await assertFails(getDoc(doc(other, historyPath)));
+  await assertFails(updateDoc(doc(owner, historyPath), {remarks: "forged"}));
+  await assertFails(setDoc(
+    doc(owner, "providerVerifications/verification-one/history/forged"),
+    {eventType: "verification_approved"},
+  ));
 });
 
 test("sparse account data and inconsistent suspended providers fail safely", async () => {

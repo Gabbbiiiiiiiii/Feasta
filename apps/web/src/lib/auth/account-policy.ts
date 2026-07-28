@@ -14,6 +14,7 @@ export interface ServerProviderContext {
   verificationStatus: ProviderVerificationStatus;
   isActive: boolean;
   isSuspended: boolean;
+  isDeleted: boolean;
 }
 
 export interface ServerAccountContext {
@@ -114,6 +115,7 @@ export function resolveTrustedAccountContext(
       verificationStatus,
       isActive: providerProfile.isActive === true,
       isSuspended: providerProfile.isSuspended === true,
+      isDeleted: providerProfile.isDeleted === true,
     };
   }
 
@@ -156,7 +158,7 @@ export function providerAccessDestination(
   if (!provider) return "/provider/onboarding";
   switch (provider.verificationStatus) {
     case "approved":
-      return provider.isActive && !provider.isSuspended
+      return provider.isActive && !provider.isSuspended && !provider.isDeleted
         ? "/provider"
         : "/provider/status";
     case "draft":

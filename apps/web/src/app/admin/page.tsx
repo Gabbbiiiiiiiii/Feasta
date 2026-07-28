@@ -1,7 +1,6 @@
 import {
   CalendarDays,
   ChevronRight,
-  CircleDollarSign,
   ClipboardList,
   Megaphone,
   Settings,
@@ -10,6 +9,7 @@ import {
   Users,
 } from "lucide-react";
 import Link from "next/link";
+import { PhilippinePeso } from "lucide-react";
 
 import { SummaryCard } from "@/components/data";
 import { PlatformRevenueChart } from "@/components/data/platform-revenue-chart";
@@ -45,7 +45,7 @@ export default async function AdminPage() {
   return (
     <div className="grid min-w-0 gap-6">
       <PageHeading
-        eyebrow="Account Administration"
+        eyebrow="Administration"
         title={dashboard.settings.title}
         description={dashboard.settings.subtitle}
       />
@@ -58,7 +58,7 @@ export default async function AdminPage() {
           label="Platform revenue"
           value={pesoFormatter.format(dashboard.statistics.revenue)}
           icon={
-            <CircleDollarSign
+            <PhilippinePeso
               aria-hidden="true"
               className="size-6"
             />

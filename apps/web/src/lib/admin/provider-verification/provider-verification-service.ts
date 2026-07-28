@@ -1,17 +1,25 @@
 import "server-only";
 
 import {
+  FieldPath,
   FieldValue,
   Timestamp,
   type DocumentData,
   type DocumentSnapshot,
+  type Query,
   type QueryDocumentSnapshot,
 } from "firebase-admin/firestore";
+import {parseProviderVerificationStatusStrict} from "@feasta/shared-types";
 
 import { requireAdmin } from "@/lib/auth/session";
 import { adminDb } from "@/lib/firebase/admin";
 import type {
   ProviderVerificationApplication,
+  ProviderVerificationQueueFilters,
+  ProviderVerificationQueueItem,
+  ProviderVerificationQueuePage,
+  ProviderVerificationQueueSummary,
+  ProviderVerificationReviewDetail,
   VerificationActivity,
   VerificationActivityType,
   VerificationApplicationStatus,
@@ -22,6 +30,60 @@ import type {
 } from "./provider-verification-types";
 
 const applicationLimit = 50;
+export const verificationQueuePageSize = 20;
+const queueStatuses = ["pending", "submitted", "under_review"] as const;
+
+function normalizeSearchToken(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .slice(0, 80);
+}
+
+function queueStatus(
+  value: unknown,
+): Exclude<ProviderVerificationQueueFilters["status"], "all"> {
+  return parseProviderVerificationStatusStrict(value) ?? "pending";
+}
+
+function parseQueueDate(value: string, endOfDay = false): Timestamp | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return null;
+  const date = new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`);
+  return Number.isNaN(date.getTime()) ? null : Timestamp.fromDate(date);
+}
+
+type QueueCursor = {createdAtMillis: number; id: string};
+
+function encodeQueueCursor(snapshot: QueryDocumentSnapshot<DocumentData>): string {
+  const createdAt = getDate(snapshot.data().createdAt);
+  const payload: QueueCursor = {
+    createdAtMillis: createdAt?.getTime() ?? 0,
+    id: snapshot.id,
+  };
+  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+function decodeQueueCursor(value: string | null): QueueCursor | null {
+  if (!value || value.length > 500) return null;
+  try {
+    const parsed = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    ) as Partial<QueueCursor>;
+    return typeof parsed.createdAtMillis === "number" &&
+      Number.isSafeInteger(parsed.createdAtMillis) &&
+      typeof parsed.id === "string" &&
+      /^[A-Za-z0-9_-]{1,150}$/u.test(parsed.id)
+      ? {
+          createdAtMillis: parsed.createdAtMillis,
+          id: parsed.id,
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 function getString(
   value: unknown,
@@ -390,6 +452,392 @@ function documentData(
   return snapshot?.exists
     ? snapshot.data() ?? {}
     : {};
+}
+
+export async function getProviderVerificationQueue(
+  filters: ProviderVerificationQueueFilters,
+): Promise<ProviderVerificationQueuePage> {
+  await requireAdmin();
+
+  let query: Query<DocumentData> = adminDb
+    .collection("providerVerifications");
+  query = filters.status === "all"
+    ? query.where("status", "in", queueStatuses)
+    : query.where("status", "==", filters.status);
+
+  if (filters.serviceType !== "all") {
+    query = query.where(
+      "providerServiceType",
+      "==",
+      filters.serviceType,
+    );
+  }
+
+  const searchToken = normalizeSearchToken(filters.search);
+  if (searchToken) {
+    query = query.where("searchTokens", "array-contains", searchToken);
+  }
+
+  const from = parseQueueDate(filters.from);
+  const to = parseQueueDate(filters.to, true);
+  if (from) query = query.where("createdAt", ">=", from);
+  if (to) query = query.where("createdAt", "<=", to);
+
+  query = query
+    .orderBy("createdAt", "desc")
+    .orderBy(FieldPath.documentId(), "desc");
+
+  const cursor = decodeQueueCursor(filters.cursor);
+  if (filters.cursor && !cursor) {
+    throw new Error("The verification queue cursor is invalid.");
+  }
+  if (cursor) {
+    const values = [
+      Timestamp.fromMillis(cursor.createdAtMillis),
+      cursor.id,
+    ] as const;
+    query = filters.direction === "previous"
+      ? query.endBefore(...values).limitToLast(verificationQueuePageSize + 1)
+      : query.startAfter(...values).limit(verificationQueuePageSize + 1);
+  } else {
+    query = query.limit(verificationQueuePageSize + 1);
+  }
+
+  const snapshot = await query.get();
+  let documents = [...snapshot.docs];
+  const hasExtra = documents.length > verificationQueuePageSize;
+  if (hasExtra) {
+    if (filters.direction === "previous") {
+      documents = documents.slice(1);
+    } else {
+      documents = documents.slice(0, verificationQueuePageSize);
+    }
+  }
+
+  const providerIds = [...new Set(documents.map((document) =>
+    getString(document.data().providerId)
+  ).filter(Boolean))];
+  const providerSnapshots = providerIds.length > 0
+    ? await adminDb.getAll(...providerIds.map((providerId) =>
+        adminDb.collection("providers").doc(providerId)
+      ))
+    : [];
+  const providersById = new Map(providerSnapshots.map((provider) => [
+    provider.id,
+    documentData(provider),
+  ]));
+  const ownerIds = [...new Set(documents.map((document) => {
+    const data = document.data();
+    const provider = providersById.get(getString(data.providerId));
+    return getString(data.ownerId ?? provider?.ownerId);
+  }).filter(Boolean))];
+  const ownerSnapshots = ownerIds.length > 0
+    ? await adminDb.getAll(...ownerIds.map((ownerId) =>
+        adminDb.collection("users").doc(ownerId)
+      ))
+    : [];
+  const ownersById = new Map(ownerSnapshots.map((owner) => [
+    owner.id,
+    documentData(owner),
+  ]));
+
+  const items: ProviderVerificationQueueItem[] = documents.map((document) => {
+    const data = document.data();
+    const providerId = getString(data.providerId);
+    const provider = providersById.get(providerId) ?? {};
+    const ownerId = getString(data.ownerId ?? provider.ownerId);
+    const owner = ownersById.get(ownerId) ?? {};
+    const ownerName = getString(data.ownerName) || [
+      getString(data.ownerFirstName ?? owner.firstName),
+      getString(data.ownerLastName ?? owner.lastName),
+    ].filter(Boolean).join(" ") || "Unnamed owner";
+    return {
+      id: document.id,
+      providerId,
+      businessName: getString(
+        data.businessName ?? provider.businessName,
+        "Unnamed provider",
+      ),
+      ownerName,
+      email: getString(
+        data.businessEmail ?? provider.businessEmail ?? owner.email,
+        "Not provided",
+      ),
+      providerServiceType: getString(
+        data.providerServiceType ?? provider.providerServiceType,
+        "provider",
+      ),
+      submittedAt: formatDate(data.submittedAt ?? data.createdAt),
+      status: queueStatus(data.status),
+    };
+  });
+
+  const first = documents[0];
+  const last = documents.at(-1);
+  return {
+    items,
+    previousCursor: first && (
+      filters.direction === "previous"
+        ? hasExtra
+        : filters.cursor != null
+    ) ? encodeQueueCursor(first) : null,
+    nextCursor: last && (
+      filters.direction === "previous" ? filters.cursor != null : hasExtra
+    )
+      ? encodeQueueCursor(last)
+      : null,
+    pageSize: verificationQueuePageSize,
+  };
+}
+
+export async function getProviderVerificationQueueSummary(): Promise<
+  ProviderVerificationQueueSummary
+> {
+  await requireAdmin();
+  const now = new Date();
+  const approvedTodayStart = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+  ) - (8 * 60 * 60 * 1000));
+  const collection = adminDb.collection("providerVerifications");
+  const [submitted, underReview, approvedToday, needsResubmission] =
+    await Promise.all([
+      collection.where("status", "==", "submitted").count().get(),
+      collection.where("status", "==", "under_review").count().get(),
+      collection
+        .where("status", "==", "approved")
+        .where("approvedAt", ">=", Timestamp.fromDate(approvedTodayStart))
+        .count()
+        .get(),
+      collection
+        .where("status", "==", "resubmission_required")
+        .count()
+        .get(),
+    ]);
+  return {
+    submitted: submitted.data().count,
+    underReview: underReview.data().count,
+    approvedToday: approvedToday.data().count,
+    needsResubmission: needsResubmission.data().count,
+  };
+}
+
+export async function getProviderVerificationReview(
+  verificationId: string,
+): Promise<ProviderVerificationReviewDetail | null> {
+  await requireAdmin();
+  if (!/^[A-Za-z0-9_-]{1,150}$/u.test(verificationId)) return null;
+
+  const verificationSnapshot = await adminDb
+    .collection("providerVerifications")
+    .doc(verificationId)
+    .get();
+  if (!verificationSnapshot.exists) return null;
+
+  const verification = verificationSnapshot.data() ?? {};
+  const providerId = getString(verification.providerId);
+  const status = parseProviderVerificationStatusStrict(verification.status);
+  if (!providerId || !status) return null;
+
+  const providerSnapshot = await adminDb
+    .collection("providers")
+    .doc(providerId)
+    .get();
+  if (!providerSnapshot.exists) return null;
+  const provider = providerSnapshot.data() ?? {};
+  const ownerId = getString(provider.ownerId ?? verification.ownerId);
+  if (
+    !ownerId ||
+    (verification.ownerId != null &&
+      getString(verification.ownerId) !== ownerId)
+  ) {
+    return null;
+  }
+
+  const [ownerSnapshot, documentsSnapshot, historySnapshot] = await Promise.all([
+    adminDb.collection("users").doc(ownerId).get(),
+    verificationSnapshot.ref.collection("documents").limit(20).get(),
+    verificationSnapshot.ref
+      .collection("history")
+      .orderBy("createdAt", "desc")
+      .limit(50)
+      .get(),
+  ]);
+  const owner = ownerSnapshot.data() ?? {};
+  const documents = documentsSnapshot.docs.map((document) => {
+    const data = document.data();
+    const fileSize = Number(data.fileSize);
+    return {
+      id: document.id,
+      documentType: getString(data.documentType, document.id),
+      title: getString(
+        data.displayName ?? data.title,
+        humanizeValue(getString(data.documentType, document.id)),
+      ),
+      fileName: getString(
+        data.originalFileName ?? data.fileName,
+        "Verification document",
+      ),
+      fileSize: Number.isFinite(fileSize) && fileSize > 0
+        ? formatFileSize(fileSize)
+        : "Size unavailable",
+      contentType: getString(data.contentType, "Unknown type"),
+      status: getString(data.status, "pending"),
+      isRequired: getBoolean(data.isRequired),
+      reviewNote: getNullableString(
+        data.rejectionReason ?? data.reviewNote,
+      ),
+      uploadedAt: formatDateTime(data.updatedAt ?? data.createdAt),
+      viewPath:
+        `/api/admin/provider-verifications/${verificationId}/documents/` +
+        `${document.id}?disposition=inline`,
+      downloadPath:
+        `/api/admin/provider-verifications/${verificationId}/documents/` +
+        `${document.id}?disposition=attachment`,
+    };
+  }).sort((left, right) =>
+    Number(right.isRequired) - Number(left.isRequired) ||
+    left.title.localeCompare(right.title)
+  );
+
+  const ownerName = [
+    getString(provider.ownerFirstName ?? owner.firstName),
+    getString(provider.ownerLastName ?? owner.lastName),
+  ].filter(Boolean).join(" ") || getString(
+    verification.ownerName,
+    "Unnamed owner",
+  );
+  return {
+    id: verificationId,
+    providerId,
+    owner: {
+      name: ownerName,
+      email: getString(
+        provider.ownerEmail ?? owner.email,
+        "Not provided",
+      ),
+      phone: getString(
+        provider.ownerPhone ?? owner.phoneNumber,
+        "Not provided",
+      ),
+    },
+    business: {
+      name: getString(provider.businessName, "Unnamed provider"),
+      email: getString(provider.businessEmail, "Not provided"),
+      phone: getString(provider.businessPhone, "Not provided"),
+      description: getString(provider.description, "No description provided."),
+      serviceType: getString(provider.providerServiceType, "Not configured"),
+      address: getString(provider.address, "Not provided"),
+      city: getString(provider.city, "Not provided"),
+      province: getString(provider.province, "Not provided"),
+    },
+    operations: {
+      serviceCategories: stringList(provider.serviceCategories),
+      eventTypes: stringList(
+        provider.eventTypesSupported ?? provider.supportedEventTypes,
+      ),
+      serviceAreas: stringList(
+        provider.serviceAreas ?? provider.serviceCoverage,
+      ),
+      maximumServiceDistance: numericLabel(
+        provider.maxServiceDistanceKm,
+        "km",
+      ),
+      guestCapacity: rangeLabel(
+        provider.minGuestsPerEvent,
+        provider.maxGuestsPerEvent,
+        "guests",
+      ),
+      eventsPerDay: provider.acceptsMultipleEventsPerDay === true
+        ? numericLabel(provider.maxEventsPerDay, "events")
+        : "One event per day",
+      staffCount: numericLabel(provider.availableStaffCount, "staff"),
+      equipmentCount: numericLabel(
+        provider.availableEquipmentCount,
+        "equipment units",
+      ),
+      operatingDays: stringList(provider.operatingDays),
+      bookingLeadTime: numericLabel(provider.bookingLeadTimeDays, "days"),
+      unavailableDates: stringList(provider.unavailableDates),
+    },
+    media: {
+      logoPath: getString(provider.logoStoragePath)
+        ? `/api/admin/providers/${providerId}/media/logo`
+        : null,
+      coverPath: getString(provider.coverStoragePath)
+        ? `/api/admin/providers/${providerId}/media/cover`
+        : null,
+    },
+    status,
+    submittedAt: formatDateTime(
+      verification.submittedAt ?? verification.createdAt,
+    ),
+    reviewedAt: formatDateTime(verification.reviewedAt),
+    reviewedBy: getNullableString(verification.reviewedBy),
+    remarks: getNullableString(verification.remarks),
+    rejectionReason: getNullableString(verification.rejectionReason),
+    resubmissionReason: getNullableString(verification.resubmissionReason),
+    suspensionReason: getNullableString(verification.suspensionReason),
+    termsPolicyVersion: getNullableString(verification.termsPolicyVersion),
+    privacyPolicyVersion: getNullableString(verification.privacyPolicyVersion),
+    documents,
+    history: historySnapshot.docs.map((entry) => {
+      const data = entry.data();
+      return {
+        id: entry.id,
+        eventType: getString(data.eventType, "verification_updated"),
+        fromStatus: getNullableString(data.fromStatus),
+        toStatus: getNullableString(data.toStatus),
+        remarks: getNullableString(data.remarks),
+        documentType: getNullableString(data.documentType),
+        documentStatus: getNullableString(data.documentStatus),
+        actorRole: getString(data.actorRole, "system"),
+        actorId: getString(data.actorId, "system"),
+        auditLogId: getString(data.auditLogId, "Unavailable"),
+        createdAt: formatDateTime(data.createdAt),
+      };
+    }),
+  };
+}
+
+function stringList(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string =>
+        typeof item === "string" && item.trim().length > 0
+      ).map((item) => item.trim()).slice(0, 50)
+    : [];
+}
+
+function humanizeValue(value: string): string {
+  return value.split("_")
+    .filter(Boolean)
+    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
+    .join(" ");
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function numericLabel(value: unknown, suffix: string): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? `${value} ${suffix}`
+    : "Not configured";
+}
+
+function rangeLabel(
+  minimum: unknown,
+  maximum: unknown,
+  suffix: string,
+): string {
+  return (
+    typeof minimum === "number" &&
+    Number.isFinite(minimum) &&
+    typeof maximum === "number" &&
+    Number.isFinite(maximum)
+  ) ? `${minimum}–${maximum} ${suffix}` : "Not configured";
 }
 
 export async function getProviderVerificationApplications(): Promise<

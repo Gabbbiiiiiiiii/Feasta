@@ -8,6 +8,12 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $exitCode = 1
 
+# Firebase CLI defaults function discovery to 10 seconds. The FEASTA export
+# inventory can exceed that on a cold Windows emulator start.
+if (-not $env:FUNCTIONS_DISCOVERY_TIMEOUT) {
+  $env:FUNCTIONS_DISCOVERY_TIMEOUT = "60"
+}
+
 Push-Location $root
 try {
   switch ($Suite) {

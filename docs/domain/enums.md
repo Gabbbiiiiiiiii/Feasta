@@ -169,8 +169,10 @@ Represents the type of document submitted by a provider.
 - `mayors_permit`
 - `other`
 
-The server-owned minimum policy requires `business_permit` and `valid_id`.
-Clients cannot choose whether a document is required.
+The server-owned base policy requires `business_permit`, `dti_registration`
+(DTI or SEC), `bir_registration`, and `valid_id`. Catering/food providers also
+need either `sanitary_permit` or `mayors_permit`; venue providers require
+`mayors_permit`. Clients cannot choose whether a document is required.
 
 ## Verification decision type
 

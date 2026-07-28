@@ -624,154 +624,279 @@ function calculateAccountGrowth(
   );
 }
 
-async function getAdminUserStatistics(): Promise<AdminUserStatistics> {
-  const [usersSnapshot, providersSnapshot] =
-    await Promise.all([
-      adminDb
-        .collection(USERS_COLLECTION)
-        .where("role", "in", [
-          "customer",
-          "provider",
-        ])
-        .get(),
+const USER_STATISTICS_CACHE_MS =
+  30 * 1000;
 
-      adminDb
-        .collection(PROVIDERS_COLLECTION)
-        .select("ownerId", "verificationStatus")
-        .get(),
-    ]);
+let userStatisticsCache: {
+  expiresAt: number;
+  promise: Promise<AdminUserStatistics>;
+} | null = null;
 
-  const providerUserIds = new Set<string>();
+function invalidateUserStatisticsCache() {
+  userStatisticsCache = null;
+}
 
-  let customers = 0;
-  let providers = 0;
-  let restrictedAccounts = 0;
-  let registeredThisMonth = 0;
-  let registeredLastMonth = 0;
-
+async function queryAdminUserStatistics(): Promise<
+  AdminUserStatistics
+> {
   const now = new Date();
+  const manilaOffsetMilliseconds =
+    8 * 60 * 60 * 1000;
 
-  const startOfThisMonth = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    1,
+  const manilaNow = new Date(
+    now.getTime() +
+      manilaOffsetMilliseconds,
   );
 
-  const startOfNextMonth = new Date(
-    now.getFullYear(),
-    now.getMonth() + 1,
-    1,
+  const thisMonthStart = new Date(
+    Date.UTC(
+      manilaNow.getUTCFullYear(),
+      manilaNow.getUTCMonth(),
+      1,
+    ) - manilaOffsetMilliseconds,
   );
 
-  const startOfLastMonth = new Date(
-    now.getFullYear(),
-    now.getMonth() - 1,
-    1,
+  const nextMonthStart = new Date(
+    Date.UTC(
+      manilaNow.getUTCFullYear(),
+      manilaNow.getUTCMonth() + 1,
+      1,
+    ) - manilaOffsetMilliseconds,
   );
 
-  for (const document of usersSnapshot.docs) {
-    const data = document.data();
-    const role = normalizeRole(data.role);
+  const previousMonthStart = new Date(
+    Date.UTC(
+      manilaNow.getUTCFullYear(),
+      manilaNow.getUTCMonth() - 1,
+      1,
+    ) - manilaOffsetMilliseconds,
+  );
 
-    if (!role) {
-      continue;
-    }
+  const users = adminDb.collection(
+    USERS_COLLECTION,
+  );
 
-    if (role === "customer") {
-      customers += 1;
-    } else {
-      providers += 1;
-      providerUserIds.add(document.id);
-    }
-
-    const isActive = booleanValue(
-      data.isActive,
-      true,
+  const providersCollection =
+    adminDb.collection(
+      PROVIDERS_COLLECTION,
     );
 
-    const isBlocked = booleanValue(data.isBlocked);
+  const [
+    customerCount,
+    providerCount,
+    restrictedCustomerCount,
+    restrictedProviderCount,
+    customerThisMonthCount,
+    providerThisMonthCount,
+    customerLastMonthCount,
+    providerLastMonthCount,
+    verifiedProviderCount,
+    pendingProviderCount,
+  ] = await Promise.all([
+    users
+      .where("role", "==", "customer")
+      .count()
+      .get(),
 
-    if (!isActive || isBlocked) {
-      restrictedAccounts += 1;
-    }
+    users
+      .where("role", "==", "provider")
+      .count()
+      .get(),
 
-    const createdAt = dateValue(data.createdAt);
+    users
+      .where("role", "==", "customer")
+      .where(
+        "accountStatus",
+        "in",
+        ["blocked", "disabled"],
+      )
+      .count()
+      .get(),
 
-    if (
-      createdAt &&
-      createdAt >= startOfThisMonth &&
-      createdAt < startOfNextMonth
-    ) {
-      registeredThisMonth += 1;
-    } else if (
-      createdAt &&
-      createdAt >= startOfLastMonth &&
-      createdAt < startOfThisMonth
-    ) {
-      registeredLastMonth += 1;
-    }
-  }
+    users
+      .where("role", "==", "provider")
+      .where(
+        "accountStatus",
+        "in",
+        ["blocked", "disabled"],
+      )
+      .count()
+      .get(),
 
-  const providerStatusByOwnerId =
-    new Map<string, AdminVerificationStatus>();
+    users
+      .where("role", "==", "customer")
+      .where(
+        "createdAt",
+        ">=",
+        Timestamp.fromDate(
+          thisMonthStart,
+        ),
+      )
+      .where(
+        "createdAt",
+        "<",
+        Timestamp.fromDate(
+          nextMonthStart,
+        ),
+      )
+      .count()
+      .get(),
 
-  for (const document of providersSnapshot.docs) {
-    const data = document.data();
-    const ownerId = stringValue(data.ownerId);
+    users
+      .where("role", "==", "provider")
+      .where(
+        "createdAt",
+        ">=",
+        Timestamp.fromDate(
+          thisMonthStart,
+        ),
+      )
+      .where(
+        "createdAt",
+        "<",
+        Timestamp.fromDate(
+          nextMonthStart,
+        ),
+      )
+      .count()
+      .get(),
 
-    if (
-      !ownerId ||
-      !providerUserIds.has(ownerId)
-    ) {
-      continue;
-    }
+    users
+      .where("role", "==", "customer")
+      .where(
+        "createdAt",
+        ">=",
+        Timestamp.fromDate(
+          previousMonthStart,
+        ),
+      )
+      .where(
+        "createdAt",
+        "<",
+        Timestamp.fromDate(
+          thisMonthStart,
+        ),
+      )
+      .count()
+      .get(),
 
-    const candidateStatus =
-      normalizeVerificationStatus(
-        data.verificationStatus,
-      );
+    users
+      .where("role", "==", "provider")
+      .where(
+        "createdAt",
+        ">=",
+        Timestamp.fromDate(
+          previousMonthStart,
+        ),
+      )
+      .where(
+        "createdAt",
+        "<",
+        Timestamp.fromDate(
+          thisMonthStart,
+        ),
+      )
+      .count()
+      .get(),
 
-    const currentStatus =
-      providerStatusByOwnerId.get(ownerId);
+    providersCollection
+      .where(
+        "verificationStatus",
+        "==",
+        "approved",
+      )
+      .count()
+      .get(),
 
-    if (
-      !currentStatus ||
-      verificationPriority(candidateStatus) >
-        verificationPriority(currentStatus)
-    ) {
-      providerStatusByOwnerId.set(
-        ownerId,
-        candidateStatus,
-      );
-    }
-  }
+    providersCollection
+      .where(
+        "verificationStatus",
+        "in",
+        [
+          "draft",
+          "submitted",
+          "under_review",
+          "resubmission_required",
+        ],
+      )
+      .count()
+      .get(),
+  ]);
 
-  let verifiedProviders = 0;
-  let pendingProviders = 0;
+  const customers =
+    customerCount.data().count;
 
-  for (const status of providerStatusByOwnerId.values()) {
-    if (status === "verified") {
-      verifiedProviders += 1;
-    } else if (status === "pending") {
-      pendingProviders += 1;
-    }
-  }
+  const providers =
+    providerCount.data().count;
+
+  const registeredThisMonth =
+    customerThisMonthCount.data().count +
+    providerThisMonthCount.data().count;
+
+  const registeredLastMonth =
+    customerLastMonthCount.data().count +
+    providerLastMonthCount.data().count;
 
   return {
-    totalAccounts: customers + providers,
+    totalAccounts:
+      customers + providers,
+
     customers,
     providers,
-    verifiedProviders,
-    pendingProviders,
-    restrictedAccounts,
+
+    verifiedProviders:
+      verifiedProviderCount.data().count,
+
+    pendingProviders:
+      pendingProviderCount.data().count,
+
+    restrictedAccounts:
+      restrictedCustomerCount.data().count +
+      restrictedProviderCount.data().count,
+
     registeredThisMonth,
     registeredLastMonth,
+
     accountGrowthPercentage:
       calculateAccountGrowth(
         registeredThisMonth,
         registeredLastMonth,
       ),
   };
+}
+
+function getAdminUserStatistics(): Promise<
+  AdminUserStatistics
+> {
+  const now = Date.now();
+
+  if (
+    userStatisticsCache &&
+    userStatisticsCache.expiresAt > now
+  ) {
+    return userStatisticsCache.promise;
+  }
+
+  const promise =
+    queryAdminUserStatistics();
+
+  userStatisticsCache = {
+    expiresAt:
+      now + USER_STATISTICS_CACHE_MS,
+
+    promise,
+  };
+
+  void promise.catch(() => {
+    if (
+      userStatisticsCache?.promise ===
+      promise
+    ) {
+      userStatisticsCache = null;
+    }
+  });
+
+  return promise;
 }
 
 export async function getAdminUserPage(
@@ -1016,6 +1141,13 @@ export async function updateAdminUserAccountStatus({
 
   batch.update(user.reference, {
     isActive,
+
+    accountStatus:
+      resolveAccountStatus(
+        isActive,
+        isBlocked,
+      ),
+
     updatedAt: timestamp,
   });
 
@@ -1056,6 +1188,7 @@ export async function updateAdminUserAccountStatus({
   );
 
   await batch.commit();
+  invalidateUserStatisticsCache();
 }
 
 export async function updateAdminUserBlockedStatus({
@@ -1105,6 +1238,13 @@ export async function updateAdminUserBlockedStatus({
 
   batch.update(user.reference, {
     isBlocked,
+
+    accountStatus:
+      resolveAccountStatus(
+        isActive,
+        isBlocked,
+      ),
+
     updatedAt: timestamp,
   });
 
@@ -1146,4 +1286,5 @@ export async function updateAdminUserBlockedStatus({
   );
 
   await batch.commit();
+  invalidateUserStatisticsCache();
 }

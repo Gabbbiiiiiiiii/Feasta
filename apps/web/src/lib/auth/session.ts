@@ -4,6 +4,9 @@ import {
   PROVIDER_EVENT_TYPES,
   PROVIDER_OPERATING_DAYS,
   PROVIDER_SERVICE_CATEGORIES,
+  parseProviderServiceType,
+  providerVerificationDocumentPolicy,
+  verificationDocumentsSatisfyPolicy,
   type ProviderEventType,
   type ProviderOperatingDay,
   type ProviderServiceCategory,
@@ -178,12 +181,26 @@ export async function requireProvider(): Promise<SessionUser> {
   });
 }
 
+/**
+ * Allows a linked provider to manage private draft catalog records regardless
+ * of verification state. Publication and live operations remain guarded by
+ * requireApprovedProvider and backend authorization.
+ */
+export async function requireProviderCatalogAccess(): Promise<SessionUser> {
+  const account = await requireProvider();
+  if (!account.provider || account.provider.id !== account.providerId) {
+    redirect("/provider/onboarding");
+  }
+  return account;
+}
+
 export async function requireApprovedProvider(): Promise<SessionUser> {
   const account = await requireProvider();
   if (
     account.provider?.verificationStatus !== "approved" ||
     account.provider.isActive !== true ||
-    account.provider.isSuspended === true
+    account.provider.isSuspended === true ||
+    account.provider.isDeleted === true
   ) {
     redirect(providerAccessDestination(account));
   }
@@ -214,7 +231,37 @@ export async function loadOwnedProviderVerification(
   rejectionReason: string | null;
   resubmissionReason: string | null;
   suspensionReason: string | null;
-  documents: Array<{id: string; status: string; displayName: string}>;
+  editable: boolean;
+  requiredDocumentsReady: boolean;
+  policy: {
+    requiredAll: readonly string[];
+    requiredOneOf: readonly (readonly string[])[];
+  };
+  consent: {
+    termsPolicyVersion: string;
+    privacyPolicyVersion: string;
+    termsAccepted: boolean;
+    privacyAccepted: boolean;
+  };
+  documents: Array<{
+    id: string;
+    documentType: string;
+    status: string;
+    displayName: string;
+    isRequired: boolean;
+    requirement: string;
+    fileSize: number | null;
+  }>;
+  history: Array<{
+    id: string;
+    eventType: string;
+    fromStatus: string | null;
+    toStatus: string | null;
+    remarks: string | null;
+    documentType: string | null;
+    auditLogId: string | null;
+    createdAt: string;
+  }>;
 } | null> {
   if (account.role !== "provider" || !account.providerId) return null;
   const snapshot = await adminDb.collection("providerVerifications")
@@ -226,10 +273,53 @@ export async function loadOwnedProviderVerification(
   );
   if (!verification) return null;
   const data = verification.data();
-  const documents = await verification.ref.collection("documents").get();
+  const [documents, providerSnapshot, historySnapshot] = await Promise.all([
+    verification.ref.collection("documents").get(),
+    adminDb.collection("providers").doc(account.providerId).get(),
+    verification.ref.collection("history")
+      .orderBy("createdAt", "desc")
+      .limit(50)
+      .get(),
+  ]);
+  const provider = providerSnapshot.data() ?? {};
+  const providerServiceType =
+    parseProviderServiceType(provider.providerServiceType) ?? "both";
+  const serviceCategories = Array.isArray(provider.serviceCategories)
+    ? provider.serviceCategories.filter(
+        (value): value is string => typeof value === "string",
+      )
+    : [];
+  const policy = providerVerificationDocumentPolicy({
+    providerServiceType,
+    serviceCategories,
+  });
   const safeText = (value: unknown) => typeof value === "string"
     ? value.slice(0, 2000)
     : null;
+  const safeDocuments = documents.docs.map((document) => ({
+    id: document.id,
+    documentType: typeof document.data().documentType === "string"
+      ? document.data().documentType
+      : document.id,
+    status: typeof document.data().status === "string"
+      ? document.data().status
+      : "unknown",
+    displayName: typeof document.data().displayName === "string"
+      ? document.data().displayName.slice(0, 120)
+      : document.id,
+    isRequired: document.data().isRequired === true,
+    requirement: typeof document.data().requirement === "string"
+      ? document.data().requirement
+      : document.data().isRequired === true ? "required" : "optional",
+    fileSize: typeof document.data().fileSize === "number"
+      ? document.data().fileSize
+      : null,
+  }));
+  const readyTypes = new Set(safeDocuments.flatMap((document) =>
+    ["pending", "verified"].includes(document.status)
+      ? [document.documentType]
+      : []
+  ));
   return {
     id: verification.id,
     status: typeof data.status === "string" ? data.status : "unknown",
@@ -237,15 +327,40 @@ export async function loadOwnedProviderVerification(
     rejectionReason: safeText(data.rejectionReason),
     resubmissionReason: safeText(data.resubmissionReason),
     suspensionReason: safeText(data.suspensionReason),
-    documents: documents.docs.map((document) => ({
-      id: document.id,
-      status: typeof document.data().status === "string"
-        ? document.data().status
-        : "unknown",
-      displayName: typeof document.data().displayName === "string"
-        ? document.data().displayName.slice(0, 120)
-        : document.id,
-    })),
+    editable: ["draft", "resubmission_required"].includes(String(data.status)),
+    requiredDocumentsReady:
+      verificationDocumentsSatisfyPolicy(readyTypes, policy),
+    policy,
+    consent: {
+      termsPolicyVersion: safeText(data.termsPolicyVersion) ?? "unversioned",
+      privacyPolicyVersion:
+        safeText(data.privacyPolicyVersion) ?? "unversioned",
+      termsAccepted: data.termsAcceptedAt != null,
+      privacyAccepted: data.privacyAcceptedAt != null,
+    },
+    documents: safeDocuments,
+    history: historySnapshot.docs.map((entry) => {
+      const history = entry.data();
+      const createdAt = history.createdAt &&
+        typeof history.createdAt.toDate === "function"
+        ? history.createdAt.toDate() as Date
+        : null;
+      return {
+        id: entry.id,
+        eventType: safeText(history.eventType) ?? "verification_updated",
+        fromStatus: safeText(history.fromStatus),
+        toStatus: safeText(history.toStatus),
+        remarks: safeText(history.remarks),
+        documentType: safeText(history.documentType),
+        auditLogId: safeText(history.auditLogId),
+        createdAt: createdAt
+          ? new Intl.DateTimeFormat("en-PH", {
+              dateStyle: "medium",
+              timeStyle: "short",
+            }).format(createdAt)
+          : "Not available",
+      };
+    }),
   };
 }
 

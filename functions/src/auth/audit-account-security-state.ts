@@ -6,6 +6,7 @@ import {
   logSecurityEvent,
 } from "../shared/security-events.js";
 import {serverTimestamp} from "../shared/timestamps.js";
+import {shouldPublishProvider} from "../shared/constants.js";
 
 export const onUserSecurityStateChanged = onDocumentUpdatedWithAuthContext(
   {
@@ -31,7 +32,25 @@ export const onUserSecurityStateChanged = onDocumentUpdatedWithAuthContext(
     const reference = db.collection("adminLogs").doc(`security_${event.id}`);
 
     await db.runTransaction(async (transaction) => {
-      if ((await transaction.get(reference)).exists) return;
+      const auditSnapshot = await transaction.get(reference);
+      if (auditSnapshot.exists) return;
+      const providerId =
+        after.role === "provider" && typeof after.providerId === "string"
+          ? after.providerId
+          : null;
+      const providerReference = providerId
+        ? db.collection("providers").doc(providerId)
+        : null;
+      const providerSnapshot = providerReference
+        ? await transaction.get(providerReference)
+        : null;
+      const packageSnapshot = providerId
+        ? await transaction.get(
+            db.collection("packages")
+              .where("providerId", "==", providerId)
+              .limit(100),
+          )
+        : null;
       transaction.create(reference, {
         actorId: actorUid,
         actorRole: event.authType,
@@ -52,6 +71,31 @@ export const onUserSecurityStateChanged = onDocumentUpdatedWithAuthContext(
         metadata: {eventId: event.id},
         createdAt: serverTimestamp(),
       });
+      if (providerReference && providerSnapshot?.exists) {
+        const publiclyVisible = shouldPublishProvider(
+          {
+            ...(providerSnapshot.data() ?? {}),
+            id: providerReference.id,
+          },
+          after,
+        );
+        transaction.update(providerReference, {
+          publiclyVisible,
+          updatedAt: serverTimestamp(),
+        });
+        for (const packageDocument of packageSnapshot?.docs ?? []) {
+          const packageData = packageDocument.data();
+          transaction.update(packageDocument.ref, {
+            providerPubliclyVisible:
+              publiclyVisible &&
+              packageData.status === "published" &&
+              packageData.isActive === true &&
+              packageData.isPublished === true &&
+              packageData.isDeleted !== true,
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
     });
 
     logSecurityEvent({

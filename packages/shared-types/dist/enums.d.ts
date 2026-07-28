@@ -30,6 +30,31 @@ export type ProviderRequestStatus = (typeof PROVIDER_REQUEST_STATUSES)[number];
 export declare const PROVIDER_REQUEST_TYPES: readonly ["catering", "addon"];
 export type ProviderRequestType = (typeof PROVIDER_REQUEST_TYPES)[number];
 export declare const PAYMENT_STATUSES: readonly ["pending", "processing", "paid", "failed", "expired", "refunded"];
+export declare const MAIN_EVENT_STATUS_TRANSITIONS: {
+    readonly draft: readonly ["pending_provider_approval", "cancelled"];
+    readonly pending_provider_approval: readonly ["needs_provider_replacement", "waiting_for_down_payment", "confirmed", "cancelled", "expired"];
+    readonly needs_provider_replacement: readonly ["pending_provider_approval", "waiting_for_down_payment", "cancelled", "expired"];
+    readonly waiting_for_down_payment: readonly ["needs_provider_replacement", "confirmed", "cancelled", "expired"];
+    readonly confirmed: readonly ["in_progress", "cancelled"];
+    readonly in_progress: readonly ["completed", "cancelled"];
+    readonly completed: readonly [];
+    readonly cancelled: readonly [];
+    readonly expired: readonly [];
+};
+export declare function isMainEventStatusTransitionAllowed(from: MainEventStatus, to: MainEventStatus): boolean;
+export declare const PROVIDER_REQUEST_STATUS_TRANSITIONS: {
+    readonly pending: readonly ["accepted", "rejected", "waiting_for_down_payment", "confirmed", "cancelled", "expired"];
+    readonly accepted: readonly ["waiting_for_down_payment", "confirmed", "cancelled", "expired"];
+    readonly rejected: readonly [];
+    readonly waiting_for_down_payment: readonly ["payment_processing", "confirmed", "cancelled", "expired"];
+    readonly payment_processing: readonly ["waiting_for_down_payment", "confirmed", "cancelled", "expired"];
+    readonly confirmed: readonly ["in_progress", "cancelled"];
+    readonly in_progress: readonly ["completed", "cancelled"];
+    readonly completed: readonly [];
+    readonly cancelled: readonly [];
+    readonly expired: readonly [];
+};
+export declare function isProviderRequestStatusTransitionAllowed(from: ProviderRequestStatus, to: ProviderRequestStatus): boolean;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 export declare const PAYMENT_STATUS_TRANSITIONS: {
     readonly pending: readonly ["processing", "paid", "failed", "expired"];

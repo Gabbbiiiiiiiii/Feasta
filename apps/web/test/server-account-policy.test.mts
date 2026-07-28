@@ -141,6 +141,7 @@ test("provider onboarding destinations fail closed for every verification state"
     verificationStatus: "draft" as const,
     isActive: false,
     isSuspended: false,
+    isDeleted: false,
   };
   assert.equal(providerAccessDestination({provider}), "/provider/verification");
   assert.equal(providerAccessDestination({
@@ -156,5 +157,13 @@ test("provider onboarding destinations fail closed for every verification state"
   }), "/provider");
   assert.equal(providerAccessDestination({
     provider: {...provider, verificationStatus: "approved", isActive: false},
+  }), "/provider/status");
+  assert.equal(providerAccessDestination({
+    provider: {
+      ...provider,
+      verificationStatus: "approved",
+      isActive: true,
+      isDeleted: true,
+    },
   }), "/provider/status");
 });

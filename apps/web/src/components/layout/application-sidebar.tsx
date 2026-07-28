@@ -1,11 +1,17 @@
 "use client";
 
 import {
+  memo,
+  useCallback,
+  useMemo,
+} from "react";
+import {
   PanelLeftClose,
   PanelLeftOpen,
+  type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { Brand } from "@/components/layout/application-header";
 import {
@@ -22,135 +28,172 @@ type ApplicationSidebarProps = {
   onCollapsedChange: (collapsed: boolean) => void;
 };
 
-function ApplicationSidebar({
+type SidebarNavigationItemProps = {
+  label: string;
+  href: string;
+  icon: LucideIcon;
+  active: boolean;
+  collapsed: boolean;
+  onPrefetch: (href: string) => void;
+};
+
+const SidebarNavigationItem = memo(
+  function SidebarNavigationItem({
+    label,
+    href,
+    icon: Icon,
+    active,
+    collapsed,
+    onPrefetch,
+  }: SidebarNavigationItemProps) {
+    return (
+      <li>
+        <Link
+          href={href}
+          prefetch
+          aria-current={active ? "page" : undefined}
+          aria-label={collapsed ? label : undefined}
+          title={collapsed ? label : undefined}
+          onMouseEnter={() => onPrefetch(href)}
+          onFocus={() => onPrefetch(href)}
+          className={cn(
+            "group relative flex h-13 items-center rounded-xl",
+            "transition-colors duration-150",
+            "focus-visible:outline-none",
+            "focus-visible:ring-2 focus-visible:ring-[#FF6500]/40",
+            collapsed
+              ? "justify-center px-2"
+              : "gap-3 px-3",
+            active
+              ? "bg-[#FFF0E7] text-[#E95700]"
+              : "text-slate-600 hover:bg-slate-50 hover:text-slate-950",
+          )}
+        >
+          {active && (
+            <span
+              aria-hidden="true"
+              className={cn(
+                "absolute inset-y-3 left-0",
+                "w-0.75 rounded-r-full bg-[#FF6500]",
+              )}
+            />
+          )}
+
+          <span
+            className={cn(
+              "grid size-9 shrink-0 place-items-center rounded-lg",
+              "transition-colors duration-150",
+              active
+                ? "bg-[#FFE3D2] text-[#FF6500]"
+                : [
+                    "text-slate-500",
+                    "group-hover:bg-white",
+                    "group-hover:text-[#FF6500]",
+                  ],
+            )}
+          >
+            <Icon
+              aria-hidden="true"
+              className="size-4.75"
+              strokeWidth={1.9}
+            />
+          </span>
+
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-sm font-medium",
+              collapsed && "sr-only",
+            )}
+          >
+            {label}
+          </span>
+        </Link>
+      </li>
+    );
+  },
+);
+
+function ApplicationSidebarComponent({
   role,
   collapsed,
   onCollapsedChange,
 }: ApplicationSidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const navigationItems = useMemo(
+    () => roleNavigation[role],
+    [role],
+  );
+
+  const sidebarLabel = useMemo(
+    () => `${roleLabels[role]} sidebar`,
+    [role],
+  );
+
+  const handlePrefetch = useCallback(
+    (href: string) => {
+      router.prefetch(href);
+    },
+    [router],
+  );
+
+  const handleToggle = useCallback(() => {
+    onCollapsedChange(!collapsed);
+  }, [collapsed, onCollapsedChange]);
 
   return (
     <aside
       className={cn(
         "sticky top-0 hidden h-dvh shrink-0 flex-col overflow-hidden",
-        "rounded-br-3xl border-r border-border bg-white",
-        "shadow-[8px_0_24px_rgba(15,23,42,0.05)]",
-        "transition-[width] duration-300 ease-in-out md:flex",
+        "border-r border-slate-200/80 bg-white",
+        "transition-[width] duration-200 ease-out md:flex",
         collapsed
           ? "w-[var(--sidebar-collapsed)]"
           : "w-[var(--sidebar-expanded)]",
       )}
-      aria-label={`${roleLabels[role]} sidebar`}
+      aria-label={sidebarLabel}
     >
       <header
         className={cn(
-          "flex min-h-[88px] items-center px-4",
+          "flex h-18 shrink-0 items-center",
+          "border-b border-slate-100",
           collapsed
-            ? "justify-center"
-            : "justify-between gap-3",
+            ? "justify-center px-3"
+            : "px-5",
         )}
       >
-        {collapsed ? (
-          <Brand role={role} compact />
-        ) : (
-          <div className="min-w-0 flex-1">
-            <Brand role={role} />
-          </div>
-        )}
-
-        {!collapsed ? (
-          <button
-            type="button"
-            onClick={() => onCollapsedChange(true)}
-            aria-label="Collapse sidebar"
-            aria-expanded="true"
-            className={cn(
-              "grid size-9 shrink-0 place-items-center rounded-xl",
-              "text-slate-500 transition-colors",
-              "hover:bg-slate-100 hover:text-slate-900",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6500]",
-            )}
-          >
-            <PanelLeftClose
-              aria-hidden="true"
-              className="size-5"
-            />
-          </button>
-        ) : null}
+        <div className="min-w-0">
+          <Brand role={role} compact={collapsed} />
+        </div>
       </header>
 
       <nav
         aria-label={`${roleLabels[role]} primary navigation`}
-        className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-4"
       >
-        <ul className="grid gap-3">
-          {roleNavigation[role].map((item) => {
-            const active = isNavigationItemActive(
-              pathname,
-              item.href,
-            );
-
-            const Icon = item.icon;
-
-            return (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  aria-current={active ? "page" : undefined}
-                  title={collapsed ? item.label : undefined}
-                  className={cn(
-                    "group relative flex min-h-[64px] items-center overflow-hidden rounded-2xl",
-                    "transition-colors duration-200",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6500]",
-                    collapsed
-                      ? "justify-center px-2"
-                      : "gap-4 px-4",
-                    active
-                      ? "bg-[#FFF1E8] text-slate-900"
-                      : "text-slate-600 hover:bg-[#FFF7F2] hover:text-slate-900",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "grid size-11 shrink-0 place-items-center rounded-xl",
-                      "transition-colors duration-200",
-                      active
-                        ? "bg-[#FFE7D8] text-[#FF6500]"
-                        : "bg-slate-50 text-slate-500 group-hover:bg-[#FFEFE5] group-hover:text-[#FF6500]",
-                    )}
-                  >
-                    <Icon
-                      aria-hidden="true"
-                      className="size-5"
-                    />
-                  </span>
-
-                  <span
-                    className={cn(
-                      "min-w-0 flex-1 text-base font-medium leading-6",
-                      collapsed && "sr-only",
-                    )}
-                  >
-                    {item.label}
-                  </span>
-
-                  {active && !collapsed ? (
-                    <span
-                      aria-hidden="true"
-                      className="absolute inset-y-[18px] right-0 w-1 rounded-l-full bg-[#FF6500]"
-                    />
-                  ) : null}
-                </Link>
-              </li>
-            );
-          })}
+        <ul className="space-y-1">
+          {navigationItems.map((item) => (
+            <SidebarNavigationItem
+              key={item.href}
+              label={item.label}
+              href={item.href}
+              icon={item.icon}
+              collapsed={collapsed}
+              active={isNavigationItemActive(
+                pathname,
+                item.href,
+              )}
+              onPrefetch={handlePrefetch}
+            />
+          ))}
         </ul>
       </nav>
 
-      <footer className="border-t border-border/70 p-4">
+      <footer className="shrink-0 border-t border-slate-200/80 p-3">
         <button
           type="button"
-          onClick={() => onCollapsedChange(!collapsed)}
+          onClick={handleToggle}
           aria-label={
             collapsed
               ? "Expand sidebar"
@@ -158,35 +201,41 @@ function ApplicationSidebar({
           }
           aria-expanded={!collapsed}
           className={cn(
-            "flex min-h-11 w-full items-center rounded-xl",
-            "text-sm font-medium text-slate-500 transition-colors",
+            "flex h-11 w-full items-center rounded-xl",
+            "text-sm font-medium text-slate-500",
+            "transition-colors duration-150",
             "hover:bg-slate-100 hover:text-slate-900",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6500]",
+            "focus-visible:outline-none",
+            "focus-visible:ring-2 focus-visible:ring-[#FF6500]/40",
             collapsed
-              ? "justify-center px-2"
+              ? "justify-center"
               : "gap-3 px-3",
           )}
         >
           {collapsed ? (
             <PanelLeftOpen
               aria-hidden="true"
-              className="size-5"
+              className="size-4.75"
             />
           ) : (
             <PanelLeftClose
               aria-hidden="true"
-              className="size-5"
+              className="size-4.75"
             />
           )}
 
-          {!collapsed ? (
+          {!collapsed && (
             <span>Collapse sidebar</span>
-          ) : null}
+          )}
         </button>
       </footer>
     </aside>
   );
 }
+
+const ApplicationSidebar = memo(
+  ApplicationSidebarComponent,
+);
 
 export {
   ApplicationSidebar,

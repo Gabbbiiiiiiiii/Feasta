@@ -31,7 +31,7 @@ beforeEach(async () => {
     "users/customer-owner": userData("customer-owner", "customer"),
     "users/customer-other": userData("customer-other", "customer"),
     "users/provider-owner": userData("provider-owner", "provider", {
-      providerId: "provider-one",
+      providerId: "provider-approved",
     }),
     "users/provider-other": userData("provider-other", "provider", {
       providerId: "provider-two",
@@ -58,6 +58,14 @@ beforeEach(async () => {
       ownerId: "provider-other",
       verificationStatus: "draft",
       isActive: false,
+    },
+    "providers/provider-approved": {
+      ownerId: "provider-owner",
+      verificationStatus: "approved",
+      publiclyVisible: true,
+      isActive: true,
+      isSuspended: false,
+      isDeleted: false,
     },
     "bookings/booking-one": {
       customerId: "customer-owner",
@@ -225,6 +233,34 @@ test("provider logo, cover, and package assets resolve provider ownership", asyn
   }
 });
 
+test("unapproved provider media stays private while approved media is public", async () => {
+  const ownerStorage = authenticated(testEnv, "provider-owner", "provider")
+    .storage();
+  const customerStorage = authenticated(testEnv, "customer-other", "customer")
+    .storage();
+  const adminStorage = authenticated(testEnv, "admin-one", "admin").storage();
+  const publicStorage = testEnv.unauthenticatedContext().storage();
+  const privatePath = "providers/provider-one/logo/private-logo.png";
+  const publicPath = "providers/provider-approved/logo/public-logo.png";
+
+  await assertSucceeds(uploadBytes(
+    ref(ownerStorage, privatePath),
+    bytes(),
+    imageMetadata(),
+  ));
+  await assertFails(getBytes(ref(publicStorage, privatePath)));
+  await assertFails(getBytes(ref(customerStorage, privatePath)));
+  await assertSucceeds(getBytes(ref(ownerStorage, privatePath)));
+  await assertSucceeds(getBytes(ref(adminStorage, privatePath)));
+
+  await assertSucceeds(uploadBytes(
+    ref(ownerStorage, publicPath),
+    bytes(),
+    imageMetadata(),
+  ));
+  await assertSucceeds(getBytes(ref(publicStorage, publicPath)));
+});
+
 test("pre-registration provider media uses deterministic UID ownership", async () => {
   const ownerStorage = authenticated(
     testEnv,
@@ -291,9 +327,26 @@ test("verification files are owner-uploaded and privately reviewed", async () =>
   await assertSucceeds(getBytes(ownerRef));
   await assertFails(getBytes(ref(otherProviderStorage, path)));
   await assertFails(getBytes(ref(customerStorage, path)));
-  await assertSucceeds(getBytes(ref(adminStorage, path)));
-  await assertFails(deleteObject(ownerRef));
-});
+    await assertSucceeds(getBytes(ref(adminStorage, path)));
+    await assertSucceeds(uploadBytes(
+      ownerRef,
+      bytes(12),
+      {contentType: "application/pdf"},
+    ));
+    await seedDocuments(testEnv, {
+      "providers/provider-one": {
+        ownerId: "provider-owner",
+        verificationStatus: "submitted",
+        isActive: false,
+      },
+    });
+    await assertFails(uploadBytes(
+      ownerRef,
+      bytes(16),
+      {contentType: "application/pdf"},
+    ));
+    await assertFails(deleteObject(ownerRef));
+  });
 
 test("verification rejects invalid type paths, MIME types, and oversized files", async () => {
   const ownerStorage = authenticated(testEnv, "provider-owner", "provider")

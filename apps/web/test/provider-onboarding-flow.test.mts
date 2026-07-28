@@ -10,6 +10,7 @@ import {
   providerOnboardingPath,
   PROVIDER_ONBOARDING_STEPS,
 } from "../src/lib/provider/onboarding.ts";
+import {providerStatusPresentation} from "../src/lib/provider/status.ts";
 
 describe("provider onboarding routing policy", () => {
   it("uses the canonical eight-step sequence", () => {
@@ -70,5 +71,62 @@ describe("provider onboarding routing policy", () => {
     assert.match(route, /providerAccessDestination\(account\)/u);
     assert.match(route, /requestedStep\.number > firstIncomplete\.number/u);
     assert.match(route, /redirect\(providerOnboardingPath\(firstIncomplete\)\)/u);
+  });
+});
+
+describe("provider status experience", () => {
+  it("provides a safe next action for every canonical status", () => {
+    const statuses = [
+      "draft",
+      "submitted",
+      "under_review",
+      "resubmission_required",
+      "rejected",
+      "suspended",
+      "approved",
+    ] as const;
+    for (const status of statuses) {
+      const presentation = providerStatusPresentation(status);
+      assert.ok(presentation.title.length > 0);
+      assert.ok(presentation.description.length > 0);
+      assert.ok(presentation.next.length > 0);
+    }
+    assert.equal(
+      providerStatusPresentation("draft").actionHref,
+      "/provider/verification",
+    );
+    assert.equal(
+      providerStatusPresentation("resubmission_required").visibleReason,
+      "resubmissionReason",
+    );
+    assert.equal(
+      providerStatusPresentation("rejected").visibleReason,
+      "rejectionReason",
+    );
+    assert.equal(
+      providerStatusPresentation("suspended").visibleReason,
+      "suspensionReason",
+    );
+    assert.equal(
+      providerStatusPresentation("approved").actionHref,
+      "/provider",
+    );
+  });
+
+  it("keeps the status route server-protected without status bypass redirects", () => {
+    const route = readFileSync(path.resolve(
+      process.cwd(),
+      "src/app/provider/status/page.tsx",
+    ), "utf8");
+    assert.match(route, /await requireProvider\(\)/u);
+    assert.match(route, /providerStatusPresentation\(status\)/u);
+    assert.doesNotMatch(
+      route,
+      /status === "draft"[\s\S]*redirect\("\/provider\/verification"\)/u,
+    );
+    assert.doesNotMatch(
+      route,
+      /status === "approved"[\s\S]*redirect\("\/provider"\)/u,
+    );
   });
 });

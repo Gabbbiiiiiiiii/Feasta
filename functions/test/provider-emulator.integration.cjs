@@ -182,7 +182,7 @@ async function main() {
   assert.equal(incompleteSubmission.response.ok, false);
   assert.deepEqual(
     incompleteSubmission.body.error.details.missingDocumentTypes,
-    ["valid_id"],
+    ["dti_registration", "bir_registration", "valid_id"],
   );
   assert.equal((await db.collection("users").doc(provider.uid).get())
     .data().providerId, provider.uid);
@@ -193,7 +193,13 @@ async function main() {
   );
   assert.equal(denied.ok, false, "client wrote trusted document metadata");
 
-  for (const documentType of ["business_permit", "valid_id"]) {
+  for (const documentType of [
+    "business_permit",
+    "dti_registration",
+    "bir_registration",
+    "valid_id",
+    "sanitary_permit",
+  ]) {
     const storagePath =
       `providers/${provider.uid}/verification/${documentType}/test.png`;
     await upload(storagePath);

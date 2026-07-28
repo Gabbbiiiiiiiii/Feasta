@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   deleteImage: vi.fn(),
   mediaPreview: vi.fn(),
   uploadDocument: vi.fn(),
+  removeDocument: vi.fn(),
   submitVerification: vi.fn(),
 }));
 
@@ -31,6 +32,7 @@ vi.mock("@/lib/auth/provider-client", () => ({
   registerProviderBusiness: mocks.registerBusiness,
   saveProviderOnboardingDraft: mocks.saveDraft,
   uploadVerificationDocument: mocks.uploadDocument,
+  removeVerificationDocument: mocks.removeDocument,
   submitProviderVerification: mocks.submitVerification,
 }));
 vi.mock("@/lib/provider/provider-media-client", () => ({
@@ -375,6 +377,81 @@ describe("provider authentication and onboarding", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("registered securely");
   });
 
+  it("shows document status and removes files only through the trusted callable", async () => {
+    const user = userEvent.setup();
+    mocks.removeDocument.mockResolvedValueOnce({removed: true});
+    render(
+      <ProviderVerificationActions
+        providerId="provider-one"
+        verificationId="verification-one"
+        canSubmit={false}
+        documents={[{
+          id: "business_permit",
+          documentType: "business_permit",
+          status: "pending",
+          displayName: "Business permit",
+          isRequired: true,
+          requirement: "required",
+          fileSize: 1024,
+        }]}
+      />,
+    );
+    expect(screen.getByLabelText("Status: Pending")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", {name: "Remove"}));
+    await user.click(screen.getByRole("button", {name: "Remove document"}));
+    await waitFor(() => expect(mocks.removeDocument).toHaveBeenCalledWith({
+      verificationId: "verification-one",
+      documentType: "business_permit",
+    }));
+    expect(mocks.refresh).toHaveBeenCalled();
+  });
+
+  it("communicates upload progress and replacement state", async () => {
+    const user = userEvent.setup();
+    let finishUpload!: () => void;
+    mocks.uploadDocument.mockImplementationOnce(async (
+      input: {onProgress: (percent: number) => void},
+    ) => {
+      input.onProgress(64);
+      await new Promise<void>((resolve) => {
+        finishUpload = resolve;
+      });
+    });
+    render(
+      <ProviderVerificationActions
+        providerId="provider-one"
+        verificationId="verification-one"
+        canSubmit={false}
+        documents={[{
+          id: "valid_id",
+          documentType: "valid_id",
+          status: "rejected",
+          displayName: "Valid government ID",
+          isRequired: true,
+          requirement: "required",
+          fileSize: 2048,
+        }]}
+      />,
+    );
+    await user.selectOptions(
+      screen.getByLabelText(/document type/i),
+      "valid_id",
+    );
+    await user.upload(
+      screen.getByLabelText(/choose file/i),
+      new File(["id"], "id.png", {type: "image/png"}),
+    );
+    fireEvent.submit(
+      screen.getByRole("button", {name: "Replace"}).closest("form")!,
+    );
+    await waitFor(() => expect(mocks.uploadDocument).toHaveBeenCalled());
+    expect(await screen.findByText("Uploading: 64%")).toBeInTheDocument();
+    finishUpload();
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "replaced securely",
+    );
+  });
+
   it("submits verification once required documents are registered", async () => {
     const user = userEvent.setup();
     mocks.submitVerification.mockResolvedValueOnce(undefined);
@@ -389,5 +466,60 @@ describe("provider authentication and onboarding", () => {
     await user.click(screen.getByRole("button", {name: /submit for admin review/i}));
     await waitFor(() => expect(mocks.submitVerification).toHaveBeenCalledTimes(1));
     expect(mocks.replace).toHaveBeenCalledWith("/provider/status");
+  });
+
+  it("prevents replay taps while submission is in progress", async () => {
+    const user = userEvent.setup();
+    let finish!: () => void;
+    mocks.submitVerification.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    render(
+      <ProviderVerificationActions
+        providerId="provider-one"
+        verificationId="verification-one"
+        canSubmit
+        reviewMode
+      />,
+    );
+    const submit = screen.getByRole(
+      "button",
+      {name: /submit for admin review/i},
+    );
+    await user.click(submit);
+    await user.click(submit);
+    expect(mocks.submitVerification).toHaveBeenCalledTimes(1);
+    expect(submit).toBeDisabled();
+    finish();
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(
+      "/provider/status",
+    ));
+    expect(mocks.refresh).toHaveBeenCalled();
+  });
+
+  it("blocks submission when trusted consent is not recorded", () => {
+    render(
+      <ProviderVerificationActions
+        providerId="provider-one"
+        verificationId="verification-one"
+        canSubmit={false}
+        reviewMode
+        consent={{
+          termsPolicyVersion: "v1",
+          privacyPolicyVersion: "v1",
+          termsAccepted: false,
+          privacyAccepted: true,
+        }}
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /acceptance is not recorded/i,
+    );
+    expect(screen.getByRole(
+      "button",
+      {name: /submit for admin review/i},
+    )).toBeDisabled();
   });
 });

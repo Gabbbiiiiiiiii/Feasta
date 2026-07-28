@@ -149,6 +149,125 @@ export const PAYMENT_STATUSES = [
   "refunded",
 ] as const;
 
+export const MAIN_EVENT_STATUS_TRANSITIONS = {
+  draft: [
+    "pending_provider_approval",
+    "cancelled",
+  ],
+
+  pending_provider_approval: [
+    "needs_provider_replacement",
+    "waiting_for_down_payment",
+    "confirmed",
+    "cancelled",
+    "expired",
+  ],
+
+  needs_provider_replacement: [
+    "pending_provider_approval",
+    "waiting_for_down_payment",
+    "cancelled",
+    "expired",
+  ],
+
+  waiting_for_down_payment: [
+    "needs_provider_replacement",
+    "confirmed",
+    "cancelled",
+    "expired",
+  ],
+
+  confirmed: [
+    "in_progress",
+    "cancelled",
+  ],
+
+  in_progress: [
+    "completed",
+    "cancelled",
+  ],
+
+  completed: [],
+  cancelled: [],
+  expired: [],
+} as const satisfies Record<
+  MainEventStatus,
+  readonly MainEventStatus[]
+>;
+
+export function isMainEventStatusTransitionAllowed(
+  from: MainEventStatus,
+  to: MainEventStatus,
+): boolean {
+  return (
+    MAIN_EVENT_STATUS_TRANSITIONS[
+      from
+    ] as readonly string[]
+  ).includes(to);
+}
+
+export const PROVIDER_REQUEST_STATUS_TRANSITIONS = {
+  pending: [
+    "accepted",
+    "rejected",
+    "waiting_for_down_payment",
+    "confirmed",
+    "cancelled",
+    "expired",
+  ],
+
+  accepted: [
+    "waiting_for_down_payment",
+    "confirmed",
+    "cancelled",
+    "expired",
+  ],
+
+  rejected: [],
+
+  waiting_for_down_payment: [
+    "payment_processing",
+    "confirmed",
+    "cancelled",
+    "expired",
+  ],
+
+  payment_processing: [
+    "waiting_for_down_payment",
+    "confirmed",
+    "cancelled",
+    "expired",
+  ],
+
+  confirmed: [
+    "in_progress",
+    "cancelled",
+  ],
+
+  in_progress: [
+    "completed",
+    "cancelled",
+  ],
+
+  completed: [],
+  cancelled: [],
+  expired: [],
+} as const satisfies Record<
+  ProviderRequestStatus,
+  readonly ProviderRequestStatus[]
+>;
+
+export function isProviderRequestStatusTransitionAllowed(
+  from: ProviderRequestStatus,
+  to: ProviderRequestStatus,
+): boolean {
+  return (
+    PROVIDER_REQUEST_STATUS_TRANSITIONS[
+      from
+    ] as readonly string[]
+  ).includes(to);
+}
+
 export type PaymentStatus =
   (typeof PAYMENT_STATUSES)[number];
 

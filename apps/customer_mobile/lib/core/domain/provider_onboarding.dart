@@ -3,6 +3,8 @@ import '../enums/domain_enums.dart';
 
 const requiredProviderVerificationDocumentTypes = {
   VerificationDocumentType.businessPermit,
+  VerificationDocumentType.dtiRegistration,
+  VerificationDocumentType.birRegistration,
   VerificationDocumentType.validId,
 };
 
@@ -76,17 +78,17 @@ const providerVerificationDocumentDefinitions = [
   ),
   ProviderVerificationDocumentDefinition(
     type: VerificationDocumentType.dtiRegistration,
-    label: 'DTI registration',
-    isRequired: false,
+    label: 'DTI or SEC registration',
+    isRequired: true,
   ),
   ProviderVerificationDocumentDefinition(
     type: VerificationDocumentType.birRegistration,
-    label: 'BIR registration',
-    isRequired: false,
+    label: 'BIR documentation',
+    isRequired: true,
   ),
   ProviderVerificationDocumentDefinition(
     type: VerificationDocumentType.validId,
-    label: 'Valid ID',
+    label: 'Valid government ID',
     isRequired: true,
   ),
   ProviderVerificationDocumentDefinition(
@@ -101,7 +103,7 @@ const providerVerificationDocumentDefinitions = [
   ),
   ProviderVerificationDocumentDefinition(
     type: VerificationDocumentType.other,
-    label: 'Other',
+    label: 'Other supporting document',
     isRequired: false,
   ),
 ];

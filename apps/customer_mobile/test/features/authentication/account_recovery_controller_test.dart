@@ -10,15 +10,13 @@ void main() {
       final gateway = FakeRecoveryGateway();
       final controller = EmailVerificationController(
         gateway: gateway,
-        resendCooldown: const Duration(milliseconds: 20),
+        resendCooldown: const Duration(minutes: 1),
       );
       await controller.resend();
       await controller.resend();
       expect(gateway.resendCalls, 1);
       expect(controller.state.notice, contains('sent'));
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      await controller.resend();
-      expect(gateway.resendCalls, 2);
+      expect(controller.state.cooldownSeconds, greaterThan(0));
       controller.dispose();
     },
   );

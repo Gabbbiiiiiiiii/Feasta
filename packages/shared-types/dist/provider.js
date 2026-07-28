@@ -1,7 +1,19 @@
 import { PROVIDER_SERVICE_TYPES, PROVIDER_VERIFICATION_STATUSES, VERIFICATION_DOCUMENT_STATUSES, VERIFICATION_DOCUMENT_TYPES, } from "./enums.js";
 export const REQUIRED_VERIFICATION_DOCUMENT_TYPES = [
     "business_permit",
+    "dti_registration",
+    "bir_registration",
     "valid_id",
+];
+export const FOOD_SERVICE_CATEGORIES = [
+    "catering_service",
+    "food_trays_packed_meals",
+    "catering_event_styling",
+    "cake_provider",
+];
+export const FOOD_PERMIT_ALTERNATIVES = [
+    "sanitary_permit",
+    "mayors_permit",
 ];
 export const UNVERSIONED_POLICY_VERSION = "unversioned";
 export const PROVIDER_SERVICE_CATEGORIES = [
@@ -63,12 +75,16 @@ export const PROVIDER_OWNER_IDENTITY_CLIENT_FIELDS = [
 ];
 export const PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS = [
     { type: "business_permit", label: "Business permit", required: true },
-    { type: "dti_registration", label: "DTI registration", required: false },
-    { type: "bir_registration", label: "BIR registration", required: false },
-    { type: "valid_id", label: "Valid ID", required: true },
+    {
+        type: "dti_registration",
+        label: "DTI or SEC registration",
+        required: true,
+    },
+    { type: "bir_registration", label: "BIR documentation", required: true },
+    { type: "valid_id", label: "Valid government ID", required: true },
     { type: "sanitary_permit", label: "Sanitary permit", required: false },
     { type: "mayors_permit", label: "Mayor's permit", required: false },
-    { type: "other", label: "Other", required: false },
+    { type: "other", label: "Other supporting document", required: false },
 ];
 export const PROVIDER_ONBOARDING_CLIENT_FIELDS = [
     "ownerFirstName",
@@ -129,6 +145,34 @@ export const PROVIDER_SERVER_OWNED_FIELDS = [
     "deletedAt",
     "deletedBy",
 ];
+export function providerVerificationDocumentPolicy(input) {
+    const categories = input.serviceCategories ?? [];
+    const requiresFoodPermit = input.providerServiceType === "catering" ||
+        input.providerServiceType === "both" ||
+        categories.some((category) => FOOD_SERVICE_CATEGORIES.includes(category));
+    const requiresMayorsPermit = categories.includes("venue_provider");
+    return {
+        requiredAll: [
+            ...REQUIRED_VERIFICATION_DOCUMENT_TYPES,
+            ...(requiresMayorsPermit ? ["mayors_permit"] : []),
+        ],
+        requiredOneOf: requiresFoodPermit && !requiresMayorsPermit
+            ? [FOOD_PERMIT_ALTERNATIVES]
+            : [],
+    };
+}
+export function verificationDocumentRequirement(documentType, policy) {
+    if (policy.requiredAll.includes(documentType))
+        return "required";
+    if (policy.requiredOneOf.some((group) => group.includes(documentType))) {
+        return "one_of";
+    }
+    return "optional";
+}
+export function verificationDocumentsSatisfyPolicy(documentTypes, policy) {
+    return policy.requiredAll.every((type) => documentTypes.has(type)) &&
+        policy.requiredOneOf.every((group) => group.some((type) => documentTypes.has(type)));
+}
 export function validateProviderOwnerIdentityInput(input) {
     if (!isRecord(input)) {
         return { success: false, issues: [{ field: "data", code: "invalid" }] };

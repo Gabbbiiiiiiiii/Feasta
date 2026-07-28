@@ -162,6 +162,145 @@ service cloud.firestore {
           providerData(providerId).ownerId == currentUserId();
     }
 
+    function isApprovedProvider(providerId) {
+      return providerId is string &&
+          providerExists(providerId) &&
+          providerData(providerId).verificationStatus is string &&
+          providerData(providerId).verificationStatus == 'approved' &&
+          providerData(providerId).isActive is bool &&
+          providerData(providerId).isActive == true &&
+          (
+            !('isSuspended' in providerData(providerId)) ||
+            (
+              providerData(providerId).isSuspended is bool &&
+              providerData(providerId).isSuspended == false
+            )
+          ) &&
+          isNotDeleted(providerData(providerId));
+    }
+
+    function isPublicProvider(providerId) {
+      return hasPublicProviderProjection(providerData(providerId)) &&
+          hasRequiredPublicProviderProfile(providerData(providerId)) &&
+          providerOwnerAccountIsActive(providerId);
+    }
+
+    function hasPublicProviderProjection(data) {
+      return data.publiclyVisible is bool &&
+          data.publiclyVisible == true &&
+          data.verificationStatus is string &&
+          data.verificationStatus == 'approved' &&
+          data.isActive is bool &&
+          data.isActive == true &&
+          (
+            !('isSuspended' in data) ||
+            (
+              data.isSuspended is bool &&
+              data.isSuspended == false
+            )
+          ) &&
+          isNotDeleted(data);
+    }
+
+    function hasRequiredPublicProviderProfile(data) {
+      return 'businessName' in data &&
+          data.businessName is string &&
+          data.businessName.size() > 0 &&
+          'description' in data &&
+          data.description is string &&
+          data.description.size() > 0 &&
+          'address' in data &&
+          data.address is string &&
+          data.address.size() > 0 &&
+          'city' in data &&
+          data.city is string &&
+          data.city.size() > 0 &&
+          'province' in data &&
+          data.province is string &&
+          data.province.size() > 0 &&
+          'providerServiceType' in data &&
+          data.providerServiceType is string &&
+          (
+            data.providerServiceType == 'catering' ||
+            data.providerServiceType == 'addon' ||
+            data.providerServiceType == 'both'
+          );
+    }
+
+    function providerOwnerAccountIsActive(providerId) {
+      let ownerId = providerData(providerId).ownerId;
+      return ownerId is string &&
+          exists(/databases/$(database)/documents/users/$(ownerId)) &&
+          get(/databases/$(database)/documents/users/$(ownerId)).data.role ==
+              'provider' &&
+          get(/databases/$(database)/documents/users/$(ownerId)).data.providerId ==
+              providerId &&
+          get(/databases/$(database)/documents/users/$(ownerId)).data.accountStatus ==
+              'active' &&
+          (
+            !('isActive' in
+              get(/databases/$(database)/documents/users/$(ownerId)).data) ||
+            get(/databases/$(database)/documents/users/$(ownerId)).data.isActive ==
+              true
+          ) &&
+          (
+            !('isBlocked' in
+              get(/databases/$(database)/documents/users/$(ownerId)).data) ||
+            get(/databases/$(database)/documents/users/$(ownerId)).data.isBlocked ==
+              false
+          );
+    }
+
+    function packageVisibilityAllowed(data) {
+      return data.providerId is string &&
+          (
+            (
+              'isDeleted' in data &&
+              data.isDeleted == true &&
+              data.isActive is bool &&
+              data.isActive == false
+            ) ||
+            (
+              data.status is string &&
+              data.status == 'draft' &&
+              data.isActive is bool &&
+              data.isActive == false &&
+              (
+                !('providerPubliclyVisible' in data) ||
+                data.providerPubliclyVisible == false
+              ) &&
+              (!('isPublished' in data) || data.isPublished == false) &&
+              (!('publishedAt' in data) || data.publishedAt == null)
+            ) ||
+            (
+              isPublicProvider(data.providerId) &&
+              data.isActive is bool &&
+              (
+                data.isActive == false ||
+                (
+                  data.isActive == true &&
+                  data.status is string &&
+                  data.status == 'published' &&
+                  data.isPublished is bool &&
+                  data.isPublished == true &&
+                  data.providerPubliclyVisible is bool &&
+                  data.providerPubliclyVisible == true &&
+                  data.publishedAt != null
+                )
+              )
+            )
+          );
+    }
+
+    function catalogActivationAllowed(data) {
+      return data.providerId is string &&
+          (
+            !('isActive' in data) ||
+            data.isActive != true ||
+            isApprovedProvider(data.providerId)
+          );
+    }
+
     function ownsProviderFromExistingDocument() {
       return resource.data.providerId is string &&
           ownsProvider(resource.data.providerId);
@@ -480,22 +619,18 @@ service cloud.firestore {
     // ============================================================
 
     match /providers/{providerId} {
-      allow read: if (
-          resource.data.verificationStatus is string &&
-          resource.data.verificationStatus == 'approved' &&
-          resource.data.isActive is bool &&
-          resource.data.isActive == true &&
-          (
-            !('isSuspended' in resource.data) ||
-            (
-              resource.data.isSuspended is bool &&
-              resource.data.isSuspended == false
-            )
-          ) &&
-          isNotDeleted(resource.data)
+      allow get: if (
+          hasPublicProviderProjection(resource.data) &&
+          hasRequiredPublicProviderProfile(resource.data) &&
+          providerOwnerAccountIsActive(providerId)
         ) ||
         ownsProvider(providerId) ||
         isAdmin();
+
+      // Public list queries depend on this backend-owned projection because
+      // Firestore cannot query across the linked owner document. Direct reads
+      // still independently recheck the owner and required profile fields.
+      allow list: if hasPublicProviderProjection(resource.data) || isAdmin();
 
       allow create: if false;
 
@@ -520,6 +655,7 @@ service cloud.firestore {
             'isActive',
             'isFeatured',
             'isSuspended',
+            'publiclyVisible',
             'suspendedAt',
             'suspendedBy',
             'searchTokens',
@@ -537,6 +673,7 @@ service cloud.firestore {
             'isActive',
             'isFeatured',
             'isSuspended',
+            'publiclyVisible',
             'suspendedAt',
             'suspendedBy',
             'searchTokens',
@@ -593,6 +730,25 @@ service cloud.firestore {
 
         allow delete: if false;
       }
+
+      match /history/{historyId} {
+        allow read: if isAdmin() ||
+            (
+              isActiveSignedInUser() &&
+              exists(
+                /databases/$(database)/documents/providerVerifications/$(verificationId)
+              ) &&
+              get(
+                /databases/$(database)/documents/providerVerifications/$(verificationId)
+              ).data.providerId is string &&
+              ownsProvider(
+                get(
+                  /databases/$(database)/documents/providerVerifications/$(verificationId)
+                ).data.providerId
+              )
+            );
+        allow create, update, delete: if false;
+      }
     }
 
     // ============================================================
@@ -600,17 +756,44 @@ service cloud.firestore {
     // ============================================================
 
     match /packages/{packageId} {
-      allow read: if (
+      allow get: if (
           isNotDeleted(resource.data) &&
-          (resource.data.status == 'active' ||
-            resource.data.isActive == true)
+          resource.data.providerId is string &&
+          isPublicProvider(resource.data.providerId) &&
+          resource.data.status is string &&
+          resource.data.status == 'published' &&
+          resource.data.isActive is bool &&
+          resource.data.isActive == true &&
+          resource.data.isPublished is bool &&
+          resource.data.isPublished == true &&
+          resource.data.providerPubliclyVisible is bool &&
+          resource.data.providerPubliclyVisible == true &&
+          resource.data.publishedAt != null
+        ) ||
+          ownsProviderFromExistingDocument() ||
+          isAdmin();
+
+      // List queries cannot perform a provider-document join. Public discovery
+      // must constrain every backend-maintained publication projection below.
+      // Direct document reads still recheck the provider and owner account.
+      allow list: if (
+          isNotDeleted(resource.data) &&
+          resource.data.status is string &&
+          resource.data.status == 'published' &&
+          resource.data.isActive is bool &&
+          resource.data.isActive == true &&
+          resource.data.isPublished is bool &&
+          resource.data.isPublished == true &&
+          resource.data.providerPubliclyVisible is bool &&
+          resource.data.providerPubliclyVisible == true
         ) ||
           ownsProviderFromExistingDocument() ||
           isAdmin();
 
       allow create: if isProviderUser() &&
           ownsProviderFromIncomingDocument() &&
-          isNotDeleted(request.resource.data);
+          isNotDeleted(request.resource.data) &&
+          packageVisibilityAllowed(request.resource.data);
 
       allow update: if (
           ownsProviderFromExistingDocument() &&
@@ -618,24 +801,44 @@ service cloud.firestore {
               resource.data.providerId &&
           request.resource.data.createdAt ==
               resource.data.createdAt &&
+          packageVisibilityAllowed(request.resource.data) &&
           (
             !changedFields().hasAny([
               'isDeleted', 'deletedAt', 'deletedBy', 'deletionReason'
             ]) || validSoftDelete()
           )
-        ) || isAdmin();
+        ) || (
+          isAdmin() &&
+          packageVisibilityAllowed(request.resource.data)
+        );
 
       allow delete: if false;
     }
 
     match /menuItems/{menuItemId} {
-      allow read: if resource.data.isActive == true ||
+      allow read: if (
+          resource.data.isActive == true &&
+          resource.data.providerId is string &&
+          isPublicProvider(resource.data.providerId)
+        ) ||
+          ownsProviderFromExistingDocument() ||
+          isAdmin();
+
+      allow list: if (
+          isNotDeleted(resource.data) &&
+          resource.data.status == 'published' &&
+          resource.data.isActive == true &&
+          resource.data.isPublished == true &&
+          resource.data.providerPubliclyVisible == true &&
+          resource.data.publishedAt != null
+        ) ||
           ownsProviderFromExistingDocument() ||
           isAdmin();
 
       allow create: if isProviderUser() &&
           ownsProviderFromIncomingDocument() &&
-          isNotDeleted(request.resource.data);
+          isNotDeleted(request.resource.data) &&
+          catalogActivationAllowed(request.resource.data);
 
       allow update: if (
           ownsProviderFromExistingDocument() &&
@@ -643,12 +846,16 @@ service cloud.firestore {
               resource.data.providerId &&
           request.resource.data.createdAt ==
               resource.data.createdAt &&
+          catalogActivationAllowed(request.resource.data) &&
           (
             !changedFields().hasAny([
               'isDeleted', 'deletedAt', 'deletedBy', 'deletionReason'
             ]) || validSoftDelete()
           )
-        ) || isAdmin();
+        ) || (
+          isAdmin() &&
+          catalogActivationAllowed(request.resource.data)
+        );
 
       allow delete: if false;
     }
@@ -657,6 +864,8 @@ service cloud.firestore {
       allow read: if (
           resource.data.isActive == true &&
           resource.data.isAvailable == true &&
+          resource.data.providerId is string &&
+          isPublicProvider(resource.data.providerId) &&
           isNotDeleted(resource.data)
         ) ||
         ownsProviderFromExistingDocument() ||
@@ -664,7 +873,13 @@ service cloud.firestore {
 
       allow create: if isProviderUser() &&
           ownsProviderFromIncomingDocument() &&
-          isNotDeleted(request.resource.data);
+          isNotDeleted(request.resource.data) &&
+          catalogActivationAllowed(request.resource.data) &&
+          (
+            !('isAvailable' in request.resource.data) ||
+            request.resource.data.isAvailable != true ||
+            isApprovedProvider(request.resource.data.providerId)
+          );
 
       allow update: if (
           ownsProviderFromExistingDocument() &&
@@ -672,12 +887,26 @@ service cloud.firestore {
               resource.data.providerId &&
           request.resource.data.createdAt ==
               resource.data.createdAt &&
+          catalogActivationAllowed(request.resource.data) &&
+          (
+            !('isAvailable' in request.resource.data) ||
+            request.resource.data.isAvailable != true ||
+            isApprovedProvider(request.resource.data.providerId)
+          ) &&
           (
             !changedFields().hasAny([
               'isDeleted', 'deletedAt', 'deletedBy', 'deletionReason'
             ]) || validSoftDelete()
           )
-        ) || isAdmin();
+        ) || (
+          isAdmin() &&
+          catalogActivationAllowed(request.resource.data) &&
+          (
+            !('isAvailable' in request.resource.data) ||
+            request.resource.data.isAvailable != true ||
+            isApprovedProvider(request.resource.data.providerId)
+          )
+        );
 
       allow delete: if false;
     }
@@ -786,23 +1015,7 @@ service cloud.firestore {
           request.resource.data.mainEventId is string &&
           ownsMainEvent(request.resource.data.mainEventId) &&
           request.resource.data.providerId is string &&
-          providerExists(request.resource.data.providerId) &&
-          providerData(request.resource.data.providerId).verificationStatus
-              is string &&
-          providerData(request.resource.data.providerId).verificationStatus ==
-              'approved' &&
-          providerData(request.resource.data.providerId).isActive is bool &&
-          providerData(request.resource.data.providerId).isActive == true &&
-          (
-            !('isSuspended' in
-              providerData(request.resource.data.providerId)) ||
-            (
-              providerData(request.resource.data.providerId).isSuspended
-                  is bool &&
-              providerData(request.resource.data.providerId).isSuspended ==
-                  false
-            )
-          ) &&
+          isApprovedProvider(request.resource.data.providerId) &&
           request.resource.data.status is string &&
           request.resource.data.status == 'pending' &&
           !request.resource.data.keys().hasAny([
@@ -1259,6 +1472,9 @@ service cloud.firestore {
           request.resource.data.offeringProviderId
               is string &&
           ownsProvider(
+            request.resource.data.offeringProviderId
+          ) &&
+          isApprovedProvider(
             request.resource.data.offeringProviderId
           );
 

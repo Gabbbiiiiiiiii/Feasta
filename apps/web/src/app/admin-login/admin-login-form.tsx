@@ -184,7 +184,7 @@ export function AdminLoginForm({
                 htmlFor="admin-email"
                 className="text-[13px] font-medium text-foreground"
               >
-                Email Address
+                Admin email
                 <span
                   className="ml-1 text-destructive"
                   aria-hidden="true"
@@ -365,6 +365,7 @@ export function AdminLoginForm({
             <Button
               type="submit"
               fullWidth
+              aria-label="Sign in as admin"
               loading={loading}
               loadingLabel="Signing in"
               className="h-13 rounded-full text-[15px] font-semibold shadow-md shadow-primary/20"
@@ -406,13 +407,25 @@ function adminLoginError(caught: unknown): string {
     }
   }
 
-  if (caught instanceof FirebaseError) {
-    switch (caught.code) {
+  const firebaseCode =
+    caught instanceof FirebaseError
+      ? caught.code
+      : (
+          typeof caught === "object" &&
+          caught !== null &&
+          "code" in caught &&
+          typeof caught.code === "string"
+        )
+        ? caught.code
+        : null;
+
+  if (firebaseCode) {
+    switch (firebaseCode) {
       case "auth/invalid-credential":
       case "auth/invalid-login-credentials":
       case "auth/user-not-found":
       case "auth/wrong-password":
-        return "The email or password is incorrect.";
+        return "The credentials could not be verified for admin access.";
 
       case "auth/user-disabled":
         return "This administrator account has been disabled.";
@@ -428,8 +441,7 @@ function adminLoginError(caught: unknown): string {
 
       default:
         console.error("Unhandled Firebase authentication error:", {
-          code: caught.code,
-          message: caught.message,
+          code: firebaseCode,
         });
 
         return "Admin sign-in could not be completed.";

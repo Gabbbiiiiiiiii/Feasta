@@ -74,6 +74,15 @@ export {
 export {
   registerVerificationDocument,
 } from "./verification/register-verification-document.js";
+export {
+  removeVerificationDocument,
+} from "./verification/remove-verification-document.js";
+export {
+  acceptProviderRequest,
+} from "./provider-requests/accept-provider-request.js";
+export {
+  rejectProviderRequest,
+} from "./provider-requests/reject-provider-request.js";
 
 export {submitReview} from "./content/submit-review.js";
 export {createComplaint} from "./content/create-complaint.js";

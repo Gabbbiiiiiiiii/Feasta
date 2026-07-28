@@ -23,6 +23,7 @@ const policies = [
   ["registerProvider", "providers/register-provider.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction"]],
   ["saveProviderOnboardingDraft", "providers/save-provider-onboarding-draft.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "runTransaction"]],
   ["registerVerificationDocument", "verification/register-verification-document.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "idempotentReplay", "writeAuditLogInTransaction"]],
+  ["removeVerificationDocument", "verification/remove-verification-document.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "EDITABLE_STATUSES", "writeAuditLogInTransaction"]],
   ["submitProviderVerification", "verification/submit-provider-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction"]],
   ["reviewProviderVerification", "verification/review-provider-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "createNotificationInTransaction"]],
   ["createComplaint", "content/create-complaint.ts", ["requireAuth(request)", "requireActiveUser", "enforceCallableRateLimit", "executeIdempotently", "writeAuditLogInTransaction"]],
@@ -60,12 +61,14 @@ test("all deployed exports remain in the reviewed inventory", () => {
   for (const match of index.matchAll(/export const\s+(\w+)\s*=/gu)) names.add(match[1]);
   for (const match of index.matchAll(/export\s*\{\s*(\w+)[\s,}]/gu)) names.add(match[1]);
   assert.deepEqual([...names].sort(), [
+    "acceptProviderRequest",
     "createComplaint", "createPaymentSession", "deactivateCustomerAccount",
     "deactivateProviderAccount",
     "ensureProviderIdentity",
     "ensureUserProfile", "getDirections", "getPlaceDetails", "healthCheck",
     "onPromotionWrite", "onUserSecurityStateChanged", "payMongoWebhook",
-    "registerProvider", "revokeAllAccountSessions", "revokeAllCustomerSessions",
+    "registerProvider", "rejectProviderRequest", "removeVerificationDocument",
+    "revokeAllAccountSessions", "revokeAllCustomerSessions",
     "saveProviderOnboardingDraft",
     "registerVerificationDocument", "requestPaymentRefund", "reverseGeocode",
     "reviewProviderVerification", "searchPlaces", "submitProviderVerification",
@@ -112,6 +115,20 @@ test("provider identity creation ignores client role and verification flags", ()
   assert.equal(content.includes("input.isEmailVerified"), false);
   assert.equal(content.includes("input.isPhoneVerified"), false);
   assert.equal(content.includes("input.isActive"), false);
+});
+
+test("booking and payment callables revalidate approved providers", () => {
+  const bookings = source("bookings/submit-booking-request.ts");
+  const payments = source("payments/create-payment-session.ts");
+  assert.ok(
+    (bookings.match(/isApprovedProviderForOperations\(\s*\w+/gu) ?? [])
+      .length >= 2,
+    "each selected provider must be revalidated",
+  );
+  assert.match(
+    payments,
+    /isApprovedProviderForOperations\(\s*provider\s*\)/u,
+  );
 });
 
 test("Maps proxy cache and timeout controls do not persist API keys", () => {

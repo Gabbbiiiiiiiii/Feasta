@@ -26,6 +26,144 @@ export type VerificationApplicationStatus =
   | "approved"
   | "rejected";
 
+export const verificationQueueStatuses = [
+  "all",
+  "pending",
+  "draft",
+  "submitted",
+  "under_review",
+  "resubmission_required",
+  "approved",
+  "rejected",
+  "suspended",
+] as const;
+
+export type VerificationQueueStatus =
+  (typeof verificationQueueStatuses)[number];
+
+export const verificationQueueServiceTypes = [
+  "all",
+  "catering",
+  "addon",
+  "both",
+] as const;
+
+export type VerificationQueueServiceType =
+  (typeof verificationQueueServiceTypes)[number];
+
+export type ProviderVerificationQueueFilters = {
+  search: string;
+  status: VerificationQueueStatus;
+  serviceType: VerificationQueueServiceType;
+  from: string;
+  to: string;
+  cursor: string | null;
+  direction: "next" | "previous";
+};
+
+export type ProviderVerificationQueueItem = {
+  id: string;
+  providerId: string;
+  businessName: string;
+  ownerName: string;
+  email: string;
+  providerServiceType: string;
+  submittedAt: string;
+  status: Exclude<VerificationQueueStatus, "all">;
+};
+
+export type ProviderVerificationQueuePage = {
+  items: ProviderVerificationQueueItem[];
+  previousCursor: string | null;
+  nextCursor: string | null;
+  pageSize: number;
+};
+
+export type ProviderVerificationQueueSummary = {
+  submitted: number;
+  underReview: number;
+  approvedToday: number;
+  needsResubmission: number;
+};
+
+export type ProviderVerificationReviewDocument = {
+  id: string;
+  documentType: string;
+  title: string;
+  fileName: string;
+  fileSize: string;
+  contentType: string;
+  status: string;
+  isRequired: boolean;
+  reviewNote: string | null;
+  uploadedAt: string;
+  viewPath: string;
+  downloadPath: string;
+};
+
+export type ProviderVerificationHistoryEntry = {
+  id: string;
+  eventType: string;
+  fromStatus: string | null;
+  toStatus: string | null;
+  remarks: string | null;
+  documentType: string | null;
+  documentStatus: string | null;
+  actorRole: string;
+  actorId: string;
+  auditLogId: string;
+  createdAt: string;
+};
+
+export type ProviderVerificationReviewDetail = {
+  id: string;
+  providerId: string;
+  owner: {
+    name: string;
+    email: string;
+    phone: string;
+  };
+  business: {
+    name: string;
+    email: string;
+    phone: string;
+    description: string;
+    serviceType: string;
+    address: string;
+    city: string;
+    province: string;
+  };
+  operations: {
+    serviceCategories: readonly string[];
+    eventTypes: readonly string[];
+    serviceAreas: readonly string[];
+    maximumServiceDistance: string;
+    guestCapacity: string;
+    eventsPerDay: string;
+    staffCount: string;
+    equipmentCount: string;
+    operatingDays: readonly string[];
+    bookingLeadTime: string;
+    unavailableDates: readonly string[];
+  };
+  media: {
+    logoPath: string | null;
+    coverPath: string | null;
+  };
+  status: ProviderVerificationStatus;
+  submittedAt: string;
+  reviewedAt: string;
+  reviewedBy: string | null;
+  remarks: string | null;
+  rejectionReason: string | null;
+  resubmissionReason: string | null;
+  suspensionReason: string | null;
+  termsPolicyVersion: string | null;
+  privacyPolicyVersion: string | null;
+  documents: readonly ProviderVerificationReviewDocument[];
+  history: readonly ProviderVerificationHistoryEntry[];
+};
+
 export type VerificationDocumentStatus =
   | "pending"
   | "verified"
@@ -121,3 +259,4 @@ export function canApproveVerification(
     (document) => document.status === "verified",
   );
 }
+import type {ProviderVerificationStatus} from "@feasta/shared-types";

@@ -89,6 +89,60 @@ export function isProviderVerificationTransitionAllowed(
     .includes(to);
 }
 
+export function isApprovedProviderForOperations(
+  provider: Readonly<Record<string, unknown>>,
+): boolean {
+  return provider.verificationStatus === "approved" &&
+    provider.isActive === true &&
+    provider.isSuspended !== true &&
+    provider.isDeleted !== true &&
+    typeof provider.ownerId === "string" &&
+    provider.ownerId.trim().length > 0;
+}
+
+export function isProviderPubliclyEligible(
+  provider: Readonly<Record<string, unknown>>,
+  ownerAccount: Readonly<Record<string, unknown>>,
+): boolean {
+  const requiredPublicText = [
+    provider.businessName,
+    provider.description,
+    provider.address,
+    provider.city,
+    provider.province,
+  ];
+  return isApprovedProviderForOperations(provider) &&
+    provider.publiclyVisible !== false &&
+    typeof provider.id === "string" &&
+    provider.id.trim().length > 0 &&
+    parseProviderServiceType(provider.providerServiceType) !== null &&
+    requiredPublicText.every(
+      (value) => typeof value === "string" && value.trim().length > 0,
+    ) &&
+    isProviderOwnerAccountActive(provider.id as string, ownerAccount);
+}
+
+export function isProviderOwnerAccountActive(
+  providerId: string,
+  ownerAccount: Readonly<Record<string, unknown>>,
+): boolean {
+  return ownerAccount.role === USER_ROLES.provider &&
+    ownerAccount.providerId === providerId &&
+    ownerAccount.accountStatus === "active" &&
+    ownerAccount.isActive !== false &&
+    ownerAccount.isBlocked !== true;
+}
+
+export function shouldPublishProvider(
+  provider: Readonly<Record<string, unknown>>,
+  ownerAccount: Readonly<Record<string, unknown>>,
+): boolean {
+  return isProviderPubliclyEligible(
+    {...provider, publiclyVisible: true},
+    ownerAccount,
+  );
+}
+
 export const VERIFICATION_DOCUMENT_TYPES = [
   "business_permit",
   "dti_registration",
@@ -223,8 +277,212 @@ export function parseProviderServiceType(
  */
 export const REQUIRED_VERIFICATION_DOCUMENT_TYPES = [
   "business_permit",
+  "dti_registration",
+  "bir_registration",
   "valid_id",
 ] as const satisfies readonly VerificationDocumentType[];
+
+export const FOOD_SERVICE_CATEGORIES = [
+  "catering_service",
+  "food_trays_packed_meals",
+  "catering_event_styling",
+  "cake_provider",
+] as const;
+
+export const FOOD_PERMIT_ALTERNATIVES = [
+  "sanitary_permit",
+  "mayors_permit",
+] as const satisfies readonly VerificationDocumentType[];
+
+export interface ProviderVerificationDocumentPolicy {
+  requiredAll: readonly VerificationDocumentType[];
+  requiredOneOf: readonly (readonly VerificationDocumentType[])[];
+}
+
+export function providerVerificationDocumentPolicy(
+  provider: Readonly<Record<string, unknown>>,
+): ProviderVerificationDocumentPolicy {
+  const serviceType = parseProviderServiceType(provider.providerServiceType);
+  const categories = Array.isArray(provider.serviceCategories) ?
+    provider.serviceCategories.filter(
+      (value): value is string => typeof value === "string",
+    ) :
+    typeof provider.providerCategory === "string" ?
+      [provider.providerCategory] :
+      [];
+  const requiresFoodPermit =
+    serviceType === "catering" ||
+    serviceType === "both" ||
+    categories.some((category) =>
+      (FOOD_SERVICE_CATEGORIES as readonly string[]).includes(category)
+    );
+  const requiresMayorsPermit = categories.includes("venue_provider");
+  return {
+    requiredAll: [
+      ...REQUIRED_VERIFICATION_DOCUMENT_TYPES,
+      ...(requiresMayorsPermit ? ["mayors_permit" as const] : []),
+    ],
+    requiredOneOf: requiresFoodPermit && !requiresMayorsPermit ?
+      [FOOD_PERMIT_ALTERNATIVES] :
+      [],
+  };
+}
+
+export function verificationDocumentRequirement(
+  type: VerificationDocumentType,
+  policy: ProviderVerificationDocumentPolicy,
+): "required" | "one_of" | "optional" {
+  if (policy.requiredAll.includes(type)) return "required";
+  if (policy.requiredOneOf.some((group) => group.includes(type))) {
+    return "one_of";
+  }
+  return "optional";
+}
+
+export function verificationDocumentsSatisfyPolicy(
+  documentTypes: ReadonlySet<string>,
+  policy: ProviderVerificationDocumentPolicy,
+): boolean {
+  return policy.requiredAll.every((type) => documentTypes.has(type)) &&
+    policy.requiredOneOf.every((group) =>
+      group.some((type) => documentTypes.has(type))
+    );
+}
+
+/**
+ * Server-owned readiness check for the profile sections required before a
+ * provider may submit verification. This intentionally ignores activation,
+ * approval, audit, and review fields, which are controlled separately.
+ */
+export function providerSubmissionProfileIssues(
+  provider: Readonly<Record<string, unknown>>,
+): readonly string[] {
+  const issues = new Set<string>();
+  const requiredText = [
+    "ownerFirstName",
+    "ownerLastName",
+    "ownerEmail",
+    "ownerPhone",
+    "businessName",
+    "businessEmail",
+    "businessPhone",
+    "description",
+    "providerCategory",
+    "address",
+    "city",
+    "province",
+  ] as const;
+  for (const field of requiredText) {
+    if (typeof provider[field] !== "string" || provider[field].trim() === "") {
+      issues.add(field);
+    }
+  }
+  if (
+    typeof provider.description !== "string" ||
+    provider.description.trim().length < 20
+  ) {
+    issues.add("description");
+  }
+  for (const field of ["ownerEmail", "businessEmail"] as const) {
+    if (
+      typeof provider[field] !== "string" ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(provider[field].trim())
+    ) {
+      issues.add(field);
+    }
+  }
+  for (const field of ["ownerPhone", "businessPhone"] as const) {
+    if (
+      typeof provider[field] !== "string" ||
+      !/^\+[1-9]\d{7,14}$/u.test(provider[field].trim())
+    ) {
+      issues.add(field);
+    }
+  }
+
+  const serviceType = parseProviderServiceType(provider.providerServiceType);
+  if (!serviceType) issues.add("providerServiceType");
+  const serviceCategories = validStringArray(
+    provider.serviceCategories,
+    PROVIDER_SERVICE_CATEGORIES,
+  );
+  if (
+    serviceCategories.length === 0 ||
+    (serviceType && serviceCategories.some((category) =>
+      !serviceCategoryMatchesProviderType(category, serviceType)
+    ))
+  ) {
+    issues.add("serviceCategories");
+  }
+  if (
+    validStringArray(provider.eventTypesSupported, PROVIDER_EVENT_TYPES)
+      .length === 0
+  ) {
+    issues.add("eventTypesSupported");
+  }
+  if (!hasNonEmptyStringArray(provider.serviceAreas)) {
+    issues.add("serviceAreas");
+  }
+  if (
+    validStringArray(provider.operatingDays, PROVIDER_OPERATING_DAYS)
+      .length === 0
+  ) {
+    issues.add("operatingDays");
+  }
+
+  const minimumGuests = provider.minGuestsPerEvent;
+  const maximumGuests = provider.maxGuestsPerEvent;
+  if (
+    typeof minimumGuests !== "number" ||
+    !Number.isInteger(minimumGuests) ||
+    minimumGuests < 1 ||
+    typeof maximumGuests !== "number" ||
+    !Number.isInteger(maximumGuests) ||
+    maximumGuests < minimumGuests
+  ) {
+    issues.add("guestCapacity");
+  }
+  if (
+    typeof provider.maxEventsPerDay !== "number" ||
+    !Number.isInteger(provider.maxEventsPerDay) ||
+    provider.maxEventsPerDay < 1 ||
+    (
+      provider.acceptsMultipleEventsPerDay !== true &&
+      provider.maxEventsPerDay !== 1
+    )
+  ) {
+    issues.add("maxEventsPerDay");
+  }
+  if (
+    typeof provider.bookingLeadTimeDays !== "number" ||
+    !Number.isInteger(provider.bookingLeadTimeDays) ||
+    provider.bookingLeadTimeDays < 0 ||
+    provider.bookingLeadTimeDays > 365
+  ) {
+    issues.add("bookingLeadTimeDays");
+  }
+
+  return [...issues].sort();
+}
+
+function validStringArray<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+): T[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is T =>
+      typeof item === "string" && allowed.includes(item as T),
+  );
+}
+
+function hasNonEmptyStringArray(value: unknown): boolean {
+  return Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(
+      (item) => typeof item === "string" && item.trim().length > 0,
+    );
+}
 
 export const VERIFICATION_DOCUMENT_CONTENT_TYPES = [
   "application/pdf",
@@ -250,6 +508,223 @@ function normalizeStatusValue(
   if (typeof value !== "string") return "";
   const normalized = value.trim().toLowerCase().replaceAll("-", "_");
   return aliases[normalized] ?? normalized;
+}
+
+export const MAIN_EVENT_STATUSES = [
+  "draft",
+  "pending_provider_approval",
+  "needs_provider_replacement",
+  "waiting_for_down_payment",
+  "confirmed",
+  "in_progress",
+  "completed",
+  "cancelled",
+  "expired",
+] as const;
+
+export type MainEventStatus =
+  (typeof MAIN_EVENT_STATUSES)[number];
+
+
+export const MAIN_EVENT_STATUS_TRANSITIONS = {
+  draft: [
+    "pending_provider_approval",
+    "cancelled",
+  ],
+
+  pending_provider_approval: [
+    "needs_provider_replacement",
+    "waiting_for_down_payment",
+    "confirmed",
+    "cancelled",
+    "expired",
+  ],
+
+  needs_provider_replacement: [
+    "pending_provider_approval",
+    "waiting_for_down_payment",
+    "cancelled",
+    "expired",
+  ],
+
+  waiting_for_down_payment: [
+    "needs_provider_replacement",
+    "confirmed",
+    "cancelled",
+    "expired",
+  ],
+
+  confirmed: [
+    "in_progress",
+    "cancelled",
+  ],
+
+  in_progress: [
+    "completed",
+    "cancelled",
+  ],
+
+  completed: [],
+  cancelled: [],
+  expired: [],
+} as const satisfies Record<
+  MainEventStatus,
+  readonly MainEventStatus[]
+>;
+
+export function isMainEventStatusTransitionAllowed(
+  from: MainEventStatus,
+  to: MainEventStatus,
+): boolean {
+  return (
+    MAIN_EVENT_STATUS_TRANSITIONS[
+      from
+    ] as readonly string[]
+  ).includes(to);
+}
+
+export function parseMainEventStatus(
+  value: unknown,
+): MainEventStatus | null {
+  const normalized = normalizeStatusValue(
+    value,
+    {
+      pending:
+        "pending_provider_approval",
+      waitingpayment:
+        "waiting_for_down_payment",
+    },
+  );
+
+  return MAIN_EVENT_STATUSES.includes(
+    normalized as MainEventStatus,
+  ) ?
+    normalized as MainEventStatus :
+    null;
+}
+
+export const PROVIDER_REQUEST_STATUSES = [
+  "pending",
+  "accepted",
+  "rejected",
+  "waiting_for_down_payment",
+  "payment_processing",
+  "confirmed",
+  "in_progress",
+  "completed",
+  "cancelled",
+  "expired",
+] as const;
+
+export type ProviderRequestStatus =
+  (typeof PROVIDER_REQUEST_STATUSES)[number];
+
+
+export const PROVIDER_REQUEST_STATUS_TRANSITIONS = {
+  pending: [
+    "accepted",
+    "rejected",
+    "waiting_for_down_payment",
+    "confirmed",
+    "cancelled",
+    "expired",
+  ],
+
+  accepted: [
+    "waiting_for_down_payment",
+    "confirmed",
+    "cancelled",
+    "expired",
+  ],
+
+  rejected: [],
+
+  waiting_for_down_payment: [
+    "payment_processing",
+    "confirmed",
+    "cancelled",
+    "expired",
+  ],
+
+  payment_processing: [
+    "waiting_for_down_payment",
+    "confirmed",
+    "cancelled",
+    "expired",
+  ],
+
+  confirmed: [
+    "in_progress",
+    "cancelled",
+  ],
+
+  in_progress: [
+    "completed",
+    "cancelled",
+  ],
+
+  completed: [],
+  cancelled: [],
+  expired: [],
+} as const satisfies Record<
+  ProviderRequestStatus,
+  readonly ProviderRequestStatus[]
+>;
+
+export function isProviderRequestStatusTransitionAllowed(
+  from: ProviderRequestStatus,
+  to: ProviderRequestStatus,
+): boolean {
+  return (
+    PROVIDER_REQUEST_STATUS_TRANSITIONS[
+      from
+    ] as readonly string[]
+  ).includes(to);
+}
+
+export function parseProviderRequestStatus(
+  value: unknown,
+): ProviderRequestStatus | null {
+  const normalized = normalizeStatusValue(
+    value,
+    {
+      waitingpayment:
+        "waiting_for_down_payment",
+      paymentprocessing:
+        "payment_processing",
+    },
+  );
+
+  return PROVIDER_REQUEST_STATUSES.includes(
+    normalized as ProviderRequestStatus,
+  ) ?
+    normalized as ProviderRequestStatus :
+    null;
+}
+
+export const PROVIDER_REQUEST_TYPES = [
+  "catering",
+  "addon",
+] as const;
+
+export type ProviderRequestType =
+  (typeof PROVIDER_REQUEST_TYPES)[number];
+
+export function parseProviderRequestType(
+  value: unknown,
+): ProviderRequestType | null {
+  const normalized = normalizeStatusValue(
+    value,
+    {
+      add_on: "addon",
+    },
+  );
+
+  return PROVIDER_REQUEST_TYPES.includes(
+    normalized as ProviderRequestType,
+  ) ?
+    normalized as ProviderRequestType :
+    null;
 }
 
 export const PAYMENT_STATUSES = [

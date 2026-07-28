@@ -83,12 +83,58 @@ service firebase.storage {
       );
     }
 
+    function providerData(providerId) {
+      return firestore.get(
+        /databases/(default)/documents/providers/$(providerId)
+      ).data;
+    }
+
     function ownsProvider(providerId) {
       return isActiveUser() &&
         providerExists(providerId) &&
+        providerData(providerId).ownerId == currentUserId();
+    }
+
+    function providerIsApproved(providerId) {
+      return providerExists(providerId) &&
+        'publiclyVisible' in providerData(providerId) &&
+        providerData(providerId).publiclyVisible == true &&
+        'verificationStatus' in providerData(providerId) &&
+        providerData(providerId).verificationStatus == 'approved' &&
+        'isActive' in providerData(providerId) &&
+        providerData(providerId).isActive == true &&
+        (
+          !('isSuspended' in providerData(providerId)) ||
+          providerData(providerId).isSuspended == false
+        ) &&
+        (
+          !('isDeleted' in providerData(providerId)) ||
+          providerData(providerId).isDeleted == false
+        ) &&
+        providerOwnerAccountIsActive(providerId);
+    }
+
+    function providerOwnerAccountIsActive(providerId) {
+      let ownerId = providerData(providerId).ownerId;
+      return ownerId is string &&
+        firestore.exists(
+          /databases/(default)/documents/users/$(ownerId)
+        ) &&
         firestore.get(
-          /databases/(default)/documents/providers/$(providerId)
-        ).data.ownerId == currentUserId();
+          /databases/(default)/documents/users/$(ownerId)
+        ).data.role == 'provider' &&
+        firestore.get(
+          /databases/(default)/documents/users/$(ownerId)
+        ).data.providerId == providerId &&
+        firestore.get(
+          /databases/(default)/documents/users/$(ownerId)
+        ).data.accountStatus == 'active' &&
+        firestore.get(
+          /databases/(default)/documents/users/$(ownerId)
+        ).data.isBlocked != true &&
+        firestore.get(
+          /databases/(default)/documents/users/$(ownerId)
+        ).data.isActive != false;
     }
 
     function ownsProviderMediaPath(providerId) {
@@ -217,7 +263,14 @@ service firebase.storage {
     }
 
     match /providers/{providerId}/logo/{fileName} {
-      allow read: if true;
+      allow read: if providerIsApproved(providerId) ||
+        (
+          isActiveUser() &&
+          (
+            ownsProviderMediaPath(providerId) ||
+            isAdmin()
+          )
+        );
 
       allow create, update: if ownsProviderMediaPath(providerId) &&
         hasNoSpoofedOwnershipMetadata() &&
@@ -228,7 +281,14 @@ service firebase.storage {
     }
 
     match /providers/{providerId}/cover/{fileName} {
-      allow read: if true;
+      allow read: if providerIsApproved(providerId) ||
+        (
+          isActiveUser() &&
+          (
+            ownsProviderMediaPath(providerId) ||
+            isAdmin()
+          )
+        );
 
       allow create, update: if ownsProviderMediaPath(providerId) &&
         hasNoSpoofedOwnershipMetadata() &&
@@ -252,11 +312,21 @@ service firebase.storage {
         isAllowedVerificationFile(fileName) &&
         isUnderSize(10 * 1024 * 1024);
 
+      // Removal is coordinated by removeVerificationDocument so metadata,
+      // editable-state checks, audit logging, and object retention cannot
+      // diverge. The Admin SDK performs the final private-object deletion.
       allow delete: if false;
     }
 
     match /providers/{providerId}/packages/{fileName} {
-      allow read: if true;
+      allow read: if providerIsApproved(providerId) ||
+        (
+          isActiveUser() &&
+          (
+            ownsProvider(providerId) ||
+            isAdmin()
+          )
+        );
 
       allow create, update: if ownsProvider(providerId) &&
         hasNoSpoofedOwnershipMetadata() &&

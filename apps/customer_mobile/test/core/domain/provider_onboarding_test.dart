@@ -46,14 +46,14 @@ void main() {
       requiredProviderVerificationDocumentTypes
           .map(verificationDocumentTypeToJson)
           .toSet(),
-      {'business_permit', 'valid_id'},
+      {'business_permit', 'dti_registration', 'bir_registration', 'valid_id'},
     );
     expect(
       providerVerificationDocumentDefinitions
           .where((definition) => definition.isRequired)
           .map((definition) => verificationDocumentTypeToJson(definition.type))
           .toSet(),
-      {'business_permit', 'valid_id'},
+      {'business_permit', 'dti_registration', 'bir_registration', 'valid_id'},
     );
   });
 

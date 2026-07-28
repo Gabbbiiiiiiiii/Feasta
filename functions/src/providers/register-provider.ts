@@ -33,9 +33,22 @@ import {
   requireObject,
   requireString,
 } from "../shared/validation.js";
+import {writeVerificationHistoryInTransaction} from "../shared/verification-history.js";
 function buildSearchTokens(values: readonly string[]): string[] {
   const tokens = new Set<string>();
   for (const value of values) {
+    const normalizedPhrase = value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/gu, " ")
+      .replace(/\s+/gu, " ");
+    for (
+      let length = 2;
+      length <= Math.min(normalizedPhrase.length, 80);
+      length++
+    ) {
+      tokens.add(normalizedPhrase.slice(0, length));
+    }
     for (const word of value.toLowerCase().split(/[^a-z0-9]+/u)) {
       if (!word) continue;
       tokens.add(word);
@@ -629,6 +642,7 @@ export const registerProvider = onCall(
               favoriteCount: 0,
 
               isActive: false,
+              publiclyVisible: false,
               isFeatured: false,
               isSuspended: false,
               isDeleted: false,
@@ -651,7 +665,39 @@ export const registerProvider = onCall(
               ownerId:
                 authenticatedUser.uid,
               businessName,
+              businessEmail,
               providerServiceType,
+              ownerFirstName,
+              ownerLastName,
+              ownerName: `${ownerFirstName} ${ownerLastName}`.trim(),
+              ownerEmail:
+                typeof userData?.email === "string"
+                  ? userData.email.trim().toLowerCase()
+                  : null,
+              searchTokens: buildSearchTokens([
+                newProviderReference.id,
+                businessName,
+                businessEmail,
+                businessPhone,
+                ownerFirstName,
+                ownerLastName,
+                `${ownerFirstName} ${ownerLastName}`,
+                typeof userData?.email === "string" ? userData.email : "",
+                typeof userData?.phoneNumber === "string" ?
+                  userData.phoneNumber : "",
+                providerServiceType,
+                providerCategory,
+              ]),
+              termsPolicyVersion:
+                typeof userData?.termsPolicyVersion === "string"
+                  ? userData.termsPolicyVersion
+                  : "unversioned",
+              privacyPolicyVersion:
+                typeof userData?.privacyPolicyVersion === "string"
+                  ? userData.privacyPolicyVersion
+                  : "unversioned",
+              termsAcceptedAt: userData?.termsAcceptedAt ?? null,
+              privacyAcceptedAt: userData?.privacyAcceptedAt ?? null,
 
               status: "draft",
               remarks: null,
@@ -685,7 +731,7 @@ export const registerProvider = onCall(
 
           transaction.delete(onboardingDraftReference);
 
-          writeAuditLogInTransaction(
+          const auditLogReference = writeAuditLogInTransaction(
             transaction,
             {
               actorId:
@@ -713,6 +759,16 @@ export const registerProvider = onCall(
               },
             },
           );
+          writeVerificationHistoryInTransaction(transaction, {
+            verificationId: newVerificationReference.id,
+            providerId: newProviderReference.id,
+            actorId: authenticatedUser.uid,
+            actorRole: USER_ROLES.provider,
+            eventType: "verification_draft_created",
+            fromStatus: null,
+            toStatus: "draft",
+            auditLogId: auditLogReference.id,
+          });
 
           return {
             providerId:

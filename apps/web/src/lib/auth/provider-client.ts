@@ -11,7 +11,7 @@ import {
   signOut,
 } from "firebase/auth";
 import {httpsCallable} from "firebase/functions";
-import {ref, uploadBytes} from "firebase/storage";
+import {ref, uploadBytesResumable} from "firebase/storage";
 import {
   UNVERSIONED_POLICY_VERSION,
   type ProviderOnboardingInput,
@@ -162,6 +162,7 @@ export async function uploadVerificationDocument(input: {
   verificationId: string;
   documentType: VerificationDocumentType;
   file: File;
+  onProgress?: (percent: number) => void;
 }): Promise<void> {
   const allowed = new Set([
     "application/pdf",
@@ -185,8 +186,21 @@ export async function uploadVerificationDocument(input: {
   const uniqueName = `${globalThis.crypto.randomUUID()}${extension}`;
   const storagePath =
     `providers/${input.providerId}/verification/${input.documentType}/${uniqueName}`;
-  await uploadBytes(ref(storage, storagePath), input.file, {
-    contentType: input.file.type,
+  await new Promise<void>((resolve, reject) => {
+    const task = uploadBytesResumable(ref(storage, storagePath), input.file, {
+      contentType: input.file.type,
+    });
+    task.on(
+      "state_changed",
+      (snapshot) => {
+        const percent = snapshot.totalBytes > 0
+          ? Math.round((snapshot.bytesTransferred / snapshot.totalBytes) * 100)
+          : 0;
+        input.onProgress?.(percent);
+      },
+      reject,
+      resolve,
+    );
   });
   await call("registerVerificationDocument", {
     verificationId: input.verificationId,
@@ -197,11 +211,22 @@ export async function uploadVerificationDocument(input: {
   });
 }
 
+export async function removeVerificationDocument(input: {
+  verificationId: string;
+  documentType: VerificationDocumentType;
+}): Promise<{removed: boolean}> {
+  return call("removeVerificationDocument", input);
+}
+
 export async function submitProviderVerification(
   providerId: string,
   idempotencyKey: string,
-): Promise<void> {
-  await call("submitProviderVerification", {providerId, idempotencyKey});
+): Promise<{
+  status: "submitted";
+  idempotentReplay: boolean;
+  alreadySubmitted: boolean;
+}> {
+  return call("submitProviderVerification", {providerId, idempotencyKey});
 }
 
 function requireProviderAuthUser() {

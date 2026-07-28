@@ -5,9 +5,17 @@ import {
   Timestamp,
 } from "firebase-admin/firestore";
 
+import {
+  FIRESTORE_COLLECTIONS,
+} from "@feasta/shared-types";
+
 import { adminDb } from "@/lib/firebase/admin";
 
-export type RevenueRange = "7D" | "1M" | "3M" | "1Y";
+export type RevenueRange =
+  | "7D"
+  | "1M"
+  | "3M"
+  | "1Y";
 
 export type RevenuePoint = {
   label: string;
@@ -29,19 +37,26 @@ export type AdminDashboardData = {
     platformHealthTitle: string;
     recentActivitiesTitle: string;
   };
+
   statistics: {
     revenue: number;
     activeUsers: number;
     totalBookings: number;
     verificationQueue: number;
   };
-  revenueByRange: Record<RevenueRange, RevenuePoint[]>;
+
+  revenueByRange: Record<
+    RevenueRange,
+    RevenuePoint[]
+  >;
+
   topProviders: Array<{
     id: string;
     businessName: string;
     serviceType: string;
     completedBookings: number;
   }>;
+
   recentActivities: Array<{
     id: string;
     action: string;
@@ -49,6 +64,7 @@ export type AdminDashboardData = {
     actorName: string;
     createdAt: Date | null;
   }>;
+
   platformHealth: {
     activeUsers: number;
     pendingComplaints: number;
@@ -60,22 +76,23 @@ export type AdminDashboardData = {
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const dailyLabelFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  timeZone: "Asia/Manila",
-});
+const dailyLabelFormatter =
+  new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "Asia/Manila",
+  });
 
-const monthlyLabelFormatter = new Intl.DateTimeFormat(
-  "en-US",
-  {
+const monthlyLabelFormatter =
+  new Intl.DateTimeFormat("en-US", {
     month: "short",
     year: "2-digit",
     timeZone: "Asia/Manila",
-  },
-);
+  });
 
-function timestampToDate(value: unknown): Date | null {
+function timestampToDate(
+  value: unknown,
+): Date | null {
   if (value instanceof Timestamp) {
     return value.toDate();
   }
@@ -84,16 +101,48 @@ function timestampToDate(value: unknown): Date | null {
     return value;
   }
 
+  if (
+    typeof value === "string" ||
+    typeof value === "number"
+  ) {
+    const date = new Date(value);
+
+    return Number.isNaN(date.getTime())
+      ? null
+      : date;
+  }
+
   return null;
+}
+
+function finiteNumber(
+  value: unknown,
+  fallback = 0,
+): number {
+  return typeof value === "number" &&
+    Number.isFinite(value)
+    ? value
+    : fallback;
+}
+
+function stringValue(
+  value: unknown,
+  fallback: string,
+): string {
+  return typeof value === "string" &&
+    value.trim().length > 0
+    ? value.trim()
+    : fallback;
 }
 
 function createManilaDate(
   year: number,
   month: number,
   day: number,
-) {
+): Date {
   return new Date(
-    Date.UTC(year, month, day) - MANILA_OFFSET_MS,
+    Date.UTC(year, month, day) -
+      MANILA_OFFSET_MS,
   );
 }
 
@@ -109,6 +158,25 @@ function getManilaDateParts(date: Date) {
   };
 }
 
+function createDayKey(date: Date): string {
+  const parts = getManilaDateParts(date);
+
+  return [
+    parts.year,
+    String(parts.month + 1).padStart(2, "0"),
+    String(parts.day).padStart(2, "0"),
+  ].join("-");
+}
+
+function createMonthKey(date: Date): string {
+  const parts = getManilaDateParts(date);
+
+  return [
+    parts.year,
+    String(parts.month + 1).padStart(2, "0"),
+  ].join("-");
+}
+
 function getRecentDayRanges(
   dayCount: number,
   now = new Date(),
@@ -121,26 +189,28 @@ function getRecentDayRanges(
     currentDate.day,
   );
 
-  return Array.from({ length: dayCount }, (_, index) => {
-    const daysAgo = dayCount - index - 1;
-    const localDay = new Date(
-      currentLocalDay - daysAgo * DAY_MS,
-    );
+  return Array.from(
+    { length: dayCount },
+    (_, index) => {
+      const daysAgo = dayCount - index - 1;
 
-    const start = createManilaDate(
-      localDay.getUTCFullYear(),
-      localDay.getUTCMonth(),
-      localDay.getUTCDate(),
-    );
+      const localDay = new Date(
+        currentLocalDay - daysAgo * DAY_MS,
+      );
 
-    const end = new Date(start.getTime() + DAY_MS);
+      const start = createManilaDate(
+        localDay.getUTCFullYear(),
+        localDay.getUTCMonth(),
+        localDay.getUTCDate(),
+      );
 
-    return {
-      start,
-      end,
-      label: dailyLabelFormatter.format(start),
-    };
-  });
+      return {
+        start,
+        end: new Date(start.getTime() + DAY_MS),
+        label: dailyLabelFormatter.format(start),
+      };
+    },
+  );
 }
 
 function getRecentMonthRanges(
@@ -152,7 +222,8 @@ function getRecentMonthRanges(
   return Array.from(
     { length: monthCount },
     (_, index) => {
-      const monthsAgo = monthCount - index - 1;
+      const monthsAgo =
+        monthCount - index - 1;
 
       const start = createManilaDate(
         currentDate.year,
@@ -169,67 +240,98 @@ function getRecentMonthRanges(
       return {
         start,
         end,
-        label: monthlyLabelFormatter.format(start),
+        label:
+          monthlyLabelFormatter.format(start),
       };
     },
   );
 }
 
-async function getRevenueForRange(
-  range: DateRange,
-): Promise<RevenuePoint> {
+/**
+ * Loads paid payments once and groups them in memory.
+ *
+ * This replaces the previous 42 Firestore aggregation
+ * requests used for the 30 daily and 12 monthly points.
+ */
+async function getRevenueByRange(): Promise<
+  Record<RevenueRange, RevenuePoint[]>
+> {
+  const dayRanges = getRecentDayRanges(30);
+  const monthRanges = getRecentMonthRanges(12);
+
+  const rangeStart =
+    monthRanges[0]?.start ??
+    dayRanges[0]?.start ??
+    new Date();
+
+  const rangeEnd =
+    monthRanges.at(-1)?.end ??
+    dayRanges.at(-1)?.end ??
+    new Date();
+
   const snapshot = await adminDb
-    .collection("payments")
+    .collection(FIRESTORE_COLLECTIONS.payments)
     .where("status", "==", "paid")
     .where(
       "paidAt",
       ">=",
-      Timestamp.fromDate(range.start),
+      Timestamp.fromDate(rangeStart),
     )
     .where(
       "paidAt",
       "<",
-      Timestamp.fromDate(range.end),
+      Timestamp.fromDate(rangeEnd),
     )
-    .aggregate({
-      total: AggregateField.sum("amount"),
-    })
+    .select("amount", "paidAt")
     .get();
 
-  const total = snapshot.data().total;
+  const revenueByDay = new Map<string, number>();
+  const revenueByMonth =
+    new Map<string, number>();
 
-  return {
-    label: range.label,
-    revenue:
-      typeof total === "number" &&
-      Number.isFinite(total)
-        ? total
-        : 0,
-  };
-}
+  for (const document of snapshot.docs) {
+    const data = document.data();
+    const paidAt = timestampToDate(data.paidAt);
+    const amount = finiteNumber(data.amount);
 
-async function getRevenueSeries(
-  ranges: DateRange[],
-): Promise<RevenuePoint[]> {
-  return Promise.all(
-    ranges.map((range) => getRevenueForRange(range)),
+    if (!paidAt || amount <= 0) {
+      continue;
+    }
+
+    const dayKey = createDayKey(paidAt);
+    const monthKey = createMonthKey(paidAt);
+
+    revenueByDay.set(
+      dayKey,
+      (revenueByDay.get(dayKey) ?? 0) + amount,
+    );
+
+    revenueByMonth.set(
+      monthKey,
+      (revenueByMonth.get(monthKey) ?? 0) +
+        amount,
+    );
+  }
+
+  const last30Days = dayRanges.map(
+    (range): RevenuePoint => ({
+      label: range.label,
+      revenue:
+        revenueByDay.get(
+          createDayKey(range.start),
+        ) ?? 0,
+    }),
   );
-}
 
-async function getRevenueByRange(): Promise<
-  Record<RevenueRange, RevenuePoint[]>
-> {
-  /*
-   * Query the longest daily and monthly ranges once.
-   *
-   * The smaller ranges are derived from these results:
-   * - 7D comes from the final 7 entries of 1M.
-   * - 3M comes from the final 3 entries of 1Y.
-   */
-  const [last30Days, last12Months] = await Promise.all([
-    getRevenueSeries(getRecentDayRanges(30)),
-    getRevenueSeries(getRecentMonthRanges(12)),
-  ]);
+  const last12Months = monthRanges.map(
+    (range): RevenuePoint => ({
+      label: range.label,
+      revenue:
+        revenueByMonth.get(
+          createMonthKey(range.start),
+        ) ?? 0,
+    }),
+  );
 
   return {
     "7D": last30Days.slice(-7),
@@ -244,7 +346,7 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     settingsSnapshot,
     revenueSnapshot,
     activeUsersSnapshot,
-    bookingsSnapshot,
+    mainEventsSnapshot,
     verificationSnapshot,
     pendingComplaintsSnapshot,
     pendingPaymentsSnapshot,
@@ -254,12 +356,14 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     revenueByRange,
   ] = await Promise.all([
     adminDb
-      .collection("appSettings")
+      .collection(
+        FIRESTORE_COLLECTIONS.appSettings,
+      )
       .doc("adminDashboard")
       .get(),
 
     adminDb
-      .collection("payments")
+      .collection(FIRESTORE_COLLECTIONS.payments)
       .where("status", "==", "paid")
       .aggregate({
         total: AggregateField.sum("amount"),
@@ -267,15 +371,22 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       .get(),
 
     adminDb
-      .collection("users")
+      .collection(FIRESTORE_COLLECTIONS.users)
       .where("isActive", "==", true)
       .count()
       .get(),
 
-    adminDb.collection("bookings").count().get(),
+    adminDb
+      .collection(
+        FIRESTORE_COLLECTIONS.mainEvents,
+      )
+      .count()
+      .get(),
 
     adminDb
-      .collection("providerVerifications")
+      .collection(
+        FIRESTORE_COLLECTIONS.providerVerifications,
+      )
       .where("status", "in", [
         "submitted",
         "under_review",
@@ -284,13 +395,15 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       .get(),
 
     adminDb
-      .collection("complaints")
+      .collection(
+        FIRESTORE_COLLECTIONS.complaints,
+      )
       .where("status", "==", "pending")
       .count()
       .get(),
 
     adminDb
-      .collection("payments")
+      .collection(FIRESTORE_COLLECTIONS.payments)
       .where("status", "in", [
         "pending",
         "processing",
@@ -299,19 +412,20 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       .get(),
 
     adminDb
-      .collection("payments")
+      .collection(FIRESTORE_COLLECTIONS.payments)
       .where("status", "==", "failed")
       .count()
       .get(),
 
     adminDb
-      .collection("providers")
+      .collection(FIRESTORE_COLLECTIONS.providers)
       .where("isActive", "==", true)
+      .orderBy("completedBookings", "desc")
       .limit(5)
       .get(),
 
     adminDb
-      .collection("adminLogs")
+      .collection(FIRESTORE_COLLECTIONS.adminLogs)
       .orderBy("createdAt", "desc")
       .limit(8)
       .get(),
@@ -319,52 +433,53 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     getRevenueByRange(),
   ]);
 
-  const settings = settingsSnapshot.data() ?? {};
-  const totalRevenue = revenueSnapshot.data().total;
+  const settings =
+    settingsSnapshot.data() ?? {};
+
+  const totalRevenue =
+    revenueSnapshot.data().total;
 
   return {
     settings: {
-      title:
-        typeof settings.title === "string"
-          ? settings.title
-          : "Admin Dashboard",
+      title: stringValue(
+        settings.title,
+        "Admin Dashboard",
+      ),
 
-      subtitle:
-        typeof settings.subtitle === "string"
-          ? settings.subtitle
-          : "FEASTA Platform · Ormoc City",
+      subtitle: stringValue(
+        settings.subtitle,
+        "FEASTA Platform · Ormoc City",
+      ),
 
-      topProvidersTitle:
-        typeof settings.topProvidersTitle === "string"
-          ? settings.topProvidersTitle
-          : "Top Providers",
+      topProvidersTitle: stringValue(
+        settings.topProvidersTitle,
+        "Top Providers",
+      ),
 
-      quickActionsTitle:
-        typeof settings.quickActionsTitle === "string"
-          ? settings.quickActionsTitle
-          : "Quick Actions",
+      quickActionsTitle: stringValue(
+        settings.quickActionsTitle,
+        "Quick Actions",
+      ),
 
-      platformHealthTitle:
-        typeof settings.platformHealthTitle === "string"
-          ? settings.platformHealthTitle
-          : "Platform Health",
+      platformHealthTitle: stringValue(
+        settings.platformHealthTitle,
+        "Platform Health",
+      ),
 
-      recentActivitiesTitle:
-        typeof settings.recentActivitiesTitle === "string"
-          ? settings.recentActivitiesTitle
-          : "Recent Activities",
+      recentActivitiesTitle: stringValue(
+        settings.recentActivitiesTitle,
+        "Recent Activities",
+      ),
     },
 
     statistics: {
-      revenue:
-        typeof totalRevenue === "number" &&
-        Number.isFinite(totalRevenue)
-          ? totalRevenue
-          : 0,
+      revenue: finiteNumber(totalRevenue),
 
-      activeUsers: activeUsersSnapshot.data().count,
+      activeUsers:
+        activeUsersSnapshot.data().count,
 
-      totalBookings: bookingsSnapshot.data().count,
+      totalBookings:
+        mainEventsSnapshot.data().count,
 
       verificationQueue:
         verificationSnapshot.data().count,
@@ -379,53 +494,54 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
         return {
           id: document.id,
 
-          businessName:
-            typeof data.businessName === "string"
-              ? data.businessName
-              : "Unnamed provider",
+          businessName: stringValue(
+            data.businessName,
+            "Unnamed provider",
+          ),
 
-          serviceType:
-            typeof data.providerServiceType === "string"
-              ? data.providerServiceType
-              : "provider",
+          serviceType: stringValue(
+            data.providerServiceType,
+            "provider",
+          ),
 
-          completedBookings:
-            typeof data.completedBookings === "number"
-              ? data.completedBookings
-              : 0,
+          completedBookings: finiteNumber(
+            data.completedBookings,
+          ),
         };
       },
     ),
 
-    recentActivities: activitiesSnapshot.docs.map(
-      (document) => {
+    recentActivities:
+      activitiesSnapshot.docs.map((document) => {
         const data = document.data();
 
         return {
           id: document.id,
 
-          action:
-            typeof data.action === "string"
-              ? data.action
-              : "Administrative activity",
+          action: stringValue(
+            data.action,
+            "Administrative activity",
+          ),
 
-          entity:
-            typeof data.entity === "string"
-              ? data.entity
-              : "platform",
+          entity: stringValue(
+            data.entity,
+            "platform",
+          ),
 
-          actorName:
-            typeof data.actorName === "string"
-              ? data.actorName
-              : "Administrator",
+          actorName: stringValue(
+            data.actorName,
+            "Administrator",
+          ),
 
-          createdAt: timestampToDate(data.createdAt),
+          createdAt: timestampToDate(
+            data.createdAt,
+          ),
         };
-      },
-    ),
+      }),
 
     platformHealth: {
-      activeUsers: activeUsersSnapshot.data().count,
+      activeUsers:
+        activeUsersSnapshot.data().count,
 
       pendingComplaints:
         pendingComplaintsSnapshot.data().count,

@@ -108,6 +108,27 @@ Clients cannot assign or update:
 Firestore and callable authorization remain authoritative even when the UI
 hides an unavailable action.
 
+## Unapproved-provider permissions
+
+Every provider status other than an active, non-suspended `approved` provider
+is unapproved for public and transactional operations.
+
+| Capability | Unapproved provider | Enforcement |
+|---|---|---|
+| Edit permitted profile fields | Allowed | Callable validation, ownership, and protected-field rejection |
+| Manage verification evidence | Allowed only in `draft` or `resubmission_required` | Callable plus Firestore/Storage state checks |
+| Read permitted status and remarks | Allowed | Server loader and owner-only rules |
+| Create or edit packages | Inactive `draft` records only | Firestore package policy and server-linked provider guard |
+| Publish packages or activate catalog items | Denied | Parent-provider approval check in Firestore Rules |
+| Public provider, package, menu, add-on, logo, cover, or package-media visibility | Denied | Public queries and parent-provider checks in Firestore/Storage Rules |
+| Receive a new live provider request | Denied | Booking callable and provider-request rules |
+| Accept or confirm a booking | Denied | Backend-controlled lifecycle fields; no client write path |
+| Create or collect a payment | Denied | Payment callable approval recheck and backend-only payment writes |
+
+Approval is recalculated from trusted provider data for each sensitive
+callable or server request. A session created before suspension or another
+status change does not preserve the earlier approval decision.
+
 ## Verification
 
 Provider lifecycle values are:
@@ -120,9 +141,11 @@ Document types are:
 `business_permit`, `dti_registration`, `bir_registration`, `valid_id`,
 `sanitary_permit`, `mayors_permit`, and `other`.
 
-The server-required minimum is `business_permit` and `valid_id`. Document
-statuses are `pending`, `verified`, `rejected`, and `expired`; they are separate
-from the provider lifecycle.
+The server-required base is `business_permit`, `dti_registration` (DTI or SEC),
+`bir_registration`, and `valid_id`. Catering/food providers also require one of
+`sanitary_permit` or `mayors_permit`; venue providers require
+`mayors_permit`. Document statuses are `pending`, `verified`, `rejected`, and
+`expired`; they are separate from the provider lifecycle.
 
 Submission and review metadata includes server timestamps, reviewer UID,
 remarks, and the distinct rejection, resubmission, and suspension reasons.

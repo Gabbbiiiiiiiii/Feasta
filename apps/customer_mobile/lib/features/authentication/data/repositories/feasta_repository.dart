@@ -119,6 +119,7 @@ class FeastaRepository {
           'verificationStatus',
           isEqualTo: ProviderVerificationStatus.approved,
         )
+        .where('publiclyVisible', isEqualTo: true)
         .where('isActive', isEqualTo: true)
         .where('isSuspended', isEqualTo: false)
         .where('providerServiceType', isEqualTo: 'catering')
@@ -126,7 +127,8 @@ class FeastaRepository {
         .orderBy('favoriteCount', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
         .limit(20)
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
+        .where((snapshot) => !snapshot.metadata.isFromCache)
         .map((snapshot) {
           final providers = snapshot.docs.map(ProviderModel.fromDoc).toList();
           return _sortProvidersByPopularity(providers);
@@ -146,6 +148,7 @@ class FeastaRepository {
             'verificationStatus',
             isEqualTo: ProviderVerificationStatus.approved,
           )
+          .where('publiclyVisible', isEqualTo: true)
           .where('isActive', isEqualTo: true)
           .where('isSuspended', isEqualTo: false)
           .where('providerServiceType', isEqualTo: 'catering')
@@ -153,7 +156,8 @@ class FeastaRepository {
           .orderBy('favoriteCount', descending: true)
           .orderBy(FieldPath.documentId, descending: true)
           .limit(20)
-          .snapshots()
+          .snapshots(includeMetadataChanges: true)
+          .where((snapshot) => !snapshot.metadata.isFromCache)
           .map((snapshot) {
             var providers = snapshot.docs.map(ProviderModel.fromDoc).toList();
 
@@ -188,12 +192,16 @@ class FeastaRepository {
     return _db
         .collection(FirestoreCollections.packages)
         .where('isActive', isEqualTo: true)
+        .where('isPublished', isEqualTo: true)
+        .where('providerPubliclyVisible', isEqualTo: true)
+        .where('status', isEqualTo: 'published')
         .where('eventType', isEqualTo: eventType)
         .where('isDeleted', isEqualTo: false)
         .orderBy('createdAt', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
         .limit(20)
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
+        .where((snapshot) => !snapshot.metadata.isFromCache)
         .asyncMap((snapshot) async {
           final providerIds = snapshot.docs
               .map((doc) => doc.data()['providerId'])
@@ -208,7 +216,7 @@ class FeastaRepository {
             final providerDoc = await _db
                 .collection(FirestoreCollections.providers)
                 .doc(providerId)
-                .get();
+                .get(const GetOptions(source: Source.server));
 
             if (!providerDoc.exists) continue;
 
@@ -268,6 +276,7 @@ class FeastaRepository {
           'verificationStatus',
           isEqualTo: ProviderVerificationStatus.approved,
         )
+        .where('publiclyVisible', isEqualTo: true)
         .where('isActive', isEqualTo: true)
         .where('isSuspended', isEqualTo: false)
         .where('providerServiceType', isEqualTo: 'addon')
@@ -275,7 +284,8 @@ class FeastaRepository {
         .orderBy('favoriteCount', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
         .limit(20)
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
+        .where((snapshot) => !snapshot.metadata.isFromCache)
         .map((snapshot) {
           final providers = snapshot.docs.map(ProviderModel.fromDoc).toList();
 
@@ -294,6 +304,7 @@ class FeastaRepository {
           'verificationStatus',
           isEqualTo: ProviderVerificationStatus.approved,
         )
+        .where('publiclyVisible', isEqualTo: true)
         .where('isActive', isEqualTo: true)
         .where('isSuspended', isEqualTo: false)
         .where('isFeatured', isEqualTo: true)
@@ -302,7 +313,8 @@ class FeastaRepository {
         .orderBy('favoriteCount', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
         .limit(20)
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
+        .where((snapshot) => !snapshot.metadata.isFromCache)
         .map((snapshot) {
           return snapshot.docs.map(ProviderModel.fromDoc).toList();
         });
@@ -312,7 +324,7 @@ class FeastaRepository {
     final doc = await _db
         .collection(FirestoreCollections.providers)
         .doc(providerId)
-        .get();
+        .get(const GetOptions(source: Source.server));
 
     if (!doc.exists) return null;
 
@@ -324,11 +336,15 @@ class FeastaRepository {
         .collection(FirestoreCollections.packages)
         .where('providerId', isEqualTo: providerId)
         .where('isActive', isEqualTo: true)
+        .where('isPublished', isEqualTo: true)
+        .where('providerPubliclyVisible', isEqualTo: true)
+        .where('status', isEqualTo: 'published')
         .where('isDeleted', isEqualTo: false)
         .orderBy('createdAt', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
         .limit(20)
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
+        .where((snapshot) => !snapshot.metadata.isFromCache)
         .map((snapshot) {
           return snapshot.docs.map(PackageModel.fromDoc).toList();
         });
@@ -2563,6 +2579,7 @@ class FeastaRepository {
           'verificationStatus',
           isEqualTo: ProviderVerificationStatus.approved,
         )
+        .where('publiclyVisible', isEqualTo: true)
         .where('isActive', isEqualTo: true)
         .where('isSuspended', isEqualTo: false)
         .where('providerServiceType', isEqualTo: 'catering')
@@ -2579,7 +2596,8 @@ class FeastaRepository {
         .orderBy('favoriteCount', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
         .limit(50)
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
+        .where((snapshot) => !snapshot.metadata.isFromCache)
         .map((snapshot) {
           final query = keyword.trim().toLowerCase();
           final selectedEventType = eventType.trim().toLowerCase();
@@ -2645,6 +2663,7 @@ class FeastaRepository {
           'verificationStatus',
           isEqualTo: ProviderVerificationStatus.approved,
         )
+        .where('publiclyVisible', isEqualTo: true)
         .where('isActive', isEqualTo: true)
         .where('isSuspended', isEqualTo: false)
         .where('isDeleted', isEqualTo: false);
@@ -2660,7 +2679,8 @@ class FeastaRepository {
         .orderBy('favoriteCount', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
         .limit(50)
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
+        .where((snapshot) => !snapshot.metadata.isFromCache)
         .map((snapshot) {
           final query = keyword.trim().toLowerCase();
           final selectedEventType = eventType.trim().toLowerCase();
@@ -2799,7 +2819,6 @@ class FeastaRepository {
     return _db
         .collection(FirestoreCollections.packages)
         .where('providerId', isEqualTo: providerId)
-        .where('isActive', isEqualTo: true)
         .where('isDeleted', isEqualTo: false)
         .orderBy('createdAt', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
@@ -2847,7 +2866,11 @@ class FeastaRepository {
       'furnitureInclusions': furnitureInclusions,
       'serviceInclusions': serviceInclusions,
       'isCustomizable': isCustomizable,
-      'isActive': true,
+      'status': 'draft',
+      'isActive': false,
+      'isPublished': false,
+      'providerPubliclyVisible': false,
+      'publishedAt': null,
       'isDeleted': false,
       'deletedAt': null,
       'deletedBy': null,

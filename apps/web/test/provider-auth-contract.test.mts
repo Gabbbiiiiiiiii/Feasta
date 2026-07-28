@@ -5,7 +5,7 @@ import test from "node:test";
 const sourceRoot = new URL("../src/", import.meta.url);
 const source = (path: string) => readFile(new URL(path, sourceRoot), "utf8");
 
-test("provider routes retain server role, email, and approval gates", async () => {
+test("provider routes retain server role, email, and operation gates", async () => {
   const [layout, dashboard, packages] = await Promise.all([
     source("app/provider/layout.tsx"),
     source("app/provider/page.tsx"),
@@ -15,7 +15,20 @@ test("provider routes retain server role, email, and approval gates", async () =
   assert.match(layout, /requireVerifiedEmail/u);
   assert.match(layout, /provider-verify-email/u);
   assert.match(dashboard, /requireApprovedProvider\(\)/u);
-  assert.match(packages, /requireApprovedProvider\(\)/u);
+  assert.match(packages, /requireProviderCatalogAccess\(\)/u);
+  assert.doesNotMatch(packages, /requireApprovedProvider\(\)/u);
+});
+
+test("draft catalog access requires a trusted linked provider profile", async () => {
+  const session = await source("lib/auth/session.ts");
+  assert.match(session, /requireProviderCatalogAccess/u);
+  assert.match(
+    session,
+    /!account\.provider \|\| account\.provider\.id !== account\.providerId/u,
+  );
+  assert.match(session, /redirect\("\/provider\/onboarding"\)/u);
+  assert.match(session, /requireApprovedProvider/u);
+  assert.match(session, /verificationStatus !== "approved"/u);
 });
 
 test("provider identity and business registration use only trusted callables", async () => {
@@ -37,4 +50,16 @@ test("verification uploads use the exact private path and no public URL", async 
   assert.match(client, /10 \* 1024 \* 1024/u);
   assert.match(client, /registerVerificationDocument/u);
   assert.doesNotMatch(client, /getDownloadURL/u);
+});
+
+test("provider submission refreshes trusted server context and never assigns status", async () => {
+  const [client, actions] = await Promise.all([
+    source("lib/auth/provider-client.ts"),
+    source("app/provider/verification/provider-verification-actions.tsx"),
+  ]);
+  assert.match(client, /submitProviderVerification/u);
+  assert.match(actions, /router\.replace\("\/provider\/status"\)/u);
+  assert.match(actions, /router\.refresh\(\)/u);
+  assert.doesNotMatch(actions, /verificationStatus\s*:/u);
+  assert.doesNotMatch(actions, /status\s*:\s*["']submitted["']/u);
 });

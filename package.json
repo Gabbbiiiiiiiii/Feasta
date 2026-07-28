@@ -26,7 +26,9 @@
     "phase5:flutter": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-flutter-phase5.ps1",
     "phase5:verify": "node scripts/verify-phase5.mjs",
     "phase6:coverage": "node scripts/verify-phase6-coverage.mjs",
-    "phase6:verify": "node scripts/verify-phase6.mjs"
+    "phase6:verify": "node scripts/verify-phase6.mjs",
+    "phase7:coverage": "node scripts/verify-phase7-coverage.mjs",
+    "phase7:verify": "node scripts/verify-phase7.mjs"
   },
   "devDependencies": {
     "firebase-admin": "^13.10.0",

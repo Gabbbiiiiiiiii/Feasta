@@ -2,14 +2,25 @@ import {
   HttpsError,
   onCall,
 } from "firebase-functions/v2/https";
+import {getStorage} from "firebase-admin/storage";
+import type {
+  DocumentData,
+  DocumentReference,
+  Transaction,
+} from "firebase-admin/firestore";
 
 import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
 import {
   isProviderVerificationTransitionAllowed,
+  MAX_VERIFICATION_DOCUMENT_SIZE_BYTES,
+  providerVerificationDocumentPolicy,
+  shouldPublishProvider,
   type ProviderVerificationStatus,
   USER_ROLES,
+  VERIFICATION_DOCUMENT_CONTENT_TYPES,
+  verificationDocumentsSatisfyPolicy,
 } from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
 import {
@@ -23,6 +34,7 @@ import {createNotificationInTransaction} from "../shared/notifications.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {logSecurityEvent} from "../shared/security-events.js";
+import {writeVerificationHistoryInTransaction} from "../shared/verification-history.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {
   requireEnum,
@@ -101,11 +113,11 @@ export const reviewProviderVerification = onCall(
 
     if (
       actionRequiresReason &&
-      remarks.length < 3
+      remarks.length < 10
     ) {
       throw new HttpsError(
         "invalid-argument",
-        "A reason is required for this review action.",
+        "Provide a meaningful reason with at least 10 characters.",
       );
     }
 
@@ -136,6 +148,9 @@ export const reviewProviderVerification = onCall(
     }
 
     try {
+      const storageValidatedDocuments = action === "approve" ?
+        await validateApprovalStorageEvidence(verificationId) :
+        null;
       const result = await db.runTransaction(
         async (transaction) => {
           const verificationSnapshot =
@@ -206,6 +221,15 @@ export const reviewProviderVerification = onCall(
               "The provider and verification statuses are inconsistent.",
             );
           }
+          const ownerSnapshot = await transaction.get(
+            db.collection("users").doc(ownerId),
+          );
+          if (!ownerSnapshot.exists) {
+            throw new HttpsError(
+              "failed-precondition",
+              "The provider owner account was not found.",
+            );
+          }
 
           if (ownerId === authenticatedUser.uid) {
             throw new HttpsError(
@@ -239,6 +263,28 @@ export const reviewProviderVerification = onCall(
             nextStatus,
           });
 
+          const approvedDocumentReferences = action === "approve" ?
+            await validateApprovalDocumentsInTransaction({
+              transaction,
+              verificationReference,
+              providerId,
+              providerData: providerData ?? {},
+              storageValidatedDocuments:
+                storageValidatedDocuments ?? new Map(),
+            }) :
+            [];
+          const packageSnapshot = await transaction.get(
+            db.collection("packages")
+              .where("providerId", "==", providerId)
+              .limit(101),
+          );
+          if (packageSnapshot.size > 100) {
+            throw new HttpsError(
+              "failed-precondition",
+              "Provider package visibility requires administrative support.",
+            );
+          }
+
           const verificationUpdate =
             buildVerificationUpdate({
               action,
@@ -252,6 +298,19 @@ export const reviewProviderVerification = onCall(
             buildProviderUpdate({
               nextStatus,
               adminId: authenticatedUser.uid,
+              remarks,
+              publiclyVisible:
+                nextStatus === "approved" &&
+                shouldPublishProvider(
+                  {
+                    ...(providerData ?? {}),
+                    id: providerId,
+                    verificationStatus: "approved",
+                    isActive: true,
+                    isSuspended: false,
+                  },
+                  ownerSnapshot.data() ?? {},
+                ),
             });
 
           transaction.update(
@@ -264,7 +323,25 @@ export const reviewProviderVerification = onCall(
             providerUpdate,
           );
 
-          writeAuditLogInTransaction(
+          for (const documentReference of approvedDocumentReferences) {
+            transaction.update(documentReference, {
+              status: "verified",
+              verifiedAt: serverTimestamp(),
+              verifiedBy: authenticatedUser.uid,
+              rejectionReason: null,
+              updatedAt: serverTimestamp(),
+            });
+          }
+          for (const packageDocument of packageSnapshot.docs) {
+            const packageData = packageDocument.data();
+            transaction.update(packageDocument.ref, {
+              providerPubliclyVisible:
+                publiclyVisibleForPackage(packageData, providerUpdate),
+              updatedAt: serverTimestamp(),
+            });
+          }
+
+          const auditLogReference = writeAuditLogInTransaction(
             transaction,
             {
               actorId:
@@ -288,6 +365,10 @@ export const reviewProviderVerification = onCall(
               },
               after: {
                 status: nextStatus,
+                ...(action === "approve" ? {
+                  verifiedDocumentCount:
+                    approvedDocumentReferences.length,
+                } : {}),
               },
               metadata: {
                 providerId,
@@ -295,6 +376,18 @@ export const reviewProviderVerification = onCall(
               },
             },
           );
+          writeVerificationHistoryInTransaction(transaction, {
+            verificationId,
+            providerId,
+            actorId: authenticatedUser.uid,
+            actorRole: USER_ROLES.admin,
+            eventType: `verification_${nextStatus}`,
+            fromStatus: currentStatus,
+            toStatus: nextStatus,
+            remarks: remarks || null,
+            auditLogId: auditLogReference.id,
+            metadata: {reviewAction: action},
+          });
 
           createNotificationInTransaction(
             transaction,
@@ -525,6 +618,8 @@ function buildVerificationUpdate({
 function buildProviderUpdate({
   nextStatus,
   adminId,
+  remarks,
+  publiclyVisible,
 }: {
   nextStatus:
     | "under_review"
@@ -533,6 +628,8 @@ function buildProviderUpdate({
     | "resubmission_required"
     | "suspended";
   adminId: string;
+  remarks: string;
+  publiclyVisible: boolean;
 }): Record<string, unknown> {
   return {
     verificationStatus:
@@ -541,13 +638,18 @@ function buildProviderUpdate({
       nextStatus === "approved",
     isSuspended:
       nextStatus === "suspended",
+    publiclyVisible,
     ...(nextStatus === "suspended" ? {
       suspendedAt: serverTimestamp(),
       suspendedBy: adminId,
+      suspensionReason: remarks,
     } : {}),
     ...(nextStatus === "approved" ? {
+      approvedAt: serverTimestamp(),
+      approvedBy: adminId,
       suspendedAt: null,
       suspendedBy: null,
+      suspensionReason: null,
     } : {}),
     updatedAt:
       serverTimestamp(),
@@ -612,4 +714,179 @@ function notificationMessage({
     default:
       return `${businessName} verification was updated.`;
   }
+}
+
+function publiclyVisibleForPackage(
+  packageData: Record<string, unknown>,
+  providerUpdate: Record<string, unknown>,
+): boolean {
+  return providerUpdate.publiclyVisible === true &&
+    packageData.status === "published" &&
+    packageData.isActive === true &&
+    packageData.isPublished === true &&
+    packageData.isDeleted !== true;
+}
+
+type ApprovalDocument = {
+  id: string;
+  documentType: string;
+  storagePath: string;
+  status: string;
+  reference: DocumentReference<DocumentData>;
+};
+
+async function validateApprovalStorageEvidence(
+  verificationId: string,
+): Promise<ReadonlyMap<string, string>> {
+  const verificationReference = db
+    .collection("providerVerifications")
+    .doc(verificationId);
+  const verificationSnapshot = await verificationReference.get();
+  const providerId = verificationSnapshot.data()?.providerId;
+  if (
+    !verificationSnapshot.exists ||
+    typeof providerId !== "string" ||
+    providerId.length === 0
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The provider verification evidence could not be validated.",
+    );
+  }
+
+  const [providerSnapshot, documentsSnapshot] = await Promise.all([
+    db.collection("providers").doc(providerId).get(),
+    verificationReference.collection("documents").get(),
+  ]);
+  if (!providerSnapshot.exists) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The related provider profile was not found.",
+    );
+  }
+
+  const requiredDocuments = selectRequiredApprovalDocuments(
+    providerId,
+    providerSnapshot.data() ?? {},
+    documentsSnapshot.docs.map((document) =>
+      approvalDocument(document.id, document.ref, document.data())
+    ),
+  );
+
+  try {
+    await Promise.all(requiredDocuments.map(async (document) => {
+      const [metadata] = await getStorage()
+        .bucket()
+        .file(document.storagePath)
+        .getMetadata();
+      const contentType = String(metadata.contentType ?? "");
+      const size = Number(metadata.size);
+      if (
+        !VERIFICATION_DOCUMENT_CONTENT_TYPES.includes(
+          contentType as
+            (typeof VERIFICATION_DOCUMENT_CONTENT_TYPES)[number],
+        ) ||
+        !Number.isFinite(size) ||
+        size <= 0 ||
+        size > MAX_VERIFICATION_DOCUMENT_SIZE_BYTES
+      ) {
+        throw new Error("invalid_document_metadata");
+      }
+    }));
+  } catch {
+    throw new HttpsError(
+      "failed-precondition",
+      "A required verification document is missing or invalid.",
+    );
+  }
+
+  return new Map(requiredDocuments.map((document) => [
+    document.id,
+    document.storagePath,
+  ]));
+}
+
+async function validateApprovalDocumentsInTransaction({
+  transaction,
+  verificationReference,
+  providerId,
+  providerData,
+  storageValidatedDocuments,
+}: {
+  transaction: Transaction;
+  verificationReference: DocumentReference<DocumentData>;
+  providerId: string;
+  providerData: DocumentData;
+  storageValidatedDocuments: ReadonlyMap<string, string>;
+}): Promise<readonly DocumentReference<DocumentData>[]> {
+  const documentsSnapshot = await transaction.get(
+    verificationReference.collection("documents"),
+  );
+  const requiredDocuments = selectRequiredApprovalDocuments(
+    providerId,
+    providerData,
+    documentsSnapshot.docs.map((document) =>
+      approvalDocument(document.id, document.ref, document.data())
+    ),
+  );
+  if (requiredDocuments.some((document) =>
+    storageValidatedDocuments.get(document.id) !== document.storagePath
+  )) {
+    throw new HttpsError(
+      "aborted",
+      "Verification evidence changed during review. Reload and try again.",
+    );
+  }
+  return requiredDocuments.map((document) => document.reference);
+}
+
+function approvalDocument(
+  id: string,
+  reference: DocumentReference<DocumentData>,
+  data: DocumentData,
+): ApprovalDocument {
+  return {
+    id,
+    reference,
+    documentType:
+      typeof data.documentType === "string" ? data.documentType : "",
+    storagePath:
+      typeof data.storagePath === "string" ? data.storagePath.trim() : "",
+    status: typeof data.status === "string" ? data.status : "",
+  };
+}
+
+function selectRequiredApprovalDocuments(
+  providerId: string,
+  providerData: DocumentData,
+  documents: readonly ApprovalDocument[],
+): readonly ApprovalDocument[] {
+  const eligibleByType = new Map(documents.flatMap((document) => {
+    const expectedPrefix =
+      `providers/${providerId}/verification/${document.documentType}/`;
+    return (
+      ["pending", "verified"].includes(document.status) &&
+      document.storagePath.startsWith(expectedPrefix)
+    ) ? [[document.documentType, document] as const] : [];
+  }));
+  const policy = providerVerificationDocumentPolicy(providerData);
+  if (!verificationDocumentsSatisfyPolicy(
+    new Set(eligibleByType.keys()),
+    policy,
+  )) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Every required verification document must be present before approval.",
+    );
+  }
+
+  return [
+    ...policy.requiredAll.map((type) => eligibleByType.get(type)),
+    ...policy.requiredOneOf.map((group) =>
+      group.map((type) => eligibleByType.get(type))
+        .find((document) => document != null)
+    ),
+  ].filter(
+    (document): document is ApprovalDocument => document != null,
+  );
 }

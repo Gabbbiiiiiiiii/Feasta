@@ -3,6 +3,10 @@ $root = Split-Path -Parent $PSScriptRoot
 $nextBin = Join-Path $root "apps\web\node_modules\next\dist\bin\next"
 $webPort = 53300
 $webProcess = $null
+$baselineNodeProcessIds = @(
+  Get-Process -Name "node" -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty Id
+)
 
 if (!(Test-Path -LiteralPath $nextBin)) {
   throw "Next.js is not installed. Run pnpm install first."
@@ -38,8 +42,11 @@ try {
   }
 } finally {
   if ($null -ne $webProcess -and !$webProcess.HasExited) {
-    Stop-Process -Id $webProcess.Id -Force -ErrorAction SilentlyContinue
+    & taskkill.exe /PID $webProcess.Id /T /F 2>$null | Out-Null
     Wait-Process -Id $webProcess.Id -Timeout 10 -ErrorAction SilentlyContinue
   }
+  Get-Process -Name "node" -ErrorAction SilentlyContinue |
+    Where-Object { $baselineNodeProcessIds -notcontains $_.Id } |
+    Stop-Process -Force -ErrorAction SilentlyContinue
   Pop-Location
 }
