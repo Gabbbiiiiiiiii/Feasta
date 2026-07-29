@@ -1,5 +1,12 @@
 import "server-only";
 
+import type {
+  DecodedIdToken,
+} from "firebase-admin/auth";
+import {
+  cache,
+} from "react";
+
 import {
   PROVIDER_EVENT_TYPES,
   PROVIDER_OPERATING_DAYS,
@@ -41,6 +48,28 @@ export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 5;
 export type {UserRole} from "@feasta/shared-types";
 export type SessionUser = ServerAccountContext;
 
+type VerifiedFirebaseAuthState = {
+  disabled: false;
+  email: string | null;
+  emailVerified: boolean;
+};
+
+function verifiedAuthStateFromToken(
+  decoded: DecodedIdToken,
+): VerifiedFirebaseAuthState {
+  return {
+    disabled: false,
+
+    email:
+      typeof decoded.email === "string"
+        ? decoded.email
+        : null,
+
+    emailVerified:
+      decoded.email_verified === true,
+  };
+}
+
 export const sessionCookieOptions = sessionCookiePolicy(
   process.env.NODE_ENV === "production",
   SESSION_MAX_AGE_SECONDS,
@@ -63,7 +92,11 @@ export async function createSession(idToken: string): Promise<{
     throw new Error("Recent sign-in is required.");
   }
 
-  const account = await loadTrustedAccountContext(decoded.uid);
+  const account =
+  await loadTrustedAccountContext(
+    decoded.uid,
+    verifiedAuthStateFromToken(decoded),
+  );
   const cookie = await adminAuth.createSessionCookie(idToken, {
     expiresIn: SESSION_MAX_AGE_SECONDS * 1000,
   });
@@ -81,14 +114,35 @@ export async function createVerifiedSession(idToken: string): Promise<{
 
 export async function verifySessionCookie(
   sessionCookie: string,
-  options: {checkRevoked?: boolean} = {},
+  options: {
+    checkRevoked?: boolean;
+  } = {},
 ): Promise<SessionUser> {
-  const decoded = await verifyRevocationAwareSession(
-    sessionCookie,
-    (value, checkRevoked) => adminAuth.verifySessionCookie(value, checkRevoked),
-    options.checkRevoked ?? true,
+  const checkRevoked =
+    options.checkRevoked ?? true;
+
+  const decoded =
+    await verifyRevocationAwareSession(
+      sessionCookie,
+
+      (value, shouldCheckRevocation) =>
+        adminAuth.verifySessionCookie(
+          value,
+          shouldCheckRevocation,
+        ),
+
+      checkRevoked,
+    );
+
+  return loadTrustedAccountContext(
+    decoded.uid,
+
+    checkRevoked
+      ? verifiedAuthStateFromToken(
+          decoded,
+        )
+      : undefined,
   );
-  return loadTrustedAccountContext(decoded.uid);
 }
 
 export async function getOptionalAccountContext(
@@ -110,6 +164,16 @@ export async function getOptionalAccountContext(
   }
 }
 
+const getDefaultAccountContext =
+  cache(
+    async (): Promise<
+      SessionUser | null
+    > =>
+      getOptionalAccountContext({
+        checkRevoked: true,
+      }),
+  );
+
 export const getSessionUser = getOptionalAccountContext;
 
 export async function requireAuthenticatedAccount(options: {
@@ -119,7 +183,12 @@ export async function requireAuthenticatedAccount(options: {
 } = {}): Promise<SessionUser> {
   const cookieStore = await cookies();
   const hadCookie = cookieStore.has(SESSION_COOKIE_NAME);
-  const account = await getOptionalAccountContext(options);
+  const account =
+  options.checkRevoked === false
+    ? await getOptionalAccountContext(
+        options,
+      )
+    : await getDefaultAccountContext();
   if (account) return account;
 
   const requested = typeof options.returnTo === "string" &&
@@ -504,65 +573,151 @@ export function destroySession(
 
 export async function loadTrustedAccountContext(
   uid: string,
+  verifiedAuthState?:
+    VerifiedFirebaseAuthState,
 ): Promise<SessionUser> {
-  const [authUser, userSnapshot] = await Promise.all([
-    adminAuth.getUser(uid),
-    adminDb.collection("users").doc(uid).get(),
+  const [
+    authUser,
+    userSnapshot,
+  ] = await Promise.all([
+    verifiedAuthState
+      ? Promise.resolve(null)
+      : adminAuth.getUser(uid),
+
+    adminDb
+      .collection("users")
+      .doc(uid)
+      .get(),
   ]);
-  const userProfile = userSnapshot.exists ? userSnapshot.data() ?? null : null;
-  const providerId = userProfile?.role === "provider" &&
-    typeof userProfile.providerId === "string" &&
+
+  const resolvedAuthState =
+    verifiedAuthState ??
+    (
+      authUser
+        ? {
+            disabled:
+              authUser.disabled,
+
+            email:
+              authUser.email ?? null,
+
+            emailVerified:
+              authUser.emailVerified,
+          }
+        : null
+    );
+
+  if (!resolvedAuthState) {
+    throw new AccountAccessError(
+      "missing_user_profile",
+    );
+  }
+
+  const userProfile =
+    userSnapshot.exists
+      ? userSnapshot.data() ?? null
+      : null;
+
+  const providerId =
+    userProfile?.role === "provider" &&
+    typeof userProfile.providerId ===
+      "string" &&
     userProfile.providerId.trim().length > 0
-    ? userProfile.providerId.trim()
-    : null;
+      ? userProfile.providerId.trim()
+      : null;
+
   const providerSnapshot = providerId
-    ? await adminDb.collection("providers").doc(providerId).get()
-    : null;
-  const providerProfile = providerSnapshot?.exists
-    ? {id: providerSnapshot.id, ...providerSnapshot.data()}
-    : null;
-  const customerSnapshot = userProfile?.role === "customer"
-    ? await adminDb.collection("customers").doc(uid).get()
+    ? await adminDb
+        .collection("providers")
+        .doc(providerId)
+        .get()
     : null;
 
-  const resolution = resolveTrustedAccountContext({
-    uid,
-    auth: {
-      disabled: authUser.disabled,
-      email: authUser.email ?? null,
-      emailVerified: authUser.emailVerified,
-    },
-    userProfile,
-    customerProfileExists: customerSnapshot?.exists === true,
-    providerProfile,
-  });
+  const providerProfile =
+    providerSnapshot?.exists
+      ? {
+          id: providerSnapshot.id,
+          ...providerSnapshot.data(),
+        }
+      : null;
+
+  const customerSnapshot =
+    userProfile?.role === "customer"
+      ? await adminDb
+          .collection("customers")
+          .doc(uid)
+          .get()
+      : null;
+
+  const resolution =
+    resolveTrustedAccountContext({
+      uid,
+
+      auth: {
+        disabled:
+          resolvedAuthState.disabled,
+
+        email:
+          resolvedAuthState.email,
+
+        emailVerified:
+          resolvedAuthState
+            .emailVerified,
+      },
+
+      userProfile,
+
+      customerProfileExists:
+        customerSnapshot?.exists ===
+        true,
+
+      providerProfile,
+    });
+
   if (!resolution.ok) {
     logWebSecurityEvent({
-      action: "account_access_denied",
+      action:
+        "account_access_denied",
+
       outcome: "denied",
       actorUid: uid,
       targetId: uid,
       reasonCode: resolution.reason,
     });
-    throw new AccountAccessError(resolution.reason);
+
+    throw new AccountAccessError(
+      resolution.reason,
+    );
   }
-  const trustedEmail = authUser.email ?? null;
-  const trustedEmailVerified = authUser.emailVerified;
+
+  const trustedEmail =
+    resolvedAuthState.email;
+
+  const trustedEmailVerified =
+    resolvedAuthState.emailVerified;
+
   if (
-    userProfile?.email !== trustedEmail ||
-    userProfile?.isEmailVerified !== trustedEmailVerified
+    userProfile?.email !==
+      trustedEmail ||
+    userProfile?.isEmailVerified !==
+      trustedEmailVerified
   ) {
     await synchronizeTrustedAuthFields({
       uid,
       role: resolution.account.role,
       email: trustedEmail,
-      emailVerified: trustedEmailVerified,
+
+      emailVerified:
+        trustedEmailVerified,
     });
   }
+
   return {
     ...resolution.account,
     email: trustedEmail,
-    emailVerified: trustedEmailVerified,
+
+    emailVerified:
+      trustedEmailVerified,
   };
 }
 

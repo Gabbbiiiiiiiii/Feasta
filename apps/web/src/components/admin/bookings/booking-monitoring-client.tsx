@@ -79,14 +79,6 @@ const currencyFormatter =
     maximumFractionDigits: 2,
   });
 
-const compactCurrencyFormatter =
-  new Intl.NumberFormat("en-PH", {
-    style: "currency",
-    currency: "PHP",
-    notation: "compact",
-    maximumFractionDigits: 1,
-  });
-
 const dateFormatter =
   new Intl.DateTimeFormat("en-PH", {
     dateStyle: "medium",
@@ -519,7 +511,7 @@ function BookingMonitoringClient({
 
         <SummaryCard
           label="Confirmed revenue"
-          value={compactCurrencyFormatter.format(
+          value={currencyFormatter.format(
             page.statistics.totalPaidAmount,
           )}
           icon={

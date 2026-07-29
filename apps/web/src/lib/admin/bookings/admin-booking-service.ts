@@ -50,6 +50,13 @@ const DEFAULT_PAGE_SIZE = 10;
 const MAX_PAGE_SIZE = 30;
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const BOOKING_STATISTICS_CACHE_MS =
+  30 * 1000;
+
+let bookingStatisticsCache: {
+  expiresAt: number;
+  promise: Promise<AdminBookingStatistics>;
+} | null = null;
 
 type NormalizedFilters = {
   search: string;
@@ -110,17 +117,19 @@ export async function getAdminBookingPage(
 
   query = applyBookingFilters(query, filters);
 
-    /*
-  * Firestore range queries must order by the range field.
-  */
-  const sortField =
-    filters.date !== "all"
-      ? "eventDate"
-      : filters.sortField;
-  const sortDirection =
-    filters.sortDirection === "ascending"
-      ? "asc"
-      : "desc";
+/*
+ * Firestore range queries must order by
+ * the field used by the range filter.
+ */
+const sortField =
+  filters.date !== "all"
+    ? "eventDate"
+    : filters.sortField;
+
+const sortDirection =
+  filters.sortDirection === "ascending"
+    ? "asc"
+    : "desc";
 
   query = query
     .orderBy(sortField, sortDirection)
@@ -198,12 +207,12 @@ export async function getAdminBookingDetails(
     normalizedBookingId,
   ]);
 
-    return {
-        booking: mapBookingDocument(
-            snapshot,
-            relations,
-        ),
-    };
+  return {
+    booking: mapBookingDocument(
+      snapshot,
+      relations,
+    ),
+  };
 }
 
 function normalizeFilters(
@@ -975,7 +984,7 @@ function mapPaymentDocument(
   };
 }
 
-async function getAdminBookingStatistics(): Promise<AdminBookingStatistics> {
+async function queryAdminBookingStatistics(): Promise<AdminBookingStatistics> {
   const mainEvents = adminDb.collection(
     COLLECTIONS.mainEvents,
   );
@@ -1130,6 +1139,40 @@ async function getAdminBookingStatistics(): Promise<AdminBookingStatistics> {
         refundedAmount.data().amount,
       ),
   };
+}
+
+function getAdminBookingStatistics(): Promise<
+  AdminBookingStatistics
+> {
+  const now = Date.now();
+
+  if (
+    bookingStatisticsCache &&
+    bookingStatisticsCache.expiresAt > now
+  ) {
+    return bookingStatisticsCache.promise;
+  }
+
+  const promise =
+    queryAdminBookingStatistics();
+
+  bookingStatisticsCache = {
+    expiresAt:
+      now + BOOKING_STATISTICS_CACHE_MS,
+
+    promise,
+  };
+
+  void promise.catch(() => {
+    if (
+      bookingStatisticsCache?.promise ===
+      promise
+    ) {
+      bookingStatisticsCache = null;
+    }
+  });
+
+  return promise;
 }
 
 function normalizeOverallPaymentStatus(
