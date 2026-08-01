@@ -521,8 +521,10 @@ export async function loadProviderOnboardingDraft(
     ) as ProviderOperatingDay[],
     bookingLeadTimeDays: integer(draft.bookingLeadTimeDays, 0),
     unavailableDates: stringList(draft.unavailableDates),
-    logoStoragePath: text(draft.logoStoragePath) || null,
-    coverStoragePath: text(draft.coverStoragePath) || null,
+    logoUrl: text(draft.logoUrl) || null,
+    logoPublicId: text(draft.logoPublicId) || null,
+    coverImageUrl: text(draft.coverImageUrl) || null,
+    coverPublicId: text(draft.coverPublicId) || null,
     acceptedTerms: user.termsAcceptedAt != null,
     acceptedPrivacy: user.privacyAcceptedAt != null,
     termsPolicyVersion: text(

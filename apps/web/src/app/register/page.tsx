@@ -1,8 +1,16 @@
 "use client";
 
-import {FormEvent, useRef, useState} from "react";
+import {
+  type FormEvent,
+  Suspense,
+  useRef,
+  useState,
+} from "react";
 import Link from "next/link";
-import {useRouter} from "next/navigation";
+import {
+  useRouter,
+  useSearchParams,
+} from "next/navigation";
 
 import {AuthCard} from "@/components/auth/auth-card";
 import {AuthStatus} from "@/components/auth/auth-status";
@@ -19,7 +27,23 @@ type RegistrationErrors = Partial<Record<
 >>;
 
 export default function CustomerRegistrationPage() {
+  return (
+    <Suspense
+      fallback={
+        <RegistrationFallback />
+      }
+    >
+      <CustomerRegistrationForm />
+    </Suspense>
+  );
+}
+
+function CustomerRegistrationForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnTo = safeCustomerReturnTo(
+    searchParams.get("next"),
+  );
   const [values, setValues] = useState({
     firstName: "",
     lastName: "",
@@ -53,8 +77,26 @@ export default function CustomerRegistrationPage() {
         acceptedTerms: true,
         acceptedPrivacy: true,
       });
-      const status = result.verificationEmailSent ? "sent" : "retry";
-      router.replace(`/verify-email?registration=complete&delivery=${status}`);
+      const status = result.verificationEmailSent
+        ? "sent"
+        : "retry";
+
+      const verificationParameters =
+        new URLSearchParams({
+          registration: "complete",
+          delivery: status,
+        });
+
+      if (returnTo) {
+        verificationParameters.set(
+          "next",
+          returnTo,
+        );
+      }
+
+      router.replace(
+        `/verify-email?${verificationParameters.toString()}`,
+      );
     } catch (error) {
       setServerError(customerAuthenticationError(error));
     } finally {
@@ -64,8 +106,58 @@ export default function CustomerRegistrationPage() {
   }
 
   const update = (key: keyof typeof values, value: string) => {
-    setValues((current) => ({...current, [key]: value}));
-  };
+      setValues((current) => ({...current, [key]: value}));
+    };
+
+    function safeCustomerReturnTo(
+    value: string | null,
+  ): string | null {
+    if (
+      !value ||
+      !value.startsWith("/") ||
+      value.startsWith("//") ||
+      value.includes("\\") ||
+      value.includes("\r") ||
+      value.includes("\n")
+    ) {
+      return null;
+    }
+
+    try {
+      const decoded = decodeURIComponent(value);
+
+      if (
+        decoded.startsWith("//") ||
+        decoded.includes("\\") ||
+        decoded.includes("\r") ||
+        decoded.includes("\n")
+      ) {
+        return null;
+      }
+
+      const base =
+        new URL("https://feasta.invalid");
+
+      const resolved =
+        new URL(value, base);
+
+      if (
+        resolved.origin !== base.origin ||
+        (
+          resolved.pathname !== "/customer" &&
+          !resolved.pathname.startsWith(
+            "/customer/",
+          )
+        )
+      ) {
+        return null;
+      }
+
+      return `${resolved.pathname}${resolved.search}${resolved.hash}`;
+    } catch {
+      return null;
+    }
+  }
 
   return (
     <AuthCard
@@ -106,6 +198,26 @@ export default function CustomerRegistrationPage() {
         {serverError ? <AuthStatus id="registration-error" message={serverError} tone="error" /> : null}
         <Button type="submit" fullWidth loading={loading} loadingLabel="Creating account">Create account</Button>
       </form>
+    </AuthCard>
+  );
+}
+
+function RegistrationFallback() {
+  return (
+    <AuthCard
+      title="Create your customer account"
+      description="Preparing secure customer registration."
+    >
+      <div
+        className="grid gap-4"
+        aria-label="Loading customer registration"
+        aria-busy="true"
+      >
+        <div className="h-14 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />
+        <div className="h-14 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />
+        <div className="h-14 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />
+        <div className="h-14 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />
+      </div>
     </AuthCard>
   );
 }

@@ -371,8 +371,22 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       .get(),
 
     adminDb
-      .collection(FIRESTORE_COLLECTIONS.users)
-      .where("isActive", "==", true)
+      .collection(
+        FIRESTORE_COLLECTIONS.users,
+      )
+      .where(
+        "role",
+        "in",
+        [
+          "customer",
+          "provider",
+        ],
+      )
+      .where(
+        "isActive",
+        "==",
+        true,
+      )
       .count()
       .get(),
 

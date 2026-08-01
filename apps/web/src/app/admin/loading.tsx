@@ -39,7 +39,7 @@ export default function AdminDashboardLoading() {
         />
 
         <SummaryCard
-          label="Active users"
+          label="Active accounts"
           loading
         />
 

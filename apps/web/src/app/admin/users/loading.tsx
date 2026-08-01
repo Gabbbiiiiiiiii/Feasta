@@ -42,17 +42,17 @@ export default function AdminUsersLoading() {
         />
 
         <SummaryCard
-          label="Customers"
+          label="Verified Providers"
           loading
         />
 
         <SummaryCard
-          label="Providers"
+          label="Pending Verification"
           loading
         />
 
         <SummaryCard
-          label="Restricted accounts"
+          label="Disabled / Blocked"
           loading
         />
       </section>

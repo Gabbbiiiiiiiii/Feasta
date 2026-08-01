@@ -73,9 +73,9 @@ export function ProviderOnboardingStepForm({
     cover: File | null;
   }>({logo: null, cover: null});
   const [values, setValues] = useState<FormValues>(() => initialValues(draft));
-  const initialMediaPaths = useRef({
-    logo: draft.logoStoragePath ?? null,
-    cover: draft.coverStoragePath ?? null,
+  const initialMediaPublicIds = useRef({
+    logo: draft.logoPublicId ?? null,
+    cover: draft.coverPublicId ?? null,
   });
 
   useEffect(() => {
@@ -104,7 +104,13 @@ export function ProviderOnboardingStepForm({
           (["logo", "cover"] as const).flatMap((mediaType) => {
             const file = selectedImages[mediaType];
             const issue = file ? validateImageFile(mediaType, file) : null;
-            return issue ? [[`${mediaType}StoragePath`, issue]] : [];
+            const field = providerMediaErrorField(
+            mediaType,
+          );
+
+          return issue
+            ? [[field, issue]]
+            : [];
           }),
         )
       : {};
@@ -131,10 +137,18 @@ export function ProviderOnboardingStepForm({
         ]);
         submissionValues = {
           ...submissionValues,
-          logoStoragePath: logo?.storagePath ??
-            submissionValues.logoStoragePath,
-          coverStoragePath: cover?.storagePath ??
-            submissionValues.coverStoragePath,
+          logoUrl:
+            logo?.url ??
+            submissionValues.logoUrl,
+          logoPublicId:
+            logo?.publicId ??
+            submissionValues.logoPublicId,
+          coverImageUrl:
+            cover?.url ??
+            submissionValues.coverImageUrl,
+          coverPublicId:
+            cover?.publicId ??
+            submissionValues.coverPublicId,
         };
       }
       await saveProviderOnboardingDraft(
@@ -142,10 +156,14 @@ export function ProviderOnboardingStepForm({
         stepPayload(step.number, submissionValues),
       );
       if (step.number === 2) {
-        await cleanupReplacedMedia(initialMediaPaths.current, submissionValues);
-        initialMediaPaths.current = {
-          logo: submissionValues.logoStoragePath,
-          cover: submissionValues.coverStoragePath,
+        await cleanupRemovedMedia(
+          initialMediaPublicIds.current,
+          submissionValues,
+        );
+
+        initialMediaPublicIds.current = {
+          logo: submissionValues.logoPublicId,
+          cover: submissionValues.coverPublicId,
         };
         setSelectedImages({logo: null, cover: null});
       }
@@ -205,21 +223,45 @@ export function ProviderOnboardingStepForm({
           }));
           if (!file) return;
           const validationError = validateImageFile(mediaType, file);
+          const field = providerMediaErrorField(
+            mediaType,
+          );
+
           setFieldErrors((current) => ({
             ...current,
-            [`${mediaType}StoragePath`]: validationError ?? "",
+            [field]: validationError ?? "",
           }));
         }}
         removeImage={(mediaType) => {
           setDirty(true);
+
           setSelectedImages((current) => ({
             ...current,
             [mediaType]: null,
           }));
-          update(
-            mediaType === "logo" ? "logoStoragePath" : "coverStoragePath",
-            null,
+
+          setValues((current) =>
+            mediaType === "logo"
+              ? {
+                  ...current,
+                  logoUrl: null,
+                  logoPublicId: null,
+                }
+              : {
+                  ...current,
+                  coverImageUrl: null,
+                  coverPublicId: null,
+                }
           );
+
+          const field = providerMediaErrorField(
+            mediaType,
+          );
+
+          setFieldErrors((current) => ({
+            ...current,
+            [field]: "",
+          }));
         }}
         update={update}
       />
@@ -330,20 +372,24 @@ function StepFields({
         </FormField>
         <ProviderBusinessImageField
           mediaType="logo"
-          currentPath={values.logoStoragePath}
+          currentUrl={values.logoUrl}
           selectedFile={selectedImages.logo}
           disabled={loading}
-          error={fieldErrors.logoStoragePath || undefined}
-          onSelect={(file) => setSelectedImage("logo", file)}
+          error={fieldErrors.logoUrl || undefined}
+          onSelect={(file) =>
+            setSelectedImage("logo", file)
+          }
           onRemove={() => removeImage("logo")}
         />
         <ProviderBusinessImageField
           mediaType="cover"
-          currentPath={values.coverStoragePath}
+          currentUrl={values.coverImageUrl}
           selectedFile={selectedImages.cover}
           disabled={loading}
-          error={fieldErrors.coverStoragePath || undefined}
-          onSelect={(file) => setSelectedImage("cover", file)}
+          error={fieldErrors.coverImageUrl || undefined}
+          onSelect={(file) =>
+            setSelectedImage("cover", file)
+          }
           onRemove={() => removeImage("cover")}
         />
       </div>
@@ -637,8 +683,10 @@ function initialValues(draft: ProviderOnboardingDraft): FormValues {
     operatingDays: draft.operatingDays ?? [],
     bookingLeadTimeDays: draft.bookingLeadTimeDays ?? 0,
     unavailableDates: draft.unavailableDates ?? [],
-    logoStoragePath: draft.logoStoragePath ?? null,
-    coverStoragePath: draft.coverStoragePath ?? null,
+    logoUrl: draft.logoUrl ?? null,
+    logoPublicId: draft.logoPublicId ?? null,
+    coverImageUrl: draft.coverImageUrl ?? null,
+    coverPublicId: draft.coverPublicId ?? null,
     acceptedTerms: draft.acceptedTerms,
     acceptedPrivacy: draft.acceptedPrivacy,
     termsPolicyVersion: draft.termsPolicyVersion,
@@ -651,7 +699,18 @@ function stepPayload(
   values: FormValues,
 ): Record<string, unknown> {
   if (step === 1) return pick(values, ["ownerFirstName", "ownerLastName", "ownerPhone"]);
-  if (step === 2) return pick(values, ["businessName", "businessEmail", "businessPhone", "description", "logoStoragePath", "coverStoragePath"]);
+  if (step === 2) {
+    return pick(values, [
+      "businessName",
+      "businessEmail",
+      "businessPhone",
+      "description",
+      "logoUrl",
+      "logoPublicId",
+      "coverImageUrl",
+      "coverPublicId",
+    ]);
+  }
   if (step === 3) return pick(values, ["providerServiceType", "providerCategory", "serviceCategories", "eventTypesSupported"]);
   if (step === 4) return pick(values, ["address", "city", "province", "serviceAreas", "maxServiceDistanceKm", "locationCoordinates"]);
   if (step === 5) return pick(values, ["minGuestsPerEvent", "maxGuestsPerEvent", "acceptsMultipleEventsPerDay", "maxEventsPerDay", "availableStaffCount", "availableEquipmentCount", "operatingDays", "bookingLeadTimeDays", "unavailableDates"]);
@@ -847,21 +906,45 @@ function validateImageFile(
   return null;
 }
 
-async function cleanupReplacedMedia(
-  previous: {logo: string | null; cover: string | null},
+function providerMediaErrorField(
+  mediaType: "logo" | "cover",
+): "logoUrl" | "coverImageUrl" {
+  return mediaType === "logo"
+    ? "logoUrl"
+    : "coverImageUrl";
+}
+
+async function cleanupRemovedMedia(
+  previous: {
+    logo: string | null;
+    cover: string | null;
+  },
   current: FormValues,
 ): Promise<void> {
-  const obsolete = [
+  const removed: (
+    | "logo"
+    | "cover"
+  )[] = [];
+
+  if (
     previous.logo &&
-      previous.logo !== current.logoStoragePath
-      ? previous.logo
-      : null,
+    current.logoPublicId === null
+  ) {
+    removed.push("logo");
+  }
+
+  if (
     previous.cover &&
-      previous.cover !== current.coverStoragePath
-      ? previous.cover
-      : null,
-  ].filter((path): path is string => Boolean(path));
+    current.coverPublicId === null
+  ) {
+    removed.push("cover");
+  }
+
   await Promise.allSettled(
-    obsolete.map((path) => deleteProviderOnboardingImage(path)),
+    removed.map((mediaType) =>
+      deleteProviderOnboardingImage(
+        mediaType,
+      )
+    ),
   );
 }

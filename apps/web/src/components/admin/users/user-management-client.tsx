@@ -447,7 +447,7 @@ function UserManagementClient({
   return (
     <div className="grid min-w-0 gap-6">
       <PageHeading
-        eyebrow="Account Administration"
+        eyebrow="Administration"
         title="User Management"
         description="Monitor and manage customer and provider accounts."
     />

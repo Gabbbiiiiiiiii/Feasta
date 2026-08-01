@@ -144,8 +144,10 @@ export async function registerProviderBusiness(
     operatingDays: input.operatingDays,
     bookingLeadTimeDays: input.bookingLeadTimeDays,
     unavailableDates: input.unavailableDates,
-    logoStoragePath: input.logoStoragePath,
-    coverStoragePath: input.coverStoragePath,
+    logoUrl: input.logoUrl,
+    logoPublicId: input.logoPublicId,
+    coverImageUrl: input.coverImageUrl,
+    coverPublicId: input.coverPublicId,
     idempotencyKey,
   });
 }
@@ -182,14 +184,26 @@ export async function uploadVerificationDocument(input: {
       "validation",
     );
   }
+
+  await auth.authStateReady();
+
+  const user = requireProviderAuthUser();
+  await user.getIdToken(true);
   const extension = safeExtension(input.file.name, input.file.type);
   const uniqueName = `${globalThis.crypto.randomUUID()}${extension}`;
   const storagePath =
     `providers/${input.providerId}/verification/${input.documentType}/${uniqueName}`;
   await new Promise<void>((resolve, reject) => {
-    const task = uploadBytesResumable(ref(storage, storagePath), input.file, {
-      contentType: input.file.type,
-    });
+    const task = uploadBytesResumable(
+      ref(storage, storagePath),
+      input.file,
+      {
+        contentType: input.file.type,
+        customMetadata: {
+          feastaScope: "provider_verification",
+        },
+      },
+    );
     task.on(
       "state_changed",
       (snapshot) => {

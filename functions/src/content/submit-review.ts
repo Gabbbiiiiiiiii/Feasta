@@ -105,6 +105,12 @@ export const submitReview = onCall(
           comment,
           providerReply: null,
           providerReplyAt: null,
+
+          moderationStatus: "published",
+          moderationReason: null,
+          moderatedAt: null,
+          moderatedBy: null,
+
           isVisible: true,
           isReported: false,
           isDeleted: false,

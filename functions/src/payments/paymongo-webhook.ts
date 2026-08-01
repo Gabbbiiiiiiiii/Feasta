@@ -6,6 +6,9 @@ import {
 } from "firebase-functions/v2/https";
 
 import {
+  FUNCTION_REGION,
+} from "../shared/constants.js";
+import {
   correlationIdFromHeaders,
   logSecurityEvent,
 } from "../shared/security-events.js";
@@ -22,8 +25,11 @@ const payMongoWebhookSecret = defineSecret(
 
 export const payMongoWebhook = onRequest(
   {
-    region: "asia-southeast1",
-    secrets: [payMongoWebhookSecret],
+    region: FUNCTION_REGION,
+    invoker: "public",
+    secrets: [
+      payMongoWebhookSecret,
+    ],
     timeoutSeconds: 30,
   },
   async (request, response) => {
@@ -50,31 +56,35 @@ export const payMongoWebhook = onRequest(
 
     if (!webhookSecret) {
       logSecurityEvent({
-        action: "configuration_failure",
+        action:
+          "configuration_failure",
         outcome: "failed",
-        targetId: "payMongoWebhook",
+        targetId:
+          "payMongoWebhook",
         correlationId,
         reasonCode:
           "webhook_secret_missing",
       });
 
       response.status(503).json({
-        error: "service_unavailable",
+        error:
+          "service_unavailable",
       });
 
       return;
     }
 
-    const valid = verifyPayMongoSignature({
-      rawBody,
+    const valid =
+      verifyPayMongoSignature({
+        rawBody,
 
-      signatureHeader:
-        request.get(
-          "Paymongo-Signature",
-        ) ?? undefined,
+        signatureHeader:
+          request.get(
+            "Paymongo-Signature",
+          ) ?? undefined,
 
-      secret: webhookSecret,
-    });
+        secret: webhookSecret,
+      });
 
     if (!valid) {
       logSecurityEvent({
@@ -82,7 +92,8 @@ export const payMongoWebhook = onRequest(
         outcome: "denied",
         targetId: "paymongo",
         correlationId,
-        reasonCode: "invalid_signature",
+        reasonCode:
+          "invalid_signature",
       });
 
       response.status(401).json({

@@ -81,7 +81,10 @@ const selected: ProviderVerificationReviewDetail = {
     bookingLeadTime: "3 days",
     unavailableDates: [],
   },
-  media: {logoPath: null, coverPath: null},
+  media: {
+    logoUrl: null,
+    coverImageUrl: null,
+  },
   status: "submitted",
   submittedAt: "Jul 28, 2026, 9:00 AM",
   reviewedAt: "Not available",

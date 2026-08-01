@@ -66,7 +66,7 @@ export default async function AdminPage() {
         />
 
         <SummaryCard
-          label="Active users"
+          label="Active accounts"
           value={numberFormatter.format(
             dashboard.statistics.activeUsers,
           )}

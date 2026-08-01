@@ -555,6 +555,12 @@ function createPaymentUpdate(
     update.expiredAt = timestamp;
   } else if (status === "refunded") {
     update.refundedAt = timestamp;
+
+    update.refundStatus =
+      "completed";
+
+    update.refundCompletedAt =
+      timestamp;
   }
 
   return update;

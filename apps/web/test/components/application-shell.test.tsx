@@ -17,6 +17,25 @@ vi.mock("@/lib/auth/client-session", () => ({
   logoutWebSession: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock(
+  "@/components/layout/notification-menu",
+  () => ({
+    NotificationMenu: ({
+      role,
+    }: {
+      role: "customer" | "provider" | "admin";
+    }) => (
+      <button
+        type="button"
+        aria-label="Notifications"
+        data-role={role}
+      >
+        Notifications
+      </button>
+    ),
+  }),
+);
+
 import {ApplicationShell} from "@/components/layout/application-shell";
 import {PageHeading} from "@/components/layout/page-heading";
 import {roleNavigation} from "@/components/layout/navigation";
@@ -52,9 +71,13 @@ describe("ApplicationShell", () => {
     expect(mobileNav).toHaveClass(
       "pb-[max(0.5rem,env(safe-area-inset-bottom))]",
     );
-    expect(screen.getByRole("link", {name: "Notifications"})).toHaveAttribute(
-      "href",
-      "/provider/notifications",
+    expect(
+      screen.getByRole("button", {
+        name: "Notifications",
+      }),
+    ).toHaveAttribute(
+      "data-role",
+      "provider",
     );
   });
 

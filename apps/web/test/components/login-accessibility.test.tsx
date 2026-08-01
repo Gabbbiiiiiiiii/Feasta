@@ -24,13 +24,18 @@ describe("login accessibility", () => {
     auth.signInWithEmail.mockRejectedValueOnce(Object.assign(new Error("Firebase internal detail"), {code: "auth/invalid-credential"}));
     render(<LoginForm />);
 
+    await user.click(
+      screen.getByRole("button", {
+        name: /log in with email/i,
+      }),
+    );
     const email = screen.getByRole("textbox", {name: /Email address/});
     const password = screen.getByLabelText(/Password/);
     expect(email).toHaveAttribute("autocomplete", "email");
     expect(password).toHaveAttribute("autocomplete", "current-password");
     await user.type(email, "customer@feasta.test");
     await user.type(password, "not-the-password");
-    await user.click(screen.getByRole("button", {name: "Sign in"}));
+    await user.click(screen.getByRole("button", {name: "Log in"}));
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("The email address or password is incorrect.");

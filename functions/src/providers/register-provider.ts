@@ -6,6 +6,10 @@ import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
 import {
+  cloudinarySecrets,
+  verifyProviderMedia,
+} from "../shared/cloudinary.js";
+import {
   PROVIDER_EVENT_TYPES,
   PROVIDER_OPERATING_DAYS,
   PROVIDER_SERVICE_CATEGORIES,
@@ -61,7 +65,11 @@ function buildSearchTokens(values: readonly string[]): string[] {
 }
 
 export const registerProvider = onCall(
-  appCheckCallableOptions,
+  {
+    ...appCheckCallableOptions,
+    secrets: cloudinarySecrets,
+    timeoutSeconds: 60,
+  },
   async (request) => {
     const authenticatedUser = requireAuth(request);
 
@@ -110,8 +118,10 @@ export const registerProvider = onCall(
       "operatingDays",
       "bookingLeadTimeDays",
       "unavailableDates",
-      "logoStoragePath",
-      "coverStoragePath",
+      "logoUrl",
+      "logoPublicId",
+      "coverImageUrl",
+      "coverPublicId",
       "idempotencyKey",
     ]);
 
@@ -303,16 +313,29 @@ export const registerProvider = onCall(
       {minimum: 0, maximum: 365, fallback: 0},
     );
     const unavailableDates = optionalIsoDateList(input.unavailableDates);
-    const logoStoragePath = optionalProviderMediaPath(
-      input.logoStoragePath,
-      authenticatedUser.uid,
-      "logo",
-    );
-    const coverStoragePath = optionalProviderMediaPath(
-      input.coverStoragePath,
-      authenticatedUser.uid,
-      "cover",
-    );
+    const {
+      logoUrl,
+      logoPublicId,
+      coverImageUrl,
+      coverPublicId,
+    } = providerMediaFields(input, authenticatedUser.uid);
+
+    await Promise.all([
+      verifyProviderMedia({
+        ownerId: authenticatedUser.uid,
+        mediaType: "logo",
+        url: logoUrl,
+        publicId: logoPublicId,
+        maximumBytes: 5 * 1024 * 1024,
+      }),
+      verifyProviderMedia({
+        ownerId: authenticatedUser.uid,
+        mediaType: "cover",
+        url: coverImageUrl,
+        publicId: coverPublicId,
+        maximumBytes: 10 * 1024 * 1024,
+      }),
+    ]);
 
     const idempotencyKey = createIdempotencyKey({
       operation: "registerProvider",
@@ -598,10 +621,10 @@ export const registerProvider = onCall(
               city,
               province,
               locationCoordinates,
-              coverImageUrl: null,
-              logoUrl: null,
-              coverStoragePath,
-              logoStoragePath,
+              coverImageUrl,
+              coverPublicId,
+              logoUrl,
+              logoPublicId,
 
               providerServiceType,
               providerCategory,
@@ -1020,33 +1043,141 @@ function normalizePhilippinePhone(value: string, field: string): string {
   return normalized;
 }
 
-function optionalProviderMediaPath(
+function providerMediaFields(
+  data: Record<string, unknown>,
+  ownerId: string,
+): {
+  logoUrl: string | null;
+  logoPublicId: string | null;
+  coverImageUrl: string | null;
+  coverPublicId: string | null;
+} {
+  const logoUrl = optionalCloudinaryUrl(
+    data.logoUrl,
+    "logoUrl",
+  );
+  const logoPublicId = optionalCloudinaryPublicId(
+    data.logoPublicId,
+    ownerId,
+    "logo",
+  );
+  const coverImageUrl = optionalCloudinaryUrl(
+    data.coverImageUrl,
+    "coverImageUrl",
+  );
+  const coverPublicId = optionalCloudinaryPublicId(
+    data.coverPublicId,
+    ownerId,
+    "cover",
+  );
+
+  if ((logoUrl === null) !== (logoPublicId === null)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "The logo URL and public ID must be provided together.",
+    );
+  }
+
+  if ((coverImageUrl === null) !== (coverPublicId === null)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "The cover URL and public ID must be provided together.",
+    );
+  }
+
+  return {
+    logoUrl,
+    logoPublicId,
+    coverImageUrl,
+    coverPublicId,
+  };
+}
+
+function optionalCloudinaryUrl(
+  value: unknown,
+  field: string,
+): string | null {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  const result = requireString(value, field, {
+    minLength: 20,
+    maxLength: 1000,
+  });
+
+  let url: URL;
+
+  try {
+    url = new URL(result);
+  } catch {
+    throw new HttpsError(
+      "invalid-argument",
+      `${field} is invalid.`,
+    );
+  }
+
+  if (
+    url.protocol !== "https:" ||
+    url.hostname !== "res.cloudinary.com" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.port !== "" ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${field} is invalid.`,
+    );
+  }
+
+  return url.toString();
+}
+
+function optionalCloudinaryPublicId(
   value: unknown,
   ownerId: string,
   mediaType: "logo" | "cover",
 ): string | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value !== "string" || value.length > 500) {
-    throw new HttpsError(
-      "invalid-argument",
-      `${mediaType}StoragePath is invalid.`,
-    );
-  }
-  const prefix = `providers/${ownerId}/${mediaType}/`;
-  const fileName = value.startsWith(prefix)
-    ? value.slice(prefix.length)
-    : "";
   if (
-    fileName.length === 0 ||
-    fileName.includes("/") ||
-    !/\.(?:jpe?g|png|webp)$/iu.test(fileName)
+    value === undefined ||
+    value === null ||
+    value === ""
   ) {
+    return null;
+  }
+
+  const field =
+    mediaType === "logo"
+      ? "logoPublicId"
+      : "coverPublicId";
+
+  const result = requireString(value, field, {
+    minLength: 10,
+    maxLength: 500,
+  });
+
+  const expected = [
+    "feasta",
+    "providers",
+    ownerId,
+    "onboarding",
+    mediaType,
+  ].join("/");
+
+  if (result !== expected) {
     throw new HttpsError(
-      "invalid-argument",
-      `${mediaType}StoragePath is invalid.`,
+      "permission-denied",
+      `${field} does not belong to this provider.`,
     );
   }
-  return value;
+
+  return result;
 }
 
 function rejectUnknownFields(

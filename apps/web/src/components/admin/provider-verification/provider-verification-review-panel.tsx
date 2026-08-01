@@ -159,12 +159,13 @@ function ProviderVerificationReviewPanel({
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <MediaPreview
             label="Business logo"
-            path={application.media.logoPath}
+            path={application.media.logoUrl}
             aspect="square"
           />
+
           <MediaPreview
             label="Cover photo"
-            path={application.media.coverPath}
+            path={application.media.coverImageUrl}
             aspect="wide"
           />
         </div>

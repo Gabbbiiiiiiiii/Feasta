@@ -123,7 +123,7 @@ function ProviderVerificationQueue({
   return (
     <div className="grid min-w-0 gap-6">
       <PageHeading
-        eyebrow="Provider administration"
+        eyebrow="administration"
         title="Provider verification queue"
         description="Review submitted provider applications using bounded, server-filtered results."
       />

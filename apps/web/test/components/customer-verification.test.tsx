@@ -12,7 +12,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({replace: mocks.replace, refresh: mocks.refresh}),
+  useRouter: () => ({
+    replace: mocks.replace,
+    refresh: mocks.refresh,
+  }),
+  useSearchParams: () =>
+    new URLSearchParams(),
 }));
 vi.mock("@/lib/auth/client-session", () => ({
   currentUserEmail: () => mocks.email,

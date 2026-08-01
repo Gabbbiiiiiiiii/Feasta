@@ -9,6 +9,10 @@ import {serverTimestamp} from "../shared/timestamps.js";
 import {requireObject, requireString} from "../shared/validation.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
+import {
+  CURRENT_PRIVACY_VERSION,
+  CURRENT_TERMS_VERSION,
+} from "./customer-consent-policy.js";
 
 /**
  * Creates or repairs the customer Firestore profile for the authenticated
@@ -57,6 +61,20 @@ export const ensureUserProfile = onCall(
           customerReference,
         );
 
+        if (
+          !userSnapshot.exists &&
+          (!acceptedTerms || !acceptedPrivacy)
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Accept the current Terms and Privacy Policy " +
+              "before creating a customer profile.",
+            {
+              reason: "consent-required",
+            },
+          );
+        }
+
         if (userSnapshot.exists) {
           const existing = userSnapshot.data();
 
@@ -90,10 +108,28 @@ export const ensureUserProfile = onCall(
             authProvider: provider,
             updatedAt: serverTimestamp(),
             lastLoginAt: serverTimestamp(),
-            ...(acceptedTerms && existing?.termsAcceptedAt == null ?
-              {termsAcceptedAt: serverTimestamp()} : {}),
-            ...(acceptedPrivacy && existing?.privacyAcceptedAt == null ?
-              {privacyAcceptedAt: serverTimestamp()} : {}),
+            ...(acceptedTerms &&
+            (
+              existing?.termsAcceptedAt == null ||
+              existing?.termsVersion !==
+                CURRENT_TERMS_VERSION
+            ) ? {
+                termsAcceptedAt:
+                  serverTimestamp(),
+                termsVersion:
+                  CURRENT_TERMS_VERSION,
+              } : {}),
+            ...(acceptedPrivacy &&
+            (
+              existing?.privacyAcceptedAt == null ||
+              existing?.privacyVersion !==
+                CURRENT_PRIVACY_VERSION
+            ) ? {
+                privacyAcceptedAt:
+                  serverTimestamp(),
+                privacyVersion:
+                  CURRENT_PRIVACY_VERSION,
+              } : {}),
           });
         } else {
           transaction.create(userReference, {
@@ -114,8 +150,14 @@ export const ensureUserProfile = onCall(
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
             lastLoginAt: serverTimestamp(),
-            ...(acceptedTerms ? {termsAcceptedAt: serverTimestamp()} : {}),
-            ...(acceptedPrivacy ? {privacyAcceptedAt: serverTimestamp()} : {}),
+            termsAcceptedAt:
+              serverTimestamp(),
+            termsVersion:
+              CURRENT_TERMS_VERSION,
+            privacyAcceptedAt:
+              serverTimestamp(),
+            privacyVersion:
+              CURRENT_PRIVACY_VERSION,
           });
         }
 

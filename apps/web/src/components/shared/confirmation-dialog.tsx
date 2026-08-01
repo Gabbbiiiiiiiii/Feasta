@@ -17,19 +17,29 @@ type ConfirmationDialogProps = {
   title: string;
   description: string;
   onConfirm: () => void | Promise<void>;
+
+  children?: React.ReactNode;
   trigger?: React.ReactNode;
+
   open?: boolean;
-  onOpenChange?: (open: boolean) => void;
+  onOpenChange?: (
+    open: boolean,
+  ) => void;
+
   confirmLabel?: string;
   cancelLabel?: string;
+
   destructive?: boolean;
   loading?: boolean;
+  confirmDisabled?: boolean;
+  loadingLabel?: string;
 };
 
 function ConfirmationDialog({
   title,
   description,
   onConfirm,
+  children,
   trigger,
   open,
   onOpenChange,
@@ -37,13 +47,24 @@ function ConfirmationDialog({
   cancelLabel = "Cancel",
   destructive = false,
   loading = false,
+  confirmDisabled = false,
+  loadingLabel = "Submitting",
 }: ConfirmationDialogProps) {
-  const [pending, setPending] = React.useState(false);
+  const [pending, setPending] =
+    React.useState(false);
+
   const isBusy = loading || pending;
 
   const confirm = async () => {
-    if (isBusy) return;
+    if (
+      isBusy ||
+      confirmDisabled
+    ) {
+      return;
+    }
+
     setPending(true);
+
     try {
       await onConfirm();
     } finally {
@@ -52,26 +73,76 @@ function ConfirmationDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !isBusy && onOpenChange?.(next)}>
-      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!isBusy) {
+          onOpenChange?.(next);
+        }
+      }}
+    >
+      {trigger ? (
+        <DialogTrigger asChild>
+          {trigger}
+        </DialogTrigger>
+      ) : null}
+
       <DialogContent
         showCloseButton={!isBusy}
-        onEscapeKeyDown={(event) => isBusy && event.preventDefault()}
-        onPointerDownOutside={(event) => isBusy && event.preventDefault()}
+        onEscapeKeyDown={(event) => {
+          if (isBusy) {
+            event.preventDefault();
+          }
+        }}
+        onPointerDownOutside={(
+          event,
+        ) => {
+          if (isBusy) {
+            event.preventDefault();
+          }
+        }}
       >
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogTitle>
+            {title}
+          </DialogTitle>
+
+          <DialogDescription>
+            {description}
+          </DialogDescription>
         </DialogHeader>
+
+        {children ? (
+          <div className="min-w-0">
+            {children}
+          </div>
+        ) : null}
+
         <DialogFooter>
-          <Button variant="secondary" disabled={isBusy} onClick={() => onOpenChange?.(false)}>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={isBusy}
+            onClick={() =>
+              onOpenChange?.(false)
+            }
+          >
             {cancelLabel}
           </Button>
+
           <Button
-            variant={destructive ? "destructive" : "primary"}
+            type="button"
+            variant={
+              destructive
+                ? "destructive"
+                : "primary"
+            }
             loading={isBusy}
-            loadingLabel="Submitting"
-            onClick={() => void confirm()}
+            loadingLabel={loadingLabel}
+            disabled={confirmDisabled}
+            onClick={() =>
+              void confirm()
+            }
           >
             {confirmLabel}
           </Button>
@@ -81,4 +152,7 @@ function ConfirmationDialog({
   );
 }
 
-export {ConfirmationDialog, type ConfirmationDialogProps};
+export {
+  ConfirmationDialog,
+  type ConfirmationDialogProps,
+};

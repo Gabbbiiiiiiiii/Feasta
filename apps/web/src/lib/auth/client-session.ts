@@ -70,7 +70,10 @@ export async function signInWithEmail(
   try {
     // Repairs only absent customer records. The callable rejects an existing
     // provider/admin role, blocked state, or inactive account.
-    await ensureCustomerProfile({});
+    await ensureCustomerProfile({
+      acceptedTerms: true,
+      acceptedPrivacy: true,
+    });
     return await exchangeCredentialForSession(
       await credential.user.getIdToken(true),
       returnTo,

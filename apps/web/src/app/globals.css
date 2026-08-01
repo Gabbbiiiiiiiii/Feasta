@@ -117,7 +117,7 @@
 }
 
 /* The starter already followed OS dark mode. Preserve it with complete tokens. */
-@media (prefers-color-scheme: dark) {
+/* @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
     --background: #1c1714;
@@ -153,7 +153,7 @@
     --skeleton: #3a302b;
     --skeleton-highlight: #514640;
   }
-}
+} */
 
 *,
 *::before,

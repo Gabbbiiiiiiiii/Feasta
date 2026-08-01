@@ -64,6 +64,10 @@ export {
   saveProviderOnboardingDraft,
 } from "./providers/save-provider-onboarding-draft.js";
 export {
+  createProviderMediaUploadSignature,
+  deleteProviderOnboardingMedia,
+} from "./providers/provider-media.js";
+export {
   submitProviderVerification,
 } from "./verification/submit-provider-verification.js";
 
@@ -85,6 +89,9 @@ export {
 } from "./provider-requests/reject-provider-request.js";
 
 export {submitReview} from "./content/submit-review.js";
+export {
+  moderateReview,
+} from "./content/moderate-review.js";
 export {createComplaint} from "./content/create-complaint.js";
 export {submitBookingRequest} from "./bookings/submit-booking-request.js";
 export {createPaymentSession} from "./payments/create-payment-session.js";

@@ -1234,92 +1234,513 @@
       "collectionGroup": "providers",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "verificationStatus", "order": "ASCENDING"},
-        {"fieldPath": "publiclyVisible", "order": "ASCENDING"},
-        {"fieldPath": "isActive", "order": "ASCENDING"},
-        {"fieldPath": "isSuspended", "order": "ASCENDING"},
-        {"fieldPath": "providerServiceType", "order": "ASCENDING"},
-        {"fieldPath": "isDeleted", "order": "ASCENDING"},
-        {"fieldPath": "favoriteCount", "order": "DESCENDING"}
+        {
+          "fieldPath": "verificationStatus",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "publiclyVisible",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isActive",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isSuspended",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "providerServiceType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isDeleted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "favoriteCount",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "providers",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "searchTokens", "arrayConfig": "CONTAINS"},
-        {"fieldPath": "verificationStatus", "order": "ASCENDING"},
-        {"fieldPath": "publiclyVisible", "order": "ASCENDING"},
-        {"fieldPath": "isActive", "order": "ASCENDING"},
-        {"fieldPath": "isSuspended", "order": "ASCENDING"},
-        {"fieldPath": "providerServiceType", "order": "ASCENDING"},
-        {"fieldPath": "isDeleted", "order": "ASCENDING"},
-        {"fieldPath": "favoriteCount", "order": "DESCENDING"}
+        {
+          "fieldPath": "searchTokens",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "verificationStatus",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "publiclyVisible",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isActive",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isSuspended",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "providerServiceType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isDeleted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "favoriteCount",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "providers",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "verificationStatus", "order": "ASCENDING"},
-        {"fieldPath": "publiclyVisible", "order": "ASCENDING"},
-        {"fieldPath": "isActive", "order": "ASCENDING"},
-        {"fieldPath": "isSuspended", "order": "ASCENDING"},
-        {"fieldPath": "isDeleted", "order": "ASCENDING"},
-        {"fieldPath": "favoriteCount", "order": "DESCENDING"}
+        {
+          "fieldPath": "verificationStatus",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "publiclyVisible",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isActive",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isSuspended",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isDeleted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "favoriteCount",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "providers",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "searchTokens", "arrayConfig": "CONTAINS"},
-        {"fieldPath": "verificationStatus", "order": "ASCENDING"},
-        {"fieldPath": "publiclyVisible", "order": "ASCENDING"},
-        {"fieldPath": "isActive", "order": "ASCENDING"},
-        {"fieldPath": "isSuspended", "order": "ASCENDING"},
-        {"fieldPath": "isDeleted", "order": "ASCENDING"},
-        {"fieldPath": "favoriteCount", "order": "DESCENDING"}
+        {
+          "fieldPath": "searchTokens",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "verificationStatus",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "publiclyVisible",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isActive",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isSuspended",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isDeleted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "favoriteCount",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "providers",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "verificationStatus", "order": "ASCENDING"},
-        {"fieldPath": "publiclyVisible", "order": "ASCENDING"},
-        {"fieldPath": "isActive", "order": "ASCENDING"},
-        {"fieldPath": "isSuspended", "order": "ASCENDING"},
-        {"fieldPath": "isFeatured", "order": "ASCENDING"},
-        {"fieldPath": "providerServiceType", "order": "ASCENDING"},
-        {"fieldPath": "isDeleted", "order": "ASCENDING"},
-        {"fieldPath": "favoriteCount", "order": "DESCENDING"}
+        {
+          "fieldPath": "verificationStatus",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "publiclyVisible",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isActive",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isSuspended",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isFeatured",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "providerServiceType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isDeleted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "favoriteCount",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "packages",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "providerId", "order": "ASCENDING"},
-        {"fieldPath": "isActive", "order": "ASCENDING"},
-        {"fieldPath": "isPublished", "order": "ASCENDING"},
-        {"fieldPath": "providerPubliclyVisible", "order": "ASCENDING"},
-        {"fieldPath": "status", "order": "ASCENDING"},
-        {"fieldPath": "isDeleted", "order": "ASCENDING"},
-        {"fieldPath": "createdAt", "order": "DESCENDING"}
+        {
+          "fieldPath": "providerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isActive",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isPublished",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "providerPubliclyVisible",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isDeleted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "packages",
       "queryScope": "COLLECTION",
       "fields": [
-        {"fieldPath": "eventType", "order": "ASCENDING"},
-        {"fieldPath": "isActive", "order": "ASCENDING"},
-        {"fieldPath": "isPublished", "order": "ASCENDING"},
-        {"fieldPath": "providerPubliclyVisible", "order": "ASCENDING"},
-        {"fieldPath": "status", "order": "ASCENDING"},
-        {"fieldPath": "isDeleted", "order": "ASCENDING"},
-        {"fieldPath": "createdAt", "order": "DESCENDING"}
+        {
+          "fieldPath": "eventType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isActive",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isPublished",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "providerPubliclyVisible",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isDeleted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "paymentType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "paymentType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "paymentType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "paymentType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "amountInCentavos",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "amountInCentavos",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "paymentType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "amountInCentavos",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "paymentType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "amountInCentavos",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "paymentType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "amountInCentavos",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "paymentType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "amountInCentavos",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "paidAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "paymentType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "paidAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "paymentType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "paidAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "paymentWebhookEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "paymentId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "processedAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "adminLogs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "targetCollection",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "targetId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+
+    {
+      "collectionGroup": "reviews",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "isDeleted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isVisible",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "rating",
+          "order": "ASCENDING"
+        }
       ]
     }
   ],

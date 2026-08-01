@@ -147,8 +147,8 @@ export type ProviderVerificationReviewDetail = {
     unavailableDates: readonly string[];
   };
   media: {
-    logoPath: string | null;
-    coverPath: string | null;
+    logoUrl: string | null;
+    coverImageUrl: string | null;
   };
   status: ProviderVerificationStatus;
   submittedAt: string;

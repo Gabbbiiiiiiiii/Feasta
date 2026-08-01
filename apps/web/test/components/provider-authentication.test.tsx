@@ -12,7 +12,6 @@ const mocks = vi.hoisted(() => ({
   saveDraft: vi.fn(),
   uploadImage: vi.fn(),
   deleteImage: vi.fn(),
-  mediaPreview: vi.fn(),
   uploadDocument: vi.fn(),
   removeDocument: vi.fn(),
   submitVerification: vi.fn(),
@@ -38,7 +37,6 @@ vi.mock("@/lib/auth/provider-client", () => ({
 vi.mock("@/lib/provider/provider-media-client", () => ({
   uploadProviderOnboardingImage: mocks.uploadImage,
   deleteProviderOnboardingImage: mocks.deleteImage,
-  providerMediaPreviewUrl: mocks.mediaPreview,
 }));
 
 import ProviderLoginPage from "@/app/provider-login/page";
@@ -50,7 +48,6 @@ import {PROVIDER_ONBOARDING_STEPS} from "@/lib/provider/onboarding";
 describe("provider authentication and onboarding", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.mediaPreview.mockResolvedValue("https://storage.test/preview.png");
     URL.createObjectURL = vi.fn(() => "blob:provider-preview");
     URL.revokeObjectURL = vi.fn();
   });
@@ -241,11 +238,11 @@ describe("provider authentication and onboarding", () => {
     }));
   });
 
-  it("validates and securely registers business image paths", async () => {
+  it("validates and securely registers Cloudinary business images", async () => {
     const user = userEvent.setup();
     mocks.uploadImage.mockResolvedValueOnce({
-      storagePath: "providers/provider-owner/logo/logo.png",
-      previewUrl: "https://storage.test/logo.png",
+      url: "https://res.cloudinary.com/feasta-test/image/upload/v1/feasta/providers/provider-owner/onboarding/logo.png",
+      publicId: "feasta/providers/provider-owner/onboarding/logo",
     });
     mocks.saveDraft.mockResolvedValueOnce({
       completedSteps: [1, 2],
@@ -287,8 +284,12 @@ describe("provider authentication and onboarding", () => {
       businessEmail: "sales@feasta.test",
       businessPhone: "+639171234567",
       description: "Complete catering services for celebrations.",
-      logoStoragePath: "providers/provider-owner/logo/logo.png",
-      coverStoragePath: null,
+      logoUrl:
+        "https://res.cloudinary.com/feasta-test/image/upload/v1/feasta/providers/provider-owner/onboarding/logo.png",
+      logoPublicId:
+        "feasta/providers/provider-owner/onboarding/logo",
+      coverImageUrl: null,
+      coverPublicId: null,
     });
     const payload = mocks.saveDraft.mock.calls.at(-1)?.[1];
     expect(payload).not.toHaveProperty("ownerId");

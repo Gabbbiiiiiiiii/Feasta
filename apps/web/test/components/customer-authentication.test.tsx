@@ -14,7 +14,12 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({replace: mocks.replace, refresh: mocks.refresh}),
+  useRouter: () => ({
+    replace: mocks.replace,
+    refresh: mocks.refresh,
+  }),
+  useSearchParams: () =>
+    new URLSearchParams(),
 }));
 
 vi.mock("@/lib/auth/client-session", () => ({
@@ -116,12 +121,55 @@ describe("customer authentication forms", () => {
     });
     render(<LoginForm returnTo="/customer/bookings" />);
 
-    fireEvent.change(screen.getByRole("textbox", {name: /email/i}), {target: {value: "customer@example.test"}});
-    fireEvent.change(screen.getByLabelText(/^Password/), {target: {value: "Feasta123!"}});
-    await user.click(screen.getByRole("button", {name: "Sign in"}));
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/customer/bookings"));
-    await user.click(screen.getByRole("button", {name: /continue with google/i}));
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/customer"));
+    await user.click(
+      screen.getByRole("button", {
+        name: /continue with google/i,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.replace).toHaveBeenCalledWith(
+        "/customer",
+      )
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /log in with email/i,
+      }),
+    );
+
+    fireEvent.change(
+      screen.getByRole("textbox", {
+        name: /email/i,
+      }),
+      {
+        target: {
+          value: "customer@example.test",
+        },
+      },
+    );
+
+    fireEvent.change(
+      screen.getByLabelText(/^Password/),
+      {
+        target: {
+          value: "Feasta123!",
+        },
+      },
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Log in",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.replace).toHaveBeenCalledWith(
+        "/customer/bookings",
+      )
+    );
   });
 
   it("presents a session-expired state without exposing technical details", () => {
@@ -133,7 +181,11 @@ describe("customer authentication forms", () => {
   it("retains mobile-safe sizing and touch targets", () => {
     Object.defineProperty(window, "innerWidth", {configurable: true, value: 360});
     const {container} = render(<CustomerRegistrationPage />);
-    expect(container.querySelector("main")).toHaveClass("w-full", "px-4");
+        expect(container.querySelector("main")).toHaveClass(
+      "min-w-0",
+      "overflow-x-clip",
+      "px-4",
+    );
     for (const button of screen.getAllByRole("button")) {
       expect(button.className).toMatch(/min-h-12|size-12/u);
     }

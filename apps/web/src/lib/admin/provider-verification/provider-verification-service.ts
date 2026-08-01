@@ -762,12 +762,18 @@ export async function getProviderVerificationReview(
       unavailableDates: stringList(provider.unavailableDates),
     },
     media: {
-      logoPath: getString(provider.logoStoragePath)
-        ? `/api/admin/providers/${providerId}/media/logo`
-        : null,
-      coverPath: getString(provider.coverStoragePath)
-        ? `/api/admin/providers/${providerId}/media/cover`
-        : null,
+      logoUrl: cloudinaryProviderImageUrl(
+        provider.logoUrl,
+        provider.logoPublicId,
+        provider.ownerId,
+        "logo",
+      ),
+      coverImageUrl: cloudinaryProviderImageUrl(
+        provider.coverImageUrl,
+        provider.coverPublicId,
+        provider.ownerId,
+        "cover",
+      ),
     },
     status,
     submittedAt: formatDateTime(
@@ -799,6 +805,80 @@ export async function getProviderVerificationReview(
       };
     }),
   };
+}
+
+function cloudinaryProviderImageUrl(
+  urlValue: unknown,
+  publicIdValue: unknown,
+  ownerIdValue: unknown,
+  mediaType: "logo" | "cover",
+): string | null {
+  const url =
+    typeof urlValue === "string"
+      ? urlValue.trim()
+      : "";
+
+  const publicId =
+    typeof publicIdValue === "string"
+      ? publicIdValue.trim()
+      : "";
+
+  const ownerId =
+    typeof ownerIdValue === "string"
+      ? ownerIdValue.trim()
+      : "";
+
+  if (
+    !url ||
+    !publicId ||
+    !/^[A-Za-z0-9_-]{1,128}$/u.test(
+      ownerId,
+    )
+  ) {
+    return null;
+  }
+
+  const expectedPublicId = [
+    "feasta",
+    "providers",
+    ownerId,
+    "onboarding",
+    mediaType,
+  ].join("/");
+
+  if (publicId !== expectedPublicId) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(url);
+
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.hostname !==
+        "res.cloudinary.com" ||
+      parsed.username !== "" ||
+      parsed.password !== "" ||
+      parsed.port !== "" ||
+      parsed.search !== "" ||
+      parsed.hash !== "" ||
+      !parsed.pathname.includes(
+        "/image/upload/",
+      ) ||
+      !parsed.pathname.includes(
+        `/${expectedPublicId}.`,
+      ) ||
+      !/\.(?:jpe?g|png|webp)$/iu.test(
+        parsed.pathname,
+      )
+    ) {
+      return null;
+    }
+
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 function stringList(value: unknown): readonly string[] {

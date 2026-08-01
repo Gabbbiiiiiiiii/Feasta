@@ -1,8 +1,11 @@
 import {HttpsError, onCall} from "firebase-functions/v2/https";
-import {getStorage} from "firebase-admin/storage";
 
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
+import {
+  cloudinarySecrets,
+  verifyProviderMedia,
+} from "../shared/cloudinary.js";
 import {
   PROVIDER_EVENT_TYPES,
   PROVIDER_OPERATING_DAYS,
@@ -27,7 +30,11 @@ import {
 const SETUP_STEPS = [1, 2, 3, 4, 5, 6] as const;
 
 export const saveProviderOnboardingDraft = onCall(
-  appCheckCallableOptions,
+  {
+    ...appCheckCallableOptions,
+    secrets: cloudinarySecrets,
+    timeoutSeconds: 30,
+  },
   async (request) => {
     const actor = requireAuth(request);
     await requireRole(actor.uid, [USER_ROLES.provider]);
@@ -47,16 +54,24 @@ export const saveProviderOnboardingDraft = onCall(
     const validated = validateStep(step, data, actor.uid);
     if (step === 2) {
       await Promise.all([
-        verifyProviderMedia(
-          validated.logoStoragePath,
-          "logo",
-          5 * 1024 * 1024,
-        ),
-        verifyProviderMedia(
-          validated.coverStoragePath,
-          "cover",
-          10 * 1024 * 1024,
-        ),
+        verifyProviderMedia({
+          ownerId: actor.uid,
+          mediaType: "logo",
+          url: validated.logoUrl,
+          publicId:
+            validated.logoPublicId,
+          maximumBytes:
+            5 * 1024 * 1024,
+        }),
+        verifyProviderMedia({
+          ownerId: actor.uid,
+          mediaType: "cover",
+          url: validated.coverImageUrl,
+          publicId:
+            validated.coverPublicId,
+          maximumBytes:
+            10 * 1024 * 1024,
+        }),
       ]);
     }
     const userReference = db.collection("users").doc(actor.uid);
@@ -192,8 +207,10 @@ function validateStep(
         "businessEmail",
         "businessPhone",
         "description",
-        "logoStoragePath",
-        "coverStoragePath",
+        "logoUrl",
+        "logoPublicId",
+        "coverImageUrl",
+        "coverPublicId",
       ]);
       const businessEmail = requireString(
         data.businessEmail,
@@ -220,15 +237,9 @@ function validateStep(
           minLength: 20,
           maxLength: 2000,
         }),
-        logoStoragePath: optionalProviderMediaPath(
-          data.logoStoragePath,
+      ...providerMediaFields(
+          data,
           ownerId,
-          "logo",
-        ),
-        coverStoragePath: optionalProviderMediaPath(
-          data.coverStoragePath,
-          ownerId,
-          "cover",
         ),
       };
     }
@@ -559,64 +570,159 @@ function requirePhilippinePhone(value: unknown, field: string): string {
   return normalized;
 }
 
-function optionalProviderMediaPath(
+function providerMediaFields(
+  data: Record<string, unknown>,
+  ownerId: string,
+): {
+  logoUrl: string | null;
+  logoPublicId: string | null;
+  coverImageUrl: string | null;
+  coverPublicId: string | null;
+} {
+  const logoUrl =
+    optionalCloudinaryUrl(
+      data.logoUrl,
+      "logoUrl",
+    );
+
+  const logoPublicId =
+    optionalCloudinaryPublicId(
+      data.logoPublicId,
+      ownerId,
+      "logo",
+    );
+
+  const coverImageUrl =
+    optionalCloudinaryUrl(
+      data.coverImageUrl,
+      "coverImageUrl",
+    );
+
+  const coverPublicId =
+    optionalCloudinaryPublicId(
+      data.coverPublicId,
+      ownerId,
+      "cover",
+    );
+
+  if (
+    (logoUrl === null) !==
+    (logoPublicId === null)
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "The logo URL and public ID must be provided together.",
+    );
+  }
+
+  if (
+    (coverImageUrl === null) !==
+    (coverPublicId === null)
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "The cover URL and public ID must be provided together.",
+    );
+  }
+
+  return {
+    logoUrl,
+    logoPublicId,
+    coverImageUrl,
+    coverPublicId,
+  };
+}
+
+function optionalCloudinaryUrl(
+  value: unknown,
+  field: string,
+): string | null {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  const result = requireString(
+    value,
+    field,
+    {
+      minLength: 20,
+      maxLength: 1000,
+    },
+  );
+
+  let url: URL;
+
+  try {
+    url = new URL(result);
+  } catch {
+    throw new HttpsError(
+      "invalid-argument",
+      `${field} is invalid.`,
+    );
+  }
+
+  if (
+    url.protocol !== "https:" ||
+    url.hostname !==
+      "res.cloudinary.com" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.port !== "" ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${field} is invalid.`,
+    );
+  }
+
+  return url.toString();
+}
+
+function optionalCloudinaryPublicId(
   value: unknown,
   ownerId: string,
   mediaType: "logo" | "cover",
 ): string | null {
-  if (value === undefined || value === null) return null;
-  const path = requireString(value, `${mediaType}StoragePath`, {
-    minLength: 10,
-    maxLength: 500,
-  });
-  const prefix = `providers/${ownerId}/${mediaType}/`;
-  const fileName = path.startsWith(prefix) ? path.slice(prefix.length) : "";
   if (
-    fileName.length === 0 ||
-    fileName.includes("/") ||
-    !/\.(?:jpe?g|png|webp)$/iu.test(fileName)
+    value === undefined ||
+    value === null ||
+    value === ""
   ) {
-    throw new HttpsError(
-      "invalid-argument",
-      `${mediaType}StoragePath is invalid.`,
-    );
+    return null;
   }
-  return path;
-}
 
-async function verifyProviderMedia(
-  value: unknown,
-  mediaType: "logo" | "cover",
-  maximumBytes: number,
-): Promise<void> {
-  if (value === null) return;
-  if (typeof value !== "string") {
+  const field =
+    `${mediaType}PublicId`;
+
+  const result = requireString(
+    value,
+    field,
+    {
+      minLength: 10,
+      maxLength: 500,
+    },
+  );
+
+  const expected = [
+    "feasta",
+    "providers",
+    ownerId,
+    "onboarding",
+    mediaType,
+  ].join("/");
+
+  if (result !== expected) {
     throw new HttpsError(
-      "invalid-argument",
-      `${mediaType}StoragePath is invalid.`,
+      "permission-denied",
+      `${field} does not belong to this provider.`,
     );
   }
-  const file = getStorage().bucket().file(value);
-  const [exists] = await file.exists();
-  if (!exists) {
-    throw new HttpsError(
-      "failed-precondition",
-      `The uploaded business ${mediaType} was not found.`,
-    );
-  }
-  const [metadata] = await file.getMetadata();
-  const contentType = metadata.contentType ?? "";
-  const size = Number(metadata.size ?? 0);
-  if (!["image/jpeg", "image/png", "image/webp"].includes(contentType)) {
-    throw new HttpsError(
-      "failed-precondition",
-      `The uploaded business ${mediaType} type is not allowed.`,
-    );
-  }
-  if (!Number.isFinite(size) || size <= 0 || size > maximumBytes) {
-    throw new HttpsError(
-      "failed-precondition",
-      `The uploaded business ${mediaType} size is invalid.`,
-    );
-  }
+
+  return result;
 }
