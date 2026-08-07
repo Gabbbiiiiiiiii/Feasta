@@ -54,17 +54,31 @@ export const createComplaint = onCall(
 
         transaction.create(reference, {
           userId: user.uid,
-          providerId: providerId || null,
+          providerId:
+            providerId || null,
           category,
           description,
           evidenceUrls: [],
+
           status: "submitted",
+          priority: "normal",
+
+          resolution: null,
+          resolvedAt: null,
+          resolvedBy: null,
+
+          assignedAdminId: null,
+          assignedAt: null,
+
           isDeleted: false,
           deletedAt: null,
           deletedBy: null,
           deletionReason: null,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
+
+          createdAt:
+            serverTimestamp(),
+          updatedAt:
+            serverTimestamp(),
         });
         writeAuditLogInTransaction(transaction, {
           actorId: user.uid,

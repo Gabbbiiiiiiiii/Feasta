@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Megaphone,
   MessageSquareText,
+  MessageSquareWarning,
   PackageOpen,
   ShieldCheck,
   Store,
@@ -125,6 +126,16 @@ export const roleNavigation: Record<
       label: "Review Management",
       href: "/admin/reviews",
       icon: MessageSquareText,
+    },
+    {
+      label: "Complaints",
+      href: "/admin/complaints",
+      icon: MessageSquareWarning,
+    },
+    {
+      label: "Announcements",
+      href: "/admin/announcements",
+      icon: Megaphone,
     },
     {
       label: "Reports",

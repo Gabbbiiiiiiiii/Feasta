@@ -758,6 +758,16 @@ export async function manageAdminComplaint(
           complaintData.providerId,
         );
 
+      if (
+        decision ===
+          "request_provider_response" &&
+        !providerId
+      ) {
+        throw new Error(
+          "This complaint is not associated with a provider.",
+        );
+      }
+
       /*
        * Firestore requires every transactional read to
        * happen before transactional writes.
