@@ -2,7 +2,8 @@ import {
   CalendarDays,
   ChevronRight,
   ClipboardList,
-  Megaphone,
+  CreditCard,
+  MessageSquareText,
   Settings,
   ShieldCheck,
   Store,
@@ -12,7 +13,9 @@ import Link from "next/link";
 import { PhilippinePeso } from "lucide-react";
 
 import { SummaryCard } from "@/components/data";
-import { PlatformRevenueChart } from "@/components/data/platform-revenue-chart";
+import {
+  ConfirmedPaymentVolumeChart,
+} from "@/components/data/confirmed-payment-volume-chart";
 import { PageHeading } from "@/components/layout/page-heading";
 import { Button } from "@/components/ui/button";
 import { requireRole } from "@/lib/auth/session";
@@ -24,6 +27,14 @@ const pesoFormatter = new Intl.NumberFormat("en-PH", {
   maximumFractionDigits: 0,
 });
 
+function formatCentavos(
+  valueInCentavos: number,
+): string {
+  return pesoFormatter.format(
+    valueInCentavos / 100,
+  );
+}
+
 const numberFormatter = new Intl.NumberFormat("en-US");
 
 function formatActivityDate(date: Date | null) {
@@ -31,10 +42,98 @@ function formatActivityDate(date: Date | null) {
     return "Unknown time";
   }
 
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("en-PH", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: "Asia/Manila",
   }).format(date);
+}
+
+const activityLabels:
+  Record<string, string> = {
+    user_account_enabled:
+      "User account enabled",
+
+    user_account_disabled:
+      "User account disabled",
+
+    user_account_blocked:
+      "User account blocked",
+
+    user_account_unblocked:
+      "User account unblocked",
+
+    provider_verification_submitted:
+      "Provider application submitted",
+
+    provider_verification_under_review:
+      "Provider verification review started",
+
+    provider_verification_approved:
+      "Provider application approved",
+
+    provider_verification_rejected:
+      "Provider application rejected",
+
+    provider_verification_resubmission_required:
+      "Provider resubmission requested",
+
+    provider_verification_suspended:
+      "Provider verification suspended",
+
+    provider_verification_document_registered:
+      "Verification document registered",
+
+    review_hidden:
+      "Customer review hidden",
+
+    review_restored:
+      "Customer review restored",
+
+    review_report_dismissed:
+      "Review report dismissed",
+
+    payment_refund_requested:
+      "Payment refund requested",
+  };
+
+function humanizeActivityAction(
+  action: string,
+): string {
+  const normalized = action
+    .trim()
+    .toLowerCase();
+
+  if (activityLabels[normalized]) {
+    return activityLabels[normalized];
+  }
+
+  const words = normalized
+    .replaceAll("_", " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!words) {
+    return "Administrative activity";
+  }
+
+  return (
+    words.charAt(0).toUpperCase() +
+    words.slice(1)
+  );
+}
+
+function humanizeActivityEntity(
+  entity: string,
+): string {
+  const normalized = entity
+    .trim()
+    .replaceAll("_", " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+
+  return normalized || "platform";
 }
 
 export default async function AdminPage() {
@@ -55,8 +154,11 @@ export default async function AdminPage() {
         aria-label="Platform summary"
       >
         <SummaryCard
-          label="Platform revenue"
-          value={pesoFormatter.format(dashboard.statistics.revenue)}
+          label="Confirmed payment volume"
+          value={formatCentavos(
+            dashboard.statistics
+              .confirmedPaymentVolumeInCentavos,
+          )}
           icon={
             <PhilippinePeso
               aria-hidden="true"
@@ -68,15 +170,15 @@ export default async function AdminPage() {
         <SummaryCard
           label="Active accounts"
           value={numberFormatter.format(
-            dashboard.statistics.activeUsers,
+            dashboard.statistics.activeAccounts,
           )}
           icon={<Users aria-hidden="true" className="size-6" />}
         />
 
         <SummaryCard
-          label="Total bookings"
+          label="Active bookings"
           value={numberFormatter.format(
-            dashboard.statistics.totalBookings,
+            dashboard.statistics.activeBookings,
           )}
           icon={
             <CalendarDays aria-hidden="true" className="size-6" />
@@ -96,8 +198,10 @@ export default async function AdminPage() {
 
       <section className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
         <div className="grid min-w-0 content-start gap-6">
-          <PlatformRevenueChart
-            data={dashboard.revenueByRange}
+          <ConfirmedPaymentVolumeChart
+            data={
+              dashboard.paymentVolumeByRange
+            }
           />
 
           <RecentActivities
@@ -147,7 +251,7 @@ function TopProviders({
         <div>
           <h2 className="text-lg font-bold">{title}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Providers with the most completed bookings.
+            Active providers ranked by completed bookings.
           </p>
         </div>
 
@@ -166,7 +270,9 @@ function TopProviders({
           {providers.map((provider, index) => (
             <li key={provider.id}>
               <Link
-                href={`/admin/providers/${provider.id}`}
+                href={`/admin/providers?selected=${encodeURIComponent(
+                  provider.id,
+                )}`}
                 className="flex items-center gap-3 rounded-xl border border-border p-3 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
@@ -189,7 +295,7 @@ function TopProviders({
                     )}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    bookings
+                    completed
                   </p>
                 </div>
               </Link>
@@ -212,37 +318,55 @@ function TopProviders({
   );
 }
 
-function QuickActions({ title }: { title: string }) {
+function QuickActions({
+  title,
+}: {
+  title: string;
+}) {
   const actions = [
     {
       label: "Review providers",
-      description: "Process pending verification applications.",
+      description:
+        "Process pending provider verification applications.",
       href: "/admin/providers",
       icon: ShieldCheck,
     },
     {
       label: "Monitor bookings",
-      description: "Review active and upcoming event bookings.",
+      description:
+        "Review active and upcoming event bookings.",
       href: "/admin/bookings",
       icon: CalendarDays,
     },
     {
-      label: "Manage complaints",
-      description: "Resolve customer and provider complaints.",
-      href: "/admin/complaints",
-      icon: ClipboardList,
+      label: "Investigate payments",
+      description:
+        "Review processing, failed, expired, and refundable payments.",
+      href: "/admin/payments",
+      icon: CreditCard,
     },
     {
-      label: "Create announcement",
-      description: "Publish an update for platform users.",
-      href: "/admin/announcements",
-      icon: Megaphone,
+      label: "Moderate reviews",
+      description:
+        "Review reported feedback and moderation decisions.",
+      href: "/admin/reviews",
+      icon: MessageSquareText,
+    },
+    {
+      label: "Manage accounts",
+      description:
+        "Review customer and provider account status.",
+      href: "/admin/users",
+      icon: Users,
     },
   ];
 
   return (
     <section className="rounded-card border border-border bg-card p-5 shadow-card">
-      <h2 className="text-lg font-bold">{title}</h2>
+      <h2 className="text-lg font-bold">
+        {title}
+      </h2>
+
       <p className="mt-1 text-sm text-muted-foreground">
         Frequently used administration tools.
       </p>
@@ -258,11 +382,17 @@ function QuickActions({ title }: { title: string }) {
               className="group flex items-start gap-3 rounded-xl p-3 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Icon aria-hidden="true" className="size-5" />
+                <Icon
+                  aria-hidden="true"
+                  className="size-5"
+                />
               </div>
 
               <div className="min-w-0 flex-1">
-                <p className="font-semibold">{action.label}</p>
+                <p className="font-semibold">
+                  {action.label}
+                </p>
+
                 <p className="mt-0.5 text-sm text-muted-foreground">
                   {action.description}
                 </p>
@@ -283,10 +413,12 @@ function QuickActions({ title }: { title: string }) {
 type PlatformHealthProps = {
   title: string;
   health: {
-    activeUsers: number;
-    pendingComplaints: number;
-    pendingPayments: number;
-    failedPayments: number;
+    activeCustomerAccounts: number;
+    activeProviderAccounts: number;
+    bookingsNeedingAttention: number;
+    pendingProcessingPayments: number;
+    failedExpiredPayments: number;
+    openComplaints: number;
   };
 };
 
@@ -296,20 +428,34 @@ function PlatformHealth({
 }: PlatformHealthProps) {
   const metrics = [
     {
-      label: "Active accounts",
-      value: health.activeUsers,
+      label: "Active customers",
+      value:
+        health.activeCustomerAccounts,
+    },
+    {
+      label: "Active providers",
+      value:
+        health.activeProviderAccounts,
+    },
+    {
+      label: "Active bookings",
+      value:
+        health.bookingsNeedingAttention,
+    },
+    {
+      label: "Pending / processing payments",
+      value:
+        health.pendingProcessingPayments,
+    },
+    {
+      label: "Failed / expired payments",
+      value:
+        health.failedExpiredPayments,
     },
     {
       label: "Open complaints",
-      value: health.pendingComplaints,
-    },
-    {
-      label: "Pending payments",
-      value: health.pendingPayments,
-    },
-    {
-      label: "Failed payments",
-      value: health.failedPayments,
+      value:
+        health.openComplaints,
     },
   ];
 
@@ -365,17 +511,13 @@ function RecentActivities({
 }: RecentActivitiesProps) {
   return (
     <section className="rounded-card border border-border bg-card p-5 shadow-card">
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div>
         <div>
           <h2 className="text-lg font-bold">{title}</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Latest recorded administrative activity.
           </p>
         </div>
-
-        <Button variant="secondary" size="compact" asChild>
-          <Link href="/admin/logs">View all</Link>
-        </Button>
       </div>
 
       {activities.length === 0 ? (
@@ -398,10 +540,17 @@ function RecentActivities({
 
               <div className="min-w-0 flex-1">
                 <p className="font-medium">
-                  {activity.action}
+                  {humanizeActivityAction(
+                    activity.action,
+                  )}
                 </p>
+
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {activity.actorName} · {activity.entity}
+                  {activity.actorName}
+                  {" · "}
+                  {humanizeActivityEntity(
+                    activity.entity,
+                  )}
                 </p>
               </div>
 

@@ -11,15 +11,15 @@ import {
 
 import { adminDb } from "@/lib/firebase/admin";
 
-export type RevenueRange =
+export type PaymentVolumeRange =
   | "7D"
   | "1M"
   | "3M"
   | "1Y";
 
-export type RevenuePoint = {
+export type PaymentVolumePoint = {
   label: string;
-  revenue: number;
+  volumeInCentavos: number;
 };
 
 type DateRange = {
@@ -39,15 +39,15 @@ export type AdminDashboardData = {
   };
 
   statistics: {
-    revenue: number;
-    activeUsers: number;
-    totalBookings: number;
+    confirmedPaymentVolumeInCentavos: number;
+    activeAccounts: number;
+    activeBookings: number;
     verificationQueue: number;
   };
 
-  revenueByRange: Record<
-    RevenueRange,
-    RevenuePoint[]
+  paymentVolumeByRange: Record<
+    PaymentVolumeRange,
+    PaymentVolumePoint[]
   >;
 
   topProviders: Array<{
@@ -66,10 +66,12 @@ export type AdminDashboardData = {
   }>;
 
   platformHealth: {
-    activeUsers: number;
-    pendingComplaints: number;
-    pendingPayments: number;
-    failedPayments: number;
+    activeCustomerAccounts: number;
+    activeProviderAccounts: number;
+    bookingsNeedingAttention: number;
+    pendingProcessingPayments: number;
+    failedExpiredPayments: number;
+    openComplaints: number;
   };
 };
 
@@ -253,8 +255,11 @@ function getRecentMonthRanges(
  * This replaces the previous 42 Firestore aggregation
  * requests used for the 30 daily and 12 monthly points.
  */
-async function getRevenueByRange(): Promise<
-  Record<RevenueRange, RevenuePoint[]>
+async function getPaymentVolumeByRange(): Promise<
+  Record<
+    PaymentVolumeRange,
+    PaymentVolumePoint[]
+  >
 > {
   const dayRanges = getRecentDayRanges(30);
   const monthRanges = getRecentMonthRanges(12);
@@ -282,52 +287,60 @@ async function getRevenueByRange(): Promise<
       "<",
       Timestamp.fromDate(rangeEnd),
     )
-    .select("amount", "paidAt")
+    .select("amountInCentavos", "paidAt")
     .get();
 
-  const revenueByDay = new Map<string, number>();
-  const revenueByMonth =
+  const volumeByDay =
+    new Map<string, number>();
+
+  const volumeByMonth =
     new Map<string, number>();
 
   for (const document of snapshot.docs) {
     const data = document.data();
     const paidAt = timestampToDate(data.paidAt);
-    const amount = finiteNumber(data.amount);
+    const amountInCentavos =
+      finiteNumber(data.amountInCentavos);
 
-    if (!paidAt || amount <= 0) {
+    if (
+      !paidAt ||
+      !Number.isSafeInteger(amountInCentavos) ||
+      amountInCentavos <= 0
+    ) {
       continue;
     }
 
     const dayKey = createDayKey(paidAt);
     const monthKey = createMonthKey(paidAt);
 
-    revenueByDay.set(
+    volumeByDay.set(
       dayKey,
-      (revenueByDay.get(dayKey) ?? 0) + amount,
+      (volumeByDay.get(dayKey) ?? 0) +
+        amountInCentavos,
     );
 
-    revenueByMonth.set(
+    volumeByMonth.set(
       monthKey,
-      (revenueByMonth.get(monthKey) ?? 0) +
-        amount,
+      (volumeByMonth.get(monthKey) ?? 0) +
+        amountInCentavos,
     );
   }
 
   const last30Days = dayRanges.map(
-    (range): RevenuePoint => ({
+    (range): PaymentVolumePoint => ({
       label: range.label,
-      revenue:
-        revenueByDay.get(
+      volumeInCentavos:
+        volumeByDay.get(
           createDayKey(range.start),
         ) ?? 0,
     }),
   );
 
   const last12Months = monthRanges.map(
-    (range): RevenuePoint => ({
+    (range): PaymentVolumePoint => ({
       label: range.label,
-      revenue:
-        revenueByMonth.get(
+      volumeInCentavos:
+        volumeByMonth.get(
           createMonthKey(range.start),
         ) ?? 0,
     }),
@@ -344,16 +357,17 @@ async function getRevenueByRange(): Promise<
 export async function getAdminDashboardData(): Promise<AdminDashboardData> {
   const [
     settingsSnapshot,
-    revenueSnapshot,
-    activeUsersSnapshot,
-    mainEventsSnapshot,
+    confirmedPaymentVolumeSnapshot,
+    activeCustomersSnapshot,
+    activeProvidersSnapshot,
+    activeBookingsSnapshot,
     verificationSnapshot,
-    pendingComplaintsSnapshot,
+    openComplaintsSnapshot,
     pendingPaymentsSnapshot,
-    failedPaymentsSnapshot,
+    failedExpiredPaymentsSnapshot,
     providersSnapshot,
     activitiesSnapshot,
-    revenueByRange,
+    paymentVolumeByRange,
   ] = await Promise.all([
     adminDb
       .collection(
@@ -363,37 +377,50 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       .get(),
 
     adminDb
-      .collection(FIRESTORE_COLLECTIONS.payments)
+      .collection(
+        FIRESTORE_COLLECTIONS.payments,
+      )
       .where("status", "==", "paid")
       .aggregate({
-        total: AggregateField.sum("amount"),
+        totalInCentavos:
+          AggregateField.sum(
+            "amountInCentavos",
+          ),
       })
       .get(),
 
+    // activeCustomersSnapshot
     adminDb
       .collection(
         FIRESTORE_COLLECTIONS.users,
       )
-      .where(
-        "role",
-        "in",
-        [
-          "customer",
-          "provider",
-        ],
-      )
-      .where(
-        "isActive",
-        "==",
-        true,
-      )
+      .where("role", "==", "customer")
+      .where("isActive", "==", true)
       .count()
       .get(),
+
+    // activeProvidersSnapshot
+    adminDb
+      .collection(
+        FIRESTORE_COLLECTIONS.users,
+      )
+      .where("role", "==", "provider")
+      .where("isActive", "==", true)
+      .count()
+      .get(),
+
 
     adminDb
       .collection(
         FIRESTORE_COLLECTIONS.mainEvents,
       )
+      .where("status", "in", [
+        "pending_provider_approval",
+        "needs_provider_replacement",
+        "waiting_for_down_payment",
+        "confirmed",
+        "in_progress",
+      ])
       .count()
       .get(),
 
@@ -412,12 +439,21 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       .collection(
         FIRESTORE_COLLECTIONS.complaints,
       )
-      .where("status", "==", "pending")
+      .where("status", "in", [
+        "submitted",
+        "under_review",
+        "awaiting_customer",
+        "awaiting_provider",
+        "escalated",
+      ])
       .count()
       .get(),
 
+    // pendingPaymentsSnapshot
     adminDb
-      .collection(FIRESTORE_COLLECTIONS.payments)
+      .collection(
+        FIRESTORE_COLLECTIONS.payments,
+      )
       .where("status", "in", [
         "pending",
         "processing",
@@ -425,9 +461,15 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       .count()
       .get(),
 
+    // failedExpiredPaymentsSnapshot
     adminDb
-      .collection(FIRESTORE_COLLECTIONS.payments)
-      .where("status", "==", "failed")
+      .collection(
+        FIRESTORE_COLLECTIONS.payments,
+      )
+      .where("status", "in", [
+        "failed",
+        "expired",
+      ])
       .count()
       .get(),
 
@@ -444,14 +486,28 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       .limit(8)
       .get(),
 
-    getRevenueByRange(),
+    getPaymentVolumeByRange(),
   ]);
 
   const settings =
     settingsSnapshot.data() ?? {};
 
-  const totalRevenue =
-    revenueSnapshot.data().total;
+  const confirmedPaymentVolumeInCentavos =
+    finiteNumber(
+    confirmedPaymentVolumeSnapshot
+      .data()
+      .totalInCentavos,
+  );
+
+  const activeCustomerAccounts =
+    activeCustomersSnapshot.data().count;
+
+  const activeProviderAccounts =
+    activeProvidersSnapshot.data().count;
+
+  const activeAccounts =
+    activeCustomerAccounts +
+    activeProviderAccounts;
 
   return {
     settings: {
@@ -487,19 +543,15 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     },
 
     statistics: {
-      revenue: finiteNumber(totalRevenue),
-
-      activeUsers:
-        activeUsersSnapshot.data().count,
-
-      totalBookings:
-        mainEventsSnapshot.data().count,
-
+      confirmedPaymentVolumeInCentavos,
+      activeAccounts,
+      activeBookings:
+        activeBookingsSnapshot.data().count,
       verificationQueue:
         verificationSnapshot.data().count,
     },
 
-    revenueByRange,
+    paymentVolumeByRange,
 
     topProviders: providersSnapshot.docs.map(
       (document) => {
@@ -554,17 +606,22 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       }),
 
     platformHealth: {
-      activeUsers:
-        activeUsersSnapshot.data().count,
+      activeCustomerAccounts,
+      activeProviderAccounts,
 
-      pendingComplaints:
-        pendingComplaintsSnapshot.data().count,
+      bookingsNeedingAttention:
+        activeBookingsSnapshot.data().count,
 
-      pendingPayments:
+      pendingProcessingPayments:
         pendingPaymentsSnapshot.data().count,
 
-      failedPayments:
-        failedPaymentsSnapshot.data().count,
+      failedExpiredPayments:
+        failedExpiredPaymentsSnapshot
+          .data()
+          .count,
+
+      openComplaints:
+        openComplaintsSnapshot.data().count,
     },
   };
 }

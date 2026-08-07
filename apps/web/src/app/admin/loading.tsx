@@ -34,7 +34,7 @@ export default function AdminDashboardLoading() {
         aria-label="Loading dashboard statistics"
       >
         <SummaryCard
-          label="Platform revenue"
+          label="Confirmed payment volume"
           loading
         />
 
@@ -44,7 +44,7 @@ export default function AdminDashboardLoading() {
         />
 
         <SummaryCard
-          label="Total bookings"
+          label="Active bookings"
           loading
         />
 
@@ -59,18 +59,18 @@ export default function AdminDashboardLoading() {
           <div className="flex items-center justify-between gap-4">
             <LoadingSkeleton
               className="h-6 w-40"
-              label="Loading revenue chart title"
+              label="Loading payment volume chart title"
             />
 
             <LoadingSkeleton
               className="h-10 w-28"
-              label="Loading revenue range"
+              label="Loading payment volume range"
             />
           </div>
 
           <LoadingSkeleton
             className="h-72 w-full"
-            label="Loading revenue chart"
+            label="Loading payment volume chart"
           />
         </div>
 
