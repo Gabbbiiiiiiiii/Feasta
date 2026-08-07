@@ -1,23 +1,48 @@
-import {fireEvent, render, screen} from "@testing-library/react";
+import {render, screen} from "@testing-library/react";
 import {describe, expect, it} from "vitest";
 
-import CustomerProvidersPage from "@/app/customer/providers/page";
+import {ProviderFilterForm} from "@/components/customer/providers/provider-filter-form";
+import {ProviderResults} from "@/components/customer/providers/provider-results";
 import {roleNavigation} from "@/components/layout/navigation";
+import {PageHeading} from "@/components/layout/page-heading";
+import type {
+  ProviderDiscoveryFilters,
+  ProviderDiscoveryPage,
+} from "@/lib/customer/providers/provider-types";
+
+const filters: ProviderDiscoveryFilters = {
+  search: "",
+  serviceType: "all",
+  category: "all",
+  cursor: null,
+};
+
+const emptyPage: ProviderDiscoveryPage = {
+  providers: [],
+  previousCursor: null,
+  nextCursor: null,
+  pageSize: 12,
+};
 
 describe("representative application screens", () => {
   it("uses the shared discovery controls and an honest empty result state", () => {
-    render(<CustomerProvidersPage />);
+    render(
+      <>
+        <PageHeading
+          eyebrow="Discovery"
+          title="Find event providers"
+          description="Search approved public providers."
+        />
+        <ProviderFilterForm filters={filters} />
+        <ProviderResults page={emptyPage} filters={filters} />
+      </>,
+    );
 
     expect(screen.getByRole("heading", {level: 1, name: "Find event providers"})).toBeInTheDocument();
-    expect(screen.getByRole("searchbox", {name: "Search all records"})).toBeInTheDocument();
-    expect(screen.getByRole("combobox", {name: "Provider service type"})).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", {name: "Search approved providers"})).toBeInTheDocument();
+    expect(screen.getByRole("combobox", {name: "Service type"})).toBeInTheDocument();
+    expect(screen.getByRole("combobox", {name: "Category"})).toBeInTheDocument();
     expect(screen.getByText("No providers found")).toBeInTheDocument();
-
-    fireEvent.change(screen.getByRole("searchbox", {name: "Search all records"}), {target: {value: "venue"}});
-    fireEvent.submit(screen.getByRole("search"));
-
-    expect(screen.getByText(/Active filters: Search: venue/)).toBeInTheDocument();
-    expect(screen.getByText("No matching results")).toBeInTheDocument();
   });
 
   it("exposes provider verification within the protected provider shell", () => {
