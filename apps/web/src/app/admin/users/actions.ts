@@ -1,15 +1,20 @@
 "use server";
 
 import {
+  getAdminUserDetails,
   getAdminUserPage,
-  updateAdminUserAccountStatus,
-  updateAdminUserBlockedStatus,
+  manageAdminUserAccountAccess,
 } from "@/lib/admin/users/admin-user-service";
 import type {
+  AdminUserDetailsResult,
   AdminUserFilters,
   AdminUserPage,
+  ManageAdminAccountAccessInput,
+  ManageAdminAccountAccessResult,
 } from "@/lib/admin/users/admin-user-types";
-import { requireAdmin } from "@/lib/auth/session";
+import {
+  requireAdmin,
+} from "@/lib/auth/session";
 
 export async function loadAdminUsersAction(
   filters: AdminUserFilters,
@@ -19,20 +24,18 @@ export async function loadAdminUsersAction(
   return getAdminUserPage(filters);
 }
 
-export async function updateAccountStatusAction(input: {
-  userId: string;
-  isActive: boolean;
-}): Promise<void> {
+export async function loadAdminUserDetailsAction(
+  userId: string,
+): Promise<AdminUserDetailsResult> {
   await requireAdmin();
 
-  await updateAdminUserAccountStatus(input);
+  return getAdminUserDetails(userId);
 }
 
-export async function updateBlockedStatusAction(input: {
-  userId: string;
-  isBlocked: boolean;
-}): Promise<void> {
+export async function manageAccountAccessAction(
+  input: ManageAdminAccountAccessInput,
+): Promise<ManageAdminAccountAccessResult> {
   await requireAdmin();
 
-  await updateAdminUserBlockedStatus(input);
+  return manageAdminUserAccountAccess(input);
 }

@@ -7,6 +7,11 @@ import {
   CheckCircle2,
   Clock3,
   Copy,
+  Download,
+  ExternalLink,
+  FileText,
+  History,
+  LoaderCircle,
   Mail,
   Phone,
   ShieldCheck,
@@ -15,11 +20,21 @@ import {
 import { useState } from "react";
 
 import { AdminUserAvatar } from "@/components/admin/users/admin-user-avatar";
-import type { AdminUser } from "@/lib/admin/users/admin-user-types";
+import type {
+  AdminUser,
+  AdminUserActivityEntry,
+  AdminUserBookingSummary,
+  AdminUserDetails,
+  AdminUserVerificationDocument,
+} from "@/lib/admin/users/admin-user-types";
 import { cn } from "@/lib/utils";
 
 type UserDetailsContentProps = {
   user: AdminUser;
+  details?: AdminUserDetails | null;
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
 };
 
 type DetailTab =
@@ -92,8 +107,407 @@ function DetailRow({
   );
 }
 
+function humanizeValue(
+  value: string,
+): string {
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/gu, (character) =>
+      character.toUpperCase(),
+    );
+}
+
+function DetailTabLoading() {
+  return (
+    <div
+      className="grid min-h-48 place-items-center rounded-xl border border-border bg-muted/20 p-6"
+      aria-label="Loading account details"
+    >
+      <div className="grid justify-items-center gap-3 text-center">
+        <LoaderCircle
+          aria-hidden="true"
+          className="size-6 animate-spin text-primary motion-reduce:animate-none"
+        />
+
+        <p className="text-sm text-muted-foreground">
+          Loading account details…
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function DetailTabError({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="grid min-h-48 place-items-center rounded-xl border border-red-200 bg-red-50 p-6 text-center"
+    >
+      <div>
+        <p className="font-semibold text-red-700">
+          Account details could not be loaded
+        </p>
+
+        <p className="mt-1 text-sm text-red-600">
+          {message}
+        </p>
+
+        {onRetry ? (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-4 min-h-10 rounded-lg border border-red-300 bg-white px-4 text-sm font-semibold text-red-700 transition hover:bg-red-100"
+          >
+            Try again
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function EmptyDetailTab({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="grid min-h-48 place-items-center rounded-xl border border-dashed border-border bg-muted/20 p-6 text-center">
+      <div>
+        <p className="font-semibold text-foreground">
+          {title}
+        </p>
+
+        <p className="mt-1 text-sm text-muted-foreground">
+          {description}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function BookingDetailsTab({
+  bookings,
+}: {
+  bookings: AdminUserBookingSummary[];
+}) {
+  if (bookings.length === 0) {
+    return (
+      <EmptyDetailTab
+        title="No booking activity"
+        description="No bookings are associated with this account."
+      />
+    );
+  }
+
+  return (
+    <section aria-labelledby="user-bookings-heading">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h4
+            id="user-bookings-heading"
+            className="font-bold"
+          >
+            Recent bookings
+          </h4>
+
+          <p className="mt-1 text-sm text-muted-foreground">
+            Showing up to 10 recent records.
+          </p>
+        </div>
+
+        <CalendarDays
+          aria-hidden="true"
+          className="size-5 text-primary"
+        />
+      </div>
+
+      <ul className="mt-3 grid gap-3">
+        {bookings.map((booking) => (
+          <li
+            key={`${booking.relationship}:${booking.id}`}
+            className="rounded-xl border border-border bg-card p-4"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate font-semibold">
+                  {booking.reference}
+                </p>
+
+                <p className="mt-1 text-sm capitalize text-muted-foreground">
+                  {humanizeValue(
+                    booking.eventType,
+                  )}
+                  {booking.city
+                    ? ` · ${booking.city}`
+                    : ""}
+                </p>
+              </div>
+
+              <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold capitalize text-muted-foreground">
+                {humanizeValue(
+                  booking.bookingStatus,
+                )}
+              </span>
+            </div>
+
+            <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  Event date
+                </dt>
+                <dd className="mt-0.5">
+                  {formatDate(
+                    booking.eventDate,
+                  )}
+                </dd>
+              </div>
+
+              <div>
+                <dt className="text-xs text-muted-foreground">
+                  Created
+                </dt>
+                <dd className="mt-0.5">
+                  {formatDate(
+                    booking.createdAt,
+                  )}
+                </dd>
+              </div>
+
+              {booking.providerRequestStatus ? (
+                <div>
+                  <dt className="text-xs text-muted-foreground">
+                    Provider request
+                  </dt>
+                  <dd className="mt-0.5 capitalize">
+                    {humanizeValue(
+                      booking.providerRequestStatus,
+                    )}
+                  </dd>
+                </div>
+              ) : null}
+
+              {booking.paymentStatus ? (
+                <div>
+                  <dt className="text-xs text-muted-foreground">
+                    Payment
+                  </dt>
+                  <dd className="mt-0.5 capitalize">
+                    {humanizeValue(
+                      booking.paymentStatus,
+                    )}
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function ActivityDetailsTab({
+  activity,
+}: {
+  activity: AdminUserActivityEntry[];
+}) {
+  if (activity.length === 0) {
+    return (
+      <EmptyDetailTab
+        title="No recorded activity"
+        description="No administrative or account activity is available for this account."
+      />
+    );
+  }
+
+  return (
+    <section aria-labelledby="user-activity-heading">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h4
+            id="user-activity-heading"
+            className="font-bold"
+          >
+            Recent account activity
+          </h4>
+
+          <p className="mt-1 text-sm text-muted-foreground">
+            Authorized audit records related to this account.
+          </p>
+        </div>
+
+        <History
+          aria-hidden="true"
+          className="size-5 text-primary"
+        />
+      </div>
+
+      <ol className="mt-3 grid gap-3">
+        {activity.map((entry) => (
+          <li
+            key={entry.id}
+            className="rounded-xl border border-border bg-card p-4"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <p className="font-semibold">
+                {humanizeValue(entry.action)}
+              </p>
+
+              <time className="text-xs text-muted-foreground">
+                {formatDate(entry.createdAt)}
+              </time>
+            </div>
+
+            <p className="mt-1 text-sm capitalize text-muted-foreground">
+              {humanizeValue(
+                entry.actorRole,
+              )}
+              {entry.source
+                ? ` · ${humanizeValue(
+                    entry.source,
+                  )}`
+                : ""}
+            </p>
+
+            {entry.reason ? (
+              <p className="mt-3 rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground">
+                {entry.reason}
+              </p>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function DocumentDetailsTab({
+  documents,
+}: {
+  documents:
+    AdminUserVerificationDocument[];
+}) {
+  if (documents.length === 0) {
+    return (
+      <EmptyDetailTab
+        title="No verification documents"
+        description="No verification documents are available for this provider."
+      />
+    );
+  }
+
+  return (
+    <section aria-labelledby="user-documents-heading">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h4
+            id="user-documents-heading"
+            className="font-bold"
+          >
+            Verification documents
+          </h4>
+
+          <p className="mt-1 text-sm text-muted-foreground">
+            Files are delivered through the protected admin endpoint.
+          </p>
+        </div>
+
+        <FileText
+          aria-hidden="true"
+          className="size-5 text-primary"
+        />
+      </div>
+
+      <ul className="mt-3 grid gap-3">
+        {documents.map((document) => (
+          <li
+            key={document.id}
+            className="rounded-xl border border-border bg-card p-4"
+          >
+            <div className="flex items-start gap-3">
+              <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+                <FileText
+                  aria-hidden="true"
+                  className="size-5"
+                />
+              </span>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold">
+                      {document.title}
+                    </p>
+
+                    <p className="mt-1 truncate text-sm text-muted-foreground">
+                      {document.fileName}
+                    </p>
+                  </div>
+
+                  <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold capitalize">
+                    {humanizeValue(
+                      document.status,
+                    )}
+                  </span>
+                </div>
+
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {document.fileSize}
+                  {" · "}
+                  {formatDate(
+                    document.uploadedAt,
+                  )}
+                </p>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <a
+                    href={document.viewPath}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-semibold transition hover:bg-muted"
+                  >
+                    <ExternalLink
+                      aria-hidden="true"
+                      className="size-4"
+                    />
+                    View
+                  </a>
+
+                  <a
+                    href={document.downloadPath}
+                    className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-semibold transition hover:bg-muted"
+                  >
+                    <Download
+                      aria-hidden="true"
+                      className="size-4"
+                    />
+                    Download
+                  </a>
+                </div>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function UserDetailsContent({
   user,
+  details = null,
+  loading = false,
+  error = null,
+  onRetry,
 }: UserDetailsContentProps) {
   const [selectedTab, setSelectedTab] =
     useState<DetailTab>("overview");
@@ -294,13 +708,17 @@ function UserDetailsContent({
 
               <DetailRow label="Email verified">
                 <VerificationValue
-                  verified={user.isEmailVerified}
+                  verified={
+                    user.isEmailVerified
+                  }
                 />
               </DetailRow>
 
               <DetailRow label="Phone verified">
                 <VerificationValue
-                  verified={user.isPhoneVerified}
+                  verified={
+                    user.isPhoneVerified
+                  }
                 />
               </DetailRow>
             </dl>
@@ -325,17 +743,15 @@ function UserDetailsContent({
                 </DetailRow>
 
                 <DetailRow label="Service type">
-                  {user.providerServiceType?.replaceAll(
-                    "_",
-                    " ",
-                  ) ?? "Not available"}
+                  {user.providerServiceType
+                    ?.replaceAll("_", " ") ??
+                    "Not available"}
                 </DetailRow>
 
                 <DetailRow label="Category">
-                  {user.providerCategory?.replaceAll(
-                    "_",
-                    " ",
-                  ) ?? "Not available"}
+                  {user.providerCategory
+                    ?.replaceAll("_", " ") ??
+                    "Not available"}
                 </DetailRow>
 
                 <DetailRow label="Verification">
@@ -348,25 +764,31 @@ function UserDetailsContent({
             </section>
           ) : null}
         </div>
-      ) : (
-        <div className="grid min-h-52 place-items-center rounded-xl border border-dashed border-border bg-muted/30 p-6 text-center">
-          <div>
-            <p className="font-semibold">
-              {selectedTab === "bookings" &&
-                "Booking details"}
-              {selectedTab === "activity" &&
-                "Account activity"}
-              {selectedTab === "documents" &&
-                "Verification documents"}
-            </p>
-
-            <p className="mt-1 text-sm text-muted-foreground">
-              Connect this section to its Firestore
-              collection in the next implementation phase.
-            </p>
-          </div>
-        </div>
-      )}
+      ) : loading ? (
+        <DetailTabLoading />
+      ) : error ? (
+        <DetailTabError
+          message={error}
+          onRetry={onRetry}
+        />
+      ) : !details ? (
+        <EmptyDetailTab
+          title="Details unavailable"
+          description="Open this account again to load its details."
+        />
+      ) : selectedTab === "bookings" ? (
+        <BookingDetailsTab
+          bookings={details.bookings}
+        />
+      ) : selectedTab === "activity" ? (
+        <ActivityDetailsTab
+          activity={details.activity}
+        />
+      ) : selectedTab === "documents" ? (
+        <DocumentDetailsTab
+          documents={details.documents}
+        />
+      ) : null}
     </div>
   );
 }

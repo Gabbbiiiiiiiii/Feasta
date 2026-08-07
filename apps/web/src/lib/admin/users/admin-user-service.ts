@@ -13,18 +13,38 @@ import {
   type AdminAccountStatus,
   type AdminManagedRole,
   type AdminUser,
+  AdminUserActivityEntry,
+  AdminUserBookingSummary,
+  AdminUserDetailsResult,
+  AdminUserVerificationDocument,
   type AdminUserFilters,
   type AdminUserPage,
   type AdminUserStatistics,
   type AdminVerificationStatus,
+  type ManageAdminAccountAccessInput,
+  type ManageAdminAccountAccessResult,
 } from "@/lib/admin/users/admin-user-types";
 import { requireAdmin } from "@/lib/auth/session";
-import { adminDb } from "@/lib/firebase/admin";
+import {
+  adminAuth,
+  adminDb,
+} from "@/lib/firebase/admin";
 
 const USERS_COLLECTION = "users";
 const CUSTOMERS_COLLECTION = "customers";
 const PROVIDERS_COLLECTION = "providers";
 const ADMIN_LOGS_COLLECTION = "adminLogs";
+const MAIN_EVENTS_COLLECTION = "mainEvents";
+const PROVIDER_REQUESTS_COLLECTION =
+  "providerRequests";
+const PROVIDER_VERIFICATIONS_COLLECTION =
+  "providerVerifications";
+
+const USER_DETAIL_BOOKING_LIMIT = 10;
+const USER_DETAIL_ACTIVITY_LIMIT = 15;
+const USER_DETAIL_DOCUMENT_LIMIT = 30;
+const NOTIFICATIONS_COLLECTION =
+  "notifications";
 
 const WHERE_IN_LIMIT = 30;
 const MAX_BATCH_WRITES = 500;
@@ -44,15 +64,7 @@ type ProviderDocument = {
   verificationStatus: AdminVerificationStatus;
 };
 
-type UpdateAccountStatusInput = {
-  userId: string;
-  isActive: boolean;
-};
 
-type UpdateBlockedStatusInput = {
-  userId: string;
-  isBlocked: boolean;
-};
 
 function stringValue(value: unknown) {
   return typeof value === "string"
@@ -497,11 +509,9 @@ function applyUserFilters(
   } else if (
     filters.accountStatus === "disabled"
   ) {
-    filteredQuery = filteredQuery.where(
-      "isActive",
-      "==",
-      false,
-    );
+    filteredQuery = filteredQuery
+      .where("isActive","==", false)
+      .where("isBlocked", "==", false);
   } else if (
     filters.accountStatus === "blocked"
   ) {
@@ -1006,6 +1016,493 @@ export async function getAdminUserPage(
   };
 }
 
+export async function getAdminUserDetails(
+  userId: string,
+): Promise<AdminUserDetailsResult> {
+  await requireAdmin();
+
+  const normalizedUserId = userId.trim();
+
+  if (
+    !/^[A-Za-z0-9_-]{1,150}$/u.test(
+      normalizedUserId,
+    )
+  ) {
+    throw new Error(
+      "A valid user ID is required.",
+    );
+  }
+
+  const userSnapshot = await adminDb
+    .collection(USERS_COLLECTION)
+    .doc(normalizedUserId)
+    .get();
+
+  if (!userSnapshot.exists) {
+    throw new Error(
+      "The user account no longer exists.",
+    );
+  }
+
+  const userData = userSnapshot.data() ?? {};
+  const role = normalizeRole(userData.role);
+
+  if (!role) {
+    throw new Error(
+      "This account cannot be reviewed from User Management.",
+    );
+  }
+
+  let providerId: string | null = null;
+  let verificationId: string | null = null;
+
+  if (role === "provider") {
+    const providerSnapshot = await adminDb
+      .collection(PROVIDERS_COLLECTION)
+      .where(
+        "ownerId",
+        "==",
+        normalizedUserId,
+      )
+      .limit(1)
+      .get();
+
+    providerId =
+      providerSnapshot.docs.at(0)?.id ??
+      null;
+
+    if (providerId) {
+      const verificationSnapshot =
+        await adminDb
+          .collection(
+            PROVIDER_VERIFICATIONS_COLLECTION,
+          )
+          .where(
+            "providerId",
+            "==",
+            providerId,
+          )
+          .limit(1)
+          .get();
+
+      verificationId =
+        verificationSnapshot.docs.at(0)?.id ??
+        null;
+    }
+  }
+
+  const [
+    bookings,
+    activity,
+    documents,
+  ] = await Promise.all([
+    loadAdminUserBookings({
+      userId: normalizedUserId,
+      role,
+      providerId,
+    }),
+    loadAdminUserActivity({
+      userId: normalizedUserId,
+      providerId,
+      verificationId,
+    }),
+    loadAdminUserVerificationDocuments(
+      verificationId,
+    ),
+  ]);
+
+  return {
+    details: {
+      userId: normalizedUserId,
+      role,
+      bookings,
+      activity,
+      documents,
+      limits: {
+        bookings:
+          USER_DETAIL_BOOKING_LIMIT,
+        activity:
+          USER_DETAIL_ACTIVITY_LIMIT,
+      },
+    },
+  };
+}
+
+async function loadAdminUserBookings({
+  userId,
+  role,
+  providerId,
+}: {
+  userId: string;
+  role: AdminUser["role"];
+  providerId: string | null;
+}): Promise<AdminUserBookingSummary[]> {
+  if (role === "customer") {
+    const snapshot = await adminDb
+      .collection(MAIN_EVENTS_COLLECTION)
+      .where("customerId", "==", userId)
+      .orderBy("createdAt", "desc")
+      .limit(USER_DETAIL_BOOKING_LIMIT)
+      .get();
+
+    return snapshot.docs.map((document) => {
+      const data = document.data();
+
+      return {
+        id: document.id,
+        reference:
+          nullableString(data.bookingCode) ??
+          nullableString(data.reference) ??
+          document.id,
+        relationship: "customer",
+        eventType:
+          stringValue(data.eventType) ||
+          "Event",
+        eventDate:
+          isoDateValue(data.eventDate),
+        city: stringValue(data.city),
+        bookingStatus:
+          stringValue(data.status) ||
+          "unknown",
+        paymentStatus:
+          nullableString(
+            data.paymentStatus,
+          ),
+        providerRequestStatus: null,
+        createdAt:
+          isoDateValue(data.createdAt),
+      };
+    });
+  }
+
+  if (!providerId) {
+    return [];
+  }
+
+  const requestSnapshot = await adminDb
+    .collection(PROVIDER_REQUESTS_COLLECTION)
+    .where("providerId", "==", providerId)
+    .orderBy("createdAt", "desc")
+    .limit(USER_DETAIL_BOOKING_LIMIT)
+    .get();
+
+  if (requestSnapshot.empty) {
+    return [];
+  }
+
+  const eventIds = [
+    ...new Set(
+      requestSnapshot.docs
+        .map((document) =>
+          stringValue(
+            document.data().mainEventId,
+          ),
+        )
+        .filter(Boolean),
+    ),
+  ];
+
+  const eventSnapshots =
+    eventIds.length > 0
+      ? await adminDb.getAll(
+          ...eventIds.map((eventId) =>
+            adminDb
+              .collection(
+                MAIN_EVENTS_COLLECTION,
+              )
+              .doc(eventId),
+          ),
+        )
+      : [];
+
+  const eventById = new Map(
+    eventSnapshots.map((snapshot) => [
+      snapshot.id,
+      snapshot,
+    ]),
+  );
+
+  return requestSnapshot.docs.map(
+    (requestDocument) => {
+      const requestData =
+        requestDocument.data();
+
+      const mainEventId = stringValue(
+        requestData.mainEventId,
+      );
+
+      const eventSnapshot =
+        eventById.get(mainEventId);
+
+      const eventData =
+        eventSnapshot?.data() ?? {};
+
+      return {
+        id:
+          mainEventId ||
+          requestDocument.id,
+        reference:
+          nullableString(
+            eventData.bookingCode,
+          ) ??
+          nullableString(
+            eventData.reference,
+          ) ??
+          mainEventId ??
+          requestDocument.id,
+        relationship: "provider",
+        eventType:
+          stringValue(
+            eventData.eventType,
+          ) ||
+          stringValue(
+            requestData.requestType,
+          ) ||
+          "Event",
+        eventDate:
+          isoDateValue(
+            eventData.eventDate,
+          ),
+        city:
+          stringValue(eventData.city),
+        bookingStatus:
+          stringValue(
+            eventData.status,
+          ) || "unknown",
+        paymentStatus:
+          nullableString(
+            requestData.paymentStatus,
+          ) ??
+          nullableString(
+            eventData.paymentStatus,
+          ),
+        providerRequestStatus:
+          nullableString(
+            requestData.status,
+          ),
+        createdAt:
+          isoDateValue(
+            requestData.createdAt,
+          ),
+      };
+    },
+  );
+}
+
+async function loadAdminUserActivity({
+  userId,
+  providerId,
+  verificationId,
+}: {
+  userId: string;
+  providerId: string | null;
+  verificationId: string | null;
+}): Promise<AdminUserActivityEntry[]> {
+  const targetIds = [
+    ...new Set(
+      [
+        userId,
+        providerId,
+        verificationId,
+      ].filter(
+        (value): value is string =>
+          Boolean(value),
+      ),
+    ),
+  ];
+
+  let query = adminDb
+    .collection(ADMIN_LOGS_COLLECTION)
+    .orderBy("createdAt", "desc")
+    .limit(USER_DETAIL_ACTIVITY_LIMIT);
+
+  if (targetIds.length === 1) {
+    query = query.where(
+      "targetId",
+      "==",
+      targetIds[0],
+    );
+  } else {
+    query = query.where(
+      "targetId",
+      "in",
+      targetIds,
+    );
+  }
+
+  const snapshot = await query.get();
+
+  return snapshot.docs.map((document) => {
+    const data = document.data();
+
+    return {
+      id: document.id,
+      action:
+        stringValue(data.action) ||
+        "administrative_activity",
+      actorId:
+        stringValue(data.actorId),
+      actorRole:
+        stringValue(data.actorRole) ||
+        "system",
+      targetCollection:
+        stringValue(
+          data.targetCollection,
+        ),
+      targetId:
+        stringValue(data.targetId),
+      reason:
+        nullableString(data.reason),
+      source:
+        nullableString(data.source),
+      createdAt:
+        isoDateValue(data.createdAt),
+    };
+  });
+}
+
+async function loadAdminUserVerificationDocuments(
+  verificationId: string | null,
+): Promise<
+  AdminUserVerificationDocument[]
+> {
+  if (!verificationId) {
+    return [];
+  }
+
+  const snapshot = await adminDb
+    .collection(
+      PROVIDER_VERIFICATIONS_COLLECTION,
+    )
+    .doc(verificationId)
+    .collection("documents")
+    .limit(USER_DETAIL_DOCUMENT_LIMIT)
+    .get();
+
+  return snapshot.docs
+    .map((document) => {
+    const data = document.data();
+
+    const documentType =
+      stringValue(data.documentType) ||
+      document.id ||
+      "verification_document";
+
+    const encodedVerificationId =
+      encodeURIComponent(verificationId);
+
+    const encodedDocumentId =
+      encodeURIComponent(document.id);
+
+    const basePath =
+      `/api/admin/provider-verifications/${encodedVerificationId}` +
+      `/documents/${encodedDocumentId}`;
+
+    return {
+      id: document.id,
+      verificationId,
+      documentType,
+      title:
+        nullableString(data.title) ??
+        humanizeAdminUserValue(
+          documentType,
+        ),
+      fileName:
+        nullableString(
+          data.originalFileName,
+        ) ??
+        nullableString(data.fileName) ??
+        humanizeAdminUserValue(
+          documentType,
+        ),
+      fileSize:
+        formatAdminUserFileSize(
+          data.fileSizeBytes ??
+            data.size,
+        ),
+      contentType:
+        nullableString(
+          data.contentType,
+        ) ??
+        nullableString(data.mimeType) ??
+        "application/octet-stream",
+      status:
+        stringValue(data.status) ||
+        "pending",
+      isRequired:
+        booleanValue(
+          data.isRequired,
+        ),
+      uploadedAt:
+        isoDateValue(
+          data.uploadedAt ??
+            data.createdAt,
+        ),
+      reviewedAt:
+        isoDateValue(
+          data.reviewedAt ??
+            data.verifiedAt ??
+              data.updatedAt,
+        ),
+
+      viewPath: basePath,
+      downloadPath:
+        `${basePath}?disposition=attachment`,
+    };
+  })
+  .sort((left, right) => {
+    const leftTime = left.uploadedAt
+      ? Date.parse(left.uploadedAt)
+      : 0;
+
+    const rightTime = right.uploadedAt
+      ? Date.parse(right.uploadedAt)
+      : 0;
+
+    return rightTime - leftTime;
+  });
+}
+
+function humanizeAdminUserValue(
+  value: string,
+): string {
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/gu, (character) =>
+      character.toUpperCase(),
+    );
+}
+
+function formatAdminUserFileSize(
+  value: unknown,
+): string {
+  const bytes =
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= 0
+      ? value
+      : 0;
+
+  if (bytes === 0) {
+    return "Size unavailable";
+  }
+
+  if (bytes < 1024) {
+    return `${Math.round(bytes)} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(
+      bytes / 1024
+    ).toFixed(1)} KB`;
+  }
+
+  return `${(
+    bytes /
+    (1024 * 1024)
+  ).toFixed(1)} MB`;
+}
+
 async function loadMutableUser(userId: string) {
   const normalizedUserId = userId.trim();
 
@@ -1095,124 +1592,217 @@ function preferredProviderVerificationStatus(
   return selectedStatus ?? "pending";
 }
 
-export async function updateAdminUserAccountStatus({
-  userId,
-  isActive,
-}: UpdateAccountStatusInput): Promise<void> {
-  const administrator = await requireAdmin();
-  const user = await loadMutableUser(userId);
+function normalizeAccessText(
+  value: string,
+  field: string,
+  minimumLength: number,
+  maximumLength: number,
+): string {
+  const normalized = value
+    .trim()
+    .replace(/\s+/g, " ");
 
-  const isBlocked = booleanValue(
-    user.data.isBlocked,
-  );
-
-  const providerDocuments =
-    user.role === "provider"
-      ? await loadProviderDocuments(user.id)
-      : [];
-
-  if (user.role === "customer") {
-    const customerSnapshot = await adminDb
-      .collection(CUSTOMERS_COLLECTION)
-      .doc(user.id)
-      .get();
-
-    if (!customerSnapshot.exists) {
-      throw new Error(
-        "The customer profile no longer exists.",
-      );
-    }
-  }
-
-  const verificationStatus =
-    user.role === "provider"
-      ? preferredProviderVerificationStatus(
-          providerDocuments,
-        )
-      : null;
-
-  const canActivateProvider =
-    isActive &&
-    !isBlocked &&
-    verificationStatus === "verified";
-
-  const batch = adminDb.batch();
-  const timestamp = FieldValue.serverTimestamp();
-
-  batch.update(user.reference, {
-    isActive,
-
-    accountStatus:
-      resolveAccountStatus(
-        isActive,
-        isBlocked,
-      ),
-
-    updatedAt: timestamp,
-  });
-
-  if (user.role === "customer") {
-    batch.update(
-      adminDb
-        .collection(CUSTOMERS_COLLECTION)
-        .doc(user.id),
-      {
-        isActive,
-        updatedAt: timestamp,
-      },
+  if (
+    normalized.length < minimumLength ||
+    normalized.length > maximumLength
+  ) {
+    throw new Error(
+      `${field} must contain between ${minimumLength} and ${maximumLength} characters.`,
     );
   }
 
-  for (const providerDocument of providerDocuments) {
-    batch.update(providerDocument.ref, {
-      isActive: canActivateProvider,
-      updatedAt: timestamp,
-    });
-  }
-
-  batch.create(
-    adminDb.collection(ADMIN_LOGS_COLLECTION).doc(),
-    {
-      actorId: administrator.uid,
-      actorRole: "admin",
-      action: isActive
-        ? "user_account_enabled"
-        : "user_account_disabled",
-      description: isActive
-        ? `Enabled ${user.fullName} account.`
-        : `Disabled ${user.fullName} account.`,
-      targetCollection: USERS_COLLECTION,
-      targetId: user.id,
-      createdAt: timestamp,
-    },
-  );
-
-  await batch.commit();
-  invalidateUserStatisticsCache();
+  return normalized;
 }
 
-export async function updateAdminUserBlockedStatus({
-  userId,
-  isBlocked,
-}: UpdateBlockedStatusInput): Promise<void> {
-  const administrator = await requireAdmin();
-  const user = await loadMutableUser(userId);
+function accessDecisionState(
+  decision:
+    ManageAdminAccountAccessInput["decision"],
+): {
+  isActive: boolean;
+  isBlocked: boolean;
+  accountStatus: AdminAccountStatus;
+  authenticationDisabled: boolean;
+} {
+  switch (decision) {
+    case "disable":
+      return {
+        isActive: false,
+        isBlocked: false,
+        accountStatus: "disabled",
+        authenticationDisabled: true,
+      };
 
-  const isActive = booleanValue(
-    user.data.isActive,
-    true,
+    case "block":
+      return {
+        isActive: false,
+        isBlocked: true,
+        accountStatus: "blocked",
+        authenticationDisabled: true,
+      };
+
+    case "restore":
+      return {
+        isActive: true,
+        isBlocked: false,
+        accountStatus: "active",
+        authenticationDisabled: false,
+      };
+
+    default:
+      throw new Error(
+        "The requested account access decision is invalid.",
+      );
+  }
+}
+
+function accessNotificationContent(
+  decision:
+    ManageAdminAccountAccessInput["decision"],
+  userExplanation: string,
+): {
+  title: string;
+  message: string;
+} {
+  switch (decision) {
+    case "disable":
+      return {
+        title: "Account access disabled",
+        message: userExplanation,
+      };
+
+    case "block":
+      return {
+        title: "Account access restricted",
+        message: userExplanation,
+      };
+
+    case "restore":
+      return {
+        title: "Account access restored",
+        message: userExplanation,
+      };
+  }
+}
+
+
+export async function manageAdminUserAccountAccess(
+  input: ManageAdminAccountAccessInput,
+): Promise<ManageAdminAccountAccessResult> {
+  const administrator = await requireAdmin();
+
+  const userId = stringValue(
+    input.userId,
   );
+
+  if (
+    userId.length < 1 ||
+    userId.length > 128
+  ) {
+    throw new Error(
+      "The selected account identifier is invalid.",
+    );
+  }
+
+  if (userId === administrator.uid) {
+    throw new Error(
+      "Administrators cannot change their own account access.",
+    );
+  }
+
+  const userExplanation =
+    normalizeAccessText(
+      input.userExplanation,
+      "The user explanation",
+      10,
+      500,
+    );
+
+  const internalReason =
+    normalizeAccessText(
+      input.internalReason,
+      "The internal administrative reason",
+      10,
+      1000,
+    );
+
+  const user = await loadMutableUser(
+    userId,
+  );
+
+  const currentIsActive =
+    booleanValue(
+      user.data.isActive,
+      true,
+    );
+
+  const currentIsBlocked =
+    booleanValue(
+      user.data.isBlocked,
+    );
+
+  const target =
+    accessDecisionState(
+      input.decision,
+    );
+
+  const changed =
+    currentIsActive !==
+      target.isActive ||
+    currentIsBlocked !==
+      target.isBlocked;
+
+  /*
+   * Synchronize Firebase Authentication even when the
+   * Firestore state is already correct. This repairs a
+   * possible earlier partial operation without creating
+   * another audit entry.
+   */
+ 
+
+  if (!changed) {
+    await adminAuth.updateUser(
+      user.id,
+      {
+        disabled:
+          target.authenticationDisabled,
+      },
+    );
+
+    if (
+      target.authenticationDisabled
+    ) {
+      await adminAuth.revokeRefreshTokens(
+        user.id,
+      );
+    }
+
+    return {
+      userId: user.id,
+      accountStatus:
+        target.accountStatus,
+      changed: false,
+    };
+  }
 
   const providerDocuments =
     user.role === "provider"
-      ? await loadProviderDocuments(user.id)
+      ? await loadProviderDocuments(
+          user.id,
+        )
       : [];
 
-  if (user.role === "customer") {
-    const customerSnapshot = await adminDb
-      .collection(CUSTOMERS_COLLECTION)
-      .doc(user.id)
-      .get();
+  const customerReference =
+    adminDb
+      .collection(
+        CUSTOMERS_COLLECTION,
+      )
+      .doc(user.id);
+
+  if (
+    user.role === "customer"
+  ) {
+    const customerSnapshot =
+      await customerReference.get();
 
     if (!customerSnapshot.exists) {
       throw new Error(
@@ -1228,63 +1818,183 @@ export async function updateAdminUserBlockedStatus({
         )
       : null;
 
-  const canActivateProvider =
-    !isBlocked &&
-    isActive &&
-    verificationStatus === "verified";
+  const providerIsActive =
+    target.isActive &&
+    !target.isBlocked &&
+    verificationStatus ===
+      "verified";
+
+    await adminAuth.updateUser(
+      user.id,
+      {
+        disabled:
+          target.authenticationDisabled,
+      },
+    );
+
+    if (
+      target.authenticationDisabled
+    ) {
+      await adminAuth.revokeRefreshTokens(
+        user.id,
+      );
+    }
+
+  const notification =
+    accessNotificationContent(
+      input.decision,
+      userExplanation,
+    );
+
+  const timestamp =
+    FieldValue.serverTimestamp();
 
   const batch = adminDb.batch();
-  const timestamp = FieldValue.serverTimestamp();
 
-  batch.update(user.reference, {
-    isBlocked,
+  batch.update(
+    user.reference,
+    {
+      isActive: target.isActive,
+      isBlocked:
+        target.isBlocked,
+      accountStatus:
+        target.accountStatus,
+      updatedAt: timestamp,
+    },
+  );
 
-    accountStatus:
-      resolveAccountStatus(
-        isActive,
-        isBlocked,
-      ),
-
-    updatedAt: timestamp,
-  });
-
-  if (user.role === "customer") {
+  if (
+    user.role === "customer"
+  ) {
     batch.update(
-      adminDb
-        .collection(CUSTOMERS_COLLECTION)
-        .doc(user.id),
+      customerReference,
       {
-        isBlocked,
+        isActive:
+          target.isActive,
+        isBlocked:
+          target.isBlocked,
         updatedAt: timestamp,
       },
     );
   }
 
-  for (const providerDocument of providerDocuments) {
-    batch.update(providerDocument.ref, {
-      isBlocked,
-      isActive: canActivateProvider,
-      updatedAt: timestamp,
-    });
+  for (
+    const providerDocument
+    of providerDocuments
+  ) {
+    batch.update(
+      providerDocument.ref,
+      {
+        isActive:
+          providerIsActive,
+        isBlocked:
+          target.isBlocked,
+        updatedAt: timestamp,
+      },
+    );
   }
 
   batch.create(
-    adminDb.collection(ADMIN_LOGS_COLLECTION).doc(),
+    adminDb
+      .collection(
+        NOTIFICATIONS_COLLECTION,
+      )
+      .doc(),
     {
-      actorId: administrator.uid,
+      userId: user.id,
+      title:
+        notification.title,
+      message:
+        notification.message,
+      type: "account",
+      relatedId: user.id,
+      relatedCollection:
+        USERS_COLLECTION,
+      isRead: false,
+      readAt: null,
+      createdAt: timestamp,
+    },
+  );
+
+  batch.create(
+    adminDb
+      .collection(
+        ADMIN_LOGS_COLLECTION,
+      )
+      .doc(),
+    {
+      actorId:
+        administrator.uid,
       actorRole: "admin",
-      action: isBlocked
-        ? "user_account_blocked"
-        : "user_account_unblocked",
-      description: isBlocked
-        ? `Blocked ${user.fullName} account.`
-        : `Unblocked ${user.fullName} account.`,
-      targetCollection: USERS_COLLECTION,
+
+      action:
+        input.decision ===
+          "restore"
+          ? "user_account_access_restored"
+          : input.decision ===
+              "block"
+            ? "user_account_blocked"
+            : "user_account_disabled",
+
+      description:
+        input.decision ===
+          "restore"
+          ? `Restored access to ${user.fullName}'s account.`
+          : input.decision ===
+              "block"
+            ? `Blocked ${user.fullName}'s account.`
+            : `Disabled ${user.fullName}'s account.`,
+
+      targetCollection:
+        USERS_COLLECTION,
       targetId: user.id,
+
+      reason:
+        internalReason,
+
+      source:
+        "admin_user_management",
+
+      before: {
+        isActive:
+          currentIsActive,
+        isBlocked:
+          currentIsBlocked,
+        accountStatus:
+          resolveAccountStatus(
+            currentIsActive,
+            currentIsBlocked,
+          ),
+      },
+
+      after: {
+        isActive:
+          target.isActive,
+        isBlocked:
+          target.isBlocked,
+        accountStatus:
+          target.accountStatus,
+      },
+
+      metadata: {
+        decision:
+          input.decision,
+        userExplanation,
+        role: user.role,
+      },
+
       createdAt: timestamp,
     },
   );
 
   await batch.commit();
+
   invalidateUserStatisticsCache();
+
+  return {
+    userId: user.id,
+    accountStatus:
+      target.accountStatus,
+    changed: true,
+  };
 }

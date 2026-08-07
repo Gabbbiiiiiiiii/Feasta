@@ -12,6 +12,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  cn,
+} from "@/lib/utils";
 
 type ConfirmationDialogProps = {
   title: string;
@@ -33,6 +36,8 @@ type ConfirmationDialogProps = {
   loading?: boolean;
   confirmDisabled?: boolean;
   loadingLabel?: string;
+  contentClassName?: string;
+  bodyClassName?: string;
 };
 
 function ConfirmationDialog({
@@ -49,6 +54,8 @@ function ConfirmationDialog({
   loading = false,
   confirmDisabled = false,
   loadingLabel = "Submitting",
+  contentClassName,
+  bodyClassName,
 }: ConfirmationDialogProps) {
   const [pending, setPending] =
     React.useState(false);
@@ -88,6 +95,7 @@ function ConfirmationDialog({
       ) : null}
 
       <DialogContent
+        className={contentClassName}
         showCloseButton={!isBusy}
         onEscapeKeyDown={(event) => {
           if (isBusy) {
@@ -113,7 +121,12 @@ function ConfirmationDialog({
         </DialogHeader>
 
         {children ? (
-          <div className="min-w-0">
+          <div
+            className={cn(
+              "min-h-0 min-w-0",
+              bodyClassName,
+            )}
+          >
             {children}
           </div>
         ) : null}

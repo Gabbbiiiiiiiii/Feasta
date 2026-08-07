@@ -2,22 +2,23 @@
 
 import {
   Ban,
-  CheckCircle2,
   Eye,
   ShieldCheck,
   UserRoundCheck,
   Users,
 } from "lucide-react";
 import {
+  useCallback,
   useMemo,
+  useRef,
   useState,
   useTransition,
 } from "react";
 
 import {
+  loadAdminUserDetailsAction,
   loadAdminUsersAction,
-  updateAccountStatusAction,
-  updateBlockedStatusAction,
+  manageAccountAccessAction,
 } from "@/app/admin/users/actions";
 import {
   CursorPagination,
@@ -28,10 +29,15 @@ import {
   type DataTableColumn,
 } from "@/components/data";
 import { Button } from "@/components/ui/button";
+import {
+  ConfirmationDialog,
+} from "@/components/shared/confirmation-dialog";
 import type {
+  AdminAccountAccessDecision,
   AdminAccountStatus,
   AdminManagedRole,
   AdminUser,
+  AdminUserDetails,
   AdminUserFilters,
   AdminUserPage,
   AdminVerificationStatus,
@@ -44,6 +50,15 @@ import { cn } from "@/lib/utils";
 type UserManagementClientProps = {
   initialPage: AdminUserPage;
 };
+
+type PendingAccountAction = {
+  user: AdminUser;
+} | null;
+
+type UserModalView =
+| "closed"
+| "details"
+| "access";
 
 const defaultFilters: AdminUserFilters = {
   search: "",
@@ -127,6 +142,59 @@ function UserManagementClient({
   const [selectedUser, setSelectedUser] =
     useState<AdminUser | null>(null);
 
+  const [
+    selectedUserDetails,
+    setSelectedUserDetails,
+  ] = useState<AdminUserDetails | null>(
+    null,
+  );
+
+  const [
+    userModalView,
+    setUserModalView,
+  ] = useState<UserModalView>("closed");
+
+  const [
+    userDetailsLoading,
+    setUserDetailsLoading,
+  ] = useState(false);
+
+  const [
+    userDetailsError,
+    setUserDetailsError,
+  ] = useState<string | null>(null);
+
+  const userDetailsRequestId =
+    useRef(0);
+
+  const [
+    pendingAccountAction,
+    setPendingAccountAction,
+  ] = useState<PendingAccountAction>(null);
+
+  const [
+    accessDecision,
+    setAccessDecision,
+  ] =
+    useState<AdminAccountAccessDecision>(
+      "disable",
+    );
+
+  const [
+    userExplanation,
+    setUserExplanation,
+  ] = useState("");
+
+  const [
+    internalReason,
+    setInternalReason,
+  ] = useState("");
+
+  const [
+    accountActionError,
+    setAccountActionError,
+  ] = useState<string | null>(null);
+
   const [pageHistory, setPageHistory] = useState<
     AdminUserPage[]
   >([]);
@@ -163,6 +231,96 @@ function UserManagementClient({
       );
     }
   };
+
+  const loadSelectedUserDetails =
+    useCallback((
+      user: AdminUser,
+    ) => {
+    const requestId =
+      userDetailsRequestId.current + 1;
+
+    userDetailsRequestId.current =
+      requestId;
+
+    setUserDetailsLoading(true);
+    setUserDetailsError(null);
+
+    void loadAdminUserDetailsAction(
+      user.id,
+    )
+      .then((result) => {
+        if (
+          userDetailsRequestId.current !==
+          requestId
+        ) {
+          return;
+        }
+
+        setSelectedUserDetails(
+          result.details,
+        );
+      })
+      .catch((caughtError: unknown) => {
+        if (
+          userDetailsRequestId.current !==
+          requestId
+        ) {
+          return;
+        }
+
+        setSelectedUserDetails(null);
+        setUserDetailsError(
+          caughtError instanceof Error &&
+            caughtError.message.trim()
+            ? caughtError.message
+            : "Account details could not be loaded.",
+        );
+      })
+      .finally(() => {
+        if (
+          userDetailsRequestId.current ===
+          requestId
+        ) {
+          setUserDetailsLoading(false);
+        }
+      });
+    }, []);
+
+  const openUserDetails = useCallback(
+    (user: AdminUser) => {
+      setSelectedUser(user);
+      setSelectedUserDetails(null);
+      setUserDetailsError(null);
+      setUserModalView("details");
+
+      loadSelectedUserDetails(user);
+    },
+    [loadSelectedUserDetails],
+  );
+
+  const closeUserDetails = useCallback(() => {
+    userDetailsRequestId.current += 1;
+
+    setUserModalView("closed");
+    setSelectedUser(null);
+    setSelectedUserDetails(null);
+    setUserDetailsError(null);
+    setUserDetailsLoading(false);
+  }, []);
+
+  const retrySelectedUserDetails =
+    useCallback(() => {
+      if (!selectedUser) {
+        return;
+      }
+
+      loadSelectedUserDetails(
+        selectedUser,
+      );
+    }, [
+      loadSelectedUserDetails,
+      selectedUser,
+    ]);
 
   const clearFilters = () => {
     setSearchValue("");
@@ -231,84 +389,160 @@ function UserManagementClient({
     });
   };
 
-  const changeAccountActiveStatus = (
+  const openAccessManagement = (
     user: AdminUser,
+    returnToDetails = false,
   ) => {
-    const nextActiveStatus = !user.isActive;
+    setAccountActionError(null);
 
-    const confirmed = window.confirm(
-      nextActiveStatus
-        ? `Enable ${user.fullName}'s account?`
-        : `Disable ${user.fullName}'s account?`,
+    setAccessDecision(
+      user.accountStatus === "active"
+        ? "disable"
+        : "restore",
     );
 
-    if (!confirmed) {
-      return;
+    setUserExplanation(
+      user.accountStatus === "active"
+        ? ""
+        : "Your FEASTA account access has been restored.",
+    );
+
+    setInternalReason("");
+
+    setPendingAccountAction({
+      user,
+    });
+
+    if (returnToDetails) {
+      setSelectedUser(user);
+    } else {
+      setSelectedUser(null);
+      setSelectedUserDetails(null);
     }
 
-    startTransition(async () => {
-      setError(null);
-
-      try {
-        await updateAccountStatusAction({
-          userId: user.id,
-          isActive: nextActiveStatus,
-        });
-
-        setSelectedUser(null);
-
-        await executeQuery({
-          ...filters,
-          cursor: null,
-        });
-      } catch (actionError) {
-        setError(
-          actionError instanceof Error
-            ? actionError.message
-            : "Unable to update the account.",
-        );
-      }
-    });
+    setUserModalView("access");
   };
 
-  const changeBlockedStatus = (
-    user: AdminUser,
-  ) => {
-    const nextBlockedStatus = !user.isBlocked;
+const closeAccessManagement = (
+  restoreUserDetails = true,
+) => {
+  setPendingAccountAction(null);
+  setAccountActionError(null);
+  setUserExplanation("");
+  setInternalReason("");
 
-    const confirmed = window.confirm(
-      nextBlockedStatus
-        ? `Block ${user.fullName}'s account?`
-        : `Unblock ${user.fullName}'s account?`,
-    );
+  setUserModalView(
+    restoreUserDetails && selectedUser
+      ? "details"
+      : "closed",
+  );
+};
 
-    if (!confirmed) {
+const accessActionCopy = {
+  disable: {
+    title: "Disable account access?",
+    description:
+      "Use administrative deactivation when an account should temporarily stop accessing FEASTA without identifying it as a security or policy violation.",
+    confirmLabel: "Disable access",
+    loadingLabel: "Disabling access",
+    destructive: true,
+  },
+
+  block: {
+    title: "Block this account?",
+    description:
+      "Use a security restriction only for policy violations, abuse, fraud, compromised access, or another security concern.",
+    confirmLabel: "Block account",
+    loadingLabel: "Blocking account",
+    destructive: true,
+  },
+
+  restore: {
+    title: "Restore account access?",
+    description:
+      "The restriction will be removed and the account will regain access according to its role and provider verification state.",
+    confirmLabel: "Restore access",
+    loadingLabel: "Restoring access",
+    destructive: false,
+  },
+}[accessDecision];
+
+const normalizedUserExplanation =
+  userExplanation
+    .trim()
+    .replace(/\s+/g, " ");
+
+const normalizedInternalReason =
+  internalReason
+    .trim()
+    .replace(/\s+/g, " ");
+
+const selectedDecisionMatchesStatus =
+  pendingAccountAction
+    ? (
+        accessDecision === "restore" &&
+        pendingAccountAction.user.accountStatus ===
+          "active"
+      ) ||
+      (
+        accessDecision === "disable" &&
+        pendingAccountAction.user.accountStatus ===
+          "disabled"
+      ) ||
+      (
+        accessDecision === "block" &&
+        pendingAccountAction.user.accountStatus ===
+          "blocked"
+      )
+    : false;
+
+const accessFormIsValid =
+  normalizedUserExplanation.length >= 10 &&
+  normalizedUserExplanation.length <= 500 &&
+  normalizedInternalReason.length >= 10 &&
+  normalizedInternalReason.length <= 1000 &&
+  !selectedDecisionMatchesStatus;
+
+const confirmAccountAction =
+  async () => {
+    if (
+      !pendingAccountAction ||
+      !accessFormIsValid
+    ) {
       return;
     }
 
-    startTransition(async () => {
-      setError(null);
+    setAccountActionError(null);
+    setError(null);
 
-      try {
-        await updateBlockedStatusAction({
-          userId: user.id,
-          isBlocked: nextBlockedStatus,
-        });
+    try {
+      await manageAccountAccessAction({
+        userId:
+          pendingAccountAction.user.id,
+        decision:
+          accessDecision,
+        userExplanation:
+          normalizedUserExplanation,
+        internalReason:
+          normalizedInternalReason,
+      });
 
-        setSelectedUser(null);
+      await executeQuery({
+        ...filters,
+        cursor: null,
+      });
 
-        await executeQuery({
-          ...filters,
-          cursor: null,
-        });
-      } catch (actionError) {
-        setError(
-          actionError instanceof Error
-            ? actionError.message
-            : "Unable to update the blocked status.",
-        );
-      }
-    });
+      closeAccessManagement(false);
+      closeUserDetails();
+    } catch (actionError) {
+      const message =
+        actionError instanceof Error
+          ? actionError.message
+          : "The account access decision could not be completed.";
+
+      setAccountActionError(message);
+      setError(message);
+    }
   };
 
   const columns = useMemo<
@@ -321,7 +555,7 @@ function UserManagementClient({
         cell: (user) => (
           <button
             type="button"
-            onClick={() => setSelectedUser(user)}
+            onClick={() => openUserDetails(user)}
             className="flex min-w-[15rem] items-center gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <AdminUserAvatar user={user} />
@@ -406,7 +640,7 @@ function UserManagementClient({
         cell: (user) => formatDate(user.lastLoginAt),
       },
     ],
-    [],
+    [openUserDetails],
   );
 
   const statistics = page.statistics;
@@ -630,66 +864,31 @@ function UserManagementClient({
         rowActions={(user) => (
         <div className="flex justify-end gap-2">
             <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setSelectedUser(user)}
-            aria-label={`View ${user.fullName}`}
-            title="View details"
-            className="bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700"
-            >
-            <Eye aria-hidden="true" />
+              variant="ghost"
+              size="icon"
+              onClick={() => openUserDetails(user)}
+              aria-label={`View ${user.fullName}`}
+              title="View details"
+              className="bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700"
+              >
+              <Eye aria-hidden="true" />
             </Button>
 
             <Button
-            variant="ghost"
-            size="icon"
-            onClick={() =>
-                changeAccountActiveStatus(user)
-            }
-            aria-label={
-                user.isActive
-                ? `Disable ${user.fullName}`
-                : `Enable ${user.fullName}`
-            }
-            title={
-                user.isActive
-                ? "Disable account"
-                : "Enable account"
-            }
-            className={cn(
-                user.isActive
-                ? "bg-amber-50 text-amber-600 hover:bg-amber-100 hover:text-amber-700"
-                : "bg-green-50 text-green-600 hover:bg-green-100 hover:text-green-700",
-            )}
+              variant="ghost"
+              size="icon"
+              onClick={() =>
+                openAccessManagement(user)
+              }
+              aria-label={`Manage access for ${user.fullName}`}
+              title="Manage account access"
+              className={cn(
+                user.accountStatus === "active"
+                  ? "bg-amber-50 text-amber-700 hover:bg-amber-100 hover:text-amber-800"
+                  : "bg-red-50 text-red-700 hover:bg-red-100 hover:text-red-800",
+              )}
             >
-            {user.isActive ? (
-                <Ban aria-hidden="true" />
-            ) : (
-                <CheckCircle2 aria-hidden="true" />
-            )}
-            </Button>
-
-            <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => changeBlockedStatus(user)}
-            aria-label={
-                user.isBlocked
-                ? `Unblock ${user.fullName}`
-                : `Block ${user.fullName}`
-            }
-            title={
-                user.isBlocked
-                ? "Unblock account"
-                : "Block account"
-            }
-            className={cn(
-                user.isBlocked
-                ? "bg-green-50 text-green-600 hover:bg-green-100 hover:text-green-700"
-                : "bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700",
-            )}
-            >
-            <ShieldCheck aria-hidden="true" />
+              <ShieldCheck aria-hidden="true" />
             </Button>
         </div>
         )}
@@ -714,7 +913,9 @@ function UserManagementClient({
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => setSelectedUser(user)}
+                onClick={() =>
+                  openUserDetails(user)
+                }
                 aria-label={`View ${user.fullName}`}
               >
                 <Eye aria-hidden="true" />
@@ -781,10 +982,13 @@ function UserManagementClient({
       />
 
       <DetailDrawer
-        open={selectedUser !== null}
+        open={
+          userModalView === "details" &&
+          selectedUser !== null
+        }
         onOpenChange={(open) => {
           if (!open) {
-            setSelectedUser(null);
+            closeUserDetails();
           }
         }}
         title="User Details"
@@ -795,40 +999,290 @@ function UserManagementClient({
         }
         footer={
           selectedUser ? (
-            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2">
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  changeAccountActiveStatus(
-                    selectedUser,
-                  )
-                }
-                disabled={isPending}
-              >
-                {selectedUser.isActive
-                  ? "Disable account"
-                  : "Enable account"}
-              </Button>
+            <Button
+              className="w-full sm:w-auto"
+              variant={
+                selectedUser.accountStatus ===
+                  "active"
+                  ? "destructive"
+                  : "primary"
+              }
+              onClick={() =>
+                openAccessManagement(
+                  selectedUser,
+                  true,
+                )
+              }
+              disabled={isPending}
+            >
+              <ShieldCheck
+                aria-hidden="true"
+              />
 
-              <Button
-                variant="destructive"
-                onClick={() =>
-                  changeBlockedStatus(selectedUser)
-                }
-                disabled={isPending}
-              >
-                {selectedUser.isBlocked
-                  ? "Unblock account"
-                  : "Block account"}
-              </Button>
-            </div>
+              Manage account access
+            </Button>
           ) : null
         }
       >
         {selectedUser ? (
-            <UserDetailsContent user={selectedUser} />
-        ) : null}
+        <UserDetailsContent
+          user={selectedUser}
+          details={selectedUserDetails}
+          loading={userDetailsLoading}
+          error={userDetailsError}
+          onRetry={
+            retrySelectedUserDetails
+          }
+        />
+      ) : null}
       </DetailDrawer>
+
+      <ConfirmationDialog
+        open={
+          userModalView === "access" &&
+          pendingAccountAction !== null
+        }
+        contentClassName="grid max-h-[90dvh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-4xl"
+        bodyClassName="overflow-y-auto overscroll-contain pr-3 [scrollbar-gutter:stable]"
+        onOpenChange={(open) => {
+          if (!open) {
+            closeAccessManagement();
+          }
+        }}
+        title={accessActionCopy.title}
+        description={
+          accessActionCopy.description
+        }
+        confirmLabel={
+          accessActionCopy.confirmLabel
+        }
+        loadingLabel={
+          accessActionCopy.loadingLabel
+        }
+        destructive={
+          accessActionCopy.destructive
+        }
+        confirmDisabled={
+          !accessFormIsValid
+        }
+        onConfirm={confirmAccountAction}
+      >
+        {pendingAccountAction ? (
+          <div className="grid gap-5">
+            <div className="rounded-xl border border-border bg-muted/40 p-4">
+              <p className="font-semibold text-foreground">
+                {
+                  pendingAccountAction
+                    .user.fullName
+                }
+              </p>
+
+              <p className="mt-1 break-all text-sm text-muted-foreground">
+                {pendingAccountAction
+                  .user.email ||
+                  "No email address"}
+              </p>
+
+              <p className="mt-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {
+                  pendingAccountAction
+                    .user.role
+                }{" "}
+                account ·{" "}
+                {
+                  pendingAccountAction
+                    .user.accountStatus
+                }
+              </p>
+            </div>
+
+            <fieldset>
+              <legend className="mb-3 font-semibold text-foreground">
+                Access decision
+              </legend>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                {(
+                  [
+                    {
+                      value: "disable",
+                      label:
+                        "Administrative deactivation",
+                      description:
+                        "Temporarily disable access for an operational or administrative reason.",
+                    },
+                    {
+                      value: "block",
+                      label:
+                        "Security or policy restriction",
+                      description:
+                        "Block access because of abuse, fraud, policy, or security concerns.",
+                    },
+                    {
+                      value: "restore",
+                      label:
+                        "Restore account access",
+                      description:
+                        "Remove the current restriction and restore appropriate account access.",
+                    },
+                  ] as const
+                ).map((option) => (
+                  <label
+                    key={option.value}
+                    className={cn(
+                      "flex min-h-36 cursor-pointer gap-3 rounded-xl border p-4 transition-colors",
+                      accessDecision ===
+                        option.value
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:bg-muted/40",
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="accessDecision"
+                      value={option.value}
+                      checked={
+                        accessDecision ===
+                        option.value
+                      }
+                      onChange={() => {
+                        setAccessDecision(
+                          option.value,
+                        );
+
+                        if (
+                          option.value ===
+                            "restore" &&
+                          !userExplanation.trim()
+                        ) {
+                          setUserExplanation(
+                            "Your FEASTA account access has been restored.",
+                          );
+                        }
+                      }}
+                      className="mt-1 size-4 shrink-0 accent-primary"
+                    />
+
+                    <span className="min-w-0">
+                      <span className="block font-semibold text-foreground">
+                        {option.label}
+                      </span>
+
+                      <span className="mt-1 block text-sm leading-5 text-muted-foreground">
+                        {option.description}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            {selectedDecisionMatchesStatus ? (
+              <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
+                This account already has the
+                selected access state. Choose a
+                different decision.
+              </p>
+            ) : null}
+
+            <label className="grid gap-2">
+              <span className="font-semibold text-foreground">
+                Explanation for the user
+              </span>
+
+              <span className="text-sm text-muted-foreground">
+                This message may be shown to the
+                account owner. Do not include
+                confidential investigation details.
+              </span>
+
+              <p className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                Both explanations are required and must contain at least 10 characters.
+              </p>
+
+              <textarea
+                value={userExplanation}
+                onChange={(event) =>
+                  setUserExplanation(
+                    event.target.value,
+                  )
+                }
+                rows={4}
+                maxLength={500}
+                placeholder="Explain the access decision clearly and respectfully."
+                className="min-h-32 w-full resize-y rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+
+              <span
+                className={cn(
+                  "text-right text-xs",
+                  normalizedUserExplanation.length > 0 &&
+                    normalizedUserExplanation.length < 10
+                    ? "text-destructive"
+                    : "text-muted-foreground",
+                )}
+              >
+                {normalizedUserExplanation.length}/500
+                {normalizedUserExplanation.length < 10
+                  ? " · Minimum 10"
+                  : ""}
+              </span>
+            </label>
+
+            <label className="grid gap-2">
+              <span className="font-semibold text-foreground">
+                Internal administrative reason
+              </span>
+
+              <span className="text-sm text-muted-foreground">
+                Private audit information visible
+                only to authorized administrators.
+              </span>
+
+              <p className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                Both explanations are required and must contain at least 10 characters.
+              </p>
+
+              <textarea
+                value={internalReason}
+                onChange={(event) =>
+                  setInternalReason(
+                    event.target.value,
+                  )
+                }
+                rows={4}
+                maxLength={1000}
+                placeholder="Record the evidence, policy, request, or operational reason supporting this decision."
+                className="min-h-32 w-full resize-y rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+
+              <span
+                className={cn(
+                  "text-right text-xs",
+                  normalizedInternalReason.length > 0 &&
+                    normalizedInternalReason.length < 10
+                    ? "text-destructive"
+                    : "text-muted-foreground",
+                )}
+              >
+                {normalizedInternalReason.length}/1000
+                {normalizedInternalReason.length < 10
+                  ? " · Minimum 10"
+                  : ""}
+              </span>
+            </label>
+
+            {accountActionError ? (
+              <p
+                role="alert"
+                className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+              >
+                {accountActionError}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </ConfirmationDialog>
     </div>
   );
 }
