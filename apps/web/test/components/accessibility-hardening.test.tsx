@@ -2,6 +2,20 @@ import {render, screen} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {describe, expect, it, vi} from "vitest";
 
+vi.mock(
+  "@/components/layout/notification-menu",
+  () => ({
+    NotificationMenu: () => (
+      <button
+        type="button"
+        aria-label="Notifications"
+      >
+        Notifications
+      </button>
+    ),
+  }),
+);
+
 vi.mock("next/navigation", () => ({
   usePathname: () => "/admin/providers",
   useRouter: () => ({replace: vi.fn(), refresh: vi.fn()}),

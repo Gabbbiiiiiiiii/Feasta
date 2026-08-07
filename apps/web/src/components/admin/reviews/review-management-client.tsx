@@ -5,7 +5,6 @@ import {
   EyeOff,
   Flag,
   MessageSquareText,
-  RefreshCw,
   Star,
 } from "lucide-react";
 import {
@@ -271,21 +270,6 @@ function ReviewManagementClient({
         eyebrow="Administration"
         title="Review Management"
         description="Monitor verified customer feedback, provider replies, reports, and moderation decisions."
-        actions={
-          <Button
-            type="button"
-            variant="secondary"
-            size="compact"
-            disabled={isPending}
-            onClick={retryPage}
-          >
-            <RefreshCw
-              aria-hidden="true"
-              className={cn("size-4", isPending && "animate-spin motion-reduce:animate-none")}
-            />
-            Refresh
-          </Button>
-        }
       />
 
       <section

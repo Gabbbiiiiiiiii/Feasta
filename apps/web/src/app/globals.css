@@ -206,3 +206,95 @@ input[type="search"]::-webkit-search-results-decoration {
     transition-duration: 0.01ms !important;
   }
 }
+
+@page {
+  size: A4 portrait;
+  margin: 12mm 12mm 14mm;
+}
+
+@media print {
+  html,
+  body {
+    width: 100%;
+    min-height: auto;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #2b211d !important;
+  }
+
+  body {
+    font-size: 9pt;
+    line-height: 1.35;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  [data-print-hidden] {
+    display: none !important;
+  }
+
+  [data-application-shell],
+  [data-application-shell] > div,
+  [data-print-main] {
+    display: block !important;
+    width: 100% !important;
+    min-height: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+  }
+
+  [data-admin-report] {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    gap: 5mm !important;
+  }
+
+  [data-print-header],
+  [data-print-footer] {
+    display: block !important;
+  }
+
+  [data-admin-report] section,
+  [data-admin-report] article,
+  [data-admin-report] table,
+  [data-admin-report] tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  [data-admin-report] h1,
+  [data-admin-report] h2,
+  [data-admin-report] h3,
+  [data-admin-report] h4 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  [data-admin-report] thead {
+    display: table-header-group;
+  }
+
+  [data-admin-report] tfoot {
+    display: table-footer-group;
+  }
+
+  [data-admin-report] button,
+  [data-admin-report] select,
+  [data-admin-report] input {
+    display: none !important;
+  }
+
+  [data-admin-report] * {
+    box-shadow: none !important;
+  }
+
+  [data-admin-report] a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+}

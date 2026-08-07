@@ -175,7 +175,28 @@ describe("admin reports integration", () => {
     await waitFor(() => expect(mocks.loadReport).toHaveBeenCalledWith(
       expect.objectContaining({datePreset: "last_7_days"}),
     ));
-    expect(await screen.findByText("Jul 26, 2026 – Aug 1, 2026")).toBeInTheDocument();
+    const periodLabels =
+      await screen.findAllByText(
+        "Jul 26, 2026 – Aug 1, 2026",
+      );
+
+    expect(periodLabels).toHaveLength(2);
+
+    expect(
+      periodLabels.some((element) =>
+        element.closest(
+          "[data-print-header]",
+        ),
+      ),
+    ).toBe(true);
+
+    expect(
+      periodLabels.some((element) =>
+        element.closest(
+          "[data-print-hidden]",
+        ),
+      ),
+    ).toBe(true);
   });
 });
 

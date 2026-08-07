@@ -5,7 +5,6 @@ import {
   CalendarClock,
   Eye,
   PhilippinePeso,
-  RotateCcw,
 } from "lucide-react";
 import {
   useCallback,
@@ -445,31 +444,6 @@ function BookingMonitoringClient({
         eyebrow="Administration"
         title="Booking Monitoring"
         description="Monitor customer events, provider responses, and payment progress across FEASTA."
-        actions={
-          <Button
-            variant="secondary"
-            size="compact"
-            disabled={isPending}
-            onClick={() =>
-              loadPage(
-                {
-                  ...filters,
-                  cursor: null,
-                },
-                {
-                  nextHistory: [],
-                  nextPageNumber: 1,
-                },
-              )
-            }
-          >
-            <RotateCcw
-              aria-hidden="true"
-              className="size-4"
-            />
-            Refresh
-          </Button>
-        }
       />
 
       <section

@@ -7,6 +7,20 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/auth/client-session", () => ({logoutWebSession: vi.fn().mockResolvedValue(undefined)}));
 
+vi.mock(
+  "@/components/layout/notification-menu",
+  () => ({
+    NotificationMenu: () => (
+      <button
+        type="button"
+        aria-label="Notifications"
+      >
+        Notifications
+      </button>
+    ),
+  }),
+);
+
 import {ChartContainer, DataTable, DetailDrawer, FilterToolbar, ManagementModal, SummaryCard, type DataTableColumn} from "@/components/data";
 import {AuthCard} from "@/components/auth/auth-card";
 import {FormField} from "@/components/forms/form-field";

@@ -7,7 +7,6 @@ import {
   CircleDollarSign,
   Clock3,
   Printer,
-  RefreshCw,
   Users,
   UserRoundCheck,
   XCircle,
@@ -117,8 +116,82 @@ export function AdminReportsExecutiveClient({
 };
 
   return (
-    <div className="grid min-w-0 gap-6">
-      <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div
+      data-admin-report
+      className="grid min-w-0 gap-6"
+    >
+      <header
+        data-print-header
+        className="hidden"
+      >
+        <div className="flex items-start justify-between gap-8 border-b-2 border-[#2B211D] pb-4">
+          <div>
+            <p className="text-[10pt] font-black tracking-[0.14em] text-[#FF5A36]">
+              FEASTA
+            </p>
+
+            <h1 className="mt-1 text-[20pt] font-black text-[#2B211D]">
+              Administrative Report
+            </h1>
+
+            <p className="mt-1 text-[9pt] text-[#5F554F]">
+              Reports and Insights · Authorized operational data
+            </p>
+          </div>
+
+          <div className="text-right text-[8.5pt] leading-5 text-[#5F554F]">
+            <p className="font-bold text-[#2B211D]">
+              FEASTA Platform
+            </p>
+            <p>Ormoc City, Philippines</p>
+            <p>Currency: {report.currency}</p>
+            <p>Time zone: {report.timeZone}</p>
+          </div>
+        </div>
+
+        <dl className="mt-4 grid grid-cols-2 gap-x-10 gap-y-2 border-b border-[#D8D0CA] pb-4 text-[9pt]">
+          <div className="flex justify-between gap-4">
+            <dt className="font-semibold text-[#5F554F]">
+              Reporting period
+            </dt>
+            <dd className="text-right font-bold">
+              {report.filters.period.label}
+            </dd>
+          </div>
+
+          <div className="flex justify-between gap-4">
+            <dt className="font-semibold text-[#5F554F]">
+              Comparison
+            </dt>
+            <dd className="text-right font-bold">
+              {report.filters.comparisonPeriod?.label ??
+                "None"}
+            </dd>
+          </div>
+
+          <div className="flex justify-between gap-4">
+            <dt className="font-semibold text-[#5F554F]">
+              Trend grouping
+            </dt>
+            <dd className="text-right capitalize">
+              {report.filters.grouping}
+            </dd>
+          </div>
+
+          <div className="flex justify-between gap-4">
+            <dt className="font-semibold text-[#5F554F]">
+              Generated
+            </dt>
+            <dd className="text-right">
+              {formatGeneratedAt(report.generatedAt)}
+            </dd>
+          </div>
+        </dl>
+      </header>
+      <div
+        data-print-hidden
+        className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"
+      >
         <PageHeading
           eyebrow="Administration"
           title="Reports and Insights"
@@ -158,29 +231,11 @@ export function AdminReportsExecutiveClient({
                 />
                 Print
             </Button>
-
-            <Button
-                type="button"
-                variant="secondary"
-                disabled={isPending}
-                onClick={runReport}
-            >
-                <RefreshCw
-                aria-hidden="true"
-                className={
-                    isPending
-                    ? "size-4 animate-spin"
-                    : "size-4"
-                }
-                />
-                {isPending
-                ? "Generating"
-                : "Refresh report"}
-            </Button>
             </div>
       </div>
 
       <section
+        data-print-hidden
         aria-labelledby="report-controls-heading"
         className="rounded-card border border-border bg-card p-4 shadow-card sm:p-5"
       >
@@ -291,6 +346,7 @@ export function AdminReportsExecutiveClient({
 
       {error ? (
         <div
+          data-print-hidden
           role="alert"
           className="rounded-card border border-destructive/40 bg-destructive/10 p-4 text-sm font-semibold text-destructive"
         >
@@ -429,8 +485,27 @@ export function AdminReportsExecutiveClient({
         </dl>
       </section>
 
-      <p className="text-xs text-muted-foreground">
-        Generated {formatGeneratedAt(report.generatedAt)} · Asia/Manila · PHP
+      <footer
+        data-print-footer
+        className="hidden"
+      >
+        <div className="mt-8 flex items-center justify-between border-t border-[#D8D0CA] pt-3 text-[8pt] text-[#6F655F]">
+          <p>
+            FEASTA Administrative Report
+          </p>
+
+          <p>
+            Confidential · Authorized administrative use only
+          </p>
+        </div>
+      </footer>
+
+      <p
+        data-print-hidden
+        className="text-xs text-muted-foreground"
+      >
+        Generated {formatGeneratedAt(report.generatedAt)} ·{" "}
+        {report.timeZone} · {report.currency}
       </p>
     </div>
   );

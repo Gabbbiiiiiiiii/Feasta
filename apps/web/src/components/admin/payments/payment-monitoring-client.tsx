@@ -4,7 +4,6 @@ import {
   CircleAlert,
   Clock3,
   PhilippinePeso,
-  RefreshCw,
   RotateCcw,
 } from "lucide-react";
 import {
@@ -514,25 +513,6 @@ const handleRefundRequested =
         eyebrow="Administration"
         title="Payment Monitoring"
         description="Monitor booking payments, PayMongo activity, transaction issues, and refund eligibility."
-        actions={
-          <Button
-            type="button"
-            variant="secondary"
-            size="compact"
-            disabled={isPending}
-            onClick={retryPage}
-          >
-            <RefreshCw
-              aria-hidden="true"
-              className={
-                isPending
-                  ? "animate-spin motion-reduce:animate-none"
-                  : undefined
-              }
-            />
-            Refresh
-          </Button>
-        }
       />
 
       <section

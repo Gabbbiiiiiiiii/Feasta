@@ -9,7 +9,7 @@ export default async function AdminAccountPage() {
   return (
     <div className="grid gap-6">
       <PageHeading
-        eyebrow="Admin account"
+        eyebrow="Administration"
         title="Administrative profile"
         description="Manage limited personal fields, preferences, credentials, and trusted sessions."
       />
