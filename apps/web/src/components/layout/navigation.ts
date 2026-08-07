@@ -12,6 +12,7 @@ import {
   MessageSquareText,
   MessageSquareWarning,
   Settings2,
+  ScrollText,
   PackageOpen,
   ShieldCheck,
   Store,
@@ -137,6 +138,11 @@ export const roleNavigation: Record<
       label: "Announcements",
       href: "/admin/announcements",
       icon: Megaphone,
+    },
+    {
+      label: "Audit Logs",
+      href: "/admin/audit-logs",
+      icon: ScrollText,
     },
     {
       label: "Reports",
