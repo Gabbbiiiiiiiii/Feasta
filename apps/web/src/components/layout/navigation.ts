@@ -11,6 +11,7 @@ import {
   Megaphone,
   MessageSquareText,
   MessageSquareWarning,
+  Settings2,
   PackageOpen,
   ShieldCheck,
   Store,
@@ -141,6 +142,11 @@ export const roleNavigation: Record<
       label: "Reports",
       href: "/admin/reports",
       icon: ChartNoAxesCombined,
+    },
+    {
+      label: "Settings",
+      href: "/admin/settings",
+      icon: Settings2,
     },
   ],
 };
