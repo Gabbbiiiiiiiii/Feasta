@@ -323,6 +323,17 @@ export const reviewProviderVerification = onCall(
             providerUpdate,
           );
 
+          transaction.update(
+            db.collection("users").doc(ownerId),
+            {
+              verificationStatus:
+                adminUserVerificationStatus(
+                  nextStatus,
+                ),
+              updatedAt: serverTimestamp(),
+            },
+          );
+
           for (const documentReference of approvedDocumentReferences) {
             transaction.update(documentReference, {
               status: "verified",
@@ -613,6 +624,28 @@ function buildVerificationUpdate({
   }
 
   return update;
+}
+
+function adminUserVerificationStatus(
+  status:
+    | "under_review"
+    | "approved"
+    | "rejected"
+    | "resubmission_required"
+    | "suspended",
+): "verified" | "pending" | "rejected" {
+  switch (status) {
+    case "approved":
+      return "verified";
+
+    case "rejected":
+    case "resubmission_required":
+    case "suspended":
+      return "rejected";
+
+    case "under_review":
+      return "pending";
+  }
 }
 
 function buildProviderUpdate({

@@ -367,6 +367,16 @@ export const submitProviderVerification = onCall(
             },
           );
 
+          transaction.update(
+            db
+              .collection("users")
+              .doc(authenticatedUser.uid),
+            {
+              verificationStatus: "pending",
+              updatedAt: serverTimestamp(),
+            },
+          );
+
           const auditLogReference = writeAuditLogInTransaction(
             transaction,
             {

@@ -52,7 +52,10 @@ test("provider onboarding validation normalizes the canonical input", () => {
   assert.deepEqual(result.value.serviceAreas, ["Ormoc City"]);
   assert.equal(result.value.providerServiceType, "both");
   assert.equal(result.value.businessPhone, "+639171234567");
-  assert.equal(result.value.logoStoragePath, null);
+  assert.equal(result.value.logoUrl, null);
+  assert.equal(result.value.logoPublicId, null);
+  assert.equal(result.value.coverImageUrl, null);
+  assert.equal(result.value.coverPublicId, null);
   assert.equal(result.value.minGuestsPerEvent, 20);
   assert.deepEqual(result.value.operatingDays, ["monday", "saturday"]);
 });
@@ -91,21 +94,73 @@ test("provider contact normalization accepts reasonable Philippine forms", () =>
   assert.equal(normalizePhilippinePhone("+1 555 1234"), null);
 });
 
-test("provider media paths accept only canonical image locations", () => {
+test("provider media accepts only canonical Cloudinary assets", () => {
   const allowed = validateProviderOnboardingInput({
     ...valid,
-    logoStoragePath: "providers/provider-one/logo/logo.png",
-    coverStoragePath: "providers/provider-one/cover/cover.webp",
+    logoUrl:
+      "https://res.cloudinary.com/feasta-cloud/image/upload/" +
+      "v1785340800/feasta/providers/provider-one/onboarding/logo.png",
+    logoPublicId:
+      "feasta/providers/provider-one/onboarding/logo",
+    coverImageUrl:
+      "https://res.cloudinary.com/feasta-cloud/image/upload/" +
+      "v1785340800/feasta/providers/provider-one/onboarding/cover.webp",
+    coverPublicId:
+      "feasta/providers/provider-one/onboarding/cover",
   });
+
   assert.equal(allowed.success, true);
-  const denied = validateProviderOnboardingInput({
+
+  const wrongHost = validateProviderOnboardingInput({
     ...valid,
-    logoStoragePath: "providers/provider-one/verification/private.pdf",
+    logoUrl:
+      "https://example.com/feasta/providers/provider-one/onboarding/logo.png",
+    logoPublicId:
+      "feasta/providers/provider-one/onboarding/logo",
   });
-  assert.equal(denied.success, false);
-  assert.ok(denied.issues.some((issue) =>
-    issue.field === "logoStoragePath" && issue.code === "invalid"
-  ));
+
+  assert.equal(wrongHost.success, false);
+  assert.ok(
+    wrongHost.issues.some(
+      (issue) =>
+        issue.field === "logoUrl" &&
+        issue.code === "invalid",
+    ),
+  );
+
+  const mismatchedPair = validateProviderOnboardingInput({
+    ...valid,
+    coverImageUrl:
+      "https://res.cloudinary.com/feasta-cloud/image/upload/" +
+      "v1785340800/feasta/providers/provider-one/onboarding/cover.webp",
+  });
+
+  assert.equal(mismatchedPair.success, false);
+  assert.ok(
+    mismatchedPair.issues.some(
+      (issue) =>
+        issue.field === "coverImageUrl" &&
+        issue.code === "invalid",
+    ),
+  );
+
+  const wrongPublicId = validateProviderOnboardingInput({
+    ...valid,
+    logoUrl:
+      "https://res.cloudinary.com/feasta-cloud/image/upload/" +
+      "v1785340800/feasta/providers/provider-one/onboarding/logo.png",
+    logoPublicId:
+      "feasta/providers/provider-two/onboarding/cover",
+  });
+
+  assert.equal(wrongPublicId.success, false);
+  assert.ok(
+    wrongPublicId.issues.some(
+      (issue) =>
+        issue.field === "logoPublicId" &&
+        issue.code === "invalid",
+    ),
+  );
 });
 
 test("owner identity requires consent while timestamps remain absent", () => {

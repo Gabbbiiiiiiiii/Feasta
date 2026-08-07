@@ -113,8 +113,10 @@ export const PROVIDER_ONBOARDING_CLIENT_FIELDS = [
     "operatingDays",
     "bookingLeadTimeDays",
     "unavailableDates",
-    "logoStoragePath",
-    "coverStoragePath",
+    "logoUrl",
+    "logoPublicId",
+    "coverImageUrl",
+    "coverPublicId",
     "idempotencyKey",
 ];
 export const PROVIDER_SERVER_OWNED_FIELDS = [
@@ -337,8 +339,24 @@ export function validateProviderOnboardingInput(input) {
     if (!acceptsMultipleEventsPerDay && maxEventsPerDay !== 1) {
         issues.push({ field: "maxEventsPerDay", code: "invalid" });
     }
-    const logoStoragePath = optionalStoragePath(input.logoStoragePath, "logoStoragePath", "logo", issues);
-    const coverStoragePath = optionalStoragePath(input.coverStoragePath, "coverStoragePath", "cover", issues);
+    const logoUrl = optionalCloudinaryUrl(input.logoUrl, "logoUrl", "logo", issues);
+    const logoPublicId = optionalCloudinaryPublicId(input.logoPublicId, "logoPublicId", "logo", issues);
+    const coverImageUrl = optionalCloudinaryUrl(input.coverImageUrl, "coverImageUrl", "cover", issues);
+    const coverPublicId = optionalCloudinaryPublicId(input.coverPublicId, "coverPublicId", "cover", issues);
+    if ((logoUrl === null) !==
+        (logoPublicId === null)) {
+        issues.push({
+            field: "logoUrl",
+            code: "invalid",
+        });
+    }
+    if ((coverImageUrl === null) !==
+        (coverPublicId === null)) {
+        issues.push({
+            field: "coverImageUrl",
+            code: "invalid",
+        });
+    }
     const known = new Set(PROVIDER_ONBOARDING_CLIENT_FIELDS);
     for (const field of Object.keys(input)) {
         if (!known.has(field))
@@ -375,8 +393,10 @@ export function validateProviderOnboardingInput(input) {
             operatingDays,
             bookingLeadTimeDays,
             unavailableDates,
-            logoStoragePath,
-            coverStoragePath,
+            logoUrl,
+            logoPublicId,
+            coverImageUrl,
+            coverPublicId,
         },
     };
 }
@@ -522,13 +542,84 @@ function booleanWithDefault(value, field, fallback, issues) {
     }
     return value;
 }
-function optionalStoragePath(value, field, mediaType, issues) {
-    if (value === undefined || value === null)
+function optionalCloudinaryUrl(value, field, mediaType, issues) {
+    if (value === undefined ||
+        value === null ||
+        value === "") {
         return null;
+    }
     if (typeof value !== "string" ||
-        value.length > 500 ||
-        !new RegExp(`^providers/[^/]+/${mediaType}/[^/]+\\.(?:jpe?g|png|webp)$`, "iu").test(value)) {
-        issues.push({ field, code: "invalid" });
+        value.length > 1000) {
+        issues.push({
+            field,
+            code: "invalid",
+        });
+        return null;
+    }
+    try {
+        const url = new URL(value);
+        const segments = url.pathname
+            .split("/")
+            .filter(Boolean);
+        const uploadIndex = segments.indexOf("upload");
+        const publicPath = segments
+            .slice(uploadIndex + 1)
+            .filter((segment) => !/^v\d+$/u.test(segment));
+        const hasExpectedPath = uploadIndex >= 0 &&
+            publicPath.length === 5 &&
+            publicPath[0] === "feasta" &&
+            publicPath[1] === "providers" &&
+            /^[A-Za-z0-9_-]{1,128}$/u.test(publicPath[2] ?? "") &&
+            publicPath[3] === "onboarding" &&
+            new RegExp(`^${mediaType}\\.(?:jpe?g|png|webp)$`, "iu").test(publicPath[4] ?? "");
+        if (url.protocol !== "https:" ||
+            url.hostname !==
+                "res.cloudinary.com" ||
+            url.username !== "" ||
+            url.password !== "" ||
+            url.port !== "" ||
+            url.search !== "" ||
+            url.hash !== "" ||
+            !hasExpectedPath) {
+            issues.push({
+                field,
+                code: "invalid",
+            });
+            return null;
+        }
+        return url.toString();
+    }
+    catch {
+        issues.push({
+            field,
+            code: "invalid",
+        });
+        return null;
+    }
+}
+function optionalCloudinaryPublicId(value, field, mediaType, issues) {
+    if (value === undefined ||
+        value === null ||
+        value === "") {
+        return null;
+    }
+    if (typeof value !== "string" ||
+        value.length > 500) {
+        issues.push({
+            field,
+            code: "invalid",
+        });
+        return null;
+    }
+    const pattern = new RegExp("^feasta/providers/" +
+        "[A-Za-z0-9_-]{1,128}/" +
+        "onboarding/" +
+        `${mediaType}$`, "u");
+    if (!pattern.test(value)) {
+        issues.push({
+            field,
+            code: "invalid",
+        });
         return null;
     }
     return value;

@@ -45,7 +45,7 @@ export declare const PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS: readonly [{
     readonly label: "Other supporting document";
     readonly required: false;
 }];
-export declare const PROVIDER_ONBOARDING_CLIENT_FIELDS: readonly ["ownerFirstName", "ownerLastName", "businessName", "businessEmail", "businessPhone", "description", "address", "city", "province", "locationCoordinates", "providerServiceType", "providerCategory", "serviceCategories", "serviceAreas", "maxServiceDistanceKm", "eventTypesSupported", "minGuestsPerEvent", "maxGuestsPerEvent", "guestCapacity", "acceptsMultipleEventsPerDay", "maxEventsPerDay", "availableStaffCount", "availableEquipmentCount", "operatingDays", "bookingLeadTimeDays", "unavailableDates", "logoStoragePath", "coverStoragePath", "idempotencyKey"];
+export declare const PROVIDER_ONBOARDING_CLIENT_FIELDS: readonly ["ownerFirstName", "ownerLastName", "businessName", "businessEmail", "businessPhone", "description", "address", "city", "province", "locationCoordinates", "providerServiceType", "providerCategory", "serviceCategories", "serviceAreas", "maxServiceDistanceKm", "eventTypesSupported", "minGuestsPerEvent", "maxGuestsPerEvent", "guestCapacity", "acceptsMultipleEventsPerDay", "maxEventsPerDay", "availableStaffCount", "availableEquipmentCount", "operatingDays", "bookingLeadTimeDays", "unavailableDates", "logoUrl", "logoPublicId", "coverImageUrl", "coverPublicId", "idempotencyKey"];
 export declare const PROVIDER_SERVER_OWNED_FIELDS: readonly ["ownerId", "ownerEmail", "ownerPhone", "verificationStatus", "isActive", "isFeatured", "isSuspended", "suspendedAt", "suspendedBy", "approvedAt", "approvedBy", "reviewedAt", "reviewedBy", "rejectionReason", "resubmissionReason", "suspensionReason", "searchTokens", "ratingAverage", "reviewCount", "totalCompletedBookings", "totalViews", "favoriteCount", "createdAt", "updatedAt", "deletedAt", "deletedBy"];
 export type ProviderTimestamp = Date | string | number | {
     seconds: number;
@@ -103,8 +103,10 @@ export interface ProviderOnboardingInput {
     operatingDays: readonly ProviderOperatingDay[];
     bookingLeadTimeDays: number;
     unavailableDates: readonly string[];
-    logoStoragePath: string | null;
-    coverStoragePath: string | null;
+    logoUrl: string | null;
+    logoPublicId: string | null;
+    coverImageUrl: string | null;
+    coverPublicId: string | null;
 }
 export interface ProviderProfile extends ProviderOnboardingInput {
     id: string;
