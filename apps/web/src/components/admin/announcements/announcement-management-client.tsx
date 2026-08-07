@@ -475,7 +475,7 @@ function AnnouncementEditorDialog({
       open={open}
       onOpenChange={onOpenChange}
     >
-      <DialogContent showCloseButton={!busy}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-4xl overflow-y-auto sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>{announcement ? "Edit announcement draft" : "Create announcement"}</DialogTitle>
           <DialogDescription>
