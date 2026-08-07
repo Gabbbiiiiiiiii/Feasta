@@ -213,7 +213,7 @@ export function NotificationsPageClient({role}: {role: ShellRole}) {
   return (
     <div className="grid min-w-0 gap-6">
       <PageHeading
-        eyebrow={`${roleLabel(role)} workspace`}
+        eyebrow="Administration"
         title="Notifications"
         description="Review important booking, payment, verification, and account updates."
         actions={
@@ -387,6 +387,20 @@ function NotificationTypeIcon({type}: {type: string}) {
 
 function notificationDestination(role: ShellRole, notification: FeastaNotification): string | null {
   const collection = notification.relatedCollection?.toLowerCase() ?? "";
+  const knownCollections = [
+    "providerverifications",
+    "payments",
+    "reviews",
+    "mainevents",
+    "bookings",
+    "providerrequests",
+    "bookingproviderrequests",
+  ];
+
+  if (collection && !knownCollections.includes(collection)) {
+    return role === "admin" ? "/admin/notifications" : null;
+  }
+
   if (collection === "providerverifications" || notification.type.toLowerCase().includes("verification")) {
     return role === "admin" ? "/admin/providers" : role === "provider" ? "/provider/verification" : null;
   }
@@ -409,8 +423,4 @@ function formatNotificationDate(value: Date | null): string {
     timeStyle: "short",
     timeZone: "Asia/Manila",
   }).format(value);
-}
-
-function roleLabel(role: ShellRole): string {
-  return role.charAt(0).toUpperCase() + role.slice(1);
 }

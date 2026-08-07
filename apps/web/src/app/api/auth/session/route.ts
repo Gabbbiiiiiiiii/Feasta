@@ -4,6 +4,7 @@ import {USER_ROLES, type UserRole} from "@feasta/shared-types";
 import {
   AccountAccessError,
   createSession,
+  recordSuccessfulWebLogin,
   safeAccountReturnPath,
   SESSION_COOKIE_NAME,
   sessionCookieOptions,
@@ -74,6 +75,18 @@ export async function POST(request: Request) {
         {status: 403},
       );
     }
+
+    try {
+      await recordSuccessfulWebLogin(
+        account.uid,
+      );
+    } catch (error) {
+      console.error(
+        "Unable to record successful web login:",
+        error,
+      );
+    }
+
     if (
       process.env.NODE_ENV === "production" &&
       account.role === "admin" &&

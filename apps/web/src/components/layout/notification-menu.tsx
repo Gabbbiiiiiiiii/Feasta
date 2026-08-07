@@ -27,9 +27,16 @@ import {
   subscribeToNotifications,
 } from "@/lib/notifications/notification-client";
 import type {
+  AdminNotificationDto,
   FeastaNotification,
   NotificationSnapshot,
 } from "@/lib/notifications/notification-types";
+import {
+  loadAdminNotificationMenuAction,
+  markAdminNotificationReadAction,
+  markAdminNotificationsReadAction,
+} from "@/app/admin/notifications/actions";
+
 
 const EMPTY_SNAPSHOT: NotificationSnapshot = {
   notifications: [],
@@ -52,37 +59,78 @@ export function NotificationMenu({
 
   useEffect(() => {
     let active = true;
-    let unsubscribe: () => void = () => {};
+    let unsubscribe: (() => void) | undefined;
+
+    if (role === "admin") {
+      void loadAdminNotificationMenuAction()
+        .then((summary) => {
+          if (!active) return;
+
+          setSnapshot({
+            notifications:
+              summary.notifications.map(
+                adminNotificationFromDto,
+              ),
+            unreadCount:
+              summary.unreadCount,
+            unreadCountCapped:
+              summary.unreadCountCapped,
+          });
+          setLoading(false);
+        })
+        .catch(() => {
+          if (!active) return;
+
+          setLoading(false);
+          setError(
+            "Notifications could not be loaded.",
+          );
+        });
+
+      return () => {
+        active = false;
+      };
+    }
 
     void subscribeToNotifications(
       (nextSnapshot) => {
         if (!active) return;
+
         setSnapshot(nextSnapshot);
         setLoading(false);
         setError(null);
       },
       () => {
         if (!active) return;
+
         setLoading(false);
-        setError("Notifications could not be loaded.");
+        setError(
+          "Notifications could not be loaded.",
+        );
       },
-    ).then((subscription) => {
-      if (active) {
-        unsubscribe = subscription.unsubscribe;
-      } else {
-        subscription.unsubscribe();
-      }
-    }).catch(() => {
-      if (!active) return;
-      setLoading(false);
-      setError("Notifications could not be loaded.");
-    });
+    )
+      .then((subscription) => {
+        if (active) {
+          unsubscribe =
+            subscription.unsubscribe;
+        } else {
+          subscription.unsubscribe();
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+
+        setLoading(false);
+        setError(
+          "Notifications could not be loaded.",
+        );
+      });
 
     return () => {
       active = false;
-      unsubscribe();
+      unsubscribe?.();
     };
-  }, []);
+  }, [role]);
 
   useEffect(() => {
     if (!open) return;
@@ -112,15 +160,96 @@ export function NotificationMenu({
   }, [open]);
 
   const markRecentRead = async () => {
+    const unreadNotifications =
+      snapshot.notifications.filter(
+        (notification) =>
+          !notification.isRead,
+      );
+
+    if (unreadNotifications.length === 0) {
+      return;
+    }
+
     setMarking(true);
     setError(null);
 
     try {
-      await markRecentNotificationsRead(snapshot.notifications);
+      if (role === "admin") {
+        await markAdminNotificationsReadAction(
+          unreadNotifications.map(
+            (notification) =>
+              notification.id,
+          ),
+        );
+      } else {
+        await markRecentNotificationsRead(
+          unreadNotifications,
+        );
+      }
+
+      setSnapshot((current) => ({
+        ...current,
+        notifications:
+          current.notifications.map(
+            (notification) => ({
+              ...notification,
+              isRead: true,
+              readAt:
+                notification.readAt ??
+                new Date(),
+            }),
+          ),
+        unreadCount: 0,
+        unreadCountCapped: false,
+      }));
     } catch {
-      setError("Notifications could not be updated.");
+      setError(
+        "Notifications could not be updated.",
+      );
     } finally {
       setMarking(false);
+    }
+  };
+
+  const markOneRead = async (
+    notification: FeastaNotification,
+  ) => {
+    if (notification.isRead) return;
+
+    try {
+      if (role === "admin") {
+        await markAdminNotificationReadAction(
+          notification.id,
+        );
+      } else {
+        await markNotificationRead(
+          notification.id,
+        );
+      }
+
+      setSnapshot((current) => ({
+        ...current,
+        notifications:
+          current.notifications.map(
+            (item) =>
+              item.id === notification.id
+                ? {
+                    ...item,
+                    isRead: true,
+                    readAt: new Date(),
+                  }
+                : item,
+          ),
+        unreadCount: Math.max(
+          0,
+          current.unreadCount - 1,
+        ),
+        unreadCountCapped: false,
+      }));
+    } catch {
+      setError(
+        "The notification could not be updated.",
+      );
     }
   };
 
@@ -188,6 +317,7 @@ export function NotificationMenu({
                   <NotificationItem
                     key={notification.id}
                     notification={notification}
+                    onMarkRead={markOneRead}
                   />
                 ))}
               </ul>
@@ -211,8 +341,12 @@ export function NotificationMenu({
 
 function NotificationItem({
   notification,
+  onMarkRead,
 }: {
   notification: FeastaNotification;
+  onMarkRead: (
+    notification: FeastaNotification,
+  ) => void | Promise<void>;
 }) {
   return (
     <li>
@@ -220,9 +354,7 @@ function NotificationItem({
         type="button"
         className="grid w-full grid-cols-[2.5rem_minmax(0,1fr)] gap-3 px-4 py-3 text-left hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={() => {
-          if (!notification.isRead) {
-            void markNotificationRead(notification.id);
-          }
+          void onMarkRead(notification);
         }}
       >
         <span className="inline-flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -318,6 +450,24 @@ function notificationButtonLabel(snapshot: NotificationSnapshot): string {
 function unreadLabel(snapshot: NotificationSnapshot): string {
   if (snapshot.unreadCount === 0) return "You are all caught up";
   return `${snapshot.unreadCountCapped ? "99+" : snapshot.unreadCount} unread`;
+}
+
+function adminNotificationFromDto(
+  notification: AdminNotificationDto,
+): FeastaNotification {
+  return {
+    ...notification,
+    createdAt:
+      notification.createdAt
+        ? new Date(
+            notification.createdAt,
+          )
+        : null,
+    readAt:
+      notification.readAt
+        ? new Date(notification.readAt)
+        : null,
+  };
 }
 
 function relativeTime(value: Date | null): string {

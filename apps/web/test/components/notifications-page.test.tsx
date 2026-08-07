@@ -4,6 +4,31 @@ import {beforeEach, describe, expect, it, vi} from "vitest";
 
 import type {FeastaNotification} from "@/lib/notifications/notification-types";
 
+const adminNotificationActionMocks =
+  vi.hoisted(() => ({
+    loadPage: vi.fn(),
+    loadMenu: vi.fn(),
+    markOneRead: vi.fn(),
+    markManyRead: vi.fn(),
+  }));
+
+vi.mock(
+  "@/app/admin/notifications/actions",
+  () => ({
+    loadAdminNotificationsAction:
+      adminNotificationActionMocks.loadPage,
+
+    loadAdminNotificationMenuAction:
+      adminNotificationActionMocks.loadMenu,
+
+    markAdminNotificationReadAction:
+      adminNotificationActionMocks.markOneRead,
+
+    markAdminNotificationsReadAction:
+      adminNotificationActionMocks.markManyRead,
+  }),
+);
+
 const mocks = vi.hoisted(() => ({
   markOneRead: vi.fn(),
   markVisibleRead: vi.fn(),
@@ -22,6 +47,30 @@ import {NotificationsPageClient} from "@/components/notifications/notifications-
 describe("notifications page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+
+    adminNotificationActionMocks.loadPage
+      .mockResolvedValue({
+        notifications: [],
+        requestedLimit: 20,
+        hasMore: false,
+      });
+
+    adminNotificationActionMocks.loadMenu
+      .mockResolvedValue({
+        notifications: [],
+        unreadCount: 0,
+        unreadCountCapped: false,
+      });
+
+    adminNotificationActionMocks.markOneRead
+      .mockResolvedValue({
+        updated: true,
+      });
+
+    adminNotificationActionMocks.markManyRead
+      .mockResolvedValue({
+        updatedCount: 1,
+      });
     mocks.markOneRead.mockResolvedValue(undefined);
     mocks.markVisibleRead.mockResolvedValue(undefined);
     mocks.subscribePage.mockImplementation(async (
@@ -33,7 +82,7 @@ describe("notifications page", () => {
     });
   });
 
-  it("renders an honest empty state from the bounded subscription", async () => {
+  it("renders an honest empty state from the bounded admin action", async () => {
     render(<NotificationsPageClient role="admin" />);
 
     expect(
@@ -42,46 +91,67 @@ describe("notifications page", () => {
       }),
     ).toBeInTheDocument();
 
-    expect(mocks.subscribePage).toHaveBeenCalledWith(
-      20,
-      expect.any(Function),
-      expect.any(Function),
-    );
+  await waitFor(() => {
+    expect(
+          adminNotificationActionMocks.loadPage,
+        ).toHaveBeenCalledWith(20);
+      });
+
+    expect(
+      mocks.subscribePage,
+    ).not.toHaveBeenCalled();
   });
 
-  it("does not navigate notifications with an unknown related collection", async () => {
-    const user = userEvent.setup();
-    mocks.subscribePage.mockImplementation(async (
-      _requestedLimit: number,
-      onValue: (items: FeastaNotification[]) => void,
-    ) => {
-      onValue([
-        notificationFixture({
-          id: "payment-notification",
-          title: "Payment confirmed",
-          type: "payment",
-          relatedCollection: "payments",
-        }),
-      ]);
-      return {unsubscribe: mocks.unsubscribe};
-    });
+  it(
+    "does not navigate notifications with an unknown related collection",
+    async () => {
+      adminNotificationActionMocks.loadPage
+        .mockResolvedValueOnce({
+          notifications: [
+            {
+              id: "notification-1",
+              userId: "admin-1",
+              title:
+                "Payment confirmed",
+              message:
+                "A customer payment was confirmed.",
+              type: "payment",
+              relatedId: "payment-1",
+              relatedCollection:
+                "unknownCollection",
+              isRead: false,
+              readAt: null,
+              createdAt:
+                "2026-08-01T12:00:00.000Z",
+            },
+          ],
+          requestedLimit: 20,
+          hasMore: false,
+        });
 
-    render(<NotificationsPageClient role="admin" />);
+      render(
+        <NotificationsPageClient
+          role="admin"
+        />,
+      );
 
-    const notificationLink = await screen.findByRole("link", {
-      name: /payment confirmed/i,
-    });
-    expect(notificationLink).toHaveAttribute("href", "/admin/payments");
+      const notificationLink =
+        await screen.findByRole(
+          "link",
+          {
+            name:
+              /payment confirmed/i,
+          },
+        );
 
-    notificationLink.addEventListener(
-    "click",
-    (event) => event.preventDefault(),
-    {once: true},
-    );
-
-    await user.click(notificationLink);
-    expect(mocks.markOneRead).toHaveBeenCalledWith("payment-notification");
-  });
+      expect(
+        notificationLink,
+      ).toHaveAttribute(
+        "href",
+        "/admin/notifications",
+      );
+    },
+  );
 
   it("marks only the currently visible unread notifications", async () => {
     const user = userEvent.setup();

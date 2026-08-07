@@ -112,6 +112,29 @@ export async function createVerifiedSession(idToken: string): Promise<{
   return {cookie, user: account};
 }
 
+export async function recordSuccessfulWebLogin(
+  uid: string,
+): Promise<void> {
+  const normalizedUid = uid.trim();
+
+  if (
+    normalizedUid.length === 0 ||
+    normalizedUid.length > 128
+  ) {
+    throw new Error(
+      "A valid account identifier is required.",
+    );
+  }
+
+  await adminDb
+    .collection("users")
+    .doc(normalizedUid)
+    .update({
+      lastLoginAt:
+        FieldValue.serverTimestamp(),
+    });
+}
+
 export async function verifySessionCookie(
   sessionCookie: string,
   options: {

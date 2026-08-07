@@ -10,7 +10,7 @@ import {
 import {
   MAX_NOTIFICATION_PAGE_ITEMS,
   NOTIFICATION_PAGE_SIZE,
-  type FeastaNotification,
+  type AdminNotificationDto,
 } from "@/lib/notifications/notification-types";
 import {requireAdmin} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
@@ -18,13 +18,7 @@ import {adminDb} from "@/lib/firebase/admin";
 const NOTIFICATIONS_COLLECTION = "notifications";
 const SAFE_NOTIFICATION_ID = /^[A-Za-z0-9_-]{1,128}$/u;
 
-export type AdminNotificationDto = Omit<
-  FeastaNotification,
-  "createdAt" | "readAt"
-> & {
-  createdAt: string | null;
-  readAt: string | null;
-};
+
 
 export type AdminNotificationPage = {
   notifications: AdminNotificationDto[];

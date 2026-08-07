@@ -14,6 +14,15 @@ export type FeastaNotification = {
   createdAt: Date | null;
 };
 
+export type AdminNotificationDto =
+  Omit<
+    FeastaNotification,
+    "createdAt" | "readAt"
+  > & {
+    createdAt: string | null;
+    readAt: string | null;
+  };
+
 export type NotificationSnapshot = {
   notifications: readonly FeastaNotification[];
   unreadCount: number;
