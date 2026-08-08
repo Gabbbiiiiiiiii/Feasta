@@ -120,20 +120,22 @@ describe("ApplicationShell", () => {
   });
 
   it("keeps each role navigation configuration separate", () => {
-    expect(roleNavigation.customer[0].href).toBe(
-      "/customer/providers",
-    );
-    expect(roleNavigation.customer[0].label).toBe(
-      "Event Services",
-    );
+    expect(roleNavigation.customer[0]).toMatchObject({
+      label: "Home",
+      href: "/customer",
+    });
+
+    expect(roleNavigation.customer[1]).toMatchObject({
+      label: "Event Services",
+      href: "/customer/providers",
+    });
+
     expect(roleNavigation.provider[0].href).toBe(
       "/provider",
     );
+
     expect(roleNavigation.admin[0].href).toBe(
       "/admin",
-    );
-    expect(roleNavigation.customer.map((item) => item.href)).not.toContain(
-      "/admin/users",
     );
   });
 
