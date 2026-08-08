@@ -1,7 +1,7 @@
 import {ProviderFilterForm} from "@/components/customer/providers/provider-filter-form";
+import {ProviderDirectoryShell} from "@/components/customer/providers/provider-directory-shell";
 import {ProviderPagination} from "@/components/customer/providers/provider-pagination";
 import {ProviderResults} from "@/components/customer/providers/provider-results";
-import {PageHeading} from "@/components/layout/page-heading";
 import {requireRole} from "@/lib/auth/session";
 import {getPublicProviderPage} from "@/lib/customer/providers/provider-discovery-service";
 import {parseProviderDiscoveryFilters} from "@/lib/customer/providers/provider-query";
@@ -17,15 +17,14 @@ export default async function CustomerProvidersPage({
   const filters = parseProviderDiscoveryFilters(await searchParams);
   const page = await getPublicProviderPage(filters);
   return (
-    <div className="grid min-w-0 gap-6">
-      <PageHeading
-        eyebrow="Discovery"
-        title="Find event providers"
-        description="Search approved, active, publicly visible FEASTA providers by business, service, category, or location."
-      />
-      <ProviderFilterForm filters={filters} />
-      <ProviderResults page={page} filters={filters} />
-      <ProviderPagination page={page} filters={filters} />
-    </div>
+    <ProviderDirectoryShell>
+      <div className="grid min-w-0 items-start gap-5 lg:grid-cols-[15.5rem_minmax(0,1fr)] lg:gap-6">
+        <ProviderFilterForm filters={filters} />
+        <div className="grid min-w-0 gap-5">
+          <ProviderResults page={page} filters={filters} />
+          <ProviderPagination page={page} filters={filters} />
+        </div>
+      </div>
+    </ProviderDirectoryShell>
   );
 }

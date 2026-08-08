@@ -6,6 +6,7 @@ import {describe, expect, it, vi} from "vitest";
 
 import CustomerProvidersError from "@/app/customer/providers/error";
 import {MarketplacePackageSection} from "@/components/customer/discovery/marketplace-package-section";
+import {ProviderDirectoryShell} from "@/components/customer/providers/provider-directory-shell";
 import {ProviderFilterForm} from "@/components/customer/providers/provider-filter-form";
 import {ProviderResults} from "@/components/customer/providers/provider-results";
 import {
@@ -56,8 +57,8 @@ const provider: PublicProvider = {
   eventTypes: ["wedding"],
   operatingDays: ["monday", "saturday"],
   bookingLeadTimeDays: 7,
-  minimumGuests: null,
-  maximumGuests: null,
+  minimumGuests: 50,
+  maximumGuests: 200,
   logoUrl: null,
   coverImageUrl: null,
   approvalLabel: "Approved",
@@ -160,10 +161,34 @@ describe("customer marketplace search presentation", () => {
     expect(screen.getByRole("searchbox", {name: "Search approved providers"})).toHaveAttribute("maxlength", "80");
     expect(screen.getByRole("combobox", {name: "Service type"})).toHaveTextContent("Catering and event services");
     expect(screen.getByRole("combobox", {name: "Category"})).toHaveTextContent("Venue Provider");
+    expect(screen.getByRole("button", {name: "Apply filters"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Ana Events"})).toBeVisible();
     expect(screen.getByText("Approved")).toBeVisible();
-    expect(screen.getByText("Ormoc City, Leyte")).toBeVisible();
+    expect(screen.getByText("Ormoc City, Leyte").tagName).toBe("SPAN");
+    expect(screen.getByText("50–200 guests")).toBeVisible();
+    expect(screen.getByText("7 days")).toBeVisible();
+    expect(screen.queryByText("View services")).not.toBeInTheDocument();
     expect(screen.queryByText(/\brating\b|bookings completed|response time|starting at/iu)).not.toBeInTheDocument();
+  });
+
+  it("presents the Ormoc City directory heading and a usable mobile filter toggle", () => {
+    render(
+      <ProviderDirectoryShell>
+        <ProviderFilterForm filters={emptyFilters} />
+      </ProviderDirectoryShell>,
+    );
+
+    expect(screen.getByText("FEASTA MARKETPLACE")).toBeVisible();
+    expect(screen.getByRole("heading", {
+      level: 1,
+      name: "Event services in Ormoc City",
+    })).toBeVisible();
+    expect(screen.getByLabelText("Service area: Ormoc City, Leyte")).toBeVisible();
+
+    const toggle = screen.getByRole("button", {name: "Filter event services"});
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
   });
 
   it("distinguishes empty, filtered-empty, and error states", () => {
@@ -229,8 +254,13 @@ describe("customer marketplace server query contracts", () => {
 
   it("includes responsive grids and reduced-motion loading behavior", () => {
     const providerResults = readFileSync(join(webRoot, "src/components/customer/providers/provider-results.tsx"), "utf8");
+    const providerPage = readFileSync(join(webRoot, "src/app/customer/providers/page.tsx"), "utf8");
+    const providerFilters = readFileSync(join(webRoot, "src/components/customer/providers/provider-filter-form.tsx"), "utf8");
     const loading = readFileSync(join(webRoot, "src/app/customer/providers/loading.tsx"), "utf8");
     expect(providerResults).toContain("sm:grid-cols-2 xl:grid-cols-3");
+    expect(providerResults).toContain("2xl:grid-cols-4");
+    expect(providerPage).toContain("lg:grid-cols-[15.5rem_minmax(0,1fr)]");
+    expect(providerFilters).toContain("lg:sticky lg:top-20");
     expect(loading).toContain("motion-reduce:animate-none");
     expect(loading).toContain('aria-label="Loading providers"');
   });
