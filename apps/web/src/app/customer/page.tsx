@@ -1,6 +1,7 @@
 import {
   ArrowRight,
   CheckCircle2,
+  MapPin,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
@@ -10,6 +11,7 @@ import {Suspense} from "react";
 import {MarketplaceHomeLoading} from "@/components/customer/discovery/marketplace-home-loading";
 import {MarketplacePackageSection} from "@/components/customer/discovery/marketplace-package-section";
 import {MarketplaceProviderSection} from "@/components/customer/discovery/marketplace-provider-section";
+import {MarketplaceActiveEventStrip} from "@/components/customer/discovery/marketplace-active-event-strip";
 import {MarketplaceSearch} from "@/components/customer/discovery/marketplace-search";
 import {ProviderCategoryGrid} from "@/components/customer/discovery/provider-category-grid";
 import {ApplicationErrorState} from "@/components/feedback/application-states";
@@ -71,11 +73,35 @@ async function MarketplaceContent({
     >
       {/* Hero */}
       <section className="bg-[#FFF8F6]">
-        <div className="px-4 py-4 sm:px-6 sm:py-6 lg:px-8">
+        <div
+          className="
+            grid gap-4
+            px-4 py-4
+            sm:px-6 sm:py-6
+            lg:px-8
+          "
+        >
           <MarketplaceHero
             email={email}
             heroImageUrl={heroImageUrl}
           />
+
+          <Suspense
+            fallback={
+              <div
+                aria-hidden="true"
+                className="
+                  h-20 animate-pulse
+                  rounded-2xl
+                  border border-[#E2BFB5]/60
+                  bg-white
+                  motion-reduce:animate-none
+                "
+              />
+            }
+          >
+            <MarketplaceActiveEventStrip />
+          </Suspense>
         </div>
       </section>
 
@@ -93,7 +119,9 @@ async function MarketplaceContent({
             lg:px-8 lg:py-14
           "
         >
-          <ProviderCategoryGrid />
+          <ProviderCategoryGrid
+            providers={marketplace.providers}
+          />
         </div>
       </section>
 
@@ -113,6 +141,7 @@ async function MarketplaceContent({
         >
           <MarketplacePackageSection
             packages={marketplace.packages}
+            providers={marketplace.providers}
           />
         </div>
       </section>
@@ -165,6 +194,11 @@ function MarketplaceHero({
   email: string | null;
   heroImageUrl: string | null;
 }) {
+  const customerName =
+    email?.split("@")[0]
+      .replace(/[._-]+/g, " ")
+      .trim() || null;
+
   return (
     <header
       className="
@@ -173,31 +207,33 @@ function MarketplaceHero({
         rounded-[1.75rem]
         border border-[#E2BFB5]
         bg-[#F1DED6]
-        shadow-[0_12px_32px_rgba(38,24,20,0.10)]
+        shadow-[0_14px_36px_rgba(38,24,20,0.10)]
       "
     >
       <div
         className="
-          grid min-h-[31rem]
-          lg:grid-cols-[1.08fr_0.92fr]
-          lg:items-stretch
+          grid
+          lg:min-h-[32rem]
+          lg:grid-cols-[1.05fr_0.95fr]
         "
       >
         <div
           className="
+            relative z-10
             flex flex-col justify-center
-            px-6 py-10
-            sm:px-10
+            px-5 py-9
+            sm:px-8 sm:py-12
             lg:px-12 lg:py-14
-            xl:px-16
+            xl:px-14
           "
         >
           <p
             className="
               flex items-center gap-2
-              text-sm font-black
+              text-xs font-black
               uppercase tracking-[0.16em]
               text-[#A93613]
+              sm:text-sm
             "
           >
             <Sparkles
@@ -210,9 +246,9 @@ function MarketplaceHero({
 
           <h1
             className="
-              mt-4 max-w-2xl
+              mt-4 max-w-xl
               text-4xl font-black
-              leading-[1.02]
+              leading-[0.98]
               tracking-[-0.045em]
               text-[#261814]
               sm:text-5xl
@@ -221,7 +257,7 @@ function MarketplaceHero({
           >
             Plan a celebration
 
-            <span className="block text-[#B02F00]">
+            <span className="mt-1 block text-[#B02F00]">
               worth remembering.
             </span>
           </h1>
@@ -234,13 +270,13 @@ function MarketplaceHero({
               sm:text-lg
             "
           >
-            {email
-              ? `Welcome back, ${email}. `
+            {customerName
+              ? `Welcome back, ${customerName}. `
               : null}
 
-            Discover approved caterers, venues,
-            photographers, stylists, and published event
-            packages in Ormoc City.
+            Discover verified caterers and event
+            professionals in Ormoc City, all in one
+            organized marketplace.
           </p>
 
           <div className="mt-7">
@@ -249,12 +285,11 @@ function MarketplaceHero({
 
           <div
             className="
-              mt-5 flex flex-col gap-3
-              text-sm font-semibold
+              mt-5 flex flex-wrap
+              items-center gap-x-6 gap-y-3
+              text-xs font-semibold
               text-[#5A413A]
-              sm:flex-row
-              sm:items-center
-              sm:gap-6
+              sm:text-sm
             "
           >
             <span className="inline-flex items-center gap-2">
@@ -274,30 +309,43 @@ function MarketplaceHero({
 
               Protected payments
             </span>
+
+            <span className="inline-flex items-center gap-2">
+              <CheckCircle2
+                aria-hidden="true"
+                className="size-5 text-[#B02F00]"
+              />
+
+              Clear booking statuses
+            </span>
           </div>
         </div>
 
         <div
           className="
-            relative min-h-72
+            relative min-h-[22rem]
             overflow-hidden
             bg-[#DABFB4]
-            lg:m-8
+            lg:m-6
             lg:ml-0
             lg:min-h-0
             lg:rounded-[1.5rem]
           "
         >
           {heroImageUrl ? (
-            // Public media was validated during marketplace
-            // normalization.
+            // Public provider media was validated by
+            // marketplace normalization.
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={heroImageUrl}
-              alt="A celebration prepared by a FEASTA event provider"
+              alt="An event prepared by a FEASTA provider"
               className="
                 absolute inset-0
                 size-full object-cover
+                transition-transform
+                duration-700
+                hover:scale-[1.03]
+                motion-reduce:transform-none
               "
             />
           ) : (
@@ -313,7 +361,7 @@ function MarketplaceHero({
             className="
               absolute inset-0
               bg-gradient-to-t
-              from-black/40
+              from-black/45
               via-black/5
               to-transparent
             "
@@ -321,17 +369,32 @@ function MarketplaceHero({
 
           <div
             className="
-              absolute bottom-5 left-5
-              rounded-full
-              border border-white/30
+              absolute inset-x-4 bottom-4
+              flex items-center justify-between gap-3
+              rounded-xl
+              border border-white/25
               bg-black/45
-              px-4 py-2
-              text-sm font-bold text-white
+              px-4 py-3
+              text-white
               shadow-sm
-              backdrop-blur
+              backdrop-blur-md
+              sm:inset-x-5 sm:bottom-5
             "
           >
-            Plan confidently with FEASTA
+            <div>
+              <p className="text-xs text-white/70">
+                Marketplace location
+              </p>
+
+              <p className="mt-0.5 font-bold">
+                Ormoc City, Leyte
+              </p>
+            </div>
+
+            <MapPin
+              aria-hidden="true"
+              className="size-5 shrink-0"
+            />
           </div>
         </div>
       </div>
