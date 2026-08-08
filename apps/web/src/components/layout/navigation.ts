@@ -54,7 +54,7 @@ export const roleNavigation: Record<
       icon: House,
     },
     {
-      label: "Providers",
+      label: "Event Services",
       href: "/customer/providers",
       icon: Store,
     },

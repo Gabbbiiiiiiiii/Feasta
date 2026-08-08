@@ -1,0 +1,57 @@
+"use client";
+
+import type {ReactNode} from "react";
+
+import {CustomerMarketplaceHeader} from "@/components/customer/layout/customer-marketplace-header";
+import {MobileNavigation} from "@/components/layout/mobile-navigation";
+
+export function CustomerMarketplaceShell({
+  accountLabel,
+  children,
+}: {
+  accountLabel: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      data-customer-marketplace-shell
+      className="min-h-dvh overflow-x-clip bg-[#FFF8F6] text-[#261814]"
+    >
+      <a
+        href="#main-content"
+        className="
+          fixed left-4 top-3 z-[100]
+          -translate-y-24
+          rounded-lg
+          bg-[#B02F00]
+          px-4 py-3
+          font-bold text-white
+          shadow-floating
+          transition-transform
+          focus:translate-y-0
+        "
+      >
+        Skip to main content
+      </a>
+
+      <CustomerMarketplaceHeader accountLabel={accountLabel} />
+
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="
+          mx-auto min-h-[calc(100dvh-4rem)]
+          w-full max-w-[80rem]
+          px-4 py-6 pb-24
+          sm:px-6
+          md:pb-10
+          lg:px-8
+        "
+      >
+        {children}
+      </main>
+
+      <MobileNavigation role="customer" />
+    </div>
+  );
+}
