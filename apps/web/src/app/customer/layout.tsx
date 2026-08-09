@@ -1,11 +1,12 @@
-import {ApplicationShell} from "@/components/layout/application-shell";
+import {CustomerMarketplaceShell} from "@/components/customer/layout/customer-marketplace-shell";
 import {requireCustomer, requireVerifiedEmail} from "@/lib/auth/session";
 
 export default async function CustomerLayout({children}: {children: React.ReactNode}) {
   const user = requireVerifiedEmail(await requireCustomer());
+
   return (
-    <ApplicationShell role="customer" accountLabel={user.email ?? user.uid}>
+    <CustomerMarketplaceShell accountLabel={user.email ?? user.uid}>
       {children}
-    </ApplicationShell>
+    </CustomerMarketplaceShell>
   );
 }
