@@ -134,6 +134,25 @@ export const prepareCustomerPhoneVerification =
                 ? user.phoneNumber
                 : "";
 
+            const normalizedCurrentPhone =
+              currentPhone
+                ? requirePhilippineMobile(
+                    currentPhone,
+                  )
+                : null;
+
+            if (
+              requestedPhone &&
+              normalizedCurrentPhone &&
+              requestedPhone ===
+                normalizedCurrentPhone
+            ) {
+              throw new HttpsError(
+                "already-exists",
+                "This is already your current mobile number. Enter a different mobile number to continue.",
+              );
+            }
+
             const authoritativePhone =
               requestedPhone ??
               requirePhilippineMobile(

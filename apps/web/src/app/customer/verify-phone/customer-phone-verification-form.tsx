@@ -379,38 +379,55 @@ export default function CustomerPhoneVerificationForm({
   }
 
   function saveReplacement(
-    event:
-      FormEvent<HTMLFormElement>,
-  ) {
-    event.preventDefault();
+  event: FormEvent<HTMLFormElement>,
+) {
+  event.preventDefault();
 
-    const normalized =
-      normalizePhilippineMobile(
-        replacement,
-      );
-
-    if (!normalized) {
-      setState("ERROR");
-
-      setError(
-        "Enter a valid Philippine mobile number.",
-      );
-
-      return;
-    }
-
-    setSession(null);
-    setCode("");
-    setCooldown(0);
-    setExpirySeconds(0);
-    setError(null);
-    setMessage(null);
-
-    void sendCode(
-      normalized,
-      true,
+  const normalized =
+    normalizePhilippineMobile(
+      replacement,
     );
+
+  if (!normalized) {
+    setState("ERROR");
+
+    setError(
+      "Enter a valid Philippine mobile number.",
+    );
+
+    return;
   }
+
+  const normalizedCurrentPhone =
+    normalizePhilippineMobile(
+      initialPhoneNumber,
+    );
+
+  if (
+    normalizedCurrentPhone &&
+    normalized === normalizedCurrentPhone
+  ) {
+    setState("ERROR");
+
+    setError(
+      "This is already your current mobile number. Enter a different mobile number to continue.",
+    );
+
+    return;
+  }
+
+  setSession(null);
+  setCode("");
+  setCooldown(0);
+  setExpirySeconds(0);
+  setError(null);
+  setMessage(null);
+
+  void sendCode(
+    normalized,
+    true,
+  );
+}
 
   async function verifyCode(
     event:
