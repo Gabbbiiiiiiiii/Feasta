@@ -149,7 +149,8 @@ export const prepareCustomerPhoneVerification =
             ) {
               throw new HttpsError(
                 "already-exists",
-                "This is already your current mobile number. Enter a different mobile number to continue.",
+                "This is already your current mobile number. " +
+                  "Enter a different mobile number to continue.",
               );
             }
 
@@ -158,6 +159,49 @@ export const prepareCustomerPhoneVerification =
               requirePhilippineMobile(
                 currentPhone,
               );
+
+            try {
+              const existingAuthUser =
+                await getAuth()
+                  .getUserByPhoneNumber(
+                    authoritativePhone,
+                  );
+
+              if (
+                existingAuthUser.uid !==
+                actor.uid
+              ) {
+                throw new HttpsError(
+                  "already-exists",
+                  "This mobile number is already associated with " +
+                    "another FEASTA account. Use a different mobile number.",
+                );
+              }
+            } catch (error) {
+              if (
+                error instanceof HttpsError
+              ) {
+                throw error;
+              }
+
+              const code =
+                typeof error === "object" &&
+                error !== null &&
+                "code" in error
+                  ? String(error.code)
+                  : "";
+
+              /*
+              * No Firebase Auth user currently owns this
+              * phone number, so verification may proceed.
+              */
+              if (
+                code !==
+                "auth/user-not-found"
+              ) {
+                throw error;
+              }
+            }
 
             if (
               requestedPhone &&
