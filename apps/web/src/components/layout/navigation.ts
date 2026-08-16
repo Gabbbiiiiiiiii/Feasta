@@ -29,6 +29,7 @@ export type NavigationItem = {
   label: string;
   href: string;
   icon: LucideIcon;
+  section?: string;
 };
 
 export const roleHome: Record<ShellRole, string> = {
@@ -100,56 +101,67 @@ export const roleNavigation: Record<
 
   admin: [
     {
+      section: "Overview",
       label: "Dashboard",
       href: "/admin",
       icon: LayoutDashboard,
     },
     {
-      label: "User Management",
+      section: "Platform Operations",
+      label: "Users",
       href: "/admin/users",
       icon: Users,
     },
     {
+      section: "Platform Operations",
       label: "Provider Verification",
       href: "/admin/providers",
       icon: ShieldCheck,
     },
     {
-      label: "Booking Monitoring",
+      section: "Platform Operations",
+      label: "Bookings",
       href: "/admin/bookings",
       icon: CalendarDays,
     },
     {
-      label: "Payment Monitoring",
+      section: "Platform Operations",
+      label: "Payments",
       href: "/admin/payments",
       icon: CreditCard,
     },
     {
-      label: "Review Management",
+      section: "Trust & Communications",
+      label: "Reviews",
       href: "/admin/reviews",
       icon: MessageSquareText,
     },
     {
+      section: "Trust & Communications",
       label: "Complaints",
       href: "/admin/complaints",
       icon: MessageSquareWarning,
     },
     {
+      section: "Trust & Communications",
       label: "Announcements",
       href: "/admin/announcements",
       icon: Megaphone,
     },
     {
-      label: "Audit Logs",
-      href: "/admin/audit-logs",
-      icon: ScrollText,
-    },
-    {
+      section: "System & Insights",
       label: "Reports",
       href: "/admin/reports",
       icon: ChartNoAxesCombined,
     },
     {
+      section: "System & Insights",
+      label: "Audit Logs",
+      href: "/admin/audit-logs",
+      icon: ScrollText,
+    },
+    {
+      section: "System & Insights",
       label: "Settings",
       href: "/admin/settings",
       icon: Settings2,

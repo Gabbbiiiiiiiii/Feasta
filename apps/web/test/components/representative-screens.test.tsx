@@ -1,5 +1,5 @@
 import {render, screen} from "@testing-library/react";
-import {describe, expect, it} from "vitest";
+import {describe, expect, it, vi} from "vitest";
 
 import {ProviderFilterForm} from "@/components/customer/providers/provider-filter-form";
 import {ProviderResults} from "@/components/customer/providers/provider-results";
@@ -9,6 +9,10 @@ import type {
   ProviderDiscoveryFilters,
   ProviderDiscoveryPage,
 } from "@/lib/customer/providers/provider-types";
+
+vi.mock("@/app/customer/favorites/actions", () => ({
+  setProviderFavoriteAction: vi.fn(),
+}));
 
 const filters: ProviderDiscoveryFilters = {
   search: "",

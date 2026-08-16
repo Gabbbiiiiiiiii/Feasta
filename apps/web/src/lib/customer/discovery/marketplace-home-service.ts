@@ -7,8 +7,8 @@ import {getPublicProviderPage} from "@/lib/customer/providers/provider-discovery
 
 import type {
   CustomerMarketplaceHome,
-  PublicPackage,
 } from "./marketplace-types";
+import {normalizePublicPackage} from "./public-package-normalization";
 
 export const HOMEPAGE_PROVIDER_LIMIT = 6;
 export const HOMEPAGE_PACKAGE_LIMIT = 4;
@@ -49,48 +49,4 @@ export async function getCustomerMarketplaceHome(): Promise<CustomerMarketplaceH
   });
 
   return {providers: providerPage.providers, packages};
-}
-
-export function normalizePublicPackage(
-  id: string,
-  value: Readonly<Record<string, unknown>>,
-  providerNames: ReadonlyMap<string, string>,
-): PublicPackage | null {
-  const providerId = safeText(value.providerId, 128);
-  const name = safeText(value.name, 160);
-  if (
-    !providerId ||
-    !name ||
-    !providerNames.has(providerId) ||
-    value.isActive !== true ||
-    value.isPublished !== true ||
-    value.providerPubliclyVisible !== true ||
-    value.status !== "published" ||
-    value.isDeleted === true
-  ) return null;
-
-  return {
-    id,
-    providerId,
-    providerName: providerNames.get(providerId)!,
-    name,
-    description: safeText(value.description, 600),
-    eventType: safeText(value.eventType, 80),
-    price: safeMoney(value.price),
-  };
-}
-
-function safeText(value: unknown, maximum: number): string | null {
-  if (typeof value !== "string") return null;
-  const normalized = value.trim().replace(/\s+/gu, " ").slice(0, maximum);
-  return normalized || null;
-}
-
-function safeMoney(value: unknown): number | null {
-  return typeof value === "number" &&
-      Number.isFinite(value) &&
-      value >= 0 &&
-      value <= 100_000_000
-    ? value
-    : null;
 }

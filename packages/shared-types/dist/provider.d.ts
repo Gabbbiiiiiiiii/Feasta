@@ -206,6 +206,7 @@ export declare function normalizeProviderEmail(value: unknown): string | null;
  * carrier-prefix lists. The canonical value is E.164-like `+63...`.
  */
 export declare function normalizePhilippinePhone(value: unknown): string | null;
+export declare function normalizePhilippineMobile(value: unknown): string | null;
 export declare function parseVerificationDocumentType(value: unknown): VerificationDocumentType | null;
 export declare function parseVerificationDocumentStatus(value: unknown): VerificationDocumentStatus | null;
 export declare function parseProviderVerificationStatusStrict(value: unknown): ProviderVerificationStatus | null;

@@ -18,21 +18,29 @@ import {ApplicationErrorState} from "@/components/feedback/application-states";
 import {Button} from "@/components/ui/button";
 import {requireRole} from "@/lib/auth/session";
 import {getCustomerMarketplaceHome} from "@/lib/customer/discovery/marketplace-home-service";
+import {getCustomerFavoriteProviderIds} from "@/lib/customer/favorites/customer-favorite-service";
+import type {Metadata} from "next";
+
+export const metadata: Metadata = {
+  title: "Explore Providers",
+};
 
 export default async function CustomerPage() {
   const user = await requireRole(["customer"]);
 
   return (
     <Suspense fallback={<MarketplaceHomeLoading />}>
-      <MarketplaceContent email={user.email} />
+      <MarketplaceContent email={user.email} customerId={user.uid} />
     </Suspense>
   );
 }
 
 async function MarketplaceContent({
   email,
+  customerId,
 }: {
   email: string | null;
+  customerId: string;
 }) {
   const marketplace =
     await getCustomerMarketplaceHome().catch(() => null);
@@ -49,7 +57,7 @@ async function MarketplaceContent({
       >
         <ApplicationErrorState
           kind="load"
-          description="The FEASTA marketplace could not be loaded. Please try again."
+          description="The FEASTA could not be loaded. Please try again."
         />
       </section>
     );
@@ -60,6 +68,10 @@ async function MarketplaceContent({
       (provider) =>
         provider.coverImageUrl !== null,
     )?.coverImageUrl ?? null;
+  const favoriteProviderIds = await getCustomerFavoriteProviderIds(
+    customerId,
+    marketplace.providers.map((provider) => provider.id),
+  ).catch(() => new Set<string>());
 
   return (
     <div
@@ -162,6 +174,7 @@ async function MarketplaceContent({
         >
           <MarketplaceProviderSection
             providers={marketplace.providers}
+            favoriteProviderIds={favoriteProviderIds}
           />
         </div>
       </section>
@@ -241,7 +254,7 @@ function MarketplaceHero({
               className="size-4"
             />
 
-            FEASTA marketplace
+            FEASTA
           </p>
 
           <h1

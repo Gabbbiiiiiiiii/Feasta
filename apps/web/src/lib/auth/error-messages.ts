@@ -44,3 +44,48 @@ export function customerAuthenticationError(error: unknown): string {
   }
   return "We could not complete that request. Please try again.";
 }
+
+export function providerPhoneVerificationError(error: unknown): string {
+  const reason = typeof error === "object" && error !== null && "reason" in error
+    ? String(error.reason)
+    : "";
+  if (reason === "session_expired") {
+    return "Your session expired. Sign in again to continue.";
+  }
+  if (reason === "validation" && error instanceof Error) return error.message;
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String(error.code)
+    : "";
+  if (code.includes("invalid-verification-code")) {
+    return "The verification code is incorrect. Check the code and try again.";
+  }
+  if (code.includes("session-expired") || code.includes("code-expired")) {
+    return "This verification session expired. Send a new code to continue.";
+  }
+  if (code.includes("invalid-phone-number")) {
+    return "Enter a valid Philippine mobile number.";
+  }
+  if (
+    code.includes("credential-already-in-use") ||
+    code.includes("phone-number-already-exists")
+  ) {
+    return "This mobile number is already linked to another account.";
+  }
+  if (code.includes("requires-recent-login")) {
+    return "For your security, sign in again before changing your mobile number.";
+  }
+  if (
+    code.includes("too-many-requests") ||
+    code.includes("resource-exhausted") ||
+    code.includes("quota-exceeded")
+  ) {
+    return "Too many verification attempts. Please wait before trying again.";
+  }
+  if (code.includes("captcha-check-failed")) {
+    return "We could not confirm the security check. Refresh the page and try again.";
+  }
+  if (code.includes("network-request-failed")) {
+    return "Check your internet connection and try again.";
+  }
+  return customerAuthenticationError(error);
+}

@@ -36,6 +36,10 @@ export {
   syncPhoneVerification,
 } from "./auth/sync-phone-verification.js";
 
+export {
+  prepareProviderPhoneVerification,
+} from "./auth/prepare-provider-phone-verification.js";
+
 export {deactivateCustomerAccount} from "./auth/manage-customer-account.js";
 export {revokeAllCustomerSessions} from "./auth/manage-customer-account.js";
 export {updateCustomerPreferences} from "./auth/manage-customer-account.js";

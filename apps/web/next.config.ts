@@ -96,6 +96,7 @@ const contentSecurityPolicy = [
     "'self'",
     "data:",
     "blob:",
+    "https://images.unsplash.com",
     "https://res.cloudinary.com",
     "https://*.googleusercontent.com",
     "https://*.googleapis.com",
@@ -133,8 +134,12 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname:
-          "lh3.googleusercontent.com",
+        hostname: "lh3.googleusercontent.com",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "images.unsplash.com",
         pathname: "/**",
       },
     ],

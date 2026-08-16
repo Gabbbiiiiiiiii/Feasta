@@ -15,6 +15,7 @@ export type SecurityEventAction =
   | "idempotency_replay"
   | "payment_webhook"
   | "phone_verification_synchronized"
+  | "provider_phone_verification_prepared"
   | "provider_verification_decision"
   | "provider_verification_submission"
   | "rate_limit_rejected"

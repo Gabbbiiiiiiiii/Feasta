@@ -60,12 +60,13 @@ test("operations drafts validate service alignment and scheduling limits", () =>
 test("trusted owner and lifecycle fields are backend-derived", () => {
   assert.ok(registration.includes("ownerEmail:"));
   assert.ok(registration.includes("userData?.email"));
-  assert.ok(registration.includes("ownerPhone:"));
+  assert.ok(registration.includes("const ownerPhone = requirePhilippineMobile("));
   assert.ok(registration.includes("userData?.phoneNumber"));
+  assert.ok(registration.includes("ownerPhone,"));
   assert.ok(registration.includes("verificationStatus: \"draft\""));
   assert.ok(registration.includes("isActive: false"));
-  assert.ok(!registration.match(/input\\.verificationStatus/u));
-  assert.ok(!registration.match(/input\\.isActive/u));
+  assert.ok(!registration.match(/input\.verificationStatus/u));
+  assert.ok(!registration.match(/input\.isActive/u));
 });
 
 test("provider consent timestamps are server generated", () => {
@@ -91,13 +92,20 @@ test("onboarding drafts are server-owned, sequential, and resumable", () => {
 test("owner and business drafts normalize contacts and verify media", () => {
   assert.ok(draft.includes("requirePhilippinePhone"));
   assert.ok(draft.includes(".toLowerCase()"));
-  assert.ok(draft.includes("optionalProviderMediaPath"));
+
+  // Provider onboarding media uses the canonical Cloudinary contract.
+  assert.ok(draft.includes("providerMediaFields"));
+  assert.ok(draft.includes("optionalCloudinaryUrl"));
+  assert.ok(draft.includes("optionalCloudinaryPublicId"));
   assert.ok(draft.includes("verifyProviderMedia"));
-  assert.ok(draft.includes("file.getMetadata()"));
-  assert.ok(draft.includes("image/jpeg"));
-  assert.ok(registration.includes("logoStoragePath"));
-  assert.ok(registration.includes("coverStoragePath"));
-  assert.ok(registration.includes("normalizePhilippinePhone"));
+
+  assert.ok(draft.includes("logoUrl"));
+  assert.ok(draft.includes("logoPublicId"));
+  assert.ok(draft.includes("coverImageUrl"));
+  assert.ok(draft.includes("coverPublicId"));
+
+  assert.ok(registration.includes("requirePhilippineMobile"));
+  assert.ok(registration.includes("userData?.phoneNumber"));
 });
 
 test("onboarding draft inputs cannot assign lifecycle or activation fields", () => {

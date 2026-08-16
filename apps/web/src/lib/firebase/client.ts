@@ -53,6 +53,21 @@ export const storage = getStorage(firebaseApp);
 const useEmulators =
   process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS === "true";
 
+export function shouldDisablePhoneAppVerificationForTesting(input: {
+  useEmulators?: string;
+  explicitOptIn?: string;
+  nodeEnv?: string;
+} = {}): boolean {
+  const emulatorSetting = input.useEmulators ??
+    process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS;
+  const explicitSetting = input.explicitOptIn ??
+    process.env.NEXT_PUBLIC_FIREBASE_AUTH_DISABLE_APP_VERIFICATION_FOR_TESTING;
+  const environment = input.nodeEnv ?? process.env.NODE_ENV;
+  return emulatorSetting === "true" &&
+    explicitSetting === "true" &&
+    environment !== "production";
+}
+
 type EmulatorGlobal = typeof globalThis & {
   __feastaFirebaseEmulatorsConnected?: boolean;
   __feastaBrowserAppCheck?: AppCheck;
@@ -95,6 +110,10 @@ if (
       disableWarnings: true,
     },
   );
+
+  if (shouldDisablePhoneAppVerificationForTesting()) {
+    auth.settings.appVerificationDisabledForTesting = true;
+  }
 
   connectFirestoreEmulator(
     db,

@@ -57,9 +57,9 @@ describe("provider authentication and onboarding", () => {
     mocks.registerIdentity.mockResolvedValueOnce({verificationEmailSent: true});
     render(<ProviderRegistrationPage />);
     const fields = {
-      "Owner first name": "Ada",
-      "Owner last name": "Lovelace",
-      "Phone number": "+639171234567",
+      "First name": "Ada",
+      "Last name": "Lovelace",
+      "Mobile number": "0917-123-4567",
       "Email address": "provider@example.test",
       "Password": "Feasta123!",
       "Confirm password": "Feasta123!",
@@ -77,6 +77,7 @@ describe("provider authentication and onboarding", () => {
     expect(payload).not.toHaveProperty("isActive");
     expect(payload).not.toHaveProperty("verificationStatus");
     expect(payload).toMatchObject({
+      phoneNumber: "+639171234567",
       acceptedTerms: true,
       acceptedPrivacy: true,
       termsPolicyVersion: "unversioned",
@@ -95,19 +96,79 @@ describe("provider authentication and onboarding", () => {
     await user.click(screen.getByRole("button", {name: /create provider account/i}));
 
     const email = screen.getByRole("textbox", {name: /email address/i});
+    const mobile = screen.getByRole("textbox", {name: /mobile number/i});
     const agreement = screen.getByRole("checkbox");
     const summary = screen.getByText(
       /review the highlighted fields before creating your provider account/i,
     );
     expect(summary).toHaveAttribute("role", "alert");
     expect(email).toHaveAttribute("aria-invalid", "true");
-    expect(email).toHaveAccessibleDescription("Enter a valid email address.");
+    expect(email).toHaveAccessibleDescription(
+      "Enter a valid email address.",
+    );
+    expect(mobile).toHaveAccessibleDescription(
+      "You'll verify this number by OTP after email verification. It may also be used for important FEASTA provider and account communication. Mobile number is required.",
+    );
     expect(agreement).toHaveAttribute("aria-invalid", "true");
     expect(agreement).toHaveAccessibleDescription(
       "Accept the Terms and Privacy Policy to continue.",
     );
     expect(summary).toHaveFocus();
     expect(mocks.registerIdentity).not.toHaveBeenCalled();
+  });
+
+  it("rejects a Philippine landline as the provider owner mobile", async () => {
+    const user = userEvent.setup();
+    render(<ProviderRegistrationPage />);
+    for (const [label, value] of Object.entries({
+      "First name": "Ada",
+      "Last name": "Lovelace",
+      "Mobile number": "(053) 123 4567",
+      "Email address": "provider@example.test",
+      "Password": "Feasta123!",
+      "Confirm password": "Feasta123!",
+    })) {
+      fireEvent.change(screen.getByLabelText(new RegExp(`^${label}`, "i")), {
+        target: {value},
+      });
+    }
+    await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", {
+      name: /create provider account/i,
+    }));
+    expect(screen.getByRole("textbox", {
+      name: /mobile number/i,
+    })).toHaveAccessibleDescription(
+      "You'll verify this number by OTP after email verification. It may also be used for important FEASTA provider and account communication. Enter a valid Philippine mobile number.",
+    );
+    expect(mocks.registerIdentity).not.toHaveBeenCalled();
+  });
+
+  it("renders the provider registration reference hierarchy accessibly", () => {
+    const {container} = render(<ProviderRegistrationPage />);
+    expect(screen.getAllByRole("heading", {level: 1})).toHaveLength(1);
+    expect(screen.getByRole("heading", {
+      level: 1,
+      name: "Grow your event business with FEASTA.",
+    })).toBeInTheDocument();
+    expect(screen.getByRole("link", {name: "Login"})).toHaveAttribute(
+      "href",
+      "/provider-login",
+    );
+    expect(screen.getByRole("button", {
+      name: "Create Provider Account",
+    })).toHaveClass("rounded-[10px]");
+    expect(screen.getByPlaceholderText("First name *")).toHaveClass(
+      "rounded-[10px]",
+    );
+    expect(screen.getByPlaceholderText("Mobile phone number *"))
+      .toHaveAccessibleName(/mobile number/i);
+    expect(screen.getByText("Reach more customers")).toBeInTheDocument();
+    expect(screen.getByText("Verify registered mobile number"))
+      .toBeInTheDocument();
+    expect(container.querySelectorAll("label.sr-only")).toHaveLength(6);
+    expect(screen.queryByRole("textbox", {name: /business name/i}))
+      .not.toBeInTheDocument();
   });
 
   it("uses a provider-only secure session destination", async () => {
@@ -117,10 +178,48 @@ describe("provider authentication and onboarding", () => {
       destination: "/provider",
     });
     render(<ProviderLoginPage />);
-    fireEvent.change(screen.getByRole("textbox", {name: /business account email/i}), {target: {value: "provider@example.test"}});
+    fireEvent.change(screen.getByRole("textbox", {name: /email address/i}), {target: {value: "provider@example.test"}});
     fireEvent.change(screen.getByLabelText(/^Password/), {target: {value: "Feasta123!"}});
-    await user.click(screen.getByRole("button", {name: /sign in as provider/i}));
+    await user.click(screen.getByRole("button", {name: /^log in$/i}));
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/provider"));
+  });
+
+  it("renders the provider portal login hierarchy with scoped controls", () => {
+    const {container} = render(<ProviderLoginPage />);
+    expect(screen.getAllByRole("heading", {level: 1})).toHaveLength(1);
+    expect(screen.getByRole("heading", {
+      level: 1,
+      name: "Welcome back",
+    })).toBeInTheDocument();
+    expect(screen.getByText(
+      "Sign in to your Feasta provider account.",
+    )).toBeInTheDocument();
+    expect(screen.getByRole("textbox", {
+      name: /email address/i,
+    })).toHaveClass("rounded-[10px]");
+    expect(screen.getByLabelText(/^Password/)).toHaveClass("rounded-[10px]");
+    expect(screen.getByRole("button", {name: /^log in$/i})).toHaveClass(
+      "rounded-[10px]",
+    );
+    expect(screen.getByRole("link", {name: /forgot password/i})).toHaveAttribute(
+      "href",
+      "/forgot-password",
+    );
+    expect(screen.getByRole("link", {name: /become a provider/i})).toHaveAttribute(
+      "href",
+      "/provider-register",
+    );
+    expect(container.querySelector("[fdprocessedid]")).toBeNull();
+    expect(screen.queryByRole("button", {name: /google|phone/i})).not.toBeInTheDocument();
+  });
+
+  it("uses the scoped orange provider Login link without a pill or arrow", () => {
+    render(<ProviderRegistrationPage />);
+    const loginLink = screen.getByRole("link", {name: "Login"});
+    expect(loginLink).toHaveAttribute("href", "/provider-login");
+    expect(loginLink).toHaveClass("rounded-[10px]", "bg-primary", "min-h-11");
+    expect(loginLink).not.toHaveClass("rounded-pill");
+    expect(loginLink.querySelector("svg")).toBeNull();
   });
 
   it("renders an accessible business step without approval controls", () => {

@@ -1285,13 +1285,57 @@ service cloud.firestore {
     // ============================================================
 
     match /favorites/{favoriteId} {
-      allow create: if isActiveSignedInUser() &&
-          request.resource.data.customerId is string &&
-          request.resource.data.providerId is string &&
-          request.resource.data.customerId ==
-              currentUserId();
+      function validFavoriteCreate() {
+        let data = request.resource.data;
+        return isActiveSignedInUser() &&
+          isCustomer() &&
+          data.keys().hasAll([
+            'customerId',
+            'providerId',
+            'createdAt'
+          ]) &&
+          data.keys().hasOnly([
+            'customerId',
+            'providerId',
+            'providerBusinessName',
+            'providerImageUrl',
+            'createdAt',
+            'updatedAt'
+          ]) &&
+          data.customerId is string &&
+          data.customerId == currentUserId() &&
+          data.providerId is string &&
+          data.providerId.matches('^[A-Za-z0-9_-]{1,128}$') &&
+          favoriteId == currentUserId() + '_' + data.providerId &&
+          data.createdAt == request.time &&
+          (
+            !('updatedAt' in data) ||
+            data.updatedAt == request.time
+          ) &&
+          (
+            !('providerBusinessName' in data) ||
+            (
+              data.providerBusinessName is string &&
+              data.providerBusinessName.size() > 0 &&
+              data.providerBusinessName.size() <= 160
+            )
+          ) &&
+          (
+            !('providerImageUrl' in data) ||
+            data.providerImageUrl == null ||
+            (
+              data.providerImageUrl is string &&
+              data.providerImageUrl.size() <= 1000
+            )
+          ) &&
+          providerExists(data.providerId) &&
+          isPublicProvider(data.providerId);
+      }
+
+      allow create: if validFavoriteCreate();
 
       allow read: if isActiveSignedInUser() &&
+          isCustomer() &&
           resource.data.customerId is string &&
           resource.data.customerId ==
               currentUserId();
@@ -1299,6 +1343,7 @@ service cloud.firestore {
       allow update: if false;
 
       allow delete: if isActiveSignedInUser() &&
+          isCustomer() &&
           resource.data.customerId is string &&
           resource.data.customerId ==
               currentUserId();

@@ -35,6 +35,8 @@ import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {
   requireEnum,
   requireObject,
+  requirePhilippineMobile,
+  requirePhilippinePhone,
   requireString,
 } from "../shared/validation.js";
 import {writeVerificationHistoryInTransaction} from "../shared/verification-history.js";
@@ -152,14 +154,10 @@ export const registerProvider = onCall(
       );
     }
 
-    const businessPhone = normalizePhilippinePhone(requireString(
+    const businessPhone = requirePhilippinePhone(
       input.businessPhone,
       "businessPhone",
-      {
-        minLength: 7,
-        maxLength: 30,
-      },
-    ), "businessPhone");
+    );
 
     const ownerFirstName = requireString(
       input.ownerFirstName,
@@ -596,6 +594,10 @@ export const registerProvider = onCall(
             };
           }
 
+          const ownerPhone = requirePhilippineMobile(
+            userData?.phoneNumber,
+          );
+
           transaction.create(
             newProviderReference,
             {
@@ -610,10 +612,7 @@ export const registerProvider = onCall(
                 typeof userData?.email === "string"
                   ? userData.email.trim().toLowerCase()
                   : null,
-              ownerPhone:
-                typeof userData?.phoneNumber === "string"
-                  ? userData.phoneNumber.trim()
-                  : null,
+              ownerPhone,
               description,
               location:
                 `${city}, ${province}`,
@@ -1023,24 +1022,6 @@ function optionalBoolean(
     );
   }
   return value;
-}
-
-function normalizePhilippinePhone(value: string, field: string): string {
-  const compact = value.replace(/[\s().-]/gu, "");
-  const normalized = compact.startsWith("+63")
-    ? compact
-    : compact.startsWith("63")
-      ? `+${compact}`
-      : compact.startsWith("0")
-        ? `+63${compact.slice(1)}`
-        : "";
-  if (!/^\+63\d{8,10}$/u.test(normalized)) {
-    throw new HttpsError(
-      "invalid-argument",
-      `${field} must be a valid Philippine phone number.`,
-    );
-  }
-  return normalized;
 }
 
 function providerMediaFields(

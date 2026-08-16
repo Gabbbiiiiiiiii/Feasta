@@ -24,6 +24,7 @@ export type FormFieldProps = {
   disabled?: boolean;
   loading?: boolean;
   className?: string;
+  labelClassName?: string;
   id?: string;
 };
 
@@ -37,6 +38,7 @@ function FormField({
   disabled = false,
   loading = false,
   className,
+  labelClassName,
   id,
 }: FormFieldProps) {
   const generatedId = React.useId();
@@ -61,7 +63,13 @@ function FormField({
         data-disabled={disabled || loading || undefined}
         aria-busy={loading || undefined}
       >
-        <label className="text-sm font-bold text-foreground" htmlFor={controlId}>
+        <label
+          className={cn(
+            "text-sm font-bold text-foreground",
+            labelClassName,
+          )}
+          htmlFor={controlId}
+        >
           {label}
           {required ? (
             <>

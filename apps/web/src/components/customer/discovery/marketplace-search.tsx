@@ -97,7 +97,7 @@ export function MarketplaceSearch() {
         "
       >
         <span className="sr-only">
-          Search the FEASTA marketplace
+          Search the FEASTA
         </span>
 
         <Search
@@ -115,7 +115,7 @@ export function MarketplaceSearch() {
           name="q"
           minLength={2}
           maxLength={80}
-          aria-label="Search the FEASTA marketplace"
+          aria-label="Search the FEASTA"
           placeholder="Search caterers, venues, photographers, and services"
           className="
             h-12 w-full min-w-0

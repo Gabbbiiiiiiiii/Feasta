@@ -314,6 +314,14 @@ export function requireVerifiedEmail(
   return account;
 }
 
+export function requireVerifiedProviderIdentity(
+  account: SessionUser,
+): SessionUser {
+  requireVerifiedEmail(account, "/provider-verify-email");
+  if (!account.isPhoneVerified) redirect("/provider-verify-phone");
+  return account;
+}
+
 export async function loadOwnedProviderVerification(
   account: SessionUser,
 ): Promise<{

@@ -4,17 +4,19 @@ export default function CustomerProvidersLoading() {
   return (
     <ProviderDirectoryShell>
       <div
-        className="grid min-w-0 items-start gap-5 lg:grid-cols-[15.5rem_minmax(0,1fr)] lg:gap-6"
+        className="grid min-w-0 items-start gap-5 md:grid-cols-[15.5rem_minmax(0,1fr)] md:gap-6"
+        role="status"
         aria-busy="true"
         aria-label="Loading providers"
       >
-        <div className="h-16 animate-pulse rounded-xl border border-[#E8C9BE] bg-white shadow-sm motion-reduce:animate-none lg:h-[28rem]" />
+        <span className="sr-only">Loading marketplace providers.</span>
+        <div className="h-16 animate-pulse rounded-xl border border-[#E8C9BE] bg-white shadow-sm motion-reduce:animate-none md:h-[28rem]" />
         <section className="grid min-w-0 gap-4" aria-label="Loading provider results">
           <div className="grid gap-2">
             <div className="h-3 w-28 animate-pulse rounded-full bg-[#F0D7CF] motion-reduce:animate-none" />
             <div className="h-7 w-56 max-w-full animate-pulse rounded-lg bg-[#E8C9BE] motion-reduce:animate-none" />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-4">
             {Array.from({length: 8}, (_, index) => (
               <div
                 key={index}

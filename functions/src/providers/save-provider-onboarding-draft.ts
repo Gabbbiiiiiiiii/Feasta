@@ -24,6 +24,8 @@ import {
   requireEnum,
   requireNumber,
   requireObject,
+  requirePhilippineMobile,
+  requirePhilippinePhone,
   requireString,
 } from "../shared/validation.js";
 
@@ -150,6 +152,8 @@ export const saveProviderOnboardingDraft = onCall(
           firstName: validated.ownerFirstName,
           lastName: validated.ownerLastName,
           phoneNumber: validated.ownerPhone,
+          isPhoneVerified: false,
+          phoneVerifiedAt: null,
           updatedAt: serverTimestamp(),
         });
       }
@@ -199,7 +203,7 @@ function validateStep(
           "ownerLastName",
           {minLength: 1, maxLength: 80},
         ),
-        ownerPhone: requirePhilippinePhone(data.ownerPhone, "ownerPhone"),
+        ownerPhone: requirePhilippineMobile(data.ownerPhone),
       };
     case 2: {
       rejectUnknownFields(data, [
@@ -547,27 +551,6 @@ function rejectUnknownFields(
       `Unknown onboarding fields: ${unknown.join(", ")}.`,
     );
   }
-}
-
-function requirePhilippinePhone(value: unknown, field: string): string {
-  const compact = requireString(value, field, {
-    minLength: 7,
-    maxLength: 30,
-  }).replace(/[\s().-]/gu, "");
-  const normalized = compact.startsWith("+63")
-    ? compact
-    : compact.startsWith("63")
-      ? `+${compact}`
-      : compact.startsWith("0")
-        ? `+63${compact.slice(1)}`
-        : "";
-  if (!/^\+63\d{8,10}$/u.test(normalized)) {
-    throw new HttpsError(
-      "invalid-argument",
-      `${field} must be a valid Philippine phone number.`,
-    );
-  }
-  return normalized;
 }
 
 function providerMediaFields(

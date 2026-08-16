@@ -8,6 +8,7 @@ import {
 } from "@feasta/shared-types";
 
 import type {PublicProvider} from "./provider-types";
+import {isPublicProviderId} from "./provider-route-policy";
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -16,6 +17,7 @@ export function isPublicProviderRecord(
   provider: UnknownRecord,
   owner: UnknownRecord,
 ): boolean {
+  if (!isPublicProviderId(id)) return false;
   const ownerId = safeText(provider.ownerId, 128);
   return provider.verificationStatus === "approved" &&
     provider.publiclyVisible === true &&

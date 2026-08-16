@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  providerAccountDestination,
   providerAccessDestination,
   resolveTrustedAccountContext,
   safeReturnPathForAccount,
@@ -65,6 +66,37 @@ test("valid customer, provider, and admin contexts use trusted records", () => {
 
   const admin = resolve({profile: {...baseProfile, role: "admin"}});
   assert.equal(admin.ok && admin.account.role, "admin");
+});
+
+test("provider destinations enforce email then phone before onboarding", () => {
+  const provider = {
+    id: "provider-one",
+    verificationStatus: "approved" as const,
+    isActive: true,
+    isSuspended: false,
+    isDeleted: false,
+  };
+  assert.equal(providerAccountDestination({
+    emailVerified: false,
+    isPhoneVerified: false,
+    provider,
+  }), "/provider-verify-email");
+  assert.equal(providerAccountDestination({
+    emailVerified: true,
+    isPhoneVerified: false,
+    provider,
+  }), "/provider-verify-phone");
+  assert.equal(providerAccountDestination({
+    emailVerified: true,
+    isPhoneVerified: true,
+    provider: null,
+  }), "/provider/onboarding");
+  assert.equal(safeReturnPathForAccount("/provider/onboarding", {
+    role: "provider",
+    emailVerified: true,
+    isPhoneVerified: false,
+    provider: null,
+  }), "/provider-verify-phone");
 });
 
 test("disabled, missing, blocked, and deactivated accounts fail closed", () => {

@@ -18,6 +18,7 @@ import {
   isNavigationItemActive,
   roleLabels,
   roleNavigation,
+  type NavigationItem,
   type ShellRole,
 } from "@/components/layout/navigation";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,11 @@ type ApplicationSidebarProps = {
   role: ShellRole;
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
+};
+
+type SidebarNavigationGroup = {
+  label: string | null;
+  items: NavigationItem[];
 };
 
 type SidebarNavigationItemProps = {
@@ -121,10 +127,30 @@ function ApplicationSidebarComponent({
   const pathname = usePathname();
   const router = useRouter();
 
-  const navigationItems = useMemo(
-    () => roleNavigation[role],
-    [role],
-  );
+  const navigationGroups = useMemo(() => {
+    const groups: SidebarNavigationGroup[] = [];
+
+    for (const item of roleNavigation[role]) {
+      const sectionLabel = item.section ?? null;
+      const currentGroup = groups.at(-1);
+
+      if (
+        !currentGroup ||
+        currentGroup.label !== sectionLabel
+      ) {
+        groups.push({
+          label: sectionLabel,
+          items: [item],
+        });
+
+        continue;
+      }
+
+      currentGroup.items.push(item);
+    }
+
+    return groups;
+  }, [role]);
 
   const sidebarLabel = useMemo(
     () => `${roleLabels[role]} sidebar`,
@@ -172,22 +198,55 @@ function ApplicationSidebarComponent({
         aria-label={`${roleLabels[role]} primary navigation`}
         className="min-h-0 flex-1 overflow-y-auto px-3 py-4"
       >
-        <ul className="space-y-1">
-          {navigationItems.map((item) => (
-            <SidebarNavigationItem
-              key={item.href}
-              label={item.label}
-              href={item.href}
-              icon={item.icon}
-              collapsed={collapsed}
-              active={isNavigationItemActive(
-                pathname,
-                item.href,
-              )}
-              onPrefetch={handlePrefetch}
-            />
-          ))}
-        </ul>
+        <div
+          className={cn(
+            collapsed ? "space-y-2" : "space-y-5",
+          )}
+        >
+          {navigationGroups.map((group, groupIndex) => {
+            const headingId =
+              `${role}-navigation-group-${groupIndex}`;
+
+            return (
+              <section
+                key={`${group.label ?? "primary"}-${groupIndex}`}
+                aria-labelledby={
+                  group.label ? headingId : undefined
+                }
+              >
+                {group.label ? (
+                  <h2
+                    id={headingId}
+                    className={cn(
+                      "mb-2 px-3 text-[0.6875rem] font-bold",
+                      "uppercase tracking-[0.14em] text-slate-400",
+                      collapsed && "sr-only",
+                    )}
+                  >
+                    {group.label}
+                  </h2>
+                ) : null}
+
+                <ul className="space-y-1">
+                  {group.items.map((item) => (
+                    <SidebarNavigationItem
+                      key={item.href}
+                      label={item.label}
+                      href={item.href}
+                      icon={item.icon}
+                      collapsed={collapsed}
+                      active={isNavigationItemActive(
+                        pathname,
+                        item.href,
+                      )}
+                      onPrefetch={handlePrefetch}
+                    />
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
       </nav>
 
       <footer className="shrink-0 border-t border-slate-200/80 p-3">

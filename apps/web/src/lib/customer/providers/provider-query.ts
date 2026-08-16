@@ -5,6 +5,14 @@ import {
   type ProviderServiceType,
 } from "@feasta/shared-types";
 
+import {
+  PUBLIC_PROVIDER_MARKETPLACE_PATH,
+  PUBLIC_PACKAGE_MARKETPLACE_PATH,
+  isPublicProviderId,
+} from "./provider-route-policy";
+import {
+  parsePackageDirectoryReturnHref,
+} from "@/lib/customer/discovery/package-query";
 import type {ProviderDiscoveryFilters} from "./provider-types";
 
 type SearchParameters = Record<string, string | string[] | undefined>;
@@ -44,6 +52,71 @@ export function providerDiscoveryHref(
   if (cursor) parameters.set("cursor", cursor);
   const query = parameters.toString();
   return query ? `/customer/providers?${query}` : "/customer/providers";
+}
+
+export function parseProviderDirectoryReturnHref(
+  value: string | string[] | undefined,
+): string {
+  const candidate = first(value);
+  if (
+    candidate.length === 0 ||
+    candidate.length > 1024 ||
+    candidate.includes("#") ||
+    /[\u0000-\u001F\u007F]/u.test(candidate)
+  ) {
+    return PUBLIC_PROVIDER_MARKETPLACE_PATH;
+  }
+
+  const queryIndex = candidate.indexOf("?");
+  const pathname = queryIndex === -1
+    ? candidate
+    : candidate.slice(0, queryIndex);
+  if (pathname !== PUBLIC_PROVIDER_MARKETPLACE_PATH) {
+    return PUBLIC_PROVIDER_MARKETPLACE_PATH;
+  }
+
+  const parameters = new URLSearchParams(
+    queryIndex === -1 ? "" : candidate.slice(queryIndex + 1),
+  );
+  const filters = parseProviderDiscoveryFilters({
+    q: parameters.getAll("q"),
+    service: parameters.getAll("service"),
+    category: parameters.getAll("category"),
+    cursor: parameters.getAll("cursor"),
+  });
+  return providerDiscoveryHref(filters, filters.cursor);
+}
+
+export function providerProfileHref(
+  providerId: string,
+  returnHref: string = PUBLIC_PROVIDER_MARKETPLACE_PATH,
+): string {
+  if (!isPublicProviderId(providerId)) {
+    return PUBLIC_PROVIDER_MARKETPLACE_PATH;
+  }
+
+  const profilePath =
+    `${PUBLIC_PROVIDER_MARKETPLACE_PATH}/${encodeURIComponent(providerId)}`;
+  const safeReturnHref = parseMarketplaceReturnHref(returnHref);
+  if (safeReturnHref === PUBLIC_PROVIDER_MARKETPLACE_PATH) {
+    return profilePath;
+  }
+
+  const parameters = new URLSearchParams({returnTo: safeReturnHref});
+  return `${profilePath}?${parameters.toString()}`;
+}
+
+export function parseMarketplaceReturnHref(
+  value: string | string[] | undefined,
+): string {
+  const candidate = Array.isArray(value) ? value[0] ?? "" : value ?? "";
+  const queryIndex = candidate.indexOf("?");
+  const pathname = queryIndex === -1
+    ? candidate
+    : candidate.slice(0, queryIndex);
+  return pathname === PUBLIC_PACKAGE_MARKETPLACE_PATH
+    ? parsePackageDirectoryReturnHref(candidate)
+    : parseProviderDirectoryReturnHref(candidate);
 }
 
 export function normalizedSearchToken(value: string): string {

@@ -14,12 +14,21 @@ import {
   normalizePublicProvider,
   providerImageUrl,
 } from "@/lib/customer/providers/provider-normalization";
-import {parseProviderDiscoveryFilters} from "@/lib/customer/providers/provider-query";
+import {
+  parseProviderDirectoryReturnHref,
+  parseProviderDiscoveryFilters,
+  providerDiscoveryHref,
+  providerProfileHref,
+} from "@/lib/customer/providers/provider-query";
 import type {
   ProviderDiscoveryFilters,
   ProviderDiscoveryPage,
   PublicProvider,
 } from "@/lib/customer/providers/provider-types";
+
+vi.mock("@/app/customer/favorites/actions", () => ({
+  setProviderFavoriteAction: vi.fn(),
+}));
 
 const owner = {
   role: "provider",
@@ -84,6 +93,11 @@ describe("customer marketplace provider policy", () => {
   it("enforces approved, public, active, unblocked provider records", () => {
     const linkedOwner = {...owner, providerId: "provider-one"};
     expect(isPublicProviderRecord("provider-one", publicRecord, linkedOwner)).toBe(true);
+    expect(isPublicProviderRecord(
+      "bad.id",
+      publicRecord,
+      {...linkedOwner, providerId: "bad.id"},
+    )).toBe(false);
 
     for (const unsafeRecord of [
       {...publicRecord, verificationStatus: "pending"},
@@ -150,6 +164,68 @@ describe("customer marketplace search presentation", () => {
     expect(parseProviderDiscoveryFilters({q: "x"})).toEqual(emptyFilters);
   });
 
+  it("keeps canonical filters in pagination URLs and replaces stale cursors", () => {
+    const filters: ProviderDiscoveryFilters = {
+      search: "garden venue",
+      serviceType: "addon",
+      category: "venue_provider",
+      cursor: "stale-cursor",
+    };
+
+    expect(providerDiscoveryHref(filters, "next-cursor")).toBe(
+      "/customer/providers?q=garden+venue&service=addon&category=venue_provider&cursor=next-cursor",
+    );
+    expect(providerDiscoveryHref(filters)).not.toContain("cursor=");
+  });
+
+  it("canonicalizes local marketplace return paths and rejects unsafe destinations", () => {
+    expect(parseProviderDirectoryReturnHref(
+      "/customer/providers?q=food&q=ignored&service=catering&unknown=value",
+    )).toBe("/customer/providers?q=food&service=catering");
+    expect(parseProviderDirectoryReturnHref(
+      "/customer/providers?category=venue_provider&cursor=safe_cursor-1",
+    )).toBe(
+      "/customer/providers?category=venue_provider&cursor=safe_cursor-1",
+    );
+    for (const unsafe of [
+      "https://evil.test/customer/providers",
+      "//evil.test/customer/providers",
+      "/customer/providers/provider-one",
+      "/customer/providers#results",
+    ]) {
+      expect(parseProviderDirectoryReturnHref(unsafe)).toBe(
+        "/customer/providers",
+      );
+    }
+    expect(providerProfileHref("bad.id", "/customer/providers?q=food"))
+      .toBe("/customer/providers");
+  });
+
+  it("remounts URL-driven controls when canonical filter state changes", () => {
+    const {rerender} = render(
+      <ProviderFilterForm key="all" filters={emptyFilters} />,
+    );
+    fireEvent.change(
+      screen.getByRole("searchbox", {name: "Search approved providers"}),
+      {target: {value: "stale search"}},
+    );
+
+    const nextFilters: ProviderDiscoveryFilters = {
+      search: "venue",
+      serviceType: "addon",
+      category: "venue_provider",
+      cursor: null,
+    };
+    rerender(<ProviderFilterForm key="venue-addon" filters={nextFilters} />);
+
+    expect(screen.getByRole("searchbox", {name: "Search approved providers"})).toHaveValue("venue");
+    expect(screen.getByRole("combobox", {name: "Service type"})).toHaveValue("addon");
+    expect(screen.getByRole("combobox", {name: "Category"})).toHaveValue("venue_provider");
+    expect(
+      new FormData(screen.getByRole("search") as HTMLFormElement).has("cursor"),
+    ).toBe(false);
+  });
+
   it("renders accessible canonical filters and provider facts without fake metrics", () => {
     render(
       <>
@@ -159,31 +235,60 @@ describe("customer marketplace search presentation", () => {
     );
 
     expect(screen.getByRole("searchbox", {name: "Search approved providers"})).toHaveAttribute("maxlength", "80");
-    expect(screen.getByRole("combobox", {name: "Service type"})).toHaveTextContent("Catering and event services");
+    const serviceTypeFilter = screen.getByRole("combobox", {name: "Service type"});
+    expect(serviceTypeFilter).toHaveTextContent("Catering");
+    expect(serviceTypeFilter).toHaveTextContent("Event services");
+    expect(serviceTypeFilter).toHaveTextContent("Catering and event services");
     expect(screen.getByRole("combobox", {name: "Category"})).toHaveTextContent("Venue Provider");
     expect(screen.getByRole("button", {name: "Apply filters"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Ana Events"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Ana Events"}))
+      .not.toHaveClass("line-clamp-2");
     expect(screen.getByText("Approved")).toBeVisible();
     expect(screen.getByText("Ormoc City, Leyte").tagName).toBe("SPAN");
     expect(screen.getByText("50–200 guests")).toBeVisible();
     expect(screen.getByText("7 days")).toBeVisible();
+    expect(screen.getByRole("article", {name: /Ana Events/iu})).not.toHaveAttribute("tabindex");
+    expect(screen.getByRole("link", {
+      name: "View Ana Events public provider profile",
+    })).toHaveAttribute("href", "/customer/providers/provider-one");
+    expect(screen.getByText("Ormoc City, Leyte")).toHaveClass("min-w-0", "break-words");
     expect(screen.queryByText("View services")).not.toBeInTheDocument();
     expect(screen.queryByText(/\brating\b|bookings completed|response time|starting at/iu)).not.toBeInTheDocument();
   });
 
-  it("presents the Ormoc City directory heading and a usable mobile filter toggle", () => {
+  it("preserves canonical filtered and paginated context in provider-card links", () => {
+    const filters: ProviderDiscoveryFilters = {
+      search: "food station",
+      serviceType: "catering",
+      category: "catering_service",
+      cursor: "safe_cursor-1",
+    };
+    render(<ProviderResults page={pageWith([provider])} filters={filters} />);
+
+    const href = screen.getByRole("link", {
+      name: "View Ana Events public provider profile",
+    }).getAttribute("href");
+    const profileUrl = new URL(href!, "https://feasta.test");
+    expect(profileUrl.pathname).toBe("/customer/providers/provider-one");
+    expect(profileUrl.searchParams.get("returnTo")).toBe(
+      "/customer/providers?q=food+station&service=catering&category=catering_service&cursor=safe_cursor-1",
+    );
+  });
+
+  it("presents accurate location copy and a usable mobile filter toggle", () => {
     render(
       <ProviderDirectoryShell>
         <ProviderFilterForm filters={emptyFilters} />
       </ProviderDirectoryShell>,
     );
 
-    expect(screen.getByText("FEASTA MARKETPLACE")).toBeVisible();
+    expect(screen.getByText("FEASTA")).toBeVisible();
     expect(screen.getByRole("heading", {
       level: 1,
-      name: "Event services in Ormoc City",
+      name: "Find the right services for your event",
     })).toBeVisible();
-    expect(screen.getByLabelText("Service area: Ormoc City, Leyte")).toBeVisible();
+    expect(screen.getByText(/locations each business has listed/iu)).toBeVisible();
 
     const toggle = screen.getByRole("button", {name: "Filter event services"});
     expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -256,12 +361,26 @@ describe("customer marketplace server query contracts", () => {
     const providerResults = readFileSync(join(webRoot, "src/components/customer/providers/provider-results.tsx"), "utf8");
     const providerPage = readFileSync(join(webRoot, "src/app/customer/providers/page.tsx"), "utf8");
     const providerFilters = readFileSync(join(webRoot, "src/components/customer/providers/provider-filter-form.tsx"), "utf8");
+    const directoryShell = readFileSync(join(webRoot, "src/components/customer/providers/provider-directory-shell.tsx"), "utf8");
+    const marketplaceHeader = readFileSync(join(webRoot, "src/components/customer/layout/customer-marketplace-header.tsx"), "utf8");
     const loading = readFileSync(join(webRoot, "src/app/customer/providers/loading.tsx"), "utf8");
-    expect(providerResults).toContain("sm:grid-cols-2 xl:grid-cols-3");
-    expect(providerResults).toContain("2xl:grid-cols-4");
-    expect(providerPage).toContain("lg:grid-cols-[15.5rem_minmax(0,1fr)]");
-    expect(providerFilters).toContain("lg:sticky lg:top-20");
+    const globalStyles = readFileSync(join(webRoot, "src/app/globals.css"), "utf8");
+    expect(providerResults).toContain(
+      "grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))]",
+    );
+    expect(globalStyles).toContain("--breakpoint-sm: 37.5rem");
+    expect(globalStyles).toContain("--breakpoint-md: 64rem");
+    expect(globalStyles).toContain("--breakpoint-lg: 80rem");
+    expect(globalStyles).toContain("--breakpoint-xl: 96rem");
+    expect(providerPage).toContain("md:grid-cols-[15.5rem_minmax(0,1fr)]");
+    expect(providerFilters).toContain("md:sticky md:top-36");
+    expect(directoryShell).toContain("sm:-mx-6");
+    expect(directoryShell).toContain("lg:-mx-8");
+    expect(directoryShell).not.toContain("lg:-mx-10");
+    expect(marketplaceHeader).toContain("Search providers or services");
+    expect(marketplaceHeader).not.toContain("Search event services in Ormoc City");
     expect(loading).toContain("motion-reduce:animate-none");
+    expect(loading).toContain('role="status"');
     expect(loading).toContain('aria-label="Loading providers"');
   });
 });

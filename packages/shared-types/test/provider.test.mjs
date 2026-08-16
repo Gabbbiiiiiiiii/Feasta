@@ -11,6 +11,7 @@ import {
   parseVerificationDocumentType,
   providerVerificationDocumentPolicy,
   verificationDocumentsSatisfyPolicy,
+  normalizePhilippineMobile,
   normalizePhilippinePhone,
   normalizeProviderEmail,
   validateProviderOnboardingInput,
@@ -94,6 +95,38 @@ test("provider contact normalization accepts reasonable Philippine forms", () =>
   assert.equal(normalizePhilippinePhone("+1 555 1234"), null);
 });
 
+test("provider owner mobile normalization is canonical and mobile-only", () => {
+  for (const value of [
+    "09171234567",
+    "0917 123 4567",
+    "0917-123-4567",
+    "+639171234567",
+    "+63 917 123 4567",
+  ]) {
+    assert.equal(normalizePhilippineMobile(value), "+639171234567");
+  }
+  for (const value of [
+    "",
+    "(053) 123 4567",
+    "+63531234567",
+    "08171234567",
+    "+12025550123",
+    "0917123456",
+    "091712345678",
+  ]) {
+    assert.equal(normalizePhilippineMobile(value), null);
+  }
+});
+
+test("business phone remains separate and may use a Philippine landline", () => {
+  const result = validateProviderOnboardingInput({
+    ...valid,
+    businessPhone: "(053) 123 4567",
+  });
+  assert.equal(result.success, true);
+  assert.equal(result.value.businessPhone, "+63531234567");
+});
+
 test("provider media accepts only canonical Cloudinary assets", () => {
   const allowed = validateProviderOnboardingInput({
     ...valid,
@@ -168,7 +201,7 @@ test("owner identity requires consent while timestamps remain absent", () => {
     firstName: " Ana ",
     lastName: " Reyes ",
     email: " ANA@EXAMPLE.TEST ",
-    phone: "+639171234567",
+    phone: "0917 123 4567",
     acceptedTerms: true,
     acceptedPrivacy: true,
     termsPolicyVersion: "unversioned",
@@ -176,17 +209,18 @@ test("owner identity requires consent while timestamps remain absent", () => {
   });
   assert.equal(result.success, true);
   assert.equal(result.value.email, "ana@example.test");
+  assert.equal(result.value.phone, "+639171234567");
   assert.ok(!Object.hasOwn(result.value, "termsAcceptedAt"));
 
   const denied = validateProviderOwnerIdentityInput({
     ...result.value,
     acceptedPrivacy: false,
-    isActive: true,
+    isPhoneVerified: true,
   });
   assert.equal(denied.success, false);
   assert.deepEqual(
     denied.issues.map((issue) => issue.field),
-    ["acceptedPrivacy", "isActive"],
+    ["acceptedPrivacy", "isPhoneVerified"],
   );
 });
 

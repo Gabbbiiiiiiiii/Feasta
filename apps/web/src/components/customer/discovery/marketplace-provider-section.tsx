@@ -6,7 +6,13 @@ import {ApplicationEmptyState} from "@/components/feedback/application-states";
 import {Button} from "@/components/ui/button";
 import type {PublicProvider} from "@/lib/customer/providers/provider-types";
 
-export function MarketplaceProviderSection({providers}: {providers: readonly PublicProvider[]}) {
+export function MarketplaceProviderSection({
+  providers,
+  favoriteProviderIds,
+}: {
+  providers: readonly PublicProvider[];
+  favoriteProviderIds: ReadonlySet<string>;
+}) {
   return (
     <section className="grid gap-5" aria-labelledby="marketplace-providers-title">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -21,7 +27,16 @@ export function MarketplaceProviderSection({providers}: {providers: readonly Pub
       </div>
       {providers.length > 0 ? (
         <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
-          {providers.map((provider) => <ProviderCard key={provider.id} provider={provider} />)}
+          {providers.map((provider) => (
+            <ProviderCard
+              key={provider.id}
+              provider={provider}
+              favoriteState={{
+                authenticated: true,
+                favorited: favoriteProviderIds.has(provider.id),
+              }}
+            />
+          ))}
         </div>
       ) : (
         <div className="rounded-card border border-border bg-card shadow-card">

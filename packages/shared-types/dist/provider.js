@@ -180,11 +180,16 @@ export function validateProviderOwnerIdentityInput(input) {
         return { success: false, issues: [{ field: "data", code: "invalid" }] };
     }
     const issues = [];
+    const rawPhone = identityText(input, "phone", 7, 30, issues);
+    const phone = normalizePhilippineMobile(rawPhone);
+    if (rawPhone && !phone) {
+        issues.push({ field: "phone", code: "invalid" });
+    }
     const value = {
         firstName: identityText(input, "firstName", 1, 80, issues),
         lastName: identityText(input, "lastName", 1, 80, issues),
         email: identityText(input, "email", 3, 160, issues).toLowerCase(),
-        phone: identityText(input, "phone", 7, 30, issues),
+        phone: phone ?? "",
         acceptedTerms: input.acceptedTerms === true,
         acceptedPrivacy: input.acceptedPrivacy === true,
         termsPolicyVersion: identityText(input, "termsPolicyVersion", 1, 80, issues),
@@ -242,6 +247,12 @@ export function normalizePhilippinePhone(value) {
                 ? `+63${compact.slice(1)}`
                 : "";
     return /^\+63\d{8,10}$/u.test(normalized) ? normalized : null;
+}
+export function normalizePhilippineMobile(value) {
+    const normalized = normalizePhilippinePhone(value);
+    return normalized && /^\+639\d{9}$/u.test(normalized)
+        ? normalized
+        : null;
 }
 export function parseVerificationDocumentType(value) {
     const normalized = normalize(value, {

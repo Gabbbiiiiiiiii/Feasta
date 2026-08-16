@@ -1,7 +1,9 @@
-import {ChevronLeft, ChevronRight} from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+} from "lucide-react";
 import Link from "next/link";
 
-import {Button} from "@/components/ui/button";
 import {providerDiscoveryHref} from "@/lib/customer/providers/provider-query";
 import type {
   ProviderDiscoveryFilters,
@@ -15,26 +17,85 @@ export function ProviderPagination({
   page: ProviderDiscoveryPage;
   filters: ProviderDiscoveryFilters;
 }) {
-  if (!page.previousCursor && !page.nextCursor) return null;
+  if (!page.previousCursor && !page.nextCursor) {
+    return null;
+  }
+
   return (
-    <nav aria-label="Provider results pagination" className="flex flex-col-reverse gap-3 rounded-xl border border-[#E8C9BE] bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-center text-xs text-[#78645D] sm:text-left" aria-live="polite">
-        Showing up to {page.pageSize} providers per page
-      </p>
-      <div className="grid grid-cols-2 gap-2">
+    <nav
+      aria-label="Provider results pagination"
+      className="flex flex-col gap-4 rounded-[22px] border border-feasta-border-soft bg-white px-5 py-4 shadow-[0_5px_20px_rgb(43_33_29/0.03)] sm:flex-row sm:items-center sm:justify-between sm:px-6"
+    >
+      <div>
+        <p
+          className="text-sm font-bold text-foreground"
+          aria-live="polite"
+        >
+          Continue exploring
+        </p>
+
+        <p className="mt-0.5 text-xs leading-5 text-feasta-text-secondary">
+          Showing up to {page.pageSize} providers per page.
+        </p>
+      </div>
+
+      <div className="flex items-center gap-2">
         {page.previousCursor ? (
-          <Button asChild variant="secondary" size="compact" className="border-[#DDBCB1]">
-            <Link href={providerDiscoveryHref(filters, page.previousCursor)}>
-              <ChevronLeft aria-hidden="true" />Previous
-            </Link>
-          </Button>
-        ) : <span />}
+          <Link
+            href={providerDiscoveryHref(
+              filters,
+              page.previousCursor,
+            )}
+            className={[
+              "group inline-flex min-h-11 items-center justify-center",
+              "gap-2 rounded-full border border-feasta-border-strong",
+              "bg-white px-4",
+              "text-sm font-bold text-foreground",
+              "transition-[border-color,background-color,color,transform]",
+              "duration-normal",
+              "hover:-translate-y-0.5 hover:border-primary/30",
+              "hover:bg-secondary hover:text-primary-strong",
+              "focus-visible:outline-none focus-visible:ring-2",
+              "focus-visible:ring-primary focus-visible:ring-offset-2",
+              "motion-reduce:transform-none",
+            ].join(" ")}
+          >
+            <ArrowLeft
+              aria-hidden="true"
+              className="size-4 transition-transform duration-normal group-hover:-translate-x-0.5 motion-reduce:transform-none"
+            />
+
+            Previous
+          </Link>
+        ) : null}
+
         {page.nextCursor ? (
-          <Button asChild variant="secondary" size="compact" className="border-[#DDBCB1]">
-            <Link href={providerDiscoveryHref(filters, page.nextCursor)}>
-              Next<ChevronRight aria-hidden="true" />
-            </Link>
-          </Button>
+          <Link
+            href={providerDiscoveryHref(
+              filters,
+              page.nextCursor,
+            )}
+            className={[
+              "group inline-flex min-h-11 items-center justify-center",
+              "gap-2 rounded-full bg-primary px-5",
+              "text-sm font-bold text-white",
+              "shadow-[0_7px_18px_rgb(255_99_51/0.16)]",
+              "transition-[transform,background-color,box-shadow]",
+              "duration-normal",
+              "hover:-translate-y-0.5 hover:bg-primary-hover",
+              "hover:shadow-[0_10px_22px_rgb(255_99_51/0.22)]",
+              "focus-visible:outline-none focus-visible:ring-2",
+              "focus-visible:ring-primary focus-visible:ring-offset-2",
+              "motion-reduce:transform-none",
+            ].join(" ")}
+          >
+            Next
+
+            <ArrowRight
+              aria-hidden="true"
+              className="size-4 transition-transform duration-normal group-hover:translate-x-0.5 motion-reduce:transform-none"
+            />
+          </Link>
         ) : null}
       </div>
     </nav>

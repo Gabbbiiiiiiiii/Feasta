@@ -6,7 +6,11 @@ import {USER_ROLES} from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
 import {logError, logInfo} from "../shared/logger.js";
 import {serverTimestamp} from "../shared/timestamps.js";
-import {requireObject, requireString} from "../shared/validation.js";
+import {
+  requireObject,
+  requirePhilippineMobile,
+  requireString,
+} from "../shared/validation.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 
@@ -40,10 +44,7 @@ export const ensureProviderIdentity = onCall(
         minLength: 1,
         maxLength: 80,
       });
-      const phoneNumber = requireString(input.phoneNumber, "phoneNumber", {
-        minLength: 7,
-        maxLength: 30,
-      });
+      const phoneNumber = requirePhilippineMobile(input.phoneNumber);
       const acceptedTerms = input.acceptedTerms === true;
       const acceptedPrivacy = input.acceptedPrivacy === true;
       const termsPolicyVersion = policyVersion(
@@ -89,6 +90,7 @@ export const ensureProviderIdentity = onCall(
             email: authUser.email ?? authenticatedUser.email ?? null,
             profileImageUrl: authUser.photoURL ?? existing.profileImageUrl ?? null,
             isEmailVerified: authUser.emailVerified,
+            isPhoneVerified: false,
             authProvider: authUser.providerData[0]?.providerId ?? "password",
             updatedAt: serverTimestamp(),
             ...(acceptedTerms && existing.termsAcceptedAt == null ? {

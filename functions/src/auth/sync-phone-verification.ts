@@ -12,14 +12,14 @@ import {serverTimestamp} from "../shared/timestamps.js";
 const philippineMobilePattern = /^\+639\d{9}$/u;
 
 /**
- * Copies Firebase Auth-owned phone verification into customer profile data.
+ * Copies Firebase Auth-owned phone verification into profile data.
  * The callable accepts no phone or verification boolean from the client.
  */
 export const syncPhoneVerification = onCall(
   appCheckCallableOptions,
   async (request) => {
     const actor = requireAuth(request);
-    await requireRole(actor.uid, ["customer"]);
+    const role = await requireRole(actor.uid, ["customer", "provider"]);
     await enforceCallableRateLimit(request, {
       scope: "auth.syncPhoneVerification",
       limit: 10,
@@ -41,20 +41,41 @@ export const syncPhoneVerification = onCall(
     await db.runTransaction(async (transaction) => {
       const [userSnapshot, customerSnapshot] = await Promise.all([
         transaction.get(userReference),
-        transaction.get(customerReference),
+        role === "customer" ? transaction.get(customerReference) : null,
       ]);
-      if (!userSnapshot.exists || !customerSnapshot.exists) {
-        throw new HttpsError("not-found", "Customer profile was not found.");
+      if (!userSnapshot.exists || (role === "customer" && !customerSnapshot?.exists)) {
+        throw new HttpsError("not-found", "Account profile was not found.");
       }
 
       const user = userSnapshot.data();
       if (
-        user?.role !== "customer" ||
+        user?.role !== role ||
         user.accountStatus !== "active" ||
         user.isActive !== true ||
         user.isBlocked === true
       ) {
         throw new HttpsError("permission-denied", "Account is unavailable.");
+      }
+
+      if (role === "provider" && user.phoneNumber !== phoneNumber) {
+        throw new HttpsError(
+          "failed-precondition",
+          "The verified mobile number does not match the registered number.",
+        );
+      }
+
+      const providerId = role === "provider" &&
+        typeof user.providerId === "string" && user.providerId.trim()
+        ? user.providerId.trim()
+        : null;
+      const providerReference = providerId
+        ? db.collection("providers").doc(providerId)
+        : null;
+      const providerSnapshot = providerReference
+        ? await transaction.get(providerReference)
+        : null;
+      if (providerSnapshot && providerSnapshot.data()?.ownerId !== actor.uid) {
+        throw new HttpsError("permission-denied", "Provider profile is unavailable.");
       }
 
       transaction.update(userReference, {
@@ -63,11 +84,19 @@ export const syncPhoneVerification = onCall(
         phoneVerifiedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-      transaction.update(customerReference, {
-        phoneNumber,
-        phoneVerifiedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      if (customerSnapshot?.exists) {
+        transaction.update(customerReference, {
+          phoneNumber,
+          phoneVerifiedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      }
+      if (providerReference && providerSnapshot?.exists) {
+        transaction.update(providerReference, {
+          ownerPhone: phoneNumber,
+          updatedAt: serverTimestamp(),
+        });
+      }
     });
 
     logSecurityEvent({

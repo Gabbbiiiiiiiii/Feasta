@@ -433,6 +433,24 @@ export const submitBookingRequest = onCall(
             );
           }
 
+          validatePackageSelections(
+            selectedFoods,
+            packageData.foodInclusions,
+            "selectedFoods",
+          );
+
+          validatePackageSelections(
+            selectedDecorations,
+            packageData.decorInclusions,
+            "selectedDecorations",
+          );
+
+          validatePackageSelections(
+            selectedFurniture,
+            packageData.furnitureInclusions,
+            "selectedFurniture",
+          );
+
           const packagePrice =
             requireStoredMoney(
               packageData.price,
@@ -1346,6 +1364,46 @@ function requireStringList(
 
     return item.trim();
   });
+}
+
+function validatePackageSelections(
+  selectedValues: readonly string[],
+  storedValues: unknown,
+  field: string,
+): void {
+  if (selectedValues.length === 0) {
+    return;
+  }
+
+  if (!Array.isArray(storedValues)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Package customization options are unavailable.",
+    );
+  }
+
+  const allowedValues = new Set(
+    storedValues.flatMap((value) => {
+      if (typeof value !== "string") {
+        return [];
+      }
+
+      const normalized = value.trim();
+
+      return normalized ? [normalized] : [];
+    }),
+  );
+
+  if (
+    selectedValues.some(
+      (value) => !allowedValues.has(value),
+    )
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${field} contains an option that is not available for this package.`,
+    );
+  }
 }
 
 function stringValue(

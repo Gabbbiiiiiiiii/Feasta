@@ -6,6 +6,7 @@ import {
   PROVIDER_EVENT_TYPES,
   PROVIDER_OPERATING_DAYS,
   PROVIDER_SERVICE_CATEGORIES,
+  normalizePhilippineMobile,
   normalizePhilippinePhone,
   normalizeProviderEmail,
   serviceCategoryMatchesProviderType,
@@ -339,9 +340,9 @@ function StepFields({
         <FormField label="Account email" description="Managed by your authenticated account." disabled>
           <Input type="email" value={values.ownerEmail} readOnly />
         </FormField>
-        <FormField label="Owner phone" description="Use a Philippine number, such as 0917 123 4567." required disabled={loading} error={fieldErrors.ownerPhone}>
+        <FormField label="Owner mobile" description="Use a Philippine mobile number, such as 0917 123 4567." required disabled={loading} error={fieldErrors.ownerPhone}>
           <Input type="tel" inputMode="tel" autoComplete="tel" value={values.ownerPhone} onChange={(event) => update("ownerPhone", event.target.value)} onBlur={() => {
-            const normalized = normalizePhilippinePhone(values.ownerPhone);
+            const normalized = normalizePhilippineMobile(values.ownerPhone);
             if (normalized) update("ownerPhone", normalized);
           }} />
         </FormField>
@@ -758,7 +759,7 @@ function prepareStepValues(
   if (step === 1) {
     normalized.ownerFirstName = values.ownerFirstName.trim();
     normalized.ownerLastName = values.ownerLastName.trim();
-    const phone = normalizePhilippinePhone(values.ownerPhone);
+    const phone = normalizePhilippineMobile(values.ownerPhone);
     if (!normalized.ownerFirstName) {
       errors.ownerFirstName = "Enter the owner's first name.";
     }
@@ -766,7 +767,7 @@ function prepareStepValues(
       errors.ownerLastName = "Enter the owner's last name.";
     }
     if (!phone) {
-      errors.ownerPhone = "Enter a valid Philippine phone number.";
+      errors.ownerPhone = "Enter a valid Philippine mobile number.";
     } else {
       normalized.ownerPhone = phone;
     }

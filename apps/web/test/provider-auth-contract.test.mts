@@ -12,8 +12,10 @@ test("provider routes retain server role, email, and operation gates", async () 
     source("app/provider/packages/layout.tsx"),
   ]);
   assert.match(layout, /requireProvider\(\)/u);
-  assert.match(layout, /requireVerifiedEmail/u);
-  assert.match(layout, /provider-verify-email/u);
+  assert.match(layout, /requireVerifiedProviderIdentity/u);
+  const session = await source("lib/auth/session.ts");
+  assert.match(session, /requireVerifiedEmail\(account, "\/provider-verify-email"\)/u);
+  assert.match(session, /redirect\("\/provider-verify-phone"\)/u);
   assert.match(dashboard, /requireApprovedProvider\(\)/u);
   assert.match(packages, /requireProviderCatalogAccess\(\)/u);
   assert.doesNotMatch(packages, /requireApprovedProvider\(\)/u);
@@ -35,7 +37,11 @@ test("provider identity and business registration use only trusted callables", a
   const client = await source("lib/auth/provider-client.ts");
   assert.match(client, /ensureProviderIdentity/u);
   assert.match(client, /registerProvider/u);
+  assert.match(client, /validateProviderOwnerIdentityInput/u);
   assert.match(client, /exchangeCurrentUserForSession\("provider"/u);
+  assert.match(client, /sendEmailVerification\(credential\.user\)/u);
+  assert.doesNotMatch(client, /isPhoneVerified\s*:/u);
+  assert.doesNotMatch(client, /phoneVerified\s*:/u);
   assert.doesNotMatch(client, /verificationStatus\s*:/u);
   assert.doesNotMatch(client, /isActive\s*:/u);
   assert.doesNotMatch(client, /isFeatured\s*:/u);
