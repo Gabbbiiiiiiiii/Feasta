@@ -35,6 +35,7 @@ type VerificationState =
 
 const RECAPTCHA_CONTAINER_ID = "provider-phone-recaptcha";
 const OTP_LENGTH = 6;
+const OTP_EXPIRY_SECONDS = 5 * 60;
 
 export default function ProviderPhoneVerificationForm({
   initialPhoneNumber,
@@ -51,6 +52,7 @@ export default function ProviderPhoneVerificationForm({
   const [session, setSession] =
     useState<ProviderPhoneVerificationSession | null>(null);
   const [cooldown, setCooldown] = useState(0);
+  const [expirySeconds, setExpirySeconds] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,6 +77,16 @@ export default function ProviderPhoneVerificationForm({
 
     return () => window.clearInterval(timer);
   }, [cooldown]);
+
+  useEffect(() => {
+    if (expirySeconds <= 0) return;
+
+    const timer = window.setInterval(() => {
+      setExpirySeconds((value) => Math.max(0, value - 1));
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [expirySeconds]);
 
   useEffect(() => {
     if (!session || editingNumber) return;
@@ -121,6 +133,7 @@ export default function ProviderPhoneVerificationForm({
       setEditingNumber(false);
       setCode("");
       setCooldown(60);
+      setExpirySeconds(OTP_EXPIRY_SECONDS);
       setState("CODE_SENT");
       setMessage(
         `A verification code was sent to ${maskPhone(
@@ -169,6 +182,14 @@ export default function ProviderPhoneVerificationForm({
     event.preventDefault();
 
     if (!session || state === "VERIFYING") return;
+
+    if (expirySeconds <= 0) {
+      setState("ERROR");
+      setError(
+        "This verification code has expired. Request a new code to continue.",
+      );
+      return;
+    }
 
     if (!/^\d{6}$/u.test(code)) {
       setState("ERROR");
@@ -375,12 +396,19 @@ export default function ProviderPhoneVerificationForm({
   }
 
   const busy =
-    state === "SENDING" ||
-    state === "VERIFYING";
+  state === "SENDING" ||
+  state === "VERIFYING";
 
   const codeEntryVisible =
     session !== null &&
     !editingNumber;
+
+  const codeExpired =
+    codeEntryVisible &&
+    expirySeconds <= 0 &&
+    session !== null;
+
+  const expiryLabel = formatCountdown(expirySeconds);
 
   const otpDigits = Array.from(
     {length: OTP_LENGTH},
@@ -532,9 +560,10 @@ export default function ProviderPhoneVerificationForm({
                         }
                         value={digit}
                         disabled={
-                          busy ||
-                          state === "VERIFIED"
-                        }
+                        busy ||
+                        state === "VERIFIED" ||
+                        codeExpired
+                      }
                         aria-label={`Verification code digit ${
                           index + 1
                         } of ${OTP_LENGTH}`}
@@ -573,12 +602,39 @@ export default function ProviderPhoneVerificationForm({
                   </div>
                 </div>
 
-                <p
+                <div
                   id="provider-phone-code-help"
-                  className="text-center text-sm text-muted-foreground"
+                  className="grid gap-2"
                 >
-                  Enter the six digits from the SMS message.
-                </p>
+                  <p className="text-center text-sm text-muted-foreground">
+                    Enter the six digits from the SMS message.
+                  </p>
+
+                  {!codeExpired ? (
+                    <p
+                      className="text-center text-sm font-medium text-muted-foreground"
+                      aria-live="polite"
+                    >
+                      Code expires in{" "}
+                      <span className="font-bold tabular-nums text-foreground">
+                        {expiryLabel}
+                      </span>
+                    </p>
+                  ) : (
+                    <div
+                      role="status"
+                      className="rounded-[10px] border border-destructive/20 bg-destructive/5 px-4 py-3 text-center"
+                    >
+                      <p className="text-sm font-bold text-destructive">
+                        This verification code has expired.
+                      </p>
+
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Request a new code to continue.
+                      </p>
+                    </div>
+                  )}
+                </div>
 
                 <Button
                   type="submit"
@@ -588,7 +644,8 @@ export default function ProviderPhoneVerificationForm({
                   disabled={
                     busy ||
                     code.length !== OTP_LENGTH ||
-                    state === "VERIFIED"
+                    state === "VERIFIED" ||
+                    codeExpired
                   }
                   className="rounded-[10px]"
                 >
@@ -603,7 +660,10 @@ export default function ProviderPhoneVerificationForm({
                   type="button"
                   variant="secondary"
                   fullWidth
-                  disabled={busy || cooldown > 0}
+                  disabled={
+                    busy ||
+                    (!codeExpired && cooldown > 0)
+                  }
                   className="rounded-[10px]"
                   onClick={() => void sendCode()}
                 >
@@ -612,9 +672,11 @@ export default function ProviderPhoneVerificationForm({
                     className="size-5"
                   />
 
-                  {cooldown > 0
-                    ? `Resend available in ${cooldown}s`
-                    : "Resend verification code"}
+                  {codeExpired
+                    ? "Request a new verification code"
+                    : cooldown > 0
+                      ? `Resend available in ${cooldown}s`
+                      : "Resend verification code"}
                 </Button>
 
                 <Button
@@ -624,11 +686,15 @@ export default function ProviderPhoneVerificationForm({
                   disabled={busy}
                   className="rounded-[10px]"
                   onClick={() => {
-                    setEditingNumber(true);
-                    setReplacement("");
-                    setError(null);
-                    setMessage(null);
-                  }}
+                  setEditingNumber(true);
+                  setReplacement("");
+                  setSession(null);
+                  setCode("");
+                  setCooldown(0);
+                  setExpirySeconds(0);
+                  setError(null);
+                  setMessage(null);
+                }}
                 >
                   Use another number
                 </Button>
@@ -728,4 +794,14 @@ function isProviderSessionExpired(
     "reason" in error &&
     error.reason === "session_expired"
   );
+}
+
+function formatCountdown(seconds: number): string {
+  const safeSeconds = Math.max(0, seconds);
+  const minutes = Math.floor(safeSeconds / 60);
+  const remainingSeconds = safeSeconds % 60;
+
+  return `${minutes}:${remainingSeconds
+    .toString()
+    .padStart(2, "0")}`;
 }
