@@ -16,6 +16,7 @@ export type SecurityEventAction =
   | "payment_webhook"
   | "phone_verification_synchronized"
   | "provider_phone_verification_prepared"
+  | "customer_phone_verification_prepared"
   | "provider_verification_decision"
   | "provider_verification_submission"
   | "rate_limit_rejected"

@@ -6,7 +6,7 @@ import {
   createUserWithEmailAndPassword,
   deleteUser,
   GoogleAuthProvider,
-  browserSessionPersistence,
+  browserLocalPersistence,
   reload,
   sendEmailVerification,
   sendPasswordResetEmail,
@@ -61,7 +61,7 @@ export async function signInWithEmail(
   password: string,
   returnTo?: string,
 ): Promise<WebSessionResult> {
-  await setPersistence(auth, browserSessionPersistence);
+  await setPersistence(auth, browserLocalPersistence);
   const credential = await signInWithEmailAndPassword(
     auth,
     email.trim().toLowerCase(),
@@ -88,7 +88,7 @@ export async function signInWithEmail(
 export async function signInWithGoogle(
   returnTo?: string,
 ): Promise<WebSessionResult> {
-  await setPersistence(auth, browserSessionPersistence);
+  await setPersistence(auth, browserLocalPersistence);
   const credential = await signInWithPopup(auth, new GoogleAuthProvider());
   try {
     await ensureCustomerProfile({
@@ -113,7 +113,7 @@ export async function registerCustomer(
     "customer_registration",
     input.email,
   );
-  await setPersistence(auth, browserSessionPersistence);
+  await setPersistence(auth, browserLocalPersistence);
   const credential = await createUserWithEmailAndPassword(
     auth,
     input.email.trim().toLowerCase(),

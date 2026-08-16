@@ -39,6 +39,9 @@ export {
 export {
   prepareProviderPhoneVerification,
 } from "./auth/prepare-provider-phone-verification.js";
+export {
+  prepareCustomerPhoneVerification,
+} from "./auth/prepare-customer-phone-verification.js";
 
 export {deactivateCustomerAccount} from "./auth/manage-customer-account.js";
 export {revokeAllCustomerSessions} from "./auth/manage-customer-account.js";
@@ -67,6 +70,18 @@ export {
 export {
   saveProviderOnboardingDraft,
 } from "./providers/save-provider-onboarding-draft.js";
+export {
+  createProviderPackage,
+} from "./packages/create-provider-package.js";
+export {
+  updateProviderPackage,
+} from "./packages/update-provider-package.js";
+export {
+  publishProviderPackage,
+} from "./packages/publish-provider-package.js";
+export {
+  archiveProviderPackage,
+} from "./packages/archive-provider-package.js";
 export {
   createProviderMediaUploadSignature,
   deleteProviderOnboardingMedia,
