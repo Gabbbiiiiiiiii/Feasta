@@ -70,11 +70,18 @@ test("valid customer, provider, and admin contexts use trusted records", () => {
 
 test("provider destinations enforce email then phone before onboarding", () => {
   const provider = {
-    id: "provider-one",
+    id: "provider-1",
     verificationStatus: "approved" as const,
     isActive: true,
     isSuspended: false,
     isDeleted: false,
+
+    eventTypesSupported: [
+      "birthday",
+      "wedding",
+    ],
+    minGuestsPerEvent: 20,
+    maxGuestsPerEvent: 300,
   };
   assert.equal(providerAccountDestination({
     emailVerified: false,
@@ -174,6 +181,13 @@ test("provider onboarding destinations fail closed for every verification state"
     isActive: false,
     isSuspended: false,
     isDeleted: false,
+
+    eventTypesSupported: [
+      "birthday",
+      "wedding",
+    ],
+    minGuestsPerEvent: 20,
+    maxGuestsPerEvent: 300,
   };
   assert.equal(providerAccessDestination({provider}), "/provider/verification");
   assert.equal(providerAccessDestination({

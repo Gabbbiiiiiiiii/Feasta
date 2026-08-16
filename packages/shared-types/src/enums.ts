@@ -80,8 +80,7 @@ export type ProviderServiceType =
 
 export const PACKAGE_STATUSES = [
   "draft",
-  "active",
-  "inactive",
+  "published",
   "archived",
 ] as const;
 

@@ -53,8 +53,7 @@ export const PROVIDER_SERVICE_TYPES = [
 ];
 export const PACKAGE_STATUSES = [
     "draft",
-    "active",
-    "inactive",
+    "published",
     "archived",
 ];
 export const ADDON_PRICING_TYPES = [

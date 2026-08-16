@@ -15,6 +15,10 @@ export interface ServerProviderContext {
   isActive: boolean;
   isSuspended: boolean;
   isDeleted: boolean;
+
+  eventTypesSupported: string[];
+  minGuestsPerEvent: number;
+  maxGuestsPerEvent: number;
 }
 
 export interface ServerAccountContext {
@@ -112,12 +116,35 @@ export function resolveTrustedAccountContext(
       return {ok: false, reason: "invalid_provider_status"};
     }
     provider = {
-      id: providerId,
-      verificationStatus,
-      isActive: providerProfile.isActive === true,
-      isSuspended: providerProfile.isSuspended === true,
-      isDeleted: providerProfile.isDeleted === true,
-    };
+    id: providerId,
+    verificationStatus,
+    isActive: providerProfile.isActive === true,
+    isSuspended: providerProfile.isSuspended === true,
+    isDeleted: providerProfile.isDeleted === true,
+
+    eventTypesSupported: Array.isArray(
+      providerProfile.eventTypesSupported,
+    )
+      ? providerProfile.eventTypesSupported.filter(
+          (value): value is string =>
+            typeof value === "string",
+        )
+      : [],
+
+    minGuestsPerEvent:
+      typeof providerProfile.minGuestsPerEvent === "number" &&
+      Number.isSafeInteger(providerProfile.minGuestsPerEvent) &&
+      providerProfile.minGuestsPerEvent >= 1
+        ? providerProfile.minGuestsPerEvent
+        : 1,
+
+    maxGuestsPerEvent:
+      typeof providerProfile.maxGuestsPerEvent === "number" &&
+      Number.isSafeInteger(providerProfile.maxGuestsPerEvent) &&
+      providerProfile.maxGuestsPerEvent >= 1
+        ? providerProfile.maxGuestsPerEvent
+        : 1,
+  };
   }
 
   return {

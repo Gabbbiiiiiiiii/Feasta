@@ -19,7 +19,7 @@ export declare const VERIFICATION_DOCUMENT_TYPES: readonly ["business_permit", "
 export type VerificationDocumentType = (typeof VERIFICATION_DOCUMENT_TYPES)[number];
 export declare const PROVIDER_SERVICE_TYPES: readonly ["catering", "addon", "both"];
 export type ProviderServiceType = (typeof PROVIDER_SERVICE_TYPES)[number];
-export declare const PACKAGE_STATUSES: readonly ["draft", "active", "inactive", "archived"];
+export declare const PACKAGE_STATUSES: readonly ["draft", "published", "archived"];
 export type PackageStatus = (typeof PACKAGE_STATUSES)[number];
 export declare const ADDON_PRICING_TYPES: readonly ["fixed", "per_guest", "per_hour", "per_unit", "custom_quote"];
 export type AddonPricingType = (typeof ADDON_PRICING_TYPES)[number];
