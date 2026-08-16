@@ -66,10 +66,15 @@ export function providerPhoneVerificationError(error: unknown): string {
     return "Enter a valid Philippine mobile number.";
   }
   if (
+    code.includes("already-exists") ||
     code.includes("credential-already-in-use") ||
-    code.includes("phone-number-already-exists")
+    code.includes("phone-number-already-exists") ||
+    code.includes("account-exists-with-different-credential")
   ) {
-    return "This mobile number is already linked to another account.";
+    return (
+      "This mobile number is already associated with another " +
+      "FEASTA account. Use a different mobile number."
+    );
   }
   if (code.includes("requires-recent-login")) {
     return "For your security, sign in again before changing your mobile number.";
