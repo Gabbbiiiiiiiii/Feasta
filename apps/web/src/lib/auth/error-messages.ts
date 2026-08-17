@@ -84,7 +84,14 @@ export function providerPhoneVerificationError(error: unknown): string {
     code.includes("resource-exhausted") ||
     code.includes("quota-exceeded")
   ) {
-    return "Too many verification attempts. Please wait before trying again.";
+    const retryAfter =
+      phoneVerificationRetryLabel(
+        error,
+      );
+
+    return retryAfter
+      ? `Too many verification attempts. Try again ${retryAfter}.`
+      : "Too many verification attempts. Please wait before trying again.";
   }
   if (code.includes("captcha-check-failed")) {
     return "We could not confirm the security check. Refresh the page and try again.";
@@ -93,4 +100,63 @@ export function providerPhoneVerificationError(error: unknown): string {
     return "Check your internet connection and try again.";
   }
   return customerAuthenticationError(error);
+}
+
+function phoneVerificationRetryLabel(
+  error: unknown,
+): string | null {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+
+  const match =
+    error.message.match(
+      /Retry in (\d+) seconds?/iu,
+    );
+
+  if (!match) {
+    return null;
+  }
+
+  const seconds =
+    Number(match[1]);
+
+  if (
+    !Number.isSafeInteger(seconds) ||
+    seconds <= 0
+  ) {
+    return null;
+  }
+
+  if (seconds < 60) {
+    return `in about ${seconds} ${
+      seconds === 1
+        ? "second"
+        : "seconds"
+    }`;
+  }
+
+  const minutes =
+    Math.ceil(
+      seconds / 60,
+    );
+
+  if (minutes < 60) {
+    return `in about ${minutes} ${
+      minutes === 1
+        ? "minute"
+        : "minutes"
+    }`;
+  }
+
+  const hours =
+    Math.ceil(
+      minutes / 60,
+    );
+
+  return `in about ${hours} ${
+    hours === 1
+      ? "hour"
+      : "hours"
+  }`;
 }
