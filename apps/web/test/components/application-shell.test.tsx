@@ -38,10 +38,80 @@ vi.mock(
 
 import {ApplicationShell} from "@/components/layout/application-shell";
 import {PageHeading} from "@/components/layout/page-heading";
-import {roleNavigation} from "@/components/layout/navigation";
+import {
+  getRoleNavigation,
+  roleNavigation,
+} from "@/components/layout/navigation";
 import {Button} from "@/components/ui/button";
 
 describe("ApplicationShell", () => {
+  it("builds catalog navigation from the provider service type", () => {
+  const catering =
+    getRoleNavigation(
+      "provider",
+      "catering",
+    );
+
+  expect(
+    catering.some(
+      (item) =>
+        item.href ===
+        "/provider/packages",
+    ),
+  ).toBe(true);
+
+  expect(
+    catering.some(
+      (item) =>
+        item.href ===
+        "/provider/services",
+    ),
+  ).toBe(false);
+
+  const addon =
+    getRoleNavigation(
+      "provider",
+      "addon",
+    );
+
+  expect(
+    addon.some(
+      (item) =>
+        item.href ===
+        "/provider/packages",
+    ),
+  ).toBe(false);
+
+  expect(
+    addon.some(
+      (item) =>
+        item.href ===
+        "/provider/services",
+    ),
+  ).toBe(true);
+
+  const both =
+    getRoleNavigation(
+      "provider",
+      "both",
+    );
+
+  expect(
+    both.some(
+      (item) =>
+        item.href ===
+        "/provider/packages",
+    ),
+  ).toBe(true);
+
+  expect(
+    both.some(
+      (item) =>
+        item.href ===
+        "/provider/services",
+    ),
+  ).toBe(true);
+});
   it("renders role-specific navigation with an accessible active state", () => {
     render(
       <ApplicationShell role="provider" accountLabel="provider@feasta.test">

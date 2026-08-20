@@ -95,6 +95,13 @@ NavigationItem = {
   icon: PackageOpen,
 };
 
+const providerServiceNavigation:
+NavigationItem = {
+  label: "Services",
+  href: "/provider/services",
+  icon: Store,
+};
+
 const providerCommonNavigation:
 readonly NavigationItem[] = [
   {
@@ -208,17 +215,24 @@ export function getRoleNavigation(
     return roleNavigation[role];
   }
 
-  /*
-   * Catering and hybrid providers currently have the implemented
-   * /provider/packages workspace.
-   *
-   * Add-on-only providers intentionally do not receive this navigation
-   * item until the dedicated provider services workspace exists.
-   */
-  const catalogNavigation =
-    providerServiceType === "addon"
-      ? []
-      : [providerPackageNavigation];
+ const catalogNavigation:
+readonly NavigationItem[] =
+  providerServiceType === "catering"
+    ? [
+        providerPackageNavigation,
+      ]
+    : providerServiceType === "addon"
+      ? [
+          providerServiceNavigation,
+        ]
+      : providerServiceType === "both"
+        ? [
+            providerPackageNavigation,
+            providerServiceNavigation,
+          ]
+        : [
+            providerPackageNavigation,
+          ];
 
   return [
     ...providerBaseNavigation,

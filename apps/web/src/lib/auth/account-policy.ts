@@ -1,9 +1,11 @@
 import {
+  PROVIDER_SERVICE_CATEGORIES,
   parseAccountStatus,
   parseProviderServiceType,
   parseProviderVerificationStatus,
   parseUserRole,
   type AccountStatus,
+  type ProviderServiceCategory,
   type ProviderServiceType,
   type ProviderVerificationStatus,
   type UserRole,
@@ -19,6 +21,7 @@ export interface ServerProviderContext {
   isDeleted: boolean;
 
   providerServiceType: ProviderServiceType;
+  serviceCategories: readonly ProviderServiceCategory[];
 
   eventTypesSupported: string[];
   minGuestsPerEvent: number;
@@ -130,6 +133,20 @@ export function resolveTrustedAccountContext(
         reason: "invalid_provider_service_type",
       };
     }
+    const serviceCategories =
+  Array.isArray(
+    providerProfile.serviceCategories,
+  )
+    ? providerProfile.serviceCategories.filter(
+        (
+          value,
+        ): value is ProviderServiceCategory =>
+          typeof value === "string" &&
+          PROVIDER_SERVICE_CATEGORIES.includes(
+            value as ProviderServiceCategory,
+          ),
+      )
+    : [];
     provider = {
     id: providerId,
     verificationStatus,
@@ -138,6 +155,7 @@ export function resolveTrustedAccountContext(
     isDeleted: providerProfile.isDeleted === true,
 
     providerServiceType,
+    serviceCategories,
 
     eventTypesSupported: Array.isArray(
       providerProfile.eventTypesSupported,

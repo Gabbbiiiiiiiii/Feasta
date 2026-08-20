@@ -57,12 +57,27 @@ test("valid customer, provider, and admin contexts use trusted records", () => {
       isActive: true,
       isSuspended: false,
       providerServiceType: "catering",
+      serviceCategories: [
+        "catering_service",
+        "food_trays_packed_meals",
+        "invalid_category",
+      ],
     },
   });
   assert.equal(provider.ok && provider.account.role, "provider");
   assert.equal(
     provider.ok && provider.account.provider?.verificationStatus,
     "approved",
+  );
+
+  assert.deepEqual(
+    provider.ok
+      ? provider.account.provider?.serviceCategories
+      : null,
+    [
+      "catering_service",
+      "food_trays_packed_meals",
+    ],
   );
 
   const admin = resolve({profile: {...baseProfile, role: "admin"}});
@@ -77,6 +92,9 @@ test("provider destinations enforce email then phone before onboarding", () => {
     isSuspended: false,
     isDeleted: false,
     providerServiceType: "catering" as const,
+    serviceCategories: [
+      "catering_service",
+    ] as const,
     eventTypesSupported: [
       "birthday",
       "wedding",
@@ -176,13 +194,16 @@ test("safe return paths are role-scoped and external redirects are denied", () =
 
 test("provider onboarding destinations fail closed for every verification state", () => {
   assert.equal(providerAccessDestination({provider: null}), "/provider/onboarding");
-  const provider = {
+    const provider = {
     id: "provider-one",
     verificationStatus: "draft" as const,
     isActive: false,
     isSuspended: false,
     isDeleted: false,
     providerServiceType: "catering" as const,
+    serviceCategories: [
+      "catering_service",
+    ] as const,
     eventTypesSupported: [
       "birthday",
       "wedding",
