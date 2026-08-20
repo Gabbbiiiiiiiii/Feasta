@@ -63,7 +63,7 @@ export function providerStatusPresentation(
       return {
         title: canonical.label,
         description: canonical.message,
-        next: "Review FEASTA’s decision below. Approved-provider operations remain disabled.",
+        next: "Review FEASTA's decision below. Approved-provider operations remain disabled.",
         actionLabel: null,
         actionHref: null,
         visibleReason: "rejectionReason",

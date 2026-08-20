@@ -21,7 +21,7 @@ export default async function ProviderVerificationPage({
   if (["submitted", "under_review", "rejected", "suspended"].includes(status)) {
     redirect("/provider/status");
   }
-  if (status === "approved") redirect("/provider");
+  if (status === "approved") redirect("/provider/status");
 
   const verification = await loadOwnedProviderVerification(account);
   if (!verification) {
