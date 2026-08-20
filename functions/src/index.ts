@@ -71,6 +71,9 @@ export {
   saveProviderOnboardingDraft,
 } from "./providers/save-provider-onboarding-draft.js";
 export {
+  updateProviderAvailability,
+} from "./providers/update-provider-availability.js";
+export {
   createProviderPackage,
 } from "./packages/create-provider-package.js";
 export {
