@@ -74,6 +74,12 @@ export {
   updateProviderAvailability,
 } from "./providers/update-provider-availability.js";
 export {
+  archiveProviderService,
+  createProviderService,
+  publishProviderService,
+  updateProviderService,
+} from "./providers/provider-service-management.js";
+export {
   createProviderPackage,
 } from "./packages/create-provider-package.js";
 export {
