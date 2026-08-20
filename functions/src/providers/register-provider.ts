@@ -15,6 +15,7 @@ import {
   PROVIDER_SERVICE_CATEGORIES,
   PROVIDER_SERVICE_TYPES,
   USER_ROLES,
+  providerCapacityCapabilities,
   serviceCategoryMatchesProviderType,
   type ProviderServiceCategory,
 } from "../shared/constants.js";
@@ -243,6 +244,10 @@ export const registerProvider = onCall(
         "Service categories must match the provider service type and primary category.",
       );
     }
+    const capacityCapabilities =
+    providerCapacityCapabilities(
+      serviceCategories as ProviderServiceCategory[],
+    );
     const serviceAreas = optionalStringList(input.serviceAreas, "serviceAreas");
     const eventTypesSupported = input.serviceCategories === undefined
       ? optionalStringList(input.eventTypesSupported, "eventTypesSupported")
@@ -259,21 +264,53 @@ export const registerProvider = onCall(
     const locationCoordinates = optionalCoordinates(
       input.locationCoordinates,
     );
-    const maxGuestsPerEvent = compatibleGuestCapacity(input);
-    const minGuestsPerEvent = optionalInteger(
-      input.minGuestsPerEvent,
-      "minGuestsPerEvent",
-      {minimum: 0, maximum: 100000, fallback: 0},
-    );
+    const parsedMaxGuestsPerEvent =
+      compatibleGuestCapacity(input);
+
+    const parsedMinGuestsPerEvent =
+      optionalInteger(
+        input.minGuestsPerEvent,
+        "minGuestsPerEvent",
+        {
+          minimum: 0,
+          maximum: 100000,
+          fallback: 0,
+        },
+      );
+
     if (
-      maxGuestsPerEvent > 0 &&
-      minGuestsPerEvent > maxGuestsPerEvent
+      capacityCapabilities.requiresGuestCapacity &&
+      (
+        parsedMinGuestsPerEvent < 1 ||
+        parsedMaxGuestsPerEvent < 1
+      )
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Guest capacity must be at least 1 for the selected services.",
+      );
+    }
+
+    if (
+      capacityCapabilities.requiresGuestCapacity &&
+      parsedMinGuestsPerEvent >
+        parsedMaxGuestsPerEvent
     ) {
       throw new HttpsError(
         "invalid-argument",
         "Minimum guests cannot exceed maximum guests.",
       );
     }
+
+    const minGuestsPerEvent =
+      capacityCapabilities.requiresGuestCapacity
+        ? parsedMinGuestsPerEvent
+        : 0;
+
+    const maxGuestsPerEvent =
+      capacityCapabilities.requiresGuestCapacity
+        ? parsedMaxGuestsPerEvent
+        : 0;
     const acceptsMultipleEventsPerDay = optionalBoolean(
       input.acceptsMultipleEventsPerDay,
       "acceptsMultipleEventsPerDay",
@@ -290,16 +327,37 @@ export const registerProvider = onCall(
         "maxEventsPerDay must be 1 when multiple daily events are disabled.",
       );
     }
-    const availableStaffCount = optionalInteger(
-      input.availableStaffCount,
-      "availableStaffCount",
-      {minimum: 0, maximum: 100000, fallback: 0},
-    );
-    const availableEquipmentCount = optionalInteger(
-      input.availableEquipmentCount,
-      "availableEquipmentCount",
-      {minimum: 0, maximum: 100000, fallback: 0},
-    );
+    const parsedAvailableStaffCount =
+      optionalInteger(
+        input.availableStaffCount,
+        "availableStaffCount",
+        {
+          minimum: 0,
+          maximum: 100000,
+          fallback: 0,
+        },
+      );
+
+    const parsedAvailableEquipmentCount =
+      optionalInteger(
+        input.availableEquipmentCount,
+        "availableEquipmentCount",
+        {
+          minimum: 0,
+          maximum: 100000,
+          fallback: 0,
+        },
+      );
+
+    const availableStaffCount =
+      capacityCapabilities.usesStaffCapacity
+        ? parsedAvailableStaffCount
+        : 0;
+
+    const availableEquipmentCount =
+      capacityCapabilities.usesEquipmentCapacity
+        ? parsedAvailableEquipmentCount
+        : 0;
     const operatingDays = optionalEnumList(
       input.operatingDays,
       "operatingDays",

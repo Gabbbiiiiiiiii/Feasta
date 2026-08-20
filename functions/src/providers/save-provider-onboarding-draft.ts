@@ -12,6 +12,7 @@ import {
   PROVIDER_SERVICE_CATEGORIES,
   PROVIDER_SERVICE_TYPES,
   USER_ROLES,
+  providerCapacityCapabilities,
   serviceCategoryMatchesProviderType,
   type ProviderServiceCategory,
 } from "../shared/constants.js";
@@ -53,7 +54,7 @@ export const saveProviderOnboardingDraft = onCall(
       throw new HttpsError("invalid-argument", "step must be an integer.");
     }
     const data = requireObject(input.data, "data");
-    const validated = validateStep(step, data, actor.uid);
+    let validated = validateStep(step, data, actor.uid);
     if (step === 2) {
       await Promise.all([
         verifyProviderMedia({
@@ -110,6 +111,13 @@ export const saveProviderOnboardingDraft = onCall(
       }
 
       const existing = draftSnapshot.data() ?? {};
+      if (step === 5) {
+        validated =
+          normalizeStepFiveCapacity(
+            validated,
+            existing,
+          );
+      }
       const completed = new Set<number>(
         Array.isArray(existing.completedSteps)
           ? existing.completedSteps.filter(
@@ -360,15 +368,17 @@ function validateStep(
       const minGuestsPerEvent = requiredInteger(
         data.minGuestsPerEvent,
         "minGuestsPerEvent",
-        1,
+        0,
         100000,
       );
+
       const maxGuestsPerEvent = requiredInteger(
-          data.maxGuestsPerEvent,
-          "maxGuestsPerEvent",
-          1,
-          100000,
+        data.maxGuestsPerEvent,
+        "maxGuestsPerEvent",
+        0,
+        100000,
       );
+
       if (minGuestsPerEvent > maxGuestsPerEvent) {
         throw new HttpsError(
           "invalid-argument",
@@ -437,6 +447,102 @@ function validateStep(
     default:
       throw new HttpsError("invalid-argument", "Unknown onboarding step.");
   }
+}
+
+function normalizeStepFiveCapacity(
+  validated: Record<string, unknown>,
+  existingDraft: Record<string, unknown>,
+): Record<string, unknown> {
+  const serviceCategories =
+    Array.isArray(
+      existingDraft.serviceCategories,
+    )
+      ? existingDraft.serviceCategories.filter(
+          (
+            value,
+          ): value is ProviderServiceCategory =>
+            typeof value === "string" &&
+            PROVIDER_SERVICE_CATEGORIES.includes(
+              value as ProviderServiceCategory,
+            ),
+        )
+      : [];
+
+  if (serviceCategories.length === 0) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Complete service selection before configuring capacity.",
+    );
+  }
+
+  const capabilities =
+    providerCapacityCapabilities(
+      serviceCategories,
+    );
+
+  const minGuestsPerEvent =
+    requiredInteger(
+      validated.minGuestsPerEvent,
+      "minGuestsPerEvent",
+      0,
+      100000,
+    );
+
+  const maxGuestsPerEvent =
+    requiredInteger(
+      validated.maxGuestsPerEvent,
+      "maxGuestsPerEvent",
+      0,
+      100000,
+    );
+
+  if (
+    capabilities.requiresGuestCapacity &&
+    (
+      minGuestsPerEvent < 1 ||
+      maxGuestsPerEvent < 1
+    )
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Guest capacity must be at least 1 for the selected services.",
+    );
+  }
+
+  if (
+    capabilities.requiresGuestCapacity &&
+    minGuestsPerEvent >
+      maxGuestsPerEvent
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Minimum guests cannot exceed maximum guests.",
+    );
+  }
+
+  return {
+    ...validated,
+
+    minGuestsPerEvent:
+      capabilities.requiresGuestCapacity
+        ? minGuestsPerEvent
+        : 0,
+
+    maxGuestsPerEvent:
+      capabilities.requiresGuestCapacity
+        ? maxGuestsPerEvent
+        : 0,
+
+    availableStaffCount:
+      capabilities.usesStaffCapacity
+        ? validated.availableStaffCount
+        : 0,
+
+    availableEquipmentCount:
+      capabilities.usesEquipmentCapacity
+        ? validated.availableEquipmentCount
+        : 0,
+  };
 }
 
 function firstIncompleteStep(completed: ReadonlySet<number>): number {

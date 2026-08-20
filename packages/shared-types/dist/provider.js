@@ -38,6 +38,53 @@ export const PROVIDER_SERVICE_CATEGORIES = [
     "tables_chairs_rental",
     "other_event_service",
 ];
+const GUEST_CAPACITY_SERVICE_CATEGORIES = [
+    "catering_service",
+    "food_trays_packed_meals",
+    "venue_provider",
+];
+const STAFF_CAPACITY_SERVICE_CATEGORIES = [
+    "catering_service",
+    "catering_event_styling",
+    "photographer",
+    "videographer",
+    "photo_booth",
+    "event_coordinator",
+    "event_host_emcee",
+    "sound_system",
+    "lights_and_sounds",
+    "singer_band",
+    "dancer_performer",
+    "decorator_event_stylist",
+    "florist",
+    "cake_provider",
+    "gown_suit_rental",
+    "car_rental",
+    "venue_provider",
+    "tables_chairs_rental",
+    "other_event_service",
+];
+const EQUIPMENT_CAPACITY_SERVICE_CATEGORIES = [
+    "catering_service",
+    "catering_event_styling",
+    "photographer",
+    "videographer",
+    "photo_booth",
+    "sound_system",
+    "lights_and_sounds",
+    "decorator_event_stylist",
+    "car_rental",
+    "venue_provider",
+    "tables_chairs_rental",
+    "other_event_service",
+];
+export function providerCapacityCapabilities(serviceCategories) {
+    return {
+        requiresGuestCapacity: serviceCategories.some((category) => GUEST_CAPACITY_SERVICE_CATEGORIES.includes(category)),
+        usesStaffCapacity: serviceCategories.some((category) => STAFF_CAPACITY_SERVICE_CATEGORIES.includes(category)),
+        usesEquipmentCapacity: serviceCategories.some((category) => EQUIPMENT_CAPACITY_SERVICE_CATEGORIES.includes(category)),
+    };
+}
 export const CATERING_SERVICE_CATEGORIES = [
     "catering_service",
     "food_trays_packed_meals",

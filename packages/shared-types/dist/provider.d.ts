@@ -9,6 +9,12 @@ export interface ProviderVerificationDocumentPolicy {
 export declare const UNVERSIONED_POLICY_VERSION: "unversioned";
 export declare const PROVIDER_SERVICE_CATEGORIES: readonly ["catering_service", "food_trays_packed_meals", "catering_event_styling", "photographer", "videographer", "photo_booth", "event_coordinator", "event_host_emcee", "sound_system", "lights_and_sounds", "singer_band", "dancer_performer", "decorator_event_stylist", "florist", "cake_provider", "gown_suit_rental", "car_rental", "venue_provider", "tables_chairs_rental", "other_event_service"];
 export type ProviderServiceCategory = (typeof PROVIDER_SERVICE_CATEGORIES)[number];
+export interface ProviderCapacityCapabilities {
+    requiresGuestCapacity: boolean;
+    usesStaffCapacity: boolean;
+    usesEquipmentCapacity: boolean;
+}
+export declare function providerCapacityCapabilities(serviceCategories: readonly ProviderServiceCategory[]): ProviderCapacityCapabilities;
 export declare const CATERING_SERVICE_CATEGORIES: readonly ["catering_service", "food_trays_packed_meals", "catering_event_styling"];
 export declare const ADDON_SERVICE_CATEGORIES: readonly ProviderServiceCategory[];
 export declare const PROVIDER_EVENT_TYPES: readonly ["birthday", "wedding", "anniversary", "reunion", "corporate", "baptism", "graduation", "other"];
