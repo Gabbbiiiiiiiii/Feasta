@@ -9,12 +9,16 @@ import {
   roleLabels,
   type ShellRole,
 } from "@/components/layout/navigation";
+import type {
+  ProviderServiceType,
+} from "@feasta/shared-types";
 
 type ApplicationShellProps = {
   role: ShellRole;
   accountLabel: string;
   children: ReactNode;
   pageTitle?: string;
+  providerServiceType?: ProviderServiceType;
 };
 
 function ApplicationShell({
@@ -22,6 +26,7 @@ function ApplicationShell({
   accountLabel,
   children,
   pageTitle,
+  providerServiceType,
 }: ApplicationShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(false);
@@ -43,6 +48,7 @@ function ApplicationShell({
         <div className="contents print:hidden">
           <ApplicationSidebar
             role={role}
+            providerServiceType={providerServiceType}
             collapsed={sidebarCollapsed}
             onCollapsedChange={setSidebarCollapsed}
           />
@@ -72,7 +78,10 @@ function ApplicationShell({
       </div>
 
       <div className="print:hidden">
-        <MobileNavigation role={role} />
+        <MobileNavigation
+          role={role}
+          providerServiceType={providerServiceType}
+        />
       </div>
     </div>
   );

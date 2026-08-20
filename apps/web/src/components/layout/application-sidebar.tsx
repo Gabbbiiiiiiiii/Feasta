@@ -15,18 +15,24 @@ import { usePathname, useRouter } from "next/navigation";
 
 import { Brand } from "@/components/layout/application-header";
 import {
+  getRoleNavigation,
   isNavigationItemActive,
   roleLabels,
-  roleNavigation,
   type NavigationItem,
   type ShellRole,
 } from "@/components/layout/navigation";
+import type {
+  ProviderServiceType,
+} from "@feasta/shared-types";
 import { cn } from "@/lib/utils";
 
 type ApplicationSidebarProps = {
   role: ShellRole;
+  providerServiceType?: ProviderServiceType;
   collapsed: boolean;
-  onCollapsedChange: (collapsed: boolean) => void;
+  onCollapsedChange: (
+    collapsed: boolean,
+  ) => void;
 };
 
 type SidebarNavigationGroup = {
@@ -121,6 +127,7 @@ const SidebarNavigationItem = memo(
 
 function ApplicationSidebarComponent({
   role,
+  providerServiceType,
   collapsed,
   onCollapsedChange,
 }: ApplicationSidebarProps) {
@@ -130,7 +137,12 @@ function ApplicationSidebarComponent({
   const navigationGroups = useMemo(() => {
     const groups: SidebarNavigationGroup[] = [];
 
-    for (const item of roleNavigation[role]) {
+    for (
+      const item of getRoleNavigation(
+        role,
+        providerServiceType,
+      )
+    ) {
       const sectionLabel = item.section ?? null;
       const currentGroup = groups.at(-1);
 
@@ -150,7 +162,10 @@ function ApplicationSidebarComponent({
     }
 
     return groups;
-  }, [role]);
+  }, [
+    role,
+    providerServiceType,
+  ]);
 
   const sidebarLabel = useMemo(
     () => `${roleLabels[role]} sidebar`,

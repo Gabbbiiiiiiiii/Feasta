@@ -1,8 +1,10 @@
 import {
   parseAccountStatus,
+  parseProviderServiceType,
   parseProviderVerificationStatus,
   parseUserRole,
   type AccountStatus,
+  type ProviderServiceType,
   type ProviderVerificationStatus,
   type UserRole,
 } from "@feasta/shared-types";
@@ -15,6 +17,8 @@ export interface ServerProviderContext {
   isActive: boolean;
   isSuspended: boolean;
   isDeleted: boolean;
+
+  providerServiceType: ProviderServiceType;
 
   eventTypesSupported: string[];
   minGuestsPerEvent: number;
@@ -46,7 +50,8 @@ export type AccountContextFailureReason =
   | "inactive_account"
   | "invalid_provider_link"
   | "missing_provider_profile"
-  | "invalid_provider_status";
+  | "invalid_provider_status"
+  | "invalid_provider_service_type";
 
 export type AccountContextResolution =
   | {ok: true; account: ServerAccountContext}
@@ -115,12 +120,24 @@ export function resolveTrustedAccountContext(
     if (!verificationStatus) {
       return {ok: false, reason: "invalid_provider_status"};
     }
+    const providerServiceType = parseProviderServiceType(
+      providerProfile.providerServiceType,
+    );
+
+    if (!providerServiceType) {
+      return {
+        ok: false,
+        reason: "invalid_provider_service_type",
+      };
+    }
     provider = {
     id: providerId,
     verificationStatus,
     isActive: providerProfile.isActive === true,
     isSuspended: providerProfile.isSuspended === true,
     isDeleted: providerProfile.isDeleted === true,
+
+    providerServiceType,
 
     eventTypesSupported: Array.isArray(
       providerProfile.eventTypesSupported,

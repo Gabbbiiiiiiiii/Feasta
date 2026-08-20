@@ -56,6 +56,7 @@ test("valid customer, provider, and admin contexts use trusted records", () => {
       verificationStatus: "approved",
       isActive: true,
       isSuspended: false,
+      providerServiceType: "catering",
     },
   });
   assert.equal(provider.ok && provider.account.role, "provider");
@@ -75,7 +76,7 @@ test("provider destinations enforce email then phone before onboarding", () => {
     isActive: true,
     isSuspended: false,
     isDeleted: false,
-
+    providerServiceType: "catering" as const,
     eventTypesSupported: [
       "birthday",
       "wedding",
@@ -181,7 +182,7 @@ test("provider onboarding destinations fail closed for every verification state"
     isActive: false,
     isSuspended: false,
     isDeleted: false,
-
+    providerServiceType: "catering" as const,
     eventTypesSupported: [
       "birthday",
       "wedding",

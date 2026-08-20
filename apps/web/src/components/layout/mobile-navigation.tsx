@@ -6,20 +6,34 @@ import {usePathname} from "next/navigation";
 import {
   isNavigationItemActive,
   roleLabels,
-  roleNavigation,
+  getRoleNavigation,
   type ShellRole,
 } from "@/components/layout/navigation";
+import type {
+  ProviderServiceType,
+} from "@feasta/shared-types";
 import {cn} from "@/lib/utils";
 
-function MobileNavigation({role}: {role: ShellRole}) {
+function MobileNavigation({
+  role,
+  providerServiceType,
+}: {
+  role: ShellRole;
+  providerServiceType?: ProviderServiceType;
+}) {
   const pathname = usePathname();
+  const navigation =
+  getRoleNavigation(
+    role,
+    providerServiceType,
+  );
   return (
     <nav
       aria-label={`${roleLabels[role]} mobile navigation`}
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 md:hidden"
     >
       <ul className="grid grid-flow-col auto-cols-fr gap-1">
-        {roleNavigation[role].map((item) => {
+        {navigation.map((item) => {
           const active = isNavigationItemActive(pathname, item.href);
           const Icon = item.icon;
           return (
