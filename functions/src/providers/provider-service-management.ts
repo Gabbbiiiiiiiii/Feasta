@@ -13,6 +13,10 @@ import {
   requireRole,
 } from "../shared/authorization.js";
 import {
+  cloudinarySecrets,
+  verifyProviderServiceImage,
+} from "../shared/cloudinary.js";
+import {
   isApprovedProviderForOperations,
   PROVIDER_SERVICE_CATEGORIES,
   USER_ROLES,
@@ -55,7 +59,8 @@ type ServiceInput = {
   category: ProviderServiceCategory;
   pricingType: AddonPricingType;
   price: number | null;
-  imageUrl: string;
+  imageUrl: string | null;
+  imagePublicId: string | null;
 };
 
 type OwnedProvider = {
@@ -67,16 +72,17 @@ type OwnedProvider = {
 };
 
 const CREATE_FIELDS = [
+  "serviceId",
   "name",
   "description",
   "category",
   "pricingType",
   "price",
   "imageUrl",
+  "imagePublicId",
 ] as const;
 
 const UPDATE_FIELDS = [
-  "serviceId",
   ...CREATE_FIELDS,
 ] as const;
 
@@ -91,6 +97,7 @@ const SERVICE_ID_FIELDS = [
 export const createProviderService = onCall(
   {
     ...appCheckCallableOptions,
+    secrets: cloudinarySecrets,
     timeoutSeconds: 30,
   },
   async (request) => {
@@ -120,6 +127,12 @@ export const createProviderService = onCall(
       CREATE_FIELDS,
     );
 
+    const serviceId =
+    requireDocumentId(
+      rawInput.serviceId,
+      "serviceId",
+    );
+
     const provider =
       await requireOwnedServiceProvider(
         actor.uid,
@@ -133,10 +146,26 @@ export const createProviderService = onCall(
       input.category,
     );
 
+    await verifyProviderServiceImage({
+    ownerId:
+      actor.uid,
+
+    serviceId,
+
+    url:
+      input.imageUrl,
+
+    publicId:
+      input.imagePublicId,
+
+    maximumBytes:
+      5 * 1024 * 1024,
+  });
+
     const reference =
       db
         .collection(COLLECTIONS.addons)
-        .doc();
+        .doc(serviceId);
 
     await db.runTransaction(
       async (transaction) => {
@@ -164,6 +193,9 @@ export const createProviderService = onCall(
 
           imageUrl:
             input.imageUrl,
+
+          imagePublicId:
+            input.imagePublicId,
 
           status:
             "draft",
@@ -254,6 +286,7 @@ export const createProviderService = onCall(
 export const updateProviderService = onCall(
   {
     ...appCheckCallableOptions,
+    secrets: cloudinarySecrets,
     timeoutSeconds: 30,
   },
   async (request) => {
@@ -301,6 +334,22 @@ export const updateProviderService = onCall(
       provider,
       input.category,
     );
+
+    await verifyProviderServiceImage({
+  ownerId:
+    actor.uid,
+
+  serviceId,
+
+  url:
+    input.imageUrl,
+
+  publicId:
+    input.imagePublicId,
+
+  maximumBytes:
+    5 * 1024 * 1024,
+});
 
     const reference =
       db
@@ -368,6 +417,9 @@ export const updateProviderService = onCall(
 
             imageUrl:
               input.imageUrl,
+
+            imagePublicId:
+              input.imagePublicId,
 
             updatedAt:
               serverTimestamp(),
@@ -734,11 +786,11 @@ export const archiveProviderService = onCall(
         }
 
         if (
-          current.status === "archived"
+          current.status !== "published"
         ) {
           throw new HttpsError(
             "failed-precondition",
-            "This event service is already archived.",
+            "Only published event services can be archived.",
           );
         }
 
@@ -1077,11 +1129,131 @@ function parseServiceInput(
         pricingType,
       ),
 
-    imageUrl:
-      optionalHttpsUrl(
-        data.imageUrl,
-      ),
+    ...parseServiceImage(
+      data.imageUrl,
+      data.imagePublicId,
+    ),
   };
+}
+
+function parseServiceImage(
+  imageUrlValue: unknown,
+  imagePublicIdValue: unknown,
+): {
+  imageUrl: string | null;
+  imagePublicId: string | null;
+} {
+  const imageUrl =
+    optionalServiceImageUrl(
+      imageUrlValue,
+    );
+
+  const imagePublicId =
+    optionalServiceImagePublicId(
+      imagePublicIdValue,
+    );
+
+  if (
+    (imageUrl === null) !==
+    (imagePublicId === null)
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "The service image URL and public ID must be provided together.",
+    );
+  }
+
+  return {
+    imageUrl,
+    imagePublicId,
+  };
+}
+
+function optionalServiceImageUrl(
+  value: unknown,
+): string | null {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  if (
+    typeof value !== "string"
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "The service image URL is invalid.",
+    );
+  }
+
+  try {
+    const url =
+      new URL(
+        value.trim(),
+      );
+
+    if (
+      url.protocol !== "https:" ||
+      url.hostname !==
+        "res.cloudinary.com" ||
+      !url.pathname.includes(
+        "/image/upload/",
+      ) ||
+      url.username !== "" ||
+      url.password !== "" ||
+      url.port !== "" ||
+      url.search !== "" ||
+      url.hash !== ""
+    ) {
+      throw new Error();
+    }
+
+    return url.toString();
+  } catch {
+    throw new HttpsError(
+      "invalid-argument",
+      "The service image URL is invalid.",
+    );
+  }
+}
+
+function optionalServiceImagePublicId(
+  value: unknown,
+): string | null {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  if (
+    typeof value !== "string"
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "The service image public ID is invalid.",
+    );
+  }
+
+  const normalized =
+    value.trim();
+
+  if (
+    normalized.length < 1 ||
+    normalized.length > 500
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "The service image public ID is invalid.",
+    );
+  }
+
+  return normalized;
 }
 
 function parsePricingType(
@@ -1151,8 +1323,9 @@ function validatePublishableService(
     pricingType,
   );
 
-  optionalHttpsUrl(
+  parseServiceImage(
     service.imageUrl,
+    service.imagePublicId,
   );
 }
 
@@ -1278,49 +1451,4 @@ function optionalText(
       0,
       maximumLength,
     );
-}
-
-function optionalHttpsUrl(
-  value: unknown,
-): string {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
-    return "";
-  }
-
-  if (
-    typeof value !== "string"
-  ) {
-    throw new HttpsError(
-      "invalid-argument",
-      "The service image URL is invalid.",
-    );
-  }
-
-  try {
-    const url =
-      new URL(
-        value.trim(),
-      );
-
-    if (
-      url.protocol !== "https:" ||
-      url.username !== "" ||
-      url.password !== "" ||
-      url.port !== "" ||
-      url.hash !== ""
-    ) {
-      throw new Error();
-    }
-
-    return url.toString();
-  } catch {
-    throw new HttpsError(
-      "invalid-argument",
-      "The service image URL must be a valid HTTPS URL.",
-    );
-  }
 }

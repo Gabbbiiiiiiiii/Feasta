@@ -513,15 +513,33 @@ export function providerSubmissionProfileIssues(
     issues.add("operatingDays");
   }
 
-  const minimumGuests = provider.minGuestsPerEvent;
-  const maximumGuests = provider.maxGuestsPerEvent;
+  const capacityCapabilities =
+    providerCapacityCapabilities(
+      serviceCategories,
+    );
+
+  const minimumGuests =
+    provider.minGuestsPerEvent;
+
+  const maximumGuests =
+    provider.maxGuestsPerEvent;
+
   if (
-    typeof minimumGuests !== "number" ||
-    !Number.isInteger(minimumGuests) ||
-    minimumGuests < 1 ||
-    typeof maximumGuests !== "number" ||
-    !Number.isInteger(maximumGuests) ||
-    maximumGuests < minimumGuests
+    capacityCapabilities.requiresGuestCapacity
+  ) {
+    if (
+      typeof minimumGuests !== "number" ||
+      !Number.isInteger(minimumGuests) ||
+      minimumGuests < 1 ||
+      typeof maximumGuests !== "number" ||
+      !Number.isInteger(maximumGuests) ||
+      maximumGuests < minimumGuests
+    ) {
+      issues.add("guestCapacity");
+    }
+  } else if (
+    minimumGuests !== 0 ||
+    maximumGuests !== 0
   ) {
     issues.add("guestCapacity");
   }

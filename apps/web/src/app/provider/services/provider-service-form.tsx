@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -29,6 +30,11 @@ import {
   type ProviderService,
   type ProviderServiceInput,
 } from "@/lib/provider/provider-service-client";
+import {
+  deleteProviderServiceImage,
+  uploadProviderServiceImage,
+  type ProviderServiceImage,
+} from "@/lib/provider/provider-media-client";
 
 type ProviderServiceFormProps = {
   serviceCategories:
@@ -80,10 +86,59 @@ export function ProviderServiceForm({
         : "",
     );
 
-  const [imageUrl, setImageUrl] =
+  const [serviceId] =
     useState(
-      initialService?.imageUrl ?? "",
+      () =>
+        initialService?.id ??
+        crypto.randomUUID(),
     );
+
+  const [serviceImage, setServiceImage] =
+    useState<ProviderServiceImage | null>(
+      initialService?.imageUrl &&
+      initialService.imagePublicId
+        ? {
+            url:
+              initialService.imageUrl,
+
+            publicId:
+              initialService.imagePublicId,
+          }
+        : null,
+    );
+
+  const [
+    selectedImageFile,
+    setSelectedImageFile,
+  ] = useState<File | null>(null);
+
+  const imagePreviewUrl =
+    useMemo(
+      () =>
+        selectedImageFile
+          ? URL.createObjectURL(
+              selectedImageFile,
+            )
+          : null,
+      [
+        selectedImageFile,
+      ],
+    );
+
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) {
+        URL.revokeObjectURL(
+          imagePreviewUrl,
+        );
+      }
+    };
+  }, [
+    imagePreviewUrl,
+  ]);
+
+  const [uploadingImage, setUploadingImage] =
+    useState(false);
 
   const [submitting, setSubmitting] =
     useState(false);
@@ -139,39 +194,62 @@ export function ProviderServiceForm({
         return "Enter a valid service price.";
       }
 
-      if (
-        imageUrl.trim() !== ""
-      ) {
-        try {
-          const url =
-            new URL(
-              imageUrl.trim(),
-            );
-
-          if (
-            url.protocol !== "https:" ||
-            url.username !== "" ||
-            url.password !== "" ||
-            url.port !== "" ||
-            url.hash !== ""
-          ) {
-            return "Image URL must be a valid HTTPS URL.";
-          }
-        } catch {
-          return "Image URL must be a valid HTTPS URL.";
-        }
-      }
-
       return null;
     }, [
       category,
       description,
-      imageUrl,
       name,
       parsedPrice,
       pricingType,
       serviceCategories,
     ]);
+
+  function handleImageChange(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file =
+      event.target.files?.[0];
+
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    const allowedTypes =
+      new Set([
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+      ]);
+
+    if (!allowedTypes.has(file.type)) {
+      setError(
+        "Choose a JPEG, PNG, or WebP image.",
+      );
+      return;
+    }
+
+    if (
+      file.size <= 0 ||
+      file.size >
+        5 * 1024 * 1024
+    ) {
+      setError(
+        "The service image must be no larger than 5 MB.",
+      );
+      return;
+    }
+
+    setError(null);
+    setSelectedImageFile(file);
+  }
+
+  function handleRemoveImage() {
+    setSelectedImageFile(null);
+    setServiceImage(null);
+    setError(null);
+  }
 
   async function handleSubmit(
     event: React.FormEvent<HTMLFormElement>,
@@ -180,6 +258,7 @@ export function ProviderServiceForm({
 
     if (
       submitting ||
+      uploadingImage ||
       validationError
     ) {
       return;
@@ -188,7 +267,32 @@ export function ProviderServiceForm({
     setSubmitting(true);
     setError(null);
 
+    let nextServiceImage =
+      serviceImage;
+
+    let uploadedForNewService =
+      false;
+
     try {
+      if (selectedImageFile) {
+        setUploadingImage(true);
+
+        nextServiceImage =
+          await uploadProviderServiceImage(
+            serviceId,
+            selectedImageFile,
+          );
+
+        uploadedForNewService =
+          !editing;
+      }
+
+      const removingExistingImage =
+        editing &&
+        initialService.imagePublicId !== "" &&
+        !selectedImageFile &&
+        nextServiceImage === null;
+
       const input: ProviderServiceInput = {
         name:
           name.trim(),
@@ -206,7 +310,10 @@ export function ProviderServiceForm({
             : parsedPrice,
 
         imageUrl:
-          imageUrl.trim(),
+          nextServiceImage?.url ?? "",
+
+        imagePublicId:
+          nextServiceImage?.publicId ?? "",
       };
 
       if (editing) {
@@ -216,8 +323,20 @@ export function ProviderServiceForm({
         );
       } else {
         await createProviderService(
+          serviceId,
           input,
         );
+      }
+
+      if (removingExistingImage) {
+        await deleteProviderServiceImage(
+          serviceId,
+        ).catch((caught) => {
+          console.error(
+            "[FEASTA service image cleanup]",
+            caught,
+          );
+        });
       }
 
       await onSaved();
@@ -229,16 +348,22 @@ export function ProviderServiceForm({
         caught,
       );
 
+      if (uploadedForNewService) {
+        await deleteProviderServiceImage(
+          serviceId,
+        ).catch(() => undefined);
+      }
+
       setError(
         editing
           ? "The service could not be updated. Please review the details and try again."
           : "The service could not be created. Please review the details and try again.",
       );
     } finally {
+      setUploadingImage(false);
       setSubmitting(false);
     }
   }
-
   return (
     <form
       onSubmit={handleSubmit}
@@ -381,26 +506,67 @@ export function ProviderServiceForm({
         )}
       </div>
 
-      <FormField
-        label="Image URL"
-      >
-        <Input
-          type="url"
-          value={imageUrl}
-          onChange={(event) =>
-            setImageUrl(
-              event.target.value,
-            )
-          }
-          placeholder="https://..."
-          autoComplete="off"
-        />
+      <FormField label="Service image">
+        <div className="grid gap-3">
+          {imagePreviewUrl || serviceImage ? (
+            <div className="overflow-hidden rounded-lg border border-border">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={
+                  imagePreviewUrl ??
+                  serviceImage?.url ??
+                  ""
+                }
+                alt=""
+                className="h-48 w-full object-cover"
+              />
+            </div>
+          ) : (
+            <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-border bg-muted/30 px-6 text-center">
+              <p className="text-sm text-muted-foreground">
+                Add a photo that clearly represents this service.
+              </p>
+            </div>
+          )}
 
-        <p className="mt-1 text-xs text-muted-foreground">
-          Temporary image URL field. A dedicated
-          service image uploader will replace this
-          once the service media workflow is added.
-        </p>
+          <div className="flex flex-wrap gap-2">
+            <label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium hover:bg-accent hover:text-accent-foreground">
+              {selectedImageFile ||
+                serviceImage
+                  ? "Replace image"
+                  : "Upload image"}
+
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="sr-only"
+                disabled={
+                  submitting ||
+                  uploadingImage
+                }
+                onChange={handleImageChange}
+              />
+            </label>
+
+            {imagePreviewUrl || serviceImage ? (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={
+                  submitting ||
+                  uploadingImage
+                }
+                onClick={handleRemoveImage}
+              >
+                Remove
+              </Button>
+            ) : null}
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            JPEG, PNG, or WebP. Maximum 5 MB.
+          </p>
+        </div>
       </FormField>
 
       {validationError ? (
@@ -425,7 +591,10 @@ export function ProviderServiceForm({
         <Button
         type="button"
         variant="secondary"
-        disabled={submitting}
+        disabled={
+          submitting ||
+          uploadingImage
+        }
         onClick={onCancel}
         >
         Cancel
@@ -435,6 +604,7 @@ export function ProviderServiceForm({
           type="submit"
           disabled={
             submitting ||
+            uploadingImage ||
             validationError !== null
           }
         >

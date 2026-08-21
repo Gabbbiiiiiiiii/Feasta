@@ -39,6 +39,7 @@ export type ProviderServiceInput = {
   pricingType: AddonPricingType;
   price: number | null;
   imageUrl: string;
+  imagePublicId: string;
 };
 
 export type ProviderService = {
@@ -53,6 +54,7 @@ export type ProviderService = {
   price: number | null;
 
   imageUrl: string;
+  imagePublicId: string;
 
   status: ProviderServiceStatus;
 
@@ -118,15 +120,24 @@ export async function listProviderServices(
 }
 
 export async function createProviderService(
+  serviceId: string,
   input: ProviderServiceInput,
 ): Promise<ServiceMutationResponse> {
   await requireProviderAuthUser();
 
   return callServiceMutation(
     "createProviderService",
-    normalizeServiceInput(
-      input,
-    ),
+    {
+      serviceId:
+        requireDocumentId(
+          serviceId,
+          "serviceId",
+        ),
+
+      ...normalizeServiceInput(
+        input,
+      ),
+    },
   );
 }
 
@@ -224,9 +235,10 @@ function normalizeServiceInput(
       ),
 
     imageUrl:
-      normalizeImageUrl(
-        input.imageUrl,
-      ),
+      input.imageUrl.trim(),
+
+    imagePublicId:
+      input.imagePublicId.trim(),
   };
 }
 
@@ -282,6 +294,11 @@ function parseProviderService(
     imageUrl:
       optionalString(
         data.imageUrl,
+      ),
+
+    imagePublicId:
+      optionalString(
+        data.imagePublicId,
       ),
 
     status:
@@ -525,51 +542,6 @@ function normalizeOptionalText(
       0,
       maximumLength,
     );
-}
-
-function normalizeImageUrl(
-  value: unknown,
-): string {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
-    return "";
-  }
-
-  if (
-    typeof value !== "string"
-  ) {
-    throw new WebAuthenticationError(
-      "The service image URL is invalid.",
-      "validation",
-    );
-  }
-
-  try {
-    const url =
-      new URL(
-        value.trim(),
-      );
-
-    if (
-      url.protocol !== "https:" ||
-      url.username !== "" ||
-      url.password !== "" ||
-      url.port !== "" ||
-      url.hash !== ""
-    ) {
-      throw new Error();
-    }
-
-    return url.toString();
-  } catch {
-    throw new WebAuthenticationError(
-      "The service image URL must be a valid HTTPS URL.",
-      "validation",
-    );
-  }
 }
 
 function recordValue(

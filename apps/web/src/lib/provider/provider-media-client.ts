@@ -18,6 +18,20 @@ export type ProviderOnboardingMedia = {
   url: string;
   publicId: string;
 };
+export type ProviderServiceImage = {
+  url: string;
+  publicId: string;
+};
+
+type ProviderServiceImageUploadSignature = {
+  apiKey: string;
+  cloudName: string;
+  invalidate: true;
+  overwrite: true;
+  publicId: string;
+  signature: string;
+  timestamp: number;
+};
 
 type ProviderMediaUploadSignature = {
   apiKey: string;
@@ -146,6 +160,148 @@ export async function uploadProviderOnboardingImage(
   };
 }
 
+export async function uploadProviderServiceImage(
+  serviceId: string,
+  file: File,
+): Promise<ProviderServiceImage> {
+  requireProviderAuthUser();
+  validateServiceId(serviceId);
+  validateServiceImage(file);
+
+  const signature =
+    await call<ProviderServiceImageUploadSignature>(
+      "createProviderServiceImageUploadSignature",
+      {
+        serviceId,
+      },
+    );
+
+  validateServiceUploadSignature(
+    signature,
+    serviceId,
+  );
+
+  const form = new FormData();
+
+  form.set("file", file);
+  form.set("api_key", signature.apiKey);
+  form.set(
+    "timestamp",
+    String(signature.timestamp),
+  );
+  form.set(
+    "signature",
+    signature.signature,
+  );
+  form.set(
+    "public_id",
+    signature.publicId,
+  );
+  form.set(
+    "overwrite",
+    String(signature.overwrite),
+  );
+  form.set(
+    "invalidate",
+    String(signature.invalidate),
+  );
+
+  const response =
+    await fetch(
+      `https://api.cloudinary.com/v1_1/${
+        encodeURIComponent(
+          signature.cloudName,
+        )
+      }/image/upload`,
+      {
+        method: "POST",
+        body: form,
+      },
+    );
+
+  const body =
+    await readCloudinaryResponse(
+      response,
+    );
+
+  if (!response.ok) {
+    throw new WebAuthenticationError(
+      cloudinaryUploadError(body),
+      "upload_failed",
+    );
+  }
+
+  const uploaded =
+    body as CloudinaryUploadResponse;
+
+  if (
+    uploaded.resource_type !== "image" ||
+    uploaded.public_id !==
+      signature.publicId ||
+    typeof uploaded.secure_url !==
+      "string" ||
+    !isCloudinaryImageUrl(
+      uploaded.secure_url,
+    ) ||
+    typeof uploaded.bytes !== "number" ||
+    !Number.isSafeInteger(
+      uploaded.bytes,
+    ) ||
+    uploaded.bytes <= 0 ||
+    !isAllowedFormat(
+      uploaded.format,
+    )
+  ) {
+    await deleteProviderServiceImage(
+      serviceId,
+    ).catch(() => undefined);
+
+    throw new WebAuthenticationError(
+      "Cloudinary returned an invalid service image.",
+      "upload_failed",
+    );
+  }
+
+  if (
+    uploaded.bytes >
+    5 * 1024 * 1024
+  ) {
+    await deleteProviderServiceImage(
+      serviceId,
+    ).catch(() => undefined);
+
+    throw new WebAuthenticationError(
+      "The service image must be no larger than 5 MB.",
+      "validation",
+    );
+  }
+
+  return {
+    url:
+      uploaded.secure_url,
+
+    publicId:
+      uploaded.public_id,
+  };
+}
+
+export async function deleteProviderServiceImage(
+  serviceId: string,
+): Promise<void> {
+  requireProviderAuthUser();
+  validateServiceId(serviceId);
+
+  await call<{
+    deleted: boolean;
+    publicId: string;
+  }>(
+    "deleteProviderServiceImage",
+    {
+      serviceId,
+    },
+  );
+}
+
 export async function deleteProviderOnboardingImage(
   mediaType: ProviderMediaType,
 ): Promise<void> {
@@ -158,6 +314,85 @@ export async function deleteProviderOnboardingImage(
     "deleteProviderOnboardingMedia",
     {mediaType},
   );
+}
+
+function validateServiceImage(
+  file: File,
+): void {
+  const allowed =
+    new Set([
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ]);
+
+  if (!allowed.has(file.type)) {
+    throw new WebAuthenticationError(
+      "Choose a JPEG, PNG, or WebP image.",
+      "validation",
+    );
+  }
+
+  if (
+    file.size <= 0 ||
+    file.size >
+      5 * 1024 * 1024
+  ) {
+    throw new WebAuthenticationError(
+      "The service image must be no larger than 5 MB.",
+      "validation",
+    );
+  }
+}
+
+function validateServiceId(
+  value: string,
+): void {
+  const normalized =
+    value.trim();
+
+  if (
+    normalized.length < 1 ||
+    normalized.length > 128 ||
+    normalized.includes("/") ||
+    !/^[A-Za-z0-9_-]+$/u.test(
+      normalized,
+    )
+  ) {
+    throw new WebAuthenticationError(
+      "The service image identifier is invalid.",
+      "validation",
+    );
+  }
+}
+
+function validateServiceUploadSignature(
+  value: ProviderServiceImageUploadSignature,
+  serviceId: string,
+): void {
+  if (
+    typeof value.apiKey !== "string" ||
+    value.apiKey.length < 3 ||
+    typeof value.cloudName !== "string" ||
+    value.cloudName.length < 3 ||
+    value.invalidate !== true ||
+    value.overwrite !== true ||
+    typeof value.publicId !== "string" ||
+    !value.publicId.endsWith(
+      `/services/${serviceId}/image`,
+    ) ||
+    typeof value.signature !== "string" ||
+    value.signature.length < 20 ||
+    typeof value.timestamp !== "number" ||
+    !Number.isSafeInteger(
+      value.timestamp,
+    )
+  ) {
+    throw new WebAuthenticationError(
+      "The service image upload could not be initialized.",
+      "configuration",
+    );
+  }
 }
 
 function validateProviderImage(

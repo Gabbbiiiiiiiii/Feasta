@@ -1320,6 +1320,20 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
+          "fieldPath": "providerId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "addons",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
           "fieldPath": "providerType",
           "order": "ASCENDING"
         },

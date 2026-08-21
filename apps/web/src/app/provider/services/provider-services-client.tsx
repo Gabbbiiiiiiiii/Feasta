@@ -581,7 +581,7 @@ export function ProviderServicesClient({
                 </>
               ) : null}
 
-              {row.status !== "archived" ? (
+              {row.status === "published" ? (
                 <Button
                   type="button"
                   variant="ghost"
@@ -664,7 +664,7 @@ export function ProviderServicesClient({
         title="Archive event service?"
         description={
           archiveService
-            ? `"${archiveService.name}" will be removed from active service management and will no longer be available for publishing.`
+            ? `"${archiveService.name}" will be removed from your active event services and will no longer be available to customers.`
             : "This event service will be archived."
         }
         confirmLabel="Archive service"

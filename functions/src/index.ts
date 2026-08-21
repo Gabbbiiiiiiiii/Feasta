@@ -93,7 +93,9 @@ export {
 } from "./packages/archive-provider-package.js";
 export {
   createProviderMediaUploadSignature,
+  createProviderServiceImageUploadSignature,
   deleteProviderOnboardingMedia,
+  deleteProviderServiceImage,
 } from "./providers/provider-media.js";
 export {
   submitProviderVerification,
