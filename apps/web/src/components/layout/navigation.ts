@@ -1,5 +1,7 @@
 import {
   Bell,
+  Building2,
+  CalendarClock,
   CalendarDays,
   ChartNoAxesCombined,
   CircleUserRound,
@@ -15,287 +17,318 @@ import {
   ScrollText,
   Settings2,
   ShieldCheck,
+  Star,
   Store,
   Users,
+  WalletCards,
   type LucideIcon,
 } from "lucide-react";
 
 import type {
   ProviderServiceType,
+  ProviderVerificationStatus,
 } from "@feasta/shared-types";
 
-export type ShellRole =
-  | "customer"
-  | "provider"
-  | "admin";
+export type ShellRole = "customer" | "provider" | "admin";
 
-export type NavigationItem = {
+type NavigationItemBase = {
   label: string;
-  href: string;
   icon: LucideIcon;
   section?: string;
 };
 
-export const roleHome:
-Record<ShellRole, string> = {
+export type NavigationLinkItem = NavigationItemBase & {
+  kind: "link";
+  href: string;
+  activeRouteAliases?: readonly string[];
+};
+
+export type NavigationDisabledItem = NavigationItemBase & {
+  kind: "disabled";
+  disabledReason: "Coming soon";
+};
+
+export type NavigationItem = NavigationLinkItem | NavigationDisabledItem;
+
+export type ProviderNavigationContext =
+  | {kind: "no-profile"}
+  | {
+    kind: "profile";
+    providerServiceType: ProviderServiceType;
+    verificationStatus: ProviderVerificationStatus;
+    isActive: boolean;
+    isSuspended: boolean;
+    isDeleted: boolean;
+  };
+
+export type NavigationGroup = {
+  label: string | null;
+  items: NavigationItem[];
+};
+
+export const roleHome: Record<ShellRole, string> = {
   customer: "/customer",
   provider: "/provider",
   admin: "/admin",
 };
 
-export const roleLabels:
-Record<ShellRole, string> = {
+export const roleLabels: Record<ShellRole, string> = {
   customer: "Customer",
   provider: "Provider",
   admin: "Admin",
 };
 
-const customerNavigation:
-readonly NavigationItem[] = [
-  {
-    label: "Home",
-    href: "/customer",
-    icon: House,
-  },
-  {
-    label: "Event Services",
-    href: "/customer/providers",
-    icon: Store,
-  },
-  {
-    label: "Bookings",
-    href: "/customer/bookings",
-    icon: CalendarDays,
-  },
-  {
-    label: "Payments",
-    href: "/customer/payments",
-    icon: CreditCard,
-  },
+const customerNavigation: readonly NavigationItem[] = [
+  {kind: "link", label: "Home", href: "/customer", icon: House},
+  {kind: "link", label: "Event Services", href: "/customer/providers", icon: Store},
+  {kind: "link", label: "Bookings", href: "/customer/bookings", icon: CalendarDays},
+  {kind: "link", label: "Payments", href: "/customer/payments", icon: CreditCard},
 ];
 
-const providerBaseNavigation:
-readonly NavigationItem[] = [
+const providerDashboardNavigation: NavigationLinkItem = {
+  kind: "link",
+  label: "Dashboard",
+  href: "/provider",
+  icon: House,
+};
+
+const providerBookingNavigation: readonly NavigationItem[] = [
   {
-    label: "Dashboard",
-    href: "/provider",
-    icon: House,
-  },
-  {
-    label: "Requests",
+    kind: "link",
+    section: "BOOKINGS",
+    label: "Booking Requests",
     href: "/provider/requests",
     icon: ClipboardList,
   },
-];
-
-const providerPackageNavigation:
-NavigationItem = {
-  label: "Packages",
-  href: "/provider/packages",
-  icon: PackageOpen,
-};
-
-const providerServiceNavigation:
-NavigationItem = {
-  label: "Services",
-  href: "/provider/services",
-  icon: Store,
-};
-
-const providerCommonNavigation:
-readonly NavigationItem[] = [
   {
-    label: "Verification",
-    href: "/provider/verification",
-    icon: FileCheck2,
+    kind: "disabled",
+    section: "BOOKINGS",
+    label: "Bookings",
+    icon: CalendarDays,
+    disabledReason: "Coming soon",
   },
   {
+    kind: "link",
+    section: "BOOKINGS",
     label: "Calendar",
     href: "/provider/calendar",
     icon: CalendarDays,
   },
+  {
+    kind: "disabled",
+    section: "BOOKINGS",
+    label: "Availability",
+    icon: CalendarClock,
+    disabledReason: "Coming soon",
+  },
 ];
 
-const adminNavigation:
-readonly NavigationItem[] = [
+const providerPackageNavigation: NavigationLinkItem = {
+  kind: "link",
+  section: "SERVICES",
+  label: "Packages / Catalog",
+  href: "/provider/packages",
+  icon: PackageOpen,
+};
+
+const providerServiceNavigation: NavigationLinkItem = {
+  kind: "link",
+  section: "SERVICES",
+  label: "Event Services",
+  href: "/provider/services",
+  icon: Store,
+};
+
+const providerCommunicationNavigation: readonly NavigationItem[] = [
   {
-    section: "Overview",
-    label: "Dashboard",
-    href: "/admin",
-    icon: LayoutDashboard,
-  },
-  {
-    section: "Platform Operations",
-    label: "Users",
-    href: "/admin/users",
-    icon: Users,
-  },
-  {
-    section: "Platform Operations",
-    label: "Provider Verification",
-    href: "/admin/providers",
-    icon: ShieldCheck,
-  },
-  {
-    section: "Platform Operations",
-    label: "Bookings",
-    href: "/admin/bookings",
-    icon: CalendarDays,
-  },
-  {
-    section: "Platform Operations",
-    label: "Payments",
-    href: "/admin/payments",
-    icon: CreditCard,
-  },
-  {
-    section: "Trust & Communications",
-    label: "Reviews",
-    href: "/admin/reviews",
+    kind: "disabled",
+    section: "COMMUNICATION",
+    label: "Messages",
     icon: MessageSquareText,
+    disabledReason: "Coming soon",
   },
   {
-    section: "Trust & Communications",
-    label: "Complaints",
-    href: "/admin/complaints",
-    icon: MessageSquareWarning,
-  },
-  {
-    section: "Trust & Communications",
-    label: "Announcements",
-    href: "/admin/announcements",
-    icon: Megaphone,
-  },
-  {
-    section: "System & Insights",
-    label: "Reports",
-    href: "/admin/reports",
-    icon: ChartNoAxesCombined,
-  },
-  {
-    section: "System & Insights",
-    label: "Audit Logs",
-    href: "/admin/audit-logs",
-    icon: ScrollText,
-  },
-  {
-    section: "System & Insights",
-    label: "Settings",
-    href: "/admin/settings",
-    icon: Settings2,
+    kind: "link",
+    section: "COMMUNICATION",
+    label: "Notifications",
+    href: "/provider/notifications",
+    icon: Bell,
   },
 ];
 
-/**
- * Static navigation remains available for callers and tests that do not
- * have provider context.
- *
- * Provider-aware application shells should use getRoleNavigation().
- */
-export const roleNavigation: Record<
-  ShellRole,
-  readonly NavigationItem[]
-> = {
+const providerBusinessNavigation: readonly NavigationItem[] = [
+  {
+    kind: "disabled",
+    section: "BUSINESS",
+    label: "Payments & Earnings",
+    icon: WalletCards,
+    disabledReason: "Coming soon",
+  },
+  {
+    kind: "disabled",
+    section: "BUSINESS",
+    label: "Reviews",
+    icon: Star,
+    disabledReason: "Coming soon",
+  },
+  {
+    kind: "disabled",
+    section: "BUSINESS",
+    label: "Business Profile",
+    icon: Building2,
+    disabledReason: "Coming soon",
+  },
+];
+
+const providerVerificationNavigation: NavigationLinkItem = {
+  kind: "link",
+  section: "ACCOUNT",
+  label: "Verification",
+  href: "/provider/verification",
+  activeRouteAliases: ["/provider/status"],
+  icon: FileCheck2,
+};
+
+const providerAccountNavigation: NavigationLinkItem = {
+  kind: "link",
+  section: "ACCOUNT",
+  label: "Account & Settings",
+  href: "/provider/account",
+  icon: Settings2,
+};
+
+const providerRestrictedNavigation: readonly NavigationItem[] = [
+  providerCommunicationNavigation[1],
+  providerVerificationNavigation,
+  providerAccountNavigation,
+];
+
+const adminNavigation: readonly NavigationItem[] = [
+  {kind: "link", section: "Overview", label: "Dashboard", href: "/admin", icon: LayoutDashboard},
+  {kind: "link", section: "Platform Operations", label: "Users", href: "/admin/users", icon: Users},
+  {kind: "link", section: "Platform Operations", label: "Provider Verification", href: "/admin/providers", icon: ShieldCheck},
+  {kind: "link", section: "Platform Operations", label: "Bookings", href: "/admin/bookings", icon: CalendarDays},
+  {kind: "link", section: "Platform Operations", label: "Payments", href: "/admin/payments", icon: CreditCard},
+  {kind: "link", section: "Trust & Communications", label: "Reviews", href: "/admin/reviews", icon: MessageSquareText},
+  {kind: "link", section: "Trust & Communications", label: "Complaints", href: "/admin/complaints", icon: MessageSquareWarning},
+  {kind: "link", section: "Trust & Communications", label: "Announcements", href: "/admin/announcements", icon: Megaphone},
+  {kind: "link", section: "System & Insights", label: "Reports", href: "/admin/reports", icon: ChartNoAxesCombined},
+  {kind: "link", section: "System & Insights", label: "Audit Logs", href: "/admin/audit-logs", icon: ScrollText},
+  {kind: "link", section: "System & Insights", label: "Settings", href: "/admin/settings", icon: Settings2},
+];
+
+/** Static navigation for callers without provider context. */
+export const roleNavigation: Record<ShellRole, readonly NavigationItem[]> = {
   customer: customerNavigation,
-
-  provider: [
-    ...providerBaseNavigation,
-    providerPackageNavigation,
-    ...providerCommonNavigation,
-  ],
-
+  provider: providerRestrictedNavigation,
   admin: adminNavigation,
 };
 
 export function getRoleNavigation(
   role: ShellRole,
-  providerServiceType?: ProviderServiceType,
+  providerContext?: ProviderNavigationContext,
 ): readonly NavigationItem[] {
-  if (role !== "provider") {
-    return roleNavigation[role];
+  if (role !== "provider") return roleNavigation[role];
+  if (!providerContext || providerContext.kind === "no-profile") {
+    return roleNavigation.provider;
   }
 
- const catalogNavigation:
-readonly NavigationItem[] =
-  providerServiceType === "catering"
-    ? [
-        providerPackageNavigation,
-      ]
-    : providerServiceType === "addon"
-      ? [
-          providerServiceNavigation,
-        ]
-      : providerServiceType === "both"
-        ? [
-            providerPackageNavigation,
-            providerServiceNavigation,
-          ]
-        : [
-            providerPackageNavigation,
-          ];
+  const catalogNavigation = getProviderCatalogNavigation(
+    providerContext.providerServiceType,
+  );
+
+  if (
+    providerContext.verificationStatus === "draft" ||
+    providerContext.verificationStatus === "resubmission_required"
+  ) {
+    return [
+      ...catalogNavigation,
+      providerCommunicationNavigation[1],
+      providerVerificationNavigation,
+      providerAccountNavigation,
+    ];
+  }
+
+  const operational =
+    providerContext.verificationStatus === "approved" &&
+    providerContext.isActive &&
+    !providerContext.isSuspended &&
+    !providerContext.isDeleted;
+
+  if (!operational) {
+    return [
+      providerCommunicationNavigation[1],
+      providerVerificationNavigation,
+      providerAccountNavigation,
+    ];
+  }
 
   return [
-    ...providerBaseNavigation,
+    providerDashboardNavigation,
+    ...providerBookingNavigation,
     ...catalogNavigation,
-    ...providerCommonNavigation,
+    ...providerCommunicationNavigation,
+    ...providerBusinessNavigation,
+    providerVerificationNavigation,
+    providerAccountNavigation,
   ];
+}
+
+function getProviderCatalogNavigation(
+  providerServiceType: ProviderServiceType,
+): readonly NavigationItem[] {
+  if (providerServiceType === "catering") return [providerPackageNavigation];
+  if (providerServiceType === "addon") return [providerServiceNavigation];
+  return [providerPackageNavigation, providerServiceNavigation];
+}
+
+export function groupNavigationItems(
+  navigation: readonly NavigationItem[],
+): readonly NavigationGroup[] {
+  const groups: NavigationGroup[] = [];
+
+  for (const item of navigation) {
+    const sectionLabel = item.section ?? null;
+    const currentGroup = groups.at(-1);
+
+    if (!currentGroup || currentGroup.label !== sectionLabel) {
+      groups.push({label: sectionLabel, items: [item]});
+      continue;
+    }
+
+    currentGroup.items.push(item);
+  }
+
+  return groups;
 }
 
 export const roleActions: Record<
   ShellRole,
-  {
-    notificationsHref: string;
-    profileHref: string;
-    announcementsHref?: string;
-  }
+  {notificationsHref: string; profileHref: string; announcementsHref?: string}
 > = {
-  customer: {
-    notificationsHref:
-      "/customer/notifications",
-    profileHref:
-      "/customer/account",
-  },
-
-  provider: {
-    notificationsHref:
-      "/provider/notifications",
-    profileHref:
-      "/provider/account",
-  },
-
+  customer: {notificationsHref: "/customer/notifications", profileHref: "/customer/account"},
+  provider: {notificationsHref: "/provider/notifications", profileHref: "/provider/account"},
   admin: {
-    notificationsHref:
-      "/admin/notifications",
-    profileHref:
-      "/admin/account",
-    announcementsHref:
-      "/admin/announcements",
+    notificationsHref: "/admin/notifications",
+    profileHref: "/admin/account",
+    announcementsHref: "/admin/announcements",
   },
 };
 
-export const auxiliaryIcons = {
-  Bell,
-  CircleUserRound,
-  Megaphone,
-};
+export const auxiliaryIcons = {Bell, CircleUserRound, Megaphone};
 
 export function isNavigationItemActive(
   pathname: string,
-  href: string,
+  target: string | NavigationLinkItem,
 ) {
-  const isRoleHome =
-    href
-      .split("/")
-      .filter(Boolean)
-      .length === 1;
+  const normalizedPathname = pathname.split(/[?#]/u, 1)[0] || "/";
+  const routes = typeof target === "string"
+    ? [target]
+    : [target.href, ...(target.activeRouteAliases ?? [])];
 
-  return (
-    pathname === href ||
-    (
-      !isRoleHome &&
-      pathname.startsWith(
-        `${href}/`,
-      )
-    )
-  );
+  return routes.some((route) => {
+    const isRoleHome = route.split("/").filter(Boolean).length === 1;
+    return normalizedPathname === route ||
+      (!isRoleHome && normalizedPathname.startsWith(`${route}/`));
+  });
 }

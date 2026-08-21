@@ -23,9 +23,24 @@ export default async function ProviderLayout({
         user.email ??
         user.uid
       }
-      providerServiceType={
+      providerContext={
         user.provider
-          ?.providerServiceType
+          ? {
+              kind: "profile",
+              providerServiceType:
+                user.provider.providerServiceType,
+              verificationStatus:
+                user.provider.verificationStatus,
+              isActive:
+                user.provider.isActive,
+              isSuspended:
+                user.provider.isSuspended,
+              isDeleted:
+                user.provider.isDeleted,
+            }
+          : {
+              kind: "no-profile",
+            }
       }
     >
       {children}

@@ -4,13 +4,18 @@ import {describe, expect, it, vi} from "vitest";
 
 const navigation = vi.hoisted(() => ({
   pathname: "/provider/packages",
+  prefetch: vi.fn(),
   replace: vi.fn(),
   refresh: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigation.pathname,
-  useRouter: () => ({replace: navigation.replace, refresh: navigation.refresh}),
+  useRouter: () => ({
+    prefetch: navigation.prefetch,
+    replace: navigation.replace,
+    refresh: navigation.refresh,
+  }),
 }));
 
 vi.mock("@/lib/auth/client-session", () => ({
@@ -41,20 +46,31 @@ import {PageHeading} from "@/components/layout/page-heading";
 import {
   getRoleNavigation,
   roleNavigation,
+  type ProviderNavigationContext,
 } from "@/components/layout/navigation";
 import {Button} from "@/components/ui/button";
+
+const approvedCateringProvider: ProviderNavigationContext = {
+  kind: "profile",
+  providerServiceType: "catering",
+  verificationStatus: "approved",
+  isActive: true,
+  isSuspended: false,
+  isDeleted: false,
+};
 
 describe("ApplicationShell", () => {
   it("builds catalog navigation from the provider service type", () => {
   const catering =
     getRoleNavigation(
       "provider",
-      "catering",
+      approvedCateringProvider,
     );
 
   expect(
     catering.some(
       (item) =>
+        item.kind === "link" &&
         item.href ===
         "/provider/packages",
     ),
@@ -63,6 +79,7 @@ describe("ApplicationShell", () => {
   expect(
     catering.some(
       (item) =>
+        item.kind === "link" &&
         item.href ===
         "/provider/services",
     ),
@@ -71,12 +88,16 @@ describe("ApplicationShell", () => {
   const addon =
     getRoleNavigation(
       "provider",
-      "addon",
+      {
+        ...approvedCateringProvider,
+        providerServiceType: "addon",
+      },
     );
 
   expect(
     addon.some(
       (item) =>
+        item.kind === "link" &&
         item.href ===
         "/provider/packages",
     ),
@@ -85,6 +106,7 @@ describe("ApplicationShell", () => {
   expect(
     addon.some(
       (item) =>
+        item.kind === "link" &&
         item.href ===
         "/provider/services",
     ),
@@ -93,12 +115,16 @@ describe("ApplicationShell", () => {
   const both =
     getRoleNavigation(
       "provider",
-      "both",
+      {
+        ...approvedCateringProvider,
+        providerServiceType: "both",
+      },
     );
 
   expect(
     both.some(
       (item) =>
+        item.kind === "link" &&
         item.href ===
         "/provider/packages",
     ),
@@ -107,6 +133,7 @@ describe("ApplicationShell", () => {
   expect(
     both.some(
       (item) =>
+        item.kind === "link" &&
         item.href ===
         "/provider/services",
     ),
@@ -114,7 +141,11 @@ describe("ApplicationShell", () => {
 });
   it("renders role-specific navigation with an accessible active state", () => {
     render(
-      <ApplicationShell role="provider" accountLabel="provider@feasta.test">
+      <ApplicationShell
+        role="provider"
+        accountLabel="provider@feasta.test"
+        providerContext={approvedCateringProvider}
+      >
         <p>Provider content</p>
       </ApplicationShell>,
     );
@@ -125,17 +156,17 @@ describe("ApplicationShell", () => {
     const mobileNav = screen.getByRole("navigation", {
       name: "Provider mobile navigation",
     });
-    expect(within(desktopNav).getByRole("link", {name: "Packages"})).toHaveAttribute(
+    expect(within(desktopNav).getByRole("link", {name: "Packages / Catalog"})).toHaveAttribute(
       "aria-current",
       "page",
     );
     expect(within(desktopNav).getByRole("link", {name: "Dashboard"})).not.toHaveAttribute(
       "aria-current",
     );
-    expect(within(mobileNav).getByRole("link", {name: "Packages"})).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    expect(within(mobileNav).getAllByRole("link")).toHaveLength(3);
+    expect(within(mobileNav).getByRole("button", {
+      name: "More provider navigation",
+    })).toBeVisible();
     expect(desktopNav.closest("aside")).toHaveClass("md:flex");
     expect(mobileNav).toHaveClass("md:hidden");
     expect(mobileNav).toHaveClass(
@@ -154,7 +185,11 @@ describe("ApplicationShell", () => {
   it("supports keyboard collapse and keeps labels available when compact", async () => {
     const user = userEvent.setup();
     render(
-      <ApplicationShell role="provider" accountLabel="provider@feasta.test">
+      <ApplicationShell
+        role="provider"
+        accountLabel="provider@feasta.test"
+        providerContext={approvedCateringProvider}
+      >
         <p>Provider content</p>
       </ApplicationShell>,
     );
@@ -170,8 +205,13 @@ describe("ApplicationShell", () => {
     expect(
       within(
         screen.getByRole("navigation", {name: "Provider primary navigation"}),
-      ).getByRole("link", {name: "Packages"}),
+      ).getByRole("link", {name: "Packages / Catalog"}),
     ).toBeVisible();
+    expect(
+      within(
+        screen.getByRole("navigation", {name: "Provider primary navigation"}),
+      ).getByLabelText("Bookings - Coming soon"),
+    ).toHaveAttribute("aria-disabled", "true");
   });
 
   it("places a skip link first and exposes one semantic main region", async () => {
@@ -200,13 +240,17 @@ describe("ApplicationShell", () => {
       href: "/customer/providers",
     });
 
-    expect(roleNavigation.provider[0].href).toBe(
-      "/provider",
-    );
+    expect(roleNavigation.provider).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "link",
+        href: "/provider/verification",
+      }),
+    ]));
 
-    expect(roleNavigation.admin[0].href).toBe(
-      "/admin",
-    );
+    expect(roleNavigation.admin[0]).toMatchObject({
+      kind: "link",
+      href: "/admin",
+    });
   });
 
   it("closes the account disclosure with Escape and restores focus", async () => {

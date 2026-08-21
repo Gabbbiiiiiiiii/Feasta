@@ -8,7 +8,6 @@ import {
 import {
   PanelLeftClose,
   PanelLeftOpen,
-  type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -16,34 +15,27 @@ import { usePathname, useRouter } from "next/navigation";
 import { Brand } from "@/components/layout/application-header";
 import {
   getRoleNavigation,
+  groupNavigationItems,
   isNavigationItemActive,
   roleLabels,
-  type NavigationItem,
+  type NavigationDisabledItem,
+  type NavigationLinkItem,
+  type ProviderNavigationContext,
   type ShellRole,
 } from "@/components/layout/navigation";
-import type {
-  ProviderServiceType,
-} from "@feasta/shared-types";
 import { cn } from "@/lib/utils";
 
 type ApplicationSidebarProps = {
   role: ShellRole;
-  providerServiceType?: ProviderServiceType;
+  providerContext?: ProviderNavigationContext;
   collapsed: boolean;
   onCollapsedChange: (
     collapsed: boolean,
   ) => void;
 };
 
-type SidebarNavigationGroup = {
-  label: string | null;
-  items: NavigationItem[];
-};
-
 type SidebarNavigationItemProps = {
-  label: string;
-  href: string;
-  icon: LucideIcon;
+  item: NavigationLinkItem;
   active: boolean;
   collapsed: boolean;
   onPrefetch: (href: string) => void;
@@ -51,23 +43,23 @@ type SidebarNavigationItemProps = {
 
 const SidebarNavigationItem = memo(
   function SidebarNavigationItem({
-    label,
-    href,
-    icon: Icon,
+    item,
     active,
     collapsed,
     onPrefetch,
   }: SidebarNavigationItemProps) {
+    const Icon = item.icon;
+
     return (
       <li>
         <Link
-          href={href}
+          href={item.href}
           prefetch
           aria-current={active ? "page" : undefined}
-          aria-label={collapsed ? label : undefined}
-          title={collapsed ? label : undefined}
-          onMouseEnter={() => onPrefetch(href)}
-          onFocus={() => onPrefetch(href)}
+          aria-label={collapsed ? item.label : undefined}
+          title={collapsed ? item.label : undefined}
+          onMouseEnter={() => onPrefetch(item.href)}
+          onFocus={() => onPrefetch(item.href)}
           className={cn(
             "group relative flex h-13 items-center rounded-xl",
             "transition-colors duration-150",
@@ -117,7 +109,7 @@ const SidebarNavigationItem = memo(
               collapsed && "sr-only",
             )}
           >
-            {label}
+            {item.label}
           </span>
         </Link>
       </li>
@@ -125,9 +117,62 @@ const SidebarNavigationItem = memo(
   },
 );
 
+const SidebarDisabledNavigationItem = memo(
+  function SidebarDisabledNavigationItem({
+    item,
+    collapsed,
+  }: {
+    item: NavigationDisabledItem;
+    collapsed: boolean;
+  }) {
+    const Icon = item.icon;
+    const accessibleLabel = `${item.label} - ${item.disabledReason}`;
+
+    return (
+      <li>
+        <div
+          aria-disabled="true"
+          aria-label={accessibleLabel}
+          title={collapsed ? accessibleLabel : undefined}
+          className={cn(
+            "flex h-13 cursor-not-allowed items-center rounded-xl text-slate-400",
+            collapsed ? "justify-center px-2" : "gap-3 px-3",
+          )}
+        >
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg text-slate-400">
+            <Icon
+              aria-hidden="true"
+              className="size-4.75"
+              strokeWidth={1.9}
+            />
+          </span>
+
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-sm font-medium",
+              collapsed && "sr-only",
+            )}
+          >
+            {item.label}
+          </span>
+
+          <span
+            className={cn(
+              "rounded-full bg-slate-100 px-2 py-0.5 text-[0.625rem] font-semibold text-slate-500",
+              collapsed && "sr-only",
+            )}
+          >
+            {item.disabledReason}
+          </span>
+        </div>
+      </li>
+    );
+  },
+);
+
 function ApplicationSidebarComponent({
   role,
-  providerServiceType,
+  providerContext,
   collapsed,
   onCollapsedChange,
 }: ApplicationSidebarProps) {
@@ -135,36 +180,12 @@ function ApplicationSidebarComponent({
   const router = useRouter();
 
   const navigationGroups = useMemo(() => {
-    const groups: SidebarNavigationGroup[] = [];
-
-    for (
-      const item of getRoleNavigation(
-        role,
-        providerServiceType,
-      )
-    ) {
-      const sectionLabel = item.section ?? null;
-      const currentGroup = groups.at(-1);
-
-      if (
-        !currentGroup ||
-        currentGroup.label !== sectionLabel
-      ) {
-        groups.push({
-          label: sectionLabel,
-          items: [item],
-        });
-
-        continue;
-      }
-
-      currentGroup.items.push(item);
-    }
-
-    return groups;
+    return groupNavigationItems(
+      getRoleNavigation(role, providerContext),
+    );
   }, [
     role,
-    providerServiceType,
+    providerContext,
   ]);
 
   const sidebarLabel = useMemo(
@@ -244,18 +265,24 @@ function ApplicationSidebarComponent({
 
                 <ul className="space-y-1">
                   {group.items.map((item) => (
-                    <SidebarNavigationItem
-                      key={item.href}
-                      label={item.label}
-                      href={item.href}
-                      icon={item.icon}
-                      collapsed={collapsed}
-                      active={isNavigationItemActive(
-                        pathname,
-                        item.href,
-                      )}
-                      onPrefetch={handlePrefetch}
-                    />
+                    item.kind === "link" ? (
+                      <SidebarNavigationItem
+                        key={item.href}
+                        item={item}
+                        collapsed={collapsed}
+                        active={isNavigationItemActive(
+                          pathname,
+                          item,
+                        )}
+                        onPrefetch={handlePrefetch}
+                      />
+                    ) : (
+                      <SidebarDisabledNavigationItem
+                        key={`${item.section}-${item.label}`}
+                        item={item}
+                        collapsed={collapsed}
+                      />
+                    )
                   ))}
                 </ul>
               </section>

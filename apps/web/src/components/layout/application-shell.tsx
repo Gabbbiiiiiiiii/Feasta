@@ -7,18 +7,16 @@ import { ApplicationSidebar } from "@/components/layout/application-sidebar";
 import { MobileNavigation } from "@/components/layout/mobile-navigation";
 import {
   roleLabels,
+  type ProviderNavigationContext,
   type ShellRole,
 } from "@/components/layout/navigation";
-import type {
-  ProviderServiceType,
-} from "@feasta/shared-types";
 
 type ApplicationShellProps = {
   role: ShellRole;
   accountLabel: string;
   children: ReactNode;
   pageTitle?: string;
-  providerServiceType?: ProviderServiceType;
+  providerContext?: ProviderNavigationContext;
 };
 
 function ApplicationShell({
@@ -26,7 +24,7 @@ function ApplicationShell({
   accountLabel,
   children,
   pageTitle,
-  providerServiceType,
+  providerContext,
 }: ApplicationShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(false);
@@ -48,7 +46,7 @@ function ApplicationShell({
         <div className="contents print:hidden">
           <ApplicationSidebar
             role={role}
-            providerServiceType={providerServiceType}
+            providerContext={providerContext}
             collapsed={sidebarCollapsed}
             onCollapsedChange={setSidebarCollapsed}
           />
@@ -80,7 +78,7 @@ function ApplicationShell({
       <div className="print:hidden">
         <MobileNavigation
           role={role}
-          providerServiceType={providerServiceType}
+          providerContext={providerContext}
         />
       </div>
     </div>
