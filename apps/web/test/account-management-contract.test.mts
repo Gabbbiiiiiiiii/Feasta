@@ -56,7 +56,7 @@ test("provider and admin backend policies fail closed", async () => {
   assert.doesNotMatch(backend, /accountStatus:\s*input|isActive:\s*input/u);
 });
 
-test("password and email changes use Firebase recent-authentication APIs", async () => {
+test("account changes and browser authentication use the approved security policy", async () => {
   const client = await source("lib/auth/account-client.ts");
   assert.match(client, /reauthenticateWithCredential/u);
   assert.match(client, /EmailAuthProvider\.credential/u);
@@ -65,14 +65,24 @@ test("password and email changes use Firebase recent-authentication APIs", async
   assert.match(client, /revokeAllAccountSessions/u);
   assert.match(client, /password_provider_required/u);
   assert.doesNotMatch(client, /localStorage|isEmailVerified\s*:/u);
-  for (const path of [
+  const customerAuthenticationClient = await source(
     "lib/auth/client-session.ts",
+  );
+  assert.match(customerAuthenticationClient, /browserLocalPersistence/u);
+  assert.doesNotMatch(
+    customerAuthenticationClient,
+    /browserSessionPersistence|localStorage/u,
+  );
+  for (const path of [
     "lib/auth/provider-client.ts",
     "lib/auth/admin-client.ts",
   ]) {
     const authenticationClient = await source(path);
     assert.match(authenticationClient, /browserSessionPersistence/u);
-    assert.doesNotMatch(authenticationClient, /localStorage/u);
+    assert.doesNotMatch(
+      authenticationClient,
+      /browserLocalPersistence|localStorage/u,
+    );
   }
 });
 

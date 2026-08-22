@@ -68,12 +68,9 @@ export async function signInWithEmail(
     password,
   );
   try {
-    // Repairs only absent customer records. The callable rejects an existing
-    // provider/admin role, blocked state, or inactive account.
-    await ensureCustomerProfile({
-      acceptedTerms: true,
-      acceptedPrivacy: true,
-    });
+    // Repair customer records without manufacturing consent during sign-in.
+    // New profiles still require explicit terms and privacy acceptance.
+    await ensureCustomerProfile({});
     return await exchangeCredentialForSession(
       await credential.user.getIdToken(true),
       returnTo,
@@ -91,10 +88,7 @@ export async function signInWithGoogle(
   await setPersistence(auth, browserLocalPersistence);
   const credential = await signInWithPopup(auth, new GoogleAuthProvider());
   try {
-    await ensureCustomerProfile({
-      acceptedTerms: true,
-      acceptedPrivacy: true,
-    });
+    await ensureCustomerProfile({});
     return await exchangeCredentialForSession(
       await credential.user.getIdToken(true),
       returnTo,

@@ -6,9 +6,10 @@ const sourceRoot = new URL("../src/", import.meta.url);
 const source = (path: string) => readFile(new URL(path, sourceRoot), "utf8");
 
 test("provider routes retain server role, email, and operation gates", async () => {
-  const [layout, dashboard, packages] = await Promise.all([
+  const [layout, dashboard, dashboardService, packages] = await Promise.all([
     source("app/provider/layout.tsx"),
     source("app/provider/page.tsx"),
+    source("lib/provider/dashboard/provider-dashboard-service.ts"),
     source("app/provider/packages/layout.tsx"),
   ]);
   assert.match(layout, /requireProvider\(\)/u);
@@ -16,7 +17,17 @@ test("provider routes retain server role, email, and operation gates", async () 
   const session = await source("lib/auth/session.ts");
   assert.match(session, /requireVerifiedEmail\(account, "\/provider-verify-email"\)/u);
   assert.match(session, /redirect\("\/provider-verify-phone"\)/u);
-  assert.match(dashboard, /requireApprovedProvider\(\)/u);
+  assert.match(dashboard, /getProviderDashboardData\(\)/u);
+  assert.doesNotMatch(dashboard, /firebase-admin|adminDb/u);
+  assert.match(dashboardService, /^import "server-only";/u);
+  assert.match(
+    dashboardService,
+    /getProviderDashboardData[\s\S]*?await requireApprovedProvider\(\)/u,
+  );
+  assert.doesNotMatch(
+    dashboardService,
+    /getProviderDashboardData\s*\([^)]*providerId/u,
+  );
   assert.match(packages, /requireProviderCatalogAccess\(\)/u);
   assert.doesNotMatch(packages, /requireApprovedProvider\(\)/u);
 });

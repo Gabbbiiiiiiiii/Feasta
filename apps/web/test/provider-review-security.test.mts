@@ -1,26 +1,32 @@
 import assert from "node:assert/strict";
-import {readFile} from "node:fs/promises";
+import {access, readFile} from "node:fs/promises";
 import test from "node:test";
 
 const sourceRoot = new URL("../src/", import.meta.url);
 const source = (path: string) => readFile(new URL(path, sourceRoot), "utf8");
 
-test("review detail and every private file route require trusted admin context", async () => {
-  const [page, service, documentRoute, mediaRoute] = await Promise.all([
+test("review detail and private verification documents require trusted admin context", async () => {
+  const [page, service, documentRoute] = await Promise.all([
     source("app/admin/providers/page.tsx"),
     source("lib/admin/provider-verification/provider-verification-service.ts"),
     source(
       "app/api/admin/provider-verifications/[verificationId]/documents/" +
       "[documentId]/route.ts",
     ),
-    source("app/api/admin/providers/[providerId]/media/[kind]/route.ts"),
   ]);
   assert.match(page, /await requireAdmin\(\)/u);
   assert.match(service, /getProviderVerificationReview[\s\S]*await requireAdmin\(\)/u);
-  for (const route of [documentRoute, mediaRoute]) {
-    assert.match(route, /getOptionalAccountContext\(\{checkRevoked: true\}\)/u);
-    assert.match(route, /account\.role !== "admin"/u);
-  }
+  assert.match(documentRoute, /getOptionalAccountContext\(\{checkRevoked: true\}\)/u);
+  assert.match(documentRoute, /account\.role !== "admin"/u);
+  await assert.rejects(
+    access(new URL(
+      "app/api/admin/providers/[providerId]/media/[kind]/route.ts",
+      sourceRoot,
+    )),
+  );
+  assert.match(service, /cloudinaryProviderImageUrl/u);
+  assert.match(service, /parsed\.hostname !==\s*"res\.cloudinary\.com"/u);
+  assert.match(service, /publicId !== expectedPublicId/u);
 });
 
 test("sensitive evidence is streamed privately without exposing signed URLs", async () => {

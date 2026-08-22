@@ -94,16 +94,23 @@ test("registration and verification fields remain server owned", async () => {
 });
 
 test("stale, cross-role, expired, tampered, and revoked sessions fail closed", async () => {
-  const [session, policy, customerLayout, providerLayout, adminLayout] =
+  const [session, securityPolicy, accountPolicy, customerLayout, providerLayout,
+    adminLayout] =
     await Promise.all([
       web("lib/auth/session.ts"),
+      web("lib/security/policy.ts"),
       web("lib/auth/account-policy.ts"),
       web("app/customer/layout.tsx"),
       web("app/provider/layout.tsx"),
       web("app/admin/layout.tsx"),
     ]);
   assert.match(session, /adminAuth\.getUser\(uid\)/u);
-  assert.match(session, /verifySessionCookie\(value, checkRevoked\)/u);
+  assert.match(session, /verifyRevocationAwareSession\(/u);
+  assert.match(
+    session,
+    /adminAuth\.verifySessionCookie\(\s*value,\s*shouldCheckRevocation/u,
+  );
+  assert.match(securityPolicy, /return verifier\(cookie, checkRevoked\)/u);
   assert.match(session, /options\.checkRevoked \?\? true/u);
   for (const state of [
     "disabled_auth_account",
@@ -112,7 +119,10 @@ test("stale, cross-role, expired, tampered, and revoked sessions fail closed", a
     "missing_user_profile",
     "missing_customer_profile",
   ]) {
-    assert.ok(policy.includes(state), `missing stale-session denial: ${state}`);
+    assert.ok(
+      accountPolicy.includes(state),
+      `missing stale-session denial: ${state}`,
+    );
   }
   assert.match(customerLayout, /requireCustomer/u);
   assert.match(providerLayout, /requireProvider/u);

@@ -11,13 +11,19 @@ const repositorySource = (path: string) =>
   readFile(new URL(path, repositoryRoot), "utf8");
 
 test("manually entered provider operation routes retain server guards", async () => {
-  const [dashboard, packages, session] = await Promise.all([
+  const [dashboard, dashboardService, packages, session] = await Promise.all([
     webSource("app/provider/page.tsx"),
+    webSource("lib/provider/dashboard/provider-dashboard-service.ts"),
     webSource("app/provider/packages/layout.tsx"),
     webSource("lib/auth/session.ts"),
   ]);
 
-  assert.match(dashboard, /requireApprovedProvider\(\)/u);
+  assert.match(dashboard, /getProviderDashboardData\(\)/u);
+  assert.doesNotMatch(dashboard, /firebase-admin|adminDb/u);
+  assert.match(
+    dashboardService,
+    /getProviderDashboardData[\s\S]*?await requireApprovedProvider\(\)/u,
+  );
   assert.match(packages, /requireProviderCatalogAccess\(\)/u);
   assert.match(session, /account\.provider\.id !== account\.providerId/u);
   assert.match(session, /verificationStatus !== "approved"/u);
@@ -112,14 +118,23 @@ test("active provider catalog clients delegate mutations to callables", async ()
 });
 
 test("stale sessions cannot preserve an earlier approval decision", async () => {
-  const session = await webSource("lib/auth/session.ts");
+  const [session, securityPolicy] = await Promise.all([
+    webSource("lib/auth/session.ts"),
+    webSource("lib/security/policy.ts"),
+  ]);
+  assert.match(session, /verifyRevocationAwareSession\(/u);
   assert.match(
     session,
-    /verifySessionCookie[\s\S]*?return loadTrustedAccountContext\(decoded\.uid\)/u,
+    /adminAuth\.verifySessionCookie\(\s*value,\s*shouldCheckRevocation/u,
+  );
+  assert.match(securityPolicy, /return verifier\(cookie, checkRevoked\)/u);
+  assert.match(
+    session,
+    /return loadTrustedAccountContext\(\s*decoded\.uid,[\s\S]*?verifiedAuthStateFromToken/u,
   );
   assert.match(session, /adminAuth\.getUser\(uid\)/u);
   assert.match(
     session,
-    /adminDb\.collection\("providers"\)\.doc\(providerId\)\.get\(\)/u,
+    /adminDb\s*\.collection\("providers"\)\s*\.doc\(providerId\)\s*\.get\(\)/u,
   );
 });

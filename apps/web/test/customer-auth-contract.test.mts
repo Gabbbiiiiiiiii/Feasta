@@ -19,7 +19,9 @@ test("the provider directory and one safe detail segment are public while custom
   assert.match(routePolicy, /isPublicProviderDirectoryPath/u);
   assert.match(routePolicy, /publicProviderIdFromPath/u);
   assert.match(routePolicy, /PUBLIC_PROVIDER_ID_PATTERN/u);
-  assert.match(proxy, /isPublicProviderMarketplacePath\(request\.nextUrl\.pathname\)/u);
+  assert.match(proxy, /isPublicMarketplacePath\(request\.nextUrl\.pathname\)/u);
+  assert.match(routePolicy, /isPublicProviderMarketplacePath\(pathname\)/u);
+  assert.match(routePolicy, /pathname === PUBLIC_PACKAGE_MARKETPLACE_PATH/u);
   assert.match(proxy, /requestHeaders\.delete\(PUBLIC_PROVIDER_MARKETPLACE_REQUEST_HEADER\)/u);
   assert.match(layout, /publicMarketplaceRequest/u);
   assert.match(layout, /getOptionalAccountContext\(\)/u);
@@ -54,13 +56,24 @@ test("customer registration never supplies a client-selected role", async () => 
   assert.match(registration, /createUserWithEmailAndPassword/u);
   assert.match(registration, /ensureCustomerProfile/u);
   assert.match(registration, /deleteUser\(credential\.user\)/u);
-  assert.match(
-    registration.slice(
+  const emailSignIn = registration.slice(
       registration.indexOf("export async function signInWithEmail"),
       registration.indexOf("export async function signInWithGoogle"),
-    ),
-    /ensureCustomerProfile\(\{\}\)/u,
   );
+  const googleSignIn = registration.slice(
+    registration.indexOf("export async function signInWithGoogle"),
+    registration.indexOf("export async function registerCustomer"),
+  );
+  for (const signIn of [emailSignIn, googleSignIn]) {
+    assert.match(signIn, /ensureCustomerProfile\(\{\}\)/u);
+    assert.doesNotMatch(signIn, /acceptedTerms|acceptedPrivacy/u);
+  }
+  const customerRegistration = registration.slice(
+    registration.indexOf("export async function registerCustomer"),
+    registration.indexOf("export async function resendCurrentUserVerification"),
+  );
+  assert.match(customerRegistration, /acceptedTerms: input\.acceptedTerms/u);
+  assert.match(customerRegistration, /acceptedPrivacy: input\.acceptedPrivacy/u);
   const inputType = registration.slice(
     registration.indexOf("export type CustomerRegistrationInput"),
     registration.indexOf("export class WebAuthenticationError"),
