@@ -245,81 +245,169 @@ test("provider visibility and lifecycle fields follow trusted ownership", async 
   ));
 });
 
-test("unapproved providers can keep draft packages but cannot publish or operate", async () => {
+test("catalog reads remain available while every direct client mutation is denied", async () => {
   await seedDocuments(testEnv, {
     "users/provider-owner": userData("provider-owner", "provider", {
       providerId: "provider-approved",
     }),
+    "users/provider-other": userData("provider-other", "provider", {
+      providerId: "provider-other",
+    }),
     "users/customer-one": userData("customer-one", "customer"),
-    "providers/provider-draft": {
-      ownerId: "provider-owner",
-      verificationStatus: "draft",
-      isActive: false,
-      isSuspended: false,
-      isDeleted: false,
-    },
     "providers/provider-approved": publicProviderData("provider-owner"),
-    "mainEvents/event-one": {
-      customerId: "customer-one",
+    "providers/provider-other": publicProviderData("provider-other", {
+      businessName: "Other provider",
+    }),
+    "packages/private-package": {
+      providerId: "provider-approved",
+      name: "Private draft",
       status: "draft",
+      isActive: false,
+      isPublished: false,
+      providerPubliclyVisible: false,
+      publishedAt: null,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "packages/public-package": {
+      providerId: "provider-approved",
+      name: "Published package",
+      status: "published",
+      isActive: true,
+      isPublished: true,
+      providerPubliclyVisible: true,
+      publishedAt: new Date(),
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "menuItems/private-menu-item": {
+      providerId: "provider-approved",
+      name: "Private menu item",
+      status: "draft",
+      isActive: false,
+      isAvailable: false,
+      isPublished: false,
+      providerPubliclyVisible: false,
+      publishedAt: null,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "menuItems/public-menu-item": {
+      providerId: "provider-approved",
+      name: "Published menu item",
+      status: "published",
+      isActive: true,
+      isAvailable: true,
+      isPublished: true,
+      providerPubliclyVisible: true,
+      publishedAt: new Date(),
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "addons/private-addon": {
+      providerId: "provider-approved",
+      name: "Private service",
+      status: "draft",
+      isActive: false,
+      isAvailable: false,
+      isPublished: false,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "addons/public-addon": {
+      providerId: "provider-approved",
+      name: "Published service",
+      status: "published",
+      isActive: true,
+      isAvailable: true,
+      isPublished: true,
+      isDeleted: false,
+      createdAt: new Date(),
     },
   });
   const owner = authenticated(testEnv, "provider-owner", "provider")
     .firestore();
+  const otherProvider = authenticated(
+    testEnv,
+    "provider-other",
+    "provider",
+  ).firestore();
   const customer = authenticated(testEnv, "customer-one", "customer")
     .firestore();
   const publicDb = testEnv.unauthenticatedContext().firestore();
-  const draftPackage = {
-    providerId: "provider-draft",
-    name: "Private draft",
+
+  const packageInput = {
+    providerId: "provider-approved",
+    name: "Client-created package",
     status: "draft",
     isActive: false,
     isPublished: false,
+    providerPubliclyVisible: false,
     publishedAt: null,
     isDeleted: false,
     createdAt: new Date(),
   };
-
-  await assertSucceeds(setDoc(
-    doc(owner, "packages/private-draft"),
-    draftPackage,
-  ));
-  await assertSucceeds(updateDoc(
-    doc(owner, "packages/private-draft"),
-    {name: "Updated private draft"},
-  ));
-  await assertFails(getDoc(doc(publicDb, "packages/private-draft")));
-  await assertFails(updateDoc(
-    doc(owner, "packages/private-draft"),
-    {status: "published", isActive: true, isPublished: true},
-  ));
-  await assertFails(setDoc(doc(owner, "menuItems/forged-live-item"), {
-    providerId: "provider-draft",
-    name: "Forged live item",
-    isActive: true,
-    isDeleted: false,
-    createdAt: new Date(),
-  }));
-  await assertFails(setDoc(doc(owner, "addons/forged-live-addon"), {
-    providerId: "provider-draft",
-    name: "Forged live add-on",
-    isActive: true,
-    isAvailable: true,
-    isDeleted: false,
-    createdAt: new Date(),
-  }));
-  await assertSucceeds(setDoc(doc(owner, "packages/approved-package"), {
+  const menuItemInput = {
     providerId: "provider-approved",
-    name: "Approved package",
-    status: "published",
-    isActive: true,
-    isPublished: true,
-    providerPubliclyVisible: true,
-    publishedAt: new Date(),
+    name: "Client-created menu item",
+    status: "draft",
+    isActive: false,
+    isAvailable: false,
     isDeleted: false,
     createdAt: new Date(),
-  }));
-  await assertSucceeds(getDoc(doc(publicDb, "packages/approved-package")));
+  };
+  const addonInput = {
+    providerId: "provider-approved",
+    name: "Client-created service",
+    status: "draft",
+    isActive: false,
+    isAvailable: false,
+    isDeleted: false,
+    createdAt: new Date(),
+  };
+
+  await assertFails(setDoc(doc(owner, "packages/client-created"), packageInput));
+  await assertFails(updateDoc(
+    doc(owner, "packages/private-package"),
+    {name: "Client-updated package"},
+  ));
+  await assertFails(deleteDoc(doc(owner, "packages/private-package")));
+  await assertFails(setDoc(
+    doc(owner, "menuItems/client-created"),
+    menuItemInput,
+  ));
+  await assertFails(updateDoc(
+    doc(owner, "menuItems/private-menu-item"),
+    {name: "Client-updated menu item"},
+  ));
+  await assertFails(deleteDoc(doc(owner, "menuItems/private-menu-item")));
+  await assertFails(setDoc(doc(owner, "addons/client-created"), addonInput));
+  await assertFails(updateDoc(
+    doc(owner, "addons/private-addon"),
+    {name: "Client-updated service"},
+  ));
+  await assertFails(deleteDoc(doc(owner, "addons/private-addon")));
+
+  for (const path of [
+    "packages/private-package",
+    "menuItems/private-menu-item",
+    "addons/private-addon",
+  ]) {
+    await assertFails(updateDoc(doc(otherProvider, path), {name: "Hijacked"}));
+    await assertFails(updateDoc(doc(customer, path), {name: "Tampered"}));
+    await assertFails(updateDoc(doc(publicDb, path), {name: "Anonymous"}));
+  }
+
+  await assertSucceeds(getDoc(doc(owner, "packages/private-package")));
+  await assertSucceeds(getDoc(doc(owner, "menuItems/private-menu-item")));
+  await assertSucceeds(getDoc(doc(owner, "addons/private-addon")));
+  await assertFails(getDoc(doc(publicDb, "packages/private-package")));
+  await assertFails(getDoc(doc(publicDb, "menuItems/private-menu-item")));
+  await assertFails(getDoc(doc(publicDb, "addons/private-addon")));
+  await assertSucceeds(getDoc(doc(publicDb, "packages/public-package")));
+  await assertSucceeds(getDoc(doc(publicDb, "menuItems/public-menu-item")));
+  await assertSucceeds(getDoc(doc(publicDb, "addons/public-addon")));
+
   const publicPackages = query(
     collection(publicDb, "packages"),
     where("providerId", "==", "provider-approved"),
@@ -334,18 +422,6 @@ test("unapproved providers can keep draft packages but cannot publish or operate
     collection(publicDb, "packages"),
     where("providerId", "==", "provider-approved"),
   )));
-  await assertFails(setDoc(doc(customer, "providerRequests/forged-request"), {
-    customerId: "customer-one",
-    mainEventId: "event-one",
-    providerId: "provider-draft",
-    status: "pending",
-  }));
-  await assertFails(setDoc(doc(owner, "payments/forged-payment"), {
-    customerId: "customer-one",
-    providerId: "provider-draft",
-    status: "paid",
-    amount: 1,
-  }));
 });
 
 test("public provider list queries constrain every visibility field", async () => {

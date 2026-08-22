@@ -251,64 +251,9 @@ service cloud.firestore {
           );
     }
 
-    function packageVisibilityAllowed(data) {
-      return data.providerId is string &&
-          (
-            (
-              'isDeleted' in data &&
-              data.isDeleted == true &&
-              data.isActive is bool &&
-              data.isActive == false
-            ) ||
-            (
-              data.status is string &&
-              data.status == 'draft' &&
-              data.isActive is bool &&
-              data.isActive == false &&
-              (
-                !('providerPubliclyVisible' in data) ||
-                data.providerPubliclyVisible == false
-              ) &&
-              (!('isPublished' in data) || data.isPublished == false) &&
-              (!('publishedAt' in data) || data.publishedAt == null)
-            ) ||
-            (
-              isPublicProvider(data.providerId) &&
-              data.isActive is bool &&
-              (
-                data.isActive == false ||
-                (
-                  data.isActive == true &&
-                  data.status is string &&
-                  data.status == 'published' &&
-                  data.isPublished is bool &&
-                  data.isPublished == true &&
-                  data.providerPubliclyVisible is bool &&
-                  data.providerPubliclyVisible == true &&
-                  data.publishedAt != null
-                )
-              )
-            )
-          );
-    }
-
-    function catalogActivationAllowed(data) {
-      return data.providerId is string &&
-          (
-            !('isActive' in data) ||
-            data.isActive != true ||
-            isApprovedProvider(data.providerId)
-          );
-    }
-
     function ownsProviderFromExistingDocument() {
       return resource.data.providerId is string &&
           ownsProvider(resource.data.providerId);
-    }
-
-    function ownsProviderFromIncomingDocument() {
-      return request.resource.data.providerId is string &&
-          ownsProvider(request.resource.data.providerId);
     }
 
     // ============================================================
@@ -768,29 +713,10 @@ service cloud.firestore {
           ownsProviderFromExistingDocument() ||
           isAdmin();
 
-      allow create: if isProviderUser() &&
-          ownsProviderFromIncomingDocument() &&
-          isNotDeleted(request.resource.data) &&
-          packageVisibilityAllowed(request.resource.data);
-
-      allow update: if (
-          ownsProviderFromExistingDocument() &&
-          request.resource.data.providerId ==
-              resource.data.providerId &&
-          request.resource.data.createdAt ==
-              resource.data.createdAt &&
-          packageVisibilityAllowed(request.resource.data) &&
-          (
-            !changedFields().hasAny([
-              'isDeleted', 'deletedAt', 'deletedBy', 'deletionReason'
-            ]) || validSoftDelete()
-          )
-        ) || (
-          isAdmin() &&
-          packageVisibilityAllowed(request.resource.data)
-        );
-
-      allow delete: if false;
+      // Canonical catalog mutations are callable-only. Firebase Admin-backed
+      // Functions bypass these rules after enforcing ownership, capability,
+      // validation, media, and lifecycle policies.
+      allow create, update, delete: if false;
     }
 
     match /menuItems/{menuItemId} {
@@ -813,29 +739,9 @@ service cloud.firestore {
           ownsProviderFromExistingDocument() ||
           isAdmin();
 
-      allow create: if isProviderUser() &&
-          ownsProviderFromIncomingDocument() &&
-          isNotDeleted(request.resource.data) &&
-          catalogActivationAllowed(request.resource.data);
-
-      allow update: if (
-          ownsProviderFromExistingDocument() &&
-          request.resource.data.providerId ==
-              resource.data.providerId &&
-          request.resource.data.createdAt ==
-              resource.data.createdAt &&
-          catalogActivationAllowed(request.resource.data) &&
-          (
-            !changedFields().hasAny([
-              'isDeleted', 'deletedAt', 'deletedBy', 'deletionReason'
-            ]) || validSoftDelete()
-          )
-        ) || (
-          isAdmin() &&
-          catalogActivationAllowed(request.resource.data)
-        );
-
-      allow delete: if false;
+      // No active client owns a menu-item mutation contract. Retained records
+      // remain readable under the existing visibility and ownership policy.
+      allow create, update, delete: if false;
     }
 
     match /addons/{addonId} {
@@ -849,44 +755,9 @@ service cloud.firestore {
         ownsProviderFromExistingDocument() ||
         isAdmin();
 
-      allow create: if isProviderUser() &&
-          ownsProviderFromIncomingDocument() &&
-          isNotDeleted(request.resource.data) &&
-          catalogActivationAllowed(request.resource.data) &&
-          (
-            !('isAvailable' in request.resource.data) ||
-            request.resource.data.isAvailable != true ||
-            isApprovedProvider(request.resource.data.providerId)
-          );
-
-      allow update: if (
-          ownsProviderFromExistingDocument() &&
-          request.resource.data.providerId ==
-              resource.data.providerId &&
-          request.resource.data.createdAt ==
-              resource.data.createdAt &&
-          catalogActivationAllowed(request.resource.data) &&
-          (
-            !('isAvailable' in request.resource.data) ||
-            request.resource.data.isAvailable != true ||
-            isApprovedProvider(request.resource.data.providerId)
-          ) &&
-          (
-            !changedFields().hasAny([
-              'isDeleted', 'deletedAt', 'deletedBy', 'deletionReason'
-            ]) || validSoftDelete()
-          )
-        ) || (
-          isAdmin() &&
-          catalogActivationAllowed(request.resource.data) &&
-          (
-            !('isAvailable' in request.resource.data) ||
-            request.resource.data.isAvailable != true ||
-            isApprovedProvider(request.resource.data.providerId)
-          )
-        );
-
-      allow delete: if false;
+      // Event-service mutations use the provider service callables, including
+      // owner-bound Cloudinary media validation and server-owned publication.
+      allow create, update, delete: if false;
     }
 
     // ============================================================
