@@ -98,12 +98,12 @@ describe("provider navigation configuration", () => {
 
     expect(disabled.map((item) => item.label)).toEqual([
       "Messages",
-      "Reviews",
     ]);
     expect(disabled.every((item) => item.disabledReason === "Coming soon"))
       .toBe(true);
     expect(disabled.every((item) => !("href" in item))).toBe(true);
     expect(hrefs(approvedProvider)).toContain("/provider/business-profile");
+    expect(hrefs(approvedProvider)).toContain("/provider/reviews");
   });
 
   it("restricts navigation according to canonical provider state", () => {
@@ -175,6 +175,7 @@ describe("provider navigation configuration", () => {
       "/provider/calendar",
       "/provider/availability",
       "/provider/payments",
+      "/provider/reviews",
       "/provider/business-profile",
       "/provider/packages",
       "/provider/services",
@@ -252,7 +253,7 @@ describe("provider navigation rendering", () => {
       .toHaveAttribute("href", "/provider/payments");
     expect(within(desktop).queryByText("Payments & Earnings"))
       .not.toBeInTheDocument();
-    expect(within(desktop).getAllByText("Coming soon")).toHaveLength(2);
+    expect(within(desktop).getAllByText("Coming soon")).toHaveLength(1);
   });
 
   it("keeps bookings and booking requests as distinct active routes", () => {
@@ -346,6 +347,8 @@ describe("provider navigation rendering", () => {
       .toHaveAttribute("href", "/provider/availability");
     expect(within(complete).getByRole("link", {name: "Payments"}))
       .toHaveAttribute("href", "/provider/payments");
+    expect(within(complete).getByRole("link", {name: "Reviews"}))
+      .toHaveAttribute("href", "/provider/reviews");
     expect(within(complete).getByRole("link", {name: "Business Profile"}))
       .toHaveAttribute("href", "/provider/business-profile");
     expect(within(complete).getByText("Messages").closest("a")).toBeNull();
@@ -447,6 +450,49 @@ describe("provider navigation rendering", () => {
     })).not.toBeInTheDocument();
   });
 
+  it("enables nested Reviews routes and closes mobile More on selection", async () => {
+    navigation.pathname = "/provider/reviews/history";
+    const user = userEvent.setup();
+    render(
+      <ApplicationShell
+        role="provider"
+        accountLabel="provider@feasta.test"
+        providerContext={approvedProvider}
+      >
+        Review history
+      </ApplicationShell>,
+    );
+
+    const desktop = screen.getByRole("navigation", {
+      name: "Provider primary navigation",
+    });
+    expect(within(desktop).getByRole("link", {name: "Reviews"}))
+      .toHaveAttribute("aria-current", "page");
+    expect(within(desktop).getByRole("link", {name: "Business Profile"}))
+      .not.toHaveAttribute("aria-current");
+
+    await user.click(screen.getByRole("button", {
+      name: "More provider navigation",
+    }));
+    const complete = screen.getByRole("navigation", {
+      name: "Provider complete mobile navigation",
+    });
+    const reviews = within(complete).getByRole("link", {name: "Reviews"});
+    expect(reviews).toHaveAttribute("href", "/provider/reviews");
+    expect(reviews).toHaveAttribute("aria-current", "page");
+    expect(within(complete).getByText("Messages").closest("a")).toBeNull();
+
+    const preventDocumentNavigation = (event: MouseEvent) => {
+      event.preventDefault();
+    };
+    document.addEventListener("click", preventDocumentNavigation);
+    await user.click(reviews);
+    document.removeEventListener("click", preventDocumentNavigation);
+    expect(screen.queryByRole("navigation", {
+      name: "Provider complete mobile navigation",
+    })).not.toBeInTheDocument();
+  });
+
   it("marks nested Business Profile routes active and closes More on selection", async () => {
     navigation.pathname = "/provider/business-profile/media";
     const user = userEvent.setup();
@@ -477,7 +523,8 @@ describe("provider navigation rendering", () => {
     });
     expect(businessProfile).toHaveAttribute("aria-current", "page");
     expect(within(complete).getByText("Messages").closest("a")).toBeNull();
-    expect(within(complete).getByText("Reviews").closest("a")).toBeNull();
+    expect(within(complete).getByRole("link", {name: "Reviews"}))
+      .toHaveAttribute("href", "/provider/reviews");
 
     const preventDocumentNavigation = (event: MouseEvent) => {
       event.preventDefault();

@@ -165,11 +165,11 @@ const providerBusinessNavigation: readonly NavigationItem[] = [
     icon: WalletCards,
   },
   {
-    kind: "disabled",
+    kind: "link",
     section: "BUSINESS",
     label: "Reviews",
+    href: "/provider/reviews",
     icon: Star,
-    disabledReason: "Coming soon",
   },
   {
     kind: "link",

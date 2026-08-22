@@ -23,6 +23,7 @@ describe("provider Server Action modules", () => {
       .toEqual(expect.arrayContaining([
         join("bookings", "actions.ts"),
         join("payments", "actions.ts"),
+        join("reviews", "actions.ts"),
       ]));
 
     for (const path of serverActionModules) {
