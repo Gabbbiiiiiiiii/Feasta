@@ -219,7 +219,7 @@ test("provider visibility and lifecycle fields follow trusted ownership", async 
   await assertSucceeds(getDoc(doc(publicDb, "providers/provider-approved")));
   await assertFails(getDoc(doc(publicDb, "providers/provider-draft")));
   await assertSucceeds(getDoc(doc(owner, "providers/provider-draft")));
-  await assertSucceeds(updateDoc(
+  await assertFails(updateDoc(
     doc(owner, "providers/provider-draft"),
     {businessName: "Updated Draft"},
   ));
@@ -234,6 +234,14 @@ test("provider visibility and lifecycle fields follow trusted ownership", async 
   await assertFails(updateDoc(
     doc(owner, "providers/provider-draft"),
     {isActive: true},
+  ));
+  await assertFails(updateDoc(
+    doc(owner, "providers/provider-approved"),
+    {providerServiceType: "both"},
+  ));
+  await assertFails(updateDoc(
+    doc(owner, "providers/provider-approved"),
+    {serviceCategories: ["catering_service", "photographer"]},
   ));
 });
 

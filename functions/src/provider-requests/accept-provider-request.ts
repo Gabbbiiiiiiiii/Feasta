@@ -51,14 +51,11 @@ import {
 import {
   calculateMainEventRequestSummary,
 } from "./recalculate-main-event-status.js";
-
-const ACTIVE_PROVIDER_STATUSES = [
-  "accepted",
-  "waiting_for_down_payment",
-  "payment_processing",
-  "confirmed",
-  "in_progress",
-] as const;
+import {
+  AVAILABILITY_COUNTED_REQUEST_STATUSES,
+  manilaDateRange,
+  validateProviderAvailability,
+} from "../provider-availability/validate-provider-availability.js";
 
 const PAYMENT_WINDOW_HOURS = 24;
 
@@ -144,6 +141,7 @@ export const acceptProviderRequest = onCall(
               60 *
               1_000,
         );
+      const acceptanceTime = new Date();
 
       const result = await db.runTransaction(
         async (transaction) => {
@@ -194,6 +192,18 @@ export const acceptProviderRequest = onCall(
             );
           }
 
+          const eventDateRange =
+            manilaDateRange(
+              eventDate.toDate(),
+            );
+
+          if (!eventDateRange) {
+            throw new HttpsError(
+              "failed-precondition",
+              "The provider request event date is invalid.",
+            );
+          }
+
           const allRequestsQuery = db
             .collection("providerRequests")
             .where(
@@ -211,13 +221,24 @@ export const acceptProviderRequest = onCall(
             )
             .where(
               "eventDate",
-              "==",
-              eventDate,
+              ">=",
+              Timestamp.fromDate(
+                eventDateRange.start,
+              ),
+            )
+            .where(
+              "eventDate",
+              "<",
+              Timestamp.fromDate(
+                eventDateRange.end,
+              ),
             )
             .where(
               "status",
               "in",
-              [...ACTIVE_PROVIDER_STATUSES],
+              [
+                ...AVAILABILITY_COUNTED_REQUEST_STATUSES,
+              ],
             );
 
           const [
@@ -316,24 +337,53 @@ export const acceptProviderRequest = onCall(
             );
           }
 
-          assertProviderCapacity({
-            providerData:
-              authorized.providerData,
+          const availability =
+            validateProviderAvailability({
+              providerData:
+                authorized.providerData,
+              request: {
+                providerRequestId,
+                type: authorized.type,
+                eventDate:
+                  eventDate.toDate(),
+                eventTime:
+                  authorized.eventTime,
+                eventEndTime:
+                  authorized.eventEndTime,
+                guestCount:
+                  authorized.guestCount,
+                services:
+                  authorized.requestData
+                    .services,
+              },
+              existingBookings:
+                activeRequestsSnapshot.docs
+                  .map((document) => ({
+                    providerRequestId:
+                      document.id,
+                    status:
+                      document.data()
+                        .status,
+                    eventTime:
+                      document.data()
+                        .eventTime,
+                    eventEndTime:
+                      document.data()
+                        .eventEndTime,
+                  })),
+              now: acceptanceTime,
+            });
 
-            requestType:
-              authorized.type,
-
-            requestGuestCount:
-              authorized.guestCount,
-
-            currentRequestId:
-              providerRequestId,
-
-            activeRequestIds:
-              activeRequestsSnapshot.docs.map(
-                (document) => document.id,
-              ),
-          });
+          if (!availability.available) {
+            throw new HttpsError(
+              "failed-precondition",
+              "The provider is not available for this event.",
+              {
+                issues:
+                  availability.issues,
+              },
+            );
+          }
 
           const nextStatus =
             authorized.downPaymentAmount > 0
@@ -520,77 +570,6 @@ export const acceptProviderRequest = onCall(
     }
   },
 );
-
-function assertProviderCapacity(
-  input: {
-    providerData:
-      Record<string, unknown>;
-
-    requestType:
-      "catering" | "addon";
-
-    requestGuestCount: number;
-
-    currentRequestId: string;
-
-    activeRequestIds:
-      readonly string[];
-  },
-): void {
-  const otherActiveRequestCount =
-    input.activeRequestIds.filter(
-      (requestId) =>
-        requestId !==
-        input.currentRequestId,
-    ).length;
-
-  const acceptsMultipleEvents =
-    input.providerData
-      .acceptsMultipleEventsPerDay ===
-    true;
-
-  const configuredMaximum =
-    input.providerData.maxEventsPerDay;
-
-  const maximumEvents =
-    acceptsMultipleEvents &&
-    Number.isSafeInteger(
-      configuredMaximum,
-    ) &&
-    (configuredMaximum as number) > 0
-      ? configuredMaximum as number
-      : 1;
-
-  if (
-    otherActiveRequestCount >=
-    maximumEvents
-  ) {
-    throw new HttpsError(
-      "resource-exhausted",
-      "The provider has reached its event capacity for this date.",
-    );
-  }
-
-  if (input.requestType !== "catering") {
-    return;
-  }
-
-  const maximumGuests =
-    input.providerData.maxGuestsPerEvent;
-
-  if (
-    typeof maximumGuests === "number" &&
-    Number.isFinite(maximumGuests) &&
-    maximumGuests > 0 &&
-    input.requestGuestCount >
-      maximumGuests
-  ) {
-    throw new HttpsError(
-      "resource-exhausted",
-      "The requested guest count exceeds the provider's capacity.",
-    );
-  }
-}
 
 function stringValue(
   value: unknown,

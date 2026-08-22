@@ -225,6 +225,20 @@ function deriveMainEventStatus(
     return "in_progress";
   }
 
+  /*
+   * Once fulfillment has started, completing one request must not move the
+   * parent event backwards while another confirmed request is still active.
+   * The event completes only when every canonical request is completed.
+   */
+  if (
+    currentStatus === "in_progress" &&
+    counts.confirmed +
+      counts.completed ===
+      total
+  ) {
+    return "in_progress";
+  }
+
   if (
     counts.pending > 0 ||
     counts.accepted > 0

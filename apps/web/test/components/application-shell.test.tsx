@@ -210,8 +210,18 @@ describe("ApplicationShell", () => {
     expect(
       within(
         screen.getByRole("navigation", {name: "Provider primary navigation"}),
-      ).getByLabelText("Bookings - Coming soon"),
-    ).toHaveAttribute("aria-disabled", "true");
+      ).getByRole("link", {name: "Bookings"}),
+    ).toHaveAttribute("href", "/provider/bookings");
+    expect(
+      within(
+        screen.getByRole("navigation", {name: "Provider primary navigation"}),
+      ).getByRole("link", {name: "Availability"}),
+    ).toHaveAttribute("href", "/provider/availability");
+    expect(
+      within(
+        screen.getByRole("navigation", {name: "Provider primary navigation"}),
+      ).getByRole("link", {name: "Payments"}),
+    ).toHaveAttribute("href", "/provider/payments");
   });
 
   it("places a skip link first and exposes one semantic main region", async () => {

@@ -142,15 +142,35 @@ export function AccountManagementPanel({
               <>
                 <TextField label="Owner first name" field="ownerFirstName" values={profileValues} setValues={setProfileValues} disabled={busy != null} />
                 <TextField label="Owner last name" field="ownerLastName" values={profileValues} setValues={setProfileValues} disabled={busy != null} />
-                <TextField label="Business name" field="businessName" values={profileValues} setValues={setProfileValues} disabled={busy != null || !legalIdentityEditable} description={!legalIdentityEditable ? "Verified business identity changes require FEASTA review." : undefined} />
-                <TextField label="Business email" field="businessEmail" type="email" values={profileValues} setValues={setProfileValues} disabled={busy != null || !legalIdentityEditable} />
-                <TextField label="Business phone" field="businessPhone" type="tel" values={profileValues} setValues={setProfileValues} disabled={busy != null} />
-                <TextField label="Address" field="address" values={profileValues} setValues={setProfileValues} disabled={busy != null} />
-                <TextField label="City" field="city" values={profileValues} setValues={setProfileValues} disabled={busy != null} />
-                <TextField label="Province" field="province" values={profileValues} setValues={setProfileValues} disabled={busy != null} />
-                <FormField className="sm:col-span-2" label="Business description" required disabled={busy != null}>
-                  <Textarea value={profileValues.description ?? ""} onChange={(event) => setProfileValues((current) => ({...current, description: event.target.value}))} />
-                </FormField>
+                {legalIdentityEditable ? (
+                  <>
+                    <TextField label="Business name" field="businessName" values={profileValues} setValues={setProfileValues} disabled={busy != null} />
+                    <TextField label="Business email" field="businessEmail" type="email" values={profileValues} setValues={setProfileValues} disabled={busy != null} />
+                    <TextField label="Business phone" field="businessPhone" type="tel" values={profileValues} setValues={setProfileValues} disabled={busy != null} />
+                    <TextField label="Address" field="address" values={profileValues} setValues={setProfileValues} disabled={busy != null} />
+                    <TextField label="City" field="city" values={profileValues} setValues={setProfileValues} disabled={busy != null} />
+                    <TextField label="Province" field="province" values={profileValues} setValues={setProfileValues} disabled={busy != null} />
+                    <FormField className="sm:col-span-2" label="Business description" required disabled={busy != null}>
+                      <Textarea value={profileValues.description ?? ""} onChange={(event) => setProfileValues((current) => ({...current, description: event.target.value}))} />
+                    </FormField>
+                  </>
+                ) : (
+                  <div className="grid gap-4 rounded-lg border border-border bg-muted/40 p-4 sm:col-span-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <div>
+                      <h3 className="font-bold">Public business information</h3>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                        Business contact, description, location, logo, and cover image are managed in Business Profile. Verified business identity and service capabilities remain read-only there.
+                      </p>
+                    </div>
+                    {profile.provider?.verificationStatus === "approved" ? (
+                      <Button type="button" variant="secondary" asChild>
+                        <Link href="/provider/business-profile">Manage Business Profile</Link>
+                      </Button>
+                    ) : (
+                      <p className="text-sm font-semibold text-muted-foreground">Available after provider approval.</p>
+                    )}
+                  </div>
+                )}
               </>
             ) : (
               <>

@@ -97,16 +97,13 @@ describe("provider navigation configuration", () => {
     const disabled = navigationItems.filter((item) => item.kind === "disabled");
 
     expect(disabled.map((item) => item.label)).toEqual([
-      "Bookings",
-      "Availability",
       "Messages",
-      "Payments & Earnings",
       "Reviews",
-      "Business Profile",
     ]);
     expect(disabled.every((item) => item.disabledReason === "Coming soon"))
       .toBe(true);
     expect(disabled.every((item) => !("href" in item))).toBe(true);
+    expect(hrefs(approvedProvider)).toContain("/provider/business-profile");
   });
 
   it("restricts navigation according to canonical provider state", () => {
@@ -174,7 +171,11 @@ describe("provider navigation configuration", () => {
     const existingRoutes = new Set([
       "/provider",
       "/provider/requests",
+      "/provider/bookings",
       "/provider/calendar",
+      "/provider/availability",
+      "/provider/payments",
+      "/provider/business-profile",
       "/provider/packages",
       "/provider/services",
       "/provider/notifications",
@@ -243,13 +244,71 @@ describe("provider navigation rendering", () => {
     expect(within(desktop).getByRole("link", {name: "Dashboard"}))
       .not.toHaveAttribute("aria-current");
 
-    const bookings = within(desktop).getByText("Bookings");
-    expect(bookings.closest("a")).toBeNull();
-    expect(bookings.closest("[aria-disabled='true']")).toHaveAttribute(
-      "aria-label",
-      "Bookings - Coming soon",
+    expect(within(desktop).getByRole("link", {name: "Bookings"}))
+      .toHaveAttribute("href", "/provider/bookings");
+    expect(within(desktop).getByRole("link", {name: "Availability"}))
+      .toHaveAttribute("href", "/provider/availability");
+    expect(within(desktop).getByRole("link", {name: "Payments"}))
+      .toHaveAttribute("href", "/provider/payments");
+    expect(within(desktop).queryByText("Payments & Earnings"))
+      .not.toBeInTheDocument();
+    expect(within(desktop).getAllByText("Coming soon")).toHaveLength(2);
+  });
+
+  it("keeps bookings and booking requests as distinct active routes", () => {
+    const items = getRoleNavigation("provider", approvedProvider);
+    const bookings = items.find(
+      (item): item is NavigationLinkItem =>
+        item.kind === "link" && item.href === "/provider/bookings",
     );
-    expect(within(desktop).getAllByText("Coming soon")).toHaveLength(6);
+    const requests = items.find(
+      (item): item is NavigationLinkItem =>
+        item.kind === "link" && item.href === "/provider/requests",
+    );
+
+    expect(bookings).toBeDefined();
+    expect(requests).toBeDefined();
+    expect(isNavigationItemActive("/provider/bookings", bookings!)).toBe(true);
+    expect(isNavigationItemActive("/provider/bookings/history", bookings!)).toBe(true);
+    expect(isNavigationItemActive("/provider/bookings", requests!)).toBe(false);
+  });
+
+  it("keeps availability distinct and active for nested workspace routes", () => {
+    const items = getRoleNavigation("provider", approvedProvider);
+    const availability = items.find(
+      (item): item is NavigationLinkItem =>
+        item.kind === "link" && item.href === "/provider/availability",
+    );
+    const calendar = items.find(
+      (item): item is NavigationLinkItem =>
+        item.kind === "link" && item.href === "/provider/calendar",
+    );
+
+    expect(availability).toBeDefined();
+    expect(isNavigationItemActive("/provider/availability", availability!)).toBe(true);
+    expect(isNavigationItemActive("/provider/availability/rules", availability!))
+      .toBe(true);
+    expect(isNavigationItemActive("/provider/availability/rules", calendar!))
+      .toBe(false);
+  });
+
+  it("keeps Payments distinct and active for nested workspace routes", () => {
+    const items = getRoleNavigation("provider", approvedProvider);
+    const payments = items.find(
+      (item): item is NavigationLinkItem =>
+        item.kind === "link" && item.href === "/provider/payments",
+    );
+    const availability = items.find(
+      (item): item is NavigationLinkItem =>
+        item.kind === "link" && item.href === "/provider/availability",
+    );
+
+    expect(payments).toBeDefined();
+    expect(payments?.label).toBe("Payments");
+    expect(isNavigationItemActive("/provider/payments", payments!)).toBe(true);
+    expect(isNavigationItemActive("/provider/payments/history", payments!)).toBe(true);
+    expect(isNavigationItemActive("/provider/payments/history", availability!))
+      .toBe(false);
   });
 
   it("uses a small mobile bar and an accessible complete navigation drawer", async () => {
@@ -281,6 +340,14 @@ describe("provider navigation rendering", () => {
     });
     expect(within(complete).getByRole("link", {name: "Packages / Catalog"}))
       .toBeVisible();
+    expect(within(complete).getByRole("link", {name: "Bookings"}))
+      .toHaveAttribute("href", "/provider/bookings");
+    expect(within(complete).getByRole("link", {name: "Availability"}))
+      .toHaveAttribute("href", "/provider/availability");
+    expect(within(complete).getByRole("link", {name: "Payments"}))
+      .toHaveAttribute("href", "/provider/payments");
+    expect(within(complete).getByRole("link", {name: "Business Profile"}))
+      .toHaveAttribute("href", "/provider/business-profile");
     expect(within(complete).getByText("Messages").closest("a")).toBeNull();
     expect(within(complete).getByText("Messages").closest("[aria-disabled='true']"))
       .toHaveAttribute("aria-label", "Messages - Coming soon");
@@ -302,6 +369,162 @@ describe("provider navigation rendering", () => {
     await user.click(within(reopened).getByRole("link", {
       name: "Notifications",
     }));
+    document.removeEventListener("click", preventDocumentNavigation);
+    expect(screen.queryByRole("navigation", {
+      name: "Provider complete mobile navigation",
+    })).not.toBeInTheDocument();
+  });
+
+  it("marks Availability active in desktop and mobile More navigation", async () => {
+    navigation.pathname = "/provider/availability/rules";
+    const user = userEvent.setup();
+    render(
+      <ApplicationShell
+        role="provider"
+        accountLabel="provider@feasta.test"
+        providerContext={approvedProvider}
+      >
+        Availability workspace
+      </ApplicationShell>,
+    );
+
+    const desktop = screen.getByRole("navigation", {
+      name: "Provider primary navigation",
+    });
+    expect(within(desktop).getByRole("link", {name: "Availability"}))
+      .toHaveAttribute("aria-current", "page");
+    expect(within(desktop).getByRole("link", {name: "Calendar"}))
+      .not.toHaveAttribute("aria-current");
+
+    await user.click(screen.getByRole("button", {
+      name: "More provider navigation",
+    }));
+    const complete = screen.getByRole("navigation", {
+      name: "Provider complete mobile navigation",
+    });
+    expect(within(complete).getByRole("link", {name: "Availability"}))
+      .toHaveAttribute("aria-current", "page");
+  });
+
+  it("marks Payments active in desktop and mobile More navigation", async () => {
+    navigation.pathname = "/provider/payments/history";
+    const user = userEvent.setup();
+    render(
+      <ApplicationShell
+        role="provider"
+        accountLabel="provider@feasta.test"
+        providerContext={approvedProvider}
+      >
+        Payment history
+      </ApplicationShell>,
+    );
+
+    const desktop = screen.getByRole("navigation", {
+      name: "Provider primary navigation",
+    });
+    expect(within(desktop).getByRole("link", {name: "Payments"}))
+      .toHaveAttribute("aria-current", "page");
+    expect(within(desktop).getByRole("link", {name: "Availability"}))
+      .not.toHaveAttribute("aria-current");
+
+    await user.click(screen.getByRole("button", {
+      name: "More provider navigation",
+    }));
+    const complete = screen.getByRole("navigation", {
+      name: "Provider complete mobile navigation",
+    });
+    const payments = within(complete).getByRole("link", {name: "Payments"});
+    expect(payments).toHaveAttribute("aria-current", "page");
+
+    const preventDocumentNavigation = (event: MouseEvent) => {
+      event.preventDefault();
+    };
+    document.addEventListener("click", preventDocumentNavigation);
+    await user.click(payments);
+    document.removeEventListener("click", preventDocumentNavigation);
+    expect(screen.queryByRole("navigation", {
+      name: "Provider complete mobile navigation",
+    })).not.toBeInTheDocument();
+  });
+
+  it("marks nested Business Profile routes active and closes More on selection", async () => {
+    navigation.pathname = "/provider/business-profile/media";
+    const user = userEvent.setup();
+    render(
+      <ApplicationShell
+        role="provider"
+        accountLabel="provider@feasta.test"
+        providerContext={approvedProvider}
+      >
+        Business profile workspace
+      </ApplicationShell>,
+    );
+
+    const desktop = screen.getByRole("navigation", {
+      name: "Provider primary navigation",
+    });
+    expect(within(desktop).getByRole("link", {name: "Business Profile"}))
+      .toHaveAttribute("aria-current", "page");
+
+    await user.click(screen.getByRole("button", {
+      name: "More provider navigation",
+    }));
+    const complete = screen.getByRole("navigation", {
+      name: "Provider complete mobile navigation",
+    });
+    const businessProfile = within(complete).getByRole("link", {
+      name: "Business Profile",
+    });
+    expect(businessProfile).toHaveAttribute("aria-current", "page");
+    expect(within(complete).getByText("Messages").closest("a")).toBeNull();
+    expect(within(complete).getByText("Reviews").closest("a")).toBeNull();
+
+    const preventDocumentNavigation = (event: MouseEvent) => {
+      event.preventDefault();
+    };
+    document.addEventListener("click", preventDocumentNavigation);
+    await user.click(businessProfile);
+    document.removeEventListener("click", preventDocumentNavigation);
+    expect(screen.queryByRole("navigation", {
+      name: "Provider complete mobile navigation",
+    })).not.toBeInTheDocument();
+  });
+
+  it("marks Bookings active in desktop and More navigation and closes More on selection", async () => {
+    navigation.pathname = "/provider/bookings/history";
+    const user = userEvent.setup();
+    render(
+      <ApplicationShell
+        role="provider"
+        accountLabel="provider@feasta.test"
+        providerContext={approvedProvider}
+      >
+        Booking history
+      </ApplicationShell>,
+    );
+
+    const desktop = screen.getByRole("navigation", {
+      name: "Provider primary navigation",
+    });
+    expect(within(desktop).getByRole("link", {name: "Bookings"}))
+      .toHaveAttribute("aria-current", "page");
+    expect(within(desktop).getByRole("link", {name: "Booking Requests"}))
+      .not.toHaveAttribute("aria-current");
+
+    await user.click(screen.getByRole("button", {
+      name: "More provider navigation",
+    }));
+    const complete = screen.getByRole("navigation", {
+      name: "Provider complete mobile navigation",
+    });
+    const bookings = within(complete).getByRole("link", {name: "Bookings"});
+    expect(bookings).toHaveAttribute("aria-current", "page");
+
+    const preventDocumentNavigation = (event: MouseEvent) => {
+      event.preventDefault();
+    };
+    document.addEventListener("click", preventDocumentNavigation);
+    await user.click(bookings);
     document.removeEventListener("click", preventDocumentNavigation);
     expect(screen.queryByRole("navigation", {
       name: "Provider complete mobile navigation",

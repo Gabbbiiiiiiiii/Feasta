@@ -23,7 +23,7 @@ const policies = [
   ["submitBookingRequest", "bookings/submit-booking-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "assertBookingSubmissionAllowed", "runTransaction", "appCheckCallableOptions"]],
   ["registerProvider", "providers/register-provider.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction"]],
   ["saveProviderOnboardingDraft", "providers/save-provider-onboarding-draft.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "runTransaction"]],
-    [
+  [
     "createProviderMediaUploadSignature",
     "providers/provider-media.ts",
     [
@@ -33,6 +33,19 @@ const policies = [
       "appCheckCallableOptions",
       "cloudinarySecrets",
       "createProviderUploadSignature",
+    ],
+  ],
+  [
+    "deleteProviderOnboardingMedia",
+    "providers/provider-media.ts",
+    [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "appCheckCallableOptions",
+      "cloudinarySecrets",
+      "requireUnlinkedProviderOnboarding",
+      "deleteProviderMedia",
     ],
   ],
   [
@@ -108,6 +121,11 @@ const policies = [
   ["createComplaint", "content/create-complaint.ts", ["requireAuth(request)", "requireActiveUser", "enforceCallableRateLimit", "executeIdempotently", "writeAuditLogInTransaction"]],
   ["submitReview", "content/submit-review.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "executeIdempotently"]],
   ["createPaymentSession", "payments/create-payment-session.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "defineSecret", "runTransaction"]],
+  ["markProviderBookingInProgress", "provider-requests/update-provider-booking-lifecycle.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
+  ["completeProviderBooking", "provider-requests/update-provider-booking-lifecycle.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
+  ["updateProviderAvailability", "providers/update-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "isApprovedProviderForOperations", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  ["updateProviderAvailabilitySettings", "providers/update-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "isApprovedProviderForOperations", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  ["updateProviderBusinessProfile", "providers/update-provider-business-profile.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "isApprovedProviderForOperations", "isProviderOwnerAccountActive", "validateProviderBusinessProfileUpdate", "verifyProviderMedia", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions", "cloudinarySecrets"]],
   ["requestPaymentRefund", "payments/request-refund.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "executeIdempotently", "defineSecret", "writeAuditLog"]],
   ["payMongoWebhook", "payments/paymongo-webhook.ts", ["defineSecret", "verifyPayMongoSignature", "rawBody", "processPayMongoWebhook"]],
 ];
@@ -141,6 +159,8 @@ test("all deployed exports remain in the reviewed inventory", () => {
   for (const match of index.matchAll(/export\s*\{\s*(\w+)[\s,}]/gu)) names.add(match[1]);
   assert.deepEqual([...names].sort(), [
     "acceptProviderRequest",
+    "archiveProviderService",
+    "completeProviderBooking",
     "createComplaint",
     "createPaymentSession",
     "createProviderMediaUploadSignature",
@@ -156,9 +176,11 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "getPlaceDetails",
     "healthCheck",
     "moderateReview",
+    "markProviderBookingInProgress",
     "onPromotionWrite",
     "onUserSecurityStateChanged",
     "payMongoWebhook",
+    "prepareCustomerPhoneVerification",
     "prepareProviderPhoneVerification",
     "registerProvider",
     "registerVerificationDocument",
@@ -179,6 +201,9 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "updateAccountPreferences",
     "updateCustomerPreferences",
     "updateCustomerProfile",
+    "updateProviderAvailability",
+    "updateProviderAvailabilitySettings",
+    "updateProviderBusinessProfile",
     "updateRoleAccountProfile",
   ].sort());
   assert.equal(index.includes("onSchedule"), false);

@@ -74,6 +74,12 @@ export {
   updateProviderAvailability,
 } from "./providers/update-provider-availability.js";
 export {
+  updateProviderAvailabilitySettings,
+} from "./providers/update-provider-availability.js";
+export {
+  updateProviderBusinessProfile,
+} from "./providers/update-provider-business-profile.js";
+export {
   archiveProviderService,
   createProviderService,
   publishProviderService,
@@ -117,6 +123,12 @@ export {
 export {
   rejectProviderRequest,
 } from "./provider-requests/reject-provider-request.js";
+export {
+  completeProviderBooking,
+} from "./provider-requests/update-provider-booking-lifecycle.js";
+export {
+  markProviderBookingInProgress,
+} from "./provider-requests/update-provider-booking-lifecycle.js";
 
 export {submitReview} from "./content/submit-review.js";
 export {

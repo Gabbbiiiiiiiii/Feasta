@@ -3,6 +3,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -40,6 +41,7 @@ export function ProviderBusinessImageField({
     failedSource,
     setFailedSource,
   ] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const label =
     mediaType === "logo"
@@ -63,6 +65,10 @@ export function ProviderBusinessImageField({
       );
     };
   }, [selectedPreview]);
+
+  useEffect(() => {
+    if (!selectedFile && inputRef.current) inputRef.current.value = "";
+  }, [currentUrl, error, selectedFile]);
 
   const previewUrl =
     selectedPreview ??
@@ -113,6 +119,7 @@ export function ProviderBusinessImageField({
         disabled={disabled}
       >
         <Input
+          ref={inputRef}
           type="file"
           accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
           onChange={(event) => {

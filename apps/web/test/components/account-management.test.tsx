@@ -127,6 +127,36 @@ describe("shared account management", () => {
       .not.toBeInTheDocument();
   });
 
+  it("separates approved public business editing from owner account settings", () => {
+    const profile: AccountManagementProfile = {
+      ...baseProfile,
+      role: "provider",
+      email: "provider@feasta.test",
+      customer: null,
+      provider: {
+        providerId: "provider-one",
+        businessName: "FEASTA Catering",
+        businessEmail: "business@feasta.test",
+        businessPhone: "+639171234567",
+        description: "A sufficiently detailed provider description.",
+        address: "Provider address",
+        city: "Ormoc City",
+        province: "Leyte",
+        verificationStatus: "approved",
+      },
+    };
+    render(<AccountManagementPanel profile={profile} />);
+
+    expect(screen.getByRole("textbox", {name: /^Owner first name/i})).toBeVisible();
+    expect(screen.getByRole("textbox", {name: /^Owner last name/i})).toBeVisible();
+    expect(screen.queryByRole("textbox", {name: /^Business phone/i}))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", {name: /^Business description/i}))
+      .not.toBeInTheDocument();
+    expect(screen.getByRole("link", {name: "Manage Business Profile"}))
+      .toHaveAttribute("href", "/provider/business-profile");
+  });
+
   it("limits admin editing and disallows self-deactivation", () => {
     render(<AccountManagementPanel profile={{
       ...baseProfile,

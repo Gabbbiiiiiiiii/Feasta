@@ -48,6 +48,8 @@ test("provider and admin backend policies fail closed", async () => {
   assert.match(backend, /rejectUnknownFields/u);
   assert.match(backend, /editableVerificationStatuses/u);
   assert.match(backend, /Verified business identity changes require FEASTA review/u);
+  assert.match(backend, /publicBusinessProfileChanged/u);
+  assert.match(backend, /Public business information must be updated from Business Profile/u);
   assert.match(backend, /activeProviderRequestStatuses/u);
   assert.match(backend, /Resolve active event obligations/u);
   assert.match(backend, /requireRole\(actor\.uid, \["provider"\]\)/u);

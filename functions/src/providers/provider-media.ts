@@ -23,6 +23,9 @@ import {
   USER_ROLES,
 } from "../shared/constants.js";
 import {
+  db,
+} from "../shared/firestore.js";
+import {
   appCheckCallableOptions,
 } from "../shared/function-options.js";
 import {
@@ -55,6 +58,13 @@ export const createProviderMediaUploadSignature =
 
       const input = requireObject(
         request.data ?? {},
+      );
+
+      rejectUnknownFields(
+        input,
+        [
+          "mediaType",
+        ],
       );
 
       const mediaType = providerMediaType(
@@ -146,8 +156,19 @@ export const deleteProviderOnboardingMedia =
         request.data ?? {},
       );
 
+      rejectUnknownFields(
+        input,
+        [
+          "mediaType",
+        ],
+      );
+
       const mediaType = providerMediaType(
         input.mediaType,
+      );
+
+      await requireUnlinkedProviderOnboarding(
+        actor.uid,
       );
 
       return deleteProviderMedia(
@@ -209,6 +230,36 @@ export const deleteProviderServiceImage =
       );
     },
   );
+
+async function requireUnlinkedProviderOnboarding(
+  ownerId: string,
+): Promise<void> {
+  const userSnapshot = await db
+    .collection("users")
+    .doc(ownerId)
+    .get();
+  const user = userSnapshot.data() ?? {};
+
+  if (
+    !userSnapshot.exists ||
+    user.role !== USER_ROLES.provider
+  ) {
+    throw new HttpsError(
+      "permission-denied",
+      "The provider account is invalid.",
+    );
+  }
+
+  if (
+    typeof user.providerId === "string" &&
+    user.providerId.trim().length > 0
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Linked provider media must be removed through the business profile update.",
+    );
+  }
+}
 
 function providerMediaType(
   value: unknown,

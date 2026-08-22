@@ -11,6 +11,7 @@ export type SecurityEventAction =
   | "booking_submission"
   | "provider_request_acceptance"
   | "provider_request_rejection"
+  | "provider_booking_lifecycle"
   | "configuration_failure"
   | "idempotency_replay"
   | "payment_webhook"

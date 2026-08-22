@@ -101,11 +101,11 @@ const providerBookingNavigation: readonly NavigationItem[] = [
     icon: ClipboardList,
   },
   {
-    kind: "disabled",
+    kind: "link",
     section: "BOOKINGS",
     label: "Bookings",
+    href: "/provider/bookings",
     icon: CalendarDays,
-    disabledReason: "Coming soon",
   },
   {
     kind: "link",
@@ -113,13 +113,6 @@ const providerBookingNavigation: readonly NavigationItem[] = [
     label: "Calendar",
     href: "/provider/calendar",
     icon: CalendarDays,
-  },
-  {
-    kind: "disabled",
-    section: "BOOKINGS",
-    label: "Availability",
-    icon: CalendarClock,
-    disabledReason: "Coming soon",
   },
 ];
 
@@ -158,11 +151,18 @@ const providerCommunicationNavigation: readonly NavigationItem[] = [
 
 const providerBusinessNavigation: readonly NavigationItem[] = [
   {
-    kind: "disabled",
+    kind: "link",
     section: "BUSINESS",
-    label: "Payments & Earnings",
+    label: "Availability",
+    href: "/provider/availability",
+    icon: CalendarClock,
+  },
+  {
+    kind: "link",
+    section: "BUSINESS",
+    label: "Payments",
+    href: "/provider/payments",
     icon: WalletCards,
-    disabledReason: "Coming soon",
   },
   {
     kind: "disabled",
@@ -172,11 +172,11 @@ const providerBusinessNavigation: readonly NavigationItem[] = [
     disabledReason: "Coming soon",
   },
   {
-    kind: "disabled",
+    kind: "link",
     section: "BUSINESS",
     label: "Business Profile",
+    href: "/provider/business-profile",
     icon: Building2,
-    disabledReason: "Coming soon",
   },
 ];
 

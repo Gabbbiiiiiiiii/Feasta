@@ -478,6 +478,20 @@ async function testAccountManagementWorkflows() {
     }),
     /failed[_-]precondition/i,
   );
+  await assert.rejects(
+    () => callFunction("updateRoleAccountProfile", provider, {
+      ownerFirstName: "Updated",
+      ownerLastName: "Provider",
+      businessName: "Updated Account Catering",
+      businessEmail: "updated-account@feasta.test",
+      businessPhone: "+639172222222",
+      description: "An unreviewed public profile change through Account Settings.",
+      address: "Updated address",
+      city: "Ormoc City",
+      province: "Leyte",
+    }),
+    /failed[_-]precondition/i,
+  );
   await db.collection("providerRequests").doc("active-account-obligation").set({
     providerId: "acceptance-account-provider",
     customerId: "customer-obligation",

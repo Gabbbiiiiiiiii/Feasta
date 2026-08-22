@@ -137,6 +137,12 @@ export const updateRoleAccountProfile = onCall(
         stringValue(provider.businessEmail).toLowerCase() !== businessEmail;
       const businessEmailChanged =
         stringValue(provider.businessEmail).toLowerCase() !== businessEmail;
+      const publicBusinessProfileChanged =
+        stringValue(provider.businessPhone) !== businessPhone ||
+        stringValue(provider.description) !== description ||
+        stringValue(provider.address) !== address ||
+        stringValue(provider.city) !== city ||
+        stringValue(provider.province) !== province;
       if (
         legalIdentityChanged &&
         !editableVerificationStatuses.has(String(provider.verificationStatus))
@@ -144,6 +150,15 @@ export const updateRoleAccountProfile = onCall(
         throw new HttpsError(
           "failed-precondition",
           "Verified business identity changes require FEASTA review.",
+        );
+      }
+      if (
+        publicBusinessProfileChanged &&
+        !editableVerificationStatuses.has(String(provider.verificationStatus))
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Public business information must be updated from Business Profile.",
         );
       }
       const verificationQuery = db.collection("providerVerifications")
