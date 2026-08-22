@@ -675,6 +675,7 @@ class BookingModel {
   final String bookingCode;
   final String customerId;
   final String providerId;
+  final List<String> providerRequestIds;
   final String packageId;
   final String customerFirstName;
   final String customerLastName;
@@ -734,6 +735,7 @@ class BookingModel {
     required this.bookingCode,
     required this.customerId,
     required this.providerId,
+    required this.providerRequestIds,
     required this.packageId,
     required this.customerFirstName,
     required this.customerLastName,
@@ -797,6 +799,7 @@ class BookingModel {
       bookingCode: data['bookingCode'] ?? '',
       customerId: data['customerId'] ?? '',
       providerId: data['providerId'] ?? '',
+      providerRequestIds: stringListFromValue(data['providerRequestIds']),
       packageId: data['packageId'] ?? '',
       customerFirstName: data['customerFirstName'] ?? '',
       customerLastName: data['customerLastName'] ?? '',

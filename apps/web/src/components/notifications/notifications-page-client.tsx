@@ -388,6 +388,7 @@ function NotificationTypeIcon({type}: {type: string}) {
 function notificationDestination(role: ShellRole, notification: FeastaNotification): string | null {
   const collection = notification.relatedCollection?.toLowerCase() ?? "";
   const knownCollections = [
+    "chatrooms",
     "providerverifications",
     "payments",
     "reviews",
@@ -399,6 +400,16 @@ function notificationDestination(role: ShellRole, notification: FeastaNotificati
 
   if (collection && !knownCollections.includes(collection)) {
     return role === "admin" ? "/admin/notifications" : null;
+  }
+
+  if (
+    collection === "chatrooms" &&
+    notification.type.toLowerCase() === "new_message" &&
+    role === "provider" &&
+    notification.relatedId &&
+    /^[A-Za-z0-9_-]{1,160}$/u.test(notification.relatedId)
+  ) {
+    return `/provider/messages?room=${encodeURIComponent(notification.relatedId)}`;
   }
 
   if (collection === "providerverifications" || notification.type.toLowerCase().includes("verification")) {

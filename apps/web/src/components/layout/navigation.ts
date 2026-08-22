@@ -134,11 +134,11 @@ const providerServiceNavigation: NavigationLinkItem = {
 
 const providerCommunicationNavigation: readonly NavigationItem[] = [
   {
-    kind: "disabled",
+    kind: "link",
     section: "COMMUNICATION",
     label: "Messages",
+    href: "/provider/messages",
     icon: MessageSquareText,
-    disabledReason: "Coming soon",
   },
   {
     kind: "link",

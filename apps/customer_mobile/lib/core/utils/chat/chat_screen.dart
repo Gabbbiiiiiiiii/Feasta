@@ -34,14 +34,9 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _prepareChatRoom() async {
-    final id = await repository.createChatRoom(
-      booking: widget.booking,
-    );
+    final id = await repository.createChatRoom(booking: widget.booking);
 
-    await repository.markChatAsRead(
-      chatRoomId: id,
-      currentRole: widget.currentRole,
-    );
+    await repository.markChatAsRead(chatRoomId: id);
 
     if (!mounted) return;
 
@@ -58,20 +53,14 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => isSending = true);
 
     try {
-      await repository.sendMessage(
-        chatRoomId: chatRoomId!,
-        senderRole: widget.currentRole,
-        message: message,
-      );
+      await repository.sendMessage(chatRoomId: chatRoomId!, message: message);
 
       messageController.clear();
     } catch (e) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceAll('Exception: ', '')),
-        ),
+        SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
       );
     } finally {
       if (mounted) {
@@ -93,10 +82,7 @@ class _ChatScreenState extends State<ChatScreen> {
     messageController.dispose();
 
     if (chatRoomId != null) {
-      repository.markChatAsRead(
-        chatRoomId: chatRoomId!,
-        currentRole: widget.currentRole,
-      );
+      repository.markChatAsRead(chatRoomId: chatRoomId!);
     }
 
     super.dispose();
@@ -165,9 +151,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   padding: const EdgeInsets.all(12),
                   decoration: const BoxDecoration(
                     color: Colors.white,
-                    border: Border(
-                      top: BorderSide(color: Color(0xFFE5E7EB)),
-                    ),
+                    border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
                   ),
                   child: SafeArea(
                     child: Row(
@@ -207,10 +191,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                       strokeWidth: 2,
                                     ),
                                   )
-                                : const Icon(
-                                    Icons.send,
-                                    color: Colors.white,
-                                  ),
+                                : const Icon(Icons.send, color: Colors.white),
                           ),
                         ),
                       ],
@@ -261,10 +242,7 @@ class ChatBubble extends StatelessWidget {
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.72,
         ),
-        padding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 10,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(
           color: isMine ? primary : Colors.white,
           borderRadius: BorderRadius.only(
@@ -273,15 +251,12 @@ class ChatBubble extends StatelessWidget {
             bottomLeft: Radius.circular(isMine ? 18 : 4),
             bottomRight: Radius.circular(isMine ? 4 : 18),
           ),
-          border: isMine
-              ? null
-              : Border.all(
-                  color: const Color(0xFFE5E7EB),
-                ),
+          border: isMine ? null : Border.all(color: const Color(0xFFE5E7EB)),
         ),
         child: Column(
-          crossAxisAlignment:
-              isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isMine
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               message,

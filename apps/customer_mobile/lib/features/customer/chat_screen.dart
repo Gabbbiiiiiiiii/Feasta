@@ -35,9 +35,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _prepareChatRoom() async {
     try {
-      final id = await repository.createChatRoom(
-        booking: widget.booking,
-      );
+      final id = await repository.createChatRoom(booking: widget.booking);
 
       if (!mounted) return;
 
@@ -45,17 +43,12 @@ class _ChatScreenState extends State<ChatScreen> {
         chatRoomId = id;
       });
 
-      await repository.markChatAsRead(
-        chatRoomId: id,
-        currentRole: widget.currentRole,
-      );
+      await repository.markChatAsRead(chatRoomId: id);
     } catch (e) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceAll('Exception: ', '')),
-        ),
+        SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
       );
     }
   }
@@ -68,20 +61,14 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => isSending = true);
 
     try {
-      await repository.sendMessage(
-        chatRoomId: chatRoomId!,
-        senderRole: widget.currentRole,
-        message: message,
-      );
+      await repository.sendMessage(chatRoomId: chatRoomId!, message: message);
 
       messageController.clear();
     } catch (e) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceAll('Exception: ', '')),
-        ),
+        SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
       );
     } finally {
       if (mounted) {
@@ -145,9 +132,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       }
 
                       if (snapshot.hasError) {
-                        return Center(
-              child: Text('Unable to load messages.'),
-                        );
+                        return Center(child: Text('Unable to load messages.'));
                       }
 
                       final messages = snapshot.data?.docs ?? [];
@@ -192,9 +177,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
                     decoration: const BoxDecoration(
                       color: Colors.white,
-                      border: Border(
-                        top: BorderSide(color: Color(0xFFE5E7EB)),
-                      ),
+                      border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
                     ),
                     child: Row(
                       children: [
@@ -232,10 +215,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                       color: Colors.white,
                                     ),
                                   )
-                                : const Icon(
-                                    Icons.send,
-                                    color: Colors.white,
-                                  ),
+                                : const Icon(Icons.send, color: Colors.white),
                           ),
                         ),
                       ],
@@ -295,15 +275,12 @@ class ChatBubble extends StatelessWidget {
             bottomLeft: Radius.circular(isMe ? 18 : 4),
             bottomRight: Radius.circular(isMe ? 4 : 18),
           ),
-          border: isMe
-              ? null
-              : Border.all(
-                  color: const Color(0xFFE5E7EB),
-                ),
+          border: isMe ? null : Border.all(color: const Color(0xFFE5E7EB)),
         ),
         child: Column(
-          crossAxisAlignment:
-              isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isMe
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               message,

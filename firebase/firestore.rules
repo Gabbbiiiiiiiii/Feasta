@@ -430,12 +430,9 @@ service cloud.firestore {
               chatData.customerId == currentUserId()
             ) ||
             (
-              chatData.providerOwnerId is string &&
-              chatData.providerOwnerId == currentUserId()
-            ) ||
-            (
               chatData.providerId is string &&
-              ownsProvider(chatData.providerId)
+              ownsProvider(chatData.providerId) &&
+              isApprovedProvider(chatData.providerId)
             )
           );
     }
@@ -1098,90 +1095,24 @@ service cloud.firestore {
     // ============================================================
 
     match /chatRooms/{chatRoomId} {
-      allow create: if isActiveSignedInUser() &&
-          request.resource.data.bookingId is string &&
-          request.resource.data.customerId is string &&
-          request.resource.data.providerId is string &&
-          (
-            (
-              mainEventExists(request.resource.data.bookingId) &&
-              mainEventData(request.resource.data.bookingId).customerId
-                  is string &&
-              mainEventData(request.resource.data.bookingId).providerId
-                  is string &&
-              mainEventData(request.resource.data.bookingId).customerId ==
-                  request.resource.data.customerId &&
-              mainEventData(request.resource.data.bookingId).providerId ==
-                  request.resource.data.providerId
-            ) ||
-            (
-              legacyBookingExists(request.resource.data.bookingId) &&
-              legacyBookingData(request.resource.data.bookingId).customerId
-                  is string &&
-              legacyBookingData(request.resource.data.bookingId).providerId
-                  is string &&
-              legacyBookingData(request.resource.data.bookingId).customerId ==
-                  request.resource.data.customerId &&
-              legacyBookingData(request.resource.data.bookingId).providerId ==
-                  request.resource.data.providerId
-            )
-          ) &&
-          isChatParticipantFromData(
-            request.resource.data
-          );
+      // Room creation, lifecycle, previews, and unread counters are updated
+      // atomically by the trusted messaging callables.
+      allow create: if false;
 
       allow read: if isChatParticipantFromData(
         resource.data
       );
 
-      allow update: if isChatParticipantFromData(
-          resource.data
-        ) &&
-        request.resource.data.customerId ==
-            resource.data.customerId &&
-        request.resource.data.providerId ==
-            resource.data.providerId &&
-        request.resource.data.bookingId ==
-            resource.data.bookingId &&
-        changesOnly([
-          'lastMessage',
-          'lastMessageAt',
-          'lastMessageSenderId',
-          'unreadCountCustomer',
-          'unreadCountProvider',
-          'isActive',
-          'updatedAt'
-        ]);
+      allow update: if false;
 
       allow delete: if false;
 
       match /messages/{messageId} {
         allow read: if isChatParticipant(chatRoomId);
 
-        allow create: if isChatParticipant(chatRoomId) &&
-            request.resource.data.keys().hasAll([
-              'chatRoomId', 'senderId', 'senderRole', 'message',
-              'messageType', 'isRead', 'createdAt'
-            ]) &&
-            request.resource.data.keys().hasOnly([
-              'chatRoomId', 'senderId', 'senderRole', 'message',
-              'messageType', 'attachmentUrl', 'isRead', 'readAt', 'createdAt'
-            ]) &&
-            request.resource.data.chatRoomId is string &&
-            request.resource.data.chatRoomId == chatRoomId &&
-            request.resource.data.senderId is string &&
-            request.resource.data.senderId ==
-                currentUserId() &&
-            request.resource.data.senderRole is string &&
-            request.resource.data.senderRole == currentUserData().role &&
-            request.resource.data.message is string &&
-            request.resource.data.message.size() > 0 &&
-            request.resource.data.message.size() <= 4000 &&
-            request.resource.data.messageType is string &&
-            request.resource.data.messageType in ['text', 'image', 'file'] &&
-            request.resource.data.isRead is bool &&
-            request.resource.data.isRead == false &&
-            request.resource.data.createdAt == request.time;
+        // Message identity, content type, preview/counter changes, and the
+        // recipient notification are committed by sendChatMessage.
+        allow create: if false;
 
         allow update, delete: if false;
       }

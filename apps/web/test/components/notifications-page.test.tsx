@@ -242,6 +242,32 @@ describe("notifications page", () => {
       }),
     ).not.toBeInTheDocument();
   });
+
+  it("routes provider message notifications through the server-validated room deep link", async () => {
+    mocks.subscribePage.mockImplementation(async (
+      _requestedLimit: number,
+      onValue: (items: FeastaNotification[]) => void,
+    ) => {
+      onValue([
+        notificationFixture({
+          id: "message-notification",
+          title: "New Message",
+          type: "new_message",
+          relatedCollection: "chatRooms",
+          relatedId: "provider_request_123",
+        }),
+      ]);
+      return {unsubscribe: mocks.unsubscribe};
+    });
+
+    render(<NotificationsPageClient role="provider" />);
+
+    expect(await screen.findByRole("link", {name: /new message/i}))
+      .toHaveAttribute(
+        "href",
+        "/provider/messages?room=provider_request_123",
+      );
+  });
 });
 
 function notificationFixture(

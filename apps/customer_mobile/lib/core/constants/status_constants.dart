@@ -125,7 +125,7 @@ class NotificationType {
 
   static const String booking = 'booking';
   static const String payment = 'payment';
-  static const String chat = 'chat';
+  static const String chat = 'new_message';
   static const String review = 'review';
   static const String verification = 'verification';
   static const String system = 'system';

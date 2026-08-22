@@ -9,6 +9,7 @@ BookingModel _booking({String status = 'confirmed'}) => BookingModel(
   bookingCode: 'FEASTA-001',
   customerId: 'customer-1',
   providerId: 'provider-1',
+  providerRequestIds: const ['provider-request-1'],
   packageId: 'package-1',
   customerFirstName: 'Ana',
   customerLastName: 'Dela Cruz',

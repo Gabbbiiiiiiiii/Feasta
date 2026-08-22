@@ -9,6 +9,7 @@ export type SecurityEventAction =
   | "account_security_state_changed"
   | "app_check_rejected"
   | "booking_submission"
+  | "chat_access"
   | "provider_request_acceptance"
   | "provider_request_rejection"
   | "provider_booking_lifecycle"

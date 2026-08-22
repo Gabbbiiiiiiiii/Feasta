@@ -22,6 +22,7 @@ describe("provider Server Action modules", () => {
     expect(serverActionModules.map((path) => relative(providerRoot, path)))
       .toEqual(expect.arrayContaining([
         join("bookings", "actions.ts"),
+        join("messages", "actions.ts"),
         join("payments", "actions.ts"),
         join("reviews", "actions.ts"),
       ]));

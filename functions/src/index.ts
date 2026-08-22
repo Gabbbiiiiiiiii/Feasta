@@ -129,6 +129,15 @@ export {
 export {
   markProviderBookingInProgress,
 } from "./provider-requests/update-provider-booking-lifecycle.js";
+export {
+  markChatRoomRead,
+} from "./messaging/provider-request-chat.js";
+export {
+  openProviderRequestChat,
+} from "./messaging/provider-request-chat.js";
+export {
+  sendChatMessage,
+} from "./messaging/provider-request-chat.js";
 
 export {submitReview} from "./content/submit-review.js";
 export {

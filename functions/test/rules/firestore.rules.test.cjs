@@ -992,15 +992,24 @@ test("complaints are creator-owned and administratively resolvable", async () =>
   ));
 });
 
-test("chat participants are immutable and message senders cannot be forged", async () => {
+test("chat reads stay participant-scoped and all client mutations are denied", async () => {
   await seedDocuments(testEnv, {
     "users/customer-one": userData("customer-one", "customer"),
     "users/customer-other": userData("customer-other", "customer"),
     "users/provider-owner": userData("provider-owner", "provider", {
       providerId: "provider-one",
     }),
+    "users/provider-other": userData("provider-other", "provider", {
+      providerId: "provider-two",
+    }),
     "providers/provider-one": {
       ownerId: "provider-owner",
+      verificationStatus: "approved",
+      isActive: true,
+      isSuspended: false,
+    },
+    "providers/provider-two": {
+      ownerId: "provider-other",
       verificationStatus: "approved",
       isActive: true,
       isSuspended: false,
@@ -1018,11 +1027,27 @@ test("chat participants are immutable and message senders cannot be forged", asy
     .firestore();
   const unrelated = authenticated(testEnv, "customer-other", "customer")
     .firestore();
+  const provider = authenticated(testEnv, "provider-owner", "provider")
+    .firestore();
+  const otherProvider = authenticated(testEnv, "provider-other", "provider")
+    .firestore();
 
   await assertSucceeds(getDoc(doc(customer, "chatRooms/room-one")));
+  await assertSucceeds(getDoc(doc(provider, "chatRooms/room-one")));
   await assertFails(getDoc(doc(unrelated, "chatRooms/room-one")));
+  await assertFails(getDoc(doc(otherProvider, "chatRooms/room-one")));
+  await assertFails(setDoc(doc(customer, "chatRooms/client-created"), {
+    bookingId: "event-one",
+    customerId: "customer-one",
+    providerId: "provider-one",
+    isActive: true,
+    createdAt: serverTimestamp(),
+  }));
   await assertFails(updateDoc(doc(customer, "chatRooms/room-one"), {
     providerOwnerId: "customer-other",
+  }));
+  await assertFails(updateDoc(doc(customer, "chatRooms/room-one"), {
+    unreadCountCustomer: 0,
   }));
   await assertFails(setDoc(
     doc(customer, "chatRooms/room-one/messages/forged"),
@@ -1036,7 +1061,7 @@ test("chat participants are immutable and message senders cannot be forged", asy
       createdAt: serverTimestamp(),
     },
   ));
-  await assertSucceeds(setDoc(
+  await assertFails(setDoc(
     doc(customer, "chatRooms/room-one/messages/valid"),
     {
       chatRoomId: "room-one",
@@ -1045,6 +1070,20 @@ test("chat participants are immutable and message senders cannot be forged", asy
       message: "Hello",
       messageType: "text",
       isRead: false,
+      createdAt: serverTimestamp(),
+    },
+  ));
+  await assertFails(setDoc(
+    doc(customer, "notifications/client-chat-notification"),
+    {
+      userId: "provider-owner",
+      title: "Forged message notification",
+      message: "Forged",
+      type: "new_message",
+      relatedId: "room-one",
+      relatedCollection: "chatRooms",
+      isRead: false,
+      readAt: null,
       createdAt: serverTimestamp(),
     },
   ));

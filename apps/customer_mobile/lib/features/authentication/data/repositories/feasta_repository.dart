@@ -2015,130 +2015,39 @@ class FeastaRepository {
     required BookingModel booking,
     String? providerLogoUrl,
   }) async {
-    final chatRoomId = booking.id;
-    final now = FieldValue.serverTimestamp();
+    try {
+      final providerRequestId = await _providerRequestIdForChat(booking);
+      final response = await _functions
+          .httpsCallable('openProviderRequestChat')
+          .call<Map<String, dynamic>>({'providerRequestId': providerRequestId});
+      final chatRoomId = response.data['chatRoomId'];
 
-    await _db.collection(FirestoreCollections.chatRooms).doc(chatRoomId).set({
-      'bookingId': booking.id,
-      'customerId': booking.customerId,
-      'providerId': booking.providerId,
-      'customerFirstName': booking.customerFirstName,
-      'customerLastName': booking.customerLastName,
-      'providerBusinessName': booking.providerBusinessName,
-      'providerLogoUrl': providerLogoUrl,
-      'lastMessage': '',
-      'lastMessageAt': now,
-      'lastMessageSenderId': null,
-      'unreadCountCustomer': 0,
-      'unreadCountProvider': 0,
-      'isActive': true,
-      'createdAt': now,
-      'updatedAt': now,
-    }, SetOptions(merge: true));
+      if (chatRoomId is! String || chatRoomId.trim().isEmpty) {
+        throw Exception('The conversation could not be opened.');
+      }
 
-    return chatRoomId;
+      return chatRoomId.trim();
+    } on FirebaseFunctionsException catch (error) {
+      throw Exception(
+        _chatErrorMessage(error, 'The conversation could not be opened.'),
+      );
+    }
   }
 
   Future<void> sendMessage({
     required String chatRoomId,
-    required String senderRole,
     required String message,
-    String messageType = 'text',
-    String? attachmentUrl,
   }) async {
-    final now = FieldValue.serverTimestamp();
-
-    final messageRef = _db
-        .collection(FirestoreCollections.chatRooms)
-        .doc(chatRoomId)
-        .collection(FirestoreCollections.messages)
-        .doc();
-
-    final chatRoomRef = _db
-        .collection(FirestoreCollections.chatRooms)
-        .doc(chatRoomId);
-
-    final chatRoomDoc = await chatRoomRef.get();
-
-    if (!chatRoomDoc.exists) {
-      throw Exception('Chat room not found.');
-    }
-
-    final chatRoomData = chatRoomDoc.data()!;
-
-    final customerId = chatRoomData['customerId'];
-    final providerId = chatRoomData['providerId'];
-    final providerBusinessName =
-        chatRoomData['providerBusinessName'] ?? 'Provider';
-    final customerFirstName = chatRoomData['customerFirstName'] ?? 'Customer';
-    final customerLastName = chatRoomData['customerLastName'] ?? '';
-
-    String receiverId = '';
-    String notificationTitle = '';
-    String notificationMessage = '';
-
-    if (senderRole == UserRoles.customer) {
-      final providerDoc = await _db
-          .collection(FirestoreCollections.providers)
-          .doc(providerId)
-          .get();
-
-      receiverId = providerDoc.data()?['ownerId'] ?? '';
-      notificationTitle = 'New Message';
-      notificationMessage =
-          '$customerFirstName $customerLastName sent you a message.';
-    } else if (senderRole == UserRoles.provider) {
-      receiverId = customerId;
-      notificationTitle = 'New Message from $providerBusinessName';
-      notificationMessage = message.length > 80
-          ? '${message.substring(0, 80)}...'
-          : message;
-    }
-
-    final notificationRef = _db
-        .collection(FirestoreCollections.notifications)
-        .doc();
-
-    final batch = _db.batch();
-
-    batch.set(messageRef, {
-      'chatRoomId': chatRoomId,
-      'senderId': currentUid,
-      'senderRole': senderRole,
-      'message': message.trim(),
-      'messageType': messageType,
-      'attachmentUrl': attachmentUrl,
-      'isRead': false,
-      'readAt': null,
-      'createdAt': now,
-    });
-
-    batch.update(chatRoomRef, {
-      'lastMessage': message.trim(),
-      'lastMessageAt': now,
-      'lastMessageSenderId': currentUid,
-      'updatedAt': now,
-      if (senderRole == UserRoles.customer)
-        'unreadCountProvider': FieldValue.increment(1),
-      if (senderRole == UserRoles.provider)
-        'unreadCountCustomer': FieldValue.increment(1),
-    });
-
-    if (receiverId.isNotEmpty) {
-      batch.set(notificationRef, {
-        'userId': receiverId,
-        'title': notificationTitle,
-        'message': notificationMessage,
-        'type': NotificationType.chat,
-        'relatedId': chatRoomId,
-        'relatedCollection': FirestoreCollections.chatRooms,
-        'isRead': false,
-        'readAt': null,
-        'createdAt': now,
+    try {
+      await _functions.httpsCallable('sendChatMessage').call<void>({
+        'chatRoomId': chatRoomId,
+        'message': message,
       });
+    } on FirebaseFunctionsException catch (error) {
+      throw Exception(
+        _chatErrorMessage(error, 'The message could not be sent.'),
+      );
     }
-
-    await batch.commit();
   }
 
   Future<void> submitReview({
@@ -2508,24 +2417,59 @@ class FeastaRepository {
         .snapshots();
   }
 
-  Future<void> markChatAsRead({
-    required String chatRoomId,
-    required String currentRole,
-  }) async {
-    final chatRoomRef = _db
-        .collection(FirestoreCollections.chatRooms)
-        .doc(chatRoomId);
+  Future<void> markChatAsRead({required String chatRoomId}) async {
+    try {
+      await _functions.httpsCallable('markChatRoomRead').call<void>({
+        'chatRoomId': chatRoomId,
+      });
+    } on FirebaseFunctionsException catch (error) {
+      throw Exception(
+        _chatErrorMessage(
+          error,
+          'The conversation could not be marked as read.',
+        ),
+      );
+    }
+  }
 
-    if (currentRole == UserRoles.customer) {
-      await chatRoomRef.update({
-        'unreadCountCustomer': 0,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } else if (currentRole == UserRoles.provider) {
-      await chatRoomRef.update({
-        'unreadCountProvider': 0,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+  Future<String> _providerRequestIdForChat(BookingModel booking) async {
+    for (final providerRequestId in booking.providerRequestIds) {
+      final snapshot = await _db
+          .collection(FirestoreCollections.providerRequests)
+          .doc(providerRequestId)
+          .get();
+      final data = snapshot.data();
+
+      if (snapshot.exists &&
+          data?['providerId'] == booking.providerId &&
+          data?['customerId'] == booking.customerId &&
+          (data?['mainEventId'] ?? data?['bookingId']) == booking.id) {
+        return providerRequestId;
+      }
+    }
+
+    // Existing pre-providerRequest rooms used the main-event/booking ID.
+    // The backend accepts this value only when it resolves an already-existing,
+    // relationship-valid legacy room; it never creates a new legacy room.
+    return booking.id;
+  }
+
+  String _chatErrorMessage(FirebaseFunctionsException error, String fallback) {
+    switch (error.code) {
+      case 'unauthenticated':
+        return 'Please log in to use messaging.';
+      case 'permission-denied':
+        return 'You cannot access this conversation.';
+      case 'not-found':
+        return 'The conversation could not be found.';
+      case 'failed-precondition':
+        return 'Messaging is unavailable for this booking.';
+      case 'invalid-argument':
+        return 'Check the message and try again.';
+      case 'resource-exhausted':
+        return 'Too many messaging requests. Please wait and try again.';
+      default:
+        return fallback;
     }
   }
 
