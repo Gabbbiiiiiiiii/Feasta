@@ -118,7 +118,6 @@ async function registerAndSubmitProvider() {
     bookingLeadTimeDays: 3,
     idempotencyKey: "provider-registration-primary",
   };
-  await uploadProviderAssets(providerUser.uid);
   await completeOnboarding(providerUser, registrationInput);
   const created = await callFunction("registerProvider", providerUser, registrationInput);
   assert.equal(created.created, true);
@@ -147,6 +146,10 @@ async function registerAndSubmitProvider() {
   assert.equal(provider?.publiclyVisible, false);
   assert.equal(provider?.isFeatured, false);
   assert.equal(provider?.isSuspended, false);
+  assert.equal(provider?.logoUrl, null);
+  assert.equal(provider?.logoPublicId, null);
+  assert.equal(provider?.coverImageUrl, null);
+  assert.equal(provider?.coverPublicId, null);
   assert.equal(verification?.status, "draft");
   assert.equal(typeof provider?.createdAt?.toDate, "function");
   assert.equal(typeof provider?.updatedAt?.toDate, "function");
@@ -251,8 +254,6 @@ async function completeOnboarding(providerUser, input) {
       businessEmail: input.businessEmail.trim(),
       businessPhone: input.businessPhone,
       description: input.description,
-      logoStoragePath: `providers/${providerUser.uid}/logo/logo.png`,
-      coverStoragePath: `providers/${providerUser.uid}/cover/cover.webp`,
     },
     {
       providerServiceType: input.providerServiceType,
@@ -286,6 +287,9 @@ async function completeOnboarding(providerUser, input) {
     },
   ];
   for (const [index, data] of steps.entries()) {
+    if (index === 1) {
+      await verifyOnboardingMediaContract(providerUser, data);
+    }
     const result = await callFunction(
       "saveProviderOnboardingDraft",
       providerUser,
@@ -293,19 +297,56 @@ async function completeOnboarding(providerUser, input) {
     );
     assert.equal(result.success, true);
   }
+
+  const draft = (await db.collection("providerOnboardingDrafts")
+    .doc(providerUser.uid).get()).data();
+  assert.deepEqual(draft?.completedSteps, [1, 2, 3, 4, 5, 6]);
+  assert.equal(draft?.logoUrl, null);
+  assert.equal(draft?.logoPublicId, null);
+  assert.equal(draft?.coverImageUrl, null);
+  assert.equal(draft?.coverPublicId, null);
 }
 
-async function uploadProviderAssets(providerId) {
-  const image = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-  await uploadBytes(ref(storage, `providers/${providerId}/logo/logo.png`), image, {contentType: "image/png"});
-  await uploadBytes(ref(storage, `providers/${providerId}/cover/cover.webp`), image, {contentType: "image/webp"});
+async function verifyOnboardingMediaContract(providerUser, businessData) {
+  const ownedLogoPublicId =
+    `feasta/providers/${providerUser.uid}/onboarding/logo`;
+
   await assert.rejects(
-    () => uploadBytes(ref(storage, `providers/${providerId}/verification/valid_id/invalid.txt`), image, {contentType: "text/plain"}),
-    /storage\/unauthorized/i,
+    () => callFunction("saveProviderOnboardingDraft", providerUser, {
+      step: 2,
+      data: {
+        ...businessData,
+        logoUrl: "http://res.cloudinary.com/feasta-test/image/upload/logo.png",
+        logoPublicId: ownedLogoPublicId,
+      },
+    }),
+    /INVALID_ARGUMENT/i,
   );
+
   await assert.rejects(
-    () => uploadBytes(ref(storage, `providers/${providerId}/verification/valid_id/oversized.pdf`), new Uint8Array(10 * 1024 * 1024 + 1), {contentType: "application/pdf"}),
-    /storage\/unauthorized/i,
+    () => callFunction("saveProviderOnboardingDraft", providerUser, {
+      step: 2,
+      data: {
+        ...businessData,
+        logoUrl:
+          "https://res.cloudinary.com/feasta-test/image/upload/logo.png",
+        logoPublicId:
+          "feasta/providers/another-provider/onboarding/logo",
+      },
+    }),
+    /PERMISSION_DENIED/i,
+  );
+
+  await assert.rejects(
+    () => callFunction("saveProviderOnboardingDraft", providerUser, {
+      step: 2,
+      data: {
+        ...businessData,
+        logoUrl:
+          "https://res.cloudinary.com/feasta-test/image/upload/logo.png",
+      },
+    }),
+    /INVALID_ARGUMENT/i,
   );
 }
 
@@ -382,7 +423,10 @@ async function verifyStoragePrivacy(workflow) {
     "acceptance.storage.customer@feasta.test",
     password,
   )).user;
-  await callFunction("ensureUserProfile", customer, {});
+  await callFunction("ensureUserProfile", customer, {
+    acceptedTerms: true,
+    acceptedPrivacy: true,
+  });
   await uploadBytes(
     ref(storage, `users/${customer.uid}/profile/avatar.png`),
     new Uint8Array([137, 80, 78, 71]),
