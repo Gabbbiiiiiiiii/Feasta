@@ -26,6 +26,7 @@ export type WebUserRole = UserRole;
 export type WebAuthenticationAttemptAction =
   | "customer_registration"
   | "provider_registration"
+  | "provider_phone_registration"
   | "password_reset"
   | "email_verification_resend"
   | "email_update"
@@ -209,6 +210,7 @@ export async function authorizeWebAuthenticationAttempt(
   const requiresAuthentication = ![
     "customer_registration",
     "provider_registration",
+    "provider_phone_registration",
     "password_reset",
   ].includes(action);
   const idToken = requiresAuthentication
@@ -264,7 +266,7 @@ async function exchangeCredentialForSession(
   return {role: body.role, destination: body.destination};
 }
 
-async function getCsrfToken(): Promise<string> {
+export async function getCsrfToken(): Promise<string> {
   const response = await fetch("/api/auth/csrf", {
     method: "GET",
     credentials: "same-origin",

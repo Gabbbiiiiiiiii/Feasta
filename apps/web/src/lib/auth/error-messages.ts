@@ -19,6 +19,9 @@ export function customerAuthenticationError(error: unknown): string {
   const code = typeof error === "object" && error !== null && "code" in error
     ? String(error.code)
     : "";
+  if (code.includes("missing-phone-number")) {
+    return "Enter a valid Philippine mobile number.";
+  }
 
   if (code.includes("email-already-in-use")) {
     return "An account already uses this email. Sign in or reset your password.";
@@ -93,7 +96,11 @@ export function providerPhoneVerificationError(error: unknown): string {
       ? `Too many verification attempts. Try again ${retryAfter}.`
       : "Too many verification attempts. Please wait before trying again.";
   }
-  if (code.includes("captcha-check-failed")) {
+  if (
+    code.includes("captcha-check-failed") ||
+    code.includes("invalid-app-credential") ||
+    code.includes("missing-app-credential")
+  ) {
     return "We could not confirm the security check. Refresh the page and try again.";
   }
   if (code.includes("network-request-failed")) {

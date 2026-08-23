@@ -7,6 +7,12 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   refresh: vi.fn(),
   registerIdentity: vi.fn(),
+  requestRegistrationPhoneCode: vi.fn(),
+  confirmRegistrationPhoneCode: vi.fn(),
+  resumePhoneRegistration: vi.fn(),
+  resumeExistingProvider: vi.fn(),
+  abandonPhoneRegistration: vi.fn(),
+  clearPhoneRecaptcha: vi.fn(),
   signIn: vi.fn(),
   registerBusiness: vi.fn(),
   saveDraft: vi.fn(),
@@ -27,6 +33,14 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/auth/provider-client", () => ({
   UNVERSIONED_POLICY_VERSION: "unversioned",
   registerProviderIdentity: mocks.registerIdentity,
+  createProviderPhoneRecaptcha: vi.fn(() => ({
+    clear: mocks.clearPhoneRecaptcha,
+  })),
+  requestProviderRegistrationPhoneCode: mocks.requestRegistrationPhoneCode,
+  confirmProviderRegistrationPhoneCode: mocks.confirmRegistrationPhoneCode,
+  resumeProviderPhoneRegistration: mocks.resumePhoneRegistration,
+  resumeExistingProviderAfterPhoneAuth: mocks.resumeExistingProvider,
+  abandonProviderPhoneRegistration: mocks.abandonPhoneRegistration,
   signInProvider: mocks.signIn,
   registerProviderBusiness: mocks.registerBusiness,
   saveProviderOnboardingDraft: mocks.saveDraft,
@@ -48,104 +62,159 @@ import {PROVIDER_ONBOARDING_STEPS} from "@/lib/provider/onboarding";
 describe("provider authentication and onboarding", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.resumePhoneRegistration.mockResolvedValue(null);
+    mocks.abandonPhoneRegistration.mockResolvedValue(undefined);
     URL.createObjectURL = vi.fn(() => "blob:provider-preview");
     URL.revokeObjectURL = vi.fn();
   });
 
-  it("registers a provider identity without trusted activation fields", async () => {
+  it("starts net-new provider registration with normalized phone auth", async () => {
     const user = userEvent.setup();
-    mocks.registerIdentity.mockResolvedValueOnce({verificationEmailSent: true});
-    render(<ProviderRegistrationPage />);
-    const fields = {
-      "First name": "Ada",
-      "Last name": "Lovelace",
-      "Mobile number": "0917-123-4567",
-      "Email address": "provider@example.test",
-      "Password": "Feasta123!",
-      "Confirm password": "Feasta123!",
-    };
-    for (const [label, value] of Object.entries(fields)) {
-      fireEvent.change(screen.getByLabelText(new RegExp(`^${label}`, "i")), {
-        target: {value},
-      });
-    }
-    await user.click(screen.getByRole("checkbox"));
-    await user.click(screen.getByRole("button", {name: /create provider account/i}));
-    await waitFor(() => expect(mocks.registerIdentity).toHaveBeenCalledTimes(1));
-    const payload = mocks.registerIdentity.mock.calls[0][0];
-    expect(payload).not.toHaveProperty("role");
-    expect(payload).not.toHaveProperty("isActive");
-    expect(payload).not.toHaveProperty("verificationStatus");
-    expect(payload).toMatchObject({
-      phoneNumber: "+639171234567",
-      acceptedTerms: true,
-      acceptedPrivacy: true,
-      termsPolicyVersion: "unversioned",
-      privacyPolicyVersion: "unversioned",
-    });
-    expect(payload).not.toHaveProperty("termsAcceptedAt");
-    expect(payload).not.toHaveProperty("privacyAcceptedAt");
-    expect(mocks.replace).toHaveBeenCalledWith(
-      "/provider-verify-email?delivery=sent",
+    const confirmation = {confirm: vi.fn()};
+    mocks.requestRegistrationPhoneCode.mockImplementationOnce(
+      async (_phone: string, createVerifier: () => unknown) => {
+        createVerifier();
+        return {confirmation, phoneNumber: "+639171234567"};
+      },
     );
+    render(<ProviderRegistrationPage />);
+
+    const mobile = await screen.findByRole("textbox", {name: /mobile number/i});
+    await user.type(mobile, "0917-123-4567");
+    await user.click(screen.getByRole("button", {name: /send verification code/i}));
+
+    await waitFor(() => expect(mocks.requestRegistrationPhoneCode)
+      .toHaveBeenCalledWith("+639171234567", expect.any(Function)));
+    expect(screen.getByRole("heading", {name: /verify your mobile number/i}))
+      .toBeInTheDocument();
+    expect(screen.getByRole("textbox", {name: /verification code/i}))
+      .toBeInTheDocument();
+    expect(mocks.registerIdentity).not.toHaveBeenCalled();
   });
 
-  it("links provider registration errors to fields and focuses the summary", async () => {
+  it("rejects malformed phone input before Firebase phone auth", async () => {
     const user = userEvent.setup();
     render(<ProviderRegistrationPage />);
-    await user.click(screen.getByRole("button", {name: /create provider account/i}));
+    const mobile = await screen.findByRole("textbox", {name: /mobile number/i});
+    await user.type(mobile, "(053) 123 4567");
+    await user.click(screen.getByRole("button", {name: /send verification code/i}));
 
-    const email = screen.getByRole("textbox", {name: /email address/i});
-    const mobile = screen.getByRole("textbox", {name: /mobile number/i});
-    const agreement = screen.getByRole("checkbox");
-    const summary = screen.getByText(
-      /review the highlighted fields before creating your provider account/i,
-    );
-    expect(summary).toHaveAttribute("role", "alert");
-    expect(email).toHaveAttribute("aria-invalid", "true");
-    expect(email).toHaveAccessibleDescription(
-      "Enter a valid email address.",
-    );
     expect(mobile).toHaveAccessibleDescription(
-      "You'll verify this number by OTP after email verification. It may also be used for important FEASTA provider and account communication. Mobile number is required.",
+      "Enter a valid Philippine mobile number.",
     );
-    expect(agreement).toHaveAttribute("aria-invalid", "true");
-    expect(agreement).toHaveAccessibleDescription(
-      "Accept the Terms and Privacy Policy to continue.",
-    );
-    expect(summary).toHaveFocus();
-    expect(mocks.registerIdentity).not.toHaveBeenCalled();
+    expect(mocks.requestRegistrationPhoneCode).not.toHaveBeenCalled();
   });
 
-  it("rejects a Philippine landline as the provider owner mobile", async () => {
+  it("confirms OTP and stops at the Phase B auth-only checkpoint", async () => {
     const user = userEvent.setup();
+    const confirmation = {confirm: vi.fn()};
+    mocks.requestRegistrationPhoneCode.mockResolvedValueOnce({
+      confirmation,
+      phoneNumber: "+639171234567",
+    });
+    mocks.confirmRegistrationPhoneCode.mockResolvedValueOnce({
+      classification: "auth_only",
+      resolution: {
+        state: "email_credential_link_required",
+        resumable: true,
+        collision: "none",
+        recoveryAction: "link_email_credential",
+      },
+    });
     render(<ProviderRegistrationPage />);
-    for (const [label, value] of Object.entries({
-      "First name": "Ada",
-      "Last name": "Lovelace",
-      "Mobile number": "(053) 123 4567",
-      "Email address": "provider@example.test",
-      "Password": "Feasta123!",
-      "Confirm password": "Feasta123!",
-    })) {
-      fireEvent.change(screen.getByLabelText(new RegExp(`^${label}`, "i")), {
-        target: {value},
-      });
-    }
-    await user.click(screen.getByRole("checkbox"));
-    await user.click(screen.getByRole("button", {
-      name: /create provider account/i,
-    }));
-    expect(screen.getByRole("textbox", {
-      name: /mobile number/i,
-    })).toHaveAccessibleDescription(
-      "You'll verify this number by OTP after email verification. It may also be used for important FEASTA provider and account communication. Enter a valid Philippine mobile number.",
+    await user.type(
+      await screen.findByRole("textbox", {name: /mobile number/i}),
+      "9171234567",
     );
+    await user.click(screen.getByRole("button", {name: /send verification code/i}));
+    await user.type(
+      await screen.findByRole("textbox", {name: /verification code/i}),
+      "123456",
+    );
+    await user.click(screen.getByRole("button", {name: /verify mobile number/i}));
+
+    await waitFor(() => expect(mocks.confirmRegistrationPhoneCode)
+      .toHaveBeenCalledWith(confirmation, "123456", "+639171234567"));
+    expect(screen.getByRole("heading", {name: /mobile number verified/i}))
+      .toBeInTheDocument();
+    expect(mocks.registerIdentity).not.toHaveBeenCalled();
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("resumes an existing registered provider on the same phone UID", async () => {
+    mocks.resumePhoneRegistration.mockResolvedValueOnce({
+      classification: "registered_provider",
+      resolution: {
+        state: "registration_complete",
+        resumable: true,
+        collision: "none",
+        recoveryAction: "resume_existing_provider",
+      },
+    });
+    mocks.resumeExistingProvider.mockResolvedValueOnce({
+      role: "provider",
+      destination: "/provider",
+    });
+
+    render(<ProviderRegistrationPage />);
+
+    await waitFor(() => expect(mocks.resumeExistingProvider).toHaveBeenCalled());
+    expect(mocks.replace).toHaveBeenCalledWith("/provider");
     expect(mocks.registerIdentity).not.toHaveBeenCalled();
   });
 
-  it("renders the provider registration reference hierarchy accessibly", () => {
+  it("fails closed and signs out a non-provider phone account", async () => {
+    mocks.resumePhoneRegistration.mockResolvedValueOnce({
+      classification: "non_provider_account",
+      resolution: {
+        state: "account_collision",
+        resumable: false,
+        collision: "phone_belongs_to_non_provider",
+        recoveryAction: "use_correct_feasta_portal",
+      },
+    });
+
+    render(<ProviderRegistrationPage />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /cannot continue provider registration/i,
+    );
+    expect(mocks.abandonPhoneRegistration).toHaveBeenCalledTimes(1);
+    expect(mocks.registerIdentity).not.toHaveBeenCalled();
+  });
+
+  it("shows a safe error for an invalid OTP", async () => {
+    const user = userEvent.setup();
+    const confirmation = {confirm: vi.fn()};
+    mocks.requestRegistrationPhoneCode.mockResolvedValueOnce({
+      confirmation,
+      phoneNumber: "+639171234567",
+    });
+    mocks.confirmRegistrationPhoneCode.mockRejectedValueOnce({
+      code: "auth/invalid-verification-code",
+    });
+    render(<ProviderRegistrationPage />);
+    await user.type(
+      await screen.findByRole("textbox", {name: /mobile number/i}),
+      "9171234567",
+    );
+    await user.click(screen.getByRole("button", {name: /send verification code/i}));
+    await user.type(
+      await screen.findByRole("textbox", {name: /verification code/i}),
+      "654321",
+    );
+    await user.click(screen.getByRole("button", {name: /verify mobile number/i}));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /verification code is incorrect/i,
+    );
+    expect(screen.queryByText(/auth\/invalid-verification-code/i))
+      .not.toBeInTheDocument();
+  });
+
+  it("renders the phone-first provider registration hierarchy accessibly", async () => {
     const {container} = render(<ProviderRegistrationPage />);
+    await screen.findByRole("textbox", {name: /mobile number/i});
     expect(screen.getAllByRole("heading", {level: 1})).toHaveLength(1);
     expect(screen.getByRole("heading", {
       level: 1,
@@ -156,17 +225,20 @@ describe("provider authentication and onboarding", () => {
       "/provider-login",
     );
     expect(screen.getByRole("button", {
-      name: "Create Provider Account",
+      name: "Send verification code",
     })).toHaveClass("rounded-[10px]");
-    expect(screen.getByPlaceholderText("First name *")).toHaveClass(
+    expect(screen.getByPlaceholderText("9XXXXXXXXX").parentElement).toHaveClass(
       "rounded-[10px]",
     );
-    expect(screen.getByPlaceholderText("Mobile phone number *"))
+    expect(screen.getByPlaceholderText("9XXXXXXXXX"))
       .toHaveAccessibleName(/mobile number/i);
     expect(screen.getByText("Reach more customers")).toBeInTheDocument();
-    expect(screen.getByText("Verify registered mobile number"))
+    expect(screen.getByText("Verify mobile number"))
       .toBeInTheDocument();
-    expect(container.querySelectorAll("label.sr-only")).toHaveLength(6);
+    expect(container.querySelectorAll("label.sr-only")).toHaveLength(0);
+    expect(screen.queryByRole("textbox", {name: /email address/i}))
+      .not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^password/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", {name: /business name/i}))
       .not.toBeInTheDocument();
   });

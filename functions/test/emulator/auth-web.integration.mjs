@@ -27,6 +27,12 @@ const webUrl = process.env.PHASE3_WEB_URL;
 assert.ok(authHost && functionsHost && webUrl, "Acceptance emulator hosts are required.");
 
 const password = "FeastaTest!2026";
+const customerConsent = {
+  acceptedTerms: true,
+  acceptedPrivacy: true,
+  termsPolicyVersion: "auth-web-test-terms",
+  privacyPolicyVersion: "auth-web-test-privacy",
+};
 const clientApp = initializeApp({apiKey: "fake-api-key", projectId}, `acceptance-${Date.now()}`);
 const auth = getAuth(clientApp);
 connectAuthEmulator(auth, `http://${authHost}`, {disableWarnings: true});
@@ -39,6 +45,7 @@ try {
   await testDeterministicFixtureWorkflows();
   await testEmailCustomerFlow();
   await testGoogleCustomerFlow();
+  await testProviderPhoneFirstAuthentication();
   await testPhoneVerificationWorkflow();
   await testBlockedAndDisabledAccounts();
   await testAccountManagementWorkflows();
@@ -147,7 +154,7 @@ async function testDeterministicFixtureWorkflows() {
   assert.equal(setupAccess.status, 307);
   assert.match(
     setupAccess.headers.get("location") ?? "",
-    /\/provider\/onboarding$/,
+    /\/provider-verify-phone$/,
   );
   await signOut(auth);
 
@@ -236,11 +243,108 @@ async function testPhoneVerificationWorkflow() {
   await signOut(auth);
 }
 
+async function testProviderPhoneFirstAuthentication() {
+  await clearPhoneRegistrationRateLimits();
+  const phoneNumber = "+639000008888";
+  const csrf = await getCsrf();
+
+  const malformedPreflight = await postAuthAttempt({
+    action: "provider_phone_registration",
+    identifier: "not-a-phone",
+  }, csrf);
+  assert.equal(malformedPreflight.status, 400);
+  const malformedBody = await malformedPreflight.json();
+  assert.equal(
+    malformedBody.error,
+    "The authentication request could not be completed.",
+  );
+  assert.deepEqual(Object.keys(malformedBody), ["error"]);
+
+  const allowedPreflight = await postAuthAttempt({
+    action: "provider_phone_registration",
+    identifier: phoneNumber,
+  }, csrf);
+  assert.equal(allowedPreflight.status, 204);
+  const existingAccountPreflight = await postAuthAttempt({
+    action: "provider_phone_registration",
+    identifier: "+639000000001",
+  }, csrf);
+  assert.equal(existingAccountPreflight.status, allowedPreflight.status);
+  assert.equal(
+    await existingAccountPreflight.text(),
+    await allowedPreflight.text(),
+  );
+  let phonePreflightRateLimited;
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const response = await postAuthAttempt({
+      action: "provider_phone_registration",
+      identifier: `+6390000089${String(attempt).padStart(2, "0")}`,
+    }, csrf);
+    if (response.status === 429) {
+      phonePreflightRateLimited = response;
+      break;
+    }
+    assert.equal(response.status, 204);
+  }
+  assert.ok(phonePreflightRateLimited, "Phone preflight was not rate limited.");
+  assert.ok(Number(phonePreflightRateLimited.headers.get("retry-after")) > 0);
+
+  const first = await signInWithEmulatorPhone(phoneNumber);
+  const second = await signInWithEmulatorPhone(phoneNumber);
+  assert.equal(first.isNewUser, true);
+  assert.equal(second.isNewUser, false);
+  assert.equal(second.localId, first.localId);
+
+  const authUser = await adminAuth.getUser(first.localId);
+  assert.equal(authUser.phoneNumber, phoneNumber);
+  assert.ok(
+    authUser.providerData.some((provider) => provider.providerId === "phone"),
+    "Phone provider was not linked to the Auth Emulator user.",
+  );
+
+  const classificationCsrf = await getCsrf();
+  const classification = await fetch(
+    `${webUrl}/api/auth/provider-registration/classify`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: webUrl,
+        cookie: classificationCsrf.cookie,
+        "x-feasta-csrf": classificationCsrf.token,
+      },
+      body: JSON.stringify({
+        idToken: second.idToken,
+        phoneNumber,
+      }),
+    },
+  );
+  const classificationBody = await classification.json();
+  assert.equal(classification.status, 200, JSON.stringify(classificationBody));
+  assert.equal(classificationBody.classification, "auth_only");
+  assert.equal(
+    classificationBody.resolution.state,
+    "email_credential_link_required",
+  );
+  assert.equal(
+    (await db.collection("users").doc(first.localId).get()).exists,
+    false,
+  );
+  assert.equal(
+    (await db.collection("providers").where("ownerId", "==", first.localId).get())
+      .empty,
+    true,
+  );
+}
+
 async function testEmailCustomerFlow() {
   const email = "acceptance.customer@feasta.test";
   const credential = await createUserWithEmailAndPassword(auth, email, password);
   const first = await callFunction("ensureUserProfile", credential.user, {
-    firstName: "Acceptance", lastName: "Customer", phoneNumber: "+639171111111",
+    firstName: "Acceptance",
+    lastName: "Customer",
+    phoneNumber: "+639171111111",
+    ...customerConsent,
   });
   assert.equal(first.created, true);
 
@@ -281,8 +385,16 @@ async function testGoogleCustomerFlow() {
     name: "Google Customer",
   }));
   const signedIn = await signInWithCredential(auth, googleCredential);
-  const first = await callFunction("ensureUserProfile", signedIn.user, {});
-  const replay = await callFunction("ensureUserProfile", signedIn.user, {});
+  const first = await callFunction(
+    "ensureUserProfile",
+    signedIn.user,
+    customerConsent,
+  );
+  const replay = await callFunction(
+    "ensureUserProfile",
+    signedIn.user,
+    customerConsent,
+  );
   assert.equal(first.created, true);
   assert.equal(replay.created, false);
   const ref = db.collection("users").doc(signedIn.user.uid);
@@ -737,7 +849,10 @@ async function testWebSessionsAndRoles() {
   );
   const setupRedirect = await webGet("/provider", setupSession.cookie);
   assert.equal(setupRedirect.status, 307);
-  assert.match(setupRedirect.headers.get("location") ?? "", /\/provider\/onboarding$/);
+  assert.match(
+    setupRedirect.headers.get("location") ?? "",
+    /\/provider-verify-phone$/,
+  );
   const onboardingRedirect = await webGet(
     "/provider/onboarding",
     setupSession.cookie,
@@ -745,7 +860,7 @@ async function testWebSessionsAndRoles() {
   assert.equal(onboardingRedirect.status, 307);
   assert.match(
     onboardingRedirect.headers.get("location") ?? "",
-    /\/provider\/onboarding\/owner$/,
+    /\/provider-verify-phone$/,
   );
   assert.equal(
     (
@@ -754,9 +869,9 @@ async function testWebSessionsAndRoles() {
         setupSession.cookie,
       )
     ).status,
-    200,
+    307,
   );
-  assert.equal((await webGet("/provider/account", setupSession.cookie)).status, 200);
+  assert.equal((await webGet("/provider/account", setupSession.cookie)).status, 307);
   await signOut(auth);
 
   const providerUser = await createUser("acceptance.web.provider@feasta.test");
@@ -766,6 +881,7 @@ async function testWebSessionsAndRoles() {
   });
   await db.collection("providers").doc("acceptance-provider").set({
     ownerId: providerUser.uid,
+    providerServiceType: "catering",
     verificationStatus: "approved",
     isActive: true,
     isSuspended: false,
@@ -793,7 +909,15 @@ async function testWebSessionsAndRoles() {
     unverifiedProviderAccess.headers.get("location") ?? "",
     /\/provider-verify-email$/,
   );
-  await adminAuth.updateUser(providerUser.uid, {emailVerified: true});
+  const providerPhone = "+639000008877";
+  await adminAuth.updateUser(providerUser.uid, {
+    emailVerified: true,
+    phoneNumber: providerPhone,
+  });
+  await db.collection("users").doc(providerUser.uid).update({
+    isPhoneVerified: true,
+    phoneNumber: providerPhone,
+  });
   await providerUser.reload();
   const providerSession = await createWebSession(
     await providerUser.getIdToken(true),
@@ -1032,7 +1156,7 @@ async function assertInvalidSessionIsCleared(response, cookie) {
 
 async function createCustomer(email) {
   const user = await createUser(email);
-  await callFunction("ensureUserProfile", user, {});
+  await callFunction("ensureUserProfile", user, customerConsent);
   return user;
 }
 
@@ -1072,6 +1196,44 @@ async function oobCodes(email, requestType) {
   const response = await fetch(`http://${authHost}/emulator/v1/projects/${projectId}/oobCodes`);
   const body = await response.json();
   return (body.oobCodes ?? []).filter((item) => item.email === email && item.requestType === requestType);
+}
+
+async function signInWithEmulatorPhone(phoneNumber) {
+  const sendResponse = await fetch(
+    `http://${authHost}/identitytoolkit.googleapis.com/v1/accounts:sendVerificationCode?key=fake-api-key`,
+    {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({phoneNumber, recaptchaToken: "emulator-test"}),
+    },
+  );
+  const sendBody = await sendResponse.json();
+  assert.equal(sendResponse.status, 200, JSON.stringify(sendBody));
+  assert.ok(sendBody.sessionInfo);
+
+  const codesResponse = await fetch(
+    `http://${authHost}/emulator/v1/projects/${projectId}/verificationCodes`,
+  );
+  const codesBody = await codesResponse.json();
+  const verification = (codesBody.verificationCodes ?? []).find(
+    (candidate) => candidate.sessionInfo === sendBody.sessionInfo,
+  );
+  assert.ok(verification?.code, "Auth Emulator did not expose the SMS code.");
+
+  const signInResponse = await fetch(
+    `http://${authHost}/identitytoolkit.googleapis.com/v1/accounts:signInWithPhoneNumber?key=fake-api-key`,
+    {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        sessionInfo: sendBody.sessionInfo,
+        code: verification.code,
+      }),
+    },
+  );
+  const signInBody = await signInResponse.json();
+  assert.equal(signInResponse.status, 200, JSON.stringify(signInBody));
+  return signInBody;
 }
 
 async function emailChangeCodes(newEmail) {
@@ -1158,6 +1320,19 @@ async function clearWebSessionRateLimits() {
   await batch.commit();
 }
 
+async function clearPhoneRegistrationRateLimits() {
+  const snapshot = await db.collection("rateLimits").get();
+  const batch = db.batch();
+  snapshot.docs
+    .filter((document) =>
+      String(document.data().scope).startsWith(
+        "web.auth.provider_phone_",
+      ),
+    )
+    .forEach((document) => batch.delete(document.ref));
+  await batch.commit();
+}
+
 async function clearAdminLoginRateLimits() {
   const snapshot = await db.collection("rateLimits").get();
   const batch = db.batch();
@@ -1185,10 +1360,22 @@ async function assertRejectedAdminState(label, profileChanges) {
 }
 
 async function getCsrf() {
-  const response = await fetch(`${webUrl}/api/auth/csrf`);
-  assert.equal(response.status, 200);
-  const body = await response.json();
-  return {token: body.token, cookie: response.headers.get("set-cookie") ?? ""};
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const response = await fetch(`${webUrl}/api/auth/csrf`);
+    lastStatus = response.status;
+    if (response.status === 200) {
+      const body = await response.json();
+      return {
+        token: body.token,
+        cookie: response.headers.get("set-cookie") ?? "",
+      };
+    }
+    if (response.status !== 404 && response.status < 500) break;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  assert.equal(lastStatus, 200, "CSRF endpoint did not become ready.");
+  throw new Error("CSRF endpoint did not return a token.");
 }
 
 function webGet(path, cookie) {

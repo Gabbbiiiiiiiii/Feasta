@@ -63,7 +63,9 @@ describe("provider phone verification", () => {
     expect(screen.getByRole("button", {
       name: "Resend available in 60s",
     })).toBeDisabled();
-    const code = screen.getByRole("textbox", {name: "Verification code"});
+    const code = screen.getByRole("textbox", {
+      name: "Verification code digit 1 of 6",
+    });
     expect(code).toHaveAttribute("autocomplete", "one-time-code");
     expect(code).toHaveAttribute("inputmode", "numeric");
     await user.type(code, "123456");
@@ -85,7 +87,7 @@ describe("provider phone verification", () => {
     await user.click(screen.getByRole("button", {
       name: "Send verification code",
     }));
-    await screen.findByRole("textbox", {name: "Verification code"});
+    await screen.findByRole("group", {name: "Verification code"});
     await user.click(screen.getByRole("button", {name: "Use another number"}));
     const phone = screen.getByRole("textbox", {name: "Mobile number"});
     await user.type(phone, "0917-123-4567");
@@ -111,7 +113,7 @@ describe("provider phone verification", () => {
       name: "Send verification code",
     }));
     const code = await screen.findByRole("textbox", {
-      name: "Verification code",
+      name: "Verification code digit 1 of 6",
     });
     await user.type(code, "111111");
     await user.click(screen.getByRole("button", {
@@ -120,9 +122,8 @@ describe("provider phone verification", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The verification code is incorrect",
     );
-    expect(screen.getByRole("textbox", {
-      name: "Verification code",
-    })).toBeInTheDocument();
+    expect(screen.getByRole("group", {name: "Verification code"}))
+      .toBeInTheDocument();
   });
 
   it("maps an expired verification session to a recovery-safe message", async () => {

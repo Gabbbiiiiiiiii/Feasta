@@ -14,6 +14,8 @@ const ADMIN_ACCOUNT_ATTEMPT_LIMIT = 8;
 export const WEB_AUTHENTICATION_ATTEMPT_ACTIONS = [
   "customer_registration",
   "provider_registration",
+  "provider_phone_registration",
+  "provider_phone_classification",
   "password_reset",
   "email_verification_resend",
   "email_update",
@@ -37,6 +39,16 @@ const authenticationAttemptPolicies: Record<
     windowSeconds: 60 * 60,
     ipLimit: 6,
     subjectLimit: 3,
+  },
+  provider_phone_registration: {
+    windowSeconds: 15 * 60,
+    ipLimit: 5,
+    subjectLimit: 3,
+  },
+  provider_phone_classification: {
+    windowSeconds: 15 * 60,
+    ipLimit: 10,
+    subjectLimit: 6,
   },
   password_reset: {
     windowSeconds: 60 * 60,
