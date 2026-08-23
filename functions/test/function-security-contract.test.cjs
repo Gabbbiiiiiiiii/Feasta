@@ -8,7 +8,7 @@ const source = (relative) => readFileSync(path.join(root, relative), "utf8");
 
 const policies = [
   ["ensureUserProfile", "auth/ensure-user-profile.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions"]],
-  ["ensureProviderIdentity", "auth/ensure-provider-identity.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions"]],
+  ["ensureProviderIdentity", "auth/ensure-provider-identity.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions", "isAuthoritativeAuthPhone", "requireProviderConsent"]],
   ["syncUserAuthState", "auth/sync-user-auth-state.ts", ["requireAuth(request)", "enforceCallableRateLimit", "authUser.disabled", "appCheckCallableOptions"]],
   ["syncPhoneVerification", "auth/sync-phone-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "getAuth().getUser", "appCheckCallableOptions"]],
   ["prepareProviderPhoneVerification", "auth/prepare-provider-phone-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "getAuth().getUser", "appCheckCallableOptions", "isPhoneVerified: false"]],
@@ -21,8 +21,8 @@ const policies = [
   ["revokeAllAccountSessions", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "enforceCallableRateLimit", "revokeRefreshTokens", "appCheckCallableOptions"]],
   ["deactivateProviderAccount", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "enforceCallableRateLimit", "activeProviderRequestStatuses", "revokeRefreshTokens", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["submitBookingRequest", "bookings/submit-booking-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "assertBookingSubmissionAllowed", "runTransaction", "appCheckCallableOptions"]],
-  ["registerProvider", "providers/register-provider.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction"]],
-  ["saveProviderOnboardingDraft", "providers/save-provider-onboarding-draft.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "runTransaction"]],
+  ["registerProvider", "providers/register-provider.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "requireTrustedProviderIdentity", "requireProviderRegistrationConsent"]],
+  ["saveProviderOnboardingDraft", "providers/save-provider-onboarding-draft.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "runTransaction", "requireTrustedProviderIdentity"]],
   [
     "createProviderMediaUploadSignature",
     "providers/provider-media.ts",
@@ -201,8 +201,8 @@ const policies = [
   ],
   ["registerVerificationDocument", "verification/register-verification-document.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "idempotentReplay", "writeAuditLogInTransaction"]],
   ["removeVerificationDocument", "verification/remove-verification-document.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "EDITABLE_STATUSES", "writeAuditLogInTransaction"]],
-  ["submitProviderVerification", "verification/submit-provider-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction"]],
-  ["reviewProviderVerification", "verification/review-provider-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "createNotificationInTransaction"]],
+  ["submitProviderVerification", "verification/submit-provider-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "requireTrustedProviderIdentity"]],
+  ["reviewProviderVerification", "verification/review-provider-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "createNotificationInTransaction", "loadApprovalOwnerAuth", "requireTrustedProviderIdentity"]],
   ["createComplaint", "content/create-complaint.ts", ["requireAuth(request)", "requireActiveUser", "enforceCallableRateLimit", "executeIdempotently", "writeAuditLogInTransaction"]],
   ["submitReview", "content/submit-review.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "executeIdempotently"]],
   ["deleteReview", "content/delete-review.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "executeIdempotently", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
@@ -327,11 +327,13 @@ test("customer profile creation forces the customer role and trusted flags", () 
   assert.equal(content.includes("input.isPhoneVerified"), false);
 });
 
-test("provider identity creation ignores client role and verification flags", () => {
+test("provider identity creation derives verification from Firebase Auth", () => {
   const content = source("auth/ensure-provider-identity.ts");
   assert.ok(content.includes("role: USER_ROLES.provider"));
   assert.ok(content.includes("isEmailVerified: authUser.emailVerified"));
-  assert.ok(content.includes("isPhoneVerified: false"));
+  assert.ok(content.includes("isAuthoritativeAuthPhone(authUser, phoneNumber)"));
+  assert.ok(content.includes("isPhoneVerified: phoneVerified"));
+  assert.ok(content.includes("requireProviderConsent"));
   assert.ok(content.includes("accountStatus: \"active\""));
   assert.equal(content.includes("input.role"), false);
   assert.equal(content.includes("input.isEmailVerified"), false);

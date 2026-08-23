@@ -63,15 +63,19 @@ test("provider identity cannot accept or persist client verification state", () 
   assert.ok(identity.includes(
     "const phoneNumber = requirePhilippineMobile(input.phoneNumber)",
   ));
-  assert.ok((identity.match(/isPhoneVerified: false/gu) ?? []).length >= 2);
+  assert.ok(identity.includes("isAuthoritativeAuthPhone(authUser, phoneNumber)"));
+  assert.ok(identity.includes("isPhoneVerified: phoneVerified"));
+  assert.ok(identity.includes("requireProviderConsent"));
 });
 
-test("owner onboarding keeps canonical user contact unverified", () => {
+test("owner onboarding preserves only the matching trusted Auth phone", () => {
   assert.ok(draft.includes(
     "ownerPhone: requirePhilippineMobile(data.ownerPhone)",
   ));
-  assert.ok(draft.includes("phoneNumber: validated.ownerPhone"));
-  assert.ok(draft.includes("isPhoneVerified: false"));
+  assert.ok(draft.includes("requireTrustedProviderIdentity(authUser, user)"));
+  assert.ok(draft.includes("validated.ownerPhone !== identity.phoneNumber"));
+  assert.ok(draft.includes("phoneNumber: identity.phoneNumber"));
+  assert.ok(draft.includes("isPhoneVerified: true"));
   assert.ok(draft.includes(
     "businessPhone: requirePhilippinePhone(",
   ));
@@ -84,5 +88,8 @@ test("provider creation revalidates owner mobile and keeps business phone separa
   assert.ok(registration.includes("ownerPhone,"));
   assert.ok(registration.includes(
     "const businessPhone = requirePhilippinePhone(",
+  ));
+  assert.ok(registration.includes(
+    "requireTrustedProviderIdentity(authUser, userData)",
   ));
 });

@@ -1,3 +1,4 @@
+import {getAuth} from "firebase-admin/auth";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 
 import {requireAuth} from "../shared/auth.js";
@@ -19,6 +20,7 @@ import {
 import {db} from "../shared/firestore.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
+import {requireTrustedProviderIdentity} from "../shared/provider-identity-prerequisites.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {
   requireBoolean,
@@ -46,6 +48,7 @@ export const saveProviderOnboardingDraft = onCall(
       limit: 60,
       windowSeconds: 10 * 60,
     });
+    const authUser = await getAuth().getUser(actor.uid);
 
     const input = requireObject(request.data);
     rejectUnknownFields(input, ["step", "data"]);
@@ -100,6 +103,7 @@ export const saveProviderOnboardingDraft = onCall(
           "The provider account is not active.",
         );
       }
+      const identity = requireTrustedProviderIdentity(authUser, user);
       if (
         typeof user.providerId === "string" &&
         user.providerId.trim().length > 0
@@ -156,12 +160,18 @@ export const saveProviderOnboardingDraft = onCall(
       );
 
       if (step === 1) {
+        if (validated.ownerPhone !== identity.phoneNumber) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Verify the new mobile number before using it as the provider owner phone.",
+          );
+        }
         transaction.update(userReference, {
           firstName: validated.ownerFirstName,
           lastName: validated.ownerLastName,
-          phoneNumber: validated.ownerPhone,
-          isPhoneVerified: false,
-          phoneVerifiedAt: null,
+          phoneNumber: identity.phoneNumber,
+          isPhoneVerified: true,
+          phoneVerifiedAt: user.phoneVerifiedAt ?? serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       }

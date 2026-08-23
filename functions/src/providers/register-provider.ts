@@ -2,6 +2,7 @@ import {
   HttpsError,
   onCall,
 } from "firebase-functions/v2/https";
+import {getAuth} from "firebase-admin/auth";
 import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
@@ -33,6 +34,7 @@ import {
 import {serverTimestamp} from "../shared/timestamps.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
+import {requireTrustedProviderIdentity} from "../shared/provider-identity-prerequisites.js";
 import {
   requireEnum,
   requireObject,
@@ -92,6 +94,13 @@ export const registerProvider = onCall(
         "The provider account could not be verified.",
       );
     }
+    const authUser = await getAuth().getUser(authenticatedUser.uid);
+    const identityUserSnapshot = await db
+      .collection("users")
+      .doc(authenticatedUser.uid)
+      .get();
+    requireTrustedProviderIdentity(authUser, identityUserSnapshot.data());
+    requireProviderRegistrationConsent(identityUserSnapshot.data());
 
     const input = requireObject(request.data);
     rejectUnknownFields(input, [
@@ -479,6 +488,8 @@ export const registerProvider = onCall(
               "Your account is not active.",
             );
           }
+          const identity = requireTrustedProviderIdentity(authUser, userData);
+          requireProviderRegistrationConsent(userData);
 
           /*
            * First trust an existing users/{uid}.providerId link.
@@ -653,7 +664,7 @@ export const registerProvider = onCall(
           }
 
           const ownerPhone = requirePhilippineMobile(
-            userData?.phoneNumber,
+            identity.phoneNumber,
           );
 
           transaction.create(
@@ -919,6 +930,20 @@ export const registerProvider = onCall(
     }
   },
 );
+
+function requireProviderRegistrationConsent(
+  userData: Record<string, unknown> | undefined,
+): void {
+  if (
+    userData?.termsAcceptedAt == null ||
+    userData?.privacyAcceptedAt == null
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Accept the required Terms and Privacy Policy before completing provider setup.",
+    );
+  }
+}
 
 function optionalStringList(value: unknown, field: string): string[] {
   if (value === undefined) return [];

@@ -87,7 +87,8 @@ test("registration and verification fields remain server owned", async () => {
   assert.match(customerFunction, /isPhoneVerified: false/u);
   assert.match(providerIdentity, /role: USER_ROLES\.provider/u);
   assert.match(providerIdentity, /isEmailVerified: authUser\.emailVerified/u);
-  assert.match(providerIdentity, /isPhoneVerified: false/u);
+  assert.match(providerIdentity, /isAuthoritativeAuthPhone\(authUser, phoneNumber\)/u);
+  assert.match(providerIdentity, /isPhoneVerified: phoneVerified/u);
   assert.match(providerRegistration, /verificationStatus: "draft"/u);
   assert.match(providerRegistration, /isActive: false/u);
   assert.match(providerRegistration, /isFeatured: false/u);

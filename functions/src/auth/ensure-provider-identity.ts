@@ -13,6 +13,7 @@ import {
 } from "../shared/validation.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
+import {isAuthoritativeAuthPhone} from "../shared/provider-identity-prerequisites.js";
 
 /** Creates the trusted users/{uid} provider identity before registration. */
 export const ensureProviderIdentity = onCall(
@@ -64,6 +65,7 @@ export const ensureProviderIdentity = onCall(
       const result = await db.runTransaction(async (transaction) => {
         const snapshot = await transaction.get(userReference);
         const existing = snapshot.data();
+        const phoneVerified = isAuthoritativeAuthPhone(authUser, phoneNumber);
 
         if (snapshot.exists) {
           if (existing?.role !== USER_ROLES.provider) {
@@ -82,6 +84,25 @@ export const ensureProviderIdentity = onCall(
               "This account is blocked or disabled.",
             );
           }
+          requireProviderConsent(existing, acceptedTerms, acceptedPrivacy);
+
+          const providerId = typeof existing.providerId === "string" ?
+            existing.providerId.trim() :
+            "";
+          if (providerId) {
+            const providerSnapshot = await transaction.get(
+              db.collection("providers").doc(providerId),
+            );
+            if (
+              !providerSnapshot.exists ||
+              providerSnapshot.data()?.ownerId !== authenticatedUser.uid
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "The provider account relationship is invalid.",
+              );
+            }
+          }
 
           transaction.update(userReference, {
             firstName,
@@ -90,7 +111,10 @@ export const ensureProviderIdentity = onCall(
             email: authUser.email ?? authenticatedUser.email ?? null,
             profileImageUrl: authUser.photoURL ?? existing.profileImageUrl ?? null,
             isEmailVerified: authUser.emailVerified,
-            isPhoneVerified: false,
+            isPhoneVerified: phoneVerified,
+            phoneVerifiedAt: phoneVerified ?
+              existing.phoneVerifiedAt ?? serverTimestamp() :
+              null,
             authProvider: authUser.providerData[0]?.providerId ?? "password",
             updatedAt: serverTimestamp(),
             ...(acceptedTerms && existing.termsAcceptedAt == null ? {
@@ -103,6 +127,7 @@ export const ensureProviderIdentity = onCall(
             } : {}),
           });
         } else {
+          requireProviderConsent(null, acceptedTerms, acceptedPrivacy);
           transaction.create(userReference, {
             uid: authenticatedUser.uid,
             firstName,
@@ -114,7 +139,8 @@ export const ensureProviderIdentity = onCall(
             providerId: null,
             profileImageUrl: authUser.photoURL ?? null,
             isEmailVerified: authUser.emailVerified,
-            isPhoneVerified: false,
+            isPhoneVerified: phoneVerified,
+            phoneVerifiedAt: phoneVerified ? serverTimestamp() : null,
             isActive: true,
             isBlocked: false,
             authProvider: authUser.providerData[0]?.providerId ?? "password",
@@ -155,6 +181,25 @@ export const ensureProviderIdentity = onCall(
 function policyVersion(value: unknown, field: string): string {
   if (value === undefined) return "unversioned";
   return requireString(value, field, {minLength: 1, maxLength: 80});
+}
+
+function requireProviderConsent(
+  existing: Record<string, unknown> | null | undefined,
+  acceptedTerms: boolean,
+  acceptedPrivacy: boolean,
+): void {
+  if (existing?.termsAcceptedAt == null && !acceptedTerms) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Accept the Terms of Service before creating a provider account.",
+    );
+  }
+  if (existing?.privacyAcceptedAt == null && !acceptedPrivacy) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Accept the Privacy Policy before creating a provider account.",
+    );
+  }
 }
 
 function rejectUnknownFields(

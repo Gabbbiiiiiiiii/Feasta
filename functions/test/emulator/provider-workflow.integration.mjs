@@ -57,6 +57,7 @@ const db = getFirestore(adminApp);
 
 try {
   await testHealthCheck();
+  await verifyIdentityPrerequisiteEnforcement();
   const workflow = await registerAndSubmitProvider();
   await reviewAndApproveProvider(workflow);
   await verifyStoragePrivacy(workflow);
@@ -79,17 +80,154 @@ async function testHealthCheck() {
   assert.equal(body.service, "feasta-functions");
 }
 
+async function verifyIdentityPrerequisiteEnforcement() {
+  const unverifiedEmailUser = await createIdentityTestUser(
+    "unverified-email",
+    {emailVerified: false, phoneNumber: "+639173333331"},
+  );
+  await assert.rejects(
+    () => callFunction("saveProviderOnboardingDraft", unverifiedEmailUser, {
+      step: 1,
+      data: ownerStep("Unverified", "Email", "+639173333331"),
+    }),
+    /FAILED_PRECONDITION: Verify your email address/i,
+  );
+  await seedIncompleteProvider(unverifiedEmailUser.uid, "unverified-email");
+  await assert.rejects(
+    () => callFunction("submitProviderVerification", unverifiedEmailUser, {
+      providerId: "identity-unverified-email-provider",
+      idempotencyKey: "identity-unverified-email-submit",
+    }),
+    /FAILED_PRECONDITION: Verify your email address/i,
+  );
+
+  const unverifiedPhoneUser = await createIdentityTestUser(
+    "unverified-phone",
+    {emailVerified: true, phoneNumber: null},
+  );
+  await assert.rejects(
+    () => callFunction("saveProviderOnboardingDraft", unverifiedPhoneUser, {
+      step: 1,
+      data: ownerStep("Unverified", "Phone", "+639173333332"),
+    }),
+    /FAILED_PRECONDITION: Verify your mobile number/i,
+  );
+  await assert.rejects(
+    () => callFunction("registerProvider", unverifiedPhoneUser, {}),
+    /FAILED_PRECONDITION: Verify your mobile number/i,
+  );
+  await seedIncompleteProvider(unverifiedPhoneUser.uid, "unverified-phone");
+  await assert.rejects(
+    () => callFunction("submitProviderVerification", unverifiedPhoneUser, {
+      providerId: "identity-unverified-phone-provider",
+      idempotencyKey: "identity-unverified-phone-submit",
+    }),
+    /FAILED_PRECONDITION: Verify your mobile number/i,
+  );
+
+  for (const role of ["customer", "admin"]) {
+    await signOut(auth);
+    const user = (await createUserWithEmailAndPassword(
+      auth,
+      `identity-${role}@feasta.test`,
+      password,
+    )).user;
+    await db.collection("users").doc(user.uid).set({
+      uid: user.uid,
+      role,
+      accountStatus: "active",
+      isActive: true,
+      isBlocked: false,
+      providerId: null,
+    });
+    await assert.rejects(
+      () => callFunction("ensureProviderIdentity", user, identityInput(
+        "Wrong",
+        "Role",
+        "+639173333339",
+      )),
+      /PERMISSION_DENIED: Provider registration cannot be used/i,
+    );
+  }
+
+  const malformed = await createIdentityTestUser(
+    "malformed-link",
+    {emailVerified: true, phoneNumber: "+639173333333"},
+  );
+  await db.collection("users").doc(malformed.uid).update({
+    providerId: "missing-provider",
+  });
+  await assert.rejects(
+    () => callFunction("ensureProviderIdentity", malformed, identityInput(
+      "Malformed",
+      "Relationship",
+      "+639173333333",
+    )),
+    /FAILED_PRECONDITION: The provider account relationship is invalid/i,
+  );
+}
+
+async function createIdentityTestUser(suffix, authState) {
+  await signOut(auth);
+  const user = (await createUserWithEmailAndPassword(
+    auth,
+    `identity-${suffix}@feasta.test`,
+    password,
+  )).user;
+  await getAdminAuth(adminApp).updateUser(user.uid, authState);
+  await user.getIdToken(true);
+  await callFunction(
+    "ensureProviderIdentity",
+    user,
+    identityInput("Identity", suffix, authState.phoneNumber ?? "+639173333332"),
+  );
+  return user;
+}
+
+function identityInput(firstName, lastName, phoneNumber) {
+  return {
+    firstName,
+    lastName,
+    phoneNumber,
+    acceptedTerms: true,
+    acceptedPrivacy: true,
+    termsPolicyVersion: "phase-a-test-terms",
+    privacyPolicyVersion: "phase-a-test-privacy",
+  };
+}
+
+function ownerStep(ownerFirstName, ownerLastName, ownerPhone) {
+  return {ownerFirstName, ownerLastName, ownerPhone};
+}
+
+async function seedIncompleteProvider(ownerId, suffix) {
+  const providerId = `identity-${suffix}-provider`;
+  await db.collection("users").doc(ownerId).update({providerId});
+  await db.collection("providers").doc(providerId).set({
+    ownerId,
+    verificationStatus: "draft",
+    isActive: false,
+    isSuspended: false,
+    isDeleted: false,
+  });
+}
+
 async function registerAndSubmitProvider() {
   const email = "acceptance.provider@feasta.test";
   const providerUser = (await createUserWithEmailAndPassword(auth, email, password)).user;
   await getAdminAuth(adminApp).updateUser(providerUser.uid, {
     emailVerified: true,
+    phoneNumber: "+639172222222",
   });
   await providerUser.getIdToken(true);
   const identity = await callFunction("ensureProviderIdentity", providerUser, {
     firstName: "Acceptance",
     lastName: "Provider",
     phoneNumber: "+639172222222",
+    acceptedTerms: true,
+    acceptedPrivacy: true,
+    termsPolicyVersion: "phase-a-test-terms",
+    privacyPolicyVersion: "phase-a-test-privacy",
   });
   assert.equal(identity.role, "provider");
 
@@ -296,6 +434,26 @@ async function completeOnboarding(providerUser, input) {
       {step: index + 1, data},
     );
     assert.equal(result.success, true);
+    if (index === 0) {
+      const owner = (await db.collection("users").doc(providerUser.uid).get())
+        .data();
+      assert.equal(owner?.phoneNumber, input.businessPhone);
+      assert.equal(owner?.isPhoneVerified, true);
+      await assert.rejects(
+        () => callFunction("saveProviderOnboardingDraft", providerUser, {
+          step: 1,
+          data: {
+            ...data,
+            ownerPhone: "+639178888888",
+          },
+        }),
+        /FAILED_PRECONDITION: Verify the new mobile number/i,
+      );
+      const unchangedOwner = (await db.collection("users")
+        .doc(providerUser.uid).get()).data();
+      assert.equal(unchangedOwner?.phoneNumber, input.businessPhone);
+      assert.equal(unchangedOwner?.isPhoneVerified, true);
+    }
   }
 
   const draft = (await db.collection("providerOnboardingDrafts")
@@ -380,6 +538,25 @@ async function reviewAndApproveProvider(workflow) {
     idempotencyKey: "review-start-primary",
   });
   assert.equal(startReplay.idempotentReplay, true);
+
+  await getAdminAuth(adminApp).updateUser(workflow.providerUser.uid, {
+    phoneNumber: null,
+  });
+  await assert.rejects(
+    () => callFunction("reviewProviderVerification", adminUser, {
+      verificationId: workflow.verificationId,
+      action: "approve",
+      idempotencyKey: "review-approve-identity-incomplete",
+    }),
+    /FAILED_PRECONDITION: Verify your mobile number/i,
+  );
+  const stillUnderReview = (await db.collection("providers")
+    .doc(workflow.providerId).get()).data();
+  assert.equal(stillUnderReview?.verificationStatus, "under_review");
+  assert.equal(stillUnderReview?.isActive, false);
+  await getAdminAuth(adminApp).updateUser(workflow.providerUser.uid, {
+    phoneNumber: "+639172222222",
+  });
 
   const approved = await callFunction("reviewProviderVerification", adminUser, {
     verificationId: workflow.verificationId,
