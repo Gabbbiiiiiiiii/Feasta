@@ -45,8 +45,9 @@ describe("provider review service contract", () => {
     );
   });
 
-  it("uses the canonical review and main-event collections", () => {
+  it("uses provider-request relationships with explicit legacy support", () => {
     expect(service).toContain('reviews: "reviews"');
+    expect(service).toContain('providerRequests: "providerRequests"');
     expect(service).toContain('mainEvents: "mainEvents"');
     expect(service).toContain('packages: "packages"');
     expect(service).toContain('users: "users"');
@@ -58,7 +59,10 @@ describe("provider review service contract", () => {
     expect(service).toContain("reviewData.providerId !== providerId");
     expect(service).toContain("providerId !== expectedProviderId");
     expect(service).toContain("mainEvent.customerId !== customerId");
-    expect(service).toContain("mainEvent.providerId !== expectedProviderId");
+    expect(service).toContain("providerRequest.providerId !== expectedProviderId");
+    expect(service).toContain("providerRequest.mainEventId !== mainEventId");
+    expect(service).toContain("mainEventRequestIds.includes");
+    expect(service).toContain("mainEvent.providerId !== expectedProviderId ||");
     expect(service).toContain("packageData.providerId !== expectedProviderId");
     expect(service).toContain("throw unavailableReview()");
     expect(service).toContain("skippedMalformedCount += 1");
@@ -106,16 +110,16 @@ describe("provider review service contract", () => {
     expect(service).toContain("parsed.rating !== rating");
   });
 
-  it("computes exact public rating metrics rather than page-local values", () => {
+  it("reads exact bounded canonical metrics maintained by trusted writes", () => {
     expect(service).toContain("export async function getProviderReviewSummary");
-    expect(service).toContain('.where("isVisible", "==", true)');
-    expect(service).toContain('.where("rating", "==", rating).count().get()');
-    expect(service).toContain("countRating(5)");
-    expect(service).toContain("countRating(1)");
-    expect(service).toContain("total + Number(rating) * count");
-    expect(service).toContain("ratingTotal / totalReviews");
+    expect(service).toContain("canonicalReviewSummary(provider)");
+    expect(service).toContain("canonicalReviewCount");
+    expect(service).toContain("canonicalRatingTotal");
+    expect(service).toContain("canonicalRatingDistribution");
+    expect(service).toContain("summary.ratingTotal / summary.totalReviews");
     expect(service).toContain("Math.round(value * 100) / 100");
-    expect(service).not.toMatch(/ratingAverage|reviewCount/u);
+    expect(service).not.toContain("publishedReviews");
+    expect(service).not.toContain(".count().get()");
   });
 
   it("keeps the existing canonical reply read-only and adds no moderation API", () => {
@@ -125,7 +129,11 @@ describe("provider review service contract", () => {
     expect(service).not.toMatch(
       /export async function (?:hide|restore|delete|moderate|reply|update)/u,
     );
-    expect(service).not.toMatch(/\.update\(|\.set\(|\.delete\(/u);
+    expect(service).not.toMatch(/\.set\(|\.delete\(|runTransaction\(|\.batch\(/u);
+    expect(service.match(/\.update\(/gu)).toHaveLength(1);
+    expect(service).toContain(
+      '.update(`${providerRequestId}\\u0000${customerId}`)',
+    );
   });
 
   it("declares precisely the provider history and summary index shapes", () => {

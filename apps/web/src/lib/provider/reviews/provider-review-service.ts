@@ -1,5 +1,6 @@
 import "server-only";
 
+import {createHash} from "node:crypto";
 import {
   FieldPath,
   Timestamp,
@@ -24,6 +25,7 @@ import type {
 
 const COLLECTIONS = {
   reviews: "reviews",
+  providerRequests: "providerRequests",
   mainEvents: "mainEvents",
   packages: "packages",
   users: "users",
@@ -47,6 +49,7 @@ type ReviewCursor = {
 };
 
 type ReviewRelations = {
+  providerRequests: ReadonlyMap<string, DocumentSnapshot<DocumentData>>;
   mainEvents: ReadonlyMap<string, DocumentSnapshot<DocumentData>>;
   packages: ReadonlyMap<string, DocumentSnapshot<DocumentData>>;
   users: ReadonlyMap<string, DocumentSnapshot<DocumentData>>;
@@ -143,41 +146,27 @@ export async function getProviderReviewSummary():
 Promise<ProviderReviewSummary> {
   const account = await requireApprovedProvider();
   const providerId = normalizeDocumentId(account.providerId);
-  const publishedReviews = adminDb
-    .collection(COLLECTIONS.reviews)
-    .where("providerId", "==", providerId)
-    .where("isVisible", "==", true)
-    .where("isDeleted", "==", false);
-  const countRating = (rating: ProviderReviewRating) =>
-    publishedReviews.where("rating", "==", rating).count().get();
-  const [five, four, three, two, one] = await Promise.all([
-    countRating(5),
-    countRating(4),
-    countRating(3),
-    countRating(2),
-    countRating(1),
-  ]);
-  const ratingDistribution = {
-    5: safeAggregateInteger(five.data().count),
-    4: safeAggregateInteger(four.data().count),
-    3: safeAggregateInteger(three.data().count),
-    2: safeAggregateInteger(two.data().count),
-    1: safeAggregateInteger(one.data().count),
-  } as const;
-  const totalReviews = Object.values(ratingDistribution)
-    .reduce((total, count) => total + count, 0);
-  const ratingTotal = Object.entries(ratingDistribution)
-    .reduce(
-      (total, [rating, count]) => total + Number(rating) * count,
-      0,
-    );
+  // These trusted, transactionally-maintained counters intentionally cover
+  // canonical provider-request reviews only. Valid legacy reviews remain in
+  // bounded history reads, but are not folded into summary metrics because a
+  // raw Firestore aggregation cannot validate their cross-document ownership.
+  const providerSnapshot = await adminDb
+    .collection("providers")
+    .doc(providerId)
+    .get();
+  const provider = providerSnapshot.data() ?? {};
+  const summary = canonicalReviewSummary(provider);
+
+  if (!providerSnapshot.exists || !summary) {
+    throw new Error("The provider review summary is unavailable.");
+  }
 
   return {
-    totalReviews,
-    averageRating: totalReviews > 0
-      ? roundRating(ratingTotal / totalReviews)
+    totalReviews: summary.totalReviews,
+    averageRating: summary.totalReviews > 0
+      ? roundRating(summary.ratingTotal / summary.totalReviews)
       : 0,
-    ratingDistribution,
+    ratingDistribution: summary.ratingDistribution,
   };
 }
 
@@ -186,6 +175,7 @@ async function loadReviewRelations(
   expectedProviderId: string,
 ): Promise<ReviewRelations> {
   const mainEventIds = new Set<string>();
+  const providerRequestIds = new Set<string>();
   const packageIds = new Set<string>();
   const customerIds = new Set<string>();
 
@@ -199,18 +189,24 @@ async function loadReviewRelations(
       continue;
     }
 
-    addDocumentId(mainEventIds, data.bookingId);
+    if (Object.hasOwn(data, "providerRequestId")) {
+      addDocumentId(providerRequestIds, data.providerRequestId);
+      addDocumentId(mainEventIds, data.mainEventId);
+    } else {
+      addDocumentId(mainEventIds, data.bookingId);
+    }
     addDocumentId(packageIds, data.packageId);
     addDocumentId(customerIds, data.customerId);
   }
 
-  const [mainEvents, packages, users] = await Promise.all([
+  const [providerRequests, mainEvents, packages, users] = await Promise.all([
+    loadDocuments(COLLECTIONS.providerRequests, providerRequestIds),
     loadDocuments(COLLECTIONS.mainEvents, mainEventIds),
     loadDocuments(COLLECTIONS.packages, packageIds),
     loadDocuments(COLLECTIONS.users, customerIds),
   ]);
 
-  return {mainEvents, packages, users};
+  return {providerRequests, mainEvents, packages, users};
 }
 
 async function loadDocuments(
@@ -236,13 +232,19 @@ function mapProviderReview(
   const data = document.data() ?? {};
   const providerId = optionalDocumentId(data.providerId);
   const customerId = optionalDocumentId(data.customerId);
-  const mainEventId = optionalDocumentId(data.bookingId);
+  const canonical = Object.hasOwn(data, "providerRequestId");
+  const providerRequestId = canonical
+    ? optionalDocumentId(data.providerRequestId)
+    : null;
+  const mainEventId = optionalDocumentId(
+    canonical ? data.mainEventId : data.bookingId,
+  );
   const packageId = nullableDocumentId(data.packageId);
   const rating = ratingValue(data.rating);
   const comment = normalizedText(data.comment, 2_000);
   const createdAt = timestampIso(data.createdAt);
   const updatedAt = nullableTimestampIso(data.updatedAt);
-  const visibility = reviewVisibility(data);
+  const visibility = reviewVisibility(data, canonical);
 
   if (
     providerId !== expectedProviderId ||
@@ -253,7 +255,8 @@ function mapProviderReview(
     !comment ||
     !createdAt ||
     updatedAt === undefined ||
-    !visibility
+    !visibility ||
+    (canonical && !providerRequestId)
   ) {
     return null;
   }
@@ -261,11 +264,47 @@ function mapProviderReview(
   const mainEventSnapshot = relations.mainEvents.get(mainEventId);
   const mainEvent = mainEventSnapshot?.data() ?? null;
 
-  if (
-    !mainEventSnapshot?.exists ||
-    !mainEvent ||
-    mainEvent.customerId !== customerId ||
-    mainEvent.providerId !== expectedProviderId
+  if (!mainEventSnapshot?.exists || !mainEvent ||
+      mainEvent.customerId !== customerId) {
+    return null;
+  }
+
+  if (canonical) {
+    const providerRequestSnapshot = providerRequestId
+      ? relations.providerRequests.get(providerRequestId)
+      : null;
+    const providerRequest = providerRequestSnapshot?.data() ?? null;
+    const hasStoredRequestId = Object.hasOwn(
+      providerRequest ?? {},
+      "providerRequestId",
+    );
+    const storedRequestId = optionalDocumentId(
+      providerRequest?.providerRequestId,
+    );
+    const mainEventRequestIds = documentIdArray(mainEvent.providerRequestIds);
+
+    if (
+      document.id !== canonicalReviewId(
+        providerRequestId as string,
+        customerId,
+      ) ||
+      data.schemaVersion !== 2 ||
+      data.relationshipVersion !== "provider_request_v1" ||
+      !providerRequestSnapshot?.exists ||
+      !providerRequest ||
+      (hasStoredRequestId && storedRequestId !== providerRequestId) ||
+      providerRequest.mainEventId !== mainEventId ||
+      providerRequest.customerId !== customerId ||
+      providerRequest.providerId !== expectedProviderId ||
+      providerRequest.status !== "completed" ||
+      mainEvent.status !== "completed" ||
+      !mainEventRequestIds.includes(providerRequestId as string)
+    ) {
+      return null;
+    }
+  } else if (
+    mainEvent.providerId !== expectedProviderId ||
+    mainEvent.status !== "completed"
   ) {
     return null;
   }
@@ -311,7 +350,8 @@ function mapProviderReview(
     context: {
       eventType,
       eventDate,
-      serviceSummary: normalizedText(packageData?.name, 160) ??
+      serviceSummary: normalizedText(data.serviceName, 160) ??
+        normalizedText(packageData?.name, 160) ??
         "Custom event service",
     },
     providerReply: reply.text,
@@ -323,6 +363,7 @@ function mapProviderReview(
 
 function reviewVisibility(
   data: DocumentData,
+  canonical: boolean,
 ): ProviderReview["visibility"] | null {
   if (
     data.moderationStatus === "published" &&
@@ -336,6 +377,11 @@ function reviewVisibility(
     data.isVisible === false
   ) {
     return "hidden";
+  }
+
+  if (!canonical && !("moderationStatus" in data)) {
+    if (data.isVisible === true) return "visible";
+    if (data.isVisible === false) return "hidden";
   }
 
   return null;
@@ -507,12 +553,71 @@ function nullableTimestampIso(value: unknown): string | null | undefined {
   return timestampIso(value) ?? undefined;
 }
 
-function safeAggregateInteger(value: unknown): number {
-  return typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= 0
+function canonicalReviewSummary(data: DocumentData): {
+  totalReviews: number;
+  ratingTotal: number;
+  ratingDistribution: ProviderReviewSummary["ratingDistribution"];
+} | null {
+  const count = safeNonNegativeInteger(data.canonicalReviewCount);
+  const total = safeNonNegativeInteger(data.canonicalRatingTotal);
+  const rawDistribution = recordValue(data.canonicalRatingDistribution);
+
+  if (count === null && total === null && rawDistribution === null) {
+    return {
+      totalReviews: 0,
+      ratingTotal: 0,
+      ratingDistribution: {5: 0, 4: 0, 3: 0, 2: 0, 1: 0},
+    };
+  }
+  if (count === null || total === null || !rawDistribution) return null;
+
+  const ratingDistribution = {
+    5: safeNonNegativeInteger(rawDistribution["5"]),
+    4: safeNonNegativeInteger(rawDistribution["4"]),
+    3: safeNonNegativeInteger(rawDistribution["3"]),
+    2: safeNonNegativeInteger(rawDistribution["2"]),
+    1: safeNonNegativeInteger(rawDistribution["1"]),
+  };
+  if (Object.values(ratingDistribution).some((value) => value === null)) {
+    return null;
+  }
+  const safeDistribution = ratingDistribution as
+    ProviderReviewSummary["ratingDistribution"];
+  const calculatedCount = Object.values(safeDistribution)
+    .reduce((sum, value) => sum + value, 0);
+  const calculatedTotal = Object.entries(safeDistribution)
+    .reduce((sum, [rating, value]) => sum + Number(rating) * value, 0);
+
+  return calculatedCount === count && calculatedTotal === total
+    ? {totalReviews: count, ratingTotal: total, ratingDistribution: safeDistribution}
+    : null;
+}
+
+function safeNonNegativeInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
     ? value
-    : 0;
+    : null;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function documentIdArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map(optionalDocumentId).filter((id): id is string => id !== null)
+    : [];
+}
+
+function canonicalReviewId(
+  providerRequestId: string,
+  customerId: string,
+): string {
+  return `review_${createHash("sha256")
+    .update(`${providerRequestId}\u0000${customerId}`)
+    .digest("hex")}`;
 }
 
 function roundRating(value: number): number {

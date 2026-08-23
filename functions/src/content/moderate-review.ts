@@ -40,11 +40,15 @@ import {
 } from "../shared/validation.js";
 import {
   REVIEW_ACTIONS,
+  adjustedCanonicalRatingAggregate,
   adjustedRatingAggregate,
   moderationStatus,
   resolveNextState,
   type ReviewAction,
 } from "./review-moderation-policy.js";
+import {
+  loadReviewRelationship,
+} from "./review-relationship.js";
 
 
 
@@ -163,22 +167,15 @@ export const moderateReview = onCall(
                 );
               }
 
+              const relationship =
+                await loadReviewRelationship(
+                  transaction,
+                  reviewSnapshot,
+                );
               const providerId =
-                stringField(
-                  review.providerId,
-                );
-
+                relationship.providerId;
               const customerId =
-                stringField(
-                  review.customerId,
-                );
-
-              if (!providerId) {
-                throw new HttpsError(
-                  "failed-precondition",
-                  "The review has no provider.",
-                );
-              }
+                relationship.customerId;
 
               const currentStatus =
                 moderationStatus(review);
@@ -214,20 +211,8 @@ export const moderateReview = onCall(
                 db.collection("providers")
                   .doc(providerId);
 
-              const providerSnapshot =
-                await transaction.get(
-                  providerReference,
-                );
-
-              if (!providerSnapshot.exists) {
-                throw new HttpsError(
-                  "not-found",
-                  "The review provider was not found.",
-                );
-              }
-
               const provider =
-                providerSnapshot.data() ?? {};
+                relationship.provider;
 
               const rating =
                 validRating(review.rating);
@@ -281,16 +266,51 @@ export const moderateReview = onCall(
                     contributionChange,
                   });
 
-                transaction.update(
-                  providerReference,
-                  {
+                const providerUpdate:
+                  Record<string, unknown> = {
                     reviewCount:
                       aggregate.reviewCount,
                     ratingAverage:
                       aggregate.ratingAverage,
                     updatedAt:
                       serverTimestamp(),
-                  },
+                  };
+
+                if (
+                  relationship.kind ===
+                    "canonical"
+                ) {
+                  const canonicalAggregate =
+                    adjustedCanonicalRatingAggregate({
+                      reviewCount:
+                        provider.canonicalReviewCount,
+                      ratingTotal:
+                        provider.canonicalRatingTotal,
+                      ratingDistribution:
+                        provider.canonicalRatingDistribution,
+                      rating,
+                      contributionChange:
+                        contributionChange as 1 | -1,
+                    });
+
+                  if (!canonicalAggregate) {
+                    throw new HttpsError(
+                      "failed-precondition",
+                      "The provider review aggregate is inconsistent.",
+                    );
+                  }
+
+                  providerUpdate.canonicalReviewCount =
+                    canonicalAggregate.reviewCount;
+                  providerUpdate.canonicalRatingTotal =
+                    canonicalAggregate.ratingTotal;
+                  providerUpdate.canonicalRatingDistribution =
+                    canonicalAggregate.ratingDistribution;
+                }
+
+                transaction.update(
+                  providerReference,
+                  providerUpdate,
                 );
               }
 
@@ -331,10 +351,10 @@ export const moderateReview = onCall(
                     providerId,
                     customerId:
                       customerId || null,
-                    bookingId:
-                      stringField(
-                        review.bookingId,
-                      ) || null,
+                    providerRequestId:
+                      relationship.providerRequestId,
+                    mainEventId:
+                      relationship.mainEventId,
                     rating,
                     moderationAction:
                       action,
@@ -440,14 +460,6 @@ function validRating(
   }
 
   return value as number;
-}
-
-function stringField(
-  value: unknown,
-): string {
-  return typeof value === "string"
-    ? value.trim()
-    : "";
 }
 
 function auditAction(

@@ -2056,14 +2056,30 @@ class FeastaRepository {
     required String comment,
   }) async {
     try {
+      final providerRequestId = await _providerRequestIdForReview(booking);
       await _functions.httpsCallable('submitReview').call({
-        'bookingId': booking.id,
+        'providerRequestId': providerRequestId,
         'rating': rating,
         'comment': comment.trim(),
-        'idempotencyKey': '${booking.id}_$currentUid',
+        'idempotencyKey': '${providerRequestId}_$currentUid',
       });
     } on FirebaseFunctionsException catch (error) {
       throw Exception(error.message ?? 'The review could not be submitted.');
+    }
+  }
+
+  Future<void> deleteReview({
+    required String reviewId,
+    String reason = 'Deleted by customer',
+  }) async {
+    try {
+      await _functions.httpsCallable('deleteReview').call({
+        'reviewId': reviewId,
+        'reason': reason.trim(),
+        'idempotencyKey': '${reviewId}_delete_$currentUid',
+      });
+    } on FirebaseFunctionsException catch (error) {
+      throw Exception(error.message ?? 'The review could not be deleted.');
     }
   }
 
@@ -2452,6 +2468,27 @@ class FeastaRepository {
     // The backend accepts this value only when it resolves an already-existing,
     // relationship-valid legacy room; it never creates a new legacy room.
     return booking.id;
+  }
+
+  Future<String> _providerRequestIdForReview(BookingModel booking) async {
+    for (final providerRequestId in booking.providerRequestIds) {
+      final snapshot = await _db
+          .collection(FirestoreCollections.providerRequests)
+          .doc(providerRequestId)
+          .get();
+      final data = snapshot.data();
+
+      if (snapshot.exists &&
+          data?['providerId'] == booking.providerId &&
+          data?['customerId'] == booking.customerId &&
+          (data?['mainEventId'] ?? data?['bookingId']) == booking.id) {
+        return providerRequestId;
+      }
+    }
+
+    throw Exception(
+      'This booking does not have a reviewable provider request.',
+    );
   }
 
   String _chatErrorMessage(FirebaseFunctionsException error, String fallback) {

@@ -58,6 +58,7 @@ export type AdminReview = {
   id: string;
   reviewId: string;
 
+  providerRequestId: string | null;
   bookingId: string;
   bookingCode: string | null;
   packageId: string | null;

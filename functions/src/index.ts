@@ -140,6 +140,7 @@ export {
 } from "./messaging/provider-request-chat.js";
 
 export {submitReview} from "./content/submit-review.js";
+export {deleteReview} from "./content/delete-review.js";
 export {
   moderateReview,
 } from "./content/moderate-review.js";

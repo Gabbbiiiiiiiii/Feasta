@@ -1165,7 +1165,7 @@ test("chat reads stay participant-scoped and all client mutations are denied", a
   ));
 });
 
-test("review content and moderation fields stay within role boundaries", async () => {
+test("legacy review reads and replies require a valid event relationship", async () => {
   await seedDocuments(testEnv, {
     "users/customer-one": userData("customer-one", "customer"),
     "users/provider-owner": userData("provider-owner", "provider", {
@@ -1178,7 +1178,13 @@ test("review content and moderation fields stay within role boundaries", async (
       isActive: true,
       isSuspended: false,
     },
+    "mainEvents/event-one": {
+      customerId: "customer-one",
+      providerId: "provider-one",
+      status: "completed",
+    },
     "reviews/review-one": {
+      bookingId: "event-one",
       customerId: "customer-one",
       providerId: "provider-one",
       rating: 5,
@@ -1194,10 +1200,21 @@ test("review content and moderation fields stay within role boundaries", async (
   const provider = authenticated(testEnv, "provider-owner", "provider")
     .firestore();
   const admin = authenticated(testEnv, "admin-one", "admin").firestore();
+  const publicDb = testEnv.unauthenticatedContext().firestore();
+
+  await assertSucceeds(getDoc(doc(publicDb, "reviews/review-one")));
 
   await assertFails(updateDoc(doc(customer, "reviews/review-one"), {
     rating: 1,
     comment: "Changed",
+  }));
+  await assertFails(updateDoc(doc(customer, "reviews/review-one"), {
+    isDeleted: true,
+    isVisible: false,
+    deletedAt: serverTimestamp(),
+    deletedBy: "customer-one",
+    deletionReason: "No longer wanted",
+    updatedAt: serverTimestamp(),
   }));
   await assertSucceeds(updateDoc(doc(provider, "reviews/review-one"), {
     providerReply: "Thank you",
@@ -1207,11 +1224,137 @@ test("review content and moderation fields stay within role boundaries", async (
   await assertFails(updateDoc(doc(provider, "reviews/review-one"), {
     isVisible: false,
   }));
-  await assertSucceeds(updateDoc(doc(admin, "reviews/review-one"), {
+  await assertFails(updateDoc(doc(admin, "reviews/review-one"), {
     moderationStatus: "hidden",
     isVisible: false,
     updatedAt: new Date(),
   }));
+});
+
+test("canonical multi-provider reviews isolate private provider access", async () => {
+  const providerRequestIds = ["request-a", "request-b"];
+  await seedDocuments(testEnv, {
+    "users/customer-one": userData("customer-one", "customer"),
+    "users/provider-owner-a": userData("provider-owner-a", "provider", {
+      providerId: "provider-a",
+    }),
+    "users/provider-owner-b": userData("provider-owner-b", "provider", {
+      providerId: "provider-b",
+    }),
+    "users/admin-one": userData("admin-one", "admin"),
+    "providers/provider-a": {
+      ownerId: "provider-owner-a",
+      verificationStatus: "approved",
+      isActive: true,
+      isSuspended: false,
+    },
+    "providers/provider-b": {
+      ownerId: "provider-owner-b",
+      verificationStatus: "approved",
+      isActive: true,
+      isSuspended: false,
+    },
+    "mainEvents/event-x": {
+      customerId: "customer-one",
+      providerRequestIds,
+      status: "completed",
+    },
+    "providerRequests/request-a": {
+      providerRequestId: "request-a",
+      mainEventId: "event-x",
+      customerId: "customer-one",
+      providerId: "provider-a",
+      status: "completed",
+    },
+    "providerRequests/request-b": {
+      providerRequestId: "request-b",
+      mainEventId: "event-x",
+      customerId: "customer-one",
+      providerId: "provider-b",
+      status: "completed",
+    },
+    "reviews/review-a": {
+      schemaVersion: 2,
+      relationshipVersion: "provider_request_v1",
+      providerRequestId: "request-a",
+      mainEventId: "event-x",
+      customerId: "customer-one",
+      providerId: "provider-a",
+      rating: 5,
+      comment: "Excellent provider A",
+      moderationStatus: "hidden",
+      isVisible: false,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "reviews/review-b": {
+      schemaVersion: 2,
+      relationshipVersion: "provider_request_v1",
+      providerRequestId: "request-b",
+      mainEventId: "event-x",
+      customerId: "customer-one",
+      providerId: "provider-b",
+      rating: 4,
+      comment: "Excellent provider B",
+      moderationStatus: "hidden",
+      isVisible: false,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "reviews/malformed-review": {
+      schemaVersion: 2,
+      relationshipVersion: "provider_request_v1",
+      providerRequestId: "request-b",
+      mainEventId: "event-x",
+      customerId: "customer-one",
+      providerId: "provider-a",
+      rating: 1,
+      comment: "Forged relationship",
+      moderationStatus: "published",
+      isVisible: true,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "reviews/inconsistent-visibility": {
+      schemaVersion: 2,
+      relationshipVersion: "provider_request_v1",
+      providerRequestId: "request-a",
+      mainEventId: "event-x",
+      customerId: "customer-one",
+      providerId: "provider-a",
+      rating: 3,
+      comment: "Inconsistent moderation projection",
+      moderationStatus: "hidden",
+      isVisible: true,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+  });
+  const providerA = authenticated(
+    testEnv,
+    "provider-owner-a",
+    "provider",
+  ).firestore();
+  const providerB = authenticated(
+    testEnv,
+    "provider-owner-b",
+    "provider",
+  ).firestore();
+  const customer = authenticated(testEnv, "customer-one", "customer")
+    .firestore();
+  const admin = authenticated(testEnv, "admin-one", "admin").firestore();
+  const publicDb = testEnv.unauthenticatedContext().firestore();
+
+  await assertSucceeds(getDoc(doc(providerA, "reviews/review-a")));
+  await assertFails(getDoc(doc(providerA, "reviews/review-b")));
+  await assertSucceeds(getDoc(doc(providerB, "reviews/review-b")));
+  await assertFails(getDoc(doc(providerB, "reviews/review-a")));
+  await assertSucceeds(getDoc(doc(customer, "reviews/review-a")));
+  await assertSucceeds(getDoc(doc(customer, "reviews/review-b")));
+  await assertFails(getDoc(doc(publicDb, "reviews/malformed-review")));
+  await assertFails(getDoc(doc(admin, "reviews/malformed-review")));
+  await assertFails(getDoc(doc(publicDb, "reviews/inconsistent-visibility")));
+  await assertSucceeds(getDoc(doc(admin, "reviews/inconsistent-visibility")));
 });
 
 test("app settings distinguish public reads from active admin writes", async () => {
