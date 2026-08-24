@@ -57,7 +57,6 @@ test("new provider registration authenticates by phone before trusted classifica
     "sessionStorage",
     "verificationId",
     "createUserWithEmailAndPassword",
-    "registerProviderIdentity",
     "ensureProviderIdentity",
     "sendEmailVerification",
     "linkWithCredential",
@@ -65,6 +64,46 @@ test("new provider registration authenticates by phone before trusted classifica
     assert.equal(form.includes(forbidden), false, `registration form includes ${forbidden}`);
     assert.equal(page.includes(forbidden), false, `registration page includes ${forbidden}`);
   }
+  assert.ok(form.includes("registerProviderIdentity"));
+});
+
+test("Phase C links email/password to the same phone UID before identity creation", () => {
+  const client = source("lib/auth/provider-client.ts");
+  const form = source(
+    "app/provider-register/provider-phone-registration-form.tsx",
+  );
+  const phaseC = client.slice(
+    client.indexOf("export async function registerProviderIdentity"),
+    client.indexOf("export async function signInProvider"),
+  );
+  for (const control of [
+    "EmailAuthProvider.credential",
+    "linkWithCredential(user, emailCredential)",
+    "const originalUid = user.uid",
+    "linkResult.user.uid !== originalUid",
+    "auth.currentUser?.uid !== originalUid",
+    "hasPasswordProvider",
+    "const authPhone = normalizePhilippineMobile(user.phoneNumber)",
+    "user.getIdToken(true)",
+    'call("ensureProviderIdentity"',
+    "sendEmailVerification(user)",
+  ]) {
+    assert.ok(phaseC.includes(control), `missing Phase C control: ${control}`);
+  }
+  assert.ok(
+    phaseC.indexOf("linkWithCredential(user, emailCredential)") <
+      phaseC.indexOf('call("ensureProviderIdentity"'),
+  );
+  assert.equal(phaseC.includes("createUserWithEmailAndPassword"), false);
+  assert.equal(phaseC.includes("deleteUser"), false);
+  assert.equal(phaseC.includes("localStorage"), false);
+  assert.equal(phaseC.includes("sessionStorage"), false);
+  assert.ok(form.includes("Complete your provider account"));
+  assert.ok(form.includes('href="/terms"'));
+  assert.ok(form.includes('href="/privacy"'));
+  assert.ok(form.includes("validateProviderOwnerIdentityInput"));
+  assert.ok(form.includes("/provider-verify-email?registration=complete&delivery="));
+  assert.equal(form.includes("/provider?uid="), false);
 });
 
 test("phone verification uses browser-only reCAPTCHA and explicit emulator opt-in", () => {

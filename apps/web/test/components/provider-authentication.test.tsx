@@ -56,6 +56,7 @@ vi.mock("@/lib/provider/provider-media-client", () => ({
 import ProviderLoginPage from "@/app/provider-login/page";
 import {ProviderOnboardingStepForm} from "@/app/provider/onboarding/[step]/provider-onboarding-step-form";
 import ProviderRegistrationPage from "@/app/provider-register/page";
+import {validateAccountDetails} from "@/app/provider-register/provider-phone-registration-form";
 import {ProviderVerificationActions} from "@/app/provider/verification/provider-verification-actions";
 import {PROVIDER_ONBOARDING_STEPS} from "@/lib/provider/onboarding";
 
@@ -66,6 +67,21 @@ describe("provider authentication and onboarding", () => {
     mocks.abandonPhoneRegistration.mockResolvedValue(undefined);
     URL.createObjectURL = vi.fn(() => "blob:provider-preview");
     URL.revokeObjectURL = vi.fn();
+  });
+
+  it("validates Phase C password confirmation independently", () => {
+    expect(validateAccountDetails({
+      firstName: "Ada",
+      lastName: "Lovelace",
+      email: "ada@example.test",
+      password: "Feasta123!",
+      confirmPassword: "Different123!",
+      phoneNumber: "+639171234567",
+      acceptedTerms: true,
+      acceptedPrivacy: true,
+    })).toMatchObject({
+      confirmPassword: "Passwords do not match.",
+    });
   });
 
   it("starts net-new provider registration with normalized phone auth", async () => {
@@ -105,7 +121,7 @@ describe("provider authentication and onboarding", () => {
     expect(mocks.requestRegistrationPhoneCode).not.toHaveBeenCalled();
   });
 
-  it("confirms OTP and stops at the Phase B auth-only checkpoint", async () => {
+  it("confirms OTP and opens the Phase C account-details checkpoint", async () => {
     const user = userEvent.setup();
     const confirmation = {confirm: vi.fn()};
     mocks.requestRegistrationPhoneCode.mockResolvedValueOnce({
@@ -114,6 +130,7 @@ describe("provider authentication and onboarding", () => {
     });
     mocks.confirmRegistrationPhoneCode.mockResolvedValueOnce({
       classification: "auth_only",
+      phoneNumber: "+639171234567",
       resolution: {
         state: "email_credential_link_required",
         resumable: true,
@@ -135,15 +152,158 @@ describe("provider authentication and onboarding", () => {
 
     await waitFor(() => expect(mocks.confirmRegistrationPhoneCode)
       .toHaveBeenCalledWith(confirmation, "123456", "+639171234567"));
-    expect(screen.getByRole("heading", {name: /mobile number verified/i}))
+    expect(screen.getByRole("heading", {name: /complete your provider account/i}))
       .toBeInTheDocument();
+    expect(screen.getByRole("textbox", {name: /email address/i}))
+      .toBeInTheDocument();
+    expect(screen.getByLabelText(/^password/i)).toBeInTheDocument();
     expect(mocks.registerIdentity).not.toHaveBeenCalled();
     expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("validates all Phase C account details and separate consents", async () => {
+    mocks.resumePhoneRegistration.mockResolvedValueOnce({
+      classification: "auth_only",
+      phoneNumber: "+639171234567",
+      resolution: {
+        state: "email_credential_link_required",
+        resumable: true,
+        collision: "none",
+        recoveryAction: "link_email_credential",
+      },
+    });
+    render(<ProviderRegistrationPage />);
+    await userEvent.setup().click(await screen.findByRole("button", {
+      name: /complete provider account/i,
+    }));
+
+    expect(screen.getByLabelText(/first name/i)).toHaveAccessibleDescription(
+      "Enter your first name.",
+    );
+    expect(screen.getByLabelText(/last name/i)).toHaveAccessibleDescription(
+      "Enter your last name.",
+    );
+    expect(screen.getByLabelText(/email address/i)).toHaveAccessibleDescription(
+      "Enter a valid email address.",
+    );
+    expect(screen.getByLabelText(/^password/i)).toHaveAccessibleDescription(
+      expect.stringMatching(/at least 8 characters/i),
+    );
+    expect(screen.getByLabelText(/I accept the Terms/i)).toHaveAccessibleDescription(
+      "Accept the Terms to continue.",
+    );
+    expect(screen.getByLabelText(/I accept the Privacy Policy/i)).toHaveAccessibleDescription(
+      "Accept the Privacy Policy to continue.",
+    );
+    expect(mocks.registerIdentity).not.toHaveBeenCalled();
+  });
+
+  it("submits Phase C details and stops at provider email verification", async () => {
+    const user = userEvent.setup();
+    mocks.resumePhoneRegistration.mockResolvedValueOnce({
+      classification: "auth_only",
+      phoneNumber: "+639171234567",
+      resolution: {
+        state: "email_credential_link_required",
+        resumable: true,
+        collision: "none",
+        recoveryAction: "link_email_credential",
+      },
+    });
+    mocks.registerIdentity.mockResolvedValueOnce({
+      verificationEmailSent: true,
+      emailVerified: false,
+      credentialLinked: true,
+    });
+    render(<ProviderRegistrationPage />);
+    await screen.findByRole("heading", {name: /complete your provider account/i});
+    await user.type(screen.getByLabelText(/first name/i), "Ada");
+    await user.type(screen.getByLabelText(/last name/i), "Lovelace");
+    await user.type(screen.getByLabelText(/email address/i), "ADA@EXAMPLE.TEST");
+    await user.type(screen.getByLabelText(/^password/i), "Feasta123!");
+    await user.type(screen.getByLabelText(/confirm password/i), "Feasta123!");
+    await user.click(screen.getByLabelText(/I accept the Terms/i));
+    await user.click(screen.getByLabelText(/I accept the Privacy Policy/i));
+    await user.click(screen.getByRole("button", {name: /complete provider account/i}));
+
+    await waitFor(() => expect(mocks.registerIdentity).toHaveBeenCalledWith({
+      firstName: "Ada",
+      lastName: "Lovelace",
+      email: "ADA@EXAMPLE.TEST",
+      password: "Feasta123!",
+      phoneNumber: "+639171234567",
+      acceptedTerms: true,
+      acceptedPrivacy: true,
+      termsPolicyVersion: "unversioned",
+      privacyPolicyVersion: "unversioned",
+    }));
+    expect(mocks.replace).toHaveBeenCalledWith(
+      "/provider-verify-email?registration=complete&delivery=sent",
+    );
+    expect(mocks.replace).not.toHaveBeenCalledWith("/provider");
+  });
+
+  it("resumes after refresh when the password provider linked before identity creation", async () => {
+    mocks.resumePhoneRegistration.mockResolvedValueOnce({
+      classification: "auth_only",
+      phoneNumber: "+639171234567",
+      resolution: {
+        state: "provider_identity_required",
+        resumable: true,
+        collision: "none",
+        recoveryAction: "complete_provider_identity",
+      },
+    });
+
+    render(<ProviderRegistrationPage />);
+
+    expect(await screen.findByRole("heading", {
+      name: /complete your provider account/i,
+    })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", {name: /email address/i}))
+      .toBeInTheDocument();
+    expect(mocks.requestRegistrationPhoneCode).not.toHaveBeenCalled();
+    expect(mocks.resumeExistingProvider).not.toHaveBeenCalled();
+  });
+
+  it("shows safe email collision recovery without creating a session", async () => {
+    const user = userEvent.setup();
+    mocks.resumePhoneRegistration.mockResolvedValueOnce({
+      classification: "auth_only",
+      phoneNumber: "+639171234567",
+      resolution: {
+        state: "email_credential_link_required",
+        resumable: true,
+        collision: "none",
+        recoveryAction: "link_email_credential",
+      },
+    });
+    mocks.registerIdentity.mockRejectedValueOnce({
+      code: "auth/credential-already-in-use",
+      message: "other-uid-sensitive-detail",
+    });
+    render(<ProviderRegistrationPage />);
+    await screen.findByRole("heading", {name: /complete your provider account/i});
+    await user.type(screen.getByLabelText(/first name/i), "Ada");
+    await user.type(screen.getByLabelText(/last name/i), "Lovelace");
+    await user.type(screen.getByLabelText(/email address/i), "used@example.test");
+    await user.type(screen.getByLabelText(/^password/i), "Feasta123!");
+    await user.type(screen.getByLabelText(/confirm password/i), "Feasta123!");
+    await user.click(screen.getByLabelText(/I accept the Terms/i));
+    await user.click(screen.getByLabelText(/I accept the Privacy Policy/i));
+    await user.click(screen.getByRole("button", {name: /complete provider account/i}));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/already associated with another account/i);
+    expect(alert).not.toHaveTextContent(/other-uid/i);
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.resumeExistingProvider).not.toHaveBeenCalled();
   });
 
   it("resumes an existing registered provider on the same phone UID", async () => {
     mocks.resumePhoneRegistration.mockResolvedValueOnce({
       classification: "registered_provider",
+      phoneNumber: "+639171234567",
       resolution: {
         state: "registration_complete",
         resumable: true,
@@ -166,6 +326,7 @@ describe("provider authentication and onboarding", () => {
   it("fails closed and signs out a non-provider phone account", async () => {
     mocks.resumePhoneRegistration.mockResolvedValueOnce({
       classification: "non_provider_account",
+      phoneNumber: "+639171234567",
       resolution: {
         state: "account_collision",
         resumable: false,

@@ -109,6 +109,35 @@ export function providerPhoneVerificationError(error: unknown): string {
   return customerAuthenticationError(error);
 }
 
+export function providerAccountDetailsError(error: unknown): string {
+  const reason = typeof error === "object" && error !== null && "reason" in error
+    ? String(error.reason)
+    : "";
+  if (reason === "uid_mismatch" || reason === "account_inconsistent") {
+    return "Your account relationship could not be confirmed. Sign in again or contact support.";
+  }
+  if (reason === "credential_not_linked") {
+    return "The email sign-in method was not linked. Try again.";
+  }
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String(error.code)
+    : "";
+  if (
+    code.includes("email-already-in-use") ||
+    code.includes("credential-already-in-use") ||
+    code.includes("account-exists-with-different-credential")
+  ) {
+    return "This email is already associated with another account. Sign in to that account or use another email.";
+  }
+  if (code.includes("provider-already-linked")) {
+    return "Email sign-in is already linked. Refresh the page to continue safely.";
+  }
+  if (code.includes("requires-recent-login") || code.includes("invalid-credential")) {
+    return "Your secure phone session expired. Verify your mobile number again.";
+  }
+  return customerAuthenticationError(error);
+}
+
 function phoneVerificationRetryLabel(
   error: unknown,
 ): string | null {

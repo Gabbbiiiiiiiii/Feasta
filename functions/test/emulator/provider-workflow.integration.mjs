@@ -104,6 +104,7 @@ async function verifyIdentityPrerequisiteEnforcement() {
   const unverifiedPhoneUser = await createIdentityTestUser(
     "unverified-phone",
     {emailVerified: true, phoneNumber: null},
+    false,
   );
   await assert.rejects(
     () => callFunction("saveProviderOnboardingDraft", unverifiedPhoneUser, {
@@ -145,6 +146,7 @@ async function verifyIdentityPrerequisiteEnforcement() {
         "Wrong",
         "Role",
         "+639173333339",
+        `identity-${role}@feasta.test`,
       )),
       /PERMISSION_DENIED: Provider registration cannot be used/i,
     );
@@ -162,12 +164,13 @@ async function verifyIdentityPrerequisiteEnforcement() {
       "Malformed",
       "Relationship",
       "+639173333333",
+      "identity-malformed-link@feasta.test",
     )),
     /FAILED_PRECONDITION: The provider account relationship is invalid/i,
   );
 }
 
-async function createIdentityTestUser(suffix, authState) {
+async function createIdentityTestUser(suffix, authState, ensureIdentity = true) {
   await signOut(auth);
   const user = (await createUserWithEmailAndPassword(
     auth,
@@ -176,18 +179,39 @@ async function createIdentityTestUser(suffix, authState) {
   )).user;
   await getAdminAuth(adminApp).updateUser(user.uid, authState);
   await user.getIdToken(true);
+  if (!ensureIdentity) {
+    await db.collection("users").doc(user.uid).set({
+      uid: user.uid,
+      role: "provider",
+      accountStatus: "active",
+      isActive: true,
+      isBlocked: false,
+      providerId: null,
+      email: `identity-${suffix}@feasta.test`,
+      phoneNumber: null,
+      isEmailVerified: true,
+      isPhoneVerified: false,
+    });
+    return user;
+  }
   await callFunction(
     "ensureProviderIdentity",
     user,
-    identityInput("Identity", suffix, authState.phoneNumber ?? "+639173333332"),
+    identityInput(
+      "Identity",
+      suffix,
+      authState.phoneNumber ?? "+639173333332",
+      `identity-${suffix}@feasta.test`,
+    ),
   );
   return user;
 }
 
-function identityInput(firstName, lastName, phoneNumber) {
+function identityInput(firstName, lastName, phoneNumber, email) {
   return {
     firstName,
     lastName,
+    email,
     phoneNumber,
     acceptedTerms: true,
     acceptedPrivacy: true,
@@ -223,6 +247,7 @@ async function registerAndSubmitProvider() {
   const identity = await callFunction("ensureProviderIdentity", providerUser, {
     firstName: "Acceptance",
     lastName: "Provider",
+    email,
     phoneNumber: "+639172222222",
     acceptedTerms: true,
     acceptedPrivacy: true,

@@ -8,7 +8,7 @@ const source = (relative) => readFileSync(path.join(root, relative), "utf8");
 
 const policies = [
   ["ensureUserProfile", "auth/ensure-user-profile.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions"]],
-  ["ensureProviderIdentity", "auth/ensure-provider-identity.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions", "isAuthoritativeAuthPhone", "requireProviderConsent"]],
+  ["ensureProviderIdentity", "auth/ensure-provider-identity.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions", "isAuthoritativeAuthPhone", "passwordLinked", "authEmail !== submittedEmail", "requireProviderConsent"]],
   ["syncUserAuthState", "auth/sync-user-auth-state.ts", ["requireAuth(request)", "enforceCallableRateLimit", "authUser.disabled", "appCheckCallableOptions"]],
   ["syncPhoneVerification", "auth/sync-phone-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "getAuth().getUser", "appCheckCallableOptions"]],
   ["prepareProviderPhoneVerification", "auth/prepare-provider-phone-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "getAuth().getUser", "appCheckCallableOptions", "isPhoneVerified: false"]],

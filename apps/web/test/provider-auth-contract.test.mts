@@ -50,7 +50,15 @@ test("provider identity and business registration use only trusted callables", a
   assert.match(client, /registerProvider/u);
   assert.match(client, /validateProviderOwnerIdentityInput/u);
   assert.match(client, /exchangeCurrentUserForSession\("provider"/u);
-  assert.match(client, /sendEmailVerification\(credential\.user\)/u);
+  assert.match(client, /sendEmailVerification\(user\)/u);
+  assert.match(client, /linkWithCredential\(user, emailCredential\)/u);
+  assert.doesNotMatch(
+    client.slice(
+      client.indexOf("export async function registerProviderIdentity"),
+      client.indexOf("export async function signInProvider"),
+    ),
+    /createUserWithEmailAndPassword/u,
+  );
   assert.doesNotMatch(client, /isPhoneVerified\s*:/u);
   assert.doesNotMatch(client, /phoneVerified\s*:/u);
   assert.doesNotMatch(client, /verificationStatus\s*:/u);

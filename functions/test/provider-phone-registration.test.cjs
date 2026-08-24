@@ -64,6 +64,8 @@ test("provider identity cannot accept or persist client verification state", () 
     "const phoneNumber = requirePhilippineMobile(input.phoneNumber)",
   ));
   assert.ok(identity.includes("isAuthoritativeAuthPhone(authUser, phoneNumber)"));
+  assert.ok(identity.includes('provider.providerId === "password"'));
+  assert.ok(identity.includes("authEmail !== submittedEmail"));
   assert.ok(identity.includes("isPhoneVerified: phoneVerified"));
   assert.ok(identity.includes("requireProviderConsent"));
 });

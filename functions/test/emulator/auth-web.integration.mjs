@@ -7,14 +7,16 @@ import {deleteApp, initializeApp} from "firebase/app";
 import {
   connectAuthEmulator,
   createUserWithEmailAndPassword,
+  EmailAuthProvider,
   getAuth,
   GoogleAuthProvider,
+  linkWithCredential,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithCredential,
+  signInWithCustomToken,
   signInWithEmailAndPassword,
   signOut,
-  EmailAuthProvider,
   reauthenticateWithCredential,
   updatePassword,
   verifyBeforeUpdateEmail,
@@ -335,6 +337,71 @@ async function testProviderPhoneFirstAuthentication() {
       .empty,
     true,
   );
+
+  await signOut(auth);
+  const customToken = await adminAuth.createCustomToken(first.localId);
+  const signedInPhone = await signInWithCustomToken(auth, customToken);
+  const originalUid = signedInPhone.user.uid;
+  assert.equal(originalUid, first.localId);
+  const providerEmail = "phase-c.phone-provider@feasta.test";
+  const linked = await linkWithCredential(
+    signedInPhone.user,
+    EmailAuthProvider.credential(providerEmail, password),
+  );
+  assert.equal(linked.user.uid, originalUid);
+  assert.equal(auth.currentUser?.uid, originalUid);
+  assert.ok(linked.user.providerData.some(
+    (provider) => provider.providerId === "phone",
+  ));
+  assert.ok(linked.user.providerData.some(
+    (provider) => provider.providerId === "password",
+  ));
+  assert.equal(linked.user.emailVerified, false);
+  await linked.user.getIdToken(true);
+
+  const identityInput = {
+    firstName: "Phase C",
+    lastName: "Provider",
+    email: providerEmail,
+    phoneNumber,
+    acceptedTerms: true,
+    acceptedPrivacy: true,
+    termsPolicyVersion: "phase-c-test-terms",
+    privacyPolicyVersion: "phase-c-test-privacy",
+  };
+  const identity = await callFunction(
+    "ensureProviderIdentity",
+    linked.user,
+    identityInput,
+  );
+  assert.equal(identity.created, true);
+  const replay = await callFunction(
+    "ensureProviderIdentity",
+    linked.user,
+    identityInput,
+  );
+  assert.equal(replay.created, false);
+  const phaseCAuthUser = await adminAuth.getUser(originalUid);
+  assert.equal(phaseCAuthUser.email, providerEmail);
+  assert.equal(phaseCAuthUser.emailVerified, false);
+  assert.equal(
+    (await db.collection("users").doc(originalUid).get()).data()?.role,
+    "provider",
+  );
+  assert.equal(
+    (await db.collection("users").doc(originalUid).get()).data()?.isEmailVerified,
+    false,
+  );
+  assert.equal(
+    (await db.collection("providers").where("ownerId", "==", originalUid).get())
+      .empty,
+    true,
+  );
+  await sendEmailVerification(linked.user);
+  const phaseCVerificationCodes = await oobCodes(providerEmail, "VERIFY_EMAIL");
+  assert.ok(phaseCVerificationCodes.length >= 1);
+  assert.equal(linked.user.emailVerified, false);
+  await signOut(auth);
 }
 
 async function testEmailCustomerFlow() {

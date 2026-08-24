@@ -31,6 +31,7 @@ export const ensureProviderIdentity = onCall(
       rejectUnknownFields(input, [
         "firstName",
         "lastName",
+        "email",
         "phoneNumber",
         "acceptedTerms",
         "acceptedPrivacy",
@@ -45,6 +46,7 @@ export const ensureProviderIdentity = onCall(
         minLength: 1,
         maxLength: 80,
       });
+      const email = requireProviderEmail(input.email);
       const phoneNumber = requirePhilippineMobile(input.phoneNumber);
       const acceptedTerms = input.acceptedTerms === true;
       const acceptedPrivacy = input.acceptedPrivacy === true;
@@ -60,13 +62,16 @@ export const ensureProviderIdentity = onCall(
       if (authUser.disabled) {
         throw new HttpsError("permission-denied", "This account is disabled.");
       }
+      const authEmail = authUser.email?.trim().toLowerCase() ?? "";
+      const phoneVerified = isAuthoritativeAuthPhone(authUser, phoneNumber);
+      const passwordLinked = authUser.providerData.some(
+        (provider) => provider.providerId === "password",
+      );
       const userReference = db.collection("users").doc(authenticatedUser.uid);
 
       const result = await db.runTransaction(async (transaction) => {
         const snapshot = await transaction.get(userReference);
         const existing = snapshot.data();
-        const phoneVerified = isAuthoritativeAuthPhone(authUser, phoneNumber);
-
         if (snapshot.exists) {
           if (existing?.role !== USER_ROLES.provider) {
             throw new HttpsError(
@@ -84,7 +89,6 @@ export const ensureProviderIdentity = onCall(
               "This account is blocked or disabled.",
             );
           }
-          requireProviderConsent(existing, acceptedTerms, acceptedPrivacy);
 
           const providerId = typeof existing.providerId === "string" ?
             existing.providerId.trim() :
@@ -103,19 +107,26 @@ export const ensureProviderIdentity = onCall(
               );
             }
           }
+          requireLinkedProviderAuthState(
+            phoneVerified,
+            passwordLinked,
+            authEmail,
+            email,
+          );
+          requireProviderConsent(existing, acceptedTerms, acceptedPrivacy);
 
           transaction.update(userReference, {
             firstName,
             lastName,
             phoneNumber,
-            email: authUser.email ?? authenticatedUser.email ?? null,
+            email,
             profileImageUrl: authUser.photoURL ?? existing.profileImageUrl ?? null,
             isEmailVerified: authUser.emailVerified,
             isPhoneVerified: phoneVerified,
             phoneVerifiedAt: phoneVerified ?
               existing.phoneVerifiedAt ?? serverTimestamp() :
               null,
-            authProvider: authUser.providerData[0]?.providerId ?? "password",
+            authProvider: "password",
             updatedAt: serverTimestamp(),
             ...(acceptedTerms && existing.termsAcceptedAt == null ? {
               termsAcceptedAt: serverTimestamp(),
@@ -127,12 +138,18 @@ export const ensureProviderIdentity = onCall(
             } : {}),
           });
         } else {
+          requireLinkedProviderAuthState(
+            phoneVerified,
+            passwordLinked,
+            authEmail,
+            email,
+          );
           requireProviderConsent(null, acceptedTerms, acceptedPrivacy);
           transaction.create(userReference, {
             uid: authenticatedUser.uid,
             firstName,
             lastName,
-            email: authUser.email ?? authenticatedUser.email ?? null,
+            email,
             phoneNumber,
             role: USER_ROLES.provider,
             accountStatus: "active",
@@ -143,7 +160,7 @@ export const ensureProviderIdentity = onCall(
             phoneVerifiedAt: phoneVerified ? serverTimestamp() : null,
             isActive: true,
             isBlocked: false,
-            authProvider: authUser.providerData[0]?.providerId ?? "password",
+            authProvider: "password",
             ...(acceptedTerms ? {
               termsAcceptedAt: serverTimestamp(),
               termsPolicyVersion,
@@ -177,6 +194,31 @@ export const ensureProviderIdentity = onCall(
     }
   },
 );
+
+function requireProviderEmail(value: unknown): string {
+  const email = requireString(value, "email", {
+    minLength: 3,
+    maxLength: 160,
+  }).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email)) {
+    throw new HttpsError("invalid-argument", "A valid email is required.");
+  }
+  return email;
+}
+
+function requireLinkedProviderAuthState(
+  phoneVerified: boolean,
+  passwordLinked: boolean,
+  authEmail: string,
+  submittedEmail: string,
+): void {
+  if (!phoneVerified || !passwordLinked || authEmail !== submittedEmail) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The linked provider authentication state is invalid.",
+    );
+  }
+}
 
 function policyVersion(value: unknown, field: string): string {
   if (value === undefined) return "unversioned";

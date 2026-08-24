@@ -1,6 +1,7 @@
 "use client";
 
 import {CheckCircle2, RefreshCw, ShieldCheck} from "lucide-react";
+import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {
   useCallback,
@@ -10,28 +11,53 @@ import {
   type FormEvent,
 } from "react";
 import type {ConfirmationResult} from "firebase/auth";
-import {normalizePhilippineMobile} from "@feasta/shared-types";
+import {
+  normalizePhilippineMobile,
+  validateProviderOwnerIdentityInput,
+} from "@feasta/shared-types";
 
 import {AuthStatus} from "@/components/auth/auth-status";
 import {FormField} from "@/components/forms/form-field";
+import {PasswordInput} from "@/components/forms/password-input";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
-import {providerPhoneVerificationError} from "@/lib/auth/error-messages";
+import {
+  providerAccountDetailsError,
+  providerPhoneVerificationError,
+} from "@/lib/auth/error-messages";
 import {
   abandonProviderPhoneRegistration,
   confirmProviderRegistrationPhoneCode,
   createProviderPhoneRecaptcha,
+  registerProviderIdentity,
   requestProviderRegistrationPhoneCode,
   resumeExistingProviderAfterPhoneAuth,
   resumeProviderPhoneRegistration,
   type ProviderPhoneRegistrationResult,
+  UNVERSIONED_POLICY_VERSION,
 } from "@/lib/auth/provider-client";
 
 const RECAPTCHA_CONTAINER_ID = "provider-registration-phone-recaptcha";
 const RESEND_COOLDOWN_SECONDS = 60;
 const OTP_EXPIRY_SECONDS = 5 * 60;
 
-type RegistrationView = "checking" | "phone" | "otp" | "complete";
+type RegistrationView =
+  | "checking"
+  | "phone"
+  | "otp"
+  | "account-details"
+  | "complete";
+
+type AccountDetailsErrors = Partial<Record<
+  | "firstName"
+  | "lastName"
+  | "email"
+  | "password"
+  | "confirmPassword"
+  | "acceptedTerms"
+  | "acceptedPrivacy",
+  string
+>>;
 
 export function ProviderPhoneRegistrationForm() {
   const router = useRouter();
@@ -39,6 +65,16 @@ export function ProviderPhoneRegistrationForm() {
   const [phoneInput, setPhoneInput] = useState("");
   const [verifiedPhone, setVerifiedPhone] = useState("");
   const [otp, setOtp] = useState("");
+  const [accountDetails, setAccountDetails] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+  });
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
+  const [accountErrors, setAccountErrors] = useState<AccountDetailsErrors>({});
   const [busy, setBusy] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [expiry, setExpiry] = useState(0);
@@ -71,10 +107,7 @@ export function ProviderPhoneRegistrationForm() {
 
     if (
       result.classification === "registered_provider" ||
-      (
-        result.classification === "provider_identity" &&
-        result.resolution.state !== "email_credential_link_required"
-      )
+      result.classification === "provider_identity"
     ) {
       const session = await resumeExistingProviderAfterPhoneAuth();
       if (!cancelled) {
@@ -84,10 +117,26 @@ export function ProviderPhoneRegistrationForm() {
       return;
     }
 
+    if (
+      result.classification === "auth_only" &&
+      (
+        result.resolution.state === "email_credential_link_required" ||
+        result.resolution.state === "provider_identity_required"
+      )
+    ) {
+      if (!cancelled) {
+        setVerifiedPhone(result.phoneNumber);
+        setView("account-details");
+        setMessage("Your mobile number is verified.");
+      }
+      return;
+    }
+
+    await abandonProviderPhoneRegistration().catch(() => undefined);
     if (!cancelled) {
-      setView("complete");
-      setMessage(
-        "Your mobile number is verified. Your Firebase phone session is ready for the account-details step.",
+      setView("phone");
+      setError(
+        "This provider registration state is inconsistent. Verify your number again or contact support.",
       );
     }
   }, [router]);
@@ -219,6 +268,65 @@ export function ProviderPhoneRegistrationForm() {
     setView("phone");
   }
 
+  function updateAccountDetail(
+    key: keyof typeof accountDetails,
+    value: string,
+  ) {
+    setAccountDetails((current) => ({...current, [key]: value}));
+  }
+
+  async function submitAccountDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (actionInProgress.current) return;
+    const nextErrors = validateAccountDetails({
+      ...accountDetails,
+      phoneNumber: verifiedPhone,
+      acceptedTerms,
+      acceptedPrivacy,
+    });
+    setAccountErrors(nextErrors);
+    setError(null);
+    if (Object.keys(nextErrors).length > 0) return;
+
+    actionInProgress.current = true;
+    setBusy(true);
+    try {
+      const result = await registerProviderIdentity({
+        firstName: accountDetails.firstName,
+        lastName: accountDetails.lastName,
+        email: accountDetails.email,
+        password: accountDetails.password,
+        phoneNumber: verifiedPhone,
+        acceptedTerms: true,
+        acceptedPrivacy: true,
+        termsPolicyVersion: UNVERSIONED_POLICY_VERSION,
+        privacyPolicyVersion: UNVERSIONED_POLICY_VERSION,
+      });
+      setAccountDetails((current) => ({
+        ...current,
+        password: "",
+        confirmPassword: "",
+      }));
+      const delivery = result.emailVerified
+        ? "already-verified"
+        : result.verificationEmailSent
+          ? "sent"
+          : "retry";
+      setMessage(result.verificationEmailSent
+        ? "Your provider identity is ready and a verification email was sent."
+        : "Your provider identity is ready. You can resend the verification email at the next checkpoint.");
+      setView("complete");
+      router.replace(
+        `/provider-verify-email?registration=complete&delivery=${delivery}`,
+      );
+    } catch (caught) {
+      setError(providerAccountDetailsError(caught));
+    } finally {
+      actionInProgress.current = false;
+      setBusy(false);
+    }
+  }
+
   if (view === "checking") {
     return (
       <div role="status" className="flex min-h-64 items-center justify-center gap-3 text-sm text-muted-foreground">
@@ -234,12 +342,122 @@ export function ProviderPhoneRegistrationForm() {
         <span className="mx-auto flex size-14 items-center justify-center rounded-full bg-success/10 text-success">
           <CheckCircle2 aria-hidden="true" className="size-8" />
         </span>
-        <h2 className="mt-5 text-2xl font-black">Mobile number verified</h2>
-        <AuthStatus id="provider-phone-complete" message={message ?? "Mobile verification complete."} tone="success" />
+        <h2 className="mt-5 text-2xl font-black">Provider account details complete</h2>
+        <AuthStatus id="provider-phone-complete" message={message ?? "Provider account details complete."} tone="success" />
         <p className="mt-4 text-sm leading-6 text-muted-foreground">
-          Account details and email credential linking are completed in the next registration stage.
+          Continue to the email-verification checkpoint. Provider dashboard access remains locked.
         </p>
       </div>
+    );
+  }
+
+  if (view === "account-details") {
+    return (
+      <>
+        <div className="mb-6">
+          <span className="flex size-11 items-center justify-center rounded-[10px] bg-secondary text-primary-strong">
+            <ShieldCheck aria-hidden="true" className="size-6" />
+          </span>
+          <p className="mt-4 text-xs font-black uppercase tracking-[0.18em] text-primary-strong">
+            Step 2 of 2
+          </p>
+          <h2 className="mt-2 text-2xl font-black tracking-[-0.025em] sm:text-3xl">
+            Complete your provider account
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">
+            Add your account details to continue setting up your FEASTA provider profile.
+          </p>
+        </div>
+        <form onSubmit={submitAccountDetails} className="grid gap-4" noValidate>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField label="First name" required error={accountErrors.firstName} disabled={busy}>
+              <Input
+                autoComplete="given-name"
+                value={accountDetails.firstName}
+                onChange={(event) => updateAccountDetail("firstName", event.target.value)}
+              />
+            </FormField>
+            <FormField label="Last name" required error={accountErrors.lastName} disabled={busy}>
+              <Input
+                autoComplete="family-name"
+                value={accountDetails.lastName}
+                onChange={(event) => updateAccountDetail("lastName", event.target.value)}
+              />
+            </FormField>
+          </div>
+          <FormField label="Email address" required error={accountErrors.email} disabled={busy}>
+            <Input
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              value={accountDetails.email}
+              onChange={(event) => updateAccountDetail("email", event.target.value)}
+            />
+          </FormField>
+          <FormField
+            label="Password"
+            description="Use at least 8 characters."
+            required
+            error={accountErrors.password}
+            disabled={busy}
+          >
+            <PasswordInput
+              autoComplete="new-password"
+              value={accountDetails.password}
+              onChange={(event) => updateAccountDetail("password", event.target.value)}
+            />
+          </FormField>
+          <FormField label="Confirm password" required error={accountErrors.confirmPassword} disabled={busy}>
+            <PasswordInput
+              autoComplete="new-password"
+              value={accountDetails.confirmPassword}
+              onChange={(event) => updateAccountDetail("confirmPassword", event.target.value)}
+            />
+          </FormField>
+          <fieldset className="grid gap-2">
+            <legend className="text-sm font-bold">Agreements</legend>
+            <label className="flex min-h-12 items-start gap-3 rounded-lg p-2 hover:bg-secondary">
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                disabled={busy}
+                aria-invalid={Boolean(accountErrors.acceptedTerms) || undefined}
+                aria-describedby={accountErrors.acceptedTerms ? "provider-terms-error" : undefined}
+                onChange={(event) => setAcceptedTerms(event.target.checked)}
+                className="mt-1 size-5 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+              <span>I accept the <Link href="/terms" className="font-semibold text-primary-strong underline">Terms</Link>.</span>
+            </label>
+            {accountErrors.acceptedTerms ? (
+              <p id="provider-terms-error" role="alert" className="text-sm font-semibold text-destructive">
+                {accountErrors.acceptedTerms}
+              </p>
+            ) : null}
+            <label className="flex min-h-12 items-start gap-3 rounded-lg p-2 hover:bg-secondary">
+              <input
+                type="checkbox"
+                checked={acceptedPrivacy}
+                disabled={busy}
+                aria-invalid={Boolean(accountErrors.acceptedPrivacy) || undefined}
+                aria-describedby={accountErrors.acceptedPrivacy ? "provider-privacy-error" : undefined}
+                onChange={(event) => setAcceptedPrivacy(event.target.checked)}
+                className="mt-1 size-5 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+              <span>I accept the <Link href="/privacy" className="font-semibold text-primary-strong underline">Privacy Policy</Link>.</span>
+            </label>
+            {accountErrors.acceptedPrivacy ? (
+              <p id="provider-privacy-error" role="alert" className="text-sm font-semibold text-destructive">
+                {accountErrors.acceptedPrivacy}
+              </p>
+            ) : null}
+          </fieldset>
+          {message ? <AuthStatus id="provider-details-message" message={message} tone="success" /> : null}
+          {error ? <AuthStatus id="provider-details-error" message={error} tone="error" /> : null}
+          <Button type="submit" fullWidth loading={busy} loadingLabel="Securing provider account" className="h-[52px] rounded-[10px]">
+            Complete provider account
+          </Button>
+        </form>
+      </>
     );
   }
 
@@ -332,6 +550,45 @@ export function ProviderPhoneRegistrationForm() {
       <div id={RECAPTCHA_CONTAINER_ID} aria-hidden="true" />
     </>
   );
+}
+
+export function validateAccountDetails(input: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  confirmPassword: string;
+  phoneNumber: string;
+  acceptedTerms: boolean;
+  acceptedPrivacy: boolean;
+}): AccountDetailsErrors {
+  const errors: AccountDetailsErrors = {};
+  const identity = validateProviderOwnerIdentityInput({
+    firstName: input.firstName,
+    lastName: input.lastName,
+    email: input.email,
+    phone: input.phoneNumber,
+    acceptedTerms: input.acceptedTerms,
+    acceptedPrivacy: input.acceptedPrivacy,
+    termsPolicyVersion: UNVERSIONED_POLICY_VERSION,
+    privacyPolicyVersion: UNVERSIONED_POLICY_VERSION,
+  });
+  if (!identity.success) {
+    for (const issue of identity.issues) {
+      if (issue.field === "firstName") errors.firstName = "Enter your first name.";
+      if (issue.field === "lastName") errors.lastName = "Enter your last name.";
+      if (issue.field === "email") errors.email = "Enter a valid email address.";
+      if (issue.field === "acceptedTerms") errors.acceptedTerms = "Accept the Terms to continue.";
+      if (issue.field === "acceptedPrivacy") errors.acceptedPrivacy = "Accept the Privacy Policy to continue.";
+    }
+  }
+  if (input.password.length < 8) {
+    errors.password = "Use at least 8 characters.";
+  }
+  if (input.password !== input.confirmPassword) {
+    errors.confirmPassword = "Passwords do not match.";
+  }
+  return errors;
 }
 
 function normalizePhoneInput(value: string): string | null {

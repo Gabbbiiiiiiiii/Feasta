@@ -1,6 +1,9 @@
 import {describe, expect, it} from "vitest";
 
-import {providerPhoneVerificationError} from "@/lib/auth/error-messages";
+import {
+  providerAccountDetailsError,
+  providerPhoneVerificationError,
+} from "@/lib/auth/error-messages";
 
 describe("provider phone registration error normalization", () => {
   it.each([
@@ -27,5 +30,39 @@ describe("provider phone registration error normalization", () => {
     });
     expect(message).toBe("We could not complete that request. Please try again.");
     expect(message).not.toContain("raw-provider-uid-and-stack");
+  });
+});
+
+describe("provider account-details error normalization", () => {
+  it.each([
+    "auth/email-already-in-use",
+    "auth/credential-already-in-use",
+    "auth/account-exists-with-different-credential",
+  ])("keeps %s collision recovery private", (code) => {
+    const message = providerAccountDetailsError({
+      code,
+      message: "another-user-secret-uid",
+    });
+    expect(message).toBe(
+      "This email is already associated with another account. Sign in to that account or use another email.",
+    );
+    expect(message).not.toContain(code);
+    expect(message).not.toContain("secret-uid");
+  });
+
+  it("maps idempotent and recent-auth recovery safely", () => {
+    expect(providerAccountDetailsError({code: "auth/provider-already-linked"}))
+      .toMatch(/already linked/i);
+    expect(providerAccountDetailsError({code: "auth/requires-recent-login"}))
+      .toMatch(/phone session expired/i);
+    expect(providerAccountDetailsError({code: "auth/invalid-credential"}))
+      .toMatch(/phone session expired/i);
+  });
+
+  it("maps weak-password and network errors through shared auth handling", () => {
+    expect(providerAccountDetailsError({code: "auth/weak-password"}))
+      .toMatch(/stronger password/i);
+    expect(providerAccountDetailsError({code: "auth/network-request-failed"}))
+      .toMatch(/internet connection/i);
   });
 });

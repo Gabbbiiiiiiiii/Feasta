@@ -1,9 +1,8 @@
 "use client";
 
 import {
-  createUserWithEmailAndPassword,
-  deleteUser,
   browserSessionPersistence,
+  EmailAuthProvider,
   linkWithCredential,
   PhoneAuthProvider,
   RecaptchaVerifier,
@@ -58,6 +57,7 @@ export interface ProviderPhoneVerificationSession {
 export interface ProviderPhoneRegistrationResult {
   classification: ProviderAccountClassification;
   resolution: ProviderRegistrationResolution;
+  phoneNumber: string;
 }
 
 export {UNVERSIONED_POLICY_VERSION};
@@ -197,12 +197,17 @@ async function classifyCurrentProviderPhoneUser(
   return {
     classification: body.classification,
     resolution: body.resolution,
+    phoneNumber: normalizedExpected,
   };
 }
 
 export async function registerProviderIdentity(
   input: ProviderIdentityInput,
-): Promise<{verificationEmailSent: boolean}> {
+): Promise<{
+  verificationEmailSent: boolean;
+  emailVerified: boolean;
+  credentialLinked: boolean;
+}> {
   const validation = validateProviderOwnerIdentityInput({
     firstName: input.firstName,
     lastName: input.lastName,
@@ -230,30 +235,102 @@ export async function registerProviderIdentity(
     identity.email,
   );
   await setPersistence(auth, browserSessionPersistence);
-  const credential = await createUserWithEmailAndPassword(
-    auth,
-    identity.email,
-    input.password,
+  await auth.authStateReady();
+  const user = requireProviderAuthUser();
+  const originalUid = user.uid;
+  const authPhone = normalizePhilippineMobile(user.phoneNumber);
+  const hasPhoneProvider = user.providerData.some(
+    (provider) => provider.providerId === PhoneAuthProvider.PROVIDER_ID,
   );
-  try {
-    await call("ensureProviderIdentity", {
-      firstName: identity.firstName,
-      lastName: identity.lastName,
-      phoneNumber: identity.phone,
-      acceptedTerms: identity.acceptedTerms,
-      acceptedPrivacy: identity.acceptedPrivacy,
-      termsPolicyVersion: identity.termsPolicyVersion,
-      privacyPolicyVersion: identity.privacyPolicyVersion,
-    });
-  } catch (error) {
-    await deleteUser(credential.user).catch(() => undefined);
-    throw error;
+  if (!hasPhoneProvider || authPhone !== identity.phone) {
+    throw new WebAuthenticationError(
+      "Your verified mobile session changed. Verify your number again.",
+      "session_expired",
+    );
+  }
+
+  const unsupportedProvider = user.providerData.some(
+    (provider) =>
+      provider.providerId !== PhoneAuthProvider.PROVIDER_ID &&
+      provider.providerId !== EmailAuthProvider.PROVIDER_ID,
+  );
+  if (unsupportedProvider) {
+    throw new WebAuthenticationError(
+      "This authentication relationship cannot continue provider registration.",
+      "account_inconsistent",
+    );
+  }
+
+  let credentialLinked = false;
+  if (hasPasswordProvider(user)) {
+    assertLinkedProviderAccount(user, originalUid, identity.email);
+  } else {
+    const emailCredential = EmailAuthProvider.credential(
+      identity.email,
+      input.password,
+    );
+    try {
+      const linkResult = await linkWithCredential(user, emailCredential);
+      if (
+        linkResult.user.uid !== originalUid ||
+        auth.currentUser?.uid !== originalUid
+      ) {
+        throw new WebAuthenticationError(
+          "Your authentication session changed. Start again safely.",
+          "uid_mismatch",
+        );
+      }
+      credentialLinked = true;
+    } catch (error) {
+      if (!firebaseCode(error).includes("provider-already-linked")) {
+        throw error;
+      }
+      await reload(user);
+    }
+    assertLinkedProviderAccount(requireProviderAuthUser(), originalUid, identity.email);
+  }
+
+  await reload(user);
+  assertLinkedProviderAccount(requireProviderAuthUser(), originalUid, identity.email);
+  if (normalizePhilippineMobile(user.phoneNumber) !== identity.phone) {
+    throw new WebAuthenticationError(
+      "Your verified mobile session changed. Verify your number again.",
+      "session_expired",
+    );
+  }
+  await user.getIdToken(true);
+  await call("ensureProviderIdentity", {
+    firstName: identity.firstName,
+    lastName: identity.lastName,
+    email: identity.email,
+    phoneNumber: identity.phone,
+    acceptedTerms: identity.acceptedTerms,
+    acceptedPrivacy: identity.acceptedPrivacy,
+    termsPolicyVersion: identity.termsPolicyVersion,
+    privacyPolicyVersion: identity.privacyPolicyVersion,
+  });
+  assertLinkedProviderAccount(requireProviderAuthUser(), originalUid, identity.email);
+
+  if (user.emailVerified) {
+    return {
+      verificationEmailSent: false,
+      emailVerified: true,
+      credentialLinked,
+    };
   }
   try {
-    await sendEmailVerification(credential.user);
-    return {verificationEmailSent: true};
+    await sendEmailVerification(user);
+    return {
+      verificationEmailSent: true,
+      emailVerified: false,
+      credentialLinked,
+    };
   } catch {
-    return {verificationEmailSent: false};
+    return {
+      verificationEmailSent: false,
+      emailVerified: false,
+      credentialLinked,
+    };
   }
 }
 
@@ -528,6 +605,51 @@ function requireProviderAuthUser() {
     );
   }
   return auth.currentUser;
+}
+
+function hasPasswordProvider(user: {providerData: readonly {providerId: string}[]}): boolean {
+  return user.providerData.some(
+    (provider) => provider.providerId === EmailAuthProvider.PROVIDER_ID,
+  );
+}
+
+function assertLinkedProviderAccount(
+  user: ReturnType<typeof requireProviderAuthUser>,
+  originalUid: string,
+  normalizedEmail: string,
+): void {
+  if (user.uid !== originalUid || auth.currentUser?.uid !== originalUid) {
+    throw new WebAuthenticationError(
+      "Your authentication session changed. Start again safely.",
+      "uid_mismatch",
+    );
+  }
+  if (!hasPasswordProvider(user)) {
+    throw new WebAuthenticationError(
+      "The email sign-in method was not linked. Try again.",
+      "credential_not_linked",
+    );
+  }
+  if (!user.providerData.some(
+    (provider) => provider.providerId === PhoneAuthProvider.PROVIDER_ID,
+  )) {
+    throw new WebAuthenticationError(
+      "The verified mobile sign-in method is unavailable. Start again safely.",
+      "account_inconsistent",
+    );
+  }
+  if (user.email?.trim().toLowerCase() !== normalizedEmail) {
+    throw new WebAuthenticationError(
+      "This phone account already has a different email. Sign in to the correct account or contact support.",
+      "account_inconsistent",
+    );
+  }
+}
+
+function firebaseCode(error: unknown): string {
+  return typeof error === "object" && error !== null && "code" in error
+    ? String(error.code)
+    : "";
 }
 
 async function call<T>(name: string, data: Record<string, unknown>): Promise<T> {
