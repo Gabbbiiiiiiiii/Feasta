@@ -474,7 +474,7 @@ export function ProviderPhoneRegistrationForm() {
               onClick={() => void continueExistingProvider()}
               className="h-[52px] rounded-[10px]"
             >
-              {isRegisteredProvider ? "Continue to provider account" : "Continue registration"}
+              {isRegisteredProvider ? "Continue to your provider account" : "Continue registration"}
             </Button>
           ) : null}
           {isNonProvider ? (
