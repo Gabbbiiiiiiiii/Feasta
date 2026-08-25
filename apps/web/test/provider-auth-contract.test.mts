@@ -5,7 +5,7 @@ import test from "node:test";
 const sourceRoot = new URL("../src/", import.meta.url);
 const source = (path: string) => readFile(new URL(path, sourceRoot), "utf8");
 
-test("provider routes retain server role, email, and operation gates", async () => {
+test("provider routes split identity access from onboarding and operation gates", async () => {
   const [layout, dashboard, dashboardService, packages] = await Promise.all([
     source("app/provider/layout.tsx"),
     source("app/provider/page.tsx"),
@@ -13,10 +13,15 @@ test("provider routes retain server role, email, and operation gates", async () 
     source("app/provider/packages/layout.tsx"),
   ]);
   assert.match(layout, /requireProvider\(\)/u);
-  assert.match(layout, /requireVerifiedProviderIdentity/u);
+  assert.match(layout, /requireProviderIdentityAccess/u);
+  assert.match(layout, /identity-limited/u);
   const session = await source("lib/auth/session.ts");
   assert.match(session, /requireVerifiedEmail\(account, "\/provider-verify-email"\)/u);
   assert.match(session, /redirect\("\/provider-verify-phone"\)/u);
+  assert.match(
+    session,
+    /requireApprovedProvider[\s\S]*?requireOnboardingReadyProvider\(\)/u,
+  );
   assert.match(dashboard, /getProviderDashboardData\(\)/u);
   assert.doesNotMatch(dashboard, /firebase-admin|adminDb/u);
   assert.match(dashboardService, /^import "server-only";/u);

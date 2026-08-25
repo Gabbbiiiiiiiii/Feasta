@@ -5,6 +5,7 @@ import {ProviderOnboardingShell} from "@/components/provider/onboarding-shell";
 import {
   loadOwnedProviderVerification,
   requireProvider,
+  requireVerifiedProviderIdentity,
 } from "@/lib/auth/session";
 import {PROVIDER_ONBOARDING_STEPS} from "@/lib/provider/onboarding";
 
@@ -15,7 +16,9 @@ export default async function ProviderVerificationPage({
 }: {
   searchParams: Promise<{stage?: string}>;
 }) {
-  const account = await requireProvider();
+  const account = requireVerifiedProviderIdentity(
+    await requireProvider(),
+  );
   if (!account.provider) redirect("/provider/onboarding");
   const status = account.provider.verificationStatus;
   if (["submitted", "under_review", "rejected", "suspended"].includes(status)) {

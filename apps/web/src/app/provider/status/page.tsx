@@ -7,11 +7,14 @@ import {Button} from "@/components/ui/button";
 import {
   loadOwnedProviderVerification,
   requireProvider,
+  requireVerifiedProviderIdentity,
 } from "@/lib/auth/session";
 import {providerStatusPresentation} from "@/lib/provider/status";
 
 export default async function ProviderStatusPage() {
-  const account = await requireProvider();
+  const account = requireVerifiedProviderIdentity(
+    await requireProvider(),
+  );
   if (!account.provider) redirect("/provider/onboarding");
   const status = account.provider.verificationStatus;
   const verification = await loadOwnedProviderVerification(account);

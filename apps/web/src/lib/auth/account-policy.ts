@@ -215,7 +215,10 @@ export function safeReturnPathForAccount(
 ): string {
   const home = accountHomePath(account.role);
   if (account.role === "provider") {
-    if (!account.emailVerified) return "/provider-verify-email";
+    if (!account.emailVerified) {
+      if (!account.isPhoneVerified) return "/provider-verify-email";
+      return isIdentityLevelProviderPath(value) ? value : "/provider";
+    }
     if (!account.isPhoneVerified) return "/provider-verify-phone";
   }
   if (!isSafeRelativeReturnTo(value)) {
@@ -239,9 +242,19 @@ export function providerAccountDestination(
     "emailVerified" | "isPhoneVerified" | "provider"
   >,
 ): string {
-  if (!account.emailVerified) return "/provider-verify-email";
+  if (!account.emailVerified) {
+    return account.isPhoneVerified
+      ? "/provider"
+      : "/provider-verify-email";
+  }
   if (!account.isPhoneVerified) return "/provider-verify-phone";
   return providerAccessDestination(account);
+}
+
+function isIdentityLevelProviderPath(
+  value: unknown,
+): value is "/provider" | "/provider/account" {
+  return value === "/provider" || value === "/provider/account";
 }
 
 export function providerAccessDestination(

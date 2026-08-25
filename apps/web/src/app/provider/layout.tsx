@@ -3,7 +3,7 @@ import {
 } from "@/components/layout/application-shell";
 import {
   requireProvider,
-  requireVerifiedProviderIdentity,
+  requireProviderIdentityAccess,
 } from "@/lib/auth/session";
 
 export default async function ProviderLayout({
@@ -11,10 +11,27 @@ export default async function ProviderLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const user =
-    requireVerifiedProviderIdentity(
-      await requireProvider(),
-    );
+  const user = requireProviderIdentityAccess(
+    await requireProvider(),
+  );
+
+  const providerContext = !user.emailVerified
+    ? {kind: "identity-limited" as const}
+    : user.provider
+      ? {
+          kind: "profile" as const,
+          providerServiceType:
+            user.provider.providerServiceType,
+          verificationStatus:
+            user.provider.verificationStatus,
+          isActive:
+            user.provider.isActive,
+          isSuspended:
+            user.provider.isSuspended,
+          isDeleted:
+            user.provider.isDeleted,
+        }
+      : {kind: "no-profile" as const};
 
   return (
     <ApplicationShell
@@ -23,25 +40,7 @@ export default async function ProviderLayout({
         user.email ??
         user.uid
       }
-      providerContext={
-        user.provider
-          ? {
-              kind: "profile",
-              providerServiceType:
-                user.provider.providerServiceType,
-              verificationStatus:
-                user.provider.verificationStatus,
-              isActive:
-                user.provider.isActive,
-              isSuspended:
-                user.provider.isSuspended,
-              isDeleted:
-                user.provider.isDeleted,
-            }
-          : {
-              kind: "no-profile",
-            }
-      }
+      providerContext={providerContext}
     >
       {children}
     </ApplicationShell>

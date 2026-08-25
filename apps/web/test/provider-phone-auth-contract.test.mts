@@ -102,7 +102,9 @@ test("Phase C links email/password to the same phone UID before identity creatio
   assert.ok(form.includes('href="/terms"'));
   assert.ok(form.includes('href="/privacy"'));
   assert.ok(form.includes("validateProviderOwnerIdentityInput"));
-  assert.ok(form.includes("/provider-verify-email?registration=complete&delivery="));
+  assert.ok(form.includes("establishProviderIdentitySession"));
+  assert.ok(form.includes('router.replace("/provider")'));
+  assert.equal(form.includes("/provider-verify-email?registration=complete"), false);
   assert.equal(form.includes("/provider?uid="), false);
 });
 
@@ -152,7 +154,9 @@ test("provider routes enforce the phone gate before onboarding", () => {
   const layout = source("app/provider/layout.tsx");
   const session = source("lib/auth/session.ts");
   const page = source("app/provider-verify-phone/page.tsx");
-  assert.ok(layout.includes("requireVerifiedProviderIdentity"));
+  assert.ok(layout.includes("requireProviderIdentityAccess"));
+  assert.ok(session.includes("requireOnboardingReadyProvider"));
+  assert.ok(session.includes("requireVerifiedProviderIdentity"));
   assert.ok(session.includes('redirect("/provider-verify-phone")'));
   assert.ok(page.includes("account.isPhoneVerified"));
   assert.ok(page.includes("providerAccessDestination(account)"));

@@ -274,12 +274,38 @@ export async function requireProvider(): Promise<SessionUser> {
 }
 
 /**
- * Allows a linked provider to manage private draft catalog records regardless
- * of verification state. Publication and live operations remain guarded by
- * requireApprovedProvider and backend authorization.
+ * Identity-level provider access trusts the server-resolved provider role and
+ * requires the authoritative phone-verification field. Email verification is
+ * deliberately not required here; callers must not use this guard for
+ * onboarding, catalog, verification submission, or provider operations.
+ */
+export function requireProviderIdentityAccess(
+  account: SessionUser,
+): SessionUser {
+  if (!account.isPhoneVerified) {
+    redirect(
+      account.emailVerified
+        ? "/provider-verify-phone"
+        : "/provider-verify-email",
+    );
+  }
+  return account;
+}
+
+export async function requireOnboardingReadyProvider(): Promise<SessionUser> {
+  return requireVerifiedProviderIdentity(
+    await requireProvider(),
+  );
+}
+
+/**
+ * Allows an onboarding-ready linked provider to manage private draft catalog
+ * records regardless of provider-review status. Publication and live
+ * operations remain guarded by requireApprovedProvider and backend
+ * authorization.
  */
 export async function requireProviderCatalogAccess(): Promise<SessionUser> {
-  const account = await requireProvider();
+  const account = await requireOnboardingReadyProvider();
   if (!account.provider || account.provider.id !== account.providerId) {
     redirect("/provider/onboarding");
   }
@@ -287,7 +313,7 @@ export async function requireProviderCatalogAccess(): Promise<SessionUser> {
 }
 
 export async function requireApprovedProvider(): Promise<SessionUser> {
-  const account = await requireProvider();
+  const account = await requireOnboardingReadyProvider();
   if (
     account.provider?.verificationStatus !== "approved" ||
     account.provider.isActive !== true ||

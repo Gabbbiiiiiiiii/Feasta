@@ -95,6 +95,25 @@ function ProviderMobileNavigation({
       isNavigationItemActive(pathname, item),
   );
 
+  if (links.length <= 3) {
+    return (
+      <nav
+        aria-label="Provider mobile navigation"
+        className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 md:hidden"
+      >
+        <ul className="grid grid-flow-col auto-cols-fr gap-1">
+          {links.map((item) => (
+            <MobileNavigationLink
+              key={item.href}
+              item={item}
+              active={isNavigationItemActive(pathname, item)}
+            />
+          ))}
+        </ul>
+      </nav>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <nav

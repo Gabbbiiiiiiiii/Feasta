@@ -145,6 +145,15 @@ export async function resumeExistingProviderAfterPhoneAuth(): Promise<
   return exchangeCurrentUserForSession("provider", "/provider");
 }
 
+export async function establishProviderIdentitySession(): Promise<
+  WebSessionResult
+> {
+  const user = requireProviderAuthUser();
+  await reload(user);
+  await user.getIdToken(true);
+  return exchangeCurrentUserForSession("provider", "/provider");
+}
+
 export async function abandonProviderPhoneRegistration(): Promise<void> {
   await signOut(auth);
 }

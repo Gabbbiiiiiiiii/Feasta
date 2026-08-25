@@ -108,6 +108,11 @@ test("provider destinations enforce email then phone before onboarding", () => {
     provider,
   }), "/provider-verify-email");
   assert.equal(providerAccountDestination({
+    emailVerified: false,
+    isPhoneVerified: true,
+    provider,
+  }), "/provider");
+  assert.equal(providerAccountDestination({
     emailVerified: true,
     isPhoneVerified: false,
     provider,
@@ -123,6 +128,37 @@ test("provider destinations enforce email then phone before onboarding", () => {
     isPhoneVerified: false,
     provider: null,
   }), "/provider-verify-phone");
+
+  const limitedIdentity = {
+    role: "provider" as const,
+    emailVerified: false,
+    isPhoneVerified: true,
+    provider: null,
+  };
+  assert.equal(
+    safeReturnPathForAccount("/provider", limitedIdentity),
+    "/provider",
+  );
+  assert.equal(
+    safeReturnPathForAccount("/provider/account", limitedIdentity),
+    "/provider/account",
+  );
+  for (const denied of [
+    "/provider/onboarding",
+    "/provider/bookings",
+    "/provider/requests",
+    "/provider/calendar",
+    "/provider/availability",
+    "/provider/payments",
+    "/provider/messages",
+    "/provider/reviews",
+    "/provider/business-profile",
+    "/provider/packages",
+    "/provider/services",
+    "/provider/verification",
+  ]) {
+    assert.equal(safeReturnPathForAccount(denied, limitedIdentity), "/provider");
+  }
 });
 
 test("disabled, missing, blocked, and deactivated accounts fail closed", () => {

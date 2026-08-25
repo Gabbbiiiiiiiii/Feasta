@@ -3,13 +3,12 @@ import {PageHeading} from "@/components/layout/page-heading";
 import {loadAccountManagementProfile} from "@/lib/auth/account-management";
 import {
   requireProvider,
-  requireVerifiedEmail,
+  requireProviderIdentityAccess,
 } from "@/lib/auth/session";
 
 export default async function ProviderAccountPage() {
-  const account = requireVerifiedEmail(
+  const account = requireProviderIdentityAccess(
     await requireProvider(),
-    "/provider-verify-email",
   );
   const profile = await loadAccountManagementProfile(account);
   return (

@@ -6,6 +6,9 @@ import {
 import Link from "next/link";
 
 import {
+  LimitedProviderDashboard,
+} from "@/components/provider/limited-provider-dashboard";
+import {
   ChartContainer,
   SummaryCard,
 } from "@/components/data";
@@ -19,10 +22,29 @@ import {
   Button,
 } from "@/components/ui/button";
 import {
+  requireProvider,
+  requireProviderIdentityAccess,
+} from "@/lib/auth/session";
+import {
   getProviderDashboardData,
 } from "@/lib/provider/dashboard/provider-dashboard-service";
+import {
+  getLimitedProviderDashboardData,
+} from "@/lib/provider/dashboard/limited-provider-dashboard-service";
 
 export default async function ProviderPage() {
+  const account = requireProviderIdentityAccess(
+    await requireProvider(),
+  );
+
+  if (!account.emailVerified) {
+    return (
+      <LimitedProviderDashboard
+        dashboard={await getLimitedProviderDashboardData()}
+      />
+    );
+  }
+
   const dashboard =
     await getProviderDashboardData();
 

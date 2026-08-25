@@ -77,6 +77,13 @@ describe("provider navigation configuration", () => {
     expect(hrefs({kind: "no-profile"})).not.toContain("/provider/services");
   });
 
+  it("limits an email-unverified provider identity to dashboard and account", () => {
+    expect(hrefs({kind: "identity-limited"})).toEqual([
+      "/provider",
+      "/provider/account",
+    ]);
+  });
+
   it("groups the approved provider workspace into the target sections", () => {
     const groups = groupNavigationItems(
       getRoleNavigation("provider", providerContext({providerServiceType: "both"})),
@@ -191,6 +198,40 @@ describe("provider navigation configuration", () => {
 });
 
 describe("provider navigation rendering", () => {
+  it("renders only identity-safe navigation and hides notifications", () => {
+    navigation.pathname = "/provider";
+    render(
+      <ApplicationShell
+        role="provider"
+        accountLabel="provider@feasta.test"
+        providerContext={{kind: "identity-limited"}}
+      >
+        Limited provider content
+      </ApplicationShell>,
+    );
+
+    const desktop = screen.getByRole("navigation", {
+      name: "Provider primary navigation",
+    });
+    expect(within(desktop).getAllByRole("link")).toHaveLength(2);
+    expect(within(desktop).getByRole("link", {name: "Dashboard"}))
+      .toHaveAttribute("href", "/provider");
+    expect(within(desktop).getByRole("link", {name: "Account & Settings"}))
+      .toHaveAttribute("href", "/provider/account");
+    expect(within(desktop).queryByText(/Packages|Bookings|Payments|Messages/u))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: "Notifications menu"}))
+      .not.toBeInTheDocument();
+
+    const mobile = screen.getByRole("navigation", {
+      name: "Provider mobile navigation",
+    });
+    expect(within(mobile).getAllByRole("link")).toHaveLength(2);
+    expect(within(mobile).queryByRole("button", {
+      name: "More provider navigation",
+    })).not.toBeInTheDocument();
+  });
+
   it("marks only Dashboard active on the provider home route", () => {
     navigation.pathname = "/provider";
     render(

@@ -29,6 +29,7 @@ import {
   abandonProviderPhoneRegistration,
   confirmProviderRegistrationPhoneCode,
   createProviderPhoneRecaptcha,
+  establishProviderIdentitySession,
   registerProviderIdentity,
   requestProviderRegistrationPhoneCode,
   resumeExistingProviderAfterPhoneAuth,
@@ -307,18 +308,13 @@ export function ProviderPhoneRegistrationForm() {
         password: "",
         confirmPassword: "",
       }));
-      const delivery = result.emailVerified
-        ? "already-verified"
-        : result.verificationEmailSent
-          ? "sent"
-          : "retry";
       setMessage(result.verificationEmailSent
         ? "Your provider identity is ready and a verification email was sent."
         : "Your provider identity is ready. You can resend the verification email at the next checkpoint.");
+      await establishProviderIdentitySession();
       setView("complete");
-      router.replace(
-        `/provider-verify-email?registration=complete&delivery=${delivery}`,
-      );
+      router.replace("/provider");
+      router.refresh();
     } catch (caught) {
       setError(providerAccountDetailsError(caught));
     } finally {

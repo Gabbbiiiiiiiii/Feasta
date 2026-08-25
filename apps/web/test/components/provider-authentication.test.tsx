@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   refresh: vi.fn(),
   registerIdentity: vi.fn(),
+  establishIdentitySession: vi.fn(),
   requestRegistrationPhoneCode: vi.fn(),
   confirmRegistrationPhoneCode: vi.fn(),
   resumePhoneRegistration: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/auth/provider-client", () => ({
   UNVERSIONED_POLICY_VERSION: "unversioned",
   registerProviderIdentity: mocks.registerIdentity,
+  establishProviderIdentitySession: mocks.establishIdentitySession,
   createProviderPhoneRecaptcha: vi.fn(() => ({
     clear: mocks.clearPhoneRecaptcha,
   })),
@@ -65,6 +67,10 @@ describe("provider authentication and onboarding", () => {
     vi.clearAllMocks();
     mocks.resumePhoneRegistration.mockResolvedValue(null);
     mocks.abandonPhoneRegistration.mockResolvedValue(undefined);
+    mocks.establishIdentitySession.mockResolvedValue({
+      role: "provider",
+      destination: "/provider",
+    });
     URL.createObjectURL = vi.fn(() => "blob:provider-preview");
     URL.revokeObjectURL = vi.fn();
   });
@@ -198,7 +204,7 @@ describe("provider authentication and onboarding", () => {
     expect(mocks.registerIdentity).not.toHaveBeenCalled();
   });
 
-  it("submits Phase C details and stops at provider email verification", async () => {
+  it("establishes the Phase D provider session after Phase C and routes home", async () => {
     const user = userEvent.setup();
     mocks.resumePhoneRegistration.mockResolvedValueOnce({
       classification: "auth_only",
@@ -237,10 +243,9 @@ describe("provider authentication and onboarding", () => {
       termsPolicyVersion: "unversioned",
       privacyPolicyVersion: "unversioned",
     }));
-    expect(mocks.replace).toHaveBeenCalledWith(
-      "/provider-verify-email?registration=complete&delivery=sent",
-    );
-    expect(mocks.replace).not.toHaveBeenCalledWith("/provider");
+    expect(mocks.establishIdentitySession).toHaveBeenCalledTimes(1);
+    expect(mocks.replace).toHaveBeenCalledWith("/provider");
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
   });
 
   it("resumes after refresh when the password provider linked before identity creation", async () => {

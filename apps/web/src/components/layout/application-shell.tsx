@@ -57,6 +57,9 @@ function ApplicationShell({
             <ApplicationHeader
               role={role}
               accountLabel={accountLabel}
+              showNotifications={
+                providerContext?.kind !== "identity-limited"
+              }
               pageTitle={
                 pageTitle ??
                 `${roleLabels[role]} workspace`

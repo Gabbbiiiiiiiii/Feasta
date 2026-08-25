@@ -24,6 +24,7 @@ type ApplicationHeaderProps = {
   role: ShellRole;
   accountLabel: string;
   pageTitle?: string;
+  showNotifications?: boolean;
 };
 
 type BrandProps = {
@@ -59,6 +60,7 @@ function ApplicationHeader({
   role,
   accountLabel,
   pageTitle,
+  showNotifications = true,
 }: ApplicationHeaderProps) {
   const actions = roleActions[role];
   const accountDetails = useRef<HTMLDetailsElement>(null);
@@ -98,7 +100,7 @@ function ApplicationHeader({
           <div className="flex-1" />
         )}
 
-        <NotificationMenu role={role} />
+        {showNotifications ? <NotificationMenu role={role} /> : null}
 
         <details
           ref={accountDetails}

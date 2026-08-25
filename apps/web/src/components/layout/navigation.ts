@@ -51,6 +51,7 @@ export type NavigationDisabledItem = NavigationItemBase & {
 export type NavigationItem = NavigationLinkItem | NavigationDisabledItem;
 
 export type ProviderNavigationContext =
+  | {kind: "identity-limited"}
   | {kind: "no-profile"}
   | {
     kind: "profile";
@@ -229,6 +230,12 @@ export function getRoleNavigation(
   providerContext?: ProviderNavigationContext,
 ): readonly NavigationItem[] {
   if (role !== "provider") return roleNavigation[role];
+  if (providerContext?.kind === "identity-limited") {
+    return [
+      providerDashboardNavigation,
+      providerAccountNavigation,
+    ];
+  }
   if (!providerContext || providerContext.kind === "no-profile") {
     return roleNavigation.provider;
   }
