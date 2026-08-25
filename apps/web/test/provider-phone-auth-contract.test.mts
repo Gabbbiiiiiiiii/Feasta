@@ -28,6 +28,7 @@ test("new provider registration authenticates by phone before trusted classifica
     "app/provider-register/provider-phone-registration-form.tsx",
   );
   const page = source("app/provider-register/page.tsx");
+  const otp = source("components/auth/six-digit-otp-input.tsx");
   const registrationFlow = client.slice(
     client.indexOf("export async function requestProviderRegistrationPhoneCode"),
     client.indexOf("export async function registerProviderIdentity"),
@@ -49,9 +50,18 @@ test("new provider registration authenticates by phone before trusted classifica
   ));
   assert.ok(form.includes("resumeProviderPhoneRegistration"));
   assert.ok(form.includes("confirmationRef"));
-  assert.ok(form.includes("verifierRef.current?.clear()"));
+  assert.ok(form.includes("verifier?.clear()"));
+  assert.ok(form.includes("replaceChildren()"));
   assert.ok(form.includes("RESEND_COOLDOWN_SECONDS"));
   assert.ok(form.includes("actionInProgress.current"));
+  assert.ok(form.includes("sendCode(verifiedPhone)"));
+  assert.ok(form.includes("busy || cooldown > 0"));
+  assert.equal(form.includes("setInterval"), false);
+  assert.ok(form.includes("SixDigitOtpInput"));
+  assert.ok(otp.includes("one-time-code"));
+  assert.ok(otp.includes('inputMode="numeric"'));
+  assert.ok(otp.includes("grid-cols-6"));
+  assert.ok(otp.includes("onChange(nextDigits.join(\"\").slice(0, OTP_LENGTH))"));
   for (const forbidden of [
     "localStorage",
     "sessionStorage",

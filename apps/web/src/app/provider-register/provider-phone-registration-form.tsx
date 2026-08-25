@@ -17,6 +17,7 @@ import {
 } from "@feasta/shared-types";
 
 import {AuthStatus} from "@/components/auth/auth-status";
+import {SixDigitOtpInput} from "@/components/auth/six-digit-otp-input";
 import {FormField} from "@/components/forms/form-field";
 import {PasswordInput} from "@/components/forms/password-input";
 import {Button} from "@/components/ui/button";
@@ -46,8 +47,17 @@ type RegistrationView =
   | "checking"
   | "phone"
   | "otp"
+  | "existing-account"
   | "account-details"
   | "complete";
+
+type ExistingPhoneState = Extract<
+  ProviderPhoneRegistrationResult["classification"],
+  | "registered_provider"
+  | "provider_identity"
+  | "non_provider_account"
+  | "malformed_provider_relationship"
+>;
 
 type AccountDetailsErrors = Partial<Record<
   | "firstName"
@@ -66,6 +76,8 @@ export function ProviderPhoneRegistrationForm() {
   const [phoneInput, setPhoneInput] = useState("");
   const [verifiedPhone, setVerifiedPhone] = useState("");
   const [otp, setOtp] = useState("");
+  const [existingPhoneState, setExistingPhoneState] =
+    useState<ExistingPhoneState | null>(null);
   const [accountDetails, setAccountDetails] = useState({
     firstName: "",
     lastName: "",
@@ -88,6 +100,16 @@ export function ProviderPhoneRegistrationForm() {
   const actionInProgress = useRef(false);
   const resumeChecked = useRef(false);
 
+  const clearVerifier = useCallback(() => {
+    const verifier = verifierRef.current;
+    verifierRef.current = null;
+    try {
+      verifier?.clear();
+    } finally {
+      document.getElementById(RECAPTCHA_CONTAINER_ID)?.replaceChildren();
+    }
+  }, []);
+
   const handleClassification = useCallback(async (
     result: ProviderPhoneRegistrationResult,
     cancelled = false,
@@ -98,10 +120,10 @@ export function ProviderPhoneRegistrationForm() {
     ) {
       await abandonProviderPhoneRegistration().catch(() => undefined);
       if (!cancelled) {
-        setView("phone");
-        setError(
-          "This mobile sign-in cannot continue provider registration. Use the appropriate FEASTA sign-in or contact support.",
-        );
+        setExistingPhoneState(result.classification);
+        setError(null);
+        setMessage(null);
+        setView("existing-account");
       }
       return;
     }
@@ -110,10 +132,12 @@ export function ProviderPhoneRegistrationForm() {
       result.classification === "registered_provider" ||
       result.classification === "provider_identity"
     ) {
-      const session = await resumeExistingProviderAfterPhoneAuth();
       if (!cancelled) {
-        router.replace(session.destination);
-        router.refresh();
+        setVerifiedPhone(result.phoneNumber);
+        setExistingPhoneState(result.classification);
+        setError(null);
+        setMessage(null);
+        setView("existing-account");
       }
       return;
     }
@@ -140,7 +164,7 @@ export function ProviderPhoneRegistrationForm() {
         "This provider registration state is inconsistent. Verify your number again or contact support.",
       );
     }
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     if (resumeChecked.current) return;
@@ -165,17 +189,16 @@ export function ProviderPhoneRegistrationForm() {
 
     return () => {
       cancelled = true;
-      verifierRef.current?.clear();
-      verifierRef.current = null;
+      clearVerifier();
       confirmationRef.current = null;
     };
-  }, [handleClassification]);
+  }, [clearVerifier, handleClassification]);
 
   useEffect(() => countdown(cooldown, setCooldown), [cooldown]);
   useEffect(() => countdown(expiry, setExpiry), [expiry]);
 
   function resetVerifier() {
-    verifierRef.current?.clear();
+    clearVerifier();
     const verifier = createProviderPhoneRecaptcha(RECAPTCHA_CONTAINER_ID);
     verifierRef.current = verifier;
     return verifier;
@@ -206,8 +229,7 @@ export function ProviderPhoneRegistrationForm() {
       setView("otp");
       setMessage(`We sent a verification code to ${maskPhone(result.phoneNumber)}.`);
     } catch (caught) {
-      verifierRef.current?.clear();
-      verifierRef.current = null;
+      clearVerifier();
       setError(providerPhoneVerificationError(caught));
     } finally {
       actionInProgress.current = false;
@@ -246,8 +268,7 @@ export function ProviderPhoneRegistrationForm() {
         verifiedPhone,
       );
       confirmationRef.current = null;
-      verifierRef.current?.clear();
-      verifierRef.current = null;
+      clearVerifier();
       await handleClassification(result);
     } catch (caught) {
       setError(providerPhoneVerificationError(caught));
@@ -259,14 +280,55 @@ export function ProviderPhoneRegistrationForm() {
 
   function changeNumber() {
     confirmationRef.current = null;
-    verifierRef.current?.clear();
-    verifierRef.current = null;
+    clearVerifier();
     setOtp("");
     setCooldown(0);
     setExpiry(0);
     setError(null);
     setMessage(null);
     setView("phone");
+  }
+
+  async function continueExistingProvider() {
+    if (actionInProgress.current) return;
+    actionInProgress.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const session = await resumeExistingProviderAfterPhoneAuth();
+      router.replace(session.destination);
+      router.refresh();
+    } catch (caught) {
+      setError(providerPhoneVerificationError(caught));
+    } finally {
+      actionInProgress.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function handleUseAnotherNumber() {
+    if (actionInProgress.current) return;
+    actionInProgress.current = true;
+    setBusy(true);
+    setError(null);
+    clearVerifier();
+    confirmationRef.current = null;
+    try {
+      await abandonProviderPhoneRegistration();
+      setExistingPhoneState(null);
+      setVerifiedPhone("");
+      setPhoneInput("");
+      setOtp("");
+      setCooldown(0);
+      setExpiry(0);
+      setMessage(null);
+      setView("phone");
+    } catch {
+      setError("We could not reset registration safely. Please try again.");
+    } finally {
+      actionInProgress.current = false;
+      setBusy(false);
+    }
   }
 
   function updateAccountDetail(
@@ -325,9 +387,90 @@ export function ProviderPhoneRegistrationForm() {
 
   if (view === "checking") {
     return (
-      <div role="status" className="flex min-h-64 items-center justify-center gap-3 text-sm text-muted-foreground">
-        <RefreshCw aria-hidden="true" className="size-5 animate-spin text-primary" />
-        Checking for an existing secure registration session...
+      <div
+        role="status"
+        aria-live="polite"
+        className="min-h-[360px] animate-pulse py-1"
+      >
+        <div className="flex items-center gap-3">
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-[10px] bg-secondary text-primary-strong">
+            <RefreshCw aria-hidden="true" className="size-5 animate-spin" />
+          </span>
+          <div>
+            <p className="font-bold text-foreground">Preparing secure registration...</p>
+            <p className="mt-1 text-xs text-muted-foreground">Restoring your protected registration session.</p>
+          </div>
+        </div>
+        <div aria-hidden="true" className="mt-7 grid gap-4">
+          <div className="h-8 w-4/5 rounded-lg bg-muted" />
+          <div className="h-5 w-full rounded-lg bg-muted/80" />
+          <div className="h-5 w-3/4 rounded-lg bg-muted/80" />
+          <div className="mt-2 h-14 w-full rounded-[10px] bg-muted" />
+          <div className="h-[52px] w-full rounded-[10px] bg-secondary" />
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "existing-account" && existingPhoneState) {
+    const isRegisteredProvider = existingPhoneState === "registered_provider";
+    const isProviderIdentity = existingPhoneState === "provider_identity";
+    const isNonProvider = existingPhoneState === "non_provider_account";
+    const title = isRegisteredProvider
+      ? "Mobile number already registered"
+      : isProviderIdentity
+        ? "Registration already started"
+        : isNonProvider
+          ? "Mobile number already in use"
+          : "We couldn't safely continue";
+    const description = isRegisteredProvider
+      ? "This mobile number is already linked to a FEASTA provider account. Continue to your existing provider workspace."
+      : isProviderIdentity
+        ? "We found an existing FEASTA provider registration for this mobile number. Continue where you left off."
+        : isNonProvider
+          ? "This mobile number is already linked to another FEASTA account and can't be used to create a new provider account. Sign in to your existing account or use a different mobile number."
+          : "We couldn't safely continue with this mobile number. Please contact FEASTA support or use another number.";
+
+    return (
+      <div className="py-3 text-center">
+        <span className="mx-auto flex size-14 items-center justify-center rounded-full bg-secondary text-primary-strong">
+          <ShieldCheck aria-hidden="true" className="size-7" />
+        </span>
+        <h2 className="mt-5 text-2xl font-black tracking-[-0.025em]">{title}</h2>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">{description}</p>
+        {error ? (
+          <AuthStatus id="provider-existing-phone-error" message={error} tone="error" className="mt-4 text-left" />
+        ) : null}
+        <div className="mt-6 grid gap-3">
+          {isRegisteredProvider || isProviderIdentity ? (
+            <Button
+              type="button"
+              fullWidth
+              loading={busy}
+              loadingLabel="Opening provider account"
+              onClick={() => void continueExistingProvider()}
+              className="h-[52px] rounded-[10px]"
+            >
+              {isRegisteredProvider ? "Continue to provider account" : "Continue registration"}
+            </Button>
+          ) : null}
+          {isNonProvider ? (
+            <Link
+              href="/login"
+              className="inline-flex min-h-[52px] items-center justify-center rounded-[10px] bg-primary px-5 text-sm font-bold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              Log in
+            </Link>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void handleUseAnotherNumber()}
+            className="min-h-11 font-bold text-primary-strong underline underline-offset-4 disabled:opacity-50"
+          >
+            Use another number
+          </button>
+        </div>
       </div>
     );
   }
@@ -508,18 +651,13 @@ export function ProviderPhoneRegistrationForm() {
         </form>
       ) : (
         <form onSubmit={verifyOtp} className="grid gap-4" noValidate>
-          <FormField id="provider-registration-otp" label="Verification code" required disabled={busy}>
-            <Input
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              pattern="[0-9]*"
-              maxLength={6}
-              placeholder="6-digit code"
-              value={otp}
-              onChange={(event) => setOtp(event.target.value.replace(/\D/gu, "").slice(0, 6))}
-              className="h-14 rounded-[10px] text-center text-xl font-black tracking-[0.35em]"
-            />
-          </FormField>
+          <SixDigitOtpInput
+            value={otp}
+            onChange={setOtp}
+            disabled={busy}
+            invalid={Boolean(error)}
+            errorId={error ? "provider-phone-error" : undefined}
+          />
           {message ? <AuthStatus id="provider-phone-message" message={message} tone="success" /> : null}
           {error ? <AuthStatus id="provider-phone-error" message={error} tone="error" /> : null}
           <Button type="submit" fullWidth loading={busy} loadingLabel="Verifying code" className="h-[52px] rounded-[10px]">

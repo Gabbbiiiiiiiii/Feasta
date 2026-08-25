@@ -143,7 +143,7 @@ export function LimitedProviderDashboard({
       <PageHeading
         eyebrow="Provider account"
         title={`Welcome, ${dashboard.displayName}`}
-        description="Your FEASTA provider account has been created. Complete email verification before setting up your business."
+        description="Your FEASTA provider account has been created. Verify your email to continue setting up your business."
       />
 
       <section
@@ -169,8 +169,8 @@ export function LimitedProviderDashboard({
               <strong className="break-all text-foreground">
                 {dashboard.email || "your provider email"}
               </strong>
-              . Verify your email to continue provider onboarding and unlock
-              your provider workspace.
+              . Verify your email to continue setting up your business and unlock
+              all provider features.
             </p>
 
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">

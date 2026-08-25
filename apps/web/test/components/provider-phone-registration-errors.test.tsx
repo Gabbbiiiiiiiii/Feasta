@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest";
 
 import {
+  isRecoverableProviderRecaptchaError,
   providerAccountDetailsError,
   providerPhoneVerificationError,
 } from "@/lib/auth/error-messages";
@@ -14,8 +15,9 @@ describe("provider phone registration error normalization", () => {
     ["auth/session-expired", "This verification session expired."],
     ["auth/too-many-requests", "Too many verification attempts."],
     ["auth/quota-exceeded", "Too many verification attempts."],
-    ["auth/captcha-check-failed", "We could not confirm the security check."],
-    ["auth/invalid-app-credential", "We could not confirm the security check."],
+    ["auth/captcha-check-failed", "Security verification was reset."],
+    ["auth/invalid-app-credential", "Security verification was reset."],
+    ["auth/missing-app-credential", "Security verification was reset."],
     ["auth/network-request-failed", "Check your internet connection"],
   ])("maps %s to a safe message", (code, expected) => {
     const message = providerPhoneVerificationError({code});
@@ -30,6 +32,17 @@ describe("provider phone registration error normalization", () => {
     });
     expect(message).toBe("We could not complete that request. Please try again.");
     expect(message).not.toContain("raw-provider-uid-and-stack");
+  });
+
+  it("identifies only supported recoverable verifier failures", () => {
+    expect(isRecoverableProviderRecaptchaError({code: "auth/captcha-check-failed"}))
+      .toBe(true);
+    expect(isRecoverableProviderRecaptchaError({code: "auth/invalid-app-credential"}))
+      .toBe(true);
+    expect(isRecoverableProviderRecaptchaError({code: "auth/missing-app-credential"}))
+      .toBe(true);
+    expect(isRecoverableProviderRecaptchaError({code: "auth/network-request-failed"}))
+      .toBe(false);
   });
 });
 

@@ -104,16 +104,25 @@ export function providerPhoneVerificationError(error: unknown): string {
       : "Too many verification attempts. Please wait before trying again.";
   }
   if (
-    code.includes("captcha-check-failed") ||
-    code.includes("invalid-app-credential") ||
-    code.includes("missing-app-credential")
+    isRecoverableProviderRecaptchaError(error)
   ) {
-    return "We could not confirm the security check. Refresh the page and try again.";
+    return "Security verification was reset. Please send the verification code again.";
   }
   if (code.includes("network-request-failed")) {
     return "Check your internet connection and try again.";
   }
   return customerAuthenticationError(error);
+}
+
+export function isRecoverableProviderRecaptchaError(error: unknown): boolean {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String(error.code)
+    : "";
+  return [
+    "captcha-check-failed",
+    "invalid-app-credential",
+    "missing-app-credential",
+  ].some((recoverableCode) => code.includes(recoverableCode));
 }
 
 export function providerAccountDetailsError(error: unknown): string {
