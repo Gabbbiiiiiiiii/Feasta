@@ -401,6 +401,46 @@ async function testProviderPhoneFirstAuthentication() {
   const phaseCVerificationCodes = await oobCodes(providerEmail, "VERIFY_EMAIL");
   assert.ok(phaseCVerificationCodes.length >= 1);
   assert.equal(linked.user.emailVerified, false);
+
+  const limitedSession = await createWebSession(
+    await linked.user.getIdToken(true),
+    "/provider",
+    "provider",
+  );
+  assert.equal(limitedSession.body.destination, "/provider");
+
+  const limitedDashboard = await webGet("/provider", limitedSession.cookie);
+  assert.equal(limitedDashboard.status, 200);
+  const limitedDashboardHtml = await limitedDashboard.text();
+  assert.match(limitedDashboardHtml, /Verify your email to continue/u);
+  assert.match(limitedDashboardHtml, /Resend verification email/u);
+  assert.doesNotMatch(
+    limitedDashboardHtml,
+    /Booking Requests|Packages \/ Catalog|Business Profile/u,
+  );
+
+  assert.equal(
+    (await webGet("/provider/account", limitedSession.cookie)).status,
+    200,
+  );
+  for (const deniedRoute of [
+    "/provider/onboarding",
+    "/provider/bookings",
+    "/provider/packages",
+  ]) {
+    const denied = await webGet(deniedRoute, limitedSession.cookie);
+    if (denied.status === 307) {
+      assert.match(
+        denied.headers.get("location") ?? "",
+        /\/provider-verify-email$/u,
+      );
+    } else {
+      // A redirect thrown after Next.js starts streaming is encoded as a
+      // client redirect in a 200 response rather than an HTTP 307.
+      assert.equal(denied.status, 200);
+      assert.match(await denied.text(), /provider-verify-email/u);
+    }
+  }
   await signOut(auth);
 }
 
