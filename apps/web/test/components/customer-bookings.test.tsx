@@ -167,6 +167,10 @@ describe("customer booking history and details", () => {
     expect(screen.getByText("Grand Ballroom")).toBeVisible();
     expect(screen.getAllByText("Catering buffet").length).toBeGreaterThan(0);
     expect(screen.getByText("Provider could not accommodate the event date.")).toBeVisible();
+    expect(screen.getByRole("link", {name: "Open full booking details"})).toHaveAttribute(
+      "href",
+      "/customer/bookings/owned-booking-001",
+    );
     expect(screen.queryByText("customer@example.test")).not.toBeInTheDocument();
     expect(screen.queryByText("provider-request-waiting-001")).not.toBeInTheDocument();
   });

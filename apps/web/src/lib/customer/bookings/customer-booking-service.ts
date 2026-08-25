@@ -20,6 +20,7 @@ import {
 
 import type {
   CustomerBooking,
+  CustomerBookingDetailPageResult,
   CustomerBookingDetailsResult,
   CustomerBookingFilters,
   CustomerBookingPage,
@@ -28,6 +29,10 @@ import type {
   CustomerBookingService,
   CustomerBookingStatistics,
 } from "@/lib/customer/bookings/customer-booking-types";
+import {
+  compareCustomerBookingTimelineEntries,
+  normalizeCustomerBookingTimelineData,
+} from "@/lib/customer/bookings/customer-booking-timeline-normalizer";
 import {
   customerBookingStatusesForFilter,
   isCustomerBookingStatusFilter,
@@ -42,6 +47,7 @@ const COLLECTIONS = {
 
 const DEFAULT_PAGE_SIZE = 10;
 const MAX_PAGE_SIZE = 30;
+const MAX_TIMELINE_ENTRIES = 100;
 const SAFE_DOCUMENT_ID = /^[A-Za-z0-9_-]{1,160}$/u;
 
 type NormalizedFilters = {
@@ -143,38 +149,127 @@ async function getOwnedCustomerBookingResults(
 export async function getCustomerBookingDetails(
   bookingId: string,
 ): Promise<CustomerBookingDetailsResult> {
+  const ownedBooking = await loadOwnedCustomerBooking(bookingId);
+  const providerRequests = await loadOwnedProviderRequests(
+    ownedBooking.id,
+    ownedBooking.customerId,
+  );
+
+  return {
+    details: {
+      booking: mapBookingDocument(ownedBooking.snapshot),
+      providerRequests,
+    },
+  };
+}
+
+export async function getCustomerBookingDetailsWithTimeline(
+  bookingId: string,
+): Promise<CustomerBookingDetailPageResult> {
+  const ownedBooking = await loadOwnedCustomerBooking(bookingId);
+
+  const [providerRequests, timelineSnapshot] = await Promise.all([
+    loadOwnedProviderRequests(
+      ownedBooking.id,
+      ownedBooking.customerId,
+    ),
+    ownedBooking.snapshot.ref
+      .collection("timeline")
+      .orderBy("createdAt", "desc")
+      .limit(MAX_TIMELINE_ENTRIES + 1)
+      .get(),
+  ]);
+
+  const providerNames = new Map(
+    providerRequests.map((request) => [
+      request.providerRequestId,
+      request.providerName,
+    ]),
+  );
+  const timelineDocuments = timelineSnapshot.docs.slice(
+    0,
+    MAX_TIMELINE_ENTRIES,
+  );
+  const entries = timelineDocuments
+    .flatMap((document) => {
+      const entry = normalizeCustomerBookingTimelineData(
+        document.id,
+        document.data(),
+        providerNames,
+      );
+      return entry ? [entry] : [];
+    })
+    .sort(compareCustomerBookingTimelineEntries);
+
+  return {
+    details: {
+      booking: mapBookingDocument(ownedBooking.snapshot),
+      providerRequests,
+    },
+    timeline: {
+      entries,
+      truncated: timelineSnapshot.docs.length > MAX_TIMELINE_ENTRIES,
+    },
+  };
+}
+
+export class CustomerBookingUnavailableError extends Error {
+  constructor() {
+    super("The booking could not be found.");
+    this.name = "CustomerBookingUnavailableError";
+  }
+}
+
+export function isCustomerBookingUnavailableError(
+  error: unknown,
+): error is CustomerBookingUnavailableError {
+  return error instanceof CustomerBookingUnavailableError;
+}
+
+async function loadOwnedCustomerBooking(
+  bookingId: string,
+): Promise<{
+  id: string;
+  customerId: string;
+  snapshot: DocumentSnapshot<DocumentData>;
+}> {
   const customer = await requireCustomer();
-  const normalizedBookingId = normalizeDocumentId(bookingId);
-  const bookingReference = adminDb
+  const normalizedBookingId = normalizeOwnedBookingId(bookingId);
+  const bookingSnapshot = await adminDb
     .collection(COLLECTIONS.mainEvents)
-    .doc(normalizedBookingId);
-  const bookingSnapshot = await bookingReference.get();
+    .doc(normalizedBookingId)
+    .get();
   const bookingData = bookingSnapshot.data();
 
   if (
     !bookingSnapshot.exists ||
-    bookingData?.customerId !== customer.uid
+    bookingData?.customerId !== customer.uid ||
+    bookingData.isDeleted === true
   ) {
-    throw new Error("The booking could not be found.");
+    throw new CustomerBookingUnavailableError();
   }
 
+  return {
+    id: normalizedBookingId,
+    customerId: customer.uid,
+    snapshot: bookingSnapshot,
+  };
+}
+
+async function loadOwnedProviderRequests(
+  bookingId: string,
+  customerId: string,
+): Promise<CustomerBookingProviderRequest[]> {
   const requestsSnapshot = await adminDb
     .collection(COLLECTIONS.providerRequests)
-    .where("mainEventId", "==", normalizedBookingId)
+    .where("mainEventId", "==", bookingId)
     .orderBy("createdAt", "asc")
     .limit(30)
     .get();
 
-  const providerRequests = requestsSnapshot.docs
-    .filter((document) => document.data().customerId === customer.uid)
+  return requestsSnapshot.docs
+    .filter((document) => document.data().customerId === customerId)
     .map(mapProviderRequestDocument);
-
-  return {
-    details: {
-      booking: mapBookingDocument(bookingSnapshot),
-      providerRequests,
-    },
-  };
 }
 
 function normalizeFilters(
@@ -444,11 +539,11 @@ function decodeCursor(value: string | null): BookingCursor | null {
   }
 }
 
-function normalizeDocumentId(value: string): string {
+function normalizeOwnedBookingId(value: string): string {
   const normalized = value.trim();
 
   if (!SAFE_DOCUMENT_ID.test(normalized)) {
-    throw new Error("The booking could not be found.");
+    throw new CustomerBookingUnavailableError();
   }
 
   return normalized;

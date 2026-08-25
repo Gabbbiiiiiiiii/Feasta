@@ -12,6 +12,12 @@ const dateFormatter = new Intl.DateTimeFormat("en-PH", {
   timeZone: "Asia/Manila",
 });
 
+const dateTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  dateStyle: "medium",
+  timeStyle: "short",
+  timeZone: "Asia/Manila",
+});
+
 const currencyFormatter = new Intl.NumberFormat("en-PH", {
   style: "currency",
   currency: "PHP",
@@ -42,6 +48,15 @@ function formatBookingDate(value: string | null): string {
   return Number.isNaN(date.getTime()) ?
     "Date not provided" :
     dateFormatter.format(date);
+}
+
+function formatBookingDateTime(value: string | null): string {
+  if (!value) return "Date not provided";
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ?
+    "Date not provided" :
+    dateTimeFormatter.format(date);
 }
 
 function formatBookingTimeRange(start: string, end: string): string {
@@ -146,6 +161,7 @@ export {
   bookingStatusLabel,
   boundedText,
   formatBookingDate,
+  formatBookingDateTime,
   formatBookingTimeRange,
   formatCount,
   formatCurrency,

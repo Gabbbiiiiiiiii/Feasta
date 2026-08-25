@@ -135,3 +135,29 @@ export type CustomerBookingDetails = {
 export type CustomerBookingDetailsResult = {
   details: CustomerBookingDetails;
 };
+
+export type CustomerBookingTimelineActorRole =
+  | "customer"
+  | "provider"
+  | "system";
+
+export type CustomerBookingTimelineEntry = {
+  id: string;
+  type: string | null;
+  status: MainEventStatus | null;
+  title: string;
+  description: string | null;
+  actorRole: CustomerBookingTimelineActorRole | null;
+  providerName: string | null;
+  createdAt: string;
+};
+
+export type CustomerBookingTimeline = {
+  entries: CustomerBookingTimelineEntry[];
+  truncated: boolean;
+};
+
+export type CustomerBookingDetailPageResult = {
+  details: CustomerBookingDetails;
+  timeline: CustomerBookingTimeline;
+};

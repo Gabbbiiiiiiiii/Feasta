@@ -7,6 +7,7 @@ import {
   PackageOpen,
   Users,
 } from "lucide-react";
+import Link from "next/link";
 import {useCallback, useEffect, useRef, useState} from "react";
 
 import {loadCustomerBookingDetailsAction} from "@/app/customer/bookings/actions";
@@ -138,14 +139,21 @@ function CustomerBookingDetailsDrawer({
       title={`Booking ${boundedText(booking.bookingCode, "details", 80)}`}
       description="Review your event, provider requests, and payment amounts."
       footer={
-        <Button
-          variant="secondary"
-          size="compact"
-          fullWidth
-          onClick={() => changeOpenState(false)}
-        >
-          Close
-        </Button>
+        <div className="grid w-full gap-2 sm:grid-cols-2">
+          <Button
+            variant="secondary"
+            size="compact"
+            fullWidth
+            onClick={() => changeOpenState(false)}
+          >
+            Close
+          </Button>
+          <Button asChild size="compact" fullWidth>
+            <Link href={`/customer/bookings/${encodeURIComponent(booking.id)}`}>
+              Open full booking details
+            </Link>
+          </Button>
+        </div>
       }
     >
       {detailsLoading ? (
