@@ -450,7 +450,7 @@ describe("provider authentication and onboarding", () => {
     })).toBeInTheDocument();
     expect(mocks.resumeExistingProvider).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", {
-      name: /continue to provider account/i,
+      name: /Continue to your provider account/i,
     }));
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(
       "/provider/status",
@@ -745,7 +745,7 @@ describe("provider authentication and onboarding", () => {
     })).toBeInTheDocument();
     expect(mocks.resumeExistingProvider).not.toHaveBeenCalled();
     await userEvent.setup().click(screen.getByRole("button", {
-      name: /continue to provider account/i,
+      name: /Continue to your provider account/i,
     }));
     await waitFor(() => expect(mocks.resumeExistingProvider).toHaveBeenCalled());
     expect(mocks.replace).toHaveBeenCalledWith("/provider");
