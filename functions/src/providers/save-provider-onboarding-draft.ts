@@ -103,7 +103,7 @@ export const saveProviderOnboardingDraft = onCall(
           "The provider account is not active.",
         );
       }
-      const identity = requireTrustedProviderIdentity(authUser, user);
+      const identity = await requireTrustedProviderIdentity(authUser, user);
       if (
         typeof user.providerId === "string" &&
         user.providerId.trim().length > 0

@@ -515,7 +515,6 @@ service cloud.firestore {
             'firstName',
             'lastName',
             'email',
-            'phoneNumber',
             'role',
             'accountStatus',
             'providerId',
@@ -559,7 +558,6 @@ service cloud.firestore {
           changesOnly([
             'firstName',
             'lastName',
-            'phoneNumber',
             'profileImageUrl',
             'updatedAt'
           ]) &&
@@ -585,7 +583,7 @@ service cloud.firestore {
       allow create: if isOwner(customerId) &&
           incomingUserExists(customerId) &&
           request.resource.data.keys().hasOnly([
-            'userId', 'firstName', 'lastName', 'email', 'phoneNumber',
+            'userId', 'firstName', 'lastName', 'email',
             'address', 'city', 'province', 'postalCode', 'latitude',
             'longitude', 'profileImageUrl', 'totalBookings',
             'completedBookings', 'cancelledBookings', 'isActive',
@@ -628,7 +626,6 @@ service cloud.firestore {
           changesOnly([
             'firstName',
             'lastName',
-            'phoneNumber',
             'address',
             'city',
             'province',

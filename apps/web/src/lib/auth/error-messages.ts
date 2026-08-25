@@ -76,8 +76,15 @@ export function providerPhoneVerificationError(error: unknown): string {
   ) {
     return (
       "This mobile number is already associated with another " +
-      "FEASTA account. Use a different mobile number."
+      "FEASTA account. Sign in with that account or use a different " +
+      "mobile number."
     );
+  }
+  if (
+    code.includes("provider-already-linked") ||
+    code.includes("user-mismatch")
+  ) {
+    return "Your authentication session changed. Sign in again to continue.";
   }
   if (code.includes("requires-recent-login")) {
     return "For your security, sign in again before changing your mobile number.";

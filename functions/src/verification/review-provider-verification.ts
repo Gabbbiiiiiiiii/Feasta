@@ -253,7 +253,10 @@ export const reviewProviderVerification = onCall(
                 "The provider owner identity is incomplete or incorrectly linked.",
               );
             }
-            requireTrustedProviderIdentity(approvalOwnerAuth, ownerData);
+            await requireTrustedProviderIdentity(
+              approvalOwnerAuth,
+              ownerData,
+            );
           }
 
           if (ownerId === authenticatedUser.uid) {

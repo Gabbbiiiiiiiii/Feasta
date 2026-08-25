@@ -275,7 +275,10 @@ for (const account of AUTH_FIXTURE_ACCOUNTS) {
       fixtureBusinessName(status),
       status,
       providerIsActive,
-      {blocked: account.isBlocked ?? false},
+      {
+        blocked: account.isBlocked ?? false,
+        ownerPhone: account.phoneNumber ?? "",
+      },
     );
     documents[`providerVerifications/verification-${providerId}`] =
       verification(providerId, account.uid, status);
@@ -308,7 +311,7 @@ function provider(
   businessName: string,
   verificationStatus: string,
   isActive: boolean,
-  options: {blocked?: boolean} = {},
+  options: {blocked?: boolean; ownerPhone?: string} = {},
 ) {
   return {
     ownerId,
@@ -317,6 +320,7 @@ function provider(
     businessPhone: "+639170000002",
     ownerFirstName: "Test",
     ownerLastName: "Provider",
+    ownerPhone: options.ownerPhone ?? "",
     description: "Deterministic provider profile for emulator development.",
     address: "Ormoc City",
     location: "Ormoc City, Leyte",

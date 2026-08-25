@@ -11,6 +11,7 @@ import type {DecodedIdToken, UserRecord} from "firebase-admin/auth";
 
 import {adminAuth, adminDb} from "@/lib/firebase/admin";
 import {classifyProviderRegistrationRecords} from "@/lib/auth/provider-registration-classification";
+import {requireServerPhoneIdentityOwnership} from "@/lib/auth/phone-identity-server";
 
 export interface ProviderPhoneClassificationResult {
   classification: ProviderAccountClassification;
@@ -39,6 +40,7 @@ export async function classifyAuthenticatedProviderPhone(input: {
   ) {
     throw new Error("Trusted phone authentication evidence is invalid.");
   }
+  await requireServerPhoneIdentityOwnership(input.authUser, authPhone);
 
   const userReference = adminDb.collection("users").doc(input.authUser.uid);
   const customerReference = adminDb.collection("customers").doc(input.authUser.uid);

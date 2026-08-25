@@ -64,6 +64,11 @@ test("users bootstrap only their claimed customer or provider role", async () =>
     .firestore();
   const fakeAdmin = authenticated(testEnv, "fake-admin", "admin")
     .firestore();
+  const phoneBootstrap = authenticated(
+    testEnv,
+    "customer-phone-bootstrap",
+    "customer",
+  ).firestore();
   const roleEscalation = authenticated(
     testEnv,
     "customer-role-escalation",
@@ -85,6 +90,12 @@ test("users bootstrap only their claimed customer or provider role", async () =>
   await assertFails(setDoc(
     doc(roleEscalation, "users/customer-role-escalation"),
     userData("customer-role-escalation", "admin"),
+  ));
+  await assertFails(setDoc(
+    doc(phoneBootstrap, "users/customer-phone-bootstrap"),
+    userData("customer-phone-bootstrap", "customer", {
+      phoneNumber: "+639171234567",
+    }),
   ));
 });
 
@@ -108,6 +119,7 @@ test("users cannot change trusted fields and admin has bounded controls", async 
   await assertFails(updateDoc(customerRef, {marketingConsent: true}));
   await assertFails(updateDoc(customerRef, {preferencesUpdatedAt: new Date()}));
   await assertFails(updateDoc(customerRef, {email: "attacker@example.test"}));
+  await assertFails(updateDoc(customerRef, {phoneNumber: "+639179999999"}));
   await assertFails(updateDoc(customerRef, {adminNotes: "self-assigned"}));
   await assertSucceeds(updateDoc(customerRef, {
     firstName: "Updated",
@@ -170,6 +182,10 @@ test("customer profiles are private and retain immutable userId", async () => {
   await assertFails(updateDoc(
     doc(owner, "customers/customer-one"),
     {email: "unverified@example.test"},
+  ));
+  await assertFails(updateDoc(
+    doc(owner, "customers/customer-one"),
+    {phoneNumber: "+639179999999"},
   ));
   await assertSucceeds(updateDoc(
     doc(owner, "customers/customer-one"),

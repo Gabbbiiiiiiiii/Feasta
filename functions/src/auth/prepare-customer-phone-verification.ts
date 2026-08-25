@@ -23,8 +23,8 @@ import {
   logSecurityEvent,
 } from "../shared/security-events.js";
 import {
-  serverTimestamp,
-} from "../shared/timestamps.js";
+  requirePhoneAvailableToUid,
+} from "../shared/phone-identity.js";
 import {
   requireObject,
   requirePhilippineMobile,
@@ -90,154 +90,43 @@ export const prepareCustomerPhoneVerification =
               input.phoneNumber,
             );
 
-      const phoneNumber =
-        await db.runTransaction(
-          async (transaction) => {
-            const [
-              userSnapshot,
-              customerSnapshot,
-            ] = await Promise.all([
-              transaction.get(
-                userReference,
-              ),
-              transaction.get(
-                customerReference,
-              ),
-            ]);
-
-            const user =
-              userSnapshot.data();
-
-            if (
-              !userSnapshot.exists ||
-              user?.role !==
-                "customer"
-            ) {
-              throw new HttpsError(
-                "not-found",
-                "Customer account was not found.",
-              );
-            }
-
-            if (
-              !customerSnapshot.exists
-            ) {
-              throw new HttpsError(
-                "not-found",
-                "Customer profile was not found.",
-              );
-            }
-
-            const currentPhone =
-              typeof user.phoneNumber ===
-                "string"
-                ? user.phoneNumber
-                : "";
-
-            const normalizedCurrentPhone =
-              currentPhone
-                ? requirePhilippineMobile(
-                    currentPhone,
-                  )
-                : null;
-
-            if (
-              requestedPhone &&
-              normalizedCurrentPhone &&
-              requestedPhone ===
-                normalizedCurrentPhone
-            ) {
-              throw new HttpsError(
-                "already-exists",
-                "This is already your current mobile number. " +
-                  "Enter a different mobile number to continue.",
-              );
-            }
-
-            const authoritativePhone =
-              requestedPhone ??
-              requirePhilippineMobile(
-                currentPhone,
-              );
-
-            try {
-              const existingAuthUser =
-                await getAuth()
-                  .getUserByPhoneNumber(
-                    authoritativePhone,
-                  );
-
-              if (
-                existingAuthUser.uid !==
-                actor.uid
-              ) {
-                throw new HttpsError(
-                  "already-exists",
-                  "This mobile number is already associated with " +
-                    "another FEASTA account. Use a different mobile number.",
-                );
-              }
-            } catch (error) {
-              if (
-                error instanceof HttpsError
-              ) {
-                throw error;
-              }
-
-              const code =
-                typeof error === "object" &&
-                error !== null &&
-                "code" in error
-                  ? String(error.code)
-                  : "";
-
-              /*
-              * No Firebase Auth user currently owns this
-              * phone number, so verification may proceed.
-              */
-              if (
-                code !==
-                "auth/user-not-found"
-              ) {
-                throw error;
-              }
-            }
-
-            if (
-              requestedPhone &&
-              requestedPhone !==
-                currentPhone
-            ) {
-              transaction.update(
-                userReference,
-                {
-                  phoneNumber:
-                    requestedPhone,
-                  isPhoneVerified:
-                    false,
-                  phoneVerifiedAt:
-                    null,
-                  updatedAt:
-                    serverTimestamp(),
-                },
-              );
-
-              transaction.update(
-                customerReference,
-                {
-                  phoneNumber:
-                    requestedPhone,
-                  phoneVerifiedAt:
-                    null,
-                  updatedAt:
-                    serverTimestamp(),
-                },
-              );
-            }
-
-            return authoritativePhone;
-          },
+      const [userSnapshot, customerSnapshot] =
+        await Promise.all([
+          userReference.get(),
+          customerReference.get(),
+        ]);
+      const user = userSnapshot.data();
+      if (!userSnapshot.exists || user?.role !== "customer") {
+        throw new HttpsError(
+          "not-found",
+          "Customer account was not found.",
         );
+      }
+      if (!customerSnapshot.exists) {
+        throw new HttpsError(
+          "not-found",
+          "Customer profile was not found.",
+        );
+      }
+      const currentPhone =
+        typeof user.phoneNumber === "string" ? user.phoneNumber : "";
+      const normalizedCurrentPhone = currentPhone ?
+        requirePhilippineMobile(currentPhone) :
+        null;
+      if (
+        requestedPhone &&
+        normalizedCurrentPhone &&
+        requestedPhone === normalizedCurrentPhone
+      ) {
+        throw new HttpsError(
+          "already-exists",
+          "This is already your current mobile number. " +
+            "Enter a different mobile number to continue.",
+        );
+      }
+      const phoneNumber = requestedPhone ??
+        requirePhilippineMobile(currentPhone);
+      await requirePhoneAvailableToUid(actor.uid, phoneNumber);
 
       logSecurityEvent({
         action:

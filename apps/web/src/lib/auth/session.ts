@@ -41,6 +41,7 @@ import {
 } from "@/lib/security/policy";
 import {CSRF_COOKIE_NAME} from "@/lib/security/request";
 import type {ProviderOnboardingDraft} from "@/lib/provider/onboarding";
+import {requireServerPhoneIdentityOwnership} from "@/lib/auth/phone-identity-server";
 
 export const SESSION_COOKIE_NAME = "feasta_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 5;
@@ -639,9 +640,7 @@ export async function loadTrustedAccountContext(
     authUser,
     userSnapshot,
   ] = await Promise.all([
-    verifiedAuthState
-      ? Promise.resolve(null)
-      : adminAuth.getUser(uid),
+    adminAuth.getUser(uid),
 
     adminDb
       .collection("users")
@@ -649,22 +648,14 @@ export async function loadTrustedAccountContext(
       .get(),
   ]);
 
-  const resolvedAuthState =
-    verifiedAuthState ??
-    (
-      authUser
-        ? {
-            disabled:
-              authUser.disabled,
-
-            email:
-              authUser.email ?? null,
-
-            emailVerified:
-              authUser.emailVerified,
-          }
-        : null
-    );
+  const resolvedAuthState = verifiedAuthState ? {
+    ...verifiedAuthState,
+    disabled: authUser.disabled,
+  } : {
+    disabled: authUser.disabled,
+    email: authUser.email ?? null,
+    emailVerified: authUser.emailVerified,
+  };
 
   if (!resolvedAuthState) {
     throw new AccountAccessError(
@@ -707,6 +698,39 @@ export async function loadTrustedAccountContext(
           .doc(uid)
           .get()
       : null;
+
+  if (userProfile?.isPhoneVerified === true) {
+    try {
+      const phoneNumber = await requireServerPhoneIdentityOwnership(
+        authUser,
+        typeof userProfile.phoneNumber === "string" ?
+          userProfile.phoneNumber :
+          undefined,
+      );
+      if (
+        userProfile.role === "customer" &&
+        customerSnapshot?.data()?.phoneNumber !== phoneNumber
+      ) {
+        throw new Error("The customer phone projection is inconsistent.");
+      }
+      if (
+        userProfile.role === "provider" &&
+        providerProfile &&
+        providerSnapshot?.data()?.ownerPhone !== phoneNumber
+      ) {
+        throw new Error("The provider phone projection is inconsistent.");
+      }
+    } catch {
+      logWebSecurityEvent({
+        action: "account_access_denied",
+        outcome: "denied",
+        actorUid: uid,
+        targetId: uid,
+        reasonCode: "invalid_phone_identity",
+      });
+      throw new AccountAccessError("invalid_phone_identity");
+    }
+  }
 
   const resolution =
     resolveTrustedAccountContext({

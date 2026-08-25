@@ -7,7 +7,7 @@ import {db} from "../shared/firestore.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {logSecurityEvent} from "../shared/security-events.js";
-import {serverTimestamp} from "../shared/timestamps.js";
+import {requirePhoneAvailableToUid} from "../shared/phone-identity.js";
 import {
   requireObject,
   requirePhilippineMobile,
@@ -38,24 +38,14 @@ export const prepareProviderPhoneVerification = onCall(
     const requestedPhone = input.phoneNumber === undefined
       ? null
       : requirePhilippineMobile(input.phoneNumber);
-    const phoneNumber = await db.runTransaction(async (transaction) => {
-      const snapshot = await transaction.get(userReference);
-      const user = snapshot.data();
-      if (!snapshot.exists || user?.role !== "provider") {
-        throw new HttpsError("not-found", "Provider account was not found.");
-      }
-      const authoritativePhone = requestedPhone ??
-        requirePhilippineMobile(user.phoneNumber);
-      if (requestedPhone && requestedPhone !== user.phoneNumber) {
-        transaction.update(userReference, {
-          phoneNumber: requestedPhone,
-          isPhoneVerified: false,
-          phoneVerifiedAt: null,
-          updatedAt: serverTimestamp(),
-        });
-      }
-      return authoritativePhone;
-    });
+    const snapshot = await userReference.get();
+    const user = snapshot.data();
+    if (!snapshot.exists || user?.role !== "provider") {
+      throw new HttpsError("not-found", "Provider account was not found.");
+    }
+    const phoneNumber = requestedPhone ??
+      requirePhilippineMobile(user.phoneNumber);
+    await requirePhoneAvailableToUid(actor.uid, phoneNumber);
 
     logSecurityEvent({
       action: "provider_phone_verification_prepared",

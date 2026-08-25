@@ -91,7 +91,5 @@ test("provider creation revalidates owner mobile and keeps business phone separa
   assert.ok(registration.includes(
     "const businessPhone = requirePhilippinePhone(",
   ));
-  assert.ok(registration.includes(
-    "requireTrustedProviderIdentity(authUser, userData)",
-  ));
+  assert.ok(registration.includes("requireTrustedProviderIdentity("));
 });

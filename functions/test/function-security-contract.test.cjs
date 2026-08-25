@@ -11,7 +11,7 @@ const policies = [
   ["ensureProviderIdentity", "auth/ensure-provider-identity.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions", "isAuthoritativeAuthPhone", "passwordLinked", "authEmail !== submittedEmail", "requireProviderConsent"]],
   ["syncUserAuthState", "auth/sync-user-auth-state.ts", ["requireAuth(request)", "enforceCallableRateLimit", "authUser.disabled", "appCheckCallableOptions"]],
   ["syncPhoneVerification", "auth/sync-phone-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "getAuth().getUser", "appCheckCallableOptions"]],
-  ["prepareProviderPhoneVerification", "auth/prepare-provider-phone-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "getAuth().getUser", "appCheckCallableOptions", "isPhoneVerified: false"]],
+  ["prepareProviderPhoneVerification", "auth/prepare-provider-phone-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "getAuth().getUser", "appCheckCallableOptions", "requirePhoneAvailableToUid"]],
   ["updateCustomerProfile", "auth/manage-customer-account.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["updateCustomerPreferences", "auth/manage-customer-account.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["deactivateCustomerAccount", "auth/manage-customer-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "revokeRefreshTokens", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
@@ -325,6 +325,8 @@ test("customer profile creation forces the customer role and trusted flags", () 
   assert.equal(content.includes("input.role"), false);
   assert.equal(content.includes("input.isEmailVerified"), false);
   assert.equal(content.includes("input.isPhoneVerified"), false);
+  assert.equal(content.includes("input.phoneNumber"), false);
+  assert.ok(content.includes("authoritativeFirebasePhone(authUser)"));
 });
 
 test("provider identity creation derives verification from Firebase Auth", () => {

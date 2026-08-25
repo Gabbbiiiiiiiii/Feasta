@@ -53,22 +53,22 @@ test("trusted identity evidence comes only from Auth and matching profile state"
   );
 });
 
-test("email and trusted phone prerequisites fail closed", () => {
-  assert.throws(
+test("email and trusted phone prerequisites fail closed", async () => {
+  await assert.rejects(
     () => requireTrustedProviderIdentity(
       authUser({emailVerified: false}),
       profile(),
     ),
     /Verify your email address/u,
   );
-  assert.throws(
+  await assert.rejects(
     () => requireTrustedProviderIdentity(
       authUser(),
       profile({isPhoneVerified: false}),
     ),
     /Verify your mobile number/u,
   );
-  assert.throws(
+  await assert.rejects(
     () => requireTrustedProviderIdentity(
       authUser({disabled: true}),
       profile(),

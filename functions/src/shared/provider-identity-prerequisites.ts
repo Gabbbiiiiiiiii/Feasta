@@ -1,6 +1,7 @@
 import type {UserRecord} from "firebase-admin/auth";
 import {HttpsError} from "firebase-functions/v2/https";
 
+import {requireGlobalPhoneIdentityOwnership} from "./phone-identity.js";
 import {normalizePhilippineMobile} from "./validation.js";
 
 interface ProviderIdentityUserData {
@@ -43,10 +44,10 @@ export function deriveTrustedProviderIdentityEvidence(
   };
 }
 
-export function requireTrustedProviderIdentity(
+export async function requireTrustedProviderIdentity(
   authUser: UserRecord,
   userData: ProviderIdentityUserData | null | undefined,
-): TrustedProviderIdentityEvidence & {phoneNumber: string} {
+): Promise<TrustedProviderIdentityEvidence & {phoneNumber: string}> {
   const evidence = deriveTrustedProviderIdentityEvidence(authUser, userData);
 
   if (authUser.disabled) {
@@ -67,6 +68,11 @@ export function requireTrustedProviderIdentity(
       "Verify your mobile number before continuing provider setup.",
     );
   }
+
+  await requireGlobalPhoneIdentityOwnership(
+    authUser,
+    evidence.phoneNumber,
+  );
 
   return {...evidence, phoneNumber: evidence.phoneNumber};
 }

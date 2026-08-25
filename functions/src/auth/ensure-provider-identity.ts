@@ -14,6 +14,7 @@ import {
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {isAuthoritativeAuthPhone} from "../shared/provider-identity-prerequisites.js";
+import {requireGlobalPhoneIdentityOwnership} from "../shared/phone-identity.js";
 
 /** Creates the trusted users/{uid} provider identity before registration. */
 export const ensureProviderIdentity = onCall(
@@ -68,6 +69,26 @@ export const ensureProviderIdentity = onCall(
         (provider) => provider.providerId === "password",
       );
       const userReference = db.collection("users").doc(authenticatedUser.uid);
+      const existingUserSnapshot = await userReference.get();
+      const existingUser = existingUserSnapshot.data();
+
+      if (
+        existingUserSnapshot.exists &&
+        existingUser?.role !== USER_ROLES.provider
+      ) {
+        throw new HttpsError(
+          "permission-denied",
+          "Provider registration cannot be used for this account role.",
+        );
+      }
+
+      if (!phoneVerified) {
+        throw new HttpsError(
+          "failed-precondition",
+          "The linked provider authentication state is invalid.",
+        );
+      }
+      await requireGlobalPhoneIdentityOwnership(authUser, phoneNumber);
 
       const result = await db.runTransaction(async (transaction) => {
         const snapshot = await transaction.get(userReference);

@@ -66,7 +66,7 @@ test("booking and phone callables retain trusted security controls", () => {
     "runTransaction",
   ]) assert.ok(booking.includes(control), `booking missing ${control}`);
   assert.ok(phone.includes("getAuth().getUser(actor.uid)"));
-  assert.ok(phone.includes("authUser.phoneNumber"));
+  assert.ok(phone.includes("requireGlobalPhoneIdentityOwnership(authUser)"));
   assert.ok(phone.includes("isPhoneVerified: true"));
   assert.equal(phone.includes("request.data.phoneNumber"), false);
   assert.equal(phone.includes("request.data.isPhoneVerified"), false);

@@ -48,6 +48,7 @@ try {
   await testEmailCustomerFlow();
   await testGoogleCustomerFlow();
   await testProviderPhoneFirstAuthentication();
+  await testGlobalPhoneIdentityUniqueness();
   await testPhoneVerificationWorkflow();
   await testBlockedAndDisabledAccounts();
   await testAccountManagementWorkflows();
@@ -221,6 +222,141 @@ async function testDeterministicFixtureWorkflows() {
   await clearWebSessionRateLimits();
 }
 
+async function testGlobalPhoneIdentityUniqueness() {
+  await clearPhoneRegistrationRateLimits();
+
+  const customerPhone = "+639000008881";
+  const firstCustomerPhoneSignIn = await signInWithEmulatorPhone(customerPhone);
+  const secondCustomerPhoneSignIn = await signInWithEmulatorPhone(customerPhone);
+  assert.equal(
+    secondCustomerPhoneSignIn.localId,
+    firstCustomerPhoneSignIn.localId,
+  );
+  assert.equal(secondCustomerPhoneSignIn.isNewUser, false);
+  await writePhoneIdentityProfile(
+    firstCustomerPhoneSignIn.localId,
+    "customer",
+    customerPhone,
+  );
+  const customerClassification = await classifyProviderPhone(
+    secondCustomerPhoneSignIn.idToken,
+    customerPhone,
+  );
+  assert.equal(customerClassification.status, 200);
+  assert.equal(customerClassification.body.classification, "non_provider_account");
+  assert.equal(
+    (await db.collection("providers").where(
+      "ownerId",
+      "==",
+      firstCustomerPhoneSignIn.localId,
+    ).get()).empty,
+    true,
+  );
+
+  await signOut(auth);
+  const separateCustomer = await createUserWithEmailAndPassword(
+    auth,
+    "acceptance.phone.collision.customer@feasta.test",
+    password,
+  );
+  await callFunction("ensureUserProfile", separateCustomer.user, customerConsent);
+  const separateCustomerUid = separateCustomer.user.uid;
+  await adminAuth.updateUser(separateCustomerUid, {emailVerified: true});
+  await separateCustomer.user.reload();
+  await assert.rejects(
+    () => callFunction(
+      "prepareCustomerPhoneVerification",
+      separateCustomer.user,
+      {phoneNumber: customerPhone},
+    ),
+    /already[_-]exists/i,
+  );
+  assert.equal(
+    (await db.collection("users").doc(separateCustomerUid).get()).data()
+      ?.phoneNumber,
+    "",
+  );
+  const collisionResponse = await linkEmulatorPhoneToIdToken(
+    await separateCustomer.user.getIdToken(true),
+    customerPhone,
+  );
+  assert.equal(collisionResponse.status, 200);
+  assert.equal(typeof collisionResponse.body?.temporaryProof, "string");
+  assert.equal(collisionResponse.body?.phoneNumber, customerPhone);
+  assert.equal(collisionResponse.body?.idToken, undefined);
+  await separateCustomer.user.reload();
+  assert.equal(separateCustomer.user.uid, separateCustomerUid);
+  assert.equal(separateCustomer.user.phoneNumber, null);
+  assert.equal(
+    separateCustomer.user.providerData.some(
+      (provider) => provider.providerId === "phone",
+    ),
+    false,
+  );
+  const unchangedCustomer = (await db.collection("users")
+    .doc(separateCustomerUid).get()).data();
+  assert.equal(unchangedCustomer?.phoneNumber, "");
+  assert.equal(unchangedCustomer?.isPhoneVerified, false);
+  assert.equal(
+    (await db.collection("providers").where(
+      "ownerId",
+      "==",
+      separateCustomerUid,
+    ).get()).empty,
+    true,
+  );
+
+  const adminPhone = "+639000008882";
+  const firstAdminPhoneSignIn = await signInWithEmulatorPhone(adminPhone);
+  const secondAdminPhoneSignIn = await signInWithEmulatorPhone(adminPhone);
+  assert.equal(secondAdminPhoneSignIn.localId, firstAdminPhoneSignIn.localId);
+  await writePhoneIdentityProfile(
+    firstAdminPhoneSignIn.localId,
+    "admin",
+    adminPhone,
+  );
+  const adminClassification = await classifyProviderPhone(
+    secondAdminPhoneSignIn.idToken,
+    adminPhone,
+  );
+  assert.equal(adminClassification.status, 200);
+  assert.equal(adminClassification.body.classification, "non_provider_account");
+  assert.equal(
+    (await db.collection("providers").where(
+      "ownerId",
+      "==",
+      firstAdminPhoneSignIn.localId,
+    ).get()).empty,
+    true,
+  );
+
+  const malformedPhone = "+639000008883";
+  const malformedOwner = await signInWithEmulatorPhone(malformedPhone);
+  await db.collection("users").doc("malformed-phone-projection").set({
+    uid: "malformed-phone-projection",
+    role: "customer",
+    phoneNumber: malformedPhone,
+    isPhoneVerified: true,
+    accountStatus: "active",
+    isActive: true,
+    isBlocked: false,
+  });
+  const malformedClassification = await classifyProviderPhone(
+    malformedOwner.idToken,
+    malformedPhone,
+  );
+  assert.equal(malformedClassification.status, 401);
+  assert.deepEqual(
+    Object.keys(malformedClassification.body),
+    ["error"],
+  );
+  assert.equal(
+    malformedClassification.body.error,
+    "The provider registration request could not be completed.",
+  );
+  await db.collection("users").doc("malformed-phone-projection").delete();
+}
+
 async function testPhoneVerificationWorkflow() {
   const customer = await createVerifiedCustomer(
     "acceptance.phone@feasta.test",
@@ -232,8 +368,23 @@ async function testPhoneVerificationWorkflow() {
   );
 
   const emulatorPhone = "+639000009999";
+  const prepared = await callFunction(
+    "prepareCustomerPhoneVerification",
+    customer,
+    {phoneNumber: emulatorPhone},
+  );
+  assert.equal(prepared.phoneNumber, emulatorPhone);
+  assert.equal((await userRef.get()).data()?.phoneNumber, "");
+  assert.equal((await userRef.get()).data()?.isPhoneVerified, false);
   await adminAuth.updateUser(customer.uid, {phoneNumber: emulatorPhone});
   await customer.reload();
+  const stalePhoneSession = await createWebSession(
+    await customer.getIdToken(true),
+    "/customer",
+    "customer",
+  );
+  assert.equal(stalePhoneSession.body.destination, "/customer");
+  assert.equal((await userRef.get()).data()?.isPhoneVerified, false);
   const result = await callFunction("syncPhoneVerification", customer, {});
   assert.equal(result.phoneNumber, emulatorPhone);
   assert.equal((await userRef.get()).data()?.isPhoneVerified, true);
@@ -242,6 +393,22 @@ async function testPhoneVerificationWorkflow() {
       ?.phoneNumber,
     emulatorPhone,
   );
+  await userRef.update({phoneNumber: "+639000009998"});
+  const mismatchedSessionCsrf = await getCsrf();
+  const mismatchedSession = await postSession(
+    await customer.getIdToken(true),
+    mismatchedSessionCsrf,
+    "/customer",
+    "customer",
+  );
+  assert.equal(mismatchedSession.status, 403);
+  await userRef.update({phoneNumber: emulatorPhone});
+  const renewedPhoneSession = await createWebSession(
+    await customer.getIdToken(true),
+    "/customer",
+    "customer",
+  );
+  assert.equal(renewedPhoneSession.body.destination, "/customer");
   await signOut(auth);
 }
 
@@ -580,7 +747,6 @@ async function testEmailCustomerFlow() {
   const first = await callFunction("ensureUserProfile", credential.user, {
     firstName: "Acceptance",
     lastName: "Customer",
-    phoneNumber: "+639171111111",
     ...customerConsent,
   });
   assert.equal(first.created, true);
@@ -591,7 +757,16 @@ async function testEmailCustomerFlow() {
   assert.equal(userDoc.data()?.role, "customer");
   assert.equal(userDoc.data()?.accountStatus, "active");
   assert.equal(userDoc.data()?.providerId, null);
+  assert.equal(userDoc.data()?.phoneNumber, "");
+  assert.equal(userDoc.data()?.isPhoneVerified, false);
   assert.equal(customerDoc.data()?.userId, credential.user.uid);
+  await assert.rejects(
+    () => callFunction("ensureUserProfile", credential.user, {
+      phoneNumber: "+639171111111",
+    }),
+    /invalid[_-]argument/i,
+  );
+  assert.equal((await userRef.get()).data()?.phoneNumber, "");
 
   await sendEmailVerification(credential.user);
   await sendEmailVerification(credential.user);
@@ -1155,6 +1330,9 @@ async function testWebSessionsAndRoles() {
     isPhoneVerified: true,
     phoneNumber: providerPhone,
   });
+  await db.collection("providers").doc("acceptance-provider").update({
+    ownerPhone: providerPhone,
+  });
   await providerUser.reload();
   const providerSession = await createWebSession(
     await providerUser.getIdToken(true),
@@ -1471,6 +1649,83 @@ async function signInWithEmulatorPhone(phoneNumber) {
   const signInBody = await signInResponse.json();
   assert.equal(signInResponse.status, 200, JSON.stringify(signInBody));
   return signInBody;
+}
+
+async function linkEmulatorPhoneToIdToken(idToken, phoneNumber) {
+  const sendResponse = await fetch(
+    `http://${authHost}/identitytoolkit.googleapis.com/v1/accounts:sendVerificationCode?key=fake-api-key`,
+    {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({phoneNumber, recaptchaToken: "emulator-test"}),
+    },
+  );
+  const sendBody = await sendResponse.json();
+  assert.equal(sendResponse.status, 200, JSON.stringify(sendBody));
+  const codesResponse = await fetch(
+    `http://${authHost}/emulator/v1/projects/${projectId}/verificationCodes`,
+  );
+  const codesBody = await codesResponse.json();
+  const verification = (codesBody.verificationCodes ?? []).find(
+    (candidate) => candidate.sessionInfo === sendBody.sessionInfo,
+  );
+  assert.ok(verification?.code, "Auth Emulator did not expose the SMS code.");
+  const linkResponse = await fetch(
+    `http://${authHost}/identitytoolkit.googleapis.com/v1/accounts:signInWithPhoneNumber?key=fake-api-key`,
+    {
+      method: "POST",
+      headers: {"content-type": "application/json"},
+      body: JSON.stringify({
+        idToken,
+        sessionInfo: sendBody.sessionInfo,
+        code: verification.code,
+      }),
+    },
+  );
+  return {status: linkResponse.status, body: await linkResponse.json()};
+}
+
+async function classifyProviderPhone(idToken, phoneNumber) {
+  const csrf = await getCsrf();
+  const response = await fetch(
+    `${webUrl}/api/auth/provider-registration/classify`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: webUrl,
+        cookie: csrf.cookie,
+        "x-feasta-csrf": csrf.token,
+      },
+      body: JSON.stringify({idToken, phoneNumber}),
+    },
+  );
+  return {status: response.status, body: await response.json()};
+}
+
+async function writePhoneIdentityProfile(uid, role, phoneNumber) {
+  await db.collection("users").doc(uid).set({
+    uid,
+    role,
+    phoneNumber,
+    isPhoneVerified: true,
+    isEmailVerified: false,
+    accountStatus: "active",
+    providerId: null,
+    isActive: true,
+    isBlocked: false,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  if (role === "customer") {
+    await db.collection("customers").doc(uid).set({
+      userId: uid,
+      phoneNumber,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
 }
 
 async function emailChangeCodes(newEmail) {

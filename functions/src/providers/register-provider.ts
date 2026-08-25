@@ -99,7 +99,7 @@ export const registerProvider = onCall(
       .collection("users")
       .doc(authenticatedUser.uid)
       .get();
-    requireTrustedProviderIdentity(authUser, identityUserSnapshot.data());
+    await requireTrustedProviderIdentity(authUser, identityUserSnapshot.data());
     requireProviderRegistrationConsent(identityUserSnapshot.data());
 
     const input = requireObject(request.data);
@@ -488,7 +488,10 @@ export const registerProvider = onCall(
               "Your account is not active.",
             );
           }
-          const identity = requireTrustedProviderIdentity(authUser, userData);
+          const identity = await requireTrustedProviderIdentity(
+            authUser,
+            userData,
+          );
           requireProviderRegistrationConsent(userData);
 
           /*

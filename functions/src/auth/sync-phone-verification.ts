@@ -8,8 +8,7 @@ import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {logSecurityEvent} from "../shared/security-events.js";
 import {serverTimestamp} from "../shared/timestamps.js";
-
-const philippineMobilePattern = /^\+639\d{9}$/u;
+import {requireGlobalPhoneIdentityOwnership} from "../shared/phone-identity.js";
 
 /**
  * Copies Firebase Auth-owned phone verification into profile data.
@@ -27,13 +26,7 @@ export const syncPhoneVerification = onCall(
     });
 
     const authUser = await getAuth().getUser(actor.uid);
-    const phoneNumber = authUser.phoneNumber;
-    if (!phoneNumber || !philippineMobilePattern.test(phoneNumber)) {
-      throw new HttpsError(
-        "failed-precondition",
-        "A verified Philippine mobile number is required.",
-      );
-    }
+    const phoneNumber = await requireGlobalPhoneIdentityOwnership(authUser);
 
     const userReference = db.collection("users").doc(actor.uid);
     const customerReference = db.collection("customers").doc(actor.uid);

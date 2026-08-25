@@ -164,7 +164,7 @@ export const submitProviderVerification = onCall(
               "The provider account is not active or correctly linked.",
             );
           }
-          requireTrustedProviderIdentity(authUser, userData);
+          await requireTrustedProviderIdentity(authUser, userData);
 
           const verificationQuery = db
             .collection(

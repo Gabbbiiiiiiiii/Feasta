@@ -52,6 +52,7 @@ export type AccountContextFailureReason =
   | "deactivated_account"
   | "inactive_account"
   | "invalid_provider_link"
+  | "invalid_phone_identity"
   | "missing_provider_profile"
   | "invalid_provider_status"
   | "invalid_provider_service_type";
