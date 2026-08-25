@@ -152,7 +152,7 @@ export default function BecomeAProviderPage() {
                 href="/provider-register"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-pill bg-primary px-7 font-bold text-white shadow-card transition-all hover:-translate-y-0.5 hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none sm:w-auto"
+                className="group inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-pill bg-primary px-7 font-bold text-primary-foreground shadow-card transition-all hover:-translate-y-0.5 hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none sm:w-auto"
                 >
                 {/* Wrap text and sr-only together so it counts as a single flex item */}
                 <span>
@@ -210,7 +210,7 @@ export default function BecomeAProviderPage() {
                     />
 
                     <div className="flex items-start justify-between gap-4">
-                    <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary text-white shadow-card">
+                    <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-card">
                         <Icon aria-hidden="true" className="size-5" />
                     </span>
 
@@ -347,7 +347,7 @@ export default function BecomeAProviderPage() {
                     className="group relative grid gap-5 rounded-card border border-border bg-card p-5 shadow-card transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-floating motion-reduce:transform-none motion-reduce:transition-none sm:p-6 lg:grid-cols-[64px_1fr_auto] lg:items-center lg:gap-7 lg:p-7"
                     >
                     <div className="relative z-10">
-                        <span className="flex size-16 items-center justify-center rounded-full border-4 border-background bg-primary text-white shadow-card">
+                        <span className="flex size-16 items-center justify-center rounded-full border-4 border-background bg-primary text-primary-foreground shadow-card">
                         <Icon
                             aria-hidden="true"
                             className="size-6"
@@ -411,7 +411,7 @@ export default function BecomeAProviderPage() {
 
                 <div className="mt-8 rounded-card border border-primary/15 bg-card p-5 shadow-card sm:p-6">
                 <div className="flex items-start gap-4">
-                    <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white">
+                    <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
                     <ClipboardCheck
                         aria-hidden="true"
                         className="size-5"

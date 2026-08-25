@@ -88,7 +88,7 @@ export function ProviderProfile({
           ) : (
             <div
               aria-hidden="true"
-              className="size-full bg-[radial-gradient(circle_at_18%_22%,rgba(255,255,255,0.75),transparent_32%),linear-gradient(135deg,#FFF0E9_0%,#FFD8CA_48%,#F07A4B_100%)]"
+              className="feasta-brand-media-placeholder size-full"
             />
           )}
 
@@ -597,11 +597,11 @@ export function ProviderProfile({
               className={[
                 "group inline-flex min-h-12 items-center justify-center gap-2",
                 "rounded-full bg-primary px-5",
-                "text-sm font-bold text-white",
-                "shadow-[0_8px_20px_rgb(255_99_51/0.18)]",
+                "text-sm font-bold text-primary-foreground",
+                "shadow-brand-soft",
                 "transition-[transform,background-color,box-shadow]",
                 "hover:-translate-y-0.5 hover:bg-primary-hover",
-                "hover:shadow-[0_10px_24px_rgb(255_99_51/0.22)]",
+                "hover:shadow-brand",
                 "focus-visible:outline-none focus-visible:ring-2",
                 "focus-visible:ring-primary focus-visible:ring-offset-2",
                 "motion-reduce:transform-none",

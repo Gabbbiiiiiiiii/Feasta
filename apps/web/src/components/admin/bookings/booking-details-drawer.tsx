@@ -335,7 +335,7 @@ function ProviderRequestCard({
     <article className="grid min-w-0 gap-3 rounded-card border border-border p-4">
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary-subtle text-primary-strong">
+          <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary-tint text-primary-strong">
             <PackageOpen
               aria-hidden="true"
               className="size-5"

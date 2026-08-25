@@ -9,7 +9,7 @@ export default function PublicProviderNotFound() {
     >
       <span
         aria-hidden="true"
-        className="grid size-12 place-items-center rounded-full bg-[#FFF1ED] text-[#B02F00]"
+        className="grid size-12 place-items-center rounded-full bg-primary-tint text-primary"
       >
         <SearchX className="size-6" />
       </span>
@@ -27,7 +27,7 @@ export default function PublicProviderNotFound() {
       </div>
       <Link
         href="/customer/providers"
-        className="inline-flex min-h-11 items-center justify-center rounded-lg bg-[#B02F00] px-5 text-sm font-bold text-white transition-colors hover:bg-[#8F2700] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B02F00] focus-visible:ring-offset-3 focus-visible:ring-offset-white"
+        className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary px-5 text-sm font-bold text-primary-foreground transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-3 focus-visible:ring-offset-white"
       >
         Browse public providers
       </Link>

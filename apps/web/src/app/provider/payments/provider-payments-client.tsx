@@ -185,7 +185,7 @@ export function ProviderPaymentsClient({
       />
 
       <aside
-        className="rounded-card border border-primary/20 bg-primary-soft/40 px-4 py-3 text-sm text-muted-foreground"
+        className="rounded-card border border-primary/20 bg-primary-tint/40 px-4 py-3 text-sm text-muted-foreground"
         role="note"
         aria-label="About booking payment amounts"
       >

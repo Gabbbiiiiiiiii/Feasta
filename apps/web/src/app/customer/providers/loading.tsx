@@ -26,7 +26,7 @@ export default function CustomerProvidersLoading() {
                 <div className="grid gap-3 p-4">
                   <div className="h-5 w-4/5 animate-pulse rounded bg-[#E8C9BE] motion-reduce:animate-none" />
                   <div className="h-4 w-3/5 animate-pulse rounded bg-[#F0D7CF] motion-reduce:animate-none" />
-                  <div className="h-16 animate-pulse rounded-lg bg-[#FFF0E9] motion-reduce:animate-none" />
+                  <div className="h-16 animate-pulse rounded-lg bg-primary-tint motion-reduce:animate-none" />
                 </div>
               </div>
             ))}

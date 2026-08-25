@@ -92,7 +92,7 @@ export default function ProviderLoginPage() {
             aria-hidden="true"
             className="
               pointer-events-none absolute inset-0
-              bg-[radial-gradient(circle_at_20%_10%,rgba(255,99,51,0.18),transparent_38%)]
+              feasta-brand-ambient
             "
           />
 

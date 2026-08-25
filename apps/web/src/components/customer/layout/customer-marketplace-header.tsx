@@ -219,7 +219,7 @@ function MarketplaceHeaderSearch({
         <button
           type="submit"
           aria-label="Search marketplace"
-          className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-white transition-[background-color,transform] duration-fast hover:scale-[1.03] hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transform-none"
+          className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition-[background-color,transform] duration-fast hover:scale-[1.03] hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transform-none"
         >
           <Search
             aria-hidden="true"
@@ -294,7 +294,7 @@ function GuestAccountActions({returnTo}: {returnTo: string}) {
       </Link>
       <Link
         href={`/register?next=${encodedReturnTo}`}
-        className="hidden min-h-11 cursor-pointer items-center justify-center rounded-[10px] bg-primary-strong px-4 text-sm font-bold text-white shadow-card transition-colors hover:bg-[#9C3515] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:inline-flex"
+        className="hidden min-h-11 cursor-pointer items-center justify-center rounded-[10px] bg-primary px-4 text-sm font-bold text-primary-foreground shadow-card transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:inline-flex"
       >
         Sign up
       </Link>
@@ -330,7 +330,7 @@ function CustomerAccountMenu({
       >
         <span
           aria-hidden="true"
-          className="inline-flex size-9 items-center justify-center rounded-[10px] bg-[#FF6333] text-xs font-black uppercase text-[#3B0A00]"
+          className="inline-flex size-9 items-center justify-center rounded-[10px] bg-primary text-xs font-black uppercase text-primary-foreground"
         >
           {accountLabel.trim().charAt(0).toLocaleUpperCase("en-PH") || "F"}
         </span>
@@ -398,7 +398,7 @@ function CustomerMenuLink({
     <Link
       role="menuitem"
       href={href}
-      className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 font-semibold hover:bg-[#FFF1ED] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B02F00]/40"
+      className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 font-semibold hover:bg-primary-tint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
       onClick={() => detailsRef.current?.removeAttribute("open")}
     >
       <span className="text-[#695C56] [&_svg]:size-5">{icon}</span>

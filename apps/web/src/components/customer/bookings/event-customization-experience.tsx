@@ -660,9 +660,9 @@ async function handleSubmitBooking() {
                     "grid size-8 shrink-0 place-items-center rounded-full",
                     "text-xs font-extrabold",
                     active
-                      ? "bg-primary text-white"
+                      ? "bg-primary text-primary-foreground"
                       : completed
-                        ? "bg-success text-white"
+                        ? "bg-success text-success-foreground"
                         : "bg-white text-feasta-text-tertiary",
                   ].join(" ")}
                 >
@@ -1286,7 +1286,7 @@ async function handleSubmitBooking() {
                         "mt-0.5 grid size-5 shrink-0 place-items-center rounded-[6px] border",
                         "transition-[border-color,background-color,color]",
                         willArrangeOwnAddOns
-                          ? "border-primary bg-primary text-white"
+                          ? "border-primary bg-primary text-primary-foreground"
                           : "border-feasta-border-strong bg-white text-transparent",
                         "peer-focus-visible:ring-2 peer-focus-visible:ring-primary",
                         "peer-focus-visible:ring-offset-2",
@@ -1408,7 +1408,7 @@ async function handleSubmitBooking() {
               className="mt-6 rounded-[16px] border border-success/20 bg-success/[0.06] px-4 py-4"
             >
               <div className="flex items-start gap-3">
-                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-success text-white">
+                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-success text-success-foreground">
                   <Check
                     aria-hidden="true"
                     className="size-4"
@@ -1753,7 +1753,7 @@ function CustomizationGroup({
                   "rounded-[14px] border p-3.5",
                   "transition-[border-color,background-color,box-shadow]",
                   checked
-                    ? "border-primary/35 bg-secondary shadow-[0_3px_12px_rgb(255_99_51/0.06)]"
+                    ? "border-primary/35 bg-secondary shadow-brand-subtle"
                     : "border-feasta-border-soft bg-white hover:border-primary/20 hover:bg-feasta-canvas",
                 ].join(" ")}
               >
@@ -1772,7 +1772,7 @@ function CustomizationGroup({
                     "mt-0.5 grid size-5 shrink-0 place-items-center rounded-[6px] border",
                     "transition-[border-color,background-color,color]",
                     checked
-                      ? "border-primary bg-primary text-white"
+                      ? "border-primary bg-primary text-primary-foreground"
                       : "border-feasta-border-strong bg-white text-transparent",
                     "peer-focus-visible:ring-2 peer-focus-visible:ring-primary",
                     "peer-focus-visible:ring-offset-2",
@@ -1943,7 +1943,7 @@ function EventServiceCard({
         "group relative grid min-w-0 overflow-hidden rounded-[16px] border",
         "transition-[border-color,background-color,box-shadow,transform]",
         selected
-          ? "border-primary/35 bg-secondary shadow-[0_5px_18px_rgb(255_99_51/0.07)]"
+          ? "border-primary/35 bg-secondary shadow-brand-subtle"
           : "border-feasta-border-soft bg-white hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-[0_7px_20px_rgb(43_33_29/0.05)]",
         selectionLimitReached
           ? "cursor-not-allowed opacity-60"
@@ -1989,7 +1989,7 @@ function EventServiceCard({
               "mt-0.5 grid size-5 shrink-0 place-items-center rounded-[6px] border",
               "transition-[border-color,background-color,color]",
               selected
-                ? "border-primary bg-primary text-white"
+                ? "border-primary bg-primary text-primary-foreground"
                 : "border-feasta-border-strong bg-white text-transparent",
               "peer-focus-visible:ring-2 peer-focus-visible:ring-primary",
               "peer-focus-visible:ring-offset-2",
@@ -2502,7 +2502,7 @@ function BookingReview({
           className="mt-6 rounded-[16px] border border-success/20 bg-success/[0.06] px-4 py-4"
         >
           <div className="flex items-start gap-3">
-            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-success text-white">
+            <span className="grid size-8 shrink-0 place-items-center rounded-full bg-success text-success-foreground">
               <Check
                 aria-hidden="true"
                 className="size-4"

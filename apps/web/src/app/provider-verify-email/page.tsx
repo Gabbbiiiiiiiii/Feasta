@@ -430,7 +430,7 @@ function ProgressStep({
           complete
             ? "bg-success text-success-foreground"
             : current
-              ? "bg-primary text-white"
+              ? "bg-primary text-primary-foreground"
               : "bg-muted text-muted-foreground",
         ].join(" ")}
       >

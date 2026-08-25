@@ -107,7 +107,7 @@ export function ProviderFilterForm({
           </span>
 
           {hasActiveFilters ? (
-            <span className="rounded-full bg-primary px-2 py-1 text-[11px] font-extrabold text-white">
+            <span className="rounded-full bg-primary px-2 py-1 text-[11px] font-extrabold text-primary-foreground">
               {activeFilters.length}
             </span>
           ) : null}
@@ -349,12 +349,12 @@ export function ProviderFilterForm({
               className={[
                 "inline-flex min-h-11 w-full items-center justify-center",
                 "gap-2 rounded-xl bg-primary px-4",
-                "text-sm font-bold text-white",
-                "shadow-[0_7px_18px_rgb(255_99_51/0.16)]",
+                "text-sm font-bold text-primary-foreground",
+                "shadow-brand-soft",
                 "transition-[transform,background-color,box-shadow]",
                 "duration-normal",
                 "hover:-translate-y-0.5 hover:bg-primary-hover",
-                "hover:shadow-[0_10px_22px_rgb(255_99_51/0.22)]",
+                "hover:shadow-brand",
                 "focus-visible:outline-none focus-visible:ring-2",
                 "focus-visible:ring-primary focus-visible:ring-offset-2",
                 "motion-reduce:transform-none",

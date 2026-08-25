@@ -121,7 +121,7 @@ export function ProviderReviewDetailDrawer({
 
           {review.providerReply ? (
             <DrawerSection title="Your reply">
-              <div className="rounded-lg border border-primary/20 bg-primary-soft/30 p-4">
+              <div className="rounded-lg border border-primary/20 bg-primary-tint/30 p-4">
                 <MessageSquareQuote
                   aria-hidden="true"
                   className="size-5 text-primary-strong"

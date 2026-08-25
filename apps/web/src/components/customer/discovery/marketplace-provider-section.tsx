@@ -17,7 +17,7 @@ export function MarketplaceProviderSection({
     <section className="grid gap-5" aria-labelledby="marketplace-providers-title">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="text-sm font-black uppercase tracking-[0.16em] text-[#B72E08]">Explore the marketplace</p>
+          <p className="text-sm font-black uppercase tracking-[0.16em] text-primary-strong">Explore the marketplace</p>
           <h2 id="marketplace-providers-title" className="mt-1 text-3xl font-black tracking-tight sm:text-4xl">Approved providers in Ormoc City</h2>
           <p className="mt-2 text-sm text-muted-foreground">Public businesses currently approved to offer services through FEASTA.</p>
         </div>

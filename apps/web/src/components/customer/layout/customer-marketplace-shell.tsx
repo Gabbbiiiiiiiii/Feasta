@@ -23,9 +23,9 @@ export function CustomerMarketplaceShell({
           fixed left-4 top-3 z-[100]
           -translate-y-24
           rounded-lg
-          bg-[#B02F00]
+          bg-primary
           px-4 py-3
-          font-bold text-white
+          font-bold text-primary-foreground
           shadow-floating
           transition-transform
           focus:translate-y-0

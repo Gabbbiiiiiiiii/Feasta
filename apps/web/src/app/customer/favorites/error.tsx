@@ -18,7 +18,7 @@ export default function CustomerFavoritesError({
         </p>
         <button
           type="button"
-          className="mt-5 inline-flex min-h-11 cursor-pointer items-center justify-center rounded-[10px] bg-primary-strong px-5 text-sm font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="mt-5 inline-flex min-h-11 cursor-pointer items-center justify-center rounded-[10px] bg-primary-strong px-5 text-sm font-bold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           onClick={reset}
         >
           Try again

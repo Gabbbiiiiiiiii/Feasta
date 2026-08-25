@@ -46,7 +46,7 @@ export function MarketplacePackageSection({
             className="
               text-xs font-black
               uppercase tracking-[0.16em]
-              text-[#B02F00]
+              text-primary
               sm:text-sm
             "
           >
@@ -84,9 +84,9 @@ export function MarketplacePackageSection({
             hidden shrink-0
             items-center gap-2
             text-sm font-bold
-            text-[#B02F00]
+            text-primary
             transition-colors
-            hover:text-[#862200]
+            hover:text-primary-strong
             hover:underline
             sm:inline-flex
           "
@@ -171,7 +171,7 @@ export function MarketplacePackageSection({
                     aria-hidden="true"
                     className="
                       size-12
-                      text-[#B02F00]
+                      text-primary
                     "
                   />
                 )}
@@ -196,7 +196,7 @@ export function MarketplacePackageSection({
                     bg-white/95
                     px-2.5 py-1
                     text-xs font-bold
-                    text-[#B02F00]
+                    text-primary
                     shadow-sm
                     backdrop-blur
                   "
@@ -270,7 +270,7 @@ export function MarketplacePackageSection({
                         aria-hidden="true"
                         className="
                           size-4 shrink-0
-                          text-[#B02F00]
+                          text-primary
                         "
                       />
 
@@ -299,7 +299,7 @@ export function MarketplacePackageSection({
                       className="
                         mt-0.5
                         font-black
-                        text-[#B02F00]
+                        text-primary
                       "
                     >
                       <PriceDisplay
@@ -324,7 +324,7 @@ export function MarketplacePackageSection({
           bg-white
           px-4
           text-sm font-bold
-          text-[#B02F00]
+          text-primary
           sm:hidden
         "
       >

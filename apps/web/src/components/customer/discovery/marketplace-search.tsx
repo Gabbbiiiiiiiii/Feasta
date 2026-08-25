@@ -44,7 +44,7 @@ export function MarketplaceSearch() {
             pointer-events-none
             absolute left-3
             size-4
-            text-[#B02F00]
+            text-primary
           "
         />
 
@@ -134,11 +134,11 @@ export function MarketplaceSearch() {
         className="
           h-12 w-full
           rounded-xl
-          bg-[#B02F00]
+          bg-primary
           px-6
-          font-bold text-white
+          font-bold text-primary-foreground
           shadow-sm
-          hover:bg-[#8F2600]
+          hover:bg-primary-hover
           sm:w-auto
         "
       >

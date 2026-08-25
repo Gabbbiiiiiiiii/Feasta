@@ -64,12 +64,12 @@ const SidebarNavigationItem = memo(
             "group relative flex h-13 items-center rounded-xl",
             "transition-colors duration-150",
             "focus-visible:outline-none",
-            "focus-visible:ring-2 focus-visible:ring-[#FF6500]/40",
+            "focus-visible:ring-2 focus-visible:ring-primary/40",
             collapsed
               ? "justify-center px-2"
               : "gap-3 px-3",
             active
-              ? "bg-[#FFF0E7] text-[#E95700]"
+              ? "bg-primary-tint text-primary-strong"
               : "text-slate-600 hover:bg-slate-50 hover:text-slate-950",
           )}
         >
@@ -78,7 +78,7 @@ const SidebarNavigationItem = memo(
               aria-hidden="true"
               className={cn(
                 "absolute inset-y-3 left-0",
-                "w-0.75 rounded-r-full bg-[#FF6500]",
+                "w-0.75 rounded-r-full bg-primary",
               )}
             />
           )}
@@ -88,11 +88,11 @@ const SidebarNavigationItem = memo(
               "grid size-9 shrink-0 place-items-center rounded-lg",
               "transition-colors duration-150",
               active
-                ? "bg-[#FFE3D2] text-[#FF6500]"
+                ? "bg-primary-tint-strong text-primary"
                 : [
                     "text-slate-500",
                     "group-hover:bg-white",
-                    "group-hover:text-[#FF6500]",
+                    "group-hover:text-primary",
                   ],
             )}
           >
@@ -307,7 +307,7 @@ function ApplicationSidebarComponent({
             "transition-colors duration-150",
             "hover:bg-slate-100 hover:text-slate-900",
             "focus-visible:outline-none",
-            "focus-visible:ring-2 focus-visible:ring-[#FF6500]/40",
+            "focus-visible:ring-2 focus-visible:ring-primary/40",
             collapsed
               ? "justify-center"
               : "gap-3 px-3",

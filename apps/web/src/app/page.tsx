@@ -223,8 +223,8 @@ function JourneyCard({
             "grid size-11 shrink-0 place-items-center rounded-xl",
             "transition-[background-color,color] duration-normal",
             emphasized
-              ? "bg-primary text-white"
-              : "bg-secondary text-primary-strong group-hover:bg-primary group-hover:text-white",
+              ? "bg-primary text-primary-foreground"
+              : "bg-secondary text-primary-strong group-hover:bg-primary group-hover:text-primary-foreground",
           ].join(" ")}
         >
           <Icon
@@ -285,7 +285,7 @@ export default async function HomePage() {
 
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute -right-40 top-0 size-[34rem] rounded-full bg-[#ffbea3]/20 blur-3xl"
+            className="pointer-events-none absolute -right-40 top-0 size-[34rem] rounded-full bg-primary-tint-strong/60 blur-3xl"
           />
 
           <div className="feasta-container-wide relative py-10 sm:py-14 lg:py-16 xl:py-20">
@@ -322,12 +322,12 @@ export default async function HomePage() {
                     className={[
                       "group inline-flex min-h-12 items-center justify-center",
                       "gap-2 rounded-full bg-primary px-6",
-                      "text-sm font-bold text-white",
-                      "shadow-[0_10px_28px_rgb(255_99_51/0.20)]",
+                      "text-sm font-bold text-primary-foreground",
+                      "shadow-brand",
                       "transition-[transform,background-color,box-shadow]",
                       "duration-normal",
                       "hover:-translate-y-0.5 hover:bg-primary-hover",
-                      "hover:shadow-[0_14px_32px_rgb(255_99_51/0.25)]",
+                      "hover:shadow-brand-strong",
                       "focus-visible:outline-none focus-visible:ring-2",
                       "focus-visible:ring-primary focus-visible:ring-offset-2",
                       "motion-reduce:transform-none",
@@ -694,12 +694,12 @@ export default async function HomePage() {
                         className={[
                           "group flex h-12 w-full items-center justify-center",
                           "gap-2 rounded-xl bg-primary px-5",
-                          "text-sm font-bold text-white",
-                          "shadow-[0_8px_20px_rgb(255_99_51/0.18)]",
+                          "text-sm font-bold text-primary-foreground",
+                          "shadow-brand-soft",
                           "transition-[transform,background-color,box-shadow]",
                           "duration-normal",
                           "hover:-translate-y-0.5 hover:bg-primary-hover",
-                          "hover:shadow-[0_12px_26px_rgb(255_99_51/0.24)]",
+                          "hover:shadow-brand",
                           "focus-visible:outline-none focus-visible:ring-2",
                           "focus-visible:ring-primary focus-visible:ring-offset-2",
                           "motion-reduce:transform-none",
@@ -787,7 +787,7 @@ export default async function HomePage() {
                           "text-primary-strong",
                           "transition-[background-color,color,transform]",
                           "duration-normal",
-                          "group-hover:bg-primary group-hover:text-white",
+                          "group-hover:bg-primary group-hover:text-primary-foreground",
                           "group-hover:scale-105",
                           "motion-reduce:transform-none",
                         ].join(" ")}
@@ -856,12 +856,12 @@ export default async function HomePage() {
                   className={[
                     "group mt-7 inline-flex min-h-12 items-center justify-center",
                     "gap-2 rounded-full bg-primary px-6",
-                    "text-sm font-bold text-white",
-                    "shadow-[0_9px_24px_rgb(255_99_51/0.18)]",
+                    "text-sm font-bold text-primary-foreground",
+                    "shadow-brand-soft",
                     "transition-[transform,background-color,box-shadow]",
                     "duration-normal",
                     "hover:-translate-y-0.5 hover:bg-primary-hover",
-                    "hover:shadow-[0_12px_28px_rgb(255_99_51/0.24)]",
+                    "hover:shadow-brand",
                     "focus-visible:outline-none focus-visible:ring-2",
                     "focus-visible:ring-primary focus-visible:ring-offset-2",
                     "motion-reduce:transform-none",
@@ -907,7 +907,7 @@ export default async function HomePage() {
                             "transition-[background-color,color,transform]",
                             "duration-normal",
                             "group-hover:scale-105 group-hover:bg-primary",
-                            "group-hover:text-white",
+                            "group-hover:text-primary-foreground",
                             "motion-reduce:transform-none",
                           ].join(" ")}
                         >
@@ -1062,7 +1062,7 @@ export default async function HomePage() {
                             "border-[5px] border-feasta-canvas-warm",
                             "shadow-[0_4px_14px_rgb(43_33_29/0.08)]",
                             isLast
-                              ? "bg-primary text-white"
+                              ? "bg-primary text-primary-foreground"
                               : "bg-white text-primary-strong",
                           ].join(" ")}
                         >
@@ -1147,12 +1147,12 @@ export default async function HomePage() {
                   className={[
                     "group inline-flex min-h-12 w-fit items-center justify-center",
                     "gap-2 rounded-full bg-primary px-6",
-                    "text-sm font-bold text-white",
-                    "shadow-[0_8px_20px_rgb(255_99_51/0.18)]",
+                    "text-sm font-bold text-primary-foreground",
+                    "shadow-brand-soft",
                     "transition-[transform,background-color,box-shadow]",
                     "duration-normal",
                     "hover:-translate-y-0.5 hover:bg-primary-hover",
-                    "hover:shadow-[0_12px_26px_rgb(255_99_51/0.24)]",
+                    "hover:shadow-brand",
                     "focus-visible:outline-none focus-visible:ring-2",
                     "focus-visible:ring-primary focus-visible:ring-offset-2",
                     "motion-reduce:transform-none",
@@ -1274,12 +1274,12 @@ export default async function HomePage() {
                     className={[
                       "group inline-flex min-h-11 shrink-0 items-center",
                       "justify-center gap-2 rounded-full bg-primary px-5",
-                      "text-sm font-bold text-white",
-                      "shadow-[0_8px_20px_rgb(255_99_51/0.16)]",
+                      "text-sm font-bold text-primary-foreground",
+                      "shadow-brand-soft",
                       "transition-[transform,background-color,box-shadow]",
                       "duration-normal",
                       "hover:-translate-y-0.5 hover:bg-primary-hover",
-                      "hover:shadow-[0_11px_24px_rgb(255_99_51/0.22)]",
+                      "hover:shadow-brand",
                       "focus-visible:outline-none focus-visible:ring-2",
                       "focus-visible:ring-primary focus-visible:ring-offset-2",
                       "motion-reduce:transform-none",
@@ -1328,12 +1328,12 @@ export default async function HomePage() {
                     className={[
                       "group inline-flex min-h-12 w-fit items-center",
                       "justify-center gap-2 rounded-full bg-primary px-6",
-                      "text-sm font-bold text-white",
-                      "shadow-[0_8px_20px_rgb(255_99_51/0.16)]",
+                      "text-sm font-bold text-primary-foreground",
+                      "shadow-brand-soft",
                       "transition-[transform,background-color,box-shadow]",
                       "duration-normal",
                       "hover:-translate-y-0.5 hover:bg-primary-hover",
-                      "hover:shadow-[0_11px_24px_rgb(255_99_51/0.22)]",
+                      "hover:shadow-brand",
                       "focus-visible:outline-none focus-visible:ring-2",
                       "focus-visible:ring-primary focus-visible:ring-offset-2",
                       "motion-reduce:transform-none",
@@ -1454,12 +1454,12 @@ export default async function HomePage() {
                   className={[
                     "group mt-8 inline-flex min-h-12 items-center justify-center",
                     "gap-2 rounded-full bg-primary px-6",
-                    "text-sm font-bold text-white",
-                    "shadow-[0_10px_28px_rgb(255_99_51/0.22)]",
+                    "text-sm font-bold text-primary-foreground",
+                    "shadow-brand",
                     "transition-[transform,background-color,box-shadow]",
                     "duration-normal",
                     "hover:-translate-y-0.5 hover:bg-primary-hover",
-                    "hover:shadow-[0_14px_34px_rgb(255_99_51/0.30)]",
+                    "hover:shadow-brand-strong",
                     "focus-visible:outline-none focus-visible:ring-2",
                     "focus-visible:ring-primary focus-visible:ring-offset-2",
                     "focus-visible:ring-offset-[#2b211d]",
@@ -1560,7 +1560,7 @@ export default async function HomePage() {
                       <div className="mt-5 space-y-3">
                         {/* Catering selected */}
                         <div className="flex items-center gap-4 rounded-[18px] border border-primary/20 bg-secondary/60 p-4">
-                          <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary text-white">
+                          <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
                             <UtensilsCrossed
                               aria-hidden="true"
                               className="size-5"
@@ -1961,12 +1961,12 @@ export default async function HomePage() {
                     className={[
                       "group inline-flex min-h-12 items-center justify-center",
                       "gap-2 rounded-full bg-primary px-6",
-                      "text-sm font-bold text-white",
-                      "shadow-[0_8px_20px_rgb(255_99_51/0.18)]",
+                      "text-sm font-bold text-primary-foreground",
+                      "shadow-brand-soft",
                       "transition-[transform,background-color,box-shadow]",
                       "duration-normal",
                       "hover:-translate-y-0.5 hover:bg-primary-hover",
-                      "hover:shadow-[0_12px_26px_rgb(255_99_51/0.24)]",
+                      "hover:shadow-brand",
                       "focus-visible:outline-none focus-visible:ring-2",
                       "focus-visible:ring-primary focus-visible:ring-offset-2",
                       "motion-reduce:transform-none",
@@ -2005,4 +2005,3 @@ export default async function HomePage() {
     </>
   );
 }
-

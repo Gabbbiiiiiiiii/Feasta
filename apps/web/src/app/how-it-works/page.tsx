@@ -193,7 +193,7 @@ export default function HowItWorksPage() {
         <section className="bg-secondary px-5 py-20 sm:px-8 lg:py-28">
           <div className="mx-auto grid max-w-[1180px] items-start gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:gap-20">
             <div className="max-w-xl">
-              <span className="flex size-12 items-center justify-center rounded-xl bg-primary text-white shadow-card">
+              <span className="flex size-12 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-card">
                 <Search aria-hidden="true" className="size-5" />
               </span>
               <p className="mt-6 text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
@@ -229,7 +229,7 @@ export default function HowItWorksPage() {
           <div className="mx-auto max-w-[1180px]">
             <div className="grid gap-12 lg:grid-cols-[1fr_1fr] lg:items-end lg:gap-20">
               <div className="max-w-xl">
-                <span className="flex size-12 items-center justify-center rounded-xl bg-primary text-white shadow-card">
+                <span className="flex size-12 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-card">
                   <SlidersHorizontal aria-hidden="true" className="size-5" />
                 </span>
                 <p className="mt-6 text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
@@ -268,7 +268,7 @@ export default function HowItWorksPage() {
               className="absolute -right-20 -top-24 size-72 rounded-full bg-primary/20 blur-3xl"
             />
             <div className="relative z-10 grid gap-8 lg:grid-cols-[auto_1fr] lg:items-start lg:gap-8">
-              <span className="flex size-12 items-center justify-center rounded-xl bg-primary text-white">
+              <span className="flex size-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
                 <ClipboardCheck aria-hidden="true" className="size-5" />
               </span>
               <div className="max-w-3xl">
@@ -389,7 +389,7 @@ export default function HowItWorksPage() {
         {/* Event day and completion */}
         <section className="bg-foreground px-5 py-20 text-white sm:px-8 lg:py-24">
           <div className="mx-auto grid max-w-[1180px] gap-10 md:grid-cols-[auto_1fr] md:items-start md:gap-8">
-            <span className="flex size-14 items-center justify-center rounded-full bg-primary text-white">
+            <span className="flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground">
               <PartyPopper aria-hidden="true" className="size-6" />
             </span>
             <div className="max-w-4xl">

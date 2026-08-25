@@ -141,7 +141,7 @@ async function MarketplaceContent({
       <section
         className="
           border-t border-[#E2BFB5]/60
-          bg-[#FFF1ED]
+          bg-primary-tint
         "
       >
         <div
@@ -183,7 +183,7 @@ async function MarketplaceContent({
       <section
         className="
           border-t border-[#E2BFB5]/60
-          bg-[#FFF1ED]
+          bg-primary-tint
         "
       >
         <div
@@ -245,7 +245,7 @@ function MarketplaceHero({
               flex items-center gap-2
               text-xs font-black
               uppercase tracking-[0.16em]
-              text-[#A93613]
+              text-primary-strong
               sm:text-sm
             "
           >
@@ -270,7 +270,7 @@ function MarketplaceHero({
           >
             Plan a celebration
 
-            <span className="mt-1 block text-[#B02F00]">
+            <span className="mt-1 block text-primary">
               worth remembering.
             </span>
           </h1>
@@ -308,7 +308,7 @@ function MarketplaceHero({
             <span className="inline-flex items-center gap-2">
               <ShieldCheck
                 aria-hidden="true"
-                className="size-5 text-[#B02F00]"
+                className="size-5 text-primary"
               />
 
               Approved providers
@@ -317,7 +317,7 @@ function MarketplaceHero({
             <span className="inline-flex items-center gap-2">
               <CheckCircle2
                 aria-hidden="true"
-                className="size-5 text-[#B02F00]"
+                className="size-5 text-primary"
               />
 
               Protected payments
@@ -326,7 +326,7 @@ function MarketplaceHero({
             <span className="inline-flex items-center gap-2">
               <CheckCircle2
                 aria-hidden="true"
-                className="size-5 text-[#B02F00]"
+                className="size-5 text-primary"
               />
 
               Clear booking statuses
@@ -363,10 +363,7 @@ function MarketplaceHero({
             />
           ) : (
             <div
-              className="
-                absolute inset-0
-                bg-[radial-gradient(circle_at_25%_20%,#FFB08F_0,transparent_28%),radial-gradient(circle_at_75%_70%,#B72E08_0,transparent_30%),linear-gradient(135deg,#F6CFC0,#7A2E1A)]
-              "
+              className="feasta-brand-media-placeholder absolute inset-0"
             />
           )}
 
@@ -421,9 +418,9 @@ function MarketplaceTrustSection() {
       className="
         grid overflow-hidden
         rounded-[1.75rem]
-        bg-[#B02F00]
-        text-white
-        shadow-[0_12px_30px_rgba(176,47,0,0.18)]
+        bg-primary
+        text-primary-foreground
+        shadow-brand
         lg:grid-cols-[1fr_auto]
         lg:items-center
       "
@@ -434,7 +431,7 @@ function MarketplaceTrustSection() {
           className="
             text-sm font-black
             uppercase tracking-[0.16em]
-            text-white/70
+            text-primary-foreground/70
           "
         >
           Book with confidence
@@ -453,7 +450,7 @@ function MarketplaceTrustSection() {
         <p
           className="
             mt-3 max-w-2xl
-            leading-7 text-white/80
+            leading-7 text-primary-foreground/80
           "
         >
           Browse approved providers, organize your booking
@@ -465,7 +462,7 @@ function MarketplaceTrustSection() {
           className="
             mt-6 grid gap-3
             text-sm font-semibold
-            text-white/90
+            text-primary-foreground/90
             sm:grid-cols-3
           "
         >
@@ -500,10 +497,10 @@ function MarketplaceTrustSection() {
           asChild
           variant="secondary"
           className="
-            border-white
-            bg-white
-            text-[#B02F00]
-            hover:bg-[#FFF1ED]
+            border-primary-foreground
+            bg-primary-foreground
+            text-primary
+            hover:bg-primary-tint
           "
         >
           <Link href="/customer/providers">

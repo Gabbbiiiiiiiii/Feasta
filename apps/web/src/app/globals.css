@@ -12,7 +12,7 @@
 
    IMPORTANT:
    - Keep existing semantic token names for compatibility.
-   - Keep FEASTA Orange (#FF6333) as the primary brand color.
+   - Keep the canonical FEASTA brand palette centralized in semantic tokens.
    - Public pages may use the warmer celebration surfaces below.
    - Admin / provider / customer application pages can continue using
      background, card, muted, border, etc.
@@ -25,19 +25,10 @@
      CORE BRAND
      ------------------------------------------------------------------------ */
 
-  --feasta-orange-50: #fff8f5;
-  --feasta-orange-100: #fff0e9;
-  --feasta-orange-200: #ffdccc;
-  --feasta-orange-300: #ffbea3;
-  --feasta-orange-400: #ff9470;
-
-  /* Main FEASTA brand orange */
-  --feasta-orange-500: #ff6333;
-
-  --feasta-orange-600: #f45425;
-  --feasta-orange-700: #d94318;
-  --feasta-orange-800: #b73716;
-  --feasta-orange-900: #942f18;
+  /*
+   * Canonical FEASTA brand colors. Components consume the semantic
+   * application tokens below instead of maintaining a second color scale.
+   */
 
   /* ------------------------------------------------------------------------
      WARM NEUTRALS
@@ -77,13 +68,15 @@
   --card: #ffffff;
   --card-foreground: #2b211d;
 
-  --primary: #ff6333;
+  --primary: #b02f00;
   --primary-foreground: #ffffff;
-  --primary-hover: #f45425;
-  --primary-pressed: #df461d;
-  --primary-strong: #b83a12;
+  --primary-hover: #9c2a00;
+  --primary-pressed: #862400;
+  --primary-strong: #862200;
+  --primary-tint: #fff1ed;
+  --primary-tint-strong: #fee2db;
 
-  --secondary: #fff3ee;
+  --secondary: var(--primary-tint);
   --secondary-foreground: #2b211d;
 
   --muted: #f3efec;
@@ -91,7 +84,7 @@
 
   --border: #e8e1dc;
   --input: #8c817a;
-  --ring: #d94318;
+  --ring: #b02f00;
 
   /* ------------------------------------------------------------------------
      PUBLIC / CELEBRATION SURFACES
@@ -205,8 +198,17 @@
     0 24px 64px rgb(43 33 29 / 18%),
     0 8px 24px rgb(43 33 29 / 8%);
 
+  --feasta-shadow-brand-subtle:
+    0 3px 12px rgb(176 47 0 / 6%);
+
+  --feasta-shadow-brand-soft:
+    0 7px 18px rgb(176 47 0 / 16%);
+
   --feasta-shadow-brand:
-    0 12px 30px rgb(255 99 51 / 20%);
+    0 10px 28px rgb(176 47 0 / 20%);
+
+  --feasta-shadow-brand-strong:
+    0 14px 34px rgb(176 47 0 / 28%);
 
   /* ------------------------------------------------------------------------
      MOTION
@@ -258,6 +260,8 @@
   --color-primary-hover: var(--primary-hover);
   --color-primary-pressed: var(--primary-pressed);
   --color-primary-strong: var(--primary-strong);
+  --color-primary-tint: var(--primary-tint);
+  --color-primary-tint-strong: var(--primary-tint-strong);
 
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -323,6 +327,10 @@
   --shadow-card: var(--feasta-shadow-card);
   --shadow-floating: var(--feasta-shadow-floating);
   --shadow-modal: var(--feasta-shadow-modal);
+  --shadow-brand-subtle: var(--feasta-shadow-brand-subtle);
+  --shadow-brand-soft: var(--feasta-shadow-brand-soft);
+  --shadow-brand: var(--feasta-shadow-brand);
+  --shadow-brand-strong: var(--feasta-shadow-brand-strong);
 
   /* Motion */
   --duration-instant: var(--feasta-duration-instant);
@@ -490,7 +498,7 @@ textarea::placeholder {
 
 ::selection {
   background: var(--primary);
-  color: #ffffff;
+  color: var(--primary-foreground);
 }
 
 
@@ -662,12 +670,12 @@ textarea::placeholder {
   background:
     radial-gradient(
       circle at 92% 4%,
-      rgb(255 99 51 / 8%),
+      rgb(176 47 0 / 8%),
       transparent 28rem
     ),
     radial-gradient(
       circle at 8% 42%,
-      rgb(255 190 163 / 9%),
+      rgb(254 226 219 / 35%),
       transparent 26rem
     ),
     var(--feasta-canvas);
@@ -677,12 +685,36 @@ textarea::placeholder {
   background:
     linear-gradient(
       135deg,
-      #ff6333 0%,
-      #f45425 54%,
-      #d94318 100%
+      var(--primary) 0%,
+      var(--primary-hover) 54%,
+      var(--primary-pressed) 100%
     );
 
-  color: #ffffff;
+  color: var(--primary-foreground);
+}
+
+.feasta-brand-media-placeholder {
+  background:
+    radial-gradient(
+      circle at 18% 22%,
+      rgb(255 255 255 / 75%),
+      transparent 32%
+    ),
+    linear-gradient(
+      135deg,
+      var(--primary-tint) 0%,
+      var(--primary-tint-strong) 48%,
+      var(--primary) 100%
+    );
+}
+
+.feasta-brand-ambient {
+  background:
+    radial-gradient(
+      circle at 20% 10%,
+      rgb(176 47 0 / 18%),
+      transparent 38%
+    );
 }
 
 

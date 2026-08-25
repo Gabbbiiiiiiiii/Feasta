@@ -31,9 +31,9 @@ const categoryIcons = [
 
 const fallbackTones = [
   "bg-[#F1DED6]",
-  "bg-[#FEE2DB]",
+  "bg-primary-tint-strong",
   "bg-[#F8DDD5]",
-  "bg-[#FFF1ED]",
+  "bg-primary-tint",
 ] as const;
 
 export function ProviderCategoryGrid({
@@ -57,7 +57,7 @@ export function ProviderCategoryGrid({
             className="
               text-xs font-black
               uppercase tracking-[0.16em]
-              text-[#B02F00]
+              text-primary
               sm:text-sm
             "
           >
@@ -95,9 +95,9 @@ export function ProviderCategoryGrid({
             hidden shrink-0
             items-center gap-1
             text-sm font-bold
-            text-[#B02F00]
+            text-primary
             transition-colors
-            hover:text-[#862200]
+            hover:text-primary-strong
             hover:underline
             sm:inline-flex
           "
@@ -182,11 +182,11 @@ export function ProviderCategoryGrid({
                   transition
                   duration-200
                   hover:-translate-y-1
-                  hover:border-[#B02F00]/40
+                  hover:border-primary/40
                   hover:shadow-[0_10px_24px_rgba(38,24,20,0.10)]
                   focus-visible:outline-none
                   focus-visible:ring-2
-                  focus-visible:ring-[#B02F00]/40
+                  focus-visible:ring-primary/40
                   sm:min-w-40
                   sm:max-w-40
                 "
@@ -221,7 +221,7 @@ export function ProviderCategoryGrid({
                       aria-hidden="true"
                       className="
                         size-9
-                        text-[#B02F00]
+                        text-primary
                       "
                     />
                   )}
@@ -248,7 +248,7 @@ export function ProviderCategoryGrid({
                     leading-tight
                     text-[#261814]
                     transition-colors
-                    group-hover:text-[#B02F00]
+                    group-hover:text-primary
                   "
                 >
                   {category.label}
@@ -266,17 +266,17 @@ export function ProviderCategoryGrid({
             place-items-center
             rounded-2xl
             border border-dashed
-            border-[#B02F00]/40
-            bg-[#FFF1ED]
+            border-primary/40
+            bg-primary-tint
             px-4 text-center
             shadow-[0_4px_12px_rgba(38,24,20,0.04)]
             transition
             hover:-translate-y-1
-            hover:border-[#B02F00]
-            hover:bg-[#FEE2DB]
+            hover:border-primary
+            hover:bg-primary-tint-strong
             focus-visible:outline-none
             focus-visible:ring-2
-            focus-visible:ring-[#B02F00]/40
+            focus-visible:ring-primary/40
           "
         >
           <span>
@@ -288,7 +288,7 @@ export function ProviderCategoryGrid({
                 rounded-full
                 bg-white
                 text-xl font-bold
-                text-[#B02F00]
+                text-primary
                 shadow-sm
               "
             >
@@ -299,7 +299,7 @@ export function ProviderCategoryGrid({
               className="
                 mt-3 block
                 text-sm font-black
-                text-[#B02F00]
+                text-primary
               "
             >
               View all
@@ -318,7 +318,7 @@ export function ProviderCategoryGrid({
           bg-white
           px-4
           text-sm font-bold
-          text-[#B02F00]
+          text-primary
           sm:hidden
         "
       >

@@ -80,8 +80,8 @@ export function PackageResults({
             className={[
               "mt-6 inline-flex min-h-11 items-center justify-center",
               "rounded-full bg-primary px-5",
-              "text-sm font-bold text-white",
-              "shadow-[0_7px_18px_rgb(255_99_51/0.16)]",
+              "text-sm font-bold text-primary-foreground",
+              "shadow-brand-soft",
               "transition-[transform,background-color]",
               "hover:-translate-y-0.5 hover:bg-primary-hover",
               "focus-visible:outline-none focus-visible:ring-2",

@@ -92,7 +92,7 @@ export function PackageFilterForm({
             className={[
               "inline-flex min-h-11 items-center justify-center gap-2",
               "rounded-xl bg-primary px-4",
-              "text-sm font-bold text-white",
+              "text-sm font-bold text-primary-foreground",
               "transition-[background-color,transform]",
               "hover:-translate-y-0.5 hover:bg-primary-hover",
               "focus-visible:outline-none focus-visible:ring-2",

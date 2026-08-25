@@ -289,7 +289,7 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
 
           <div className="relative flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex min-w-0 items-start gap-4">
-              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-success text-white shadow-sm">
+              <span className="grid size-11 shrink-0 place-items-center rounded-full bg-success text-success-foreground shadow-sm">
                 <CheckCircle2
                   aria-hidden="true"
                   className="size-5"

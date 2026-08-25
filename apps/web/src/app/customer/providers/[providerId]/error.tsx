@@ -17,7 +17,7 @@ export default function PublicProviderDetailError({
     >
       <Link
         href="/customer/providers"
-        className="inline-flex min-h-11 w-fit items-center gap-2 rounded-lg px-1 text-sm font-bold text-[#B02F00] underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B02F00] focus-visible:ring-offset-3 focus-visible:ring-offset-[#FFF8F6]"
+        className="inline-flex min-h-11 w-fit items-center gap-2 rounded-lg px-1 text-sm font-bold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-3 focus-visible:ring-offset-[#FFF8F6]"
       >
         <ArrowLeft aria-hidden="true" className="size-4" />
         Back to providers

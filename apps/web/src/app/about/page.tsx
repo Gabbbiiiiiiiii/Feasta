@@ -142,7 +142,7 @@ export default function AboutPage() {
             <div className="mt-12 grid gap-10 md:grid-cols-2 md:gap-14 lg:mt-14 lg:gap-20">
               <article className="border-t-2 border-primary pt-7">
                 <div className="flex items-center gap-4">
-                  <span className="flex size-12 items-center justify-center rounded-xl bg-primary text-white shadow-card">
+                  <span className="flex size-12 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-card">
                     <UsersRound aria-hidden="true" className="size-5" />
                   </span>
                   <div>
@@ -171,7 +171,7 @@ export default function AboutPage() {
 
               <article className="border-t-2 border-primary pt-7">
                 <div className="flex items-center gap-4">
-                  <span className="flex size-12 items-center justify-center rounded-xl bg-primary text-white shadow-card">
+                  <span className="flex size-12 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-card">
                     <Store aria-hidden="true" className="size-5" />
                   </span>
                   <div>
@@ -252,7 +252,7 @@ export default function AboutPage() {
             <div className="mt-12 grid gap-12 lg:mt-14 lg:grid-cols-2 lg:gap-16">
               <div>
                 <div className="flex items-center gap-3">
-                  <span className="flex size-11 items-center justify-center rounded-xl bg-primary text-white">
+                  <span className="flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground">
                     <Search aria-hidden="true" className="size-5" />
                   </span>
                   <h3 className="text-xl font-bold">Customer journey</h3>
@@ -275,7 +275,7 @@ export default function AboutPage() {
 
               <div>
                 <div className="flex items-center gap-3">
-                  <span className="flex size-11 items-center justify-center rounded-xl bg-primary text-white">
+                  <span className="flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground">
                     <CalendarCheck aria-hidden="true" className="size-5" />
                   </span>
                   <h3 className="text-xl font-bold">Provider response</h3>
@@ -307,7 +307,7 @@ export default function AboutPage() {
         {/* Local focus */}
         <section className="px-5 py-20 sm:px-8 lg:py-24">
           <div className="mx-auto flex max-w-[1180px] flex-col gap-6 rounded-dialog border border-border bg-secondary px-6 py-10 shadow-card sm:px-10 sm:py-12 md:flex-row md:items-center md:gap-10 lg:px-14">
-            <span className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-card">
+            <span className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-card">
               <MapPin aria-hidden="true" className="size-6" />
             </span>
             <div>
@@ -343,7 +343,7 @@ export default function AboutPage() {
               <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
                 <Link
                   href="/services"
-                  className="group inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-pill bg-primary px-7 font-bold text-white shadow-card transition-all hover:-translate-y-0.5 hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-foreground sm:w-auto"
+                  className="group inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-pill bg-primary px-7 font-bold text-primary-foreground shadow-card transition-all hover:-translate-y-0.5 hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-foreground sm:w-auto"
                 >
                   Explore Event Services
                   <ArrowRight

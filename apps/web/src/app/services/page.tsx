@@ -162,7 +162,7 @@ export default function ServicesPage() {
                     href={category.href}
                     className="group flex min-h-64 flex-col rounded-card border border-border bg-card p-6 shadow-card transition-all hover:-translate-y-1 hover:border-primary/40 hover:shadow-floating focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                   >
-                    <span className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary-strong transition-colors group-hover:bg-primary group-hover:text-white">
+                    <span className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary-strong transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
                       <Icon aria-hidden="true" className="size-5" />
                     </span>
                     <h3 className="mt-7 text-xl font-bold">{category.title}</h3>

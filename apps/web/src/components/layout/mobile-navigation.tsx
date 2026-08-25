@@ -257,9 +257,9 @@ function ProviderDrawerLink({
         onClick={onSelect}
         className={cn(
           "flex min-h-12 items-center gap-3 rounded-xl px-3 text-sm font-medium",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6500]/40",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
           active
-            ? "bg-[#FFF0E7] text-[#E95700]"
+            ? "bg-primary-tint text-primary-strong"
             : "text-slate-600 hover:bg-slate-50 hover:text-slate-950",
         )}
       >

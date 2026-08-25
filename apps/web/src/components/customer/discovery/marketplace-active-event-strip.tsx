@@ -77,8 +77,8 @@ function ActiveEventStrip({
             grid size-11 shrink-0
             place-items-center
             rounded-full
-            bg-[#FEE2DB]
-            text-[#B02F00]
+            bg-primary-tint-strong
+            text-primary
           "
         >
           <CalendarDays
@@ -92,7 +92,7 @@ function ActiveEventStrip({
             className="
               text-xs font-black
               uppercase tracking-[0.14em]
-              text-[#B02F00]
+              text-primary
             "
           >
             Your active event
@@ -121,7 +121,7 @@ function ActiveEventStrip({
             <span className="inline-flex items-center gap-1.5">
               <CalendarDays
                 aria-hidden="true"
-                className="size-4 text-[#B02F00]"
+                className="size-4 text-primary"
               />
 
               {formatEventDate(booking.eventDate)}
@@ -131,7 +131,7 @@ function ActiveEventStrip({
               <span className="inline-flex items-center gap-1.5">
                 <Clock3
                   aria-hidden="true"
-                  className="size-4 text-[#B02F00]"
+                  className="size-4 text-primary"
                 />
 
                 {booking.eventTime}
@@ -141,10 +141,10 @@ function ActiveEventStrip({
             <span
               className="
                 rounded-full
-                bg-[#FFF1ED]
+                bg-primary-tint
                 px-2 py-0.5
                 text-xs font-bold
-                text-[#862200]
+                text-primary-strong
               "
             >
               {humanizeValue(booking.status)}
@@ -164,12 +164,12 @@ function ActiveEventStrip({
           bg-[#FFF8F6]
           px-4
           text-sm font-bold
-          text-[#B02F00]
+          text-primary
           transition-colors
-          hover:bg-[#FFF1ED]
+          hover:bg-primary-tint
           focus-visible:outline-none
           focus-visible:ring-2
-          focus-visible:ring-[#B02F00]/30
+          focus-visible:ring-primary/30
         "
       >
         {action}

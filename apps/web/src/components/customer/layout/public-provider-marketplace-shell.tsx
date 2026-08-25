@@ -16,7 +16,7 @@ export function PublicProviderMarketplaceShell({
     >
       <a
         href="#main-content"
-        className="fixed left-4 top-3 z-[60] -translate-y-24 rounded-lg bg-[#B02F00] px-4 py-3 font-bold text-white shadow-floating transition-transform focus:translate-y-0"
+        className="fixed left-4 top-3 z-[60] -translate-y-24 rounded-lg bg-primary px-4 py-3 font-bold text-primary-foreground shadow-floating transition-transform focus:translate-y-0"
       >
         Skip to main content
       </a>
