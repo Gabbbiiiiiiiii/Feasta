@@ -408,6 +408,10 @@ async function testProviderPhoneFirstAuthentication() {
     "provider",
   );
   assert.equal(limitedSession.body.destination, "/provider");
+  assert.equal(
+    (await verifyWebSessionCookie(limitedSession.cookie)).email_verified,
+    false,
+  );
 
   const limitedDashboard = await webGet("/provider", limitedSession.cookie);
   assert.equal(limitedDashboard.status, 200);
@@ -441,6 +445,59 @@ async function testProviderPhoneFirstAuthentication() {
       assert.match(await denied.text(), /provider-verify-email/u);
     }
   }
+
+  // Phase E mirrors the limited dashboard's authoritative return/focus path:
+  // Firebase reload, forced ID-token refresh, then trusted session exchange.
+  await fetchOk(phaseCVerificationCodes.at(-1).oobLink);
+  await linked.user.reload();
+  assert.equal(linked.user.emailVerified, true);
+  const staleLimitedDashboard = await webGet(
+    "/provider",
+    limitedSession.cookie,
+  );
+  assert.equal(staleLimitedDashboard.status, 200);
+  assert.match(
+    await staleLimitedDashboard.text(),
+    /Verify your email to continue/u,
+  );
+  const refreshedProviderToken = await linked.user.getIdToken(true);
+  const onboardingReadySession = await createWebSession(
+    refreshedProviderToken,
+    "/provider",
+    "provider",
+  );
+  assert.equal(
+    onboardingReadySession.body.destination,
+    "/provider/onboarding",
+  );
+  assert.equal(
+    (await verifyWebSessionCookie(onboardingReadySession.cookie))
+      .email_verified,
+    true,
+  );
+  assert.equal(
+    (await db.collection("users").doc(originalUid).get()).data()
+      ?.isEmailVerified,
+    true,
+  );
+  const transitionedDashboard = await webGet(
+    "/provider",
+    onboardingReadySession.cookie,
+  );
+  assert.equal(transitionedDashboard.status, 307);
+  assert.match(
+    transitionedDashboard.headers.get("location") ?? "",
+    /\/provider\/onboarding$/u,
+  );
+  const onboardingEntry = await webGet(
+    "/provider/onboarding",
+    onboardingReadySession.cookie,
+  );
+  assert.equal(onboardingEntry.status, 307);
+  assert.match(
+    onboardingEntry.headers.get("location") ?? "",
+    /\/provider\/onboarding\/owner$/u,
+  );
   await signOut(auth);
 }
 
@@ -1379,6 +1436,14 @@ function postSession(idToken, csrf, returnTo, expectedRole) {
     },
     body: JSON.stringify({idToken, returnTo, expectedRole}),
   });
+}
+
+async function verifyWebSessionCookie(cookieHeader) {
+  const encoded = cookieHeader.match(
+    /(?:^|;\s*)feasta_session=([^;]+)/u,
+  )?.[1];
+  assert.ok(encoded, "Trusted FEASTA session cookie was not returned.");
+  return adminAuth.verifySessionCookie(decodeURIComponent(encoded), true);
 }
 
 function postAdminAttempt(email, csrf) {

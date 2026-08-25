@@ -9,7 +9,7 @@ import {
   UserRoundCheck,
 } from "lucide-react";
 import {useRouter} from "next/navigation";
-import {useEffect, useRef, useState} from "react";
+import {useCallback, useEffect, useRef, useState} from "react";
 
 import {AuthStatus} from "@/components/auth/auth-status";
 import {PageHeading} from "@/components/layout/page-heading";
@@ -23,6 +23,10 @@ import type {
   LimitedProviderDashboardData,
 } from "@/lib/provider/dashboard/limited-provider-dashboard-types";
 
+const VERIFICATION_POLL_INTERVAL_MS = 20_000;
+
+type VerificationCheckTrigger = "automatic" | "manual";
+
 export function LimitedProviderDashboard({
   dashboard,
 }: {
@@ -31,9 +35,19 @@ export function LimitedProviderDashboard({
   const router = useRouter();
   const [cooldown, setCooldown] = useState(0);
   const [action, setAction] = useState<"check" | "resend" | null>(null);
+  const [automaticChecking, setAutomaticChecking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const actionInProgress = useRef(false);
+  const operationInProgress = useRef(false);
+  const verificationSucceeded = useRef(false);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -44,8 +58,8 @@ export function LimitedProviderDashboard({
   }, [cooldown]);
 
   async function resendVerification() {
-    if (actionInProgress.current || cooldown > 0) return;
-    actionInProgress.current = true;
+    if (operationInProgress.current || cooldown > 0) return;
+    operationInProgress.current = true;
     setAction("resend");
     setMessage(null);
     setError(null);
@@ -58,34 +72,71 @@ export function LimitedProviderDashboard({
     } catch (caught) {
       setError(customerAuthenticationError(caught));
     } finally {
-      actionInProgress.current = false;
-      setAction(null);
+      operationInProgress.current = false;
+      if (mounted.current) setAction(null);
     }
   }
 
-  async function checkVerification() {
-    if (actionInProgress.current) return;
-    actionInProgress.current = true;
-    setAction("check");
-    setMessage(null);
-    setError(null);
+  const checkVerification = useCallback(async (
+    trigger: VerificationCheckTrigger,
+  ) => {
+    if (operationInProgress.current || verificationSucceeded.current) return;
+    operationInProgress.current = true;
+    if (trigger === "manual") {
+      setAction("check");
+      setMessage(null);
+      setError(null);
+    } else {
+      setAutomaticChecking(true);
+    }
     try {
       const result = await refreshProviderVerification();
       if (result.verified) {
+        verificationSucceeded.current = true;
         router.replace(result.destination ?? "/provider");
         router.refresh();
         return;
       }
-      setMessage(
-        "Your email is still pending verification. Open the verification link, then check again.",
-      );
+      if (trigger === "manual" && mounted.current) {
+        setMessage(
+          "Your email is still pending verification. Open the verification link, then check again.",
+        );
+      }
     } catch (caught) {
-      setError(customerAuthenticationError(caught));
+      if (trigger === "manual" && mounted.current) {
+        setError(customerAuthenticationError(caught));
+      }
     } finally {
-      actionInProgress.current = false;
-      setAction(null);
+      operationInProgress.current = false;
+      if (mounted.current) {
+        if (trigger === "manual") setAction(null);
+        else setAutomaticChecking(false);
+      }
     }
-  }
+  }, [router]);
+
+  useEffect(() => {
+    const checkWhenVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      void checkVerification("automatic");
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") checkWhenVisible();
+    };
+
+    window.addEventListener("focus", checkWhenVisible);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const pollingTimer = window.setInterval(
+      checkWhenVisible,
+      VERIFICATION_POLL_INTERVAL_MS,
+    );
+
+    return () => {
+      window.removeEventListener("focus", checkWhenVisible);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.clearInterval(pollingTimer);
+    };
+  }, [checkVerification]);
 
   return (
     <div className="grid gap-6">
@@ -127,7 +178,7 @@ export function LimitedProviderDashboard({
                 variant="secondary"
                 loading={action === "resend"}
                 loadingLabel="Sending verification email"
-                disabled={action !== null || cooldown > 0}
+                disabled={action !== null || automaticChecking || cooldown > 0}
                 onClick={() => void resendVerification()}
               >
                 {cooldown > 0 ? (
@@ -145,13 +196,22 @@ export function LimitedProviderDashboard({
               <Button
                 loading={action === "check"}
                 loadingLabel="Checking verification"
-                disabled={action !== null}
-                onClick={() => void checkVerification()}
+                disabled={action !== null || automaticChecking}
+                onClick={() => void checkVerification("manual")}
               >
                 <CheckCircle2 aria-hidden="true" className="size-5" />
                 I&apos;ve verified my email
               </Button>
             </div>
+
+            <p
+              aria-live="polite"
+              className="mt-4 text-sm text-muted-foreground"
+            >
+              {automaticChecking
+                ? "Checking verification status..."
+                : "We'll automatically check your verification status when you return to this tab."}
+            </p>
 
             {message ? (
               <AuthStatus className="mt-5" message={message} tone="info" />
