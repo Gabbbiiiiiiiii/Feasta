@@ -3,10 +3,13 @@ import type {
   ProviderRequestStatus,
   ProviderRequestType,
 } from "@feasta/shared-types";
+import type {
+  CustomerBookingStatusFilter,
+} from "@/lib/customer/bookings/customer-booking-status";
 
-export type CustomerBookingStatusFilter =
-  | "all"
-  | MainEventStatus;
+export type {
+  CustomerBookingStatusFilter,
+} from "@/lib/customer/bookings/customer-booking-status";
 
 export type CustomerBookingService = {
   id: string;
@@ -112,6 +115,13 @@ export type CustomerBookingFilters = {
 export type CustomerBookingPage = {
   bookings: CustomerBooking[];
   statistics: CustomerBookingStatistics;
+
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+export type CustomerBookingResults = {
+  bookings: CustomerBooking[];
 
   nextCursor: string | null;
   hasMore: boolean;

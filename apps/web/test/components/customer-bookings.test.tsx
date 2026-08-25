@@ -22,6 +22,13 @@ const mocks = vi.hoisted(() => ({
   loadDetails: vi.fn(),
   createCheckout: vi.fn(),
   redirectCheckout: vi.fn(),
+  routerReplace: vi.fn(),
+  searchParamGet: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({replace: mocks.routerReplace}),
+  useSearchParams: () => ({get: mocks.searchParamGet}),
 }));
 
 vi.mock("@/lib/customer/bookings/customer-booking-service", () => ({
@@ -49,6 +56,7 @@ describe("customer booking history and details", () => {
     mocks.loadBookings.mockResolvedValue(pageFixture());
     mocks.loadDetails.mockResolvedValue(detailsFixture());
     mocks.createCheckout.mockResolvedValue(checkoutFixture());
+    mocks.searchParamGet.mockReturnValue(null);
   });
 
   it("server-loads the first owned page and renders real booking information", async () => {
@@ -68,7 +76,7 @@ describe("customer booking history and details", () => {
     expect(screen.getAllByText(/125,000\.00/u).length).toBeGreaterThan(0);
   });
 
-  it("sends exact booking search and every selected canonical status through the action", async () => {
+  it("sends exact owned-booking search and customer status groups through the action", async () => {
     const user = userEvent.setup();
     render(<CustomerBookingExperience initialPage={pageFixture()} />);
 
@@ -104,14 +112,12 @@ describe("customer booking history and details", () => {
     expect(Array.from(statusOptions, (option) => option.value)).toEqual([
       "all",
       "draft",
-      "pending_provider_approval",
-      "needs_provider_replacement",
-      "waiting_for_down_payment",
+      "awaiting_provider",
+      "awaiting_payment",
       "confirmed",
       "in_progress",
       "completed",
-      "cancelled",
-      "expired",
+      "cancelled_or_expired",
     ]);
   });
 
@@ -196,6 +202,78 @@ describe("customer booking history and details", () => {
     await waitFor(() => expect(mocks.redirectCheckout).toHaveBeenCalledWith(checkoutFixture()));
   });
 
+  it("provides accessible desktop and mobile structures with customer-facing next steps", () => {
+    render(<CustomerBookingExperience initialPage={pageFixture()} />);
+
+    expect(screen.getAllByRole("heading", {level: 1})).toHaveLength(1);
+    expect(screen.getByRole("table", {name: "Customer booking history"})).toBeInTheDocument();
+    expect(screen.getByLabelText("Customer booking history, mobile view")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Status: Awaiting payment").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Open details to pay the required down payment.").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Searches only your bookings/u)).toBeVisible();
+  });
+
+  it("trims searches and clears only the active search", async () => {
+    const user = userEvent.setup();
+    render(<CustomerBookingExperience initialPage={pageFixture()} />);
+
+    await user.selectOptions(screen.getByLabelText("Booking status"), "awaiting_provider");
+    await waitFor(() => expect(screen.getByLabelText("Booking status")).toBeEnabled());
+    await user.type(
+      screen.getByRole("searchbox", {name: "Search by exact booking code or booking ID"}),
+      "  FEA-2026-0001  ",
+    );
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => {
+      expect(mocks.loadBookings).toHaveBeenLastCalledWith({
+        search: "FEA-2026-0001",
+        status: "awaiting_provider",
+        pageSize: 10,
+        cursor: null,
+      });
+    });
+
+    await user.click(screen.getByRole("button", {name: "Clear search"}));
+    await waitFor(() => {
+      expect(mocks.loadBookings).toHaveBeenLastCalledWith({
+        search: "",
+        status: "awaiting_provider",
+        pageSize: 10,
+        cursor: null,
+      });
+    });
+    expect(screen.getByLabelText("Booking status")).toHaveValue("awaiting_provider");
+  });
+
+  it("recovers from a detail-load failure without leaking the server error", async () => {
+    const user = userEvent.setup();
+    mocks.loadDetails
+      .mockRejectedValueOnce(new Error("private Firestore path"))
+      .mockResolvedValueOnce(detailsFixture());
+    render(<CustomerBookingExperience initialPage={pageFixture()} />);
+
+    await user.click(screen.getAllByRole("button", {name: "View booking FEA-2026-0001"})[0]);
+    expect(await screen.findByText(/Booking details could not be loaded/u)).toBeVisible();
+    expect(screen.queryByText("private Firestore path")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", {name: "Try again"}));
+    expect(await screen.findByRole("heading", {name: "Event information"})).toBeVisible();
+    expect(mocks.loadDetails).toHaveBeenCalledTimes(2);
+  });
+
+  it("hides payment when the trusted request payment state is no longer payable", async () => {
+    const user = userEvent.setup();
+    const paidDetails = detailsFixture();
+    paidDetails.details.providerRequests[0].paymentStatus = "paid";
+    mocks.loadDetails.mockResolvedValueOnce(paidDetails);
+    render(<CustomerBookingExperience initialPage={pageFixture()} />);
+
+    await user.click(screen.getAllByRole("button", {name: "View booking FEA-2026-0001"})[0]);
+    expect(await screen.findByRole("heading", {name: "Provider requests"})).toBeVisible();
+    expect(screen.queryByRole("button", {name: "Pay securely"})).not.toBeInTheDocument();
+  });
+
   it("distinguishes initial empty, filtered empty, action error, and route error states", async () => {
     const user = userEvent.setup();
     const {rerender} = render(<CustomerBookingExperience initialPage={pageFixture([], null)} />);
@@ -207,10 +285,16 @@ describe("customer booking history and details", () => {
       "MISSING-BOOKING",
     );
     await user.click(screen.getByRole("button", {name: "Search"}));
-    expect(await screen.findByRole("heading", {name: "No matching results"})).toBeVisible();
+    expect(await screen.findByRole("heading", {name: "No booking found in your account"})).toBeVisible();
+
+    await user.click(screen.getByRole("button", {name: "Clear filters"}));
+    await waitFor(() => expect(screen.getByLabelText("Booking status")).toBeEnabled());
+    mocks.loadBookings.mockResolvedValueOnce(pageFixture([], null));
+    await user.selectOptions(screen.getByLabelText("Booking status"), "completed");
+    expect(await screen.findByRole("heading", {name: "No bookings match this status"})).toBeVisible();
 
     mocks.loadBookings.mockRejectedValueOnce(new Error("raw backend details"));
-    await user.selectOptions(screen.getByLabelText("Booking status"), "completed");
+    await user.selectOptions(screen.getByLabelText("Booking status"), "confirmed");
     expect(await screen.findByText("Your booking history could not be updated. Please try again.")).toBeVisible();
     expect(screen.queryByText("raw backend details")).not.toBeInTheDocument();
 

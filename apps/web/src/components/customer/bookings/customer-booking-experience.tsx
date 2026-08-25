@@ -25,6 +25,7 @@ import {
 import {loadCustomerBookingsAction} from "@/app/customer/bookings/actions";
 import {
   BOOKING_STATUS_OPTIONS,
+  bookingNextStep,
   bookingStatusLabel,
   boundedText,
   formatBookingDate,
@@ -177,11 +178,16 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
     },
     {
       id: "status",
-      header: "Status",
+      header: "Status & next step",
       cell: (booking) => (
-        <div className="grid min-w-[10rem] justify-items-start gap-2">
-          <StatusBadge status={booking.status} label={bookingStatusLabel(booking.status)} />
-          <StatusBadge status={booking.paymentStatus} />
+        <div className="grid min-w-[13rem] justify-items-start gap-2">
+          <div className="flex flex-wrap gap-2">
+            <StatusBadge status={booking.status} label={bookingStatusLabel(booking.status)} />
+            <StatusBadge status={booking.paymentStatus} />
+          </div>
+          <p className="max-w-[16rem] text-xs leading-5 text-muted-foreground">
+            {bookingNextStep(booking)}
+          </p>
         </div>
       ),
     },
@@ -215,7 +221,10 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
         const result = await loadCustomerBookingsAction(nextFilters);
         if (requestId !== requestIdRef.current) return;
 
-        setPage(result);
+        setPage((currentPage) => ({
+          ...result,
+          statistics: currentPage.statistics,
+        }));
         setFilters(nextFilters);
         if (options?.nextHistory) setCursorHistory(options.nextHistory);
         if (options?.nextPageNumber !== undefined) setPageNumber(options.nextPageNumber);
@@ -240,6 +249,11 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
     setSearchValue("");
     loadPage(initialFilters, {nextHistory: [], nextPageNumber: 1});
   }, [loadPage]);
+
+  const clearSearch = useCallback(() => {
+    setSearchValue("");
+    updateFilters({search: ""});
+  }, [updateFilters]);
 
   const handleNextPage = useCallback((cursor: string) => {
     const currentCursor = filters.cursor ?? FIRST_PAGE_CURSOR;
@@ -267,10 +281,27 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
     filters.status !== "all" ? `Status: ${bookingStatusLabel(filters.status)}` : "",
   ].filter(Boolean);
   const previousCursor = cursorHistory.at(-1) ?? null;
-  const filtered = Boolean(filters.search) || filters.status !== "all";
+  const emptyState = filters.search ? {
+    title: "No booking found in your account",
+    description:
+      "Check the exact booking code or booking ID, then search again.",
+  } : filters.status !== "all" ? {
+    title: "No bookings match this status",
+    description:
+      "Choose another status or show all bookings.",
+  } : {
+    title: "No bookings yet",
+    description:
+      "Your submitted event requests will appear here.",
+  };
 
   return (
     <div className="grid min-w-0 gap-6">
+      <p className="sr-only" role="status" aria-live="polite">
+        {isPending ?
+          "Updating your booking history." :
+          `${formatCount(page.bookings.length)} bookings shown on page ${pageNumber}.`}
+      </p>
       <PageHeading
         eyebrow="Your celebrations"
         title="Bookings"
@@ -421,25 +452,21 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
           label="Total bookings"
           value={formatCount(page.statistics.total)}
           icon={<CalendarDays className="size-5" />}
-          loading={isPending}
         />
         <SummaryCard
           label="Upcoming events"
           value={formatCount(page.statistics.upcoming)}
           icon={<CalendarCheck className="size-5" />}
-          loading={isPending}
         />
         <SummaryCard
           label="Awaiting providers"
           value={formatCount(page.statistics.awaitingProvider)}
           icon={<Clock3 className="size-5" />}
-          loading={isPending}
         />
         <SummaryCard
           label="Awaiting payment"
           value={formatCount(page.statistics.awaitingPayment)}
           icon={<PhilippinePeso className="size-5" />}
-          loading={isPending}
         />
       </section>
 
@@ -447,10 +474,12 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
         searchValue={searchValue}
         onSearchChange={(value) => setSearchValue(value.slice(0, MAX_SEARCH_LENGTH))}
         onSearchSubmit={(search) => updateFilters({search: search.slice(0, MAX_SEARCH_LENGTH)})}
+        onClearSearch={clearSearch}
         onClearFilters={clearFilters}
         activeFilters={activeFilters}
         searchLabel="Search by exact booking code or booking ID"
         searchPlaceholder="Enter an exact booking code or booking ID"
+        searchHint="Searches only your bookings using an exact booking code or booking ID."
         loading={isPending}
         filterControls={
           <FilterSelect
@@ -474,7 +503,8 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
         loading={isPending}
         error={error}
         onRetry={() => loadPage(filters)}
-        emptyKind={filtered ? "search" : "bookings"}
+        emptyTitle={emptyState.title}
+        emptyDescription={emptyState.description}
         rowActionsLabel="Details"
         rowActions={(booking) => (
           <Button

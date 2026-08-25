@@ -3,6 +3,7 @@
 import {CalendarDays, Eye, PackageOpen, Users} from "lucide-react";
 
 import {
+  bookingNextStep,
   bookingStatusLabel,
   boundedText,
   formatBookingDate,
@@ -79,6 +80,15 @@ function CustomerBookingMobileCard({
           <p className="text-xs font-semibold text-muted-foreground">Payment status</p>
           <StatusBadge status={booking.paymentStatus} />
         </div>
+      </div>
+
+      <div className="rounded-card border border-primary/15 bg-primary-tint p-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-primary-strong">
+          Next step
+        </p>
+        <p className="mt-1 text-sm leading-5 text-foreground">
+          {bookingNextStep(booking)}
+        </p>
       </div>
 
       <Button

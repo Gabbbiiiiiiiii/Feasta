@@ -1,6 +1,6 @@
 "use client";
 
-import type {FormEvent, ReactNode} from "react";
+import {useId, type FormEvent, type ReactNode} from "react";
 
 import {SearchInput} from "@/components/forms/search-input";
 import {Button} from "@/components/ui/button";
@@ -10,11 +10,13 @@ type FilterToolbarProps = {
   searchValue: string;
   onSearchChange: (value: string) => void;
   onSearchSubmit: (value: string) => void;
+  onClearSearch?: () => void;
   onClearFilters: () => void;
   filterControls?: ReactNode;
   activeFilters?: readonly string[];
   searchLabel?: string;
   searchPlaceholder?: string;
+  searchHint?: string;
   loading?: boolean;
   className?: string;
 };
@@ -23,14 +25,17 @@ function FilterToolbar({
   searchValue,
   onSearchChange,
   onSearchSubmit,
+  onClearSearch,
   onClearFilters,
   filterControls,
   activeFilters = [],
   searchLabel = "Search all records",
   searchPlaceholder = "Search",
+  searchHint,
   loading = false,
   className,
 }: FilterToolbarProps) {
+  const searchHintId = useId();
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     onSearchSubmit(searchValue.trim());
@@ -40,14 +45,22 @@ function FilterToolbar({
   return (
     <section className={cn("grid gap-4 rounded-card border border-border bg-card p-4 shadow-card", className)} aria-label="Filter records">
       <form onSubmit={submit} role="search" className="grid min-w-0 gap-3 lg:grid-cols-[minmax(16rem,1fr)_auto]">
-        <SearchInput
-          aria-label={searchLabel}
-          placeholder={searchPlaceholder}
-          value={searchValue}
-          disabled={loading}
-          onChange={(event) => onSearchChange(event.currentTarget.value)}
-          onClear={hasFilters ? onClearFilters : undefined}
-        />
+        <div className="grid min-w-0 gap-2">
+          <SearchInput
+            aria-label={searchLabel}
+            aria-describedby={searchHint ? searchHintId : undefined}
+            placeholder={searchPlaceholder}
+            value={searchValue}
+            disabled={loading}
+            onChange={(event) => onSearchChange(event.currentTarget.value)}
+            onClear={searchValue.trim() ? onClearSearch ?? onClearFilters : undefined}
+          />
+          {searchHint ? (
+            <p id={searchHintId} className="text-xs leading-5 text-muted-foreground">
+              {searchHint}
+            </p>
+          ) : null}
+        </div>
         <Button type="submit" loading={loading} loadingLabel="Searching" className="w-full lg:w-auto">
           Search
         </Button>

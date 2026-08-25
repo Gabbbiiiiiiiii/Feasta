@@ -346,7 +346,7 @@ function ProviderRequestCard({
         </div>
       ) : null}
 
-      {request.status === "waiting_for_down_payment" ? (
+      {canStartCustomerPayment(request) ? (
         <div className="grid gap-2 border-t border-border pt-4">
           <Button
             fullWidth
@@ -429,6 +429,19 @@ function paymentErrorMessage(error: unknown): string {
   }
 
   return "The secure checkout could not be created. Please try again.";
+}
+
+function canStartCustomerPayment(
+  request: CustomerBookingProviderRequest,
+): boolean {
+  if (request.status !== "waiting_for_down_payment") return false;
+
+  return [
+    "unpaid",
+    "pending",
+    "failed",
+    "expired",
+  ].includes(request.paymentStatus.trim().toLowerCase());
 }
 
 export {

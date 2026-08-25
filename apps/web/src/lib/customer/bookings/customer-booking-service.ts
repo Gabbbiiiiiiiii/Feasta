@@ -23,10 +23,15 @@ import type {
   CustomerBookingDetailsResult,
   CustomerBookingFilters,
   CustomerBookingPage,
+  CustomerBookingResults,
   CustomerBookingProviderRequest,
   CustomerBookingService,
   CustomerBookingStatistics,
 } from "@/lib/customer/bookings/customer-booking-types";
+import {
+  customerBookingStatusesForFilter,
+  isCustomerBookingStatusFilter,
+} from "@/lib/customer/bookings/customer-booking-status";
 import {requireCustomer} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
 
@@ -55,15 +60,36 @@ export async function getCustomerBookingPage(
   input: CustomerBookingFilters,
 ): Promise<CustomerBookingPage> {
   const customer = await requireCustomer();
+  const [results, statistics] = await Promise.all([
+    getOwnedCustomerBookingResults(customer.uid, input),
+    getCustomerBookingStatistics(customer.uid),
+  ]);
+
+  return {
+    ...results,
+    statistics,
+  };
+}
+
+export async function getCustomerBookingResults(
+  input: CustomerBookingFilters,
+): Promise<CustomerBookingResults> {
+  const customer = await requireCustomer();
+
+  return getOwnedCustomerBookingResults(customer.uid, input);
+}
+
+async function getOwnedCustomerBookingResults(
+  customerId: string,
+  input: CustomerBookingFilters,
+): Promise<CustomerBookingResults> {
   const filters = normalizeFilters(input);
-  const statisticsPromise = getCustomerBookingStatistics(customer.uid);
 
   if (filters.search) {
-    const bookings = await searchOwnedBookings(customer.uid, filters);
+    const bookings = await searchOwnedBookings(customerId, filters);
 
     return {
       bookings,
-      statistics: await statisticsPromise,
       nextCursor: null,
       hasMore: false,
     };
@@ -71,10 +97,14 @@ export async function getCustomerBookingPage(
 
   let query: Query<DocumentData> = adminDb
     .collection(COLLECTIONS.mainEvents)
-    .where("customerId", "==", customer.uid);
+    .where("customerId", "==", customerId);
 
-  if (filters.status !== "all") {
-    query = query.where("status", "==", filters.status);
+  const statuses = customerBookingStatusesForFilter(filters.status);
+
+  if (statuses?.length === 1) {
+    query = query.where("status", "==", statuses[0]);
+  } else if (statuses && statuses.length > 1) {
+    query = query.where("status", "in", statuses);
   }
 
   query = query
@@ -102,7 +132,6 @@ export async function getCustomerBookingPage(
 
   return {
     bookings: documents.map(mapBookingDocument),
-    statistics: await statisticsPromise,
     nextCursor:
       hasMore && lastDocument
         ? encodeCursor(lastDocument)
@@ -155,13 +184,12 @@ function normalizeFilters(
     Number.isInteger(input.pageSize) && input.pageSize > 0
       ? Math.min(input.pageSize, MAX_PAGE_SIZE)
       : DEFAULT_PAGE_SIZE;
-  const status =
-    input.status === "all" || isMainEventStatus(input.status)
-      ? input.status
-      : "all";
+  const status = isCustomerBookingStatusFilter(input.status) ?
+    input.status :
+    "all";
 
   return {
-    search: stringValue(input.search).toUpperCase(),
+    search: stringValue(input.search),
     status,
     pageSize,
     cursor:
@@ -183,7 +211,7 @@ async function searchOwnedBookings(
     : Promise.resolve(null);
   const bookingCodePromise = adminDb
     .collection(COLLECTIONS.mainEvents)
-    .where("bookingCode", "==", filters.search)
+    .where("bookingCode", "==", filters.search.toUpperCase())
     .limit(1)
     .get();
   const [directDocument, bookingCodeSnapshot] = await Promise.all([
@@ -206,7 +234,7 @@ async function searchOwnedBookings(
 
       return (
         data.customerId === customerId &&
-        (filters.status === "all" || data.status === filters.status)
+        statusMatchesFilter(data.status, filters.status)
       );
     })
     .slice(0, filters.pageSize)
@@ -454,8 +482,18 @@ function normalizeProviderRequestType(
     : "addon";
 }
 
-function isMainEventStatus(value: unknown): value is MainEventStatus {
-  return (MAIN_EVENT_STATUSES as readonly unknown[]).includes(value);
+function statusMatchesFilter(
+  status: unknown,
+  filter: CustomerBookingFilters["status"],
+): boolean {
+  const statuses = customerBookingStatusesForFilter(filter);
+
+  if (statuses === null) return true;
+
+  const normalized = stringValue(status).toLowerCase();
+
+  return (MAIN_EVENT_STATUSES as readonly string[]).includes(normalized) &&
+    statuses.includes(normalized as MainEventStatus);
 }
 
 function stringValue(value: unknown): string {
