@@ -16,6 +16,9 @@ import {
 } from "../shared/authorization.js";
 import {
   isApprovedProviderForOperations,
+  isProviderPubliclyEligible,
+  PROVIDER_EVENT_TYPES,
+  PROVIDER_SERVICE_CATEGORIES,
 } from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
 import {
@@ -37,6 +40,16 @@ import {
 import {
   assertBookingSubmissionAllowed,
 } from "./booking-authorization.js";
+import {
+  validateBookingPackage,
+  type BookingPackageValidation,
+} from "./booking-contract.js";
+import {
+  AVAILABILITY_COUNTED_REQUEST_STATUSES,
+  manilaDateRange,
+  validateProviderAvailability,
+  type ProviderAvailabilityResult,
+} from "../provider-availability/validate-provider-availability.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -47,6 +60,7 @@ type AddOnSource =
 type SelectedAddOn = {
   addonId: string;
   providerId: string;
+  ownerId: string;
   name: string;
   category: string;
   price: number;
@@ -58,6 +72,7 @@ type MarketplaceProvider = {
   providerId: string;
   ownerId: string;
   businessName: string;
+  data: UnknownRecord;
 };
 
 type ProviderRequestService = {
@@ -120,11 +135,9 @@ export const submitBookingRequest = onCall(
         "packageId",
       );
 
-      const eventType = requireText(
+      const eventType = requireEventType(
         input,
         "eventType",
-        1,
-        80,
       );
 
       const eventTime = requireText(
@@ -178,6 +191,8 @@ export const submitBookingRequest = onCall(
       const eventDate = requireFutureDate(
         input.eventDate,
       );
+
+      const submissionTime = new Date();
 
       const selectedFoods = requireStringList(
         input,
@@ -421,17 +436,16 @@ export const submitBookingRequest = onCall(
           const packageData =
             packageSnapshot.data() ?? {};
 
-          if (
-            packageData.providerId !==
-              cateringProviderId ||
-            packageData.isActive !== true ||
-            packageData.isDeleted === true
-          ) {
-            throw new HttpsError(
-              "failed-precondition",
-              "Package is unavailable.",
-            );
-          }
+          assertBookingPackageValid(
+            validateBookingPackage({
+              packageData,
+              expectedProviderId:
+                cateringProviderId,
+              submittedEventType:
+                eventType,
+              guestCount,
+            }),
+          );
 
           validatePackageSelections(
             selectedFoods,
@@ -480,6 +494,8 @@ export const submitBookingRequest = onCall(
                 if (
                   addon.isActive !== true ||
                   addon.isAvailable !== true ||
+                  addon.isPublished !== true ||
+                  addon.status !== "published" ||
                   addon.isDeleted === true
                 ) {
                   throw new HttpsError(
@@ -491,7 +507,13 @@ export const submitBookingRequest = onCall(
                 const addonProviderId =
                   stringValue(addon.providerId);
 
-                if (!addonProviderId) {
+                const addonOwnerId =
+                  stringValue(addon.ownerId);
+
+                if (
+                  !addonProviderId ||
+                  !addonOwnerId
+                ) {
                   throw new HttpsError(
                     "failed-precondition",
                     "An add-on provider is invalid.",
@@ -514,6 +536,8 @@ export const submitBookingRequest = onCall(
                   addonId: snapshot.id,
                   providerId:
                     addonProviderId,
+                  ownerId:
+                    addonOwnerId,
                   name:
                     stringValue(addon.name) ||
                     "Unnamed add-on",
@@ -626,8 +650,111 @@ export const submitBookingRequest = onCall(
                   stringValue(
                     provider.businessName,
                   ) || "Unnamed provider",
+                data: provider,
               },
             );
+          }
+
+          const providerOwnerIds = [
+            ...new Set([
+              cateringProviderOwnerId,
+              ...[
+                ...marketplaceProviders.values(),
+              ].map(
+                  (provider) =>
+                    provider.ownerId,
+                ),
+            ]),
+          ];
+
+          const providerOwnerSnapshots =
+            await Promise.all(
+              providerOwnerIds.map(
+                (ownerId) =>
+                  transaction.get(
+                    db
+                      .collection(
+                        COLLECTIONS.users,
+                      )
+                      .doc(ownerId),
+                  ),
+              ),
+            );
+
+          const providerOwners = new Map(
+            providerOwnerSnapshots.map(
+              (snapshot) => [
+                snapshot.id,
+                snapshot.exists ?
+                  snapshot.data() ?? {} :
+                  {},
+              ],
+            ),
+          );
+
+          if (
+            !isProviderPubliclyEligible(
+              {
+                ...cateringProvider,
+                id: cateringProviderId,
+              },
+              providerOwners.get(
+                cateringProviderOwnerId,
+              ) ?? {},
+            )
+          ) {
+            throw new HttpsError(
+              "failed-precondition",
+              "Catering provider is unavailable.",
+            );
+          }
+
+          for (
+            const provider of
+            marketplaceProviders.values()
+          ) {
+            if (
+              !isProviderPubliclyEligible(
+                {
+                  ...provider.data,
+                  id: provider.providerId,
+                },
+                providerOwners.get(
+                  provider.ownerId,
+                ) ?? {},
+              )
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "An add-on provider is unavailable.",
+              );
+            }
+          }
+
+          for (const addon of selectedAddOns) {
+            const expectedOwnerId =
+              addon.providerId ===
+                cateringProviderId ?
+                cateringProviderOwnerId :
+                marketplaceProviders.get(
+                  addon.providerId,
+                )?.ownerId;
+
+            if (
+              !expectedOwnerId ||
+              addon.ownerId !==
+                expectedOwnerId ||
+              !PROVIDER_SERVICE_CATEGORIES
+                .includes(
+                  addon.category as
+                    (typeof PROVIDER_SERVICE_CATEGORIES)[number],
+                )
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "An add-on is unavailable.",
+              );
+            }
           }
 
           const cateringServices:
@@ -720,6 +847,144 @@ export const submitBookingRequest = onCall(
 
           const providerRequestCount =
             providerRequestIds.length;
+
+          const eventDateRange =
+            manilaDateRange(eventDate);
+
+          if (!eventDateRange) {
+            throw new HttpsError(
+              "invalid-argument",
+              "The event date is invalid.",
+            );
+          }
+
+          const availabilityCandidates = [
+            {
+              providerId:
+                cateringProviderId,
+              providerRequestId:
+                cateringRequestId,
+              type: "catering" as const,
+              providerData:
+                cateringProvider,
+              services:
+                cateringServices,
+            },
+            ...marketplaceRequestEntries.map(
+              ([providerId, addons]) => ({
+                providerId,
+                providerRequestId:
+                  createProviderRequestId(
+                    bookingId,
+                    "addon",
+                    providerId,
+                  ),
+                type: "addon" as const,
+                providerData:
+                  marketplaceProviders.get(
+                    providerId,
+                  )?.data ?? {},
+                services:
+                  addons.map(
+                    (addon) =>
+                      serviceFromAddOn(
+                        addon,
+                      ),
+                  ),
+              }),
+            ),
+          ];
+
+          const availabilitySnapshots =
+            await Promise.all(
+              availabilityCandidates.map(
+                (candidate) =>
+                  transaction.get(
+                    db
+                      .collection(
+                        COLLECTIONS
+                          .providerRequests,
+                      )
+                      .where(
+                        "providerId",
+                        "==",
+                        candidate.providerId,
+                      )
+                      .where(
+                        "eventDate",
+                        ">=",
+                        Timestamp.fromDate(
+                          eventDateRange.start,
+                        ),
+                      )
+                      .where(
+                        "eventDate",
+                        "<",
+                        Timestamp.fromDate(
+                          eventDateRange.end,
+                        ),
+                      )
+                      .where(
+                        "status",
+                        "in",
+                        [
+                          ...AVAILABILITY_COUNTED_REQUEST_STATUSES,
+                        ],
+                      ),
+                  ),
+              ),
+            );
+
+          availabilityCandidates.forEach(
+            (candidate, index) => {
+              const snapshot =
+                availabilitySnapshots[index];
+
+              if (!snapshot) {
+                throw new HttpsError(
+                  "failed-precondition",
+                  "Booking conditions changed; refresh and try again.",
+                );
+              }
+
+              assertProviderAvailable(
+                validateProviderAvailability({
+                  providerData:
+                    candidate.providerData,
+                  request: {
+                    providerRequestId:
+                      candidate
+                        .providerRequestId,
+                    type:
+                      candidate.type,
+                    eventDate,
+                    eventTime,
+                    eventEndTime,
+                    guestCount,
+                    services:
+                      candidate.services,
+                  },
+                  existingBookings:
+                    snapshot.docs.map(
+                      (document) => ({
+                        providerRequestId:
+                          document.id,
+                        status:
+                          document.data()
+                            .status,
+                        eventTime:
+                          document.data()
+                            .eventTime,
+                        eventEndTime:
+                          document.data()
+                            .eventEndTime,
+                      }),
+                    ),
+                  now: submissionTime,
+                }),
+              );
+            },
+          );
 
           transaction.create(
             bookingReference,
@@ -1233,6 +1498,32 @@ function requireText(
   return normalized;
 }
 
+function requireEventType(
+  input: UnknownRecord,
+  field: string,
+): string {
+  const value = requireText(
+    input,
+    field,
+    1,
+    80,
+  ).toLowerCase();
+
+  if (
+    !(
+      PROVIDER_EVENT_TYPES as
+        readonly string[]
+    ).includes(value)
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Event type is not supported.",
+    );
+  }
+
+  return value;
+}
+
 function optionalText(
   data: UnknownRecord,
   field: string,
@@ -1404,6 +1695,88 @@ function validatePackageSelections(
       `${field} contains an option that is not available for this package.`,
     );
   }
+}
+
+function assertBookingPackageValid(
+  validation: BookingPackageValidation,
+): void {
+  if (validation.valid) {
+    return;
+  }
+
+  switch (validation.code) {
+  case "PACKAGE_UNAVAILABLE":
+    throw new HttpsError(
+      "failed-precondition",
+      "Package is unavailable.",
+      {reason: "package-unavailable"},
+    );
+
+  case "GUEST_COUNT_BELOW_MINIMUM":
+  case "GUEST_COUNT_ABOVE_MAXIMUM":
+    throw new HttpsError(
+      "failed-precondition",
+      "Guest count is outside the selected package range.",
+      {reason: "guest-count-outside-package-range"},
+    );
+
+  case "EVENT_TYPE_NOT_SUPPORTED":
+    throw new HttpsError(
+      "failed-precondition",
+      "Event type is not supported by the selected package.",
+      {reason: "event-type-not-supported"},
+    );
+
+  case "PACKAGE_CONDITIONS_INVALID":
+    throw new HttpsError(
+      "failed-precondition",
+      "Booking conditions changed; refresh and try again.",
+      {reason: "booking-conditions-changed"},
+    );
+  }
+}
+
+function assertProviderAvailable(
+  availability:
+    ProviderAvailabilityResult,
+): void {
+  if (availability.available) {
+    return;
+  }
+
+  if (
+    availability.issues.some(
+      (entry) =>
+        entry.code ===
+          "EVENT_TIME_INVALID",
+    )
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "The event time range is invalid.",
+      {reason: "event-time-invalid"},
+    );
+  }
+
+  if (
+    availability.issues.some(
+      (entry) =>
+        entry.code ===
+          "PROVIDER_SCHEDULE_INVALID",
+    )
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Booking conditions changed; refresh and try again.",
+      {reason: "booking-conditions-changed"},
+    );
+  }
+
+  throw new HttpsError(
+    "failed-precondition",
+    "Provider unavailable for the selected schedule.",
+    {reason: "provider-unavailable"},
+  );
 }
 
 function stringValue(

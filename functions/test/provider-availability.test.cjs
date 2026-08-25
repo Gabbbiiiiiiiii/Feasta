@@ -251,13 +251,15 @@ test("acceptance re-reads ownership and availability in one transaction", () => 
   assert.ok(updatePosition > validationPosition);
 });
 
-test("booking submission remains a provider-review request flow", () => {
+test("booking submission validates availability and remains a review flow", () => {
   const submission = readFileSync(
     join(sourceRoot, "bookings/submit-booking-request.ts"),
     "utf8",
   );
 
-  assert.doesNotMatch(submission, /validateProviderAvailability/u);
+  assert.match(submission, /validateProviderAvailability/u);
+  assert.match(submission, /AVAILABILITY_COUNTED_REQUEST_STATUSES/u);
+  assert.match(submission, /transaction\.get\(/u);
   assert.match(submission, /status:\s*"pending"/u);
   assert.match(submission, /"New Booking Request"/u);
 });
