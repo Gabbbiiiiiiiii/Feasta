@@ -217,9 +217,9 @@ describe("limited provider dashboard", () => {
 
     await waitFor(() => expect(mocks.check).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", {
+    await waitFor(() => expect(screen.getByRole("button", {
       name: "I've verified my email",
-    })).toBeEnabled();
+    })).toBeEnabled());
   });
 
   it("fails a manual invalid-session check safely and keeps recovery actions", async () => {

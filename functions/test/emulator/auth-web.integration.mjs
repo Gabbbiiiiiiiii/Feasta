@@ -498,6 +498,79 @@ async function testProviderPhoneFirstAuthentication() {
     onboardingEntry.headers.get("location") ?? "",
     /\/provider\/onboarding\/owner$/u,
   );
+  assert.equal(
+    (await webGet(
+      "/provider/onboarding/owner",
+      onboardingReadySession.cookie,
+    )).status,
+    200,
+  );
+
+  const onboardingDraftReference = db
+    .collection("providerOnboardingDrafts")
+    .doc(originalUid);
+  await onboardingDraftReference.set({
+    ownerId: originalUid,
+    completedSteps: [1, 2, 3],
+    currentStep: 4,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+  const partialResume = await webGet(
+    "/provider/onboarding",
+    onboardingReadySession.cookie,
+  );
+  assert.equal(partialResume.status, 307);
+  assert.match(
+    partialResume.headers.get("location") ?? "",
+    /\/provider\/onboarding\/location$/u,
+  );
+  assert.equal(
+    (await webGet(
+      "/provider/onboarding/location",
+      onboardingReadySession.cookie,
+    )).status,
+    200,
+  );
+  const skippedStep = await webGet(
+    "/provider/onboarding/consent",
+    onboardingReadySession.cookie,
+  );
+  assert.equal(skippedStep.status, 307);
+  assert.match(
+    skippedStep.headers.get("location") ?? "",
+    /\/provider\/onboarding\/location$/u,
+  );
+
+  await onboardingDraftReference.update({
+    completedSteps: [1, 2, 3, 4, 5, 6],
+    currentStep: 7,
+    updatedAt: new Date(),
+  });
+  const interruptedRegistration = await webGet(
+    "/provider/onboarding",
+    onboardingReadySession.cookie,
+  );
+  assert.equal(interruptedRegistration.status, 307);
+  assert.match(
+    interruptedRegistration.headers.get("location") ?? "",
+    /\/provider\/onboarding\/consent$/u,
+  );
+  assert.equal(
+    (await webGet(
+      "/provider/onboarding/consent",
+      onboardingReadySession.cookie,
+    )).status,
+    200,
+  );
+  assert.equal(
+    (await db.collection("providers").where(
+      "ownerId",
+      "==",
+      originalUid,
+    ).get()).empty,
+    true,
+  );
   await signOut(auth);
 }
 

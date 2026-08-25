@@ -29,7 +29,20 @@ describe("provider onboarding routing policy", () => {
   it("resumes at the first incomplete setup step", () => {
     assert.equal(firstIncompleteSetupStep([1, 2, 4]).slug, "services");
     assert.equal(firstIncompleteSetupStep([1, 2, 3, 4, 5, 6]).slug,
-      "documents",
+      "consent",
+    );
+  });
+
+  it("retries the final setup transaction when registration was interrupted", () => {
+    assert.equal(
+      firstIncompleteSetupStep([1, 2, 3, 4, 5, 6]).number,
+      6,
+    );
+    assert.equal(
+      providerOnboardingPath(
+        firstIncompleteSetupStep([1, 2, 3, 4, 5, 6]),
+      ),
+      "/provider/onboarding/consent",
     );
   });
 
