@@ -2,6 +2,7 @@ import {describe, expect, it} from "vitest";
 
 import {
   isRecoverableProviderRecaptchaError,
+  isProviderPhoneRateLimitedError,
   providerAccountDetailsError,
   providerPhoneVerificationError,
 } from "@/lib/auth/error-messages";
@@ -13,7 +14,7 @@ describe("provider phone registration error normalization", () => {
     ["auth/invalid-verification-code", "The verification code is incorrect."],
     ["auth/code-expired", "This verification session expired."],
     ["auth/session-expired", "This verification session expired."],
-    ["auth/too-many-requests", "Too many verification attempts."],
+    ["auth/too-many-requests", "Please wait a while before requesting another code."],
     ["auth/quota-exceeded", "Too many verification attempts."],
     ["auth/captcha-check-failed", "Security verification was reset."],
     ["auth/invalid-app-credential", "Security verification was reset."],
@@ -42,6 +43,17 @@ describe("provider phone registration error normalization", () => {
     expect(isRecoverableProviderRecaptchaError({code: "auth/missing-app-credential"}))
       .toBe(true);
     expect(isRecoverableProviderRecaptchaError({code: "auth/network-request-failed"}))
+      .toBe(false);
+  });
+
+  it("identifies Firebase and trusted-preflight rate limits", () => {
+    expect(isProviderPhoneRateLimitedError({code: "auth/too-many-requests"}))
+      .toBe(true);
+    expect(isProviderPhoneRateLimitedError({code: "functions/resource-exhausted"}))
+      .toBe(true);
+    expect(isProviderPhoneRateLimitedError({reason: "rate_limited"}))
+      .toBe(true);
+    expect(isProviderPhoneRateLimitedError({code: "auth/network-request-failed"}))
       .toBe(false);
   });
 });

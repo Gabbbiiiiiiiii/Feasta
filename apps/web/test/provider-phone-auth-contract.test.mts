@@ -54,8 +54,11 @@ test("new provider registration authenticates by phone before trusted classifica
   assert.ok(form.includes("replaceChildren()"));
   assert.ok(form.includes("RESEND_COOLDOWN_SECONDS"));
   assert.ok(form.includes("actionInProgress.current"));
-  assert.ok(form.includes("sendCode(verifiedPhone)"));
-  assert.ok(form.includes("busy || cooldown > 0"));
+  assert.ok(form.includes('sendCode(verifiedPhone, "resend")'));
+  assert.ok(form.includes("busy || cooldown > 0 || rateLimitBackoff > 0"));
+  assert.ok(form.includes("LOCAL_RATE_LIMIT_BACKOFF_SECONDS = 60"));
+  assert.ok(form.includes('intent === "resend" && cooldown > 0'));
+  assert.ok(form.includes("isProviderPhoneRateLimitedError"));
   assert.equal(form.includes("setInterval"), false);
   assert.ok(form.includes("SixDigitOtpInput"));
   assert.ok(otp.includes("one-time-code"));

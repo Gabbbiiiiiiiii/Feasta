@@ -23,6 +23,7 @@ import {PasswordInput} from "@/components/forms/password-input";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {
+  isProviderPhoneRateLimitedError,
   providerAccountDetailsError,
   providerPhoneVerificationError,
 } from "@/lib/auth/error-messages";
@@ -42,6 +43,7 @@ import {
 const RECAPTCHA_CONTAINER_ID = "provider-registration-phone-recaptcha";
 const RESEND_COOLDOWN_SECONDS = 60;
 const OTP_EXPIRY_SECONDS = 5 * 60;
+const LOCAL_RATE_LIMIT_BACKOFF_SECONDS = 60;
 
 type RegistrationView =
   | "checking"
@@ -89,8 +91,10 @@ export function ProviderPhoneRegistrationForm() {
   const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
   const [accountErrors, setAccountErrors] = useState<AccountDetailsErrors>({});
   const [busy, setBusy] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [expiry, setExpiry] = useState(0);
+  const [rateLimitBackoff, setRateLimitBackoff] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const confirmationRef = useRef<ConfirmationResult | null>(null);
@@ -196,6 +200,10 @@ export function ProviderPhoneRegistrationForm() {
 
   useEffect(() => countdown(cooldown, setCooldown), [cooldown]);
   useEffect(() => countdown(expiry, setExpiry), [expiry]);
+  useEffect(
+    () => countdown(rateLimitBackoff, setRateLimitBackoff),
+    [rateLimitBackoff],
+  );
 
   function resetVerifier() {
     clearVerifier();
@@ -204,8 +212,15 @@ export function ProviderPhoneRegistrationForm() {
     return verifier;
   }
 
-  async function sendCode(phoneNumber: string) {
-    if (actionInProgress.current) return;
+  async function sendCode(
+    phoneNumber: string,
+    intent: "initial" | "resend" = "initial",
+  ) {
+    if (
+      actionInProgress.current ||
+      rateLimitBackoff > 0 ||
+      (intent === "resend" && cooldown > 0)
+    ) return;
     const normalized = normalizePhoneInput(phoneNumber);
     if (!normalized) {
       setError("Enter a valid Philippine mobile number.");
@@ -214,6 +229,7 @@ export function ProviderPhoneRegistrationForm() {
 
     actionInProgress.current = true;
     setBusy(true);
+    setSendingCode(true);
     setError(null);
     setMessage(null);
     try {
@@ -226,14 +242,19 @@ export function ProviderPhoneRegistrationForm() {
       setOtp("");
       setCooldown(RESEND_COOLDOWN_SECONDS);
       setExpiry(OTP_EXPIRY_SECONDS);
+      setRateLimitBackoff(0);
       setView("otp");
       setMessage(`We sent a verification code to ${maskPhone(result.phoneNumber)}.`);
     } catch (caught) {
       clearVerifier();
+      if (isProviderPhoneRateLimitedError(caught)) {
+        setRateLimitBackoff(LOCAL_RATE_LIMIT_BACKOFF_SECONDS);
+      }
       setError(providerPhoneVerificationError(caught));
     } finally {
       actionInProgress.current = false;
       setBusy(false);
+      setSendingCode(false);
     }
   }
 
@@ -284,6 +305,7 @@ export function ProviderPhoneRegistrationForm() {
     setOtp("");
     setCooldown(0);
     setExpiry(0);
+    setRateLimitBackoff(0);
     setError(null);
     setMessage(null);
     setView("phone");
@@ -321,6 +343,7 @@ export function ProviderPhoneRegistrationForm() {
       setOtp("");
       setCooldown(0);
       setExpiry(0);
+      setRateLimitBackoff(0);
       setMessage(null);
       setView("phone");
     } catch {
@@ -645,8 +668,22 @@ export function ProviderPhoneRegistrationForm() {
           {error && !error.includes("valid Philippine") ? (
             <AuthStatus id="provider-phone-error" message={error} tone="error" />
           ) : null}
-          <Button type="submit" fullWidth loading={busy} loadingLabel="Sending verification code" className="h-[52px] rounded-[10px]">
-            Send verification code
+          {rateLimitBackoff > 0 ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              Requests are temporarily paused. You may need to wait longer before another request is accepted.
+            </p>
+          ) : null}
+          <Button
+            type="submit"
+            fullWidth
+            disabled={busy || rateLimitBackoff > 0}
+            loading={sendingCode}
+            loadingLabel="Sending code..."
+            className="h-[52px] rounded-[10px]"
+          >
+            {rateLimitBackoff > 0
+              ? `Try again in ${formatCountdown(rateLimitBackoff)}`
+              : "Send verification code"}
           </Button>
         </form>
       ) : (
@@ -660,7 +697,14 @@ export function ProviderPhoneRegistrationForm() {
           />
           {message ? <AuthStatus id="provider-phone-message" message={message} tone="success" /> : null}
           {error ? <AuthStatus id="provider-phone-error" message={error} tone="error" /> : null}
-          <Button type="submit" fullWidth loading={busy} loadingLabel="Verifying code" className="h-[52px] rounded-[10px]">
+          <Button
+            type="submit"
+            fullWidth
+            disabled={busy}
+            loading={busy && !sendingCode}
+            loadingLabel="Verifying code"
+            className="h-[52px] rounded-[10px]"
+          >
             Verify mobile number
           </Button>
           <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
@@ -669,13 +713,25 @@ export function ProviderPhoneRegistrationForm() {
             </button>
             <button
               type="button"
-              disabled={busy || cooldown > 0}
-              onClick={() => void sendCode(verifiedPhone)}
+              disabled={busy || cooldown > 0 || rateLimitBackoff > 0}
+              aria-busy={sendingCode || undefined}
+              onClick={() => void sendCode(verifiedPhone, "resend")}
               className="min-h-11 font-bold text-primary-strong underline underline-offset-4 disabled:text-muted-foreground disabled:no-underline"
             >
-              {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
+              {sendingCode
+                ? "Sending code..."
+                : rateLimitBackoff > 0
+                  ? `Try again in ${formatCountdown(rateLimitBackoff)}`
+                  : cooldown > 0
+                    ? `Resend code in ${formatCountdown(cooldown)}`
+                    : "Resend code"}
             </button>
           </div>
+          {rateLimitBackoff > 0 ? (
+            <p className="text-center text-xs leading-5 text-muted-foreground">
+              Requests are temporarily paused. You may need to wait longer before another request is accepted.
+            </p>
+          ) : null}
           {expiry > 0 ? (
             <p className="text-center text-xs text-muted-foreground">Code expires in {formatCountdown(expiry)}.</p>
           ) : null}
@@ -743,7 +799,7 @@ function maskPhone(phoneNumber: string): string {
 }
 
 function formatCountdown(seconds: number): string {
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 function countdown(value: number, update: (value: number) => void) {

@@ -1,4 +1,4 @@
-import {fireEvent, render, screen, waitFor} from "@testing-library/react";
+import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 
@@ -164,6 +164,194 @@ describe("provider authentication and onboarding", () => {
     })).toBeInTheDocument();
     expect(mocks.requestRegistrationPhoneCode).toHaveBeenCalledTimes(2);
     expect(mocks.createPhoneRecaptcha).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows only one initial SMS request while send is pending", async () => {
+    let finishSend!: (value: {
+      confirmation: {confirm: ReturnType<typeof vi.fn>};
+      phoneNumber: string;
+    }) => void;
+    const confirmation = {confirm: vi.fn()};
+    mocks.requestRegistrationPhoneCode.mockImplementationOnce(
+      async (_phone, createVerifier) => {
+        createVerifier();
+        return new Promise((resolve) => {
+          finishSend = resolve;
+        });
+      },
+    );
+    render(<ProviderRegistrationPage />);
+    const mobile = await screen.findByRole("textbox", {name: /mobile number/i});
+    fireEvent.change(mobile, {target: {value: "9171234567"}});
+    const sendButton = screen.getByRole("button", {name: /send verification code/i});
+    const phoneForm = sendButton.closest("form");
+    expect(phoneForm).not.toBeNull();
+
+    fireEvent.click(sendButton);
+    fireEvent.click(sendButton);
+    fireEvent.submit(phoneForm!);
+
+    expect(mocks.requestRegistrationPhoneCode).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", {name: /sending code/i})).toBeDisabled();
+
+    finishSend({confirmation, phoneNumber: "+639171234567"});
+    expect(await screen.findByRole("heading", {
+      name: /verify your mobile number/i,
+    })).toBeInTheDocument();
+  });
+
+  it("keeps resend and code-expiry clocks separate and resends only on click", async () => {
+    vi.useFakeTimers();
+    try {
+      const firstConfirmation = {confirm: vi.fn()};
+      const secondConfirmation = {confirm: vi.fn()};
+      mocks.requestRegistrationPhoneCode
+        .mockImplementationOnce(async (_phone, createVerifier) => {
+          createVerifier();
+          return {
+            confirmation: firstConfirmation,
+            phoneNumber: "+639171234567",
+          };
+        })
+        .mockImplementationOnce(async (_phone, createVerifier) => {
+          createVerifier();
+          return {
+            confirmation: secondConfirmation,
+            phoneNumber: "+639171234567",
+          };
+        });
+      mocks.confirmRegistrationPhoneCode.mockResolvedValueOnce({
+        classification: "auth_only",
+        phoneNumber: "+639171234567",
+        resolution: {
+          state: "email_credential_link_required",
+          resumable: true,
+          collision: "none",
+          recoveryAction: "link_email_credential",
+        },
+      });
+      render(<ProviderRegistrationPage />);
+      await act(async () => undefined);
+      fireEvent.change(screen.getByRole("textbox", {name: /mobile number/i}), {
+        target: {value: "9171234567"},
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", {name: /send verification code/i}));
+      });
+
+      expect(screen.getByRole("button", {name: "Resend code in 01:00"}))
+        .toBeDisabled();
+      expect(screen.getByText("Code expires in 05:00.")).toBeInTheDocument();
+
+      for (let second = 0; second < 60; second += 1) {
+        await act(async () => vi.advanceTimersByTime(1000));
+      }
+
+      const resendButton = screen.getByRole("button", {name: "Resend code"});
+      expect(resendButton).toBeEnabled();
+      expect(screen.getByText("Code expires in 04:00.")).toBeInTheDocument();
+      expect(mocks.requestRegistrationPhoneCode).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        fireEvent.click(resendButton);
+      });
+      expect(mocks.requestRegistrationPhoneCode).toHaveBeenCalledTimes(2);
+      expect(screen.getByRole("button", {name: "Resend code in 01:00"}))
+        .toBeDisabled();
+      expect(screen.getByText("Code expires in 05:00.")).toBeInTheDocument();
+      expect(screen.getAllByRole("textbox", {name: /digit \d of 6/i})
+        .every((cell) => (cell as HTMLInputElement).value === ""))
+        .toBe(true);
+
+      const cells = screen.getAllByRole("textbox", {name: /digit \d of 6/i});
+      for (const [index, digit] of [..."123456"].entries()) {
+        fireEvent.change(cells[index], {target: {value: digit}});
+      }
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", {name: /verify mobile number/i}));
+      });
+      expect(mocks.confirmRegistrationPhoneCode).toHaveBeenCalledWith(
+        secondConfirmation,
+        "123456",
+        "+639171234567",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("applies an in-memory backoff for authoritative rate limits", async () => {
+    const localStorageSpy = vi.spyOn(Storage.prototype, "setItem");
+    mocks.requestRegistrationPhoneCode.mockRejectedValueOnce({
+      code: "auth/too-many-requests",
+    });
+    render(<ProviderRegistrationPage />);
+    fireEvent.change(
+      await screen.findByRole("textbox", {name: /mobile number/i}),
+      {target: {value: "9171234567"}},
+    );
+    fireEvent.click(screen.getByRole("button", {name: /send verification code/i}));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /wait a while before requesting another code/i,
+    );
+    expect(screen.getByRole("button", {name: "Try again in 01:00"}))
+      .toBeDisabled();
+    expect(screen.getByText(/may need to wait longer/i)).toBeInTheDocument();
+    expect(screen.queryByText(/attempt \d+ of \d+/i)).not.toBeInTheDocument();
+    expect(localStorageSpy).not.toHaveBeenCalled();
+    localStorageSpy.mockRestore();
+  });
+
+  it("clears resend cooldown and local backoff when changing number", async () => {
+    vi.useFakeTimers();
+    try {
+      const confirmation = {confirm: vi.fn()};
+      mocks.requestRegistrationPhoneCode
+        .mockImplementationOnce(async (_phone, createVerifier) => {
+          createVerifier();
+          return {confirmation, phoneNumber: "+639171234567"};
+        })
+        .mockRejectedValueOnce({code: "auth/too-many-requests"})
+        .mockImplementationOnce(async (_phone, createVerifier) => {
+          createVerifier();
+          return {confirmation, phoneNumber: "+639181234567"};
+        });
+      render(<ProviderRegistrationPage />);
+      await act(async () => undefined);
+      fireEvent.change(screen.getByRole("textbox", {name: /mobile number/i}), {
+        target: {value: "9171234567"},
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", {name: /send verification code/i}));
+      });
+      for (let second = 0; second < 60; second += 1) {
+        await act(async () => vi.advanceTimersByTime(1000));
+      }
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", {name: "Resend code"}));
+      });
+      expect(screen.getByRole("button", {name: "Try again in 01:00"}))
+        .toBeDisabled();
+
+      fireEvent.click(screen.getByRole("button", {name: /change number/i}));
+      const mobile = screen.getByRole("textbox", {name: /mobile number/i});
+      const sendButton = screen.getByRole("button", {
+        name: /send verification code/i,
+      });
+      expect(sendButton).toBeEnabled();
+      expect(screen.queryByText(/requests are temporarily paused/i))
+        .not.toBeInTheDocument();
+
+      fireEvent.change(mobile, {target: {value: "9181234567"}});
+      await act(async () => {
+        fireEvent.click(sendButton);
+      });
+      expect(mocks.requestRegistrationPhoneCode).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("cleans the verifier on change-number, OTP success, and unmount", async () => {
@@ -617,6 +805,11 @@ describe("provider authentication and onboarding", () => {
     expect(screen.getAllByRole("textbox", {name: /digit \d of 6/i})
       .map((cell) => (cell as HTMLInputElement).value).join(""))
       .toBe("654321");
+    expect(screen.getByRole("button", {name: /verify mobile number/i}))
+      .toBeEnabled();
+    for (const cell of screen.getAllByRole("textbox", {name: /digit \d of 6/i})) {
+      expect(cell).toBeEnabled();
+    }
   });
 
   it("disables the OTP group while the existing confirmation is in flight", async () => {
@@ -649,6 +842,11 @@ describe("provider authentication and onboarding", () => {
     await user.click(screen.getByRole("button", {name: /send verification code/i}));
     await enterOtp(user, "123456");
     await user.click(screen.getByRole("button", {name: /verify mobile number/i}));
+
+    fireEvent.submit(screen.getByRole("button", {
+      name: /verifying code/i,
+    }).closest("form")!);
+    expect(mocks.confirmRegistrationPhoneCode).toHaveBeenCalledTimes(1);
 
     await waitFor(() => {
       for (const cell of screen.getAllByRole("textbox", {name: /digit \d of 6/i})) {

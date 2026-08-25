@@ -89,11 +89,7 @@ export function providerPhoneVerificationError(error: unknown): string {
   if (code.includes("requires-recent-login")) {
     return "For your security, sign in again before changing your mobile number.";
   }
-  if (
-    code.includes("too-many-requests") ||
-    code.includes("resource-exhausted") ||
-    code.includes("quota-exceeded")
-  ) {
+  if (isProviderPhoneRateLimitedError(error)) {
     const retryAfter =
       phoneVerificationRetryLabel(
         error,
@@ -101,7 +97,7 @@ export function providerPhoneVerificationError(error: unknown): string {
 
     return retryAfter
       ? `Too many verification attempts. Try again ${retryAfter}.`
-      : "Too many verification attempts. Please wait before trying again.";
+      : "Too many verification attempts. Please wait a while before requesting another code.";
   }
   if (
     isRecoverableProviderRecaptchaError(error)
@@ -112,6 +108,20 @@ export function providerPhoneVerificationError(error: unknown): string {
     return "Check your internet connection and try again.";
   }
   return customerAuthenticationError(error);
+}
+
+export function isProviderPhoneRateLimitedError(error: unknown): boolean {
+  const reason = typeof error === "object" && error !== null && "reason" in error
+    ? String(error.reason)
+    : "";
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String(error.code)
+    : "";
+  return reason === "rate_limited" || [
+    "too-many-requests",
+    "resource-exhausted",
+    "quota-exceeded",
+  ].some((rateLimitCode) => code.includes(rateLimitCode));
 }
 
 export function isRecoverableProviderRecaptchaError(error: unknown): boolean {
