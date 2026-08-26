@@ -49,6 +49,10 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.getAllByRole("heading", {level: 1})).toHaveLength(1);
     expect(screen.getByRole("heading", {name: "Booking details"})).toBeVisible();
     expect(screen.getByRole("link", {name: "Back to bookings"})).toHaveAttribute("href", "/customer/bookings");
+    const currentState = screen.getByRole("heading", {name: "Current booking state"}).closest("section");
+    expect(currentState).not.toBeNull();
+    expect(within(currentState as HTMLElement).getByLabelText("Status: Awaiting payment")).toBeVisible();
+    expect(within(currentState as HTMLElement).queryByLabelText("Status: Unpaid")).not.toBeInTheDocument();
     expect(screen.getByText("Wedding reception")).toBeVisible();
     expect(screen.getAllByText("Maria's Catering").length).toBeGreaterThan(0);
     expect(screen.getByText("Package: Premium Wedding Package")).toBeVisible();
@@ -59,10 +63,11 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.getAllByLabelText("Status: Awaiting payment").length).toBeGreaterThan(0);
     expect(screen.getByText("Accepted provider requests require a down payment. Review each request's payment status.")).toBeVisible();
     expect(screen.getByRole("heading", {name: "Provider requests"})).toBeVisible();
+    expect(screen.queryByText("Primary provider")).not.toBeInTheDocument();
 
     const timeline = screen.getByRole("heading", {name: "Booking timeline"}).closest("section");
     expect(timeline).not.toBeNull();
-    expect(within(timeline as HTMLElement).getByRole("list")).toBeInTheDocument();
+    expect(within(timeline as HTMLElement).getByRole("list", {name: "Booking activity"})).toBeInTheDocument();
 
     expect(screen.queryByRole("button", {name: /pay|cancel|refund|review|chat/iu})).not.toBeInTheDocument();
   });
@@ -76,6 +81,45 @@ describe("customer booking dedicated detail page", () => {
       submitted.compareDocumentPosition(payment) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(screen.getByText("Showing the latest 100 timeline updates.")).toBeVisible();
+  });
+
+  it("renders Customer-safe provider timeline updates without internal identifiers", () => {
+    const result = detailResult();
+    result.timeline.entries = [
+      {
+        id: "private-timeline-accepted-id",
+        type: "provider_accepted",
+        status: "waiting_for_down_payment",
+        title: "Provider accepted request",
+        description: "The provider accepted your request.",
+        actorRole: "provider",
+        providerName: "Photo Studio",
+        createdAt: "2026-08-01T03:00:00.000Z",
+      },
+      {
+        id: "private-timeline-rejected-id",
+        type: "provider_rejected",
+        status: "needs_provider_replacement",
+        title: "Provider declined request",
+        description: "A selected provider declined the request. Provider explanation: Date unavailable.",
+        actorRole: "provider",
+        providerName: "Style House",
+        createdAt: "2026-08-01T04:00:00.000Z",
+      },
+    ];
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    const accepted = screen.getByRole("heading", {name: "Provider accepted request"});
+    const rejected = screen.getByRole("heading", {name: "Provider declined request"});
+    expect(
+      accepted.compareDocumentPosition(rejected) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByText("Provider: Photo Studio")).toBeVisible();
+    expect(screen.getByText("Provider: Style House")).toBeVisible();
+    expect(screen.getByText(/Provider explanation: Date unavailable\./u)).toBeVisible();
+    expect(screen.queryByText("private-timeline-accepted-id")).not.toBeInTheDocument();
+    expect(screen.queryByText("private-timeline-rejected-id")).not.toBeInTheDocument();
   });
 
   it("renders mixed provider identities, outcomes, response fallbacks, and replacement state", () => {
@@ -130,14 +174,21 @@ describe("customer booking dedicated detail page", () => {
 
     render(<CustomerBookingDetailPage result={result} />);
 
-    expect(screen.getByText("Photography")).toBeVisible();
-    expect(screen.getByText("Event styling")).toBeVisible();
+    expect(screen.getAllByText("Photography")).toHaveLength(2);
+    expect(screen.getAllByText("Event styling")).toHaveLength(2);
     expect(screen.getByText("Accepted — confirmed")).toBeVisible();
     expect(screen.getByText("Declined by Style House")).toBeVisible();
     expect(screen.getByText("Replacement required")).toBeVisible();
     const boundedReason = screen.getByText((content) => content.startsWith("r".repeat(100)));
     expect(boundedReason.textContent).toHaveLength(500);
     expect(screen.getAllByText(/Response received Aug 1, 2026/u)).toHaveLength(3);
+    const cateringRequest = screen.getByRole("heading", {name: "Maria's Catering"}).closest("article");
+    const photographyRequest = screen.getByRole("heading", {name: "Photo Studio"}).closest("article");
+    expect(cateringRequest).not.toBeNull();
+    expect(photographyRequest).not.toBeNull();
+    expect(within(cateringRequest as HTMLElement).getByText("Package: Premium Wedding Package")).toBeVisible();
+    expect(within(photographyRequest as HTMLElement).queryByText("Package: Premium Wedding Package")).not.toBeInTheDocument();
+    expect(within(photographyRequest as HTMLElement).getByText("Event photography")).toBeVisible();
     expect(screen.queryByText("request-photo")).not.toBeInTheDocument();
     expect(screen.queryByText("provider-photo")).not.toBeInTheDocument();
   });

@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {beforeEach, describe, expect, it, vi} from "vitest";
@@ -165,7 +166,14 @@ describe("customer booking history and details", () => {
     await waitFor(() => {
       expect(mocks.loadDetails).toHaveBeenCalledWith("owned-booking-001");
     });
-    expect(await screen.findByRole("heading", {name: "Event information"})).toBeVisible();
+    const eventHeading = await screen.findByRole("heading", {name: "Event information"});
+    const eventSection = eventHeading.closest("section");
+    expect(eventSection).not.toBeNull();
+    expect(within(eventSection as HTMLElement).getByLabelText("Status: Awaiting payment")).toBeVisible();
+    expect(within(eventSection as HTMLElement).queryByLabelText("Status: Unpaid")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", {name: "Booking FEA-2026-0001"})).toHaveAccessibleDescription(
+      "Wedding reception",
+    );
     expect(screen.getByText("Grand Ballroom")).toBeVisible();
     expect(screen.getAllByText("Catering buffet").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Catering").length).toBeGreaterThan(0);
@@ -184,6 +192,7 @@ describe("customer booking history and details", () => {
     );
     expect(screen.queryByText("customer@example.test")).not.toBeInTheDocument();
     expect(screen.queryByText("provider-request-waiting-001")).not.toBeInTheDocument();
+    expect(screen.queryByText("Primary provider")).not.toBeInTheDocument();
   });
 
   it("offers payment only for waiting requests and exposes no refund or lifecycle controls", async () => {
@@ -215,6 +224,22 @@ describe("customer booking history and details", () => {
 
     await act(async () => resolveCheckout(checkoutFixture()));
     await waitFor(() => expect(mocks.redirectCheckout).toHaveBeenCalledWith(checkoutFixture()));
+  });
+
+  it("keeps checkout failures accessible inside the drawer", async () => {
+    const user = userEvent.setup();
+    mocks.createCheckout.mockRejectedValueOnce(
+      new Error("The secure checkout could not be created. Please try again."),
+    );
+    render(<CustomerBookingExperience initialPage={pageFixture()} />);
+
+    await user.click(screen.getAllByRole("button", {name: "View booking FEA-2026-0001"})[0]);
+    await user.click(await screen.findByRole("button", {name: "Pay securely"}));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The secure checkout could not be created. Please try again.",
+    );
+    expect(screen.getByRole("link", {name: "Open full booking details"})).toBeVisible();
   });
 
   it("provides accessible desktop and mobile structures with customer-facing next steps", () => {

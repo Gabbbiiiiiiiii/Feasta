@@ -1,27 +1,19 @@
 import {
   CalendarDays,
+  Info,
   PhilippinePeso,
   Users,
 } from "lucide-react";
 
 import {
-  bookingStatusLabel,
   boundedText,
   formatBookingDate,
-  formatBookingDateTime,
   formatBookingTimeRange,
   formatCount,
   formatCurrency,
-  formatPercentage,
-  providerRequestOutcomeLabel,
-  providerRequestResponseTimestamp,
-  providerRequestServiceLabel,
 } from "@/components/customer/bookings/booking-formatters";
-import {StatusBadge} from "@/components/shared/status-badge";
-import type {
-  CustomerBookingDetails,
-  CustomerBookingProviderRequest,
-} from "@/lib/customer/bookings/customer-booking-types";
+import {CustomerBookingProviderRequestCard} from "@/components/customer/bookings/customer-booking-provider-request-card";
+import type {CustomerBookingDetails} from "@/lib/customer/bookings/customer-booking-types";
 
 type CustomerBookingDetailContentProps = {
   details: CustomerBookingDetails;
@@ -33,9 +25,9 @@ function CustomerBookingDetailContent({
   const {booking, providerRequests} = details;
 
   return (
-    <div className="grid min-w-0 gap-6">
+    <div className="grid min-w-0 gap-5">
       <DetailSection title="Event details" icon={<CalendarDays />}>
-        <dl className="grid gap-4 sm:grid-cols-2">
+        <dl className="grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2">
           <DetailField label="Event type" value={boundedText(booking.eventType, "Unspecified event", 120)} />
           <DetailField
             label="Schedule"
@@ -52,22 +44,31 @@ function CustomerBookingDetailContent({
       </DetailSection>
 
       <DetailSection title="Event estimate" icon={<PhilippinePeso />}>
-        <dl className="grid gap-3">
-          <FinancialField label="Estimated total" value={booking.estimatedEventTotal} />
-        </dl>
-        <p className="mt-3 text-sm text-muted-foreground">
-          Payment status and balances are shown separately for each provider request.
+        <div className="flex min-w-0 flex-col gap-1 rounded-xl bg-muted/30 p-4 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
+          <p className="text-sm font-semibold text-muted-foreground">Estimated event total</p>
+          <p className="break-words text-2xl font-black tabular-nums">
+            {formatCurrency(booking.estimatedEventTotal)}
+          </p>
+        </div>
+        <p className="mt-3 flex min-w-0 items-start gap-2 text-xs leading-5 text-muted-foreground">
+          <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+          <span>Payments, down payments, and remaining balances are handled per provider request.</span>
         </p>
       </DetailSection>
 
       <DetailSection title="Provider requests" icon={<Users />}>
-        <p className="text-sm text-muted-foreground">
-          {formatCount(providerRequests.length)} provider {providerRequests.length === 1 ? "request" : "requests"}
-        </p>
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <p className="text-sm leading-6 text-muted-foreground">
+            Each provider responds and handles payment independently.
+          </p>
+          <span className="rounded-full bg-primary-tint px-2.5 py-1 text-xs font-bold text-primary">
+            {formatCount(providerRequests.length)} {providerRequests.length === 1 ? "request" : "requests"}
+          </span>
+        </div>
         {providerRequests.length > 0 ? (
           <div className="mt-4 grid gap-4">
             {providerRequests.map((request) => (
-              <ProviderRequestSummary key={request.id} request={request} />
+              <CustomerBookingProviderRequestCard key={request.id} request={request} />
             ))}
           </div>
         ) : (
@@ -77,96 +78,6 @@ function CustomerBookingDetailContent({
         )}
       </DetailSection>
     </div>
-  );
-}
-
-function ProviderRequestSummary({
-  request,
-}: {
-  request: CustomerBookingProviderRequest;
-}) {
-  const explanation = request.status === "rejected" ?
-    boundedText(request.rejectionReason, "The provider did not include an explanation.", 500) :
-    request.status === "cancelled" ?
-      boundedText(request.cancellationReason, "No cancellation explanation was provided.", 500) :
-      null;
-  const responseTimestamp = providerRequestResponseTimestamp(request);
-  const serviceLabel = providerRequestServiceLabel(request);
-
-  return (
-    <article className="grid gap-4 rounded-card border border-border p-4 sm:p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h3 className="break-words font-bold">
-            {boundedText(request.providerName, "Provider unavailable", 120)}
-          </h3>
-          <p className="mt-1 break-words text-sm font-semibold text-foreground">
-            {serviceLabel}
-          </p>
-          {request.packageName ? (
-            <p className="mt-1 break-words text-sm text-muted-foreground">
-              Package: {boundedText(request.packageName, "Package", 120)}
-            </p>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <StatusBadge status={request.status} label={bookingStatusLabel(request.status)} />
-          <StatusBadge status={request.paymentStatus} />
-        </div>
-      </div>
-
-      <div className="rounded-card border border-primary/15 bg-primary-tint p-3">
-        <p className="text-sm font-bold text-primary-strong">
-          {providerRequestOutcomeLabel(request)}
-        </p>
-        {responseTimestamp ? (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Response received {formatBookingDateTime(responseTimestamp)}
-          </p>
-        ) : null}
-      </div>
-
-      <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <FinancialField label="Request amount" value={request.amount} />
-        <FinancialField label="Down payment" value={request.downPaymentAmount} />
-        <FinancialField label="Remaining balance" value={request.remainingBalance} />
-        <div className="rounded-card border border-border p-3">
-          <dt className="text-xs font-semibold text-muted-foreground">Down payment rate</dt>
-          <dd className="mt-2 font-black">{formatPercentage(request.downPaymentPercentage)}</dd>
-        </div>
-      </dl>
-
-      {request.services.length > 0 ? (
-        <section aria-label={`Services from ${boundedText(request.providerName, "provider", 80)}`}>
-          <h4 className="text-sm font-bold">Included services</h4>
-          <ul className="mt-2 grid gap-2 sm:grid-cols-2">
-            {request.services.map((service) => (
-              <li key={service.id} className="flex min-w-0 items-start justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2 text-sm">
-                <span className="min-w-0 break-words font-semibold">{boundedText(service.name, "Service", 120)}</span>
-                <span className="shrink-0 font-bold">{formatCurrency(service.price)}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {explanation ? (
-        <div className="rounded-card border border-border bg-muted/30 p-4">
-          <p className="text-sm font-bold">
-            {request.status === "rejected" ? "Provider explanation" : "Cancellation explanation"}
-          </p>
-          <p className="mt-2 whitespace-pre-wrap break-words text-sm text-muted-foreground">
-            {explanation}
-          </p>
-        </div>
-      ) : null}
-
-      {request.status === "rejected" && request.replacementStatus === "required" ? (
-        <p className="rounded-card border border-warning/25 bg-warning-subtle p-3 text-sm font-bold text-warning">
-          Replacement required
-        </p>
-      ) : null}
-    </article>
   );
 }
 
@@ -182,12 +93,12 @@ function DetailSection({
   const headingId = `customer-booking-${title.toLowerCase().replaceAll(" ", "-")}`;
 
   return (
-    <section aria-labelledby={headingId} className="rounded-card border border-border bg-card p-5 shadow-card sm:p-6">
-      <div className="mb-5 flex items-center gap-3">
-        <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary-tint text-primary [&_svg]:size-5">
+    <section aria-labelledby={headingId} className="rounded-card border border-border bg-card p-4 shadow-none sm:p-5">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary-tint text-primary [&_svg]:size-4">
           {icon}
         </span>
-        <h2 id={headingId} className="text-xl font-black">{title}</h2>
+        <h2 id={headingId} className="text-lg font-black tracking-tight sm:text-xl">{title}</h2>
       </div>
       {children}
     </section>
@@ -204,19 +115,10 @@ function DetailField({
   secondary?: string;
 }) {
   return (
-    <div className="rounded-card border border-border bg-muted/30 p-4">
+    <div className="min-w-0 bg-card p-4">
       <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</dt>
       <dd className="mt-2 break-words font-semibold">{value}</dd>
       {secondary ? <dd className="mt-1 break-words text-sm text-muted-foreground">{secondary}</dd> : null}
-    </div>
-  );
-}
-
-function FinancialField({label, value}: {label: string; value: number}) {
-  return (
-    <div className="rounded-card border border-border p-3">
-      <dt className="text-xs font-semibold text-muted-foreground">{label}</dt>
-      <dd className="mt-2 truncate font-black">{formatCurrency(value)}</dd>
     </div>
   );
 }

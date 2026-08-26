@@ -3,6 +3,7 @@
 import {
   CalendarDays,
   CreditCard,
+  Info,
   MapPin,
   Users,
 } from "lucide-react";
@@ -14,15 +15,11 @@ import {
   bookingStatusLabel,
   boundedText,
   formatBookingDate,
-  formatBookingDateTime,
   formatBookingTimeRange,
   formatCount,
   formatCurrency,
-  formatPercentage,
-  providerRequestOutcomeLabel,
-  providerRequestResponseTimestamp,
-  providerRequestServiceLabel,
 } from "@/components/customer/bookings/booking-formatters";
+import {CustomerBookingProviderRequestCard} from "@/components/customer/bookings/customer-booking-provider-request-card";
 import {DetailDrawer} from "@/components/data/detail-drawer";
 import {
   ApplicationErrorState,
@@ -34,7 +31,6 @@ import type {
   CustomerBooking,
   CustomerBookingDetails,
   CustomerBookingProviderRequest,
-  CustomerBookingService,
 } from "@/lib/customer/bookings/customer-booking-types";
 import {
   createCustomerPaymentCheckout,
@@ -48,7 +44,6 @@ type CustomerBookingDetailsDrawerProps = {
 };
 
 const MAX_PROVIDER_REQUESTS = 30;
-const MAX_SERVICES_PER_REQUEST = 30;
 
 function CustomerBookingDetailsDrawer({
   booking,
@@ -140,7 +135,7 @@ function CustomerBookingDetailsDrawer({
       open={open}
       onOpenChange={changeOpenState}
       title={`Booking ${boundedText(booking.bookingCode, "details", 80)}`}
-      description="Review your event, provider requests, and payment amounts."
+      description={boundedText(booking.eventType, "Event details", 120)}
       footer={
         <div className="grid w-full gap-2 sm:grid-cols-2">
           <Button
@@ -194,16 +189,15 @@ function BookingDetailsContent({
   const providerRequests = details.providerRequests.slice(0, MAX_PROVIDER_REQUESTS);
 
   return (
-    <div className="grid min-w-0 gap-6">
-      <section className="grid gap-4" aria-labelledby="customer-booking-event-heading">
-        <div className="flex min-w-0 flex-wrap gap-2">
+    <div className="grid min-w-0 gap-5">
+      <section className="grid gap-3" aria-labelledby="customer-booking-event-heading">
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <h2 id="customer-booking-event-heading" className="text-lg font-black tracking-tight">
+            Event information
+          </h2>
           <StatusBadge status={booking.status} label={bookingStatusLabel(booking.status)} />
         </div>
-
-        <h2 id="customer-booking-event-heading" className="text-lg font-black">
-          Event information
-        </h2>
-        <dl className="grid gap-4 rounded-card border border-border bg-muted/30 p-4">
+        <dl className="grid gap-px overflow-hidden rounded-xl border border-border bg-border">
           <DetailItem
             icon={<CalendarDays />}
             label="Event"
@@ -224,26 +218,37 @@ function BookingDetailsContent({
         </dl>
       </section>
 
-      <section className="grid gap-4" aria-labelledby="customer-booking-totals-heading">
-        <h2 id="customer-booking-totals-heading" className="text-lg font-black">
-          Event estimate
-        </h2>
-        <dl className="grid gap-3">
-          <FinancialItem label="Estimated total" value={booking.estimatedEventTotal} />
-        </dl>
-        <p className="text-sm text-muted-foreground">
-          Payment status and balances are shown separately for each provider request.
+      <section
+        className="grid gap-3 rounded-xl border border-border bg-muted/25 p-4"
+        aria-labelledby="customer-booking-totals-heading"
+      >
+        <div className="flex min-w-0 items-end justify-between gap-4">
+          <h2 id="customer-booking-totals-heading" className="text-sm font-bold">
+            Estimated event total
+          </h2>
+          <p className="break-words text-right text-xl font-black tabular-nums">
+            {formatCurrency(booking.estimatedEventTotal)}
+          </p>
+        </div>
+        <p className="flex min-w-0 items-start gap-2 text-xs leading-5 text-muted-foreground">
+          <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+          <span>Payments, down payments, and remaining balances are handled per provider request.</span>
         </p>
       </section>
 
-      <section className="grid gap-4" aria-labelledby="customer-provider-requests-heading">
-        <div>
+      <section className="grid gap-3" aria-labelledby="customer-provider-requests-heading">
+        <div className="flex min-w-0 items-end justify-between gap-3">
+          <div>
           <h2 id="customer-provider-requests-heading" className="text-lg font-black">
             Provider requests
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {formatCount(providerRequests.length)} provider {providerRequests.length === 1 ? "request" : "requests"}
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Each provider responds and handles payment independently.
           </p>
+          </div>
+          <span className="shrink-0 rounded-full bg-primary-tint px-2.5 py-1 text-xs font-bold text-primary">
+            {formatCount(providerRequests.length)} {providerRequests.length === 1 ? "request" : "requests"}
+          </span>
         </div>
 
         {paymentError ? (
@@ -257,14 +262,29 @@ function BookingDetailsContent({
         ) : null}
 
         {providerRequests.length > 0 ? (
-          <div className="grid gap-4">
+          <div className="grid gap-3">
             {providerRequests.map((request) => (
-              <ProviderRequestCard
+              <CustomerBookingProviderRequestCard
                 key={request.id}
                 request={request}
-                checkoutInProgress={paymentRequestId !== null}
-                isCurrentCheckout={paymentRequestId === request.providerRequestId}
-                onPay={onPay}
+                compact
+                paymentAction={canStartCustomerPayment(request) ? (
+                  <div className="grid gap-2 border-t border-border pt-4">
+                    <Button
+                      fullWidth
+                      loading={paymentRequestId === request.providerRequestId}
+                      loadingLabel="Creating secure checkout"
+                      disabled={paymentRequestId !== null}
+                      onClick={() => onPay(request.providerRequestId)}
+                    >
+                      <CreditCard aria-hidden="true" className="size-5" />
+                      Pay securely
+                    </Button>
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Payment is completed on PayMongo. Your booking updates only after FEASTA verifies the payment.
+                    </p>
+                  </div>
+                ) : undefined}
               />
             ))}
           </div>
@@ -275,136 +295,6 @@ function BookingDetailsContent({
         )}
       </section>
     </div>
-  );
-}
-
-function ProviderRequestCard({
-  request,
-  checkoutInProgress,
-  isCurrentCheckout,
-  onPay,
-}: {
-  request: CustomerBookingProviderRequest;
-  checkoutInProgress: boolean;
-  isCurrentCheckout: boolean;
-  onPay: (providerRequestId: string) => void;
-}) {
-  const services = request.services.slice(0, MAX_SERVICES_PER_REQUEST);
-  const explanation = request.status === "rejected"
-    ? boundedText(request.rejectionReason, "The provider did not include an explanation.", 500)
-    : request.status === "cancelled"
-      ? boundedText(request.cancellationReason, "No cancellation explanation was provided.", 500)
-      : null;
-  const responseTimestamp = providerRequestResponseTimestamp(request);
-  const serviceLabel = providerRequestServiceLabel(request);
-
-  return (
-    <article className="grid min-w-0 gap-4 rounded-card border border-border p-4">
-      <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <h3 className="break-words font-bold">
-            {boundedText(request.providerName, "Provider unavailable", 120)}
-          </h3>
-          <p className="mt-1 break-words text-sm font-semibold text-foreground">
-            {serviceLabel}
-          </p>
-          {request.packageName ? (
-            <p className="mt-1 break-words text-sm text-muted-foreground">
-              Package: {boundedText(request.packageName, "Package", 120)}
-            </p>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <StatusBadge status={request.status} label={bookingStatusLabel(request.status)} />
-          <StatusBadge status={request.paymentStatus} />
-        </div>
-      </div>
-
-      <div className="rounded-card border border-primary/15 bg-primary-tint p-3">
-        <p className="text-sm font-bold text-primary-strong">
-          {providerRequestOutcomeLabel(request)}
-        </p>
-        {responseTimestamp ? (
-          <p className="mt-1 text-xs text-muted-foreground">
-            Response received {formatBookingDateTime(responseTimestamp)}
-          </p>
-        ) : null}
-      </div>
-
-      <dl className="grid grid-cols-2 gap-3 border-t border-border pt-4">
-        <FinancialItem label="Request amount" value={request.amount} />
-        <FinancialItem label="Down payment" value={request.downPaymentAmount} />
-        <FinancialItem label="Remaining balance" value={request.remainingBalance} />
-        <div className="min-w-0 rounded-card border border-border p-3">
-          <dt className="text-xs font-semibold text-muted-foreground">Down payment rate</dt>
-          <dd className="mt-2 text-lg font-black">{formatPercentage(request.downPaymentPercentage)}</dd>
-        </div>
-      </dl>
-
-      <section className="grid gap-3" aria-label={`Services from ${boundedText(request.providerName, "provider", 80)}`}>
-        <h4 className="text-sm font-bold">Included services</h4>
-        {services.length > 0 ? (
-          <ul className="grid gap-2">
-            {services.map((service) => (
-              <ServiceItem key={service.id} service={service} />
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">No itemized services were provided.</p>
-        )}
-      </section>
-
-      {explanation ? (
-        <div className="rounded-card border border-border bg-muted/30 p-4">
-          <p className="text-sm font-bold">
-            {request.status === "rejected" ? "Provider explanation" : "Cancellation explanation"}
-          </p>
-          <p className="mt-2 whitespace-pre-wrap break-words text-sm text-muted-foreground">
-            {explanation}
-          </p>
-        </div>
-      ) : null}
-
-      {request.status === "rejected" && request.replacementStatus === "required" ? (
-        <p className="rounded-card border border-warning/25 bg-warning-subtle p-3 text-sm font-bold text-warning">
-          Replacement required
-        </p>
-      ) : null}
-
-      {canStartCustomerPayment(request) ? (
-        <div className="grid gap-2 border-t border-border pt-4">
-          <Button
-            fullWidth
-            loading={isCurrentCheckout}
-            loadingLabel="Creating secure checkout"
-            disabled={checkoutInProgress}
-            onClick={() => onPay(request.providerRequestId)}
-          >
-            <CreditCard aria-hidden="true" className="size-5" />
-            Pay securely
-          </Button>
-          <p className="text-xs text-muted-foreground">
-            Payment is completed on PayMongo. Your booking updates only after FEASTA verifies the payment.
-          </p>
-        </div>
-      ) : null}
-    </article>
-  );
-}
-
-function ServiceItem({service}: {service: CustomerBookingService}) {
-  return (
-    <li className="flex min-w-0 items-start justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2 text-sm">
-      <div className="min-w-0">
-        <p className="break-words font-semibold">{boundedText(service.name, "Service", 120)}</p>
-        {service.category ? (
-          <p className="mt-1 break-words text-xs text-muted-foreground">
-            {boundedText(service.category, "", 80)}
-          </p>
-        ) : null}
-      </div>
-      <span className="shrink-0 font-bold">{formatCurrency(service.price)}</span>
-    </li>
   );
 }
 
@@ -420,30 +310,13 @@ function DetailItem({
   secondary?: string;
 }) {
   return (
-    <div className="flex min-w-0 items-start gap-3">
-      <span className="mt-0.5 shrink-0 text-muted-foreground [&_svg]:size-5">{icon}</span>
+    <div className="flex min-w-0 items-start gap-3 bg-card p-3">
+      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary-tint text-primary [&_svg]:size-4">{icon}</span>
       <div className="min-w-0">
-        <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</dt>
-        <dd className="mt-1 break-words font-semibold">{value}</dd>
-        {secondary ? <dd className="mt-1 break-words text-sm text-muted-foreground">{secondary}</dd> : null}
+        <dt className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground">{label}</dt>
+        <dd className="mt-0.5 break-words text-sm font-semibold">{value}</dd>
+        {secondary ? <dd className="mt-0.5 break-words text-xs leading-5 text-muted-foreground">{secondary}</dd> : null}
       </div>
-    </div>
-  );
-}
-
-function FinancialItem({
-  label,
-  value,
-  className,
-}: {
-  label: string;
-  value: number;
-  className?: string;
-}) {
-  return (
-    <div className={`min-w-0 rounded-card border border-border p-3 ${className ?? ""}`}>
-      <dt className="text-xs font-semibold text-muted-foreground">{label}</dt>
-      <dd className="mt-2 truncate text-lg font-black">{formatCurrency(value)}</dd>
     </div>
   );
 }
