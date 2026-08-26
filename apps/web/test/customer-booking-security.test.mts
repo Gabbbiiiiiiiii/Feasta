@@ -78,6 +78,24 @@ test("canonical booking collections and provider-request ownership are preserved
   assert.doesNotMatch(service, /collection\(["']bookings["']\)/u);
 });
 
+test("customer booking response fields are narrowly normalized without provider recovery IDs", async () => {
+  const [service, normalizers, types] = await Promise.all([
+    source("lib/customer/bookings/customer-booking-service.ts"),
+    source("lib/customer/bookings/customer-booking-data-normalizers.ts"),
+    source("lib/customer/bookings/customer-booking-types.ts"),
+  ]);
+
+  assert.match(service, /normalizeCustomerBookingAggregateCounts\(data\)/u);
+  assert.match(service, /normalizeCustomerBookingProviderResponseFields\(data\)/u);
+  assert.match(normalizers, /acceptedAt: safeIsoDate\(data\.acceptedAt\)/u);
+  assert.match(normalizers, /rejectedAt: safeIsoDate\(data\.rejectedAt\)/u);
+  assert.match(normalizers, /replacementStatus: safeOptionalString/u);
+  assert.match(normalizers, /waitingPaymentProviderRequestCount/u);
+  assert.match(normalizers, /paymentProcessingProviderRequestCount/u);
+  assert.doesNotMatch(types, /rejectedByProviderIds/u);
+  assert.doesNotMatch(service, /data\.rejectedByProviderIds/u);
+});
+
 test("dedicated detail loading proves ownership before child collection reads", async () => {
   const [service, route] = await Promise.all([
     source("lib/customer/bookings/customer-booking-service.ts"),

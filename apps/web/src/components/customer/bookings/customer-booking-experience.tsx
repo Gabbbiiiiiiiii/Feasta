@@ -32,6 +32,7 @@ import {
   formatBookingTimeRange,
   formatCount,
   formatCurrency,
+  providerResponseSummary,
 } from "@/components/customer/bookings/booking-formatters";
 import {CustomerBookingDetailsDrawer} from "@/components/customer/bookings/customer-booking-details-drawer";
 import {CustomerBookingMobileCard} from "@/components/customer/bookings/customer-booking-mobile-card";
@@ -151,16 +152,14 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
       ),
     },
     {
-      id: "provider",
-      header: "Provider & package",
+      id: "provider-responses",
+      header: "Provider responses",
       cell: (booking) => (
         <div className="min-w-[11rem]">
           <p className="break-words font-semibold">
-            {boundedText(booking.providerName, "Provider unavailable", 100)}
+            {providerResponseSummary(booking)}
           </p>
-          <p className="mt-1 break-words text-muted-foreground">
-            {boundedText(booking.packageName, "Custom services", 100)}
-          </p>
+          <p className="mt-1 text-muted-foreground">Open details for each provider.</p>
         </div>
       ),
     },
@@ -183,7 +182,6 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
         <div className="grid min-w-[13rem] justify-items-start gap-2">
           <div className="flex flex-wrap gap-2">
             <StatusBadge status={booking.status} label={bookingStatusLabel(booking.status)} />
-            <StatusBadge status={booking.paymentStatus} />
           </div>
           <p className="max-w-[16rem] text-xs leading-5 text-muted-foreground">
             {bookingNextStep(booking)}
@@ -193,16 +191,11 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
     },
     {
       id: "total",
-      header: "Totals",
+      header: "Event estimate",
       cell: (booking) => (
         <div className="min-w-[9rem]">
           <p className="font-black">{formatCurrency(booking.estimatedEventTotal)}</p>
-          <p className="mt-1 text-muted-foreground">
-            {formatCurrency(booking.downPaymentAmount)} down
-          </p>
-          <p className="mt-1 text-muted-foreground">
-            {formatCurrency(booking.remainingBalance)} remaining
-          </p>
+          <p className="mt-1 text-muted-foreground">Payments shown per request</p>
         </div>
       ),
     },

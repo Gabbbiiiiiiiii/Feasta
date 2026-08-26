@@ -71,7 +71,9 @@ describe("customer booking history and details", () => {
     expect(screen.getByRole("heading", {name: "Bookings"})).toBeVisible();
     expect(screen.getAllByText("FEA-2026-0001").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Wedding reception").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Maria's Catering").length).toBeGreaterThan(0);
+    expect(screen.getByRole("columnheader", {name: "Provider responses"})).toBeVisible();
+    expect(screen.queryByText("Maria's Catering")).not.toBeInTheDocument();
+    expect(screen.queryByText("Premium Wedding Package")).not.toBeInTheDocument();
     expect(screen.getAllByText("Aug 15, 2026").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/125,000\.00/u).length).toBeGreaterThan(0);
   });
@@ -166,7 +168,16 @@ describe("customer booking history and details", () => {
     expect(await screen.findByRole("heading", {name: "Event information"})).toBeVisible();
     expect(screen.getByText("Grand Ballroom")).toBeVisible();
     expect(screen.getAllByText("Catering buffet").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Catering").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Lights & sounds").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("Accepted — down payment required")).toBeVisible();
+    expect(screen.getByText("Accepted — confirmed")).toBeVisible();
+    expect(screen.getByText("Declined by Alternative Caterer")).toBeVisible();
+    expect(screen.getAllByText(/Response received Aug 1, 2026/u).length).toBeGreaterThanOrEqual(3);
     expect(screen.getByText("Provider could not accommodate the event date.")).toBeVisible();
+    expect(screen.getByText("Replacement required")).toBeVisible();
+    expect(screen.getAllByText(/100,000\.00/u).length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText("Status: Unpaid").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", {name: "Open full booking details"})).toHaveAttribute(
       "href",
       "/customer/bookings/owned-booking-001",
@@ -213,8 +224,124 @@ describe("customer booking history and details", () => {
     expect(screen.getByRole("table", {name: "Customer booking history"})).toBeInTheDocument();
     expect(screen.getByLabelText("Customer booking history, mobile view")).toBeInTheDocument();
     expect(screen.getAllByLabelText("Status: Awaiting payment").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Open details to pay the required down payment.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Accepted provider requests require a down payment. Review each request's payment status.").length).toBeGreaterThan(0);
     expect(screen.getByText(/Searches only your bookings/u)).toBeVisible();
+  });
+
+  it("summarizes canonical provider responses for parent and mixed outcomes", () => {
+    const scenarios: Array<{booking: CustomerBooking; summary: string; nextStep: string}> = [
+      {
+        booking: bookingFixture({
+          id: "pending-only",
+          bookingId: "pending-only",
+          bookingCode: "PENDING-ONLY",
+          status: "pending_provider_approval",
+          providerRequestCount: 2,
+          pendingProviderRequestCount: 2,
+          waitingPaymentProviderRequestCount: 0,
+          confirmedProviderRequestCount: 0,
+          rejectedProviderRequestCount: 0,
+        }),
+        summary: "2 awaiting response",
+        nextStep: "Wait for providers to review your requests.",
+      },
+      {
+        booking: bookingFixture({
+          id: "awaiting-payment",
+          bookingId: "awaiting-payment",
+          bookingCode: "AWAITING-PAYMENT",
+          providerRequestCount: 1,
+          waitingPaymentProviderRequestCount: 1,
+          confirmedProviderRequestCount: 0,
+          rejectedProviderRequestCount: 0,
+        }),
+        summary: "1 awaiting payment",
+        nextStep: "Accepted provider requests require a down payment. Review each request's payment status.",
+      },
+      {
+        booking: bookingFixture({
+          id: "confirmed",
+          bookingId: "confirmed",
+          bookingCode: "CONFIRMED",
+          status: "confirmed",
+          providerRequestCount: 2,
+          waitingPaymentProviderRequestCount: 0,
+          confirmedProviderRequestCount: 2,
+          rejectedProviderRequestCount: 0,
+        }),
+        summary: "2 confirmed",
+        nextStep: "Your event booking is confirmed. Review the schedule and provider requests.",
+      },
+      {
+        booking: bookingFixture({
+          id: "replacement",
+          bookingId: "replacement",
+          bookingCode: "REPLACEMENT",
+          status: "needs_provider_replacement",
+          providerRequestCount: 1,
+          waitingPaymentProviderRequestCount: 0,
+          confirmedProviderRequestCount: 0,
+          rejectedProviderRequestCount: 1,
+        }),
+        summary: "1 declined",
+        nextStep: "At least one provider declined. Review the affected provider request.",
+      },
+      {
+        booking: bookingFixture({
+          id: "mixed-payment",
+          bookingId: "mixed-payment",
+          bookingCode: "MIXED-PAYMENT",
+          status: "pending_provider_approval",
+          providerRequestCount: 2,
+          pendingProviderRequestCount: 1,
+          waitingPaymentProviderRequestCount: 1,
+          confirmedProviderRequestCount: 0,
+          rejectedProviderRequestCount: 0,
+        }),
+        summary: "1 awaiting payment · 1 awaiting response",
+        nextStep: "Some providers have responded. Review accepted requests while you wait for the remaining responses.",
+      },
+      {
+        booking: bookingFixture({
+          id: "mixed-rejected",
+          bookingId: "mixed-rejected",
+          bookingCode: "MIXED-REJECTED",
+          status: "needs_provider_replacement",
+          providerRequestCount: 2,
+          pendingProviderRequestCount: 1,
+          waitingPaymentProviderRequestCount: 0,
+          confirmedProviderRequestCount: 0,
+          rejectedProviderRequestCount: 1,
+        }),
+        summary: "1 declined · 1 awaiting response",
+        nextStep: "At least one provider declined. Review the affected request while other providers respond.",
+      },
+      {
+        booking: bookingFixture({
+          id: "mixed-confirmed",
+          bookingId: "mixed-confirmed",
+          bookingCode: "MIXED-CONFIRMED",
+          status: "pending_provider_approval",
+          providerRequestCount: 2,
+          pendingProviderRequestCount: 1,
+          waitingPaymentProviderRequestCount: 0,
+          confirmedProviderRequestCount: 1,
+          rejectedProviderRequestCount: 0,
+        }),
+        summary: "1 awaiting response · 1 confirmed",
+        nextStep: "Some providers have responded. Wait for the remaining provider responses.",
+      },
+    ];
+
+    render(<CustomerBookingExperience initialPage={pageFixture(scenarios.map(({booking}) => booking))} />);
+
+    expect(screen.queryByText("Provider & package")).not.toBeInTheDocument();
+    expect(screen.queryByText("Maria's Catering")).not.toBeInTheDocument();
+    expect(screen.queryByText("Premium Wedding Package")).not.toBeInTheDocument();
+    for (const scenario of scenarios) {
+      expect(screen.getAllByText(scenario.summary).length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByText(scenario.nextStep).length).toBeGreaterThanOrEqual(2);
+    }
   });
 
   it("trims searches and clears only the active search", async () => {
@@ -352,6 +479,9 @@ function bookingFixture(overrides: Partial<CustomerBooking> = {}): CustomerBooki
     remainingBalance: 93_750,
     providerRequestCount: 3,
     pendingProviderRequestCount: 0,
+    acceptedProviderRequestCount: 0,
+    waitingPaymentProviderRequestCount: 1,
+    paymentProcessingProviderRequestCount: 0,
     confirmedProviderRequestCount: 1,
     rejectedProviderRequestCount: 1,
     completedProviderRequestCount: 0,
@@ -376,6 +506,15 @@ function detailsFixture(): CustomerBookingDetailsResult {
           packageName: null,
           status: "confirmed",
           paymentStatus: "paid",
+          acceptedAt: "2026-08-01T02:00:00.000Z",
+          services: [{
+            id: "lights-service",
+            name: "Stage lighting and audio",
+            category: "Lights & sounds",
+            price: 20_000,
+            downPaymentPercentage: 20,
+            downPaymentAmount: 4_000,
+          }],
         }),
         providerRequestFixture({
           id: "request-rejected",
@@ -383,6 +522,8 @@ function detailsFixture(): CustomerBookingDetailsResult {
           providerName: "Alternative Caterer",
           status: "rejected",
           rejectionReason: "Provider could not accommodate the event date.",
+          rejectedAt: "2026-08-01T03:00:00.000Z",
+          replacementStatus: "required",
         }),
       ],
     },
@@ -420,6 +561,9 @@ function providerRequestFixture(
     cancellationReason: null,
     requestedAt: "2026-08-01T01:00:00.000Z",
     respondedAt: null,
+    acceptedAt: "2026-08-01T02:00:00.000Z",
+    rejectedAt: null,
+    replacementStatus: null,
     confirmedAt: null,
     completedAt: null,
     cancelledAt: null,

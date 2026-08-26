@@ -21,6 +21,7 @@ const CUSTOMER_TIMELINE_TYPES = [
 ] as const;
 const MAX_TIMELINE_TITLE_LENGTH = 200;
 const MAX_TIMELINE_DESCRIPTION_LENGTH = 1_000;
+const MAX_PROVIDER_REJECTION_REASON_LENGTH = 500;
 
 type CustomerTimelineType =
   (typeof CUSTOMER_TIMELINE_TYPES)[number];
@@ -36,10 +37,19 @@ export function normalizeCustomerBookingTimelineData(
 
   const type = normalizeTimelineType(data.type);
   const storedTitle = boundedString(data.title, MAX_TIMELINE_TITLE_LENGTH);
-  const description =
+  const storedDescription =
     boundedString(data.description, MAX_TIMELINE_DESCRIPTION_LENGTH) ||
     boundedString(data.message, MAX_TIMELINE_DESCRIPTION_LENGTH) ||
     null;
+  const rejectionReason = type === "provider_rejected" ?
+    boundedString(data.reason, MAX_PROVIDER_REJECTION_REASON_LENGTH) :
+    "";
+  const description = rejectionReason ?
+    boundedString(
+      `${storedDescription ?? "The provider declined this request."} Provider explanation: ${rejectionReason}`,
+      MAX_TIMELINE_DESCRIPTION_LENGTH,
+    ) :
+    storedDescription;
   const providerRequestId = nullableString(data.providerRequestId);
 
   return {

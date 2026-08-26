@@ -30,6 +30,10 @@ import type {
   CustomerBookingStatistics,
 } from "@/lib/customer/bookings/customer-booking-types";
 import {
+  normalizeCustomerBookingAggregateCounts,
+  normalizeCustomerBookingProviderResponseFields,
+} from "@/lib/customer/bookings/customer-booking-data-normalizers";
+import {
   compareCustomerBookingTimelineEntries,
   normalizeCustomerBookingTimelineData,
 } from "@/lib/customer/bookings/customer-booking-timeline-normalizer";
@@ -420,19 +424,7 @@ function mapBookingDocument(
     ),
     downPaymentAmount: finiteNumber(data.downPaymentAmount),
     remainingBalance: finiteNumber(data.remainingBalance),
-    providerRequestCount: integerValue(data.providerRequestCount),
-    pendingProviderRequestCount: integerValue(
-      data.pendingProviderRequestCount,
-    ),
-    confirmedProviderRequestCount: integerValue(
-      data.confirmedProviderRequestCount,
-    ),
-    rejectedProviderRequestCount: integerValue(
-      data.rejectedProviderRequestCount,
-    ),
-    completedProviderRequestCount: integerValue(
-      data.completedProviderRequestCount,
-    ),
+    ...normalizeCustomerBookingAggregateCounts(data),
     submittedAt: isoDateValue(data.submittedAt),
     createdAt: isoDateValue(data.createdAt),
     updatedAt: isoDateValue(data.updatedAt),
@@ -466,7 +458,7 @@ function mapProviderRequestDocument(
     rejectionReason: nullableString(data.rejectionReason),
     cancellationReason: nullableString(data.cancellationReason),
     requestedAt: isoDateValue(data.requestedAt),
-    respondedAt: isoDateValue(data.respondedAt),
+    ...normalizeCustomerBookingProviderResponseFields(data),
     confirmedAt: isoDateValue(data.confirmedAt),
     completedAt: isoDateValue(data.completedAt),
     cancelledAt: isoDateValue(data.cancelledAt),

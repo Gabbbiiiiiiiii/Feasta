@@ -50,6 +50,9 @@ export type CustomerBookingProviderRequest = {
 
   requestedAt: string | null;
   respondedAt: string | null;
+  acceptedAt: string | null;
+  rejectedAt: string | null;
+  replacementStatus: string | null;
   confirmedAt: string | null;
   completedAt: string | null;
   cancelledAt: string | null;
@@ -85,6 +88,9 @@ export type CustomerBooking = {
 
   providerRequestCount: number;
   pendingProviderRequestCount: number;
+  acceptedProviderRequestCount: number;
+  waitingPaymentProviderRequestCount: number;
+  paymentProcessingProviderRequestCount: number;
   confirmedProviderRequestCount: number;
   rejectedProviderRequestCount: number;
   completedProviderRequestCount: number;

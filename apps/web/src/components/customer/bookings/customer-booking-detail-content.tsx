@@ -1,6 +1,5 @@
 import {
   CalendarDays,
-  PackageOpen,
   PhilippinePeso,
   Users,
 } from "lucide-react";
@@ -9,10 +8,14 @@ import {
   bookingStatusLabel,
   boundedText,
   formatBookingDate,
+  formatBookingDateTime,
   formatBookingTimeRange,
   formatCount,
   formatCurrency,
   formatPercentage,
+  providerRequestOutcomeLabel,
+  providerRequestResponseTimestamp,
+  providerRequestServiceLabel,
 } from "@/components/customer/bookings/booking-formatters";
 import {StatusBadge} from "@/components/shared/status-badge";
 import type {
@@ -48,23 +51,13 @@ function CustomerBookingDetailContent({
         </dl>
       </DetailSection>
 
-      <DetailSection title="Provider and package" icon={<PackageOpen />}>
-        <dl className="grid gap-4 sm:grid-cols-2">
-          <DetailField label="Provider" value={boundedText(booking.providerName, "Provider unavailable", 120)} />
-          <DetailField label="Package" value={boundedText(booking.packageName, "Custom services", 120)} />
-        </dl>
-      </DetailSection>
-
-      <DetailSection title="Pricing and payment" icon={<PhilippinePeso />}>
-        <dl className="grid gap-3 sm:grid-cols-3">
+      <DetailSection title="Event estimate" icon={<PhilippinePeso />}>
+        <dl className="grid gap-3">
           <FinancialField label="Estimated total" value={booking.estimatedEventTotal} />
-          <FinancialField label="Down payment" value={booking.downPaymentAmount} />
-          <FinancialField label="Remaining balance" value={booking.remainingBalance} />
         </dl>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-muted/30 p-4">
-          <span className="text-sm font-semibold text-muted-foreground">Current payment status</span>
-          <StatusBadge status={booking.paymentStatus} />
-        </div>
+        <p className="mt-3 text-sm text-muted-foreground">
+          Payment status and balances are shown separately for each provider request.
+        </p>
       </DetailSection>
 
       <DetailSection title="Provider requests" icon={<Users />}>
@@ -97,6 +90,8 @@ function ProviderRequestSummary({
     request.status === "cancelled" ?
       boundedText(request.cancellationReason, "No cancellation explanation was provided.", 500) :
       null;
+  const responseTimestamp = providerRequestResponseTimestamp(request);
+  const serviceLabel = providerRequestServiceLabel(request);
 
   return (
     <article className="grid gap-4 rounded-card border border-border p-4 sm:p-5">
@@ -105,18 +100,30 @@ function ProviderRequestSummary({
           <h3 className="break-words font-bold">
             {boundedText(request.providerName, "Provider unavailable", 120)}
           </h3>
-          <p className="mt-1 break-words text-sm text-muted-foreground">
-            {boundedText(
-              request.packageName,
-              request.type === "catering" ? "Catering request" : "Add-on services",
-              120,
-            )}
+          <p className="mt-1 break-words text-sm font-semibold text-foreground">
+            {serviceLabel}
           </p>
+          {request.packageName ? (
+            <p className="mt-1 break-words text-sm text-muted-foreground">
+              Package: {boundedText(request.packageName, "Package", 120)}
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <StatusBadge status={request.status} label={bookingStatusLabel(request.status)} />
           <StatusBadge status={request.paymentStatus} />
         </div>
+      </div>
+
+      <div className="rounded-card border border-primary/15 bg-primary-tint p-3">
+        <p className="text-sm font-bold text-primary-strong">
+          {providerRequestOutcomeLabel(request)}
+        </p>
+        {responseTimestamp ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Response received {formatBookingDateTime(responseTimestamp)}
+          </p>
+        ) : null}
       </div>
 
       <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -152,6 +159,12 @@ function ProviderRequestSummary({
             {explanation}
           </p>
         </div>
+      ) : null}
+
+      {request.status === "rejected" && request.replacementStatus === "required" ? (
+        <p className="rounded-card border border-warning/25 bg-warning-subtle p-3 text-sm font-bold text-warning">
+          Replacement required
+        </p>
       ) : null}
     </article>
   );

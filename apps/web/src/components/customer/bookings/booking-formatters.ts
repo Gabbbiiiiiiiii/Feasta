@@ -5,7 +5,10 @@ import {
   customerBookingStatusFilterLabel,
   isCustomerBookingStatusFilter,
 } from "@/lib/customer/bookings/customer-booking-status";
-import type {CustomerBooking} from "@/lib/customer/bookings/customer-booking-types";
+import type {
+  CustomerBooking,
+  CustomerBookingProviderRequest,
+} from "@/lib/customer/bookings/customer-booking-types";
 
 const dateFormatter = new Intl.DateTimeFormat("en-PH", {
   dateStyle: "medium",
@@ -130,21 +133,43 @@ function bookingStatusLabel(status: string): string {
 }
 
 function bookingNextStep(
-  booking: Pick<CustomerBooking, "status" | "paymentStatus">,
+  booking: Pick<
+    CustomerBooking,
+    | "status"
+    | "pendingProviderRequestCount"
+    | "acceptedProviderRequestCount"
+    | "waitingPaymentProviderRequestCount"
+    | "paymentProcessingProviderRequestCount"
+    | "confirmedProviderRequestCount"
+    | "rejectedProviderRequestCount"
+  >,
 ): string {
+  const awaitingPayment =
+    booking.waitingPaymentProviderRequestCount +
+    booking.paymentProcessingProviderRequestCount;
+
   switch (booking.status) {
     case "draft":
       return "Open details to review this draft booking.";
     case "pending_provider_approval":
-      return "Wait for the provider to review your request.";
+      if (awaitingPayment > 0) {
+        return "Some providers have responded. Review accepted requests while you wait for the remaining responses.";
+      }
+      if (
+        booking.acceptedProviderRequestCount > 0 ||
+        booking.confirmedProviderRequestCount > 0
+      ) {
+        return "Some providers have responded. Wait for the remaining provider responses.";
+      }
+      return "Wait for providers to review your requests.";
     case "needs_provider_replacement":
-      return "Open details to review the provider update.";
+      return booking.pendingProviderRequestCount > 0 ?
+        "At least one provider declined. Review the affected request while other providers respond." :
+        "At least one provider declined. Review the affected provider request.";
     case "waiting_for_down_payment":
-      return booking.paymentStatus === "paid" ?
-        "Payment was received. Wait for booking confirmation." :
-        "Open details to pay the required down payment.";
+      return "Accepted provider requests require a down payment. Review each request's payment status.";
     case "confirmed":
-      return "Your booking is confirmed. Review the event schedule.";
+      return "Your event booking is confirmed. Review the schedule and provider requests.";
     case "in_progress":
       return "Your event is currently in progress.";
     case "completed":
@@ -153,6 +178,130 @@ function bookingNextStep(
     case "expired":
       return "Review this booking record for details.";
   }
+}
+
+function providerResponseSummary(booking: Pick<
+  CustomerBooking,
+  | "providerRequestCount"
+  | "pendingProviderRequestCount"
+  | "acceptedProviderRequestCount"
+  | "waitingPaymentProviderRequestCount"
+  | "paymentProcessingProviderRequestCount"
+  | "confirmedProviderRequestCount"
+  | "rejectedProviderRequestCount"
+  | "completedProviderRequestCount"
+>): string {
+  const summaries: string[] = [];
+  const add = (count: number, label: string) => {
+    if (count > 0 && summaries.length < 3) {
+      summaries.push(`${formatCount(count)} ${label}`);
+    }
+  };
+
+  add(booking.rejectedProviderRequestCount, "declined");
+  add(
+    booking.waitingPaymentProviderRequestCount +
+      booking.paymentProcessingProviderRequestCount,
+    "awaiting payment",
+  );
+  add(booking.pendingProviderRequestCount, "awaiting response");
+  add(booking.confirmedProviderRequestCount, "confirmed");
+  add(booking.acceptedProviderRequestCount, "accepted");
+  add(booking.completedProviderRequestCount, "completed");
+
+  return summaries.length > 0 ?
+    summaries.join(" · ") :
+    `${formatCount(booking.providerRequestCount)} provider ${booking.providerRequestCount === 1 ? "request" : "requests"}`;
+}
+
+function providerRequestServiceLabel(
+  request: Pick<CustomerBookingProviderRequest, "type" | "services">,
+): string {
+  if (request.type === "catering") return "Catering";
+
+  const categories = uniqueBoundedValues(
+    request.services.map((service) => service.category),
+  );
+  if (categories.length === 1) return categories[0];
+  if (categories.length > 1) {
+    return boundedText(
+      `${categories[0]} + ${formatCount(categories.length - 1)} more`,
+      "Add-on services",
+      80,
+    );
+  }
+
+  if (request.services.length === 1) {
+    return boundedText(request.services[0].name, "Add-on services", 80);
+  }
+
+  return "Add-on services";
+}
+
+function providerRequestOutcomeLabel(
+  request: Pick<CustomerBookingProviderRequest, "providerName" | "status">,
+): string {
+  switch (request.status) {
+    case "pending":
+      return "Awaiting provider response";
+    case "accepted":
+      return "Accepted — confirmation pending";
+    case "waiting_for_down_payment":
+      return "Accepted — down payment required";
+    case "payment_processing":
+      return "Accepted — payment processing";
+    case "confirmed":
+      return "Accepted — confirmed";
+    case "rejected":
+      return `Declined by ${boundedText(request.providerName, "provider", 120)}`;
+    case "in_progress":
+      return "Service in progress";
+    case "completed":
+      return "Service completed";
+    case "cancelled":
+      return "Request cancelled";
+    case "expired":
+      return "Request expired";
+  }
+}
+
+function providerRequestResponseTimestamp(
+  request: Pick<
+    CustomerBookingProviderRequest,
+    "status" | "respondedAt" | "acceptedAt" | "rejectedAt"
+  >,
+): string | null {
+  if (request.status === "rejected") {
+    return request.rejectedAt ?? request.respondedAt;
+  }
+
+  if ([
+    "accepted",
+    "waiting_for_down_payment",
+    "payment_processing",
+    "confirmed",
+    "in_progress",
+    "completed",
+  ].includes(request.status)) {
+    return request.acceptedAt ?? request.respondedAt;
+  }
+
+  return null;
+}
+
+function uniqueBoundedValues(values: readonly (string | null)[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values) {
+    const bounded = boundedText(value, "", 80);
+    const key = bounded.toLocaleLowerCase("en-PH");
+    if (!bounded || seen.has(key)) continue;
+    seen.add(key);
+    result.push(bounded);
+  }
+
+  return result;
 }
 
 export {
@@ -166,4 +315,8 @@ export {
   formatCount,
   formatCurrency,
   formatPercentage,
+  providerRequestOutcomeLabel,
+  providerRequestResponseTimestamp,
+  providerRequestServiceLabel,
+  providerResponseSummary,
 };

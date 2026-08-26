@@ -4,7 +4,6 @@ import {
   CalendarDays,
   CreditCard,
   MapPin,
-  PackageOpen,
   Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -15,10 +14,14 @@ import {
   bookingStatusLabel,
   boundedText,
   formatBookingDate,
+  formatBookingDateTime,
   formatBookingTimeRange,
   formatCount,
   formatCurrency,
   formatPercentage,
+  providerRequestOutcomeLabel,
+  providerRequestResponseTimestamp,
+  providerRequestServiceLabel,
 } from "@/components/customer/bookings/booking-formatters";
 import {DetailDrawer} from "@/components/data/detail-drawer";
 import {
@@ -195,7 +198,6 @@ function BookingDetailsContent({
       <section className="grid gap-4" aria-labelledby="customer-booking-event-heading">
         <div className="flex min-w-0 flex-wrap gap-2">
           <StatusBadge status={booking.status} label={bookingStatusLabel(booking.status)} />
-          <StatusBadge status={booking.paymentStatus} />
         </div>
 
         <h2 id="customer-booking-event-heading" className="text-lg font-black">
@@ -219,28 +221,19 @@ function BookingDetailsContent({
             value={boundedText(booking.eventLocation, "Location not provided", 160)}
             secondary={boundedText(booking.eventAddress, "", 240) || undefined}
           />
-          <DetailItem
-            icon={<PackageOpen />}
-            label="Primary provider"
-            value={boundedText(booking.providerName, "Provider unavailable", 120)}
-            secondary={boundedText(booking.packageName, "Custom services", 120)}
-          />
         </dl>
       </section>
 
       <section className="grid gap-4" aria-labelledby="customer-booking-totals-heading">
         <h2 id="customer-booking-totals-heading" className="text-lg font-black">
-          Booking totals
+          Event estimate
         </h2>
-        <dl className="grid grid-cols-2 gap-3">
+        <dl className="grid gap-3">
           <FinancialItem label="Estimated total" value={booking.estimatedEventTotal} />
-          <FinancialItem label="Down payment" value={booking.downPaymentAmount} />
-          <FinancialItem
-            label="Remaining balance"
-            value={booking.remainingBalance}
-            className="col-span-2"
-          />
         </dl>
+        <p className="text-sm text-muted-foreground">
+          Payment status and balances are shown separately for each provider request.
+        </p>
       </section>
 
       <section className="grid gap-4" aria-labelledby="customer-provider-requests-heading">
@@ -302,6 +295,8 @@ function ProviderRequestCard({
     : request.status === "cancelled"
       ? boundedText(request.cancellationReason, "No cancellation explanation was provided.", 500)
       : null;
+  const responseTimestamp = providerRequestResponseTimestamp(request);
+  const serviceLabel = providerRequestServiceLabel(request);
 
   return (
     <article className="grid min-w-0 gap-4 rounded-card border border-border p-4">
@@ -310,14 +305,30 @@ function ProviderRequestCard({
           <h3 className="break-words font-bold">
             {boundedText(request.providerName, "Provider unavailable", 120)}
           </h3>
-          <p className="mt-1 break-words text-sm text-muted-foreground">
-            {boundedText(request.packageName, request.type === "catering" ? "Catering request" : "Add-on services", 120)}
+          <p className="mt-1 break-words text-sm font-semibold text-foreground">
+            {serviceLabel}
           </p>
+          {request.packageName ? (
+            <p className="mt-1 break-words text-sm text-muted-foreground">
+              Package: {boundedText(request.packageName, "Package", 120)}
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <StatusBadge status={request.status} label={bookingStatusLabel(request.status)} />
           <StatusBadge status={request.paymentStatus} />
         </div>
+      </div>
+
+      <div className="rounded-card border border-primary/15 bg-primary-tint p-3">
+        <p className="text-sm font-bold text-primary-strong">
+          {providerRequestOutcomeLabel(request)}
+        </p>
+        {responseTimestamp ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            Response received {formatBookingDateTime(responseTimestamp)}
+          </p>
+        ) : null}
       </div>
 
       <dl className="grid grid-cols-2 gap-3 border-t border-border pt-4">
@@ -352,6 +363,12 @@ function ProviderRequestCard({
             {explanation}
           </p>
         </div>
+      ) : null}
+
+      {request.status === "rejected" && request.replacementStatus === "required" ? (
+        <p className="rounded-card border border-warning/25 bg-warning-subtle p-3 text-sm font-bold text-warning">
+          Replacement required
+        </p>
       ) : null}
 
       {canStartCustomerPayment(request) ? (

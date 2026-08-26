@@ -10,6 +10,7 @@ import {
   formatBookingTimeRange,
   formatCount,
   formatCurrency,
+  providerResponseSummary,
 } from "@/components/customer/bookings/booking-formatters";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
@@ -36,8 +37,8 @@ function CustomerBookingMobileCard({
           <h2 className="mt-1 truncate text-lg font-black">
             {boundedText(booking.eventType, "Unspecified event", 100)}
           </h2>
-          <p className="mt-1 truncate text-sm text-muted-foreground">
-            {boundedText(booking.providerName, "Provider unavailable", 100)}
+          <p className="mt-1 text-sm text-muted-foreground">
+            {formatCount(booking.providerRequestCount)} provider {booking.providerRequestCount === 1 ? "request" : "requests"}
           </p>
         </div>
         <StatusBadge
@@ -56,9 +57,9 @@ function CustomerBookingMobileCard({
         </div>
         <div className="flex min-w-0 items-start gap-3">
           <PackageOpen aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-          <dt className="sr-only">Package</dt>
+          <dt className="sr-only">Provider responses</dt>
           <dd className="min-w-0 break-words">
-            {boundedText(booking.packageName, "Custom services", 100)}
+            {providerResponseSummary(booking)}
           </dd>
         </div>
         <div className="flex min-w-0 items-start gap-3">
@@ -68,17 +69,11 @@ function CustomerBookingMobileCard({
         </div>
       </dl>
 
-      <div className="grid grid-cols-2 gap-3 border-t border-border pt-4">
+      <div className="border-t border-border pt-4">
         <div className="min-w-0">
-          <p className="text-xs font-semibold text-muted-foreground">Estimated total</p>
+          <p className="text-xs font-semibold text-muted-foreground">Estimated event total</p>
           <p className="mt-1 truncate font-black">{formatCurrency(booking.estimatedEventTotal)}</p>
-          <p className="mt-1 truncate text-xs text-muted-foreground">
-            {formatCurrency(booking.remainingBalance)} remaining
-          </p>
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-muted-foreground">Payment status</p>
-          <StatusBadge status={booking.paymentStatus} />
+          <p className="mt-1 text-xs text-muted-foreground">Payments are shown per provider request.</p>
         </div>
       </div>
 

@@ -55,7 +55,6 @@ function CustomerBookingDetailPage({result}: CustomerBookingDetailPageProps) {
           </div>
           <div className="flex flex-wrap gap-2">
             <StatusBadge status={booking.status} label={bookingStatusLabel(booking.status)} />
-            <StatusBadge status={booking.paymentStatus} />
           </div>
         </div>
       </section>
