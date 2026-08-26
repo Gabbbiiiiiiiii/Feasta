@@ -50,7 +50,7 @@ try {
         --config firebase.payment.test.json `
         --project demo-feasta-phase3 `
         --only firestore `
-        "node functions/test/emulator/payment-webhook.integration.cjs"
+        "node --test --test-concurrency=1 functions/test/emulator/payment-checkout.integration.cjs functions/test/emulator/payment-webhook.integration.cjs"
       $exitCode = $LASTEXITCODE
     }
   }

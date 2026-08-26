@@ -201,6 +201,7 @@ export function validateTrustedPaymentUpdate(
     actualAmountInCentavos: number;
     expectedCurrency: unknown;
     actualCurrency: string;
+    allowFailedToPaidRecovery?: boolean;
   },
 ): string | null {
   if (
@@ -218,6 +219,12 @@ export function validateTrustedPaymentUpdate(
     !isPaymentStatusTransitionAllowed(
       currentStatus,
       input.nextStatus,
+    ) &&
+    !(
+      input.allowFailedToPaidRecovery ===
+        true &&
+      currentStatus === "failed" &&
+      input.nextStatus === "paid"
     )
   ) {
     return currentStatus === input.nextStatus

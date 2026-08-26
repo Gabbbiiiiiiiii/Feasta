@@ -206,7 +206,7 @@ const policies = [
   ["createComplaint", "content/create-complaint.ts", ["requireAuth(request)", "requireActiveUser", "enforceCallableRateLimit", "executeIdempotently", "writeAuditLogInTransaction"]],
   ["submitReview", "content/submit-review.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "executeIdempotently"]],
   ["deleteReview", "content/delete-review.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "executeIdempotently", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
-  ["createPaymentSession", "payments/create-payment-session.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "defineSecret", "runTransaction"]],
+  ["createPaymentSession", "payments/create-payment-session.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "defineSecret", "rejectUnknownFields", "paymentIdForProviderRequest", "canonicalPaymentLinkageReason", "providerOperationalReason", "payMongoFailureCertainty", "calculateMainEventRequestSummary", "runTransaction"]],
   ["acceptProviderRequest", "provider-requests/accept-provider-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "assertCanonicalProviderRequestCore", "requireProviderResponseParentStatus", "validateAcceptanceProviderRequest", "validateProviderAvailability", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
   ["rejectProviderRequest", "provider-requests/reject-provider-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "assertCanonicalProviderRequestCore", "requireProviderResponseParentStatus", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
   ["markProviderBookingInProgress", "provider-requests/update-provider-booking-lifecycle.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
@@ -229,6 +229,38 @@ for (const [name, file, controls] of policies) {
     }
   });
 }
+
+test("payment checkout keeps provider-request authority and fail-safe gateway handling", () => {
+  const checkout = source("payments/create-payment-session.ts");
+  const callable = checkout.slice(
+    0,
+    checkout.indexOf("export async function createPaymentSessionForCustomer"),
+  );
+  assert.ok(callable.includes('"providerRequestId"'));
+  assert.ok(callable.includes('"idempotencyKey"'));
+  for (const field of ["amount", "customerId", "providerId", "bookingId", "paymentStatus", "successUrl", "cancelUrl"]) {
+    assert.ok(
+      !callable.includes(`input.${field}`),
+      `createPaymentSession must not trust input.${field}`,
+    );
+  }
+  assert.ok(checkout.includes("checkoutCreationStatus"));
+  assert.ok(checkout.includes('certainty: "ambiguous"'));
+});
+
+test("PayMongo webhook records gateway truth without resurrecting booking state", () => {
+  const webhook = source("payments/process-webhook.ts");
+  for (const control of [
+    "canonicalPaymentLinkageReason",
+    "webhookLifecycleConflictReason",
+    "providerOperationalReason",
+    "processed_with_conflict",
+    "payment.lifecycle_conflict",
+    "allowFailedToPaidRecovery",
+  ]) {
+    assert.ok(webhook.includes(control), `payment webhook is missing ${control}`);
+  }
+});
 
 for (const name of ["searchPlaces", "reverseGeocode", "getPlaceDetails", "getDirections"]) {
   test(`${name} is an authenticated, active and rate-limited Maps callable`, () => {
@@ -348,15 +380,15 @@ test("provider identity creation derives verification from Firebase Auth", () =>
 test("booking and payment callables revalidate approved providers", () => {
   const bookings = source("bookings/submit-booking-request.ts");
   const payments = source("payments/create-payment-session.ts");
+  const lifecycle = source("payments/payment-lifecycle.ts");
   assert.ok(
     (bookings.match(/isApprovedProviderForOperations\(\s*\w+/gu) ?? [])
       .length >= 2,
     "each selected provider must be revalidated",
   );
-  assert.match(
-    payments,
-    /isApprovedProviderForOperations\(\s*provider\s*\)/u,
-  );
+  assert.ok(payments.includes("providerOperationalReason"));
+  assert.match(lifecycle, /isApprovedProviderForOperations\(\s*provider/u);
+  assert.match(lifecycle, /isProviderOwnerAccountActive\(\s*providerId/u);
 });
 
 test("Maps proxy cache and timeout controls do not persist API keys", () => {

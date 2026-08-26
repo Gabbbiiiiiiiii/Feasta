@@ -7,6 +7,32 @@ type CheckoutSession = {
   checkoutUrl: string;
 };
 
+export type PayMongoFailureCertainty =
+  | "not_sent"
+  | "ambiguous";
+
+export class PayMongoRequestError extends Error {
+  readonly certainty:
+    PayMongoFailureCertainty;
+
+  constructor(
+    message: string,
+    certainty: PayMongoFailureCertainty,
+  ) {
+    super(message);
+    this.name = "PayMongoRequestError";
+    this.certainty = certainty;
+  }
+}
+
+export function payMongoFailureCertainty(
+  error: unknown,
+): PayMongoFailureCertainty {
+  return error instanceof PayMongoRequestError
+    ? error.certainty
+    : "ambiguous";
+}
+
 export async function createPayMongoCheckout(
   input: {
     secretKey: string;
@@ -22,88 +48,104 @@ export async function createPayMongoCheckout(
     cancelUrl: string;
   },
 ): Promise<CheckoutSession> {
-  const response = await payMongoRequest(
-    input.secretKey,
-    "/v1/checkout_sessions",
-    {
-      method: "POST",
+  try {
+    const response = await payMongoRequest(
+      input.secretKey,
+      "/v1/checkout_sessions",
+      {
+        method: "POST",
 
-      headers: {
-        "Idempotency-Key":
-          input.idempotencyKey,
-      },
+        headers: {
+          "Idempotency-Key":
+            input.idempotencyKey,
+        },
 
-      body: JSON.stringify({
-        data: {
-          attributes: {
-            line_items: [
-              {
-                amount:
-                  input.amountInCentavos,
-                currency:
-                  input.currency,
-                name:
-                  input.description,
-                quantity: 1,
+        body: JSON.stringify({
+          data: {
+            attributes: {
+              line_items: [
+                {
+                  amount:
+                    input.amountInCentavos,
+                  currency:
+                    input.currency,
+                  name:
+                    input.description,
+                  quantity: 1,
+                },
+              ],
+
+              payment_method_types: [
+                "card",
+                "gcash",
+                "paymaya",
+              ],
+
+              success_url:
+                input.successUrl,
+
+              cancel_url:
+                input.cancelUrl,
+
+              description:
+                input.description,
+
+              metadata: {
+                payment_id:
+                  input.paymentId,
+                booking_id:
+                  input.bookingId,
+                provider_request_id:
+                  input.providerRequestId,
+                customer_id:
+                  input.customerId,
               },
-            ],
-
-            payment_method_types: [
-              "card",
-              "gcash",
-              "paymaya",
-            ],
-
-            success_url:
-              input.successUrl,
-
-            cancel_url:
-              input.cancelUrl,
-
-            description:
-              input.description,
-
-            metadata: {
-              payment_id:
-                input.paymentId,
-              booking_id:
-                input.bookingId,
-              provider_request_id:
-                input.providerRequestId,
-              customer_id:
-                input.customerId,
             },
           },
-        },
-      }),
-    },
-  );
+        }),
+      },
+    );
 
-  const responseRecord =
-    asRecord(response);
+    const responseRecord =
+      asRecord(response);
 
-  const data = asRecord(
-    responseRecord.data,
-  );
+    const data = asRecord(
+      responseRecord.data,
+    );
 
-  const attributes = asRecord(
-    data.attributes,
-  );
+    const attributes = asRecord(
+      data.attributes,
+    );
 
-  const id = requireString(
-    data.id,
-    "PayMongo checkout ID",
-  );
+    const id = requireString(
+      data.id,
+      "PayMongo checkout ID",
+    );
 
-  const checkoutUrl = requireHttpsUrl(
-    attributes.checkout_url,
-    "PayMongo checkout URL",
-  );
+    const checkoutUrl = requireHttpsUrl(
+      attributes.checkout_url,
+      "PayMongo checkout URL",
+    );
 
-  return {
-    id,
-    checkoutUrl,
-  };
+    return {
+      id,
+      checkoutUrl,
+    };
+  } catch (error) {
+    if (error instanceof PayMongoRequestError) {
+      throw error;
+    }
+
+    /*
+     * A checkout may already exist when a successful gateway response is
+     * malformed or cannot be decoded. Deterministic gateway idempotency is
+     * the only safe recovery mechanism; local code must not claim failure.
+     */
+    throw new PayMongoRequestError(
+      "PayMongo checkout response is invalid.",
+      "ambiguous",
+    );
+  }
 }
 
 export async function createPayMongoRefund(
@@ -172,8 +214,9 @@ async function payMongoRequest(
         "secret_key_missing_or_invalid",
     });
 
-    throw new Error(
+    throw new PayMongoRequestError(
       "PayMongo secret key is not configured.",
+      "not_sent",
     );
   }
 
@@ -181,24 +224,33 @@ async function payMongoRequest(
     `${secretKey}:`,
   ).toString("base64");
 
-  const response = await fetch(
-    `https://api.paymongo.com${path}`,
-    {
-      ...init,
+  let response: Response;
 
-      headers: {
-        Accept: "application/json",
-        Authorization:
-          `Basic ${authorization}`,
-        "Content-Type":
-          "application/json",
-        ...init.headers,
+  try {
+    response = await fetch(
+      `https://api.paymongo.com${path}`,
+      {
+        ...init,
+
+        headers: {
+          Accept: "application/json",
+          Authorization:
+            `Basic ${authorization}`,
+          "Content-Type":
+            "application/json",
+          ...init.headers,
+        },
+
+        signal:
+          AbortSignal.timeout(15_000),
       },
-
-      signal:
-        AbortSignal.timeout(15_000),
-    },
-  );
+    );
+  } catch {
+    throw new PayMongoRequestError(
+      "PayMongo request outcome is unknown.",
+      "ambiguous",
+    );
+  }
 
   if (!response.ok) {
     /*
@@ -206,13 +258,21 @@ async function payMongoRequest(
      * response payload because it can
      * contain sensitive payment details.
      */
-    throw new Error(
+    throw new PayMongoRequestError(
       "PayMongo request failed with " +
         `status ${response.status}.`,
+      "ambiguous",
     );
   }
 
-  return response.json();
+  try {
+    return await response.json();
+  } catch {
+    throw new PayMongoRequestError(
+      "PayMongo response could not be decoded.",
+      "ambiguous",
+    );
+  }
 }
 
 function asRecord(
