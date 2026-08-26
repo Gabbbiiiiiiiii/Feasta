@@ -168,13 +168,38 @@ async function run() {
 }
 
 async function seedRequest(input) {
+  const packageId = `package_${input.requestId}`;
+  const packageName = "Concurrency Package";
+  const eventType = "wedding";
+  const eventLocation = "Ormoc City";
+  const eventAddress = "123 Concurrency Street";
+  const guestCount = 50;
+
   await db.collection("mainEvents")
     .doc(input.mainEventId)
     .set({
+      bookingId: input.mainEventId,
       mainEventId: input.mainEventId,
       customerId: input.customerId,
+      providerId: input.providerId,
+      currentProviderId: input.providerId,
+      packageId,
+      packageName,
+      packagePrice: 10_000,
+      totalAmount: 10_000,
+      downPaymentPercentage: 0,
+      downPaymentAmount: 0,
+      remainingBalance: 10_000,
+      selectedAddOns: [],
+      providerRequestIds: [input.requestId],
       status: "pending_provider_approval",
       eventDate: input.eventDate,
+      eventTime: input.eventTime,
+      eventEndTime: input.eventEndTime,
+      eventType,
+      guestCount,
+      eventLocation,
+      eventAddress,
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
     });
@@ -182,6 +207,7 @@ async function seedRequest(input) {
     .doc(input.requestId)
     .set({
       providerRequestId: input.requestId,
+      bookingId: input.mainEventId,
       mainEventId: input.mainEventId,
       customerId: input.customerId,
       providerId: input.providerId,
@@ -189,12 +215,26 @@ async function seedRequest(input) {
       status: "pending",
       isRequired: true,
       amount: 10_000,
+      downPaymentPercentage: 0,
       downPaymentAmount: 0,
+      remainingBalance: 10_000,
       eventDate: input.eventDate,
       eventTime: input.eventTime,
       eventEndTime: input.eventEndTime,
-      guestCount: 50,
-      services: [],
+      eventType,
+      guestCount,
+      eventLocation,
+      eventAddress,
+      packageId,
+      packageName,
+      services: [{
+        serviceId: packageId,
+        name: packageName,
+        category: "catering",
+        price: 10_000,
+        downPaymentPercentage: 0,
+        downPaymentAmount: 0,
+      }],
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
     });

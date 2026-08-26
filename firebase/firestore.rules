@@ -868,6 +868,32 @@ service cloud.firestore {
           request.resource.data.status is string &&
           request.resource.data.status == 'draft' &&
           !request.resource.data.keys().hasAny([
+            'bookingId',
+            'mainEventId',
+            'bookingCode',
+            'clientRequestId',
+            'submissionFingerprint',
+            'providerRequestIds',
+            'providerRequestCount',
+            'pendingProviderRequestCount',
+            'acceptedProviderRequestCount',
+            'waitingPaymentProviderRequestCount',
+            'paymentProcessingProviderRequestCount',
+            'confirmedProviderRequestCount',
+            'inProgressProviderRequestCount',
+            'completedProviderRequestCount',
+            'rejectedProviderRequestCount',
+            'cancelledProviderRequestCount',
+            'expiredProviderRequestCount',
+            'requiredProviderRequestCount',
+            'confirmedRequiredProviderRequestCount',
+            'completedRequiredProviderRequestCount',
+            'needsProviderReplacement',
+            'recoveryStatus',
+            'rejectedByProviderIds',
+            'selectedRecoveryOfferId',
+            'recoveryOpenedAt',
+            'recoveryCompletedAt',
             'paymentStatus',
             'paymentId',
             'paidAt',
@@ -898,7 +924,14 @@ service cloud.firestore {
           request.resource.data.keys().hasOnly(resource.data.keys()) &&
           resource.data.keys().hasOnly(request.resource.data.keys()) &&
           changesNone([
+            'bookingId', 'mainEventId', 'bookingCode', 'clientRequestId',
+            'submissionFingerprint',
             'customerId', 'providerId', 'providerIds', 'currentProviderId',
+            'originalProviderId', 'providerBusinessName',
+            'packageId', 'packageName', 'packagePrice', 'selectedAddOns',
+            'cateringAddOnsTotal', 'marketplaceAddOnsTotal',
+            'cateringSubtotal', 'estimatedEventTotal', 'addOnsTotal',
+            'downPaymentPercentage',
             'status', 'paymentStatus', 'paymentId', 'paidAt', 'paidAmount',
             'totalAmount', 'downPaymentAmount', 'remainingBalance', 'currency',
             'providerPayoutStatus', 'providerPayoutAt', 'providerPayoutAmount',
@@ -906,15 +939,34 @@ service cloud.firestore {
             'paymongoReferenceNumber', 'requiredProviderRequestCount',
             'confirmedRequiredProviderRequestCount',
             'completedRequiredProviderRequestCount', 'needsProviderReplacement',
+            'providerRequestIds', 'providerRequestCount',
+            'pendingProviderRequestCount', 'acceptedProviderRequestCount',
+            'waitingPaymentProviderRequestCount',
+            'paymentProcessingProviderRequestCount',
+            'confirmedProviderRequestCount', 'inProgressProviderRequestCount',
+            'completedProviderRequestCount', 'rejectedProviderRequestCount',
+            'cancelledProviderRequestCount', 'expiredProviderRequestCount',
+            'recoveryStatus', 'rejectedByProviderIds',
+            'selectedRecoveryOfferId', 'recoveryOpenedAt',
+            'recoveryCompletedAt',
+            'cancellationStatus', 'refundStatus', 'refundAmount',
             'confirmedAt', 'startedAt', 'completedAt', 'expiredAt',
-            'statusUpdatedAt', 'createdAt', 'createdBy', 'updatedBy'
+            'submittedAt', 'statusUpdatedAt', 'createdAt', 'createdBy',
+            'updatedBy'
           ])
         ) || (
           isAdmin() &&
           request.resource.data.keys().hasOnly(resource.data.keys()) &&
           resource.data.keys().hasOnly(request.resource.data.keys()) &&
           changesNone([
+            'bookingId', 'mainEventId', 'bookingCode', 'clientRequestId',
+            'submissionFingerprint',
             'customerId', 'providerId', 'providerIds', 'currentProviderId',
+            'originalProviderId', 'providerBusinessName',
+            'packageId', 'packageName', 'packagePrice', 'selectedAddOns',
+            'cateringAddOnsTotal', 'marketplaceAddOnsTotal',
+            'cateringSubtotal', 'estimatedEventTotal', 'addOnsTotal',
+            'downPaymentPercentage',
             'status', 'paymentStatus', 'paymentId', 'paidAt', 'paidAmount',
             'totalAmount', 'downPaymentAmount', 'remainingBalance', 'currency',
             'providerPayoutStatus', 'providerPayoutAt', 'providerPayoutAmount',
@@ -922,8 +974,20 @@ service cloud.firestore {
             'paymongoReferenceNumber', 'requiredProviderRequestCount',
             'confirmedRequiredProviderRequestCount',
             'completedRequiredProviderRequestCount', 'needsProviderReplacement',
+            'providerRequestIds', 'providerRequestCount',
+            'pendingProviderRequestCount', 'acceptedProviderRequestCount',
+            'waitingPaymentProviderRequestCount',
+            'paymentProcessingProviderRequestCount',
+            'confirmedProviderRequestCount', 'inProgressProviderRequestCount',
+            'completedProviderRequestCount', 'rejectedProviderRequestCount',
+            'cancelledProviderRequestCount', 'expiredProviderRequestCount',
+            'recoveryStatus', 'rejectedByProviderIds',
+            'selectedRecoveryOfferId', 'recoveryOpenedAt',
+            'recoveryCompletedAt',
+            'cancellationStatus', 'refundStatus', 'refundAmount',
             'confirmedAt', 'startedAt', 'completedAt', 'expiredAt',
-            'statusUpdatedAt', 'createdAt', 'createdBy', 'updatedBy'
+            'submittedAt', 'statusUpdatedAt', 'createdAt', 'createdBy',
+            'updatedBy'
           ])
         );
 
@@ -950,23 +1014,9 @@ service cloud.firestore {
     // ============================================================
 
     match /providerRequests/{providerRequestId} {
-      allow create: if isActiveSignedInUser() &&
-          isCustomer() &&
-          request.resource.data.customerId is string &&
-          request.resource.data.customerId ==
-              currentUserId() &&
-          request.resource.data.mainEventId is string &&
-          ownsMainEvent(request.resource.data.mainEventId) &&
-          request.resource.data.providerId is string &&
-          isApprovedProvider(request.resource.data.providerId) &&
-          request.resource.data.status is string &&
-          request.resource.data.status == 'pending' &&
-          !request.resource.data.keys().hasAny([
-            'paymentStatus', 'paymentId', 'paidAt',
-            'providerPayoutStatus', 'providerPayoutAt',
-            'paymongoCheckoutId', 'paymongoPaymentIntentId',
-            'paymongoReferenceNumber'
-          ]);
+      // Canonical requests are created only by submitBookingRequest through
+      // the Admin SDK. No browser client owns a direct-create contract.
+      allow create: if false;
 
       allow read: if canReadExistingProviderRequest();
 

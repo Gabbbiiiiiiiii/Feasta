@@ -750,6 +750,171 @@ test("booking, event, and provider-request reads require participation", async (
   ));
 });
 
+test("canonical provider requests are server-created and main-event trust fields are immutable", async () => {
+  const eventId = "event-security-one";
+  const requestId = "request-security-one";
+  const eventDate = new Date("2027-06-18T00:00:00+08:00");
+  const mainEvent = {
+    bookingId: eventId,
+    mainEventId: eventId,
+    bookingCode: "FEASTA-SECURITY-ONE",
+    clientRequestId: "client-security-one",
+    submissionFingerprint: "fingerprint-security-one",
+    customerId: "customer-one",
+    providerId: "provider-one",
+    currentProviderId: "provider-one",
+    originalProviderId: "provider-one",
+    providerBusinessName: "Public FEASTA Provider",
+    packageId: "package-one",
+    packageName: "Trusted Package",
+    packagePrice: 10000,
+    selectedAddOns: [],
+    eventType: "Wedding",
+    eventDate,
+    eventTime: "10:00",
+    eventEndTime: "14:00",
+    guestCount: 100,
+    eventLocation: "Ormoc City",
+    eventAddress: "123 Trusted Street",
+    cateringAddOnsTotal: 0,
+    marketplaceAddOnsTotal: 0,
+    cateringSubtotal: 10000,
+    estimatedEventTotal: 10000,
+    addOnsTotal: 0,
+    totalAmount: 10000,
+    downPaymentPercentage: 20,
+    downPaymentAmount: 2000,
+    remainingBalance: 8000,
+    status: "pending_provider_approval",
+    paymentStatus: "unpaid",
+    recoveryStatus: "none",
+    cancellationStatus: "none",
+    refundStatus: "none",
+    refundAmount: 0,
+    providerRequestIds: [requestId],
+    providerRequestCount: 1,
+    pendingProviderRequestCount: 1,
+    confirmedProviderRequestCount: 0,
+    rejectedProviderRequestCount: 0,
+    completedProviderRequestCount: 0,
+    rejectedByProviderIds: [],
+    submittedAt: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  const providerRequest = {
+    providerRequestId: requestId,
+    bookingId: eventId,
+    mainEventId: eventId,
+    customerId: "customer-one",
+    providerId: "provider-one",
+    type: "catering",
+    status: "pending",
+    eventType: mainEvent.eventType,
+    eventDate,
+    eventTime: mainEvent.eventTime,
+    eventEndTime: mainEvent.eventEndTime,
+    guestCount: mainEvent.guestCount,
+    eventLocation: mainEvent.eventLocation,
+    eventAddress: mainEvent.eventAddress,
+    packageId: mainEvent.packageId,
+    packageName: mainEvent.packageName,
+    services: [{
+      serviceId: mainEvent.packageId,
+      name: mainEvent.packageName,
+      category: "catering",
+      price: 10000,
+      downPaymentPercentage: 20,
+      downPaymentAmount: 2000,
+    }],
+    amount: 10000,
+    downPaymentPercentage: 20,
+    downPaymentAmount: 2000,
+    remainingBalance: 8000,
+    providerNotes: null,
+    adminNotes: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  await seedDocuments(testEnv, {
+    "users/customer-one": userData("customer-one", "customer"),
+    "users/provider-owner": userData("provider-owner", "provider", {
+      providerId: "provider-one",
+    }),
+    "users/admin-one": userData("admin-one", "admin"),
+    "providers/provider-one": publicProviderData("provider-owner"),
+    [`mainEvents/${eventId}`]: mainEvent,
+    [`providerRequests/${requestId}`]: providerRequest,
+  });
+
+  const customer = authenticated(testEnv, "customer-one", "customer")
+    .firestore();
+  const provider = authenticated(testEnv, "provider-owner", "provider")
+    .firestore();
+  const admin = authenticated(testEnv, "admin-one", "admin").firestore();
+
+  await assertFails(setDoc(
+    doc(customer, "providerRequests/forged-canonical-request"),
+    {
+      ...providerRequest,
+      providerRequestId: "forged-canonical-request",
+    },
+  ));
+  await assertFails(setDoc(
+    doc(customer, "mainEvents/forged-trusted-draft"),
+    {
+      customerId: "customer-one",
+      status: "draft",
+      bookingId: "forged-trusted-draft",
+      mainEventId: "forged-trusted-draft",
+      clientRequestId: "forged-client-request",
+      submissionFingerprint: "forged-fingerprint",
+      providerRequestIds: ["forged-canonical-request"],
+      providerRequestCount: 1,
+      recoveryStatus: "none",
+      rejectedByProviderIds: [],
+      createdAt: new Date(),
+    },
+  ));
+
+  await assertSucceeds(getDoc(doc(customer, `providerRequests/${requestId}`)));
+  await assertSucceeds(getDoc(doc(provider, `providerRequests/${requestId}`)));
+  await assertSucceeds(getDoc(doc(admin, `providerRequests/${requestId}`)));
+  await assertSucceeds(updateDoc(doc(provider, `providerRequests/${requestId}`), {
+    providerNotes: "Available for this event.",
+    updatedAt: new Date(),
+  }));
+  await assertSucceeds(updateDoc(doc(admin, `providerRequests/${requestId}`), {
+    adminNotes: "Reviewed by operations.",
+    updatedAt: new Date(),
+  }));
+
+  await assertSucceeds(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    eventAddress: "456 Customer Editable Street",
+    updatedAt: new Date(),
+  }));
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    providerRequestIds: [requestId, "forged-request"],
+  }));
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    providerRequestCount: 99,
+    pendingProviderRequestCount: 99,
+  }));
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    recoveryStatus: "replacement_pending",
+    rejectedByProviderIds: ["provider-one"],
+    selectedRecoveryOfferId: "forged-recovery-offer",
+    recoveryOpenedAt: new Date(),
+  }));
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    bookingId: "forged-booking",
+    mainEventId: "forged-event",
+    clientRequestId: "forged-client-request",
+    submissionFingerprint: "forged-fingerprint",
+  }));
+});
+
 test("only verified customers create main events", async () => {
   await seedDocuments(testEnv, {
     "users/unverified-customer": userData("unverified-customer", "customer"),

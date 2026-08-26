@@ -24,14 +24,6 @@ export type AuthorizedProviderRequest = {
   type: ProviderRequestType;
   status: ProviderRequestStatus;
 
-  amount: number;
-  downPaymentAmount: number;
-
-  eventDate: unknown;
-  eventTime: string;
-  eventEndTime: string;
-  guestCount: number;
-
   requestData: DocumentData;
   providerData: DocumentData;
 };
@@ -45,12 +37,16 @@ export function authorizeProviderRequest(
 
     providerSnapshot:
       DocumentSnapshot<DocumentData>;
+
+    validationMode?:
+      "operational" | "core";
   },
 ): AuthorizedProviderRequest {
   const {
     actorUid,
     providerRequestSnapshot,
     providerSnapshot,
+    validationMode = "operational",
   } = input;
 
   if (!providerRequestSnapshot.exists) {
@@ -67,8 +63,7 @@ export function authorizeProviderRequest(
     providerRequestSnapshot.id;
 
   const mainEventId = stringValue(
-    requestData.mainEventId ??
-      requestData.bookingId,
+    requestData.mainEventId,
   );
 
   const customerId = stringValue(
@@ -150,12 +145,27 @@ export function authorizeProviderRequest(
   );
 
   if (
-    storedRequestId &&
+    !storedRequestId ||
     storedRequestId !== providerRequestId
   ) {
     throw new HttpsError(
       "failed-precondition",
       "The provider request identifier is invalid.",
+    );
+  }
+
+  if (validationMode === "operational") {
+    nonNegativeNumber(
+      requestData.amount,
+      "Provider-request amount",
+    );
+    nonNegativeNumber(
+      requestData.downPaymentAmount,
+      "Provider-request down payment",
+    );
+    nonNegativeInteger(
+      requestData.guestCount,
+      "Provider-request guest count",
     );
   }
 
@@ -168,33 +178,6 @@ export function authorizeProviderRequest(
 
     type,
     status,
-
-    amount: nonNegativeNumber(
-      requestData.amount,
-      "Provider-request amount",
-    ),
-
-    downPaymentAmount:
-      nonNegativeNumber(
-        requestData.downPaymentAmount,
-        "Provider-request down payment",
-      ),
-
-    eventDate: requestData.eventDate,
-
-    eventTime: stringValue(
-      requestData.eventTime,
-    ),
-
-    eventEndTime: stringValue(
-      requestData.eventEndTime,
-    ),
-
-    guestCount:
-      nonNegativeInteger(
-        requestData.guestCount,
-        "Provider-request guest count",
-      ),
 
     requestData,
     providerData,

@@ -97,6 +97,14 @@ async function createFixture() {
     "provider_booking_contract_owner";
   const packageId =
     "package_booking_contract";
+  const providerOwnedAddonId =
+    "addon_booking_contract_owned";
+  const independentAddonId =
+    "addon_booking_contract_photography";
+  const independentProviderId =
+    "provider_booking_contract_photography";
+  const independentProviderOwnerId =
+    "provider_booking_contract_photography_owner";
   const eventDate = futureDateKey(30);
 
   await Promise.all([
@@ -129,6 +137,16 @@ async function createFixture() {
         uid: providerOwnerId,
         role: "provider",
         providerId,
+        accountStatus: "active",
+        isActive: true,
+        isBlocked: false,
+      }),
+    db.collection("users")
+      .doc(independentProviderOwnerId)
+      .set({
+        uid: independentProviderOwnerId,
+        role: "provider",
+        providerId: independentProviderId,
         accountStatus: "active",
         isActive: true,
         isBlocked: false,
@@ -169,6 +187,42 @@ async function createFixture() {
         availableStaffCount: 10,
         availableEquipmentCount: 10,
       }),
+    db.collection("providers")
+      .doc(independentProviderId)
+      .set({
+        ownerId: independentProviderOwnerId,
+        businessName: "Trusted Photography",
+        description: "Trusted independent event service.",
+        address: "2 Test Street",
+        city: "Cebu City",
+        province: "Cebu",
+        verificationStatus: "approved",
+        publiclyVisible: true,
+        isActive: true,
+        isSuspended: false,
+        isDeleted: false,
+        providerServiceType: "addon",
+        providerCategory: "photographer",
+        serviceCategories: ["photographer"],
+        eventTypesSupported: ["wedding"],
+        operatingDays: [
+          "monday",
+          "tuesday",
+          "wednesday",
+          "thursday",
+          "friday",
+          "saturday",
+          "sunday",
+        ],
+        unavailableDates: [],
+        bookingLeadTimeDays: 0,
+        acceptsMultipleEventsPerDay: true,
+        maxEventsPerDay: 2,
+        minGuestsPerEvent: 0,
+        maxGuestsPerEvent: 0,
+        availableStaffCount: 0,
+        availableEquipmentCount: 0,
+      }),
     db.collection("packages")
       .doc(packageId)
       .set({
@@ -190,6 +244,36 @@ async function createFixture() {
         providerPubliclyVisible: true,
         isDeleted: false,
       }),
+    db.collection("addons")
+      .doc(providerOwnedAddonId)
+      .set({
+        providerId,
+        ownerId: providerOwnerId,
+        name: "Additional Staff",
+        category: "catering_service",
+        price: 2_000,
+        downPaymentPercentage: 25,
+        status: "published",
+        isActive: true,
+        isAvailable: true,
+        isPublished: true,
+        isDeleted: false,
+      }),
+    db.collection("addons")
+      .doc(independentAddonId)
+      .set({
+        providerId: independentProviderId,
+        ownerId: independentProviderOwnerId,
+        name: "Wedding Photography",
+        category: "photographer",
+        price: 5_000,
+        downPaymentPercentage: 30,
+        status: "published",
+        isActive: true,
+        isAvailable: true,
+        isPublished: true,
+        isDeleted: false,
+      }),
   ]);
 
   await signInWithEmailAndPassword(
@@ -202,6 +286,9 @@ async function createFixture() {
     customer,
     providerId,
     packageId,
+    providerOwnedAddonId,
+    independentAddonId,
+    independentProviderId,
     eventDate,
   };
 }
@@ -301,17 +388,25 @@ async function assertTrustedCreationAndReplay(
 
   assert.equal(created.created, true);
 
-  const [event, request] =
+  const eventReference = db.collection("mainEvents")
+    .doc(created.bookingId);
+  const requestsReference = db.collection("providerRequests")
+    .where("mainEventId", "==", created.bookingId);
+  const [event, requests] =
     await Promise.all([
-      db.collection("mainEvents")
-        .doc(created.bookingId)
-        .get(),
-      db.collection("providerRequests")
-        .doc(
-          created.providerRequestIds[0],
-        )
-        .get(),
+      eventReference.get(),
+      requestsReference.get(),
     ]);
+  const cateringRequest = requests.docs.find(
+    (document) => document.data().type === "catering",
+  );
+  const independentRequest = requests.docs.find(
+    (document) =>
+      document.data().providerId === fixture.independentProviderId,
+  );
+
+  assert.equal(requests.size, 2);
+  assert.equal(created.providerRequestIds.length, 2);
   assert.equal(
     event.data()?.customerId,
     fixture.customer.uid,
@@ -321,9 +416,28 @@ async function assertTrustedCreationAndReplay(
     fixture.providerId,
   );
   assert.equal(event.data()?.packagePrice, 10_000);
-  assert.equal(event.data()?.totalAmount, 10_000);
-  assert.equal(event.data()?.downPaymentAmount, 2_000);
-  assert.equal(request.data()?.status, "pending");
+  assert.equal(event.data()?.cateringAddOnsTotal, 2_000);
+  assert.equal(event.data()?.marketplaceAddOnsTotal, 5_000);
+  assert.equal(event.data()?.estimatedEventTotal, 17_000);
+  assert.equal(event.data()?.totalAmount, 12_000);
+  assert.equal(event.data()?.downPaymentAmount, 2_500);
+  assert.deepEqual(
+    new Set(event.data()?.providerRequestIds),
+    new Set(requests.docs.map((document) => document.id)),
+  );
+  assert.equal(cateringRequest?.data().status, "pending");
+  assert.equal(cateringRequest?.data().amount, 12_000);
+  assert.deepEqual(
+    new Set(cateringRequest?.data().services.map((service) => service.serviceId)),
+    new Set([fixture.packageId, fixture.providerOwnedAddonId]),
+  );
+  assert.equal(independentRequest?.data().status, "pending");
+  assert.equal(independentRequest?.data().amount, 5_000);
+  assert.equal(independentRequest?.data().downPaymentAmount, 1_500);
+  assert.deepEqual(
+    independentRequest?.data().services.map((service) => service.serviceId),
+    [fixture.independentAddonId],
+  );
 
   await db.collection("packages")
     .doc(fixture.packageId)
@@ -349,7 +463,7 @@ async function assertTrustedCreationAndReplay(
     (await db.collection("providerRequests")
       .where("customerId", "==", fixture.customer.uid)
       .get()).size,
-    1,
+    2,
   );
   assert.equal(
     (await db.collection("bookings").get()).size,
@@ -376,7 +490,10 @@ function bookingPayload(
     selectedFoods: [],
     selectedDecorations: [],
     selectedFurniture: [],
-    addonIds: [],
+    addonIds: [
+      fixture.providerOwnedAddonId,
+      fixture.independentAddonId,
+    ],
     specialRequest: "",
     willArrangeOwnAddOns: false,
     customerArrangedAddOnsNote: "",

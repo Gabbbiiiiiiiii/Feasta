@@ -16,7 +16,6 @@ import {
   requireRole,
 } from "../shared/authorization.js";
 import {
-  parseMainEventStatus,
   USER_ROLES,
 } from "../shared/constants.js";
 import {
@@ -48,6 +47,10 @@ import {
   authorizeProviderRequest,
   requirePendingProviderRequest,
 } from "./provider-request-authorization.js";
+import {
+  assertCanonicalProviderRequestCore,
+  requireProviderResponseParentStatus,
+} from "./provider-request-integrity.js";
 import {
   calculateMainEventRequestSummary,
 } from "./recalculate-main-event-status.js";
@@ -117,8 +120,7 @@ export const rejectProviderRequest = onCall(
       );
 
       const mainEventId = stringValue(
-        initialRequest.mainEventId ??
-          initialRequest.bookingId,
+        initialRequest.mainEventId,
       );
 
       if (!providerId || !mainEventId) {
@@ -160,8 +162,7 @@ export const rejectProviderRequest = onCall(
 
           const currentMainEventId =
             stringValue(
-              requestData.mainEventId ??
-                requestData.bookingId,
+              requestData.mainEventId,
             );
 
           if (
@@ -209,6 +210,13 @@ export const rejectProviderRequest = onCall(
                 requestSnapshot,
 
               providerSnapshot,
+              validationMode: "core",
+            });
+
+          const core =
+            assertCanonicalProviderRequestCore({
+              authorized,
+              mainEventSnapshot,
             });
 
           if (
@@ -226,57 +234,14 @@ export const rejectProviderRequest = onCall(
             authorized,
           );
 
-          if (!mainEventSnapshot.exists) {
-            throw new HttpsError(
-              "not-found",
-              "The main event was not found.",
-            );
-          }
-
-          const mainEvent =
-            mainEventSnapshot.data() ?? {};
-
-          if (
-            mainEvent.customerId !==
-              authorized.customerId
-          ) {
-            throw new HttpsError(
-              "failed-precondition",
-              "The main-event ownership is invalid.",
-            );
-          }
-
-          const currentMainEventStatus =
-            parseMainEventStatus(
-              mainEvent.status,
-            );
-
-          if (!currentMainEventStatus) {
-            throw new HttpsError(
-              "failed-precondition",
-              "The main-event status is invalid.",
-            );
-          }
-
-          if (
-            [
-              "completed",
-              "cancelled",
-              "expired",
-            ].includes(
-              currentMainEventStatus,
-            )
-          ) {
-            throw new HttpsError(
-              "failed-precondition",
-              "This event can no longer receive provider responses.",
-            );
-          }
+          requireProviderResponseParentStatus(
+            core.mainEventStatus,
+          );
 
           const summary =
             calculateMainEventRequestSummary(
               allRequestsSnapshot.docs,
-              currentMainEventStatus,
+              core.mainEventStatus,
               [
                 {
                   providerRequestId,

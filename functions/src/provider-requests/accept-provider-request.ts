@@ -16,7 +16,6 @@ import {
   requireRole,
 } from "../shared/authorization.js";
 import {
-  parseMainEventStatus,
   USER_ROLES,
 } from "../shared/constants.js";
 import {
@@ -48,6 +47,11 @@ import {
   authorizeProviderRequest,
   requirePendingProviderRequest,
 } from "./provider-request-authorization.js";
+import {
+  assertCanonicalProviderRequestCore,
+  requireProviderResponseParentStatus,
+  validateAcceptanceProviderRequest,
+} from "./provider-request-integrity.js";
 import {
   calculateMainEventRequestSummary,
 } from "./recalculate-main-event-status.js";
@@ -114,8 +118,7 @@ export const acceptProviderRequest = onCall(
       );
 
       const mainEventId = stringValue(
-        initialRequest.mainEventId ??
-          initialRequest.bookingId,
+        initialRequest.mainEventId,
       );
 
       if (!providerId || !mainEventId) {
@@ -141,8 +144,6 @@ export const acceptProviderRequest = onCall(
               60 *
               1_000,
         );
-      const acceptanceTime = new Date();
-
       const result = await db.runTransaction(
         async (transaction) => {
           const requestSnapshot =
@@ -167,8 +168,7 @@ export const acceptProviderRequest = onCall(
 
           const currentMainEventId =
             stringValue(
-              requestData.mainEventId ??
-                requestData.bookingId,
+              requestData.mainEventId,
             );
 
           if (
@@ -272,6 +272,12 @@ export const acceptProviderRequest = onCall(
               providerSnapshot,
             });
 
+          const core =
+            assertCanonicalProviderRequestCore({
+              authorized,
+              mainEventSnapshot,
+            });
+
           if (
             authorized.status ===
               "waiting_for_down_payment" ||
@@ -290,52 +296,19 @@ export const acceptProviderRequest = onCall(
             authorized,
           );
 
-          if (!mainEventSnapshot.exists) {
-            throw new HttpsError(
-              "not-found",
-              "The main event was not found.",
-            );
-          }
+          requireProviderResponseParentStatus(
+            core.mainEventStatus,
+          );
 
-          const mainEvent =
-            mainEventSnapshot.data() ?? {};
+          const acceptanceTime = new Date();
 
-          if (
-            mainEvent.customerId !==
-              authorized.customerId
-          ) {
-            throw new HttpsError(
-              "failed-precondition",
-              "The main-event ownership is invalid.",
-            );
-          }
-
-          const currentMainEventStatus =
-            parseMainEventStatus(
-              mainEvent.status,
-            );
-
-          if (!currentMainEventStatus) {
-            throw new HttpsError(
-              "failed-precondition",
-              "The main-event status is invalid.",
-            );
-          }
-
-          if (
-            [
-              "completed",
-              "cancelled",
-              "expired",
-            ].includes(
-              currentMainEventStatus,
-            )
-          ) {
-            throw new HttpsError(
-              "failed-precondition",
-              "This event can no longer accept provider responses.",
-            );
-          }
+          const acceptanceSnapshot =
+            validateAcceptanceProviderRequest({
+              authorized,
+              mainEventData:
+                core.mainEventData,
+              now: acceptanceTime,
+            });
 
           const availability =
             validateProviderAvailability({
@@ -345,13 +318,17 @@ export const acceptProviderRequest = onCall(
                 providerRequestId,
                 type: authorized.type,
                 eventDate:
-                  eventDate.toDate(),
+                  acceptanceSnapshot
+                    .eventDate.toDate(),
                 eventTime:
-                  authorized.eventTime,
+                  acceptanceSnapshot
+                    .eventTime,
                 eventEndTime:
-                  authorized.eventEndTime,
+                  acceptanceSnapshot
+                    .eventEndTime,
                 guestCount:
-                  authorized.guestCount,
+                  acceptanceSnapshot
+                    .guestCount,
                 services:
                   authorized.requestData
                     .services,
@@ -386,14 +363,15 @@ export const acceptProviderRequest = onCall(
           }
 
           const nextStatus =
-            authorized.downPaymentAmount > 0
+            acceptanceSnapshot
+              .downPaymentAmount > 0
               ? "waiting_for_down_payment"
               : "confirmed";
 
           const summary =
             calculateMainEventRequestSummary(
               allRequestsSnapshot.docs,
-              currentMainEventStatus,
+              core.mainEventStatus,
               [
                 {
                   providerRequestId,
@@ -515,7 +493,7 @@ export const acceptProviderRequest = onCall(
                 mainEventId,
                 providerId,
                 downPaymentRequired:
-                  authorized
+                  acceptanceSnapshot
                     .downPaymentAmount > 0,
               },
             },
