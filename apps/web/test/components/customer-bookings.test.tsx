@@ -221,8 +221,12 @@ describe("customer booking history and details", () => {
     render(<CustomerBookingExperience initialPage={pageFixture()} />);
 
     expect(screen.getAllByRole("heading", {level: 1})).toHaveLength(1);
+    expect(screen.getByRole("region", {name: "Filter bookings"})).toBeInTheDocument();
     expect(screen.getByRole("table", {name: "Customer booking history"})).toBeInTheDocument();
     expect(screen.getByLabelText("Customer booking history, mobile view")).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", {name: "Search by exact booking code or booking ID"})).toHaveAccessibleDescription(
+      "Searches only your bookings using an exact booking code or booking ID.",
+    );
     expect(screen.getAllByLabelText("Status: Awaiting payment").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Accepted provider requests require a down payment. Review each request's payment status.").length).toBeGreaterThan(0);
     expect(screen.getByText(/Searches only your bookings/u)).toBeVisible();
@@ -365,7 +369,9 @@ describe("customer booking history and details", () => {
       });
     });
 
-    await user.click(screen.getByRole("button", {name: "Clear search"}));
+    const clearSearchInput = screen.getByRole("button", {name: "Clear booking search input"});
+    await waitFor(() => expect(clearSearchInput).toBeEnabled());
+    await user.click(clearSearchInput);
     await waitFor(() => {
       expect(mocks.loadBookings).toHaveBeenLastCalledWith({
         search: "",
@@ -409,6 +415,10 @@ describe("customer booking history and details", () => {
     const user = userEvent.setup();
     const {rerender} = render(<CustomerBookingExperience initialPage={pageFixture([], null)} />);
     expect(screen.getByRole("heading", {name: "No bookings yet"})).toBeVisible();
+    expect(screen.getByRole("link", {name: "Browse event services"})).toHaveAttribute(
+      "href",
+      "/customer/providers",
+    );
 
     mocks.loadBookings.mockResolvedValueOnce(pageFixture([], null));
     await user.type(
@@ -417,17 +427,22 @@ describe("customer booking history and details", () => {
     );
     await user.click(screen.getByRole("button", {name: "Search"}));
     expect(await screen.findByRole("heading", {name: "No booking found in your account"})).toBeVisible();
+    expect(screen.getByRole("button", {name: "Clear search"})).toBeVisible();
+    expect(screen.queryByRole("link", {name: "Browse event services"})).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", {name: "Clear filters"}));
     await waitFor(() => expect(screen.getByLabelText("Booking status")).toBeEnabled());
     mocks.loadBookings.mockResolvedValueOnce(pageFixture([], null));
     await user.selectOptions(screen.getByLabelText("Booking status"), "completed");
     expect(await screen.findByRole("heading", {name: "No bookings match this status"})).toBeVisible();
+    expect(screen.getByRole("button", {name: "Show all bookings"})).toBeVisible();
+    expect(screen.queryByRole("link", {name: "Browse event services"})).not.toBeInTheDocument();
 
     mocks.loadBookings.mockRejectedValueOnce(new Error("raw backend details"));
     await user.selectOptions(screen.getByLabelText("Booking status"), "confirmed");
     expect(await screen.findByText("Your booking history could not be updated. Please try again.")).toBeVisible();
     expect(screen.queryByText("raw backend details")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", {name: "Browse event services"})).not.toBeInTheDocument();
 
     const reset = vi.fn();
     rerender(<CustomerBookingsError reset={reset} />);

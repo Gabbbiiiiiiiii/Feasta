@@ -3,22 +3,27 @@
 import {
   CalendarCheck,
   CalendarDays,
+  CalendarPlus,
   CheckCircle2,
   Clock3,
   Eye,
   PhilippinePeso,
+  SearchX,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import {
   useRouter,
   useSearchParams,
 } from "next/navigation";
 import {
   useCallback,
+  useId,
   useMemo,
   useRef,
   useState,
   useTransition,
+  type FormEvent,
   type ReactNode,
 } from "react";
 
@@ -38,8 +43,8 @@ import {CustomerBookingDetailsDrawer} from "@/components/customer/bookings/custo
 import {CustomerBookingMobileCard} from "@/components/customer/bookings/customer-booking-mobile-card";
 import {CursorPagination} from "@/components/data/cursor-pagination";
 import {DataTable, type DataTableColumn} from "@/components/data/data-table";
-import {FilterToolbar} from "@/components/data/filter-toolbar";
 import {SummaryCard} from "@/components/data/summary-card";
+import {SearchInput} from "@/components/forms/search-input";
 import {PageHeading} from "@/components/layout/page-heading";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
@@ -274,22 +279,15 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
     filters.status !== "all" ? `Status: ${bookingStatusLabel(filters.status)}` : "",
   ].filter(Boolean);
   const previousCursor = cursorHistory.at(-1) ?? null;
-  const emptyState = filters.search ? {
-    title: "No booking found in your account",
-    description:
-      "Check the exact booking code or booking ID, then search again.",
-  } : filters.status !== "all" ? {
-    title: "No bookings match this status",
-    description:
-      "Choose another status or show all bookings.",
-  } : {
-    title: "No bookings yet",
-    description:
-      "Your submitted event requests will appear here.",
-  };
+  const emptyKind = filters.search ?
+    "search" :
+    filters.status !== "all" ?
+      "filter" :
+      "initial";
+  const showEmptyState = !isPending && !error && page.bookings.length === 0;
 
   return (
-    <div className="grid min-w-0 gap-6">
+    <div className="grid min-w-0 gap-5 lg:gap-4">
       <p className="sr-only" role="status" aria-live="polite">
         {isPending ?
           "Updating your booking history." :
@@ -299,6 +297,7 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
         eyebrow="Your celebrations"
         title="Bookings"
         description="Track provider responses, event schedules, booking totals, and payment readiness in one place."
+        className="pb-4"
       />
 
       {submittedBookingId ? (
@@ -438,87 +437,85 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
       ) : null}
 
       <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        className="grid auto-rows-fr gap-3 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Booking summary"
       >
         <SummaryCard
           label="Total bookings"
           value={formatCount(page.statistics.total)}
-          icon={<CalendarDays className="size-5" />}
+          icon={<SummaryIcon icon={<CalendarDays className="size-4" />} />}
+          className="h-full p-4 shadow-none sm:p-4 [&>div]:items-center [&>p]:mt-2"
         />
         <SummaryCard
           label="Upcoming events"
           value={formatCount(page.statistics.upcoming)}
-          icon={<CalendarCheck className="size-5" />}
+          icon={<SummaryIcon icon={<CalendarCheck className="size-4" />} />}
+          className="h-full p-4 shadow-none sm:p-4 [&>div]:items-center [&>p]:mt-2"
         />
         <SummaryCard
           label="Awaiting providers"
           value={formatCount(page.statistics.awaitingProvider)}
-          icon={<Clock3 className="size-5" />}
+          icon={<SummaryIcon icon={<Clock3 className="size-4" />} />}
+          className="h-full p-4 shadow-none sm:p-4 [&>div]:items-center [&>p]:mt-2"
         />
         <SummaryCard
           label="Awaiting payment"
           value={formatCount(page.statistics.awaitingPayment)}
-          icon={<PhilippinePeso className="size-5" />}
+          icon={<SummaryIcon icon={<PhilippinePeso className="size-4" />} />}
+          className="h-full p-4 shadow-none sm:p-4 [&>div]:items-center [&>p]:mt-2"
         />
       </section>
 
-      <FilterToolbar
+      <CustomerBookingFilterToolbar
         searchValue={searchValue}
         onSearchChange={(value) => setSearchValue(value.slice(0, MAX_SEARCH_LENGTH))}
         onSearchSubmit={(search) => updateFilters({search: search.slice(0, MAX_SEARCH_LENGTH)})}
         onClearSearch={clearSearch}
         onClearFilters={clearFilters}
         activeFilters={activeFilters}
-        searchLabel="Search by exact booking code or booking ID"
-        searchPlaceholder="Enter an exact booking code or booking ID"
-        searchHint="Searches only your bookings using an exact booking code or booking ID."
         loading={isPending}
-        filterControls={
-          <FilterSelect
-            label="Booking status"
-            value={filters.status}
-            disabled={isPending}
-            onChange={(value) => updateFilters({status: value as CustomerBookingStatusFilter})}
-          >
-            {BOOKING_STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </FilterSelect>
-        }
+        status={filters.status}
+        onStatusChange={(status) => updateFilters({status})}
       />
 
-      <DataTable
-        columns={columns}
-        rows={page.bookings}
-        getRowId={(booking) => booking.id}
-        caption="Customer booking history"
-        loading={isPending}
-        error={error}
-        onRetry={() => loadPage(filters)}
-        emptyTitle={emptyState.title}
-        emptyDescription={emptyState.description}
-        rowActionsLabel="Details"
-        rowActions={(booking) => (
-          <Button
-            variant="ghost"
-            size="compact"
-            disabled={isPending}
-            onClick={() => openBooking(booking)}
-            aria-label={`View booking ${boundedText(booking.bookingCode, "details", 80)}`}
-          >
-            <Eye aria-hidden="true" className="size-4" />
-            View
-          </Button>
-        )}
-        renderMobileRow={(booking) => (
-          <CustomerBookingMobileCard
-            booking={booking}
-            onView={openBooking}
-            loading={isPending}
-          />
-        )}
-      />
+      {showEmptyState ? (
+        <CustomerBookingEmptyState
+          kind={emptyKind}
+          onClearSearch={clearSearch}
+          onClearFilters={clearFilters}
+        />
+      ) : (
+        <DataTable
+          columns={columns}
+          rows={page.bookings}
+          getRowId={(booking) => booking.id}
+          caption="Customer booking history"
+          loading={isPending}
+          error={error}
+          onRetry={() => loadPage(filters)}
+          rowActionsLabel="Details"
+          rowActions={(booking) => (
+            <Button
+              variant="ghost"
+              size="compact"
+              disabled={isPending}
+              onClick={() => openBooking(booking)}
+              aria-label={`View booking ${boundedText(booking.bookingCode, "details", 80)}`}
+            >
+              <Eye aria-hidden="true" className="size-4" />
+              View
+            </Button>
+          )}
+          renderMobileRow={(booking) => (
+            <CustomerBookingMobileCard
+              booking={booking}
+              onView={openBooking}
+              loading={isPending}
+            />
+          )}
+          className="[&_table]:text-[0.8125rem] [&_thead]:bg-muted/50 [&_th]:py-2.5 [&_th]:text-xs [&_th]:uppercase [&_th]:tracking-wide [&_th]:text-muted-foreground [&_td]:py-3 [&_td]:align-middle [&_tr]:transition-colors"
+        />
+      )}
 
       {!error && page.bookings.length > 0 ? (
         <CursorPagination
@@ -540,33 +537,183 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
   );
 }
 
+function SummaryIcon({icon}: {icon: ReactNode}) {
+  return (
+    <span className="grid size-9 place-items-center rounded-xl bg-primary-tint text-primary">
+      {icon}
+    </span>
+  );
+}
+
+function CustomerBookingFilterToolbar({
+  searchValue,
+  onSearchChange,
+  onSearchSubmit,
+  onClearSearch,
+  onClearFilters,
+  activeFilters,
+  loading,
+  status,
+  onStatusChange,
+}: {
+  searchValue: string;
+  onSearchChange: (value: string) => void;
+  onSearchSubmit: (value: string) => void;
+  onClearSearch: () => void;
+  onClearFilters: () => void;
+  activeFilters: readonly string[];
+  loading: boolean;
+  status: CustomerBookingStatusFilter;
+  onStatusChange: (status: CustomerBookingStatusFilter) => void;
+}) {
+  const searchId = useId();
+  const searchHintId = useId();
+  const hasFilters = searchValue.trim().length > 0 || activeFilters.length > 0;
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onSearchSubmit(searchValue.trim());
+  };
+
+  return (
+    <section
+      aria-label="Filter bookings"
+      className="grid gap-3 rounded-card border border-border bg-card p-3 sm:p-4"
+    >
+      <form
+        role="search"
+        onSubmit={submit}
+        className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
+      >
+        <div className="grid min-w-0 gap-1.5">
+          <label htmlFor={searchId} className="text-xs font-bold text-foreground">
+            Exact booking code or ID
+          </label>
+          <SearchInput
+            id={searchId}
+            aria-label="Search by exact booking code or booking ID"
+            aria-describedby={searchHintId}
+            placeholder="Enter an exact booking code or booking ID"
+            value={searchValue}
+            disabled={loading}
+            clearLabel="Clear booking search input"
+            className="min-h-12 rounded-xl py-2.5 text-sm"
+            onChange={(event) => onSearchChange(event.currentTarget.value)}
+            onClear={searchValue.trim() ? onClearSearch : undefined}
+          />
+          <p id={searchHintId} className="text-[0.6875rem] leading-4 text-muted-foreground">
+            Searches only your bookings using an exact booking code or booking ID.
+          </p>
+        </div>
+        <Button
+          type="submit"
+          size="compact"
+          loading={loading}
+          loadingLabel="Searching"
+          className="w-full sm:w-auto"
+        >
+          Search
+        </Button>
+      </form>
+
+      <div className="grid min-w-0 gap-3 border-t border-border pt-3 md:grid-cols-[minmax(13rem,17rem)_minmax(0,1fr)_auto] md:items-end">
+        <FilterSelect
+          value={status}
+          disabled={loading}
+          onChange={onStatusChange}
+        />
+        <p className="min-w-0 break-words text-xs text-muted-foreground" aria-live="polite">
+          {activeFilters.length > 0 ?
+            `Active: ${activeFilters.join(", ")}` :
+            "Showing all booking statuses"}
+        </p>
+        <Button
+          variant="ghost"
+          size="compact"
+          disabled={!hasFilters || loading}
+          onClick={onClearFilters}
+          className="w-full md:w-auto"
+        >
+          Clear filters
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function FilterSelect({
-  label,
   value,
   disabled,
   onChange,
-  children,
 }: {
-  label: string;
-  value: string;
+  value: CustomerBookingStatusFilter;
   disabled: boolean;
-  onChange: (value: string) => void;
-  children: ReactNode;
+  onChange: (value: CustomerBookingStatusFilter) => void;
 }) {
-  const id = `customer-booking-filter-${label.toLowerCase().replaceAll(" ", "-")}`;
+  const id = "customer-booking-filter-booking-status";
 
   return (
-    <div className="grid min-w-0 gap-2 lg:min-w-[15rem]">
-      <label htmlFor={id} className="text-sm font-bold">{label}</label>
+    <div className="grid min-w-0 gap-1.5">
+      <label htmlFor={id} className="text-xs font-bold">Booking status</label>
       <Select
         id={id}
         value={value}
         disabled={disabled}
-        onChange={(event) => onChange(event.currentTarget.value)}
+        className="min-h-12 rounded-xl py-2.5 text-sm"
+        onChange={(event) => onChange(event.currentTarget.value as CustomerBookingStatusFilter)}
       >
-        {children}
+        {BOOKING_STATUS_OPTIONS.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
       </Select>
     </div>
+  );
+}
+
+function CustomerBookingEmptyState({
+  kind,
+  onClearSearch,
+  onClearFilters,
+}: {
+  kind: "initial" | "search" | "filter";
+  onClearSearch: () => void;
+  onClearFilters: () => void;
+}) {
+  const initial = kind === "initial";
+  const search = kind === "search";
+  const title = initial ?
+    "No bookings yet" :
+    search ?
+      "No booking found in your account" :
+      "No bookings match this status";
+  const description = initial ?
+    "Your submitted event requests will appear here." :
+    search ?
+      "Check the exact booking code or booking ID, then search again." :
+      "Choose another status or show all bookings.";
+
+  return (
+    <section className="grid justify-items-center gap-3 rounded-card border border-border bg-card px-5 py-8 text-center sm:py-10">
+      <span className="grid size-12 place-items-center rounded-full bg-primary-tint text-primary" aria-hidden="true">
+        {initial ? <CalendarPlus className="size-6" /> : <SearchX className="size-6" />}
+      </span>
+      <div className="grid max-w-lg gap-1.5">
+        <h2 className="text-xl font-black tracking-tight">{title}</h2>
+        <p className="text-sm leading-6 text-muted-foreground">{description}</p>
+      </div>
+      {initial ? (
+        <Button asChild size="compact">
+          <Link href="/customer/providers">Browse event services</Link>
+        </Button>
+      ) : (
+        <Button
+          variant="secondary"
+          size="compact"
+          onClick={search ? onClearSearch : onClearFilters}
+        >
+          {search ? "Clear search" : "Show all bookings"}
+        </Button>
+      )}
+    </section>
   );
 }
 
