@@ -88,6 +88,8 @@ function CustomerBookingProviderRequestCard({
         <FinancialMetric label="Down payment rate" value={formatPercentage(request.downPaymentPercentage)} />
       </dl>
 
+      {paymentAction}
+
       <section
         className="grid min-w-0 gap-2.5"
         aria-label={`Services from ${boundedText(request.providerName, "provider", 80)}`}
@@ -131,8 +133,6 @@ function CustomerBookingProviderRequestCard({
           <span className="break-words">Replacement required</span>
         </p>
       ) : null}
-
-      {paymentAction}
     </article>
   );
 }

@@ -1,9 +1,13 @@
+"use client";
+
 import {
   CalendarDays,
+  CreditCard,
   Info,
   PhilippinePeso,
   Users,
 } from "lucide-react";
+import {useState} from "react";
 
 import {
   boundedText,
@@ -13,7 +17,17 @@ import {
   formatCurrency,
 } from "@/components/customer/bookings/booking-formatters";
 import {CustomerBookingProviderRequestCard} from "@/components/customer/bookings/customer-booking-provider-request-card";
+import {feastaToast} from "@/components/feedback/toast";
+import {Button} from "@/components/ui/button";
+import {
+  canStartCustomerBookingPayment,
+  isCustomerBookingPaymentProcessing,
+} from "@/lib/customer/bookings/customer-booking-payment";
 import type {CustomerBookingDetails} from "@/lib/customer/bookings/customer-booking-types";
+import {
+  createCustomerPaymentCheckout,
+  redirectToCustomerPaymentCheckout,
+} from "@/lib/customer/payments/customer-payment-client";
 
 type CustomerBookingDetailContentProps = {
   details: CustomerBookingDetails;
@@ -23,6 +37,37 @@ function CustomerBookingDetailContent({
   details,
 }: CustomerBookingDetailContentProps) {
   const {booking, providerRequests} = details;
+  const [paymentRequestId, setPaymentRequestId] = useState<string | null>(null);
+
+  async function startCheckout(providerRequestId: string) {
+    if (paymentRequestId !== null) return;
+
+    const request = providerRequests.find(
+      (candidate) => candidate.providerRequestId === providerRequestId,
+    );
+
+    if (!request || !canStartCustomerBookingPayment(request, booking.id)) {
+      feastaToast.error(
+        "This payment is no longer available. Refresh the booking to see its latest status.",
+      );
+      return;
+    }
+
+    setPaymentRequestId(providerRequestId);
+
+    try {
+      const checkout = await createCustomerPaymentCheckout(providerRequestId);
+      redirectToCustomerPaymentCheckout(checkout);
+    } catch (error: unknown) {
+      feastaToast.error(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "We couldn't start the payment checkout. Please try again.",
+      );
+    } finally {
+      setPaymentRequestId(null);
+    }
+  }
 
   return (
     <div className="grid min-w-0 gap-5">
@@ -68,7 +113,16 @@ function CustomerBookingDetailContent({
         {providerRequests.length > 0 ? (
           <div className="mt-4 grid gap-4">
             {providerRequests.map((request) => (
-              <CustomerBookingProviderRequestCard key={request.id} request={request} />
+              <CustomerBookingProviderRequestCard
+                key={request.id}
+                request={request}
+                paymentAction={paymentActionForRequest({
+                  request,
+                  bookingId: booking.id,
+                  paymentRequestId,
+                  onPay: startCheckout,
+                })}
+              />
             ))}
           </div>
         ) : (
@@ -77,6 +131,54 @@ function CustomerBookingDetailContent({
           </p>
         )}
       </DetailSection>
+    </div>
+  );
+}
+
+function paymentActionForRequest({
+  request,
+  bookingId,
+  paymentRequestId,
+  onPay,
+}: {
+  request: CustomerBookingDetails["providerRequests"][number];
+  bookingId: string;
+  paymentRequestId: string | null;
+  onPay: (providerRequestId: string) => Promise<void>;
+}) {
+  if (isCustomerBookingPaymentProcessing(request)) {
+    return (
+      <div
+        className="rounded-xl border border-info/20 bg-info-subtle p-3.5"
+        role="status"
+      >
+        <p className="text-sm font-bold text-info">Payment processing</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          FEASTA is waiting for trusted payment confirmation. Another checkout cannot be started yet.
+        </p>
+      </div>
+    );
+  }
+
+  if (!canStartCustomerBookingPayment(request, bookingId)) return undefined;
+
+  const loading = paymentRequestId === request.providerRequestId;
+
+  return (
+    <div className="grid gap-2 border-t border-border pt-4">
+      <Button
+        fullWidth
+        loading={loading}
+        loadingLabel="Preparing secure checkout…"
+        disabled={paymentRequestId !== null}
+        onClick={() => void onPay(request.providerRequestId)}
+      >
+        <CreditCard aria-hidden="true" className="size-5" />
+        Pay {formatCurrency(request.downPaymentAmount)} down payment
+      </Button>
+      <p className="text-xs leading-5 text-muted-foreground">
+        You’ll continue to PayMongo. FEASTA updates this request only after trusted payment confirmation.
+      </p>
     </div>
   );
 }

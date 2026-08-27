@@ -21,6 +21,7 @@ vi.mock("@/lib/firebase/client", () => ({
 import {
   clearCustomerPaymentReturnContext,
   readCustomerPaymentReturnContext,
+  redirectToCustomerPaymentCheckout,
 } from "@/lib/customer/payments/customer-payment-client";
 
 const PAYMENT_RETURN_STORAGE_KEY = "feasta.customer.payment-return.v1";
@@ -82,6 +83,18 @@ describe("customer payment return context", () => {
     );
 
     clearCustomerPaymentReturnContext();
+
+    expect(readCustomerPaymentReturnContext()).toBeNull();
+  });
+
+  it("rejects an untrusted checkout URL before storing return context or navigating", () => {
+    expect(() => redirectToCustomerPaymentCheckout({
+      paymentId: lookup.paymentId,
+      providerRequestId: lookup.providerRequestId,
+      bookingId: lookup.bookingId,
+      checkoutUrl: "https://attacker.example/checkout",
+      created: true,
+    })).toThrow("The payment checkout URL is invalid.");
 
     expect(readCustomerPaymentReturnContext()).toBeNull();
   });

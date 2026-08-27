@@ -19,38 +19,44 @@ const CREATE_PAYMENT_SESSION_FUNCTION = "createPaymentSession";
 const SAFE_PROVIDER_REQUEST_ID = /^[A-Za-z0-9_-]{8,160}$/u;
 const PAYMENT_RETURN_STORAGE_KEY = "feasta.customer.payment-return.v1";
 const PAYMENT_RETURN_MAX_AGE_MS = 4 * 60 * 60 * 1000;
+const SAFE_CLIENT_PAYMENT_ERRORS = new Set([
+  "The selected payment request is invalid.",
+  "Secure payment initialization is unavailable. Refresh the page and try again.",
+  "The payment service returned an invalid response.",
+  "The payment checkout URL is invalid.",
+]);
 
 export async function createCustomerPaymentCheckout(
   providerRequestId: string,
 ): Promise<CreateCustomerPaymentSessionResult> {
-  await auth.authStateReady();
-
-  if (!auth.currentUser) {
-    throw new WebAuthenticationError(
-      "Your customer session has expired. Please sign in again.",
-      "session_expired",
-    );
-  }
-
-  const normalizedProviderRequestId = normalizeProviderRequestId(
-    providerRequestId,
-  );
-  const idempotencyKey = createPaymentIdempotencyKey(
-    normalizedProviderRequestId,
-  );
-
-  initializeBrowserAppCheck();
-
-  const callable = httpsCallable<
-    CreateCustomerPaymentSessionInput,
-    CreateCustomerPaymentSessionResult
-  >(
-    functions,
-    CREATE_PAYMENT_SESSION_FUNCTION,
-    {timeout: 30_000},
-  );
-
   try {
+    await auth.authStateReady();
+
+    if (!auth.currentUser) {
+      throw new WebAuthenticationError(
+        "Please sign in again to continue.",
+        "session_expired",
+      );
+    }
+
+    const normalizedProviderRequestId = normalizeProviderRequestId(
+      providerRequestId,
+    );
+    const idempotencyKey = createPaymentIdempotencyKey(
+      normalizedProviderRequestId,
+    );
+
+    initializeBrowserAppCheck();
+
+    const callable = httpsCallable<
+      CreateCustomerPaymentSessionInput,
+      CreateCustomerPaymentSessionResult
+    >(
+      functions,
+      CREATE_PAYMENT_SESSION_FUNCTION,
+      {timeout: 30_000},
+    );
+
     const response = await callable({
       providerRequestId: normalizedProviderRequestId,
       idempotencyKey,
@@ -230,13 +236,13 @@ function paymentErrorMessage(error: unknown): string {
   if (error instanceof FirebaseError) {
     switch (normalizeCallableCode(error.code)) {
       case "unauthenticated":
-        return "Your customer session has expired. Please sign in again.";
+        return "Please sign in again to continue.";
 
       case "permission-denied":
-        return "You do not have permission to pay this provider request.";
+        return "You are not allowed to pay for this booking.";
 
       case "failed-precondition":
-        return "This provider request is not currently eligible for payment. Refresh the booking and try again.";
+        return "This payment is no longer available. Refresh the booking to see its latest status.";
 
       case "invalid-argument":
         return "The payment request contains invalid information.";
@@ -255,15 +261,17 @@ function paymentErrorMessage(error: unknown): string {
         return "The payment session could not be created safely.";
 
       default:
-        return "The payment session could not be created.";
+        return "We couldn't start the payment checkout. Please try again.";
     }
   }
 
   if (error instanceof Error && error.message.trim()) {
-    return error.message;
+    return SAFE_CLIENT_PAYMENT_ERRORS.has(error.message)
+      ? error.message
+      : "We couldn't start the payment checkout. Please try again.";
   }
 
-  return "The payment session could not be created.";
+  return "We couldn't start the payment checkout. Please try again.";
 }
 
 function normalizeCallableCode(code: string): string {

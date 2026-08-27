@@ -1,5 +1,5 @@
-import {render, screen, within} from "@testing-library/react";
-import {describe, expect, it, vi} from "vitest";
+import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
+import {beforeEach, describe, expect, it, vi} from "vitest";
 
 import type {
   CustomerBooking,
@@ -17,6 +17,9 @@ const mocks = vi.hoisted(() => ({
     throw new Error("NEXT_NOT_FOUND");
   }),
   unavailable: {kind: "customer-booking-unavailable"},
+  createCheckout: vi.fn(),
+  redirectCheckout: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -29,6 +32,15 @@ vi.mock("@/lib/customer/bookings/customer-booking-service", () => ({
     error === mocks.unavailable,
 }));
 
+vi.mock("@/lib/customer/payments/customer-payment-client", () => ({
+  createCustomerPaymentCheckout: mocks.createCheckout,
+  redirectToCustomerPaymentCheckout: mocks.redirectCheckout,
+}));
+
+vi.mock("@/components/feedback/toast", () => ({
+  feastaToast: {error: mocks.toastError},
+}));
+
 import CustomerBookingDetailRoute from "@/app/customer/bookings/[bookingId]/page";
 import {CustomerBookingDetailPage} from "@/components/customer/bookings/customer-booking-detail-page";
 import {
@@ -37,6 +49,10 @@ import {
 } from "@/lib/customer/bookings/customer-booking-data-normalizers";
 
 describe("customer booking dedicated detail page", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("server-loads an owned direct URL and renders accessible read-only details", async () => {
     const result = detailResult();
     mocks.getDetails.mockResolvedValueOnce(result);
@@ -69,7 +85,92 @@ describe("customer booking dedicated detail page", () => {
     expect(timeline).not.toBeNull();
     expect(within(timeline as HTMLElement).getByRole("list", {name: "Booking activity"})).toBeInTheDocument();
 
-    expect(screen.queryByRole("button", {name: /pay|cancel|refund|review|chat/iu})).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /pay .*25,000\.00 down payment/iu})).toBeVisible();
+    expect(screen.queryByRole("button", {name: /cancel|refund|review|chat/iu})).not.toBeInTheDocument();
+  });
+
+  it("shows the request-scoped down-payment amount in the eligible action", () => {
+    render(<CustomerBookingDetailPage result={detailResult()} />);
+
+    const requestCard = screen.getByRole("heading", {name: "Maria's Catering"}).closest("article");
+    expect(requestCard).not.toBeNull();
+    expect(
+      within(requestCard as HTMLElement).getByRole("button", {
+        name: /pay .*25,000\.00 down payment/iu,
+      }),
+    ).toBeVisible();
+  });
+
+  it.each([
+    ["pending", {status: "pending" as const, paymentStatus: "unpaid"}],
+    ["rejected", {status: "rejected" as const, paymentStatus: "unpaid"}],
+    ["paid", {status: "waiting_for_down_payment" as const, paymentStatus: "paid"}],
+    ["confirmed", {status: "confirmed" as const, paymentStatus: "paid"}],
+    ["cancelled", {status: "cancelled" as const, paymentStatus: "unpaid"}],
+    ["expired", {status: "expired" as const, paymentStatus: "expired"}],
+    ["completed", {status: "completed" as const, paymentStatus: "paid"}],
+  ])("does not offer checkout for a %s request", (_label, overrides) => {
+    const result = detailResult();
+    result.details.providerRequests = [providerRequestFixture(overrides)];
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.queryByRole("button", {name: /pay .* down payment/iu})).not.toBeInTheDocument();
+  });
+
+  it("shows a non-actionable processing state while trusted confirmation is pending", () => {
+    const result = detailResult();
+    result.details.providerRequests = [providerRequestFixture({
+      status: "payment_processing",
+      paymentStatus: "processing",
+      paymentId: "payment-request-1",
+    })];
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.getByText("Payment processing")).toBeVisible();
+    expect(screen.queryByRole("button", {name: /pay .* down payment/iu})).not.toBeInTheDocument();
+  });
+
+  it("starts one checkout, disables the action immediately, and redirects with the trusted result", async () => {
+    const pending = deferredCheckout();
+    const checkout = {
+      paymentId: "payment_request_12345678",
+      providerRequestId: "request-1",
+      bookingId: "owned-booking-001",
+      checkoutUrl: "https://checkout.paymongo.com/session-12345678",
+      created: true,
+    };
+    mocks.createCheckout.mockReturnValueOnce(pending.promise);
+    render(<CustomerBookingDetailPage result={detailResult()} />);
+
+    const button = screen.getByRole("button", {name: /pay .*25,000\.00 down payment/iu});
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(mocks.createCheckout).toHaveBeenCalledTimes(1);
+    expect(mocks.createCheckout).toHaveBeenCalledWith("request-1");
+    expect(screen.getByRole("button", {name: "Preparing secure checkout…"})).toBeDisabled();
+
+    await act(async () => pending.resolve(checkout));
+
+    expect(mocks.redirectCheckout).toHaveBeenCalledTimes(1);
+    expect(mocks.redirectCheckout).toHaveBeenCalledWith(checkout);
+  });
+
+  it("restores checkout and shows friendly feedback when session creation fails", async () => {
+    mocks.createCheckout.mockRejectedValueOnce(
+      new Error("This payment is no longer available. Refresh the booking to see its latest status."),
+    );
+    render(<CustomerBookingDetailPage result={detailResult()} />);
+
+    fireEvent.click(screen.getByRole("button", {name: /pay .*25,000\.00 down payment/iu}));
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith(
+      "This payment is no longer available. Refresh the booking to see its latest status.",
+    ));
+    expect(screen.getByRole("button", {name: /pay .*25,000\.00 down payment/iu})).toBeEnabled();
+    expect(mocks.redirectCheckout).not.toHaveBeenCalled();
   });
 
   it("renders timeline entries chronologically and announces truncation", () => {
@@ -500,4 +601,19 @@ function providerRequestFixture(
     expiresAt: null,
     ...overrides,
   };
+}
+
+function deferredCheckout() {
+  let resolve!: (result: {
+    paymentId: string;
+    providerRequestId: string;
+    bookingId: string;
+    checkoutUrl: string;
+    created: boolean;
+  }) => void;
+  const promise = new Promise<Parameters<typeof resolve>[0]>((complete) => {
+    resolve = complete;
+  });
+
+  return {promise, resolve};
 }
