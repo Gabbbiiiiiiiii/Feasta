@@ -57,10 +57,22 @@ async function run() {
   try {
     const fixture = await createFixture();
 
+    await assertCustomerAvailabilityPrecheck(
+      fixture,
+    );
     await assertGuestValidationCreatesNothing(
       fixture,
     );
+    await assertLeadTimeCreatesNothing(
+      fixture,
+    );
     await assertUnavailableDateCreatesNothing(
+      fixture,
+    );
+    await assertCapacityCreatesNothing(
+      fixture,
+    );
+    await assertIndependentProviderCreatesNothing(
       fixture,
     );
     await assertConflictCreatesNothing(
@@ -78,6 +90,99 @@ async function run() {
     await deleteApp(clientApp);
     await deleteAdminApp(adminApp);
   }
+}
+
+async function assertCustomerAvailabilityPrecheck(fixture) {
+  const payload = availabilityPayload(fixture);
+  const available = await callCallable(
+    "checkCustomerProviderAvailability",
+    payload,
+  );
+
+  assert.deepEqual(
+    new Set(available.results.map((result) => result.providerId)),
+    new Set([fixture.providerId, fixture.independentProviderId]),
+  );
+  assert.ok(available.results.every((result) => result.available));
+  assert.doesNotMatch(
+    JSON.stringify(available),
+    /ownerId|unavailableDates|availableStaffCount|availableEquipmentCount|providerRequestId/u,
+  );
+
+  await db.collection("providers").doc(fixture.providerId).update({
+    bookingLeadTimeDays: 60,
+  });
+  const leadTime = await callCallable(
+    "checkCustomerProviderAvailability",
+    payload,
+  );
+  assert.deepEqual(
+    leadTime.results.find((result) => result.providerId === fixture.providerId),
+    {
+      providerId: fixture.providerId,
+      available: false,
+      reasonCode: "LEAD_TIME_NOT_MET",
+      message: "Requires booking at least 60 days in advance.",
+    },
+  );
+
+  await db.collection("providers").doc(fixture.providerId).update({
+    bookingLeadTimeDays: 0,
+    unavailableDates: [fixture.eventDate],
+  });
+  const blocked = await callCallable(
+    "checkCustomerProviderAvailability",
+    payload,
+  );
+  assert.equal(
+    blocked.results.find((result) => result.providerId === fixture.providerId)?.reasonCode,
+    "BLOCKED_DATE",
+  );
+
+  await db.collection("providers").doc(fixture.providerId).update({
+    unavailableDates: [],
+    maxGuestsPerEvent: 40,
+  });
+  const capacity = await callCallable(
+    "checkCustomerProviderAvailability",
+    payload,
+  );
+  assert.equal(
+    capacity.results.find((result) => result.providerId === fixture.providerId)?.reasonCode,
+    "GUEST_CAPACITY_EXCEEDED",
+  );
+  await db.collection("providers").doc(fixture.providerId).update({
+    maxGuestsPerEvent: 500,
+  });
+
+  await assert.rejects(
+    () => callCallable("checkCustomerProviderAvailability", {
+      ...payload,
+      packageId: "../private",
+    }),
+    /INVALID_ARGUMENT/u,
+  );
+  await assert.rejects(
+    () => callCallable("checkCustomerProviderAvailability", {
+      ...payload,
+      addonIds: Array.from(
+        {length: 21},
+        (_, index) => `addon_excess_${String(index).padStart(8, "0")}`,
+      ),
+    }),
+    /INVALID_ARGUMENT/u,
+  );
+
+  await signOut(auth);
+  await assert.rejects(
+    () => callCallable("checkCustomerProviderAvailability", payload, false),
+    /UNAUTHENTICATED/u,
+  );
+  await signInWithEmailAndPassword(
+    auth,
+    "customer.booking.contract@feasta.test",
+    password,
+  );
 }
 
 async function createFixture() {
@@ -332,6 +437,63 @@ async function assertUnavailableDateCreatesNothing(
     .update({unavailableDates: []});
 }
 
+async function assertLeadTimeCreatesNothing(fixture) {
+  await db.collection("providers")
+    .doc(fixture.providerId)
+    .update({bookingLeadTimeDays: 60});
+  const payload = bookingPayload(
+    fixture,
+    "lead-time-rejected",
+  );
+
+  await assert.rejects(
+    () => callFunction(payload),
+    /Provider unavailable for the selected schedule/u,
+  );
+  await assertNoBooking(payload);
+  await db.collection("providers")
+    .doc(fixture.providerId)
+    .update({bookingLeadTimeDays: 0});
+}
+
+async function assertCapacityCreatesNothing(fixture) {
+  await db.collection("providers")
+    .doc(fixture.providerId)
+    .update({maxGuestsPerEvent: 40});
+  const payload = bookingPayload(
+    fixture,
+    "provider-capacity-rejected",
+  );
+
+  await assert.rejects(
+    () => callFunction(payload),
+    /Provider unavailable for the selected schedule/u,
+  );
+  await assertNoBooking(payload);
+  await db.collection("providers")
+    .doc(fixture.providerId)
+    .update({maxGuestsPerEvent: 500});
+}
+
+async function assertIndependentProviderCreatesNothing(fixture) {
+  await db.collection("providers")
+    .doc(fixture.independentProviderId)
+    .update({unavailableDates: [fixture.eventDate]});
+  const payload = bookingPayload(
+    fixture,
+    "independent-provider-rejected",
+  );
+
+  await assert.rejects(
+    () => callFunction(payload),
+    /Provider unavailable for the selected schedule/u,
+  );
+  await assertNoBooking(payload);
+  await db.collection("providers")
+    .doc(fixture.independentProviderId)
+    .update({unavailableDates: []});
+}
+
 async function assertConflictCreatesNothing(
   fixture,
 ) {
@@ -501,6 +663,21 @@ function bookingPayload(
   };
 }
 
+function availabilityPayload(fixture, overrides = {}) {
+  return {
+    packageId: fixture.packageId,
+    addonIds: [
+      fixture.providerOwnedAddonId,
+      fixture.independentAddonId,
+    ],
+    eventDate: fixture.eventDate,
+    eventTime: "10:00",
+    eventEndTime: "12:00",
+    guestCount: 50,
+    ...overrides,
+  };
+}
+
 async function assertNoBooking(payload) {
   const bookingId = require("node:crypto")
     .createHash("sha256")
@@ -523,14 +700,20 @@ async function assertNoBooking(payload) {
 }
 
 async function callFunction(data) {
+  return callCallable("submitBookingRequest", data);
+}
+
+async function callCallable(functionName, data, authenticated = true) {
+  const authorization = authenticated
+    ? `Bearer ${await auth.currentUser.getIdToken(true)}`
+    : null;
   const response = await fetch(
-    `http://${functionsHost}/${projectId}/asia-southeast1/submitBookingRequest`,
+    `http://${functionsHost}/${projectId}/asia-southeast1/${functionName}`,
     {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization:
-          `Bearer ${await auth.currentUser.getIdToken(true)}`,
+        ...(authorization ? {authorization} : {}),
       },
       body: JSON.stringify({data}),
     },

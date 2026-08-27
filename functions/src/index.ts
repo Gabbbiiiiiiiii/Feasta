@@ -146,6 +146,9 @@ export {
 } from "./content/moderate-review.js";
 export {createComplaint} from "./content/create-complaint.js";
 export {submitBookingRequest} from "./bookings/submit-booking-request.js";
+export {
+  checkCustomerProviderAvailability,
+} from "./provider-availability/check-customer-provider-availability.js";
 export {createPaymentSession} from "./payments/create-payment-session.js";
 export {payMongoWebhook} from "./payments/paymongo-webhook.js";
 export {requestPaymentRefund} from "./payments/request-refund.js";

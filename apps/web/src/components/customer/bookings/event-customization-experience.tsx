@@ -5,23 +5,31 @@ import {
   ArrowRight,
   CalendarDays,
   Check,
+  CircleCheckBig,
   Clock3,
   MapPin,
   PackageOpen,
   Palette,
   Soup,
   Sparkles,
+  TriangleAlert,
   UsersRound,
   Armchair,
 } from "lucide-react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {
+  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
+import {
+  checkCustomerProviderAvailability,
+  type CustomerProviderAvailability,
+  type CustomerProviderAvailabilityInput,
+} from "@/lib/customer/bookings/customer-provider-availability-client";
 import {
   submitCustomerBookingRequest,
   type SubmitBookingRequestInput,
@@ -64,6 +72,12 @@ type PackageCustomizationDraft = {
   selectedDecorations: string[];
   selectedFurniture: string[];
 };
+
+type AvailabilityStatus =
+  | "idle"
+  | "loading"
+  | "ready"
+  | "error";
 
 const STEPS = [
   {
@@ -159,10 +173,109 @@ const submissionIdentityRef =
   const [errors, setErrors] =
     useState<EventDetailsErrors>({});
 
+  const [availabilityStatus, setAvailabilityStatus] =
+    useState<AvailabilityStatus>("idle");
+  const [availabilityResults, setAvailabilityResults] =
+    useState<ReadonlyMap<string, CustomerProviderAvailability>>(
+      new Map(),
+    );
+  const [availabilityError, setAvailabilityError] =
+    useState<string | null>(null);
+  const [availabilityCheckedKey, setAvailabilityCheckedKey] =
+    useState<string | null>(null);
+  const [selectionAvailabilityError, setSelectionAvailabilityError] =
+    useState<string | null>(null);
+  const [availabilityRetryNonce, setAvailabilityRetryNonce] =
+    useState(0);
+  const availabilityGenerationRef = useRef(0);
+
   const minimumDate = useMemo(
     () => tomorrowDateValue(),
     [],
   );
+
+  const expectedAvailabilityProviderIds = useMemo(
+    () => [
+      provider.id,
+      ...new Set(eventServices.map((service) => service.providerId)),
+    ].filter((providerId, index, values) =>
+      values.indexOf(providerId) === index
+    ),
+    [eventServices, provider.id],
+  );
+
+  const availabilityParameters = useMemo(
+    () => availabilityInputForDraft({
+      eventDate: draft.eventDate,
+      eventTime: draft.eventTime,
+      eventEndTime: draft.eventEndTime,
+      guestCount: draft.guestCount,
+      packageId: packageRecord.id,
+      addonIds: eventServices.map((service) => service.id),
+      minimumGuests: packageRecord.minimumGuests,
+      maximumGuests: packageRecord.maximumGuests,
+    }),
+    [
+      draft.eventDate,
+      draft.eventEndTime,
+      draft.eventTime,
+      draft.guestCount,
+      eventServices,
+      packageRecord.id,
+      packageRecord.maximumGuests,
+      packageRecord.minimumGuests,
+    ],
+  );
+  const availabilityKey = availabilityParameters
+    ? availabilityRequestKey(availabilityParameters)
+    : null;
+
+  useEffect(() => {
+    const generation = availabilityGenerationRef.current + 1;
+    availabilityGenerationRef.current = generation;
+
+    if (!availabilityParameters || !availabilityKey) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (availabilityGenerationRef.current !== generation) return;
+
+      setAvailabilityResults(new Map());
+      setAvailabilityCheckedKey(null);
+      setAvailabilityError(null);
+      setSelectionAvailabilityError(null);
+      setAvailabilityStatus("loading");
+
+      void checkCustomerProviderAvailability(
+        availabilityParameters,
+        expectedAvailabilityProviderIds,
+      ).then((results) => {
+        if (availabilityGenerationRef.current !== generation) return;
+
+        setAvailabilityResults(availabilityResultMap(results));
+        setAvailabilityCheckedKey(availabilityKey);
+        setAvailabilityStatus("ready");
+      }).catch((error: unknown) => {
+        if (availabilityGenerationRef.current !== generation) return;
+
+        setAvailabilityStatus("error");
+        setAvailabilityError(availabilityErrorMessage(error));
+      });
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (availabilityGenerationRef.current === generation) {
+        availabilityGenerationRef.current += 1;
+      }
+    };
+  }, [
+    availabilityKey,
+    availabilityParameters,
+    availabilityRetryNonce,
+    expectedAvailabilityProviderIds,
+  ]);
 
   const guestGuidance =
     packageGuestGuidance(
@@ -186,6 +299,21 @@ const submissionIdentityRef =
         service.id,
       ),
     );
+
+  const availabilityIsCurrent =
+    availabilityStatus === "ready" &&
+    availabilityKey !== null &&
+    availabilityCheckedKey === availabilityKey;
+  const primaryProviderAvailability =
+    availabilityIsCurrent
+      ? availabilityResults.get(provider.id) ?? null
+      : null;
+  const unavailableSelectedServices =
+    availabilityIsCurrent
+      ? selectedEventServices.filter((service) =>
+          availabilityResults.get(service.providerId)?.available === false
+        )
+      : [];
 
   const selectedEventServicesSubtotal =
     selectedEventServices.reduce(
@@ -212,6 +340,20 @@ const submissionIdentityRef =
     field: keyof EventDetailsDraft,
     value: string,
   ) {
+    if (
+      field === "eventDate" ||
+      field === "eventTime" ||
+      field === "eventEndTime" ||
+      field === "guestCount"
+    ) {
+      availabilityGenerationRef.current += 1;
+      setAvailabilityStatus("idle");
+      setAvailabilityResults(new Map());
+      setAvailabilityCheckedKey(null);
+      setAvailabilityError(null);
+      setSelectionAvailabilityError(null);
+    }
+
     setDraft((current) => ({
       ...current,
       [field]: value,
@@ -251,9 +393,28 @@ const submissionIdentityRef =
     });
   }
 
-  function toggleEventService(
+function toggleEventService(
   serviceId: string,
 ) {
+  const service = eventServices.find((candidate) => candidate.id === serviceId);
+
+  if (!service) return;
+
+  if (
+    !selectedEventServiceIds.includes(serviceId) &&
+    (
+      !availabilityIsCurrent ||
+      availabilityResults.get(service.providerId)?.available !== true
+    )
+  ) {
+    setSelectionAvailabilityError(
+      `${service.providerName} is not available for the current event details.`,
+    );
+    return;
+  }
+
+  setSelectionAvailabilityError(null);
+
   setSelectedEventServiceIds(
     (current) => {
       if (
@@ -277,6 +438,21 @@ const submissionIdentityRef =
 }
 
 function continueFromEventServices() {
+  if (!availabilityIsCurrent) {
+    setSelectionAvailabilityError(
+      "Provider availability must be checked again before you continue.",
+    );
+    return;
+  }
+
+  if (unavailableSelectedServices.length > 0) {
+    setSelectionAvailabilityError(
+      "One or more selected providers are no longer available. Remove those services or change your event details.",
+    );
+    return;
+  }
+
+  setSelectionAvailabilityError(null);
   setStep(4);
 }
 
@@ -501,6 +677,42 @@ async function handleSubmitBooking() {
         clientRequestId,
       );
 
+    const selectedProviderIds = [
+      provider.id,
+      ...new Set(selectedEventServices.map((service) => service.providerId)),
+    ].filter((providerId, index, values) =>
+      values.indexOf(providerId) === index
+    );
+    const freshAvailability =
+      await checkCustomerProviderAvailability(
+        {
+          packageId: input.packageId,
+          addonIds: input.addonIds,
+          eventDate: input.eventDate,
+          eventTime: input.eventTime,
+          eventEndTime: input.eventEndTime,
+          guestCount: input.guestCount,
+        },
+        selectedProviderIds,
+      );
+    const unavailableProviders = freshAvailability.filter(
+      (result) => !result.available,
+    );
+
+    if (unavailableProviders.length > 0) {
+      const primaryUnavailable = unavailableProviders.some(
+        (result) => result.providerId === provider.id,
+      );
+      const message = unavailableProviders[0]?.message ??
+        "A selected provider is no longer available.";
+
+      setSubmissionError(
+        `Provider availability changed: ${message}`,
+      );
+      setStep(primaryUnavailable ? 1 : 3);
+      return;
+    }
+
     const result =
       await submitCustomerBookingRequest(
         input,
@@ -534,6 +746,23 @@ async function handleSubmitBooking() {
     if (
       Object.keys(nextErrors).length > 0
     ) {
+      return;
+    }
+
+    if (!availabilityIsCurrent) {
+      setAvailabilityError(
+        availabilityStatus === "loading"
+          ? "Wait for the provider availability check to finish."
+          : "Provider availability must be checked before you continue.",
+      );
+      return;
+    }
+
+    if (primaryProviderAvailability?.available !== true) {
+      setAvailabilityError(
+        primaryProviderAvailability?.message ??
+          "The selected package provider is unavailable for this event.",
+      );
       return;
     }
 
@@ -840,6 +1069,16 @@ async function handleSubmitBooking() {
                     )}
                   />
                 </Field>
+
+                <ProviderAvailabilityPanel
+                  providerName={provider.businessName}
+                  status={availabilityStatus}
+                  result={primaryProviderAvailability}
+                  error={availabilityError}
+                  onRetry={() =>
+                    setAvailabilityRetryNonce((current) => current + 1)
+                  }
+                />
 
                 <Field
                   label="Event location"
@@ -1165,6 +1404,21 @@ async function handleSubmitBooking() {
                 </div>
               </div>
 
+              {selectionAvailabilityError || unavailableSelectedServices.length > 0 ? (
+                <div
+                  className="mt-5 rounded-[16px] border border-warning/25 bg-warning-subtle px-4 py-3"
+                  role="alert"
+                >
+                  <p className="text-sm font-extrabold text-warning">
+                    Review provider availability
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
+                    {selectionAvailabilityError ??
+                      `${unavailableSelectedServices[0]?.providerName ?? "A selected provider"} is no longer available for your updated event details. Remove the affected service or change the event details.`}
+                  </p>
+                </div>
+              ) : null}
+
               {eventServices.length > 0 ? (
                 <div className="mt-7 grid gap-6">
                   <EventServiceGroup
@@ -1176,6 +1430,8 @@ async function handleSubmitBooking() {
                     selectedIds={
                       selectedEventServiceIds
                     }
+                    availabilityByProvider={availabilityResults}
+                    availabilityCurrent={availabilityIsCurrent}
                     onToggle={
                       toggleEventService
                     }
@@ -1191,6 +1447,8 @@ async function handleSubmitBooking() {
                     selectedIds={
                       selectedEventServiceIds
                     }
+                    availabilityByProvider={availabilityResults}
+                    availabilityCurrent={availabilityIsCurrent}
                     onToggle={
                       toggleEventService
                     }
@@ -1370,6 +1628,10 @@ async function handleSubmitBooking() {
 
                   <Button
                     type="button"
+                    disabled={
+                      !availabilityIsCurrent ||
+                      unavailableSelectedServices.length > 0
+                    }
                     onClick={
                       continueFromEventServices
                     }
@@ -1872,6 +2134,8 @@ function EventServiceGroup({
   description,
   services,
   selectedIds,
+  availabilityByProvider,
+  availabilityCurrent,
   onToggle,
   emptyMessage,
 }: {
@@ -1879,6 +2143,8 @@ function EventServiceGroup({
   description: string;
   services: readonly PublicEventService[];
   selectedIds: readonly string[];
+  availabilityByProvider: ReadonlyMap<string, CustomerProviderAvailability>;
+  availabilityCurrent: boolean;
   onToggle: (serviceId: string) => void;
   emptyMessage: string;
 }) {
@@ -1909,6 +2175,11 @@ function EventServiceGroup({
                   service.id,
                 )
               }
+              availability={
+                availabilityCurrent
+                  ? availabilityByProvider.get(service.providerId) ?? null
+                  : null
+              }
               onToggle={() =>
                 onToggle(service.id)
               }
@@ -1930,13 +2201,18 @@ function EventServiceCard({
   service,
   selected,
   selectionLimitReached,
+  availability,
   onToggle,
 }: {
   service: PublicEventService;
   selected: boolean;
   selectionLimitReached: boolean;
+  availability: CustomerProviderAvailability | null;
   onToggle: () => void;
 }) {
+  const unavailable = availability?.available === false;
+  const disabled = selectionLimitReached || (unavailable && !selected);
+
   return (
     <label
       className={[
@@ -1945,7 +2221,7 @@ function EventServiceCard({
         selected
           ? "border-primary/35 bg-secondary shadow-brand-subtle"
           : "border-feasta-border-soft bg-white hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-[0_7px_20px_rgb(43_33_29/0.05)]",
-        selectionLimitReached
+        disabled
           ? "cursor-not-allowed opacity-60"
           : "cursor-pointer",
         "motion-reduce:transform-none",
@@ -1955,7 +2231,7 @@ function EventServiceCard({
         type="checkbox"
         checked={selected}
         disabled={
-          selectionLimitReached
+          disabled
         }
         onChange={onToggle}
         className="peer sr-only"
@@ -2006,6 +2282,27 @@ function EventServiceCard({
             <p className="mt-1 break-words text-xs font-semibold text-feasta-text-secondary">
               {service.providerName}
             </p>
+
+            {availability ? (
+              <p
+                className={[
+                  "mt-2 flex items-start gap-1.5 text-xs font-bold leading-5",
+                  availability.available ? "text-success" : "text-warning",
+                ].join(" ")}
+                role="status"
+              >
+                {availability.available ? (
+                  <CircleCheckBig aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+                ) : (
+                  <TriangleAlert aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+                )}
+                <span>
+                  {selected && unavailable
+                    ? `Selected, but no longer available. ${availability.message}`
+                    : availability.message}
+                </span>
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -2704,6 +3001,105 @@ function ReviewEmptyState({
   );
 }
 
+function ProviderAvailabilityPanel({
+  providerName,
+  status,
+  result,
+  error,
+  onRetry,
+}: {
+  providerName: string;
+  status: AvailabilityStatus;
+  result: CustomerProviderAvailability | null;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (status === "idle") {
+    return (
+      <div className="rounded-[16px] border border-feasta-border-soft bg-feasta-canvas px-4 py-3">
+        <p className="text-sm font-extrabold text-foreground">
+          Provider availability
+        </p>
+        <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+          Choose a valid date, time range, and guest count to check {providerName}.
+        </p>
+      </div>
+    );
+  }
+
+  if (status === "loading") {
+    return (
+      <div
+        className="rounded-[16px] border border-info/20 bg-info-subtle px-4 py-3"
+        role="status"
+        aria-live="polite"
+      >
+        <p className="text-sm font-extrabold text-info">
+          Checking provider availability…
+        </p>
+        <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+          FEASTA is checking the selected schedule with each provider.
+        </p>
+      </div>
+    );
+  }
+
+  if (status === "ready" && result) {
+    return (
+      <div
+        className={[
+          "rounded-[16px] border px-4 py-3",
+          result.available
+            ? "border-success/20 bg-success-subtle"
+            : "border-warning/25 bg-warning-subtle",
+        ].join(" ")}
+        role="status"
+        aria-live="polite"
+      >
+        <p className={[
+          "flex items-center gap-2 text-sm font-extrabold",
+          result.available ? "text-success" : "text-warning",
+        ].join(" ")}>
+          {result.available ? (
+            <CircleCheckBig aria-hidden="true" className="size-4 shrink-0" />
+          ) : (
+            <TriangleAlert aria-hidden="true" className="size-4 shrink-0" />
+          )}
+          {result.available
+            ? `${providerName} is available`
+            : `${providerName} is unavailable`}
+        </p>
+        <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+          {result.message}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="rounded-[16px] border border-destructive/20 bg-destructive/[0.05] px-4 py-3"
+      role="alert"
+    >
+      <p className="text-sm font-extrabold text-destructive">
+        Availability could not be checked
+      </p>
+      <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+        {error ?? "Provider availability could not be checked. Please try again."}
+      </p>
+      <Button
+        type="button"
+        variant="secondary"
+        size="compact"
+        className="mt-3"
+        onClick={onRetry}
+      >
+        Try again
+      </Button>
+    </div>
+  );
+}
+
 function EstimateRow({
   label,
   value,
@@ -2866,6 +3262,67 @@ function SelectionSummary({
    VALIDATION / FORMAT HELPERS
    ================================================================== */
 
+function availabilityInputForDraft(input: {
+  eventDate: string;
+  eventTime: string;
+  eventEndTime: string;
+  guestCount: string;
+  packageId: string;
+  addonIds: readonly string[];
+  minimumGuests: number | null;
+  maximumGuests: number | null;
+}): CustomerProviderAvailabilityInput | null {
+  const guestCount = Number(input.guestCount);
+
+  if (
+    !isCanonicalDateValue(input.eventDate) ||
+    input.eventDate < tomorrowDateValue() ||
+    !/^([01]\d|2[0-3]):[0-5]\d$/u.test(input.eventTime) ||
+    !/^([01]\d|2[0-3]):[0-5]\d$/u.test(input.eventEndTime) ||
+    input.eventEndTime <= input.eventTime ||
+    !Number.isInteger(guestCount) ||
+    guestCount < 1 ||
+    guestCount > 10_000 ||
+    (
+      input.minimumGuests !== null &&
+      guestCount < input.minimumGuests
+    ) ||
+    (
+      input.maximumGuests !== null &&
+      guestCount > input.maximumGuests
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    packageId: input.packageId,
+    addonIds: input.addonIds,
+    eventDate: input.eventDate,
+    eventTime: input.eventTime,
+    eventEndTime: input.eventEndTime,
+    guestCount,
+  };
+}
+
+function availabilityRequestKey(
+  input: CustomerProviderAvailabilityInput,
+): string {
+  return JSON.stringify(input);
+}
+
+function availabilityResultMap(
+  results: readonly CustomerProviderAvailability[],
+): ReadonlyMap<string, CustomerProviderAvailability> {
+  return new Map(results.map((result) => [result.providerId, result]));
+}
+
+function availabilityErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : "Provider availability could not be checked. Please try again.";
+}
+
 function validateEventDetails(
   draft: EventDetailsDraft,
   minimumGuests: number | null,
@@ -2877,18 +3334,9 @@ function validateEventDetails(
     errors.eventDate =
       "Choose your event date.";
   } else {
-    const selected = new Date(
-      `${draft.eventDate}T00:00:00`,
-    );
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
     if (
-      !Number.isFinite(
-        selected.getTime(),
-      ) ||
-      selected <= today
+      !isCanonicalDateValue(draft.eventDate) ||
+      draft.eventDate < tomorrowDateValue()
     ) {
       errors.eventDate =
         "Choose a future event date.";
@@ -3109,22 +3557,47 @@ function formatCurrency(
 }
 
 function tomorrowDateValue(): string {
-  const date = new Date();
-
-  date.setDate(
-    date.getDate() + 1,
-  );
-
-  const year =
-    date.getFullYear();
-
-  const month = String(
-    date.getMonth() + 1,
-  ).padStart(2, "0");
-
-  const day = String(
-    date.getDate(),
-  ).padStart(2, "0");
+  const today = manilaDateParts(new Date());
+  const tomorrow = new Date(Date.UTC(
+    today.year,
+    today.month - 1,
+    today.day + 1,
+  ));
+  const year = tomorrow.getUTCFullYear();
+  const month = String(tomorrow.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(tomorrow.getUTCDate()).padStart(2, "0");
 
   return `${year}-${month}-${day}`;
+}
+
+function isCanonicalDateValue(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
+
+  const [year, month, day] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+
+  return parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day;
+}
+
+function manilaDateParts(date: Date): {
+  year: number;
+  month: number;
+  day: number;
+} {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
+
+  return {
+    year: value("year"),
+    month: value("month"),
+    day: value("day"),
+  };
 }

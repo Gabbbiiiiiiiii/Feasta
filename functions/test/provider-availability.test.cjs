@@ -5,10 +5,23 @@ const test = require("node:test");
 
 const {
   AVAILABILITY_COUNTED_REQUEST_STATUSES,
+  isCanonicalEventTimeRange,
+  manilaDateFromKey,
   validateProviderAvailability,
 } = require(
   "../lib/provider-availability/validate-provider-availability.js",
 );
+
+test("parses canonical Manila dates and time ranges for every availability boundary", () => {
+  assert.equal(
+    manilaDateFromKey("2026-09-10").toISOString(),
+    "2026-09-09T16:00:00.000Z",
+  );
+  assert.equal(manilaDateFromKey("2026-02-30"), null);
+  assert.equal(isCanonicalEventTimeRange("18:00", "22:00"), true);
+  assert.equal(isCanonicalEventTimeRange("22:00", "18:00"), false);
+  assert.equal(isCanonicalEventTimeRange("6 PM", "22:00"), false);
+});
 
 const sourceRoot = join(__dirname, "../src");
 

@@ -26,7 +26,7 @@ const authHost = requiredEnv(
 );
 const functionsHost =
   process.env.FIREBASE_FUNCTIONS_EMULATOR_HOST ??
-  "127.0.0.1:35001";
+  "127.0.0.1:55201";
 const clientApp = initializeApp(
   {
     apiKey: "fake-api-key",
@@ -137,8 +137,13 @@ async function run() {
       (outcome) => outcome.status === "rejected",
     );
 
-    assert.equal(fulfilled.length, 1);
-    assert.equal(rejected.length, 1);
+    const outcomeSummary = outcomes.map((outcome) =>
+      outcome.status === "fulfilled"
+        ? "fulfilled"
+        : `rejected: ${outcome.reason?.message ?? "unknown"}`
+    );
+    assert.equal(fulfilled.length, 1, JSON.stringify(outcomeSummary));
+    assert.equal(rejected.length, 1, JSON.stringify(outcomeSummary));
     assert.match(
       rejected[0].reason.message,
       /FAILED_PRECONDITION/u,
