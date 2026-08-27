@@ -2,6 +2,7 @@ import type {
   PaymentGateway,
   PaymentStatus,
   PaymentType,
+  ProviderRequestStatus,
 } from "@feasta/shared-types";
 
 export type CustomerPaymentStatusFilter =
@@ -77,3 +78,41 @@ export type CreateCustomerPaymentSessionResult = {
   checkoutUrl: string;
   created: boolean;
 };
+
+export type CustomerPaymentReturnKind =
+  | "success"
+  | "cancelled"
+  | "invalid";
+
+export type CustomerPaymentReturnLookup = {
+  paymentId: string;
+  providerRequestId: string;
+  bookingId: string;
+};
+
+export type CustomerPaymentReturnDetails = {
+  providerRequestId: string;
+
+  providerName: string;
+  serviceLabel: string;
+  categoryLabel: string;
+
+  requestAmountFormatted: string;
+  downPaymentAmountFormatted: string;
+
+  paymentStatus: PaymentStatus;
+  providerRequestStatus: ProviderRequestStatus;
+  canStartCheckout: boolean;
+
+  bookingLabel: string;
+  bookingDetailsPath: string;
+};
+
+export type CustomerPaymentReturnLoadResult =
+  | {
+      status: "ready";
+      payment: CustomerPaymentReturnDetails;
+    }
+  | {
+      status: "unavailable";
+    };

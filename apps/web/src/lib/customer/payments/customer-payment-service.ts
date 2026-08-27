@@ -11,18 +11,24 @@ import {
 } from "firebase-admin/firestore";
 
 import {
+  MAIN_EVENT_STATUSES,
   PAYMENT_GATEWAYS,
   PAYMENT_STATUSES,
   PAYMENT_TYPES,
+  PROVIDER_REQUEST_STATUSES,
+  type MainEventStatus,
   type PaymentGateway,
   type PaymentStatus,
   type PaymentType,
+  type ProviderRequestStatus,
 } from "@feasta/shared-types";
 
 import type {
   CustomerPayment,
   CustomerPaymentFilters,
   CustomerPaymentPage,
+  CustomerPaymentReturnDetails,
+  CustomerPaymentReturnLookup,
   CustomerPaymentStatistics,
 } from "@/lib/customer/payments/customer-payment-types";
 import {requireCustomer} from "@/lib/auth/session";
@@ -56,6 +62,162 @@ type PaymentRelations = {
   providerRequests: ReadonlyMap<string, DocumentSnapshot<DocumentData>>;
   providers: ReadonlyMap<string, DocumentSnapshot<DocumentData>>;
 };
+
+export class CustomerPaymentReturnUnavailableError extends Error {
+  constructor() {
+    super("Payment return unavailable");
+    this.name = "CustomerPaymentReturnUnavailableError";
+  }
+}
+
+export function isCustomerPaymentReturnUnavailableError(
+  error: unknown,
+): error is CustomerPaymentReturnUnavailableError {
+  return error instanceof CustomerPaymentReturnUnavailableError;
+}
+
+export async function getCustomerPaymentReturnDetails(
+  input: CustomerPaymentReturnLookup,
+): Promise<CustomerPaymentReturnDetails> {
+  const customer = await requireCustomer();
+  const lookup = normalizeReturnLookup(input);
+  const paymentSnapshot = await adminDb
+    .collection(COLLECTIONS.payments)
+    .doc(lookup.paymentId)
+    .get();
+
+  if (!paymentSnapshot.exists) {
+    throw new CustomerPaymentReturnUnavailableError();
+  }
+
+  const payment = paymentSnapshot.data() ?? {};
+  const mainEventId = stringValue(payment.mainEventId);
+  const bookingId = stringValue(payment.bookingId);
+  const providerRequestId = stringValue(payment.providerRequestId);
+  const providerId = stringValue(payment.providerId);
+
+  if (
+    paymentSnapshot.id !== lookup.paymentId ||
+    payment.paymentId !== lookup.paymentId ||
+    payment.customerId !== customer.uid ||
+    mainEventId !== lookup.bookingId ||
+    bookingId !== lookup.bookingId ||
+    providerRequestId !== lookup.providerRequestId ||
+    !providerId ||
+    payment.paymentType !== "provider_down_payment" ||
+    payment.gateway !== "paymongo"
+  ) {
+    throw new CustomerPaymentReturnUnavailableError();
+  }
+
+  const [providerRequestSnapshot, mainEventSnapshot, providerSnapshot] =
+    await adminDb.getAll(
+      adminDb.collection(COLLECTIONS.providerRequests).doc(providerRequestId),
+      adminDb.collection(COLLECTIONS.mainEvents).doc(mainEventId),
+      adminDb.collection(COLLECTIONS.providers).doc(providerId),
+    );
+
+  if (
+    !providerRequestSnapshot.exists ||
+    !mainEventSnapshot.exists ||
+    !providerSnapshot.exists ||
+    providerSnapshot.id !== providerId
+  ) {
+    throw new CustomerPaymentReturnUnavailableError();
+  }
+
+  const providerRequest = providerRequestSnapshot.data() ?? {};
+  const mainEvent = mainEventSnapshot.data() ?? {};
+  const provider = providerSnapshot.data() ?? {};
+
+  if (
+    providerRequestSnapshot.id !== providerRequestId ||
+    providerRequest.providerRequestId !== providerRequestId ||
+    providerRequest.mainEventId !== mainEventId ||
+    providerRequest.bookingId !== mainEventId ||
+    providerRequest.customerId !== customer.uid ||
+    providerRequest.providerId !== providerId ||
+    providerRequest.paymentId !== lookup.paymentId ||
+    mainEventSnapshot.id !== mainEventId ||
+    mainEvent.mainEventId !== mainEventId ||
+    mainEvent.bookingId !== mainEventId ||
+    mainEvent.customerId !== customer.uid ||
+    !Array.isArray(mainEvent.providerRequestIds) ||
+    !mainEvent.providerRequestIds.includes(providerRequestId)
+  ) {
+    throw new CustomerPaymentReturnUnavailableError();
+  }
+
+  const paymentStatus = strictPaymentStatus(payment.status);
+  const providerRequestStatus = strictProviderRequestStatus(
+    providerRequest.status,
+  );
+  const mainEventStatus = strictMainEventStatus(mainEvent.status);
+  const requestAmount = strictMoney(providerRequest.amount);
+  const downPaymentAmount = strictPositiveMoney(
+    providerRequest.downPaymentAmount,
+  );
+  const amountInCentavos = positiveCentavos(payment.amountInCentavos);
+  const paymentAmount = strictPositiveMoney(payment.amount);
+
+  if (
+    !paymentStatus ||
+    !providerRequestStatus ||
+    !mainEventStatus ||
+    requestAmount === null ||
+    downPaymentAmount === null ||
+    amountInCentavos === null ||
+    paymentAmount === null ||
+    requestAmount < downPaymentAmount ||
+    payment.currency !== "PHP" ||
+    amountInCentavos !== Math.round(downPaymentAmount * 100) ||
+    Math.round(paymentAmount * 100) !== amountInCentavos
+  ) {
+    throw new CustomerPaymentReturnUnavailableError();
+  }
+
+  const services = returnServiceSummary(providerRequest.services);
+
+  return {
+    providerRequestId,
+    providerName: boundedText(
+      providerRequest.providerBusinessName || provider.businessName,
+      "Provider unavailable",
+      120,
+    ),
+    serviceLabel:
+      services.names.length > 0
+        ? services.names.join(", ")
+        : boundedText(providerRequest.packageName, "Event service", 160),
+    categoryLabel:
+      services.categories.length > 0
+        ? services.categories.map(humanizeLabel).join(", ")
+        : humanizeLabel(providerRequest.type) || "Event service",
+    requestAmountFormatted: formatCentavos(
+      Math.round(requestAmount * 100),
+      "PHP",
+    ),
+    downPaymentAmountFormatted: formatCentavos(
+      amountInCentavos,
+      "PHP",
+    ),
+    paymentStatus,
+    providerRequestStatus,
+    canStartCheckout: canRetryReturnedCheckout({
+      paymentStatus,
+      providerRequestStatus,
+      providerRequestPaymentStatus: providerRequest.paymentStatus,
+      mainEventStatus,
+    }),
+    bookingLabel: boundedText(
+      mainEvent.bookingCode,
+      "Booking details",
+      80,
+    ),
+    bookingDetailsPath:
+      `/customer/bookings/${encodeURIComponent(mainEventId)}`,
+  };
+}
 
 export async function getCustomerPaymentPage(
   input: CustomerPaymentFilters,
@@ -143,6 +305,36 @@ function normalizeFilters(
         ? input.cursor.trim()
         : null,
   };
+}
+
+function normalizeReturnLookup(
+  input: unknown,
+): CustomerPaymentReturnLookup {
+  if (
+    !input ||
+    typeof input !== "object" ||
+    Array.isArray(input)
+  ) {
+    throw new CustomerPaymentReturnUnavailableError();
+  }
+
+  const candidate = input as Record<string, unknown>;
+  const paymentId = stringValue(candidate.paymentId);
+  const providerRequestId = stringValue(candidate.providerRequestId);
+  const bookingId = stringValue(candidate.bookingId);
+
+  if (
+    !SAFE_DOCUMENT_ID.test(paymentId) ||
+    paymentId.length < 8 ||
+    !SAFE_DOCUMENT_ID.test(providerRequestId) ||
+    providerRequestId.length < 8 ||
+    !SAFE_DOCUMENT_ID.test(bookingId) ||
+    bookingId.length < 8
+  ) {
+    throw new CustomerPaymentReturnUnavailableError();
+  }
+
+  return {paymentId, providerRequestId, bookingId};
 }
 
 async function searchOwnedPayments(
@@ -393,6 +585,48 @@ function normalizePaymentStatus(value: unknown): PaymentStatus {
     : "pending";
 }
 
+function strictPaymentStatus(value: unknown): PaymentStatus | null {
+  const normalized = stringValue(value).toLowerCase();
+
+  return (PAYMENT_STATUSES as readonly string[]).includes(normalized)
+    ? normalized as PaymentStatus
+    : null;
+}
+
+function strictMainEventStatus(value: unknown): MainEventStatus | null {
+  const normalized = stringValue(value).toLowerCase();
+
+  return (MAIN_EVENT_STATUSES as readonly string[]).includes(normalized)
+    ? normalized as MainEventStatus
+    : null;
+}
+
+function strictProviderRequestStatus(
+  value: unknown,
+): ProviderRequestStatus | null {
+  const normalized = stringValue(value).toLowerCase();
+
+  return (PROVIDER_REQUEST_STATUSES as readonly string[]).includes(normalized)
+    ? normalized as ProviderRequestStatus
+    : null;
+}
+
+function canRetryReturnedCheckout(input: {
+  paymentStatus: PaymentStatus;
+  providerRequestStatus: ProviderRequestStatus;
+  providerRequestPaymentStatus: unknown;
+  mainEventStatus: MainEventStatus;
+}): boolean {
+  return [
+    "pending_provider_approval",
+    "needs_provider_replacement",
+    "waiting_for_down_payment",
+  ].includes(input.mainEventStatus) &&
+    input.providerRequestStatus === "waiting_for_down_payment" &&
+    input.providerRequestPaymentStatus !== "processing" &&
+    ["pending", "failed", "expired"].includes(input.paymentStatus);
+}
+
 function normalizePaymentType(value: unknown): PaymentType {
   const normalized = stringValue(value).toLowerCase();
 
@@ -430,6 +664,74 @@ function finiteNumber(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
     ? value
     : fallback;
+}
+
+function strictMoney(value: unknown): number | null {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    !Number.isSafeInteger(Math.round(value * 100))
+  ) {
+    return null;
+  }
+
+  return Math.round(value * 100) / 100;
+}
+
+function strictPositiveMoney(value: unknown): number | null {
+  const amount = strictMoney(value);
+  return amount !== null && amount > 0 ? amount : null;
+}
+
+function positiveCentavos(value: unknown): number | null {
+  return Number.isSafeInteger(value) && (value as number) > 0
+    ? value as number
+    : null;
+}
+
+function returnServiceSummary(value: unknown): {
+  names: string[];
+  categories: string[];
+} {
+  if (!Array.isArray(value)) return {names: [], categories: []};
+
+  const names = new Set<string>();
+  const categories = new Set<string>();
+
+  for (const candidate of value.slice(0, 30)) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const service = candidate as Record<string, unknown>;
+    const name = boundedText(service.name, "", 120);
+    const category = boundedText(service.category, "", 80);
+    if (name) names.add(name);
+    if (category) categories.add(category);
+  }
+
+  return {
+    names: [...names].slice(0, 3),
+    categories: [...categories].slice(0, 3),
+  };
+}
+
+function boundedText(
+  value: unknown,
+  fallback: string,
+  maximumLength: number,
+): string {
+  const normalized = stringValue(value);
+
+  if (!normalized) return fallback;
+  if (normalized.length <= maximumLength) return normalized;
+
+  return `${normalized.slice(0, maximumLength - 1).trimEnd()}…`;
+}
+
+function humanizeLabel(value: unknown): string {
+  return stringValue(value)
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replace(/\b\w/gu, (character) => character.toUpperCase());
 }
 
 function dateValue(value: unknown): Date | null {

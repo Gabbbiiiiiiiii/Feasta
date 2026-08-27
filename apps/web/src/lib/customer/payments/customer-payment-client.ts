@@ -7,6 +7,7 @@ import {WebAuthenticationError} from "@/lib/auth/client-session";
 import type {
   CreateCustomerPaymentSessionInput,
   CreateCustomerPaymentSessionResult,
+  CustomerPaymentReturnLookup,
 } from "@/lib/customer/payments/customer-payment-types";
 import {
   auth,
@@ -16,6 +17,8 @@ import {
 
 const CREATE_PAYMENT_SESSION_FUNCTION = "createPaymentSession";
 const SAFE_PROVIDER_REQUEST_ID = /^[A-Za-z0-9_-]{8,160}$/u;
+const PAYMENT_RETURN_STORAGE_KEY = "feasta.customer.payment-return.v1";
+const PAYMENT_RETURN_MAX_AGE_MS = 4 * 60 * 60 * 1000;
 
 export async function createCustomerPaymentCheckout(
   providerRequestId: string,
@@ -71,7 +74,75 @@ export function redirectToCustomerPaymentCheckout(
 ): void {
   const checkoutUrl = requirePayMongoCheckoutUrl(result.checkoutUrl);
 
+  rememberCustomerPaymentReturn({
+    paymentId: result.paymentId,
+    providerRequestId: result.providerRequestId,
+    bookingId: result.bookingId,
+  });
+
   window.location.assign(checkoutUrl);
+}
+
+export function readCustomerPaymentReturnContext():
+  CustomerPaymentReturnLookup | null {
+  try {
+    const raw = window.sessionStorage.getItem(
+      PAYMENT_RETURN_STORAGE_KEY,
+    );
+
+    if (!raw) return null;
+
+    const value = JSON.parse(raw) as Record<string, unknown>;
+    const createdAt = value.createdAt;
+
+    if (
+      !isSafeDocumentId(value.paymentId) ||
+      !isSafeDocumentId(value.providerRequestId) ||
+      !isSafeDocumentId(value.bookingId) ||
+      typeof createdAt !== "number" ||
+      !Number.isFinite(createdAt) ||
+      createdAt > Date.now() + 60_000 ||
+      Date.now() - createdAt > PAYMENT_RETURN_MAX_AGE_MS
+    ) {
+      clearCustomerPaymentReturnContext();
+      return null;
+    }
+
+    return {
+      paymentId: value.paymentId,
+      providerRequestId: value.providerRequestId,
+      bookingId: value.bookingId,
+    };
+  } catch {
+    clearCustomerPaymentReturnContext();
+    return null;
+  }
+}
+
+export function clearCustomerPaymentReturnContext(): void {
+  try {
+    window.sessionStorage.removeItem(
+      PAYMENT_RETURN_STORAGE_KEY,
+    );
+  } catch {
+    /* Return handling remains fail-closed when storage is unavailable. */
+  }
+}
+
+function rememberCustomerPaymentReturn(
+  lookup: CustomerPaymentReturnLookup,
+): void {
+  try {
+    window.sessionStorage.setItem(
+      PAYMENT_RETURN_STORAGE_KEY,
+      JSON.stringify({
+        ...lookup,
+        createdAt: Date.now(),
+      }),
+    );
+  } catch {
+    /* Checkout remains usable when browser storage is unavailable. */
+  }
 }
 
 function createPaymentIdempotencyKey(
@@ -199,4 +270,9 @@ function normalizeCallableCode(code: string): string {
   return code
     .replace(/^functions\//u, "")
     .replace(/^functions:/u, "");
+}
+
+function isSafeDocumentId(value: unknown): value is string {
+  return typeof value === "string" &&
+    SAFE_PROVIDER_REQUEST_ID.test(value);
 }

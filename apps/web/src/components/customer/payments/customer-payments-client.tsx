@@ -1,9 +1,16 @@
 "use client";
 
 import {Banknote, CircleCheckBig, Clock3, CreditCard, ReceiptText} from "lucide-react";
-import {useEffect, useMemo, useState, useTransition} from "react";
+import {useCallback, useEffect, useMemo, useRef, useState, useTransition} from "react";
 
-import {loadCustomerPaymentsAction} from "@/app/customer/payments/actions";
+import {
+  loadCustomerPaymentReturnAction,
+  loadCustomerPaymentsAction,
+} from "@/app/customer/payments/actions";
+import {
+  CustomerPaymentReturnPanel,
+  type CustomerPaymentReturnState,
+} from "@/components/customer/payments/customer-payment-return-panel";
 import {CursorPagination} from "@/components/data/cursor-pagination";
 import {FilterToolbar} from "@/components/data/filter-toolbar";
 import {SummaryCard} from "@/components/data/summary-card";
@@ -15,35 +22,135 @@ import {StatusBadge, humanize} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
 import {Select} from "@/components/ui/select";
 import {
+  clearCustomerPaymentReturnContext,
   createCustomerPaymentCheckout,
+  readCustomerPaymentReturnContext,
   redirectToCustomerPaymentCheckout,
 } from "@/lib/customer/payments/customer-payment-client";
 import type {
   CustomerPayment,
   CustomerPaymentPage,
+  CustomerPaymentReturnDetails,
+  CustomerPaymentReturnKind,
+  CustomerPaymentReturnLookup,
   CustomerPaymentStatusFilter,
 } from "@/lib/customer/payments/customer-payment-types";
 
 const PAGE_SIZE = 10;
 
-export function CustomerPaymentsClient({initialPage}: {initialPage: CustomerPaymentPage}) {
+type CheckoutSelection = Pick<
+  CustomerPayment,
+  | "providerRequestId"
+  | "providerName"
+  | "formattedAmount"
+>;
+
+export function CustomerPaymentsClient({
+  initialPage,
+  paymentReturnKind = null,
+}: {
+  initialPage: CustomerPaymentPage;
+  paymentReturnKind?: CustomerPaymentReturnKind | null;
+}) {
   const [page, setPage] = useState(initialPage);
   const [search, setSearch] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState("");
   const [status, setStatus] = useState<CustomerPaymentStatusFilter>("all");
   const [cursorHistory, setCursorHistory] = useState<(string | null)[]>([null]);
-  const [selectedPayment, setSelectedPayment] = useState<CustomerPayment | null>(null);
+  const [selectedPayment, setSelectedPayment] = useState<CheckoutSelection | null>(null);
   const [checkoutPending, setCheckoutPending] = useState(false);
+  const [paymentReturnState, setPaymentReturnState] =
+    useState<CustomerPaymentReturnState>("loading");
+  const [paymentReturn, setPaymentReturn] =
+    useState<CustomerPaymentReturnDetails | null>(null);
+  const [paymentReturnLookup, setPaymentReturnLookup] =
+    useState<CustomerPaymentReturnLookup | null>(null);
+  const [paymentReturnRefreshing, setPaymentReturnRefreshing] =
+    useState(false);
+  const paymentReturnRequestGeneration = useRef(0);
   const [isPending, startTransition] = useTransition();
 
-  useEffect(() => {
-    const result = new URLSearchParams(window.location.search).get("payment");
-    if (result === "success") {
-      feastaToast.success("Payment received. Its status will update after PayMongo confirms it.");
-    } else if (result === "cancelled" || result === "canceled") {
-      feastaToast.info("Checkout was cancelled. No payment was completed.");
+  const loadPaymentReturn = useCallback(async (
+    lookup: CustomerPaymentReturnLookup,
+  ) => {
+    const requestGeneration =
+      ++paymentReturnRequestGeneration.current;
+    setPaymentReturnRefreshing(true);
+
+    try {
+      const result = await loadCustomerPaymentReturnAction(lookup);
+
+      if (
+        requestGeneration !==
+        paymentReturnRequestGeneration.current
+      ) {
+        return;
+      }
+
+      if (result.status === "unavailable") {
+        clearCustomerPaymentReturnContext();
+        setPaymentReturnLookup(null);
+        setPaymentReturn(null);
+        setPaymentReturnState("unavailable");
+        return;
+      }
+
+      setPaymentReturn(result.payment);
+      setPaymentReturnState("ready");
+    } catch {
+      if (
+        requestGeneration !==
+        paymentReturnRequestGeneration.current
+      ) {
+        return;
+      }
+
+      setPaymentReturn(null);
+      setPaymentReturnState("error");
+    } finally {
+      if (
+        requestGeneration ===
+        paymentReturnRequestGeneration.current
+      ) {
+        setPaymentReturnRefreshing(false);
+      }
     }
   }, []);
+
+  useEffect(() => {
+    if (
+      paymentReturnKind !== "success" &&
+      paymentReturnKind !== "cancelled"
+    ) {
+      return;
+    }
+
+    let active = true;
+
+    void Promise.resolve().then(() => {
+      if (!active) return;
+
+      const lookup =
+        readCustomerPaymentReturnContext();
+
+      if (!lookup) {
+        setPaymentReturnLookup(null);
+        setPaymentReturn(null);
+        setPaymentReturnState("unavailable");
+        return;
+      }
+
+      setPaymentReturnLookup(lookup);
+      setPaymentReturn(null);
+      setPaymentReturnState("loading");
+      void loadPaymentReturn(lookup);
+    });
+
+    return () => {
+      active = false;
+      paymentReturnRequestGeneration.current += 1;
+    };
+  }, [loadPaymentReturn, paymentReturnKind]);
 
   const activeFilters = useMemo(
     () => [
@@ -100,6 +207,27 @@ export function CustomerPaymentsClient({initialPage}: {initialPage: CustomerPaym
     }
   }
 
+  function retryReturnedPayment(
+    payment: CustomerPaymentReturnDetails,
+  ) {
+    setSelectedPayment({
+      providerRequestId:
+        payment.providerRequestId,
+      providerName: payment.providerName,
+      formattedAmount:
+        payment.downPaymentAmountFormatted,
+    });
+  }
+
+  function refreshReturnedPayment() {
+    if (!paymentReturnLookup) {
+      setPaymentReturnState("unavailable");
+      return;
+    }
+
+    void loadPaymentReturn(paymentReturnLookup);
+  }
+
   const currentIndex = cursorHistory.length - 1;
   const previousCursor = currentIndex > 0 ? cursorHistory[currentIndex - 1] ?? "__first__" : null;
 
@@ -110,6 +238,17 @@ export function CustomerPaymentsClient({initialPage}: {initialPage: CustomerPaym
         title="Payments"
         description="Track booking payments and continue a secure PayMongo checkout when payment is due."
       />
+
+      {paymentReturnKind ? (
+        <CustomerPaymentReturnPanel
+          kind={paymentReturnKind}
+          state={paymentReturnState}
+          payment={paymentReturn}
+          refreshing={paymentReturnRefreshing}
+          onRefresh={refreshReturnedPayment}
+          onRetryCheckout={retryReturnedPayment}
+        />
+      ) : null}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Payment summary">
         <SummaryCard label="Awaiting payment" value={page.statistics.awaitingPayment} icon={<Clock3 className="size-5" />} />
@@ -187,7 +326,7 @@ export function CustomerPaymentsClient({initialPage}: {initialPage: CustomerPaym
 function PaymentCard({payment, disabled, onCheckout}: {
   payment: CustomerPayment;
   disabled: boolean;
-  onCheckout: (payment: CustomerPayment) => void;
+  onCheckout: (payment: CheckoutSelection) => void;
 }) {
   return (
     <article className="grid min-w-0 gap-4 rounded-card border border-border bg-card p-4 shadow-card sm:p-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
