@@ -2,12 +2,14 @@ import type {
   ProviderServiceCategory,
   ProviderServiceType,
 } from "@feasta/shared-types";
+import type {CustomerEventContext} from "@/lib/customer/planning/event-planning-context";
 
 export type ProviderDiscoveryFilters = {
   search: string;
   serviceType: ProviderServiceType | "all";
   category: ProviderServiceCategory | "all";
   cursor: string | null;
+  eventContext?: CustomerEventContext | null;
 };
 
 export type PublicProvider = {

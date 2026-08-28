@@ -1,8 +1,11 @@
 import {
   ArrowUpRight,
   CalendarClock,
+  CheckCircle2,
+  LoaderCircle,
   MapPin,
   Store,
+  TriangleAlert,
   UsersRound,
 } from "lucide-react";
 import Link from "next/link";
@@ -15,12 +18,15 @@ import {
 } from "@/lib/customer/providers/provider-catalog";
 import {providerProfileHref} from "@/lib/customer/providers/provider-query";
 import type {PublicProvider} from "@/lib/customer/providers/provider-types";
+import type {CustomerProviderAvailability} from "@/lib/customer/bookings/customer-provider-availability-client";
 import {cn} from "@/lib/utils";
 
 export function ProviderCard({
   provider,
   marketplaceHref,
   favoriteState,
+  availability = null,
+  availabilityLoading = false,
 }: {
   provider: PublicProvider;
   marketplaceHref?: string;
@@ -28,6 +34,8 @@ export function ProviderCard({
     authenticated: boolean;
     favorited: boolean;
   };
+  availability?: CustomerProviderAvailability | null;
+  availabilityLoading?: boolean;
 }) {
   const imageUrl = provider.coverImageUrl ?? provider.logoUrl;
   const isLogoOnly =
@@ -150,6 +158,34 @@ export function ProviderCard({
          ================================================================ */}
 
       <div className="flex flex-1 flex-col p-5">
+        {availabilityLoading ? (
+          <div className="mb-4 flex items-start gap-2 rounded-xl border border-feasta-border-soft bg-feasta-canvas px-3 py-2.5 text-xs font-bold text-feasta-text-secondary" role="status">
+            <LoaderCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0 animate-spin motion-reduce:animate-none" />
+            Checking availability…
+          </div>
+        ) : availability ? (
+          <div
+            className={cn(
+              "mb-4 flex items-start gap-2 rounded-xl border px-3 py-2.5 text-xs font-bold",
+              availability.available
+                ? "border-success/20 bg-success/5 text-success"
+                : "border-warning/25 bg-warning/5 text-foreground",
+            )}
+            aria-label={availability.available ? "Available" : "Unavailable"}
+          >
+            {availability.available ? (
+              <CheckCircle2 aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            ) : (
+              <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning" />
+            )}
+            <span>
+              <span className="block uppercase tracking-[0.08em]">
+                {availability.available ? "Available" : "Unavailable"}
+              </span>
+              <span className="mt-0.5 block font-semibold leading-5">{availability.message}</span>
+            </span>
+          </div>
+        ) : null}
         <div className="min-w-0">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -265,7 +301,9 @@ export function ProviderCard({
         <div className="mt-auto pt-5">
           <div className="flex items-center justify-between gap-3 border-t border-feasta-divider pt-4">
             <span className="text-xs font-semibold text-feasta-text-tertiary">
-              View services and details
+              {availability?.available === false
+                ? "Browsing only for this event"
+                : "View services and details"}
             </span>
 
             <span className="inline-flex items-center gap-1 text-xs font-extrabold text-primary-strong">

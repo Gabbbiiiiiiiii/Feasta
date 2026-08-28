@@ -219,7 +219,7 @@ describe("customer marketplace search presentation", () => {
     rerender(<ProviderFilterForm key="venue-addon" filters={nextFilters} />);
 
     expect(screen.getByRole("searchbox", {name: "Search approved providers"})).toHaveValue("venue");
-    expect(screen.getByRole("combobox", {name: "Service type"})).toHaveValue("addon");
+    expect(screen.getByRole("radio", {name: "Event services"})).toBeChecked();
     expect(screen.getByRole("combobox", {name: "Category"})).toHaveValue("venue_provider");
     expect(
       new FormData(screen.getByRole("search") as HTMLFormElement).has("cursor"),
@@ -235,7 +235,7 @@ describe("customer marketplace search presentation", () => {
     );
 
     expect(screen.getByRole("searchbox", {name: "Search approved providers"})).toHaveAttribute("maxlength", "80");
-    const serviceTypeFilter = screen.getByRole("combobox", {name: "Service type"});
+    const serviceTypeFilter = screen.getByRole("group", {name: "Service type"});
     expect(serviceTypeFilter).toHaveTextContent("Catering");
     expect(serviceTypeFilter).toHaveTextContent("Event services");
     expect(serviceTypeFilter).toHaveTextContent("Catering and event services");
@@ -283,14 +283,14 @@ describe("customer marketplace search presentation", () => {
       </ProviderDirectoryShell>,
     );
 
-    expect(screen.getByText("FEASTA")).toBeVisible();
+    expect(screen.getByText("FEASTA Marketplace")).toBeVisible();
     expect(screen.getByRole("heading", {
       level: 1,
-      name: "Find the right services for your event",
+      name: /Find services that fit your celebration/iu,
     })).toBeVisible();
-    expect(screen.getByText(/locations each business has listed/iu)).toBeVisible();
+    expect(screen.getByText(/Browse approved public providers/iu)).toBeVisible();
 
-    const toggle = screen.getByRole("button", {name: "Filter event services"});
+    const toggle = screen.getByRole("button", {name: "Filters"});
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
@@ -298,10 +298,10 @@ describe("customer marketplace search presentation", () => {
 
   it("distinguishes empty, filtered-empty, and error states", () => {
     const {rerender} = render(<ProviderResults page={pageWith([])} filters={emptyFilters} />);
-    expect(screen.getByText("No providers found")).toBeVisible();
+    expect(screen.getByText("No public providers yet.")).toBeVisible();
 
     rerender(<ProviderResults page={pageWith([])} filters={{...emptyFilters, search: "venue"}} />);
-    expect(screen.getByText("No matching results")).toBeVisible();
+    expect(screen.getByText("No providers match those filters.")).toBeVisible();
 
     const reset = vi.fn();
     rerender(<CustomerProvidersError reset={reset} />);
@@ -366,14 +366,14 @@ describe("customer marketplace server query contracts", () => {
     const loading = readFileSync(join(webRoot, "src/app/customer/providers/loading.tsx"), "utf8");
     const globalStyles = readFileSync(join(webRoot, "src/app/globals.css"), "utf8");
     expect(providerResults).toContain(
-      "grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))]",
+      "sm:grid-cols-2 xl:grid-cols-3",
     );
     expect(globalStyles).toContain("--breakpoint-sm: 37.5rem");
     expect(globalStyles).toContain("--breakpoint-md: 64rem");
     expect(globalStyles).toContain("--breakpoint-lg: 80rem");
     expect(globalStyles).toContain("--breakpoint-xl: 96rem");
-    expect(providerPage).toContain("md:grid-cols-[15.5rem_minmax(0,1fr)]");
-    expect(providerFilters).toContain("md:sticky md:top-36");
+    expect(providerPage).toContain("md:grid-cols-[17rem_minmax(0,1fr)]");
+    expect(providerFilters).toContain("md:sticky md:top-[156px]");
     expect(directoryShell).toContain("sm:-mx-6");
     expect(directoryShell).toContain("lg:-mx-8");
     expect(directoryShell).not.toContain("lg:-mx-10");

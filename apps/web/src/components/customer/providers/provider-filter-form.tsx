@@ -18,6 +18,7 @@ import {
   providerServiceTypeLabel,
 } from "@/lib/customer/providers/provider-catalog";
 import type {ProviderDiscoveryFilters} from "@/lib/customer/providers/provider-types";
+import {providerDiscoveryHref} from "@/lib/customer/providers/provider-query";
 import {cn} from "@/lib/utils";
 
 type FilterChip = {
@@ -69,6 +70,16 @@ export function ProviderFilterForm({
   }
 
   const hasActiveFilters = activeFilters.length > 0;
+  const resetHref = providerDiscoveryHref({
+    ...filters,
+    search: "",
+    serviceType: "all",
+    category: "all",
+    cursor: null,
+    eventContext: filters.eventContext
+      ? {...filters.eventContext, serviceType: "all"}
+      : null,
+  });
 
   return (
     <aside
@@ -161,6 +172,14 @@ export function ProviderFilterForm({
             filtersOpen ? "grid" : "hidden",
           )}
         >
+          {filters.eventContext ? (
+            <>
+              <input type="hidden" name="eventDate" value={filters.eventContext.eventDate} />
+              <input type="hidden" name="eventTime" value={filters.eventContext.eventTime} />
+              <input type="hidden" name="eventEndTime" value={filters.eventContext.eventEndTime} />
+              <input type="hidden" name="guestCount" value={filters.eventContext.guestCount} />
+            </>
+          ) : null}
           {/* ============================================================
               SEARCH
              ============================================================ */}
@@ -289,7 +308,7 @@ export function ProviderFilterForm({
                 </p>
 
                 <Link
-                  href="/customer/providers"
+                  href={resetHref}
                   className={[
                     "inline-flex items-center gap-1.5",
                     "text-xs font-bold text-primary-strong",
@@ -369,7 +388,7 @@ export function ProviderFilterForm({
             </button>
 
             <Link
-              href="/customer/providers"
+              href={resetHref}
               className={[
                 "inline-flex min-h-10 w-full items-center justify-center",
                 "gap-2 rounded-xl px-4",
@@ -475,23 +494,5 @@ function FilterRadio({
 function buildFilterHref(
   filters: ProviderDiscoveryFilters,
 ): string {
-  const parameters = new URLSearchParams();
-
-  if (filters.search) {
-    parameters.set("q", filters.search);
-  }
-
-  if (filters.serviceType !== "all") {
-    parameters.set("service", filters.serviceType);
-  }
-
-  if (filters.category !== "all") {
-    parameters.set("category", filters.category);
-  }
-
-  const query = parameters.toString();
-
-  return query
-    ? `/customer/providers?${query}`
-    : "/customer/providers";
+  return providerDiscoveryHref(filters);
 }

@@ -11,6 +11,10 @@ import {PriceDisplay} from "@/components/shared/price-display";
 import type {PublicPackage} from "@/lib/customer/discovery/marketplace-types";
 import {humanizeProviderValue} from "@/lib/customer/providers/provider-catalog";
 import {providerProfileHref} from "@/lib/customer/providers/provider-query";
+import {
+  customerEventContextFromHref,
+  customerEventContextQuery,
+} from "@/lib/customer/planning/event-planning-context";
 
 export function PublicPackageCard({
   packageRecord,
@@ -23,8 +27,13 @@ export function PublicPackageCard({
   headingLevel?: "h2" | "h3";
   showProvider?: boolean;
 }) {
-  const packageHref =
-  `/customer/packages/${encodeURIComponent(packageRecord.id)}`;
+  const eventContextQuery = customerEventContextQuery(
+    customerEventContextFromHref(marketplaceHref),
+  );
+  const packagePath = `/customer/packages/${encodeURIComponent(packageRecord.id)}`;
+  const packageHref = eventContextQuery
+    ? `${packagePath}?${eventContextQuery}`
+    : packagePath;
   const Heading = headingLevel;
   const guestRange = packageGuestRange(packageRecord);
 

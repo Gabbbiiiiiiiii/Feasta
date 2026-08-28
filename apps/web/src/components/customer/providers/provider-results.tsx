@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Search,
   SearchX,
@@ -5,6 +7,7 @@ import {
   Store,
 } from "lucide-react";
 import Link from "next/link";
+import {useEffect, useMemo, useRef, useState} from "react";
 
 import {
   providerCategoryLabel,
@@ -15,6 +18,7 @@ import type {
   ProviderDiscoveryFilters,
   ProviderDiscoveryPage,
 } from "@/lib/customer/providers/provider-types";
+import type {CustomerProviderAvailability} from "@/lib/customer/bookings/customer-provider-availability-client";
 
 import {ProviderCard} from "./provider-card";
 
@@ -29,6 +33,67 @@ export function ProviderResults({
   favoriteProviderIds?: ReadonlySet<string>;
   authenticatedCustomer?: boolean;
 }) {
+  const providerIds = useMemo(
+    () => page.providers.map((provider) => provider.id),
+    [page.providers],
+  );
+  const requestKey = filters.eventContext
+    ? JSON.stringify([providerIds, filters.eventContext])
+    : null;
+  const generationRef = useRef(0);
+  const [availabilityStatus, setAvailabilityStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [availabilityByProvider, setAvailabilityByProvider] = useState<
+    ReadonlyMap<string, CustomerProviderAvailability>
+  >(new Map());
+  const [availabilityCheckedKey, setAvailabilityCheckedKey] = useState<string | null>(null);
+  const [availabilityRequestKey, setAvailabilityRequestKey] = useState<string | null>(null);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const generation = generationRef.current + 1;
+    generationRef.current = generation;
+    const context = filters.eventContext;
+    if (!context || !authenticatedCustomer || providerIds.length === 0 || !requestKey) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (generationRef.current !== generation) return;
+      setAvailabilityStatus("loading");
+      setAvailabilityRequestKey(requestKey);
+      setAvailabilityByProvider(new Map());
+      setAvailabilityCheckedKey(null);
+      setAvailabilityError(null);
+      void import("@/lib/customer/providers/marketplace-provider-availability-client")
+        .then(({checkMarketplaceProviderAvailability}) =>
+          checkMarketplaceProviderAvailability(providerIds, context)
+        )
+        .then((results) => {
+          if (generationRef.current !== generation) return;
+          setAvailabilityByProvider(new Map(results.map((result) => [result.providerId, result])));
+          setAvailabilityCheckedKey(requestKey);
+          setAvailabilityStatus("ready");
+        })
+        .catch((error: unknown) => {
+          if (generationRef.current !== generation) return;
+          setAvailabilityError(error instanceof Error ? error.message : "Provider availability could not be checked.");
+          setAvailabilityStatus("error");
+        });
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (generationRef.current === generation) generationRef.current += 1;
+    };
+  }, [authenticatedCustomer, filters.eventContext, providerIds, requestKey]);
+
+  const availabilityIsCurrent = availabilityStatus === "ready" &&
+    availabilityCheckedKey === requestKey;
+  const currentAvailabilityStatus = availabilityRequestKey === requestKey
+    ? availabilityStatus
+    : "idle";
   const filtered =
     filters.search.length > 0 ||
     filters.serviceType !== "all" ||
@@ -51,6 +116,16 @@ export function ProviderResults({
      ====================================================================== */
 
   if (page.providers.length === 0) {
+    const allProvidersHref = providerDiscoveryHref({
+      ...filters,
+      search: "",
+      serviceType: "all",
+      category: "all",
+      cursor: null,
+      eventContext: filters.eventContext
+        ? {...filters.eventContext, serviceType: "all"}
+        : null,
+    });
     return (
       <section
         aria-label="Provider results"
@@ -94,7 +169,7 @@ export function ProviderResults({
 
           {filtered ? (
             <Link
-              href="/customer/providers"
+              href={allProvidersHref}
               className={[
                 "mt-6 inline-flex min-h-11 items-center justify-center",
                 "gap-2 rounded-full bg-primary px-5",
@@ -146,7 +221,7 @@ export function ProviderResults({
               id="provider-results-title"
               className="mt-1.5 text-2xl font-extrabold tracking-[-0.035em] text-foreground"
             >
-              Available providers
+              {filters.eventContext ? "Providers for your event" : "Marketplace providers"}
             </h2>
 
             <p
@@ -162,6 +237,21 @@ export function ProviderResults({
                 : "providers"}{" "}
               on this page.
             </p>
+            {!filters.eventContext ? (
+              <p className="mt-2 text-sm text-feasta-text-secondary">
+                Choose your event date and details to check availability.
+              </p>
+            ) : null}
+            {filters.eventContext ? (
+              <p className="mt-2 text-sm text-feasta-text-secondary" aria-live="polite">
+                {currentAvailabilityStatus === "loading" ? "Checking provider availability…" : null}
+                {currentAvailabilityStatus === "ready" ? "Availability checked for the providers on this page." : null}
+                {currentAvailabilityStatus === "error" ? availabilityError : null}
+                {currentAvailabilityStatus === "idle" && !authenticatedCustomer
+                  ? "Sign in as a customer to check provider availability."
+                  : null}
+              </p>
+            ) : null}
           </div>
 
           {filtered ? (
@@ -220,6 +310,10 @@ export function ProviderResults({
                 provider.id,
               ),
             }}
+            availability={availabilityIsCurrent
+              ? availabilityByProvider.get(provider.id) ?? null
+              : null}
+            availabilityLoading={Boolean(filters.eventContext) && currentAvailabilityStatus === "loading"}
           />
         ))}
       </div>

@@ -3,11 +3,13 @@ import {notFound} from "next/navigation";
 
 import {PackageDetail} from "@/components/customer/packages/package-detail";
 import {getPublicPackageDetail} from "@/lib/customer/discovery/package-detail-service";
+import {parseCustomerEventContext} from "@/lib/customer/planning/event-planning-context";
 
 type CustomerPackageDetailPageProps = {
   params: Promise<{
     packageId: string;
   }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export async function generateMetadata({
@@ -34,8 +36,12 @@ export async function generateMetadata({
 
 export default async function CustomerPackageDetailPage({
   params,
+  searchParams,
 }: CustomerPackageDetailPageProps) {
-  const {packageId} = await params;
+  const [{packageId}, query] = await Promise.all([
+    params,
+    searchParams ?? Promise.resolve({}),
+  ]);
 
   const detail = await getPublicPackageDetail(packageId);
 
@@ -46,6 +52,7 @@ export default async function CustomerPackageDetailPage({
   return (
     <PackageDetail
       detail={detail}
+      eventContext={parseCustomerEventContext(query)}
     />
   );
 }

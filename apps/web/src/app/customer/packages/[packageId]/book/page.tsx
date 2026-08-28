@@ -19,11 +19,16 @@ import {
 import {
   getPublicPackageDetail,
 } from "@/lib/customer/discovery/package-detail-service";
+import {
+  customerEventContextQuery,
+  parseCustomerEventContext,
+} from "@/lib/customer/planning/event-planning-context";
 
 type CustomerPackageBookingPageProps = {
   params: Promise<{
     packageId: string;
   }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export const metadata: Metadata = {
@@ -37,6 +42,7 @@ export const metadata: Metadata = {
 
 export default async function CustomerPackageBookingPage({
   params,
+  searchParams,
 }: CustomerPackageBookingPageProps) {
   /*
    * Booking requires:
@@ -51,19 +57,24 @@ export default async function CustomerPackageBookingPage({
       await requireCustomer(),
     );
 
-  const {
-    packageId,
-  } = await params;
+  const [{packageId}, query] = await Promise.all([
+    params,
+    searchParams ?? Promise.resolve({}),
+  ]);
+  const initialEventContext = parseCustomerEventContext(query);
 
   /*
    * Build the trusted customer booking destination ourselves.
    * encodeURIComponent prevents the document ID from altering
    * the route structure.
    */
-  const bookingPath =
-    `/customer/packages/${encodeURIComponent(
-      packageId,
-    )}/book`;
+  const bookingBasePath = `/customer/packages/${encodeURIComponent(
+    packageId,
+  )}/book`;
+  const eventContextQuery = customerEventContextQuery(initialEventContext);
+  const bookingPath = eventContextQuery
+    ? `${bookingBasePath}?${eventContextQuery}`
+    : bookingBasePath;
 
   /*
    * Do not let an unverified customer begin a multi-step
@@ -106,6 +117,7 @@ export default async function CustomerPackageBookingPage({
       eventServices={
         eventServices.services
       }
+      initialEventContext={initialEventContext}
     />
   );
 }

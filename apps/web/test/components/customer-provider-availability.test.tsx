@@ -67,6 +67,29 @@ describe("customer provider availability planning", () => {
     expect(screen.getByText("Available for your selected event.")).toBeVisible();
   });
 
+  it("prefills marketplace event context and still runs the CW1D-A revalidation", async () => {
+    renderExperience({
+      eventDate: "2026-09-10",
+      eventTime: "18:00",
+      eventEndTime: "22:00",
+      guestCount: 100,
+      serviceType: "catering",
+    });
+
+    expect(screen.getByLabelText("Event date")).toHaveValue("2026-09-10");
+    expect(screen.getByLabelText("Start time")).toHaveValue("18:00");
+    expect(screen.getByLabelText("End time")).toHaveValue("22:00");
+    expect(screen.getByLabelText(/^Number of guests/iu)).toHaveValue(100);
+    await waitFor(() => expect(mocks.checkAvailability).toHaveBeenCalledTimes(1));
+    expect(mocks.checkAvailability).toHaveBeenCalledWith(expect.objectContaining({
+      packageId: "package_wedding_12345678",
+      eventDate: "2026-09-10",
+      eventTime: "18:00",
+      eventEndTime: "22:00",
+      guestCount: 100,
+    }), [PRIMARY_PROVIDER_ID, ADDON_PROVIDER_ID]);
+  });
+
   it("invalidates a prior result immediately when event inputs change", async () => {
     renderExperience();
     fillAvailabilityFields("2026-09-10");
@@ -234,11 +257,18 @@ describe("customer provider availability planning", () => {
   });
 });
 
-function renderExperience() {
+function renderExperience(initialEventContext?: {
+  eventDate: string;
+  eventTime: string;
+  eventEndTime: string;
+  guestCount: number;
+  serviceType: "catering";
+}) {
   return render(
     <EventCustomizationExperience
       detail={detailFixture()}
       eventServices={serviceFixtures()}
+      initialEventContext={initialEventContext}
     />,
   );
 }

@@ -2,6 +2,7 @@ import {ProviderFilterForm} from "@/components/customer/providers/provider-filte
 import {ProviderDirectoryShell} from "@/components/customer/providers/provider-directory-shell";
 import {ProviderPagination} from "@/components/customer/providers/provider-pagination";
 import {ProviderResults} from "@/components/customer/providers/provider-results";
+import {ProviderEventContextPanel} from "@/components/customer/providers/provider-event-context-panel";
 import {getOptionalAccountContext} from "@/lib/auth/session";
 import {getCustomerFavoriteProviderIds} from "@/lib/customer/favorites/customer-favorite-service";
 import {getPublicProviderPage} from "@/lib/customer/providers/provider-discovery-service";
@@ -31,10 +32,15 @@ export default async function CustomerProvidersPage({
     filters.search,
     filters.serviceType,
     filters.category,
+    filters.eventContext?.eventDate ?? "",
+    filters.eventContext?.eventTime ?? "",
+    filters.eventContext?.eventEndTime ?? "",
+    filters.eventContext?.guestCount ?? "",
   ].join("\u0000");
 
   return (
     <ProviderDirectoryShell>
+      <ProviderEventContextPanel filters={filters} />
       <div className="grid min-w-0 items-start gap-5 md:grid-cols-[17rem_minmax(0,1fr)] md:gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
         <ProviderFilterForm key={filterStateKey} filters={filters} />
         <div className="grid min-w-0 gap-5">

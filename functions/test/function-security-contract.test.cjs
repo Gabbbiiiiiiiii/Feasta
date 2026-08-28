@@ -22,6 +22,7 @@ const policies = [
   ["deactivateProviderAccount", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "enforceCallableRateLimit", "activeProviderRequestStatuses", "revokeRefreshTokens", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["submitBookingRequest", "bookings/submit-booking-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "assertBookingSubmissionAllowed", "runTransaction", "appCheckCallableOptions"]],
   ["checkCustomerProviderAvailability", "provider-availability/check-customer-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "rejectUnknownFields", "validateBookingPackage", "validateProviderAvailability", "isProviderPubliclyEligible"]],
+  ["checkMarketplaceProviderAvailability", "provider-availability/check-marketplace-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "rejectUnknownFields", "MAX_PROVIDER_IDS", "validateProviderAvailability", "isProviderPubliclyEligible"]],
   ["registerProvider", "providers/register-provider.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "requireTrustedProviderIdentity", "requireProviderRegistrationConsent"]],
   ["saveProviderOnboardingDraft", "providers/save-provider-onboarding-draft.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "runTransaction", "requireTrustedProviderIdentity"]],
   [
@@ -285,6 +286,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "acceptProviderRequest",
     "archiveProviderService",
     "checkCustomerProviderAvailability",
+    "checkMarketplaceProviderAvailability",
     "completeProviderBooking",
     "createComplaint",
     "createPaymentSession",

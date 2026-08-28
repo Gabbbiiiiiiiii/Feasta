@@ -34,6 +34,7 @@ export function ProviderDirectoryShell({
 
               <h1 className="mt-5 max-w-[760px] text-3xl font-extrabold tracking-[-0.045em] text-foreground sm:text-4xl lg:text-[48px] lg:leading-[1.03]">
                 Find services that fit
+                {" "}
                 <span className="block text-primary">
                   your celebration.
                 </span>

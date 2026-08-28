@@ -19,6 +19,7 @@ export async function getCustomerMarketplaceHome(): Promise<CustomerMarketplaceH
     serviceType: "all",
     category: "all",
     cursor: null,
+    eventContext: null,
   }, HOMEPAGE_PROVIDER_LIMIT);
   const providerIds = providerPage.providers.map((provider) => provider.id);
   if (providerIds.length === 0) {

@@ -26,11 +26,17 @@ import {providerProfileHref} from "@/lib/customer/providers/provider-query";
 import {
   PUBLIC_PACKAGE_MARKETPLACE_PATH,
 } from "@/lib/customer/providers/provider-route-policy";
+import {
+  customerEventContextQuery,
+  type CustomerEventContext,
+} from "@/lib/customer/planning/event-planning-context";
 
 export function PackageDetail({
   detail,
+  eventContext = null,
 }: {
   detail: PublicPackageDetail;
+  eventContext?: CustomerEventContext | null;
 }) {
   const {
     packageRecord,
@@ -40,10 +46,13 @@ export function PackageDetail({
   const guestRange =
     packageGuestRange(packageRecord);
 
-  const bookingHref =
-    `/customer/packages/${encodeURIComponent(
-      packageRecord.id,
-    )}/book`;
+  const bookingPath = `/customer/packages/${encodeURIComponent(
+    packageRecord.id,
+  )}/book`;
+  const eventContextQuery = customerEventContextQuery(eventContext);
+  const bookingHref = eventContextQuery
+    ? `${bookingPath}?${eventContextQuery}`
+    : bookingPath;
 
   return (
     <article className="grid min-w-0 gap-5 sm:gap-6">

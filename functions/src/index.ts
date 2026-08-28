@@ -149,6 +149,9 @@ export {submitBookingRequest} from "./bookings/submit-booking-request.js";
 export {
   checkCustomerProviderAvailability,
 } from "./provider-availability/check-customer-provider-availability.js";
+export {
+  checkMarketplaceProviderAvailability,
+} from "./provider-availability/check-marketplace-provider-availability.js";
 export {createPaymentSession} from "./payments/create-payment-session.js";
 export {payMongoWebhook} from "./payments/paymongo-webhook.js";
 export {requestPaymentRefund} from "./payments/request-refund.js";

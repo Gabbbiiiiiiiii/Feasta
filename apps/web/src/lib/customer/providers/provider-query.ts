@@ -14,6 +14,10 @@ import {
   parsePackageDirectoryReturnHref,
 } from "@/lib/customer/discovery/package-query";
 import type {ProviderDiscoveryFilters} from "./provider-types";
+import {
+  appendCustomerEventContext,
+  parseCustomerEventContext,
+} from "@/lib/customer/planning/event-planning-context";
 
 type SearchParameters = Record<string, string | string[] | undefined>;
 
@@ -21,19 +25,25 @@ export function parseProviderDiscoveryFilters(
   parameters: SearchParameters,
 ): ProviderDiscoveryFilters {
   const search = boundedText(first(parameters.q), 80);
+  const serviceType = enumValue(
+    first(parameters.service),
+    PROVIDER_SERVICE_TYPES,
+    "all",
+  );
+  const eventContext = parseCustomerEventContext({
+    ...parameters,
+    serviceType,
+  });
   return {
     search: search.length >= 2 ? search : "",
-    serviceType: enumValue(
-      first(parameters.service),
-      PROVIDER_SERVICE_TYPES,
-      "all",
-    ),
+    serviceType,
     category: enumValue(
       first(parameters.category),
       PROVIDER_SERVICE_CATEGORIES,
       "all",
     ),
     cursor: providerCursorValue(first(parameters.cursor)),
+    ...(eventContext ? {eventContext} : {}),
   };
 }
 
@@ -50,6 +60,12 @@ export function providerDiscoveryHref(
     parameters.set("category", filters.category);
   }
   if (cursor) parameters.set("cursor", cursor);
+  appendCustomerEventContext(
+    parameters,
+    filters.eventContext
+      ? {...filters.eventContext, serviceType: "all"}
+      : null,
+  );
   const query = parameters.toString();
   return query ? `/customer/providers?${query}` : "/customer/providers";
 }
@@ -83,6 +99,10 @@ export function parseProviderDirectoryReturnHref(
     service: parameters.getAll("service"),
     category: parameters.getAll("category"),
     cursor: parameters.getAll("cursor"),
+    eventDate: parameters.getAll("eventDate"),
+    eventTime: parameters.getAll("eventTime"),
+    eventEndTime: parameters.getAll("eventEndTime"),
+    guestCount: parameters.getAll("guestCount"),
   });
   return providerDiscoveryHref(filters, filters.cursor);
 }

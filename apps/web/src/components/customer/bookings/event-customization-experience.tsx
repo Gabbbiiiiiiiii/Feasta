@@ -47,10 +47,12 @@ import type {
 import {
   humanizeProviderValue,
 } from "@/lib/customer/providers/provider-catalog";
+import type {CustomerEventContext} from "@/lib/customer/planning/event-planning-context";
 
 type EventCustomizationExperienceProps = {
   detail: PublicPackageDetail;
   eventServices: readonly PublicEventService[];
+  initialEventContext?: CustomerEventContext | null;
 };
 
 type EventDetailsDraft = {
@@ -101,6 +103,7 @@ const STEPS = [
 export function EventCustomizationExperience({
   detail,
   eventServices,
+  initialEventContext = null,
 }: EventCustomizationExperienceProps) {
   const {
     packageRecord,
@@ -114,10 +117,10 @@ export function EventCustomizationExperience({
 
   const [draft, setDraft] =
     useState<EventDetailsDraft>({
-      eventDate: "",
-      eventTime: "",
-      eventEndTime: "",
-      guestCount: "",
+      eventDate: initialEventContext?.eventDate ?? "",
+      eventTime: initialEventContext?.eventTime ?? "",
+      eventEndTime: initialEventContext?.eventEndTime ?? "",
+      guestCount: initialEventContext ? String(initialEventContext.guestCount) : "",
       eventLocation:
         provider.location ?? "",
       eventAddress: "",
