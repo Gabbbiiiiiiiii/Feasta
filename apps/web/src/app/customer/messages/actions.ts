@@ -13,19 +13,19 @@ import type {
   CustomerChatRoomPage,
 } from "@/lib/customer/messages/customer-chat-types";
 
-export function loadCustomerChatRoomsAction(
+export async function loadCustomerChatRoomsAction(
   filters: CustomerChatRoomFilters,
 ): Promise<CustomerChatRoomPage> {
   return getCustomerChatRoomPage(filters);
 }
 
-export function loadCustomerChatRoomAction(
+export async function loadCustomerChatRoomAction(
   chatRoomId: string,
 ): Promise<CustomerChatRoomDetail> {
   return getCustomerChatRoom(chatRoomId);
 }
 
-export function loadCustomerChatMessagesAction(
+export async function loadCustomerChatMessagesAction(
   chatRoomId: string,
   filters: CustomerChatMessageFilters,
 ): Promise<CustomerChatMessagePage> {
