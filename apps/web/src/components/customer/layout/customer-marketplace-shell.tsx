@@ -7,9 +7,15 @@ import {MobileNavigation} from "@/components/layout/mobile-navigation";
 
 export function CustomerMarketplaceShell({
   accountLabel,
+  accountFirstName = "",
+  accountLastName = "",
+  accountEmail = "",
   children,
 }: {
   accountLabel: string;
+  accountFirstName?: string;
+  accountLastName?: string;
+  accountEmail?: string;
   children: ReactNode;
 }) {
   return (
@@ -34,7 +40,12 @@ export function CustomerMarketplaceShell({
         Skip to main content
       </a>
 
-      <CustomerMarketplaceHeader accountLabel={accountLabel} />
+      <CustomerMarketplaceHeader
+        accountLabel={accountLabel}
+        accountFirstName={accountFirstName}
+        accountLastName={accountLastName}
+        accountEmail={accountEmail}
+      />
 
       <main
         id="main-content"

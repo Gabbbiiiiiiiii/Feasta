@@ -3,6 +3,7 @@ import {headers} from "next/headers";
 
 import {CustomerMarketplaceShell} from "@/components/customer/layout/customer-marketplace-shell";
 import {PublicProviderMarketplaceShell} from "@/components/customer/layout/public-provider-marketplace-shell";
+import {loadAccountManagementProfile} from "@/lib/auth/account-management";
 import {
   getOptionalAccountContext,
   requireCustomer,
@@ -41,9 +42,11 @@ export default async function CustomerLayout({
     const account = await getOptionalAccountContext();
 
     if (account?.role === "customer" && account.emailVerified) {
+      const identity = await customerHeaderIdentity(account);
       return (
         <CustomerMarketplaceShell
           accountLabel={account.email ?? account.uid}
+          {...identity}
         >
           {children}
         </CustomerMarketplaceShell>
@@ -62,12 +65,23 @@ export default async function CustomerLayout({
   const user = requireVerifiedEmail(
     await requireCustomer(),
   );
+  const identity = await customerHeaderIdentity(user);
 
   return (
     <CustomerMarketplaceShell
       accountLabel={user.email ?? user.uid}
+      {...identity}
     >
       {children}
     </CustomerMarketplaceShell>
   );
+}
+
+async function customerHeaderIdentity(account: Awaited<ReturnType<typeof requireCustomer>>) {
+  const profile = await loadAccountManagementProfile(account).catch(() => null);
+  return {
+    accountFirstName: profile?.firstName ?? "",
+    accountLastName: profile?.lastName ?? "",
+    accountEmail: profile?.email || account.email || "",
+  };
 }

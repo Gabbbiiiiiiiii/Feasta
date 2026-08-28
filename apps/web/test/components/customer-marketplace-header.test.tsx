@@ -1,14 +1,19 @@
-import {render, screen} from "@testing-library/react";
+import {fireEvent, render, screen, within} from "@testing-library/react";
+import {readFileSync} from "node:fs";
+import {join} from "node:path";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 
 import {CustomerMarketplaceShell} from "@/components/customer/layout/customer-marketplace-shell";
 import {CustomerMarketplaceHeader} from "@/components/customer/layout/customer-marketplace-header";
 import {PublicProviderMarketplaceShell} from "@/components/customer/layout/public-provider-marketplace-shell";
+import {PROVIDER_CATEGORY_OPTIONS} from "@/lib/customer/providers/provider-catalog";
 
 let pathname = "/customer/providers";
+let query = new URLSearchParams();
 
 vi.mock("next/navigation", () => ({
   usePathname: () => pathname,
+  useSearchParams: () => query,
 }));
 
 vi.mock("@/components/layout/notification-menu", () => ({
@@ -20,129 +25,155 @@ vi.mock("@/components/layout/notification-menu", () => ({
 }));
 
 vi.mock("@/components/auth/logout-button", () => ({
-  LogoutButton: () => <button type="button">Log out</button>,
+  LogoutButton: () => <button type="button">Sign Out</button>,
 }));
 
 describe("customer marketplace header", () => {
   beforeEach(() => {
     pathname = "/customer/providers";
+    query = new URLSearchParams();
   });
 
-  it("gives guests marketplace branding, canonical search, and safe auth links", () => {
-    render(
-      <CustomerMarketplaceHeader
-        authReturnTo="/customer/providers?service=catering"
-      />,
-    );
+  it("uses the approved desktop information architecture and safe event-location semantics", () => {
+    render(<CustomerMarketplaceHeader authReturnTo="/customer/providers?service=catering" />);
 
-    expect(screen.getByRole("link", {
-      name: "FEASTA Marketplace home",
-    })).toHaveAttribute("href", "/customer/providers");
-    expect(screen.getByLabelText(
-      "Event location. Marketplace results are not currently filtered by location.",
-    )).toHaveTextContent("Provider-listed locations");
-    expect(screen.getByRole("link", {name: "Event Services"}))
+    expect(screen.getByRole("link", {name: "FEASTA home"}))
+      .toHaveAttribute("href", "/customer");
+    const location = screen.getByLabelText("Event location: Ormoc City, Leyte");
+    expect(location).toHaveTextContent("Event location");
+    expect(location).toHaveTextContent("Ormoc City, Leyte");
+    expect(location).not.toHaveTextContent("Provider-listed locations");
+    expect(location).not.toHaveTextContent(/GPS|current location/iu);
+
+    const marketplaceNavigation = screen.getByRole("navigation", {name: "Marketplace sections"});
+    expect(within(marketplaceNavigation).getByRole("link", {name: "Event Services"}))
       .toHaveAttribute("href", "/customer/providers");
-    expect(screen.getByRole("link", {name: "Event Services"}))
+    expect(within(marketplaceNavigation).getByRole("link", {name: "Event Services"}))
       .toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("navigation", {name: "Marketplace sections"}))
-      .not.toHaveClass("hidden");
-    expect(screen.queryByRole("link", {name: "Catering"}))
-      .not.toBeInTheDocument();
-    expect(screen.queryByRole("link", {name: "Add-on Services"}))
-      .not.toBeInTheDocument();
-    expect(screen.getByRole("link", {name: "Packages"}))
+    expect(within(marketplaceNavigation).getByRole("link", {name: "Packages"}))
       .toHaveAttribute("href", "/customer/packages");
-    expect(screen.getByRole("search", {
-      name: "Marketplace provider search",
-    })).toHaveAttribute("action", "/customer/providers");
-    expect(screen.getByRole("searchbox", {
-      name: "Search providers or services",
-    })).toHaveAttribute("name", "q");
+    expect(within(marketplaceNavigation).getByText("Categories")).toBeVisible();
+    expect(within(marketplaceNavigation).queryByRole("link", {name: "Home"}))
+      .not.toBeInTheDocument();
+    expect(within(marketplaceNavigation).queryByText("Messages")).not.toBeInTheDocument();
+    expect(within(marketplaceNavigation).queryByText("My Bookings")).not.toBeInTheDocument();
+    expect(within(marketplaceNavigation).queryByText("Saved")).not.toBeInTheDocument();
+
     expect(screen.getByRole("link", {name: "Log in"})).toHaveAttribute(
       "href",
       "/login?next=%2Fcustomer%2Fproviders%3Fservice%3Dcatering",
     );
-    expect(screen.getByRole("link", {name: "Sign up"})).toHaveAttribute(
-      "href",
-      "/register?next=%2Fcustomer%2Fproviders%3Fservice%3Dcatering",
-    );
-    expect(screen.queryByRole("link", {name: /how it works/iu}))
-      .not.toBeInTheDocument();
-    expect(screen.queryByRole("link", {name: /become a provider/iu}))
-      .not.toBeInTheDocument();
-    expect(screen.queryByRole("link", {name: /favorites|map/iu}))
-      .not.toBeInTheDocument();
-    expect(screen.queryByRole("link", {name: /event plan/iu}))
-      .not.toBeInTheDocument();
   });
 
-  it("marks the real Packages destination active without changing search scope", () => {
-    pathname = "/customer/packages";
-    render(<CustomerMarketplaceHeader authReturnTo="/customer/packages?event=wedding" />);
+  it("builds Categories from the authoritative catalog and canonical marketplace query", () => {
+    query = new URLSearchParams("category=photographer");
+    render(<CustomerMarketplaceHeader />);
 
-    expect(screen.getByRole("link", {name: "Packages"}))
+    const categories = screen.getByText("Categories").closest("summary");
+    expect(categories).toHaveAttribute("aria-current", "page");
+    const menu = screen.getByRole("menu", {name: "Event service categories"});
+    expect(within(menu).getAllByRole("menuitem")).toHaveLength(PROVIDER_CATEGORY_OPTIONS.length);
+    expect(within(menu).getByRole("menuitem", {name: "Photographer"}))
+      .toHaveAttribute("href", "/customer/providers?category=photographer");
+    expect(within(menu).getByRole("menuitem", {name: "Photographer"}))
       .toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", {name: "Event Services"}))
-      .not.toHaveAttribute("aria-current");
-    expect(screen.getByRole("searchbox", {name: "Search providers or services"}))
-      .toHaveAttribute("name", "q");
-    expect(screen.getByRole("link", {name: "Log in"})).toHaveAttribute(
-      "href",
-      "/login?next=%2Fcustomer%2Fpackages%3Fevent%3Dwedding",
-    );
+    expect(within(menu).getByRole("menuitem", {name: "Venue Provider"}))
+      .toHaveAttribute("href", "/customer/providers?category=venue_provider");
+    expect(document.body.innerHTML).not.toContain("/customer/categories");
   });
 
-  it("shows authenticated customers only implemented account destinations", () => {
-    render(<CustomerMarketplaceHeader accountLabel="customer@example.test" />);
+  it("keeps marketplace search behavior and moves the visible focus treatment to the rounded parent", () => {
+    render(<CustomerMarketplaceHeader />);
 
-    expect(screen.getByRole("navigation", {
-      name: "Marketplace sections",
-    })).toBeInTheDocument();
-    expect(screen.getByRole("link", {name: "Event Services"}))
-      .toHaveAttribute("href", "/customer/providers");
-    expect(screen.getByRole("link", {name: "Event Services"}))
-      .toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("menuitem", {name: "Bookings"}))
-      .toHaveAttribute("href", "/customer/bookings");
-    expect(screen.getAllByRole("link", {name: "Notifications"})[0])
-      .toHaveAttribute("href", "/customer/notifications");
-    expect(screen.getByRole("menuitem", {name: "Account settings"}))
-      .toHaveAttribute("href", "/customer/account");
-    expect(screen.queryByRole("link", {name: "Log in"}))
-      .not.toBeInTheDocument();
+    const search = screen.getByRole("search", {name: "Search event services"});
+    const input = screen.getByRole("searchbox", {name: "Search event services"});
+    expect(search).toHaveAttribute("action", "/customer/providers");
+    expect(input).toHaveAttribute("name", "q");
+    expect(input).toHaveAttribute("placeholder", "Search event services");
+    expect(input.parentElement).toHaveClass(
+      "rounded-full",
+      "focus-within:border-primary/45",
+      "focus-within:ring-2",
+      "duration-200",
+    );
+    expect(input).toHaveClass("focus-visible:ring-0");
+    expect(screen.getByRole("button", {name: "Search marketplace"}))
+      .toHaveClass("focus-visible:ring-2");
+  });
+
+  it("uses trusted profile names, keeps utility favorites, and avoids duplicate menu destinations", () => {
+    render(
+      <CustomerMarketplaceHeader
+        accountLabel="customer-account"
+        accountFirstName="Sophia"
+        accountLastName="Ranalan"
+        accountEmail="sophiaranalan16@gmail.com"
+      />,
+    );
+
+    expect(screen.getByText("Sophia")).toBeVisible();
+    const accountSummary = screen.getByLabelText("Open customer account menu");
+    fireEvent.click(accountSummary);
+    expect(screen.getByText("Sophia R.")).toBeVisible();
+    expect(screen.getByText("sophiaranalan16@gmail.com")).toBeVisible();
     expect(screen.getByRole("link", {name: "Favorites"}))
       .toHaveAttribute("href", "/customer/favorites");
-    expect(screen.getByRole("menuitem", {name: "Favorites"}))
-      .toHaveAttribute("href", "/customer/favorites");
-    expect(screen.getByRole("link", {name: "Packages"}))
-      .toHaveAttribute("href", "/customer/packages");
-    expect(screen.queryByRole("link", {name: /event plan/iu}))
-      .not.toBeInTheDocument();
+    expect(screen.getAllByRole("link", {name: "Favorites"})).toHaveLength(1);
+    expect(screen.getByRole("menuitem", {name: "Account Settings"}))
+      .toHaveAttribute("href", "/customer/account");
+    expect(screen.getByRole("menuitem", {name: "My Bookings"}))
+      .toHaveAttribute("href", "/customer/bookings");
+    expect(screen.getByRole("button", {name: "Sign Out"})).toBeInTheDocument();
+    expect(screen.getByRole("link", {name: "Notifications"}))
+      .toHaveAttribute("href", "/customer/notifications");
+    expect(screen.getByLabelText("Open customer account menu")).not.toHaveTextContent(
+      "sophiaranalan16@gmail.com",
+    );
+    accountSummary.focus();
+    fireEvent.keyDown(accountSummary, {key: "Escape"});
+    expect(accountSummary.closest("details")).not.toHaveAttribute("open");
+    expect(accountSummary).toHaveFocus();
   });
 
-  it("keeps both public and authenticated shells off marketing navigation", () => {
+  it("derives profile identity through the trusted customer layout instead of hardcoding it", () => {
+    const layout = readFileSync(join(process.cwd(), "src/app/customer/layout.tsx"), "utf8");
+    const header = readFileSync(join(
+      process.cwd(),
+      "src/components/customer/layout/customer-marketplace-header.tsx",
+    ), "utf8");
+    expect(layout).toContain("loadAccountManagementProfile");
+    expect(layout).toContain("accountFirstName: profile?.firstName");
+    expect(header).not.toContain("Sophia");
+  });
+
+  it("marks Packages active and keeps public and authenticated shells responsive", () => {
+    pathname = "/customer/packages/package_12345678";
     const {rerender} = render(
-      <PublicProviderMarketplaceShell authReturnTo="/customer/providers">
+      <PublicProviderMarketplaceShell authReturnTo="/customer/packages">
         <p>Public marketplace content</p>
       </PublicProviderMarketplaceShell>,
     );
 
+    expect(screen.getByRole("link", {name: "Packages"}))
+      .toHaveAttribute("aria-current", "page");
     expect(screen.getByText("Public marketplace content")).toBeVisible();
-    expect(screen.getByRole("banner")).toHaveTextContent("FEASTA");
-    expect(screen.queryByText("How It Works")).not.toBeInTheDocument();
-    expect(screen.queryByText("Become a Provider")).not.toBeInTheDocument();
 
     rerender(
       <CustomerMarketplaceShell accountLabel="customer@example.test">
         <p>Authenticated marketplace content</p>
       </CustomerMarketplaceShell>,
     );
-
     expect(screen.getByText("Authenticated marketplace content")).toBeVisible();
-    expect(screen.getByRole("navigation", {
-      name: "Customer mobile navigation",
-    })).toBeInTheDocument();
-    expect(screen.queryByText("How It Works")).not.toBeInTheDocument();
+    const mobileNavigation = screen.getByRole("navigation", {name: "Customer mobile navigation"});
+    expect(within(mobileNavigation).getByRole("link", {name: "Home"}))
+      .toHaveAttribute("href", "/customer");
+    expect(within(mobileNavigation).getByRole("link", {name: "Event Services"}))
+      .toHaveAttribute("href", "/customer/providers");
+    expect(within(mobileNavigation).getByRole("link", {name: "Packages"}))
+      .toHaveAttribute("href", "/customer/packages");
+    expect(within(mobileNavigation).getByRole("link", {name: "Bookings"}))
+      .toHaveAttribute("href", "/customer/bookings");
+    expect(within(mobileNavigation).getByRole("link", {name: "Favorites"}))
+      .toHaveAttribute("href", "/customer/favorites");
   });
 });

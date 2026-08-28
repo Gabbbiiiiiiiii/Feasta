@@ -377,7 +377,7 @@ describe("customer marketplace server query contracts", () => {
     expect(directoryShell).toContain("sm:-mx-6");
     expect(directoryShell).toContain("lg:-mx-8");
     expect(directoryShell).not.toContain("lg:-mx-10");
-    expect(marketplaceHeader).toContain("Search providers or services");
+    expect(marketplaceHeader).toContain("Search event services");
     expect(marketplaceHeader).not.toContain("Search event services in Ormoc City");
     expect(loading).toContain("motion-reduce:animate-none");
     expect(loading).toContain('role="status"');

@@ -95,7 +95,7 @@ describe("customer home event planning", () => {
     expect(screen.getByLabelText("Start time")).toHaveAttribute("type", "time");
     expect(screen.getByLabelText("End time")).toHaveAttribute("type", "time");
     expect(screen.getByLabelText("Guests")).toHaveAttribute("type", "number");
-    expect(screen.getByRole("searchbox", {name: /optional provider/iu})).toBeVisible();
+    expect(screen.getByRole("searchbox", {name: /provider or service.*optional/iu})).toBeVisible();
   });
 
   it("blocks a past date with inline guidance", () => {
@@ -125,7 +125,7 @@ describe("customer home event planning", () => {
   it("navigates with normalized bookmarkable event context and optional search", () => {
     render(<MarketplaceSearch />);
     fillHomeForm();
-    fireEvent.change(screen.getByRole("searchbox", {name: /optional provider/iu}), {
+    fireEvent.change(screen.getByRole("searchbox", {name: /provider or service.*optional/iu}), {
       target: {value: "  Maria   Catering  "},
     });
     fireEvent.click(screen.getByRole("button", {name: "Find available services"}));

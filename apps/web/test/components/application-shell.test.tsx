@@ -250,6 +250,15 @@ describe("ApplicationShell", () => {
       href: "/customer/providers",
     });
 
+    expect(roleNavigation.customer).toEqual(expect.arrayContaining([
+      expect.objectContaining({label: "Packages", href: "/customer/packages"}),
+      expect.objectContaining({label: "Bookings", href: "/customer/bookings"}),
+      expect.objectContaining({label: "Favorites", href: "/customer/favorites"}),
+    ]));
+    expect(roleNavigation.customer).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({label: "Messages"}),
+    ]));
+
     expect(roleNavigation.provider).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: "link",

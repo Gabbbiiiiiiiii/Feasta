@@ -143,7 +143,10 @@ export function MarketplaceSearch() {
 
       <div className="mt-3 grid gap-3 border-t border-[#E2BFB5]/60 pt-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
         <label className="grid gap-1.5" htmlFor="home-marketplace-search">
-          <span className="text-xs font-bold text-[#5A413A]">Optional provider or service search</span>
+          <span className="flex items-center gap-2 text-xs font-bold text-[#5A413A]">
+            Provider or service
+            <span className="font-medium text-feasta-text-tertiary">Optional</span>
+          </span>
           <span className="relative">
             <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8E7068]" />
             <input
@@ -153,7 +156,7 @@ export function MarketplaceSearch() {
               maxLength={80}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search caterers, venues, photographers, and services"
+              placeholder="Search by provider or service"
               className={`${controlClass} pl-9`}
             />
           </span>

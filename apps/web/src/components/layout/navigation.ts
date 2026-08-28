@@ -8,6 +8,7 @@ import {
   ClipboardList,
   CreditCard,
   FileCheck2,
+  Heart,
   House,
   LayoutDashboard,
   Megaphone,
@@ -82,8 +83,9 @@ export const roleLabels: Record<ShellRole, string> = {
 const customerNavigation: readonly NavigationItem[] = [
   {kind: "link", label: "Home", href: "/customer", icon: House},
   {kind: "link", label: "Event Services", href: "/customer/providers", icon: Store},
+  {kind: "link", label: "Packages", href: "/customer/packages", icon: PackageOpen},
   {kind: "link", label: "Bookings", href: "/customer/bookings", icon: CalendarDays},
-  {kind: "link", label: "Payments", href: "/customer/payments", icon: CreditCard},
+  {kind: "link", label: "Favorites", href: "/customer/favorites", icon: Heart},
 ];
 
 const providerDashboardNavigation: NavigationLinkItem = {
