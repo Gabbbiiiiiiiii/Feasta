@@ -6,6 +6,7 @@ import {
   Heart,
   LayoutGrid,
   MapPin,
+  MessageSquareText,
   Search,
   Settings,
 } from "lucide-react";
@@ -29,6 +30,7 @@ import {cn} from "@/lib/utils";
 const CUSTOMER_HOME_PATH = "/customer";
 const CUSTOMER_FAVORITES_PATH = "/customer/favorites";
 const CUSTOMER_BOOKINGS_PATH = "/customer/bookings";
+const CUSTOMER_MESSAGES_PATH = "/customer/messages";
 
 const MARKETPLACE_CATEGORIES = PROVIDER_CATEGORY_OPTIONS.map((category) => ({
   ...category,
@@ -371,6 +373,7 @@ function CustomerAccountMenu({
         </div>
         <CustomerMenuLink href="/customer/account" label="Account Settings" icon={<Settings aria-hidden="true" />} detailsRef={detailsRef} />
         <CustomerMenuLink href={CUSTOMER_BOOKINGS_PATH} label="My Bookings" icon={<CalendarDays aria-hidden="true" />} detailsRef={detailsRef} />
+        <CustomerMenuLink href={CUSTOMER_MESSAGES_PATH} label="Messages" icon={<MessageSquareText aria-hidden="true" />} detailsRef={detailsRef} />
         <div className="mt-1 border-t border-feasta-divider pt-1">
           <LogoutButton destination="/login" />
         </div>

@@ -75,7 +75,7 @@ describe("provider messaging server-read contract", () => {
     expect(service).toContain("matches.length === 1");
   });
 
-  it("declares only the implemented provider room-list index", () => {
+  it("declares the implemented role-specific room-list indexes", () => {
     const parsed = JSON.parse(indexes) as {
       indexes: Array<{
         collectionGroup: string;
@@ -89,6 +89,14 @@ describe("provider messaging server-read contract", () => {
       expect.objectContaining({
         fields: [
           {fieldPath: "providerId", order: "ASCENDING"},
+          {fieldPath: "isActive", order: "ASCENDING"},
+          {fieldPath: "lastMessageAt", order: "DESCENDING"},
+          {fieldPath: "__name__", order: "DESCENDING"},
+        ],
+      }),
+      expect.objectContaining({
+        fields: [
+          {fieldPath: "customerId", order: "ASCENDING"},
           {fieldPath: "isActive", order: "ASCENDING"},
           {fieldPath: "lastMessageAt", order: "DESCENDING"},
           {fieldPath: "__name__", order: "DESCENDING"},

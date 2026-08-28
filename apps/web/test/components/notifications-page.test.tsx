@@ -268,6 +268,32 @@ describe("notifications page", () => {
         "/provider/messages?room=provider_request_123",
       );
   });
+
+  it("routes customer message notifications through the authorized customer room deep link", async () => {
+    mocks.subscribePage.mockImplementation(async (
+      _requestedLimit: number,
+      onValue: (items: FeastaNotification[]) => void,
+    ) => {
+      onValue([
+        notificationFixture({
+          id: "customer-message-notification",
+          title: "Provider replied",
+          type: "new_message",
+          relatedCollection: "chatRooms",
+          relatedId: "provider_request_customer_123",
+        }),
+      ]);
+      return {unsubscribe: mocks.unsubscribe};
+    });
+
+    render(<NotificationsPageClient role="customer" />);
+
+    expect(await screen.findByRole("link", {name: /provider replied/i}))
+      .toHaveAttribute(
+        "href",
+        "/customer/messages?room=provider_request_customer_123",
+      );
+  });
 });
 
 function notificationFixture(

@@ -18,6 +18,7 @@ import {
 
 import {requireApprovedProvider} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
+import {isChatLifecycleEligible} from "@/lib/messaging/chat-lifecycle";
 import {normalizeChatMessage} from "@/lib/messaging/message-normalization";
 
 import type {
@@ -35,21 +36,6 @@ const MAX_PAGE_SIZE = 30;
 const MAX_RELATION_REQUESTS = 30;
 const SAFE_DOCUMENT_ID = /^[A-Za-z0-9_-]{1,160}$/u;
 const CUSTOMER_NAME_FALLBACK = "FEASTA customer";
-const CHAT_ELIGIBLE_PROVIDER_REQUEST_STATUSES = new Set<ProviderRequestStatus>([
-  "pending",
-  "accepted",
-  "waiting_for_down_payment",
-  "payment_processing",
-  "confirmed",
-  "in_progress",
-]);
-const CHAT_ELIGIBLE_MAIN_EVENT_STATUSES = new Set<MainEventStatus>([
-  "pending_provider_approval",
-  "needs_provider_replacement",
-  "waiting_for_down_payment",
-  "confirmed",
-  "in_progress",
-]);
 
 type PageCursor = {
   scope: string;
@@ -696,16 +682,6 @@ function legacyLifecycle(value: unknown): {
     requestStatus: null,
     mainEventStatus: null,
   };
-}
-
-function isChatLifecycleEligible(
-  providerRequestStatus: ProviderRequestStatus | null,
-  eventStatus: MainEventStatus | null,
-): boolean {
-  return providerRequestStatus !== null &&
-    eventStatus !== null &&
-    CHAT_ELIGIBLE_PROVIDER_REQUEST_STATUSES.has(providerRequestStatus) &&
-    CHAT_ELIGIBLE_MAIN_EVENT_STATUSES.has(eventStatus);
 }
 
 function optionalText(

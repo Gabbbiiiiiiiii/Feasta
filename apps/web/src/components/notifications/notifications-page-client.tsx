@@ -405,11 +405,15 @@ function notificationDestination(role: ShellRole, notification: FeastaNotificati
   if (
     collection === "chatrooms" &&
     notification.type.toLowerCase() === "new_message" &&
-    role === "provider" &&
     notification.relatedId &&
     /^[A-Za-z0-9_-]{1,160}$/u.test(notification.relatedId)
   ) {
-    return `/provider/messages?room=${encodeURIComponent(notification.relatedId)}`;
+    if (role === "provider") {
+      return `/provider/messages?room=${encodeURIComponent(notification.relatedId)}`;
+    }
+    if (role === "customer") {
+      return `/customer/messages?room=${encodeURIComponent(notification.relatedId)}`;
+    }
   }
 
   if (collection === "providerverifications" || notification.type.toLowerCase().includes("verification")) {

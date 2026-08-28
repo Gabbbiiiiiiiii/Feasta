@@ -4,9 +4,11 @@ import {
   CalendarDays,
   CreditCard,
   Info,
+  MessageSquareText,
   PhilippinePeso,
   Users,
 } from "lucide-react";
+import {useRouter} from "next/navigation";
 import {useState} from "react";
 
 import {
@@ -24,20 +26,26 @@ import {
   isCustomerBookingPaymentProcessing,
 } from "@/lib/customer/bookings/customer-booking-payment";
 import type {CustomerBookingDetails} from "@/lib/customer/bookings/customer-booking-types";
+import {openCustomerProviderRequestChat} from "@/lib/customer/messages/customer-chat-client";
 import {
   createCustomerPaymentCheckout,
   redirectToCustomerPaymentCheckout,
 } from "@/lib/customer/payments/customer-payment-client";
+import {isChatLifecycleEligible} from "@/lib/messaging/chat-lifecycle";
 
 type CustomerBookingDetailContentProps = {
   details: CustomerBookingDetails;
 };
 
+const SAFE_DOCUMENT_ID = /^[A-Za-z0-9_-]{1,160}$/u;
+
 function CustomerBookingDetailContent({
   details,
 }: CustomerBookingDetailContentProps) {
   const {booking, providerRequests} = details;
+  const router = useRouter();
   const [paymentRequestId, setPaymentRequestId] = useState<string | null>(null);
+  const [messageRequestId, setMessageRequestId] = useState<string | null>(null);
 
   async function startCheckout(providerRequestId: string) {
     if (paymentRequestId !== null) return;
@@ -66,6 +74,36 @@ function CustomerBookingDetailContent({
       );
     } finally {
       setPaymentRequestId(null);
+    }
+  }
+
+  async function openMessaging(providerRequestId: string) {
+    if (messageRequestId !== null) return;
+    const request = providerRequests.find(
+      (candidate) => candidate.providerRequestId === providerRequestId,
+    );
+
+    if (!request || !canMessageProviderRequest(request, booking)) {
+      feastaToast.error(
+        "Messaging is unavailable for this provider request.",
+      );
+      return;
+    }
+
+    setMessageRequestId(providerRequestId);
+    try {
+      const room = await openCustomerProviderRequestChat(providerRequestId);
+      router.push(
+        `/customer/messages?room=${encodeURIComponent(room.chatRoomId)}`,
+      );
+    } catch (error: unknown) {
+      feastaToast.error(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "The conversation could not be opened. Please try again.",
+      );
+    } finally {
+      setMessageRequestId(null);
     }
   }
 
@@ -122,6 +160,12 @@ function CustomerBookingDetailContent({
                   paymentRequestId,
                   onPay: startCheckout,
                 })}
+                messageAction={messageActionForRequest({
+                  request,
+                  booking,
+                  messageRequestId,
+                  onMessage: openMessaging,
+                })}
               />
             ))}
           </div>
@@ -133,6 +177,46 @@ function CustomerBookingDetailContent({
       </DetailSection>
     </div>
   );
+}
+
+function messageActionForRequest({
+  request,
+  booking,
+  messageRequestId,
+  onMessage,
+}: {
+  request: CustomerBookingDetails["providerRequests"][number];
+  booking: CustomerBookingDetails["booking"];
+  messageRequestId: string | null;
+  onMessage: (providerRequestId: string) => Promise<void>;
+}) {
+  if (!canMessageProviderRequest(request, booking)) return undefined;
+  const loading = messageRequestId === request.providerRequestId;
+
+  return (
+    <Button
+      variant="secondary"
+      fullWidth
+      loading={loading}
+      loadingLabel="Opening messages…"
+      disabled={messageRequestId !== null}
+      onClick={() => void onMessage(request.providerRequestId)}
+    >
+      <MessageSquareText aria-hidden="true" className="size-5" />
+      Message Provider
+    </Button>
+  );
+}
+
+function canMessageProviderRequest(
+  request: CustomerBookingDetails["providerRequests"][number],
+  booking: CustomerBookingDetails["booking"],
+): boolean {
+  return SAFE_DOCUMENT_ID.test(request.providerRequestId) &&
+    request.id === request.providerRequestId &&
+    request.mainEventId === booking.id &&
+    SAFE_DOCUMENT_ID.test(request.providerId) &&
+    isChatLifecycleEligible(request.status, booking.status);
 }
 
 function paymentActionForRequest({

@@ -19,11 +19,14 @@ const mocks = vi.hoisted(() => ({
   unavailable: {kind: "customer-booking-unavailable"},
   createCheckout: vi.fn(),
   redirectCheckout: vi.fn(),
+  openChat: vi.fn(),
+  push: vi.fn(),
   toastError: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
   notFound: mocks.notFound,
+  useRouter: () => ({push: mocks.push}),
 }));
 
 vi.mock("@/lib/customer/bookings/customer-booking-service", () => ({
@@ -35,6 +38,10 @@ vi.mock("@/lib/customer/bookings/customer-booking-service", () => ({
 vi.mock("@/lib/customer/payments/customer-payment-client", () => ({
   createCustomerPaymentCheckout: mocks.createCheckout,
   redirectToCustomerPaymentCheckout: mocks.redirectCheckout,
+}));
+
+vi.mock("@/lib/customer/messages/customer-chat-client", () => ({
+  openCustomerProviderRequestChat: mocks.openChat,
 }));
 
 vi.mock("@/components/feedback/toast", () => ({
@@ -51,6 +58,12 @@ import {
 describe("customer booking dedicated detail page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.openChat.mockResolvedValue({
+      chatRoomId: "request-1",
+      providerRequestId: "request-1",
+      created: false,
+      canSendMessages: true,
+    });
   });
 
   it("server-loads an owned direct URL and renders accessible read-only details", async () => {
@@ -99,6 +112,44 @@ describe("customer booking dedicated detail page", () => {
         name: /pay .*25,000\.00 down payment/iu,
       }),
     ).toBeVisible();
+  });
+
+  it("opens messaging through the trusted callable and canonical provider-request room", async () => {
+    render(<CustomerBookingDetailPage result={detailResult()} />);
+
+    fireEvent.click(screen.getByRole("button", {name: "Message Provider"}));
+
+    await waitFor(() => {
+      expect(mocks.openChat).toHaveBeenCalledTimes(1);
+      expect(mocks.openChat).toHaveBeenCalledWith("request-1");
+      expect(mocks.push).toHaveBeenCalledWith(
+        "/customer/messages?room=request-1",
+      );
+    });
+  });
+
+  it("does not expose messaging for terminal, malformed, or non-canonical provider requests", () => {
+    const terminal = detailResult();
+    terminal.details.providerRequests = [providerRequestFixture({status: "completed"})];
+    const {rerender} = render(<CustomerBookingDetailPage result={terminal} />);
+    expect(screen.queryByRole("button", {name: "Message Provider"}))
+      .not.toBeInTheDocument();
+
+    const mismatched = detailResult();
+    mismatched.details.providerRequests = [providerRequestFixture({
+      id: "different-request-id",
+    })];
+    rerender(<CustomerBookingDetailPage result={mismatched} />);
+    expect(screen.queryByRole("button", {name: "Message Provider"}))
+      .not.toBeInTheDocument();
+
+    const malformedProvider = detailResult();
+    malformedProvider.details.providerRequests = [providerRequestFixture({
+      providerId: "providers/private-provider",
+    })];
+    rerender(<CustomerBookingDetailPage result={malformedProvider} />);
+    expect(screen.queryByRole("button", {name: "Message Provider"}))
+      .not.toBeInTheDocument();
   });
 
   it.each([

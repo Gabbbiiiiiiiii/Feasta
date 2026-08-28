@@ -5,6 +5,9 @@ export {
   subscribeToChatMessages,
 } from "./messaging-client";
 export {
+  isChatLifecycleEligible,
+} from "./chat-lifecycle";
+export {
   chronologicalChatMessages,
   mergeChatMessages,
 } from "./message-collection";

@@ -123,6 +123,11 @@ describe("customer marketplace header", () => {
       .toHaveAttribute("href", "/customer/account");
     expect(screen.getByRole("menuitem", {name: "My Bookings"}))
       .toHaveAttribute("href", "/customer/bookings");
+    expect(screen.getByRole("menuitem", {name: "Messages"}))
+      .toHaveAttribute("href", "/customer/messages");
+    const menuItems = screen.getAllByRole("menuitem");
+    expect(menuItems.indexOf(screen.getByRole("menuitem", {name: "Messages"})))
+      .toBe(menuItems.indexOf(screen.getByRole("menuitem", {name: "My Bookings"})) + 1);
     expect(screen.getByRole("button", {name: "Sign Out"})).toBeInTheDocument();
     expect(screen.getByRole("link", {name: "Notifications"}))
       .toHaveAttribute("href", "/customer/notifications");
