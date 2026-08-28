@@ -137,6 +137,21 @@ test("callables derive participants and commit message side effects atomically",
   assert.doesNotMatch(callable, /messageType:\s*"image"/u);
 });
 
+test("send success exposes only the room and message identifiers", () => {
+  const resultType = callable.slice(
+    callable.indexOf("type SendChatMessageResult"),
+    callable.indexOf("const callableOptions"),
+  );
+
+  assert.match(resultType, /messageId:\s*string/u);
+  assert.match(resultType, /chatRoomId:\s*string/u);
+  assert.doesNotMatch(resultType, /recipientId/u);
+  assert.match(
+    callable,
+    /return\s*\{\s*messageId:\s*messageReference\.id,\s*chatRoomId,\s*\}/u,
+  );
+});
+
 test("legacy compatibility is read-through only and never rewrites room history", () => {
   assert.match(callable, /openExistingLegacyRoom/u);
   assert.match(callable, /legacyRoomMatches/u);

@@ -90,17 +90,14 @@ export function AuthCard({
               className="inline-flex min-h-12 items-center gap-2 rounded-[10px] pr-2 text-xl font-black tracking-tight text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
             >
               <Image
-                src="/images/feasta_logo.png"
+                src="/images/feasta_logo.svg"
                 alt=""
-                width={40}
-                height={40}
+                width={586}
+                height={202}
                 priority
-                className="size-10 object-contain"
+                className="h-10 w-auto object-contain"
               />
-              <span>
-                <span className="text-primary">Feasta</span>{" "}
-                Provider
-              </span>
+              <span>Provider</span>
             </Link>
 
             <p className="mt-5 text-sm font-bold uppercase tracking-[0.18em] text-primary-strong lg:mt-0">
@@ -190,17 +187,14 @@ function ProviderAuthBrandPanel() {
           className="inline-flex min-h-12 items-center gap-3 rounded-[10px] pr-2 text-2xl font-black tracking-[-0.04em] text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <Image
-            src="/images/feasta_logo.png"
+            src="/images/feasta_logo.svg"
             alt=""
-            width={44}
-            height={44}
+            width={586}
+            height={202}
             priority
-            className="size-11 object-contain"
+            className="h-11 w-auto object-contain"
           />
-          <span>
-            <span className="text-primary">Feasta</span>{" "}
-            Provider
-          </span>
+          <span>Provider</span>
         </Link>
 
         <p className="mt-10 text-sm font-bold uppercase tracking-[0.2em] text-primary">

@@ -44,6 +44,7 @@ async function run() {
 
     const fixture = await createFixture();
     await assertCanonicalAndMultiProviderFlow(fixture);
+    await assertCrossParticipantDenial(fixture);
     await assertLegacyCompatibility(fixture);
     await assertTerminalAndInactiveDenial(fixture);
 
@@ -60,6 +61,13 @@ async function createFixture() {
     await createUserWithEmailAndPassword(
       auth,
       "messaging.customer@feasta.test",
+      password,
+    )
+  ).user;
+  const otherCustomer = (
+    await createUserWithEmailAndPassword(
+      auth,
+      "messaging.customer.other@feasta.test",
       password,
     )
   ).user;
@@ -88,6 +96,7 @@ async function createFixture() {
 
   await Promise.all([
     seedUser(customer.uid, "customer", null),
+    seedUser(otherCustomer.uid, "customer", null),
     seedUser(providerA.uid, "provider", providerAId),
     seedUser(providerB.uid, "provider", providerBId),
     seedProvider(providerAId, providerA.uid, "Provider A"),
@@ -125,6 +134,7 @@ async function createFixture() {
 
   return {
     customer,
+    otherCustomer,
     providerA,
     providerB,
     providerAId,
@@ -152,7 +162,11 @@ async function assertCanonicalAndMultiProviderFlow(fixture) {
     {chatRoomId: openedA.chatRoomId, message: "  Hello Provider A  "},
   );
   assert.equal(sentA.chatRoomId, fixture.requestAId);
-  assert.equal(sentA.recipientId, fixture.providerA.uid);
+  assert.deepEqual(
+    Object.keys(sentA).sort(),
+    ["chatRoomId", "messageId"],
+  );
+  assert.equal("recipientId" in sentA, false);
 
   const roomA = await db.collection("chatRooms").doc(fixture.requestAId).get();
   assert.equal(roomA.data()?.lastMessage, "Hello Provider A");
@@ -194,6 +208,12 @@ async function assertCanonicalAndMultiProviderFlow(fixture) {
   assert.notEqual(openedB.chatRoomId, openedA.chatRoomId);
 
   await assert.rejects(
+    () => callFunction("openProviderRequestChat", fixture.providerA, {
+      providerRequestId: fixture.requestBId,
+    }),
+    /PERMISSION_DENIED/u,
+  );
+  await assert.rejects(
     () => callFunction("sendChatMessage", fixture.providerA, {
       chatRoomId: fixture.requestBId,
       message: "Cross-provider attempt",
@@ -233,6 +253,39 @@ async function assertCanonicalAndMultiProviderFlow(fixture) {
     () => callFunction("markChatRoomRead", fixture.customer, {
       chatRoomId: fixture.requestAId,
       currentRole: "customer",
+    }),
+    /INVALID_ARGUMENT/u,
+  );
+}
+
+async function assertCrossParticipantDenial(fixture) {
+  for (const [callableName, data] of [
+    ["openProviderRequestChat", {providerRequestId: fixture.requestAId}],
+    ["sendChatMessage", {
+      chatRoomId: fixture.requestAId,
+      message: "Cross-customer attempt",
+    }],
+    ["markChatRoomRead", {chatRoomId: fixture.requestAId}],
+  ]) {
+    await assert.rejects(
+      () => callFunction(callableName, fixture.otherCustomer, data),
+      /PERMISSION_DENIED/u,
+    );
+  }
+
+  await assert.rejects(
+    () => callFunction("openProviderRequestChat", fixture.customer, {
+      providerRequestId: fixture.requestAId,
+      customerId: fixture.otherCustomer.uid,
+    }),
+    /INVALID_ARGUMENT/u,
+  );
+  await assert.rejects(
+    () => callFunction("sendChatMessage", fixture.customer, {
+      chatRoomId: fixture.requestAId,
+      message: "Spoofed identity attempt",
+      senderId: fixture.providerA.uid,
+      senderRole: "provider",
     }),
     /INVALID_ARGUMENT/u,
   );

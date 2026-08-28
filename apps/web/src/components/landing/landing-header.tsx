@@ -124,20 +124,16 @@ export function LandingHeader({
           <Link
             href="/"
             aria-label="FEASTA home"
-            className="group inline-flex shrink-0 items-center gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="group inline-flex shrink-0 items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <Image
-              src="/images/feasta_logo.png"
-              alt=""
-              width={44}
-              height={44}
+              src="/images/feasta_logo.svg"
+              alt="Feasta"
+              width={586}
+              height={202}
               priority
-              className="size-11 object-contain transition-transform duration-normal group-hover:scale-[1.04] motion-reduce:transform-none"
+              className="h-[34px] w-auto object-contain transition-transform duration-normal group-hover:scale-[1.03] motion-reduce:transform-none"
             />
-
-            <span className="text-[23px] font-extrabold tracking-[-0.045em] text-primary sm:text-[25px]">
-              Feasta
-            </span>
           </Link>
 
           {/* ================================================================

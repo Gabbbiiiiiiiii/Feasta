@@ -78,6 +78,11 @@ type OpenChatResult = {
   isActive: boolean;
 };
 
+type SendChatMessageResult = {
+  messageId: string;
+  chatRoomId: string;
+};
+
 const callableOptions = {
   ...appCheckCallableOptions,
   timeoutSeconds: 30,
@@ -215,7 +220,7 @@ export const openProviderRequestChat = onCall(
 
 export const sendChatMessage = onCall(
   callableOptions,
-  async (request) => {
+  async (request): Promise<SendChatMessageResult> => {
     const authenticated = requireAuth(request);
     const role = await requireRole(
       authenticated.uid,
@@ -318,7 +323,6 @@ export const sendChatMessage = onCall(
         return {
           messageId: messageReference.id,
           chatRoomId,
-          recipientId,
         };
       },
     );

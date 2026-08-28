@@ -135,7 +135,6 @@ beforeEach(() => {
   mocks.send.mockResolvedValue({
     messageId: "sent-message",
     chatRoomId: "provider_request_123",
-    recipientId: "customer",
   });
   mocks.markRead.mockResolvedValue({
     chatRoomId: "provider_request_123",
@@ -150,6 +149,10 @@ describe("provider messages route and security contract", () => {
   const actions = readFileSync(join(root, "src/app/provider/messages/actions.ts"), "utf8");
   const client = readFileSync(
     join(root, "src/lib/provider/messages/provider-chat-client.ts"),
+    "utf8",
+  );
+  const sharedClient = readFileSync(
+    join(root, "src/lib/messaging/messaging-client.ts"),
     "utf8",
   );
   const workspace = readFileSync(
@@ -168,16 +171,18 @@ describe("provider messages route and security contract", () => {
   });
 
   it("keeps realtime reads bounded and all mutations callable-only", () => {
-    expect(client).toContain('collection(db, "chatRooms", roomId, "messages")');
-    expect(client).toContain('orderBy("createdAt", "desc")');
-    expect(client).toContain("orderBy(documentId(), \"desc\")");
-    expect(client).toContain("limit(REALTIME_MESSAGE_LIMIT)");
-    expect(client).toContain('functions, "sendChatMessage"');
-    expect(client).toContain('functions, "markChatRoomRead"');
-    expect(client).toContain("callable({\n      chatRoomId: roomId,\n      message: normalizedMessage,");
-    expect(client).toContain("callable({chatRoomId: roomId})");
-    expect(client).not.toMatch(/callable\(\{[^}]*providerId|callable\(\{[^}]*senderId|callable\(\{[^}]*senderRole/u);
-    expect(client).not.toMatch(/addDoc|setDoc|updateDoc|deleteDoc|writeBatch/u);
+    expect(client).toContain("subscribeToChatMessages");
+    expect(client).toContain('currentRole: "provider"');
+    expect(sharedClient).toContain('collection(db, "chatRooms", roomId, "messages")');
+    expect(sharedClient).toContain('orderBy("createdAt", "desc")');
+    expect(sharedClient).toContain("orderBy(documentId(), \"desc\")");
+    expect(sharedClient).toContain("limit(CHAT_REALTIME_MESSAGE_LIMIT)");
+    expect(sharedClient).toContain('functions, "sendChatMessage"');
+    expect(sharedClient).toContain('functions, "markChatRoomRead"');
+    expect(sharedClient).toContain("callable({\n      chatRoomId: roomId,\n      message: normalizedMessage,");
+    expect(sharedClient).toContain("callable({chatRoomId: roomId})");
+    expect(sharedClient).not.toMatch(/callable\(\{[^}]*providerId|callable\(\{[^}]*senderId|callable\(\{[^}]*senderRole/u);
+    expect(sharedClient).not.toMatch(/addDoc|setDoc|updateDoc|deleteDoc|writeBatch/u);
   });
 
   it("uses responsive list-to-conversation presentation without attachment controls", () => {
@@ -306,7 +311,6 @@ describe("provider messages workspace", () => {
       resolveSend = () => resolve({
         messageId: "sent-message",
         chatRoomId: "provider_request_123",
-        recipientId: "customer",
       });
     }));
     const user = userEvent.setup();

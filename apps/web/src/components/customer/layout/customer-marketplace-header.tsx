@@ -139,19 +139,16 @@ function MarketplaceBrand({pathname}: {pathname: string}) {
       href={CUSTOMER_HOME_PATH}
       aria-label="FEASTA home"
       aria-current={pathname === CUSTOMER_HOME_PATH ? "page" : undefined}
-      className="group col-start-1 row-start-1 inline-flex min-h-12 min-w-0 shrink-0 items-center gap-2 rounded-lg pr-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      className="group col-start-1 row-start-1 inline-flex min-h-12 min-w-0 shrink-0 items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       <Image
-        src="/images/feasta_logo.png"
-        alt=""
-        width={42}
-        height={42}
+        src="/images/feasta_logo.svg"
+        alt="Feasta"
+        width={586}
+        height={202}
         priority
-        className="size-10 shrink-0 object-contain transition-transform duration-200 group-hover:scale-[1.03] motion-reduce:transform-none motion-reduce:transition-none"
+        className="h-[34px] w-auto shrink-0 object-contain transition-transform duration-200 group-hover:scale-[1.02] motion-reduce:transform-none motion-reduce:transition-none"
       />
-      <span className="hidden min-w-0 text-[20px] font-extrabold tracking-[-0.04em] text-primary sm:inline">
-        Feasta
-      </span>
     </Link>
   );
 }

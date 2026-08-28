@@ -22,6 +22,10 @@ import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
 import {Textarea} from "@/components/ui/textarea";
 import {
+  chronologicalChatMessages,
+  mergeChatMessages,
+} from "@/lib/messaging/message-collection";
+import {
   markProviderChatRoomRead,
   PROVIDER_CHAT_MESSAGE_MAX_LENGTH,
   sendProviderChatMessage,
@@ -62,7 +66,9 @@ export function ProviderMessagesClient({
 }: ProviderMessagesClientProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const initialMessageItems = chronological(initialMessages?.messages ?? []);
+  const initialMessageItems = chronologicalChatMessages(
+    initialMessages?.messages ?? [],
+  );
   const [roomPage, setRoomPage] = useState(initialPage);
   const [roomFilters, setRoomFilters] = useState(initialFilters);
   const [roomCursorHistory, setRoomCursorHistory] = useState<string[]>([]);
@@ -100,14 +106,14 @@ export function ProviderMessagesClient({
   const shouldScrollToNewest = useRef(initialRoom !== null);
 
   const replaceMessages = useCallback((next: readonly ProviderChatMessage[]) => {
-    const normalized = chronological(next);
+    const normalized = chronologicalChatMessages(next);
     messagesRef.current = normalized;
     messageIdsRef.current = new Set(normalized.map((item) => item.id));
     setMessages(normalized);
   }, []);
 
   const mergeIntoMessages = useCallback((incoming: readonly ProviderChatMessage[]) => {
-    replaceMessages(mergeMessages(messagesRef.current, incoming));
+    replaceMessages(mergeChatMessages(messagesRef.current, incoming));
   }, [replaceMessages]);
 
   const updateUnread = useCallback((roomId: string, unreadCount: number) => {
@@ -758,22 +764,6 @@ function EmptyConversations() {
       </p>
     </div>
   );
-}
-
-function mergeMessages(
-  current: readonly ProviderChatMessage[],
-  incoming: readonly ProviderChatMessage[],
-): ProviderChatMessage[] {
-  const byId = new Map(current.map((message) => [message.id, message]));
-  for (const message of incoming) byId.set(message.id, message);
-  return chronological([...byId.values()]);
-}
-
-function chronological(messages: readonly ProviderChatMessage[]): ProviderChatMessage[] {
-  return [...messages].sort((left, right) => {
-    const time = new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime();
-    return time === 0 ? left.id.localeCompare(right.id) : time;
-  });
 }
 
 function eventSummary(room: ProviderChatRoom): string {

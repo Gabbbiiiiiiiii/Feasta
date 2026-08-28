@@ -18,6 +18,7 @@ import {
 
 import {requireApprovedProvider} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
+import {normalizeChatMessage} from "@/lib/messaging/message-normalization";
 
 import type {
   ProviderChatMessage,
@@ -193,11 +194,15 @@ export async function getProviderChatMessages(
   let skippedMalformedCount = 0;
 
   for (const document of documents) {
-    const message = mapProviderMessage(
-      document,
-      roomId,
-      relationship,
-    );
+    const message = normalizeChatMessage({
+      id: document.id,
+      chatRoomId: roomId,
+      data: document.data(),
+      expectedSenderIds: {
+        customer: relationship.customerId,
+        provider: relationship.providerOwnerId,
+      },
+    });
     if (message) messages.push(message);
     else skippedMalformedCount += 1;
   }
@@ -493,40 +498,6 @@ async function resolveLegacyBookingRelationship(
       "Event service",
     isLegacy: true,
   };
-}
-
-function mapProviderMessage(
-  snapshot: QueryDocumentSnapshot<DocumentData>,
-  chatRoomId: string,
-  relationship: RoomRelationship,
-): ProviderChatMessage | null {
-  const data = snapshot.data();
-  const text = optionalText(data.message, 4_000);
-  const createdAt = timestampIso(data.createdAt);
-  const messageType = data.messageType ?? "text";
-
-  if (
-    data.chatRoomId !== chatRoomId ||
-    messageType !== "text" ||
-    !text ||
-    !createdAt
-  ) {
-    return null;
-  }
-
-  const sender = data.senderId ===
-    relationship.customerId &&
-    data.senderRole === "customer"
-    ? "customer"
-    : data.senderId ===
-        relationship.providerOwnerId &&
-        data.senderRole === "provider"
-      ? "provider"
-      : null;
-
-  return sender
-    ? {id: snapshot.id, sender, text, createdAt}
-    : null;
 }
 
 function serviceSummary(data: DocumentData): string {

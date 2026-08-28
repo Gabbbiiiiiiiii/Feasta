@@ -1279,6 +1279,15 @@ test("chat reads stay participant-scoped and all client mutations are denied", a
       isActive: true,
       createdAt: new Date(),
     },
+    "chatRooms/room-one/messages/message-one": {
+      chatRoomId: "room-one",
+      senderId: "customer-one",
+      senderRole: "customer",
+      message: "Hello provider",
+      messageType: "text",
+      isRead: false,
+      createdAt: new Date(),
+    },
   });
   const customer = authenticated(testEnv, "customer-one", "customer")
     .firestore();
@@ -1293,6 +1302,27 @@ test("chat reads stay participant-scoped and all client mutations are denied", a
   await assertSucceeds(getDoc(doc(provider, "chatRooms/room-one")));
   await assertFails(getDoc(doc(unrelated, "chatRooms/room-one")));
   await assertFails(getDoc(doc(otherProvider, "chatRooms/room-one")));
+  await assertSucceeds(getDocs(query(
+    collection(customer, "chatRooms"),
+    where("customerId", "==", "customer-one"),
+  )));
+  await assertFails(getDocs(query(
+    collection(unrelated, "chatRooms"),
+    where("customerId", "==", "customer-one"),
+  )));
+  await assertSucceeds(getDocs(query(
+    collection(provider, "chatRooms"),
+    where("providerId", "==", "provider-one"),
+  )));
+  await assertFails(getDocs(query(
+    collection(otherProvider, "chatRooms"),
+    where("providerId", "==", "provider-one"),
+  )));
+  const messagePath = "chatRooms/room-one/messages/message-one";
+  await assertSucceeds(getDoc(doc(customer, messagePath)));
+  await assertSucceeds(getDoc(doc(provider, messagePath)));
+  await assertFails(getDoc(doc(unrelated, messagePath)));
+  await assertFails(getDoc(doc(otherProvider, messagePath)));
   await assertFails(setDoc(doc(customer, "chatRooms/client-created"), {
     bookingId: "event-one",
     customerId: "customer-one",
@@ -1306,6 +1336,8 @@ test("chat reads stay participant-scoped and all client mutations are denied", a
   await assertFails(updateDoc(doc(customer, "chatRooms/room-one"), {
     unreadCountCustomer: 0,
   }));
+  await assertFails(deleteDoc(doc(customer, "chatRooms/room-one")));
+  await assertFails(deleteDoc(doc(customer, messagePath)));
   await assertFails(setDoc(
     doc(customer, "chatRooms/room-one/messages/forged"),
     {

@@ -36,22 +36,19 @@ function Brand({role, compact = false}: BrandProps) {
   return (
     <Link
       href={roleHome[role]}
-      className="inline-flex min-h-12 items-center gap-3 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      className="inline-flex min-h-12 items-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       aria-label={`FEASTA ${roleLabels[role]} home`}
     >
       <Image
-        src="/images/feasta_logo.png"
-        alt=""
-        width={48}
-        height={48}
+        src="/images/feasta_logo.svg"
+        alt="Feasta"
+        width={586}
+        height={202}
         priority
-        className="size-12 shrink-0 object-contain"
+        className={compact
+          ? "h-[30px] w-auto shrink-0 object-contain"
+          : "h-[34px] w-auto shrink-0 object-contain"}
       />
-      {!compact ? (
-        <span className="text-xl font-black tracking-[0.08em] text-foreground">
-          FEASTA
-        </span>
-      ) : null}
     </Link>
   );
 }

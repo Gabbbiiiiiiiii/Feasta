@@ -953,19 +953,16 @@ export default function CustomerPhoneVerificationForm({
             className="inline-flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Image
-              src="/images/feasta_logo.png"
+              src="/images/feasta_logo.svg"
               alt=""
-              width={40}
-              height={40}
+              width={586}
+              height={202}
               priority
-              className="size-10 object-contain"
+              className="h-10 w-auto object-contain"
             />
 
             <span className="text-[22px] font-bold tracking-[-0.03em] text-primary sm:text-2xl">
-              Feasta{" "}
-              <span className="text-foreground">
-                marketplace
-              </span>
+              <span className="text-foreground">Marketplace</span>
             </span>
           </Link>
 

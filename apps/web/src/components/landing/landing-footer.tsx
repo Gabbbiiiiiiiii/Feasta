@@ -127,16 +127,12 @@ export function LandingFooter() {
               ].join(" ")}
             >
               <Image
-                src="/images/feasta_logo.png"
-                alt=""
-                width={44}
-                height={44}
-                className="size-11 object-contain"
+                src="/images/feasta_logo.svg"
+                alt="Feasta"
+                width={586}
+                height={202}
+                className="h-8 w-auto object-contain"
               />
-
-              <span className="text-[24px] font-extrabold tracking-[-0.045em] text-primary">
-                Feasta
-              </span>
             </Link>
 
             <p className="mt-5 max-w-sm text-lg font-bold leading-7 text-white">

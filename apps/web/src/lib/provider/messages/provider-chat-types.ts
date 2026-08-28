@@ -3,6 +3,12 @@ import type {
   ProviderRequestType,
 } from "@feasta/shared-types";
 
+import type {
+  ChatMessage,
+  ChatMessageFilters,
+  ChatMessagePage,
+} from "@/lib/messaging/messaging-types";
+
 export type ProviderChatRoomFilters = {
   pageSize: number;
   cursor?: string | null;
@@ -40,24 +46,10 @@ export type ProviderChatRoomPage = {
   skippedMalformedCount: number;
 };
 
-export type ProviderChatMessage = {
-  id: string;
-  sender: "customer" | "provider";
-  text: string;
-  createdAt: string;
-};
+export type ProviderChatMessage = ChatMessage;
 
-export type ProviderChatMessageFilters = {
-  pageSize: number;
-  cursor?: string | null;
-};
+export type ProviderChatMessageFilters = ChatMessageFilters;
 
-export type ProviderChatMessagePage = {
-  chatRoomId: string;
-  messages: ProviderChatMessage[];
-  nextCursor: string | null;
-  hasMore: boolean;
-  skippedMalformedCount: number;
-};
+export type ProviderChatMessagePage = ChatMessagePage;
 
 export type ProviderChatRoomDetail = ProviderChatRoom;
