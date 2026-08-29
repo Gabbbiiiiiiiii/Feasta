@@ -113,8 +113,58 @@ export function ProviderMessagesClient({
   }, []);
 
   const mergeIntoMessages = useCallback((incoming: readonly ProviderChatMessage[]) => {
-    replaceMessages(mergeChatMessages(messagesRef.current, incoming));
+    const merged = mergeChatMessages(messagesRef.current, incoming);
+    replaceMessages(merged);
+    return merged;
   }, [replaceMessages]);
+
+  const updateRoomPreview = useCallback((
+    roomId: string,
+    canonicalMessages: readonly ProviderChatMessage[],
+  ) => {
+    const newestMessage = canonicalMessages.at(-1);
+    if (!newestMessage) return;
+
+    const mergePreview = <Room extends ProviderChatRoom>(room: Room): Room => {
+      if (
+        room.id !== roomId ||
+        Date.parse(newestMessage.createdAt) < Date.parse(room.lastMessageAt)
+      ) {
+        return room;
+      }
+
+      if (
+        room.lastMessage === newestMessage.text &&
+        room.lastMessageAt === newestMessage.createdAt &&
+        room.lastMessageFrom === newestMessage.sender
+      ) {
+        return room;
+      }
+
+      return {
+        ...room,
+        lastMessage: newestMessage.text,
+        lastMessageAt: newestMessage.createdAt,
+        lastMessageFrom: newestMessage.sender,
+      };
+    };
+
+    setRoomPage((current) => {
+      const matchingRoom = current.rooms.find((room) => room.id === roomId);
+      if (!matchingRoom) return current;
+
+      const updatedRoom = mergePreview(matchingRoom);
+      if (updatedRoom === matchingRoom) return current;
+
+      return {
+        ...current,
+        rooms: current.rooms
+          .map((room) => room.id === roomId ? updatedRoom : room)
+          .sort(compareProviderChatRooms),
+      };
+    });
+    setSelectedRoom((current) => current ? mergePreview(current) : current);
+  }, []);
 
   const updateUnread = useCallback((roomId: string, unreadCount: number) => {
     unreadOnSubscription.current = unreadCount;
@@ -167,7 +217,8 @@ export function ProviderMessagesClient({
             )
           : null;
 
-        mergeIntoMessages(newestWindow);
+        const canonicalMessages = mergeIntoMessages(newestWindow);
+        updateRoomPreview(roomId, canonicalMessages);
         shouldScrollToNewest.current = true;
         initialized = true;
 
@@ -204,7 +255,7 @@ export function ProviderMessagesClient({
       active = false;
       unsubscribe?.();
     };
-  }, [markRoomRead, mergeIntoMessages, selectedRoom?.id]);
+  }, [markRoomRead, mergeIntoMessages, selectedRoom?.id, updateRoomPreview]);
 
   useEffect(() => {
     if (!shouldScrollToNewest.current) return;
@@ -801,6 +852,16 @@ function formatMessageTime(value: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   });
+}
+
+function compareProviderChatRooms(
+  left: ProviderChatRoom,
+  right: ProviderChatRoom,
+): number {
+  const time = Date.parse(right.lastMessageAt) - Date.parse(left.lastMessageAt);
+  if (time !== 0) return time;
+  if (left.id === right.id) return 0;
+  return left.id < right.id ? 1 : -1;
 }
 
 function formatDate(

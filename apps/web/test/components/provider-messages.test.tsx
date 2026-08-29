@@ -211,6 +211,25 @@ describe("provider messages workspace", () => {
     expect(screen.getByText(/eligible FEASTA event requests/iu)).toBeVisible();
   });
 
+  it("keeps an honest empty-room preview before the first message", () => {
+    renderWorkspace({
+      rooms: roomPage([room({
+        lastMessage: "",
+        lastMessageAt: "2026-08-20T04:00:00.000Z",
+        lastMessageFrom: null,
+        unreadCount: 0,
+        updatedAt: null,
+      })]),
+    });
+
+    const conversation = screen.getByRole("button", {
+      name: /Open conversation with Ana Reyes/iu,
+    });
+    expect(within(conversation).getByText("No messages yet")).toBeVisible();
+    expect(within(conversation).getByRole("time"))
+      .toHaveAttribute("datetime", "2026-08-20T04:00:00.000Z");
+  });
+
   it("opens an authorized room, loads bounded history, updates the URL, and marks only its room read", async () => {
     const user = userEvent.setup();
     renderWorkspace();
@@ -277,6 +296,13 @@ describe("provider messages workspace", () => {
     expect(within(screen.getByRole("list", {name: "Conversation messages"}))
       .getAllByText(existing.text)).toHaveLength(1);
     expect(screen.getByText("Older event detail")).toBeVisible();
+    const conversation = screen.getByRole("button", {
+      name: /Open conversation with Ana Reyes/iu,
+    });
+    expect(within(conversation).getByText("Can we confirm the setup time?"))
+      .toBeVisible();
+    expect(within(conversation).getByRole("time"))
+      .toHaveAttribute("datetime", "2026-08-22T04:00:00.000Z");
   });
 
   it("trims sends, disables invalid input, clears only on success, and preserves failures", async () => {
@@ -370,7 +396,7 @@ describe("provider messages workspace", () => {
     ));
   });
 
-  it("merges the bounded realtime window, marks new customer activity, and cleans up", async () => {
+  it("updates the preview for the provider's own sent message without creating unread", async () => {
     let publish: ((items: readonly ProviderChatMessage[]) => void) | null = null;
     mocks.subscribe.mockImplementation(async (
       _roomId: string,
@@ -379,10 +405,72 @@ describe("provider messages workspace", () => {
       publish = onMessages;
       return mocks.unsubscribe;
     });
+    const emptyRoom = room({
+      lastMessage: "",
+      lastMessageAt: "2026-08-20T04:00:00.000Z",
+      lastMessageFrom: null,
+      unreadCount: 0,
+      updatedAt: null,
+    });
+    renderWorkspace({
+      rooms: roomPage([emptyRoom]),
+      selectedRoom: emptyRoom,
+      messages: messagePage([]),
+    });
+    await waitFor(() => expect(mocks.subscribe).toHaveBeenCalled());
+
+    const composer = screen.getByRole("textbox", {name: "Message customer"});
+    await userEvent.type(composer, "Provider confirmed the schedule");
+    await userEvent.click(screen.getByRole("button", {name: "Send message"}));
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith(
+      "provider_request_123",
+      "Provider confirmed the schedule",
+    ));
+    act(() => publish?.([message({
+      id: "sent-provider",
+      sender: "provider",
+      text: "Provider confirmed the schedule",
+      createdAt: "2026-08-23T05:00:00.000Z",
+    })]));
+
+    const conversation = screen.getByRole("button", {
+      name: /Open conversation with Ana Reyes/iu,
+    });
+    expect(await within(conversation).findByText("Provider confirmed the schedule"))
+      .toBeVisible();
+    expect(within(conversation).getByRole("time"))
+      .toHaveAttribute("datetime", "2026-08-23T05:00:00.000Z");
+    expect(within(conversation).queryByText("No messages yet"))
+      .not.toBeInTheDocument();
+    expect(within(conversation).queryByLabelText(/unread messages/iu))
+      .not.toBeInTheDocument();
+    expect(mocks.markRead).not.toHaveBeenCalled();
+  });
+
+  it("canonically syncs incoming previews, ordering, unread state, duplicates, and cleanup", async () => {
+    let publish: ((items: readonly ProviderChatMessage[]) => void) | null = null;
+    mocks.subscribe.mockImplementation(async (
+      _roomId: string,
+      onMessages: (items: readonly ProviderChatMessage[]) => void,
+    ) => {
+      publish = onMessages;
+      return mocks.unsubscribe;
+    });
+    const otherRoom = room({
+      id: "provider_request_999",
+      context: {
+        ...room().context,
+        providerRequestId: "provider_request_999",
+        customerDisplayName: "Bea Santos",
+      },
+      lastMessage: "Other conversation preview",
+      lastMessageAt: "2026-08-22T05:00:00.000Z",
+      unreadCount: 1,
+    });
     const {unmount} = render(
       <ProviderMessagesClient
         initialFilters={{pageSize: 10, cursor: null}}
-        initialPage={roomPage()}
+        initialPage={roomPage([otherRoom, room({unreadCount: 0})])}
         initialRoom={room({unreadCount: 0})}
         initialMessages={messagePage([message()])}
         initialSelectionError={false}
@@ -398,18 +486,76 @@ describe("provider messages workspace", () => {
     act(() => publish?.([
       message(),
       message({
-        id: "incoming-customer",
-        text: "A new customer update",
+        id: "incoming-customer-a",
+        text: "Earlier equal-time customer update",
+        createdAt: "2026-08-22T05:00:00.000Z",
+      }),
+      message({
+        id: "incoming-customer-z",
+        text: "Canonical equal-time customer update",
         createdAt: "2026-08-22T05:00:00.000Z",
       }),
     ]));
 
-    expect(await screen.findByText("A new customer update")).toBeVisible();
+    let conversations = screen.getByRole("list", {name: "Customer conversations"});
+    let conversationButtons = within(conversations).getAllByRole("button");
+    expect(conversationButtons).toHaveLength(2);
+    expect(conversationButtons[0]).toHaveAccessibleName(
+      "Open conversation with Bea Santos, 1 unread messages",
+    );
+    expect(conversationButtons[1]).toHaveAccessibleName(
+      "Open conversation with Ana Reyes",
+    );
+    expect(await within(conversationButtons[1]).findByText(
+      "Canonical equal-time customer update",
+    )).toBeVisible();
+    expect(within(conversationButtons[1]).getByRole("time"))
+      .toHaveAttribute("datetime", "2026-08-22T05:00:00.000Z");
+
+    const latestCustomerMessage = message({
+      id: "incoming-customer-latest",
+      text: "A new customer update",
+      createdAt: "2026-08-22T06:00:00.000Z",
+    });
+    act(() => publish?.([latestCustomerMessage]));
+
+    conversations = screen.getByRole("list", {name: "Customer conversations"});
+    conversationButtons = within(conversations).getAllByRole("button");
+    expect(conversationButtons).toHaveLength(2);
+    expect(conversationButtons[0]).toHaveAccessibleName(
+      "Open conversation with Ana Reyes",
+    );
+    expect(await within(conversationButtons[0]).findByText("A new customer update"))
+      .toBeVisible();
+    expect(within(conversationButtons[0]).getByRole("time"))
+      .toHaveAttribute("datetime", "2026-08-22T06:00:00.000Z");
+    expect(within(conversationButtons[1]).getByText("Other conversation preview"))
+      .toBeVisible();
+    expect(within(conversationButtons[1]).getByRole("time"))
+      .toHaveAttribute("datetime", "2026-08-22T05:00:00.000Z");
+    expect(within(conversationButtons[1]).getByLabelText("1 unread messages"))
+      .toBeVisible();
+
+    act(() => publish?.([latestCustomerMessage]));
+    act(() => publish?.([message()]));
+
+    conversations = screen.getByRole("list", {name: "Customer conversations"});
+    conversationButtons = within(conversations).getAllByRole("button");
+    expect(conversationButtons).toHaveLength(2);
+    expect(within(conversationButtons[0]).getByText("A new customer update"))
+      .toBeVisible();
+    expect(within(conversationButtons[0]).getByRole("time"))
+      .toHaveAttribute("datetime", "2026-08-22T06:00:00.000Z");
     expect(within(screen.getByRole("list", {name: "Conversation messages"}))
       .getAllByText("Can we confirm the setup time?")).toHaveLength(1);
+    expect(within(screen.getByRole("list", {name: "Conversation messages"}))
+      .getAllByText("A new customer update")).toHaveLength(1);
     await waitFor(() => expect(mocks.markRead).toHaveBeenCalledWith(
       "provider_request_123",
     ));
+    expect(mocks.markRead).toHaveBeenCalledTimes(2);
+    expect(within(conversationButtons[0]).queryByLabelText(/unread messages/iu))
+      .not.toBeInTheDocument();
     unmount();
     expect(mocks.unsubscribe).toHaveBeenCalledTimes(1);
   });
