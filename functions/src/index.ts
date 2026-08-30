@@ -98,6 +98,12 @@ export {
   archiveProviderPackage,
 } from "./packages/archive-provider-package.js";
 export {
+  publishProviderRefundPolicy,
+} from "./refund-policies/refund-policy-authoring.js";
+export {
+  setPackageRefundPolicyOverride,
+} from "./refund-policies/refund-policy-authoring.js";
+export {
   createProviderMediaUploadSignature,
   createProviderServiceImageUploadSignature,
   deleteProviderOnboardingMedia,

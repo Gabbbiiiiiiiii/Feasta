@@ -261,6 +261,83 @@ test("provider visibility and lifecycle fields follow trusted ownership", async 
   ));
 });
 
+test("refund policy fields are readable with their catalog but callable-only to mutate", async () => {
+  const refundPolicy = {
+    schemaVersion: 1,
+    policyVersion: 1,
+    rules: [
+      {stage: "preparation_not_started", refundBasisPoints: 10000},
+      {stage: "preparation_started", refundBasisPoints: 5000},
+      {stage: "service_started", refundBasisPoints: 0},
+    ],
+    terms: null,
+    effectiveAt: new Date(),
+  };
+
+  await seedDocuments(testEnv, {
+    "users/provider-policy-owner": userData(
+      "provider-policy-owner",
+      "provider",
+      {providerId: "provider-policy"},
+    ),
+    "users/admin-policy": userData("admin-policy", "admin"),
+    "providers/provider-policy": publicProviderData(
+      "provider-policy-owner",
+      {refundPolicy},
+    ),
+    "packages/package-policy": {
+      providerId: "provider-policy",
+      name: "Policy package",
+      status: "published",
+      isActive: true,
+      isPublished: true,
+      providerPubliclyVisible: true,
+      publishedAt: new Date(),
+      isDeleted: false,
+      refundPolicyOverride: refundPolicy,
+      refundPolicyOverrideVersion: 1,
+    },
+  });
+
+  const owner = authenticated(
+    testEnv,
+    "provider-policy-owner",
+    "provider",
+  ).firestore();
+  const admin = authenticated(
+    testEnv,
+    "admin-policy",
+    "admin",
+  ).firestore();
+  const publicDb = testEnv.unauthenticatedContext().firestore();
+
+  await assertSucceeds(getDoc(doc(
+    publicDb,
+    "providers/provider-policy",
+  )));
+  await assertSucceeds(getDoc(doc(
+    publicDb,
+    "packages/package-policy",
+  )));
+
+  await assertFails(updateDoc(doc(
+    owner,
+    "providers/provider-policy",
+  ), {refundPolicy: {...refundPolicy, policyVersion: 99}}));
+  await assertFails(updateDoc(doc(
+    admin,
+    "providers/provider-policy",
+  ), {refundPolicy: {...refundPolicy, policyVersion: 99}}));
+  await assertFails(updateDoc(doc(
+    owner,
+    "packages/package-policy",
+  ), {refundPolicyOverride: null}));
+  await assertFails(updateDoc(doc(
+    admin,
+    "packages/package-policy",
+  ), {refundPolicyOverride: null}));
+});
+
 test("catalog reads remain available while every direct client mutation is denied", async () => {
   await seedDocuments(testEnv, {
     "users/provider-owner": userData("provider-owner", "provider", {
