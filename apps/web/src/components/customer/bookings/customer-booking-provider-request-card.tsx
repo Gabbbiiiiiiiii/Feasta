@@ -28,6 +28,7 @@ type CustomerBookingProviderRequestCardProps = {
   paymentAction?: ReactNode;
   messageAction?: ReactNode;
   providerAction?: ReactNode;
+  reviewAction?: ReactNode;
 };
 
 const MAX_SERVICES_PER_REQUEST = 30;
@@ -39,6 +40,7 @@ function CustomerBookingProviderRequestCard({
   paymentAction,
   messageAction,
   providerAction,
+  reviewAction,
 }: CustomerBookingProviderRequestCardProps) {
   const services = request.services.slice(0, MAX_SERVICES_PER_REQUEST);
   const explanation = request.status === "rejected" ?
@@ -83,7 +85,11 @@ function CustomerBookingProviderRequestCard({
         <p className="text-sm font-bold">
           {providerRequestOutcomeLabel(request)}
         </p>
-        {responseTimestamp ? (
+        {request.status === "completed" && request.completedAt ? (
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Completed {formatBookingDateTime(request.completedAt)}
+          </p>
+        ) : responseTimestamp ? (
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
             Response received {formatBookingDateTime(responseTimestamp)}
           </p>
@@ -142,6 +148,7 @@ function CustomerBookingProviderRequestCard({
           {providerAction}
         </div>
       ) : null}
+      {reviewAction}
 
       <section
         className="grid min-w-0 gap-2.5"

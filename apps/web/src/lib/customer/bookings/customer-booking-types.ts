@@ -59,6 +59,8 @@ export type CustomerBookingProviderRequest = {
   completedAt: string | null;
   cancelledAt: string | null;
   expiresAt: string | null;
+
+  reviewStatus: "not_submitted" | "submitted" | "unavailable";
 };
 
 export type CustomerBooking = {
@@ -98,6 +100,7 @@ export type CustomerBooking = {
   completedProviderRequestCount: number;
 
   submittedAt: string | null;
+  completedAt: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 };

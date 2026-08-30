@@ -56,7 +56,7 @@ export function bookingConfirmationPresentation(
       eyebrow: "Booking completed",
       title: "All provider services are completed",
       description:
-        "Your provider services have been marked completed. Keep this booking and its timeline for your records.",
+        "Your provider services have been marked completed. Review each completed service separately and keep this booking timeline for your records.",
       tone: "success",
     };
   }

@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   openChat: vi.fn(),
   push: vi.fn(),
   toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  submitReview: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -44,8 +46,15 @@ vi.mock("@/lib/customer/messages/customer-chat-client", () => ({
   openCustomerProviderRequestChat: mocks.openChat,
 }));
 
+vi.mock("@/lib/customer/reviews/customer-review-client", () => ({
+  submitCustomerReview: mocks.submitReview,
+}));
+
 vi.mock("@/components/feedback/toast", () => ({
-  feastaToast: {error: mocks.toastError},
+  feastaToast: {
+    error: mocks.toastError,
+    success: mocks.toastSuccess,
+  },
 }));
 
 import CustomerBookingDetailRoute from "@/app/customer/bookings/[bookingId]/page";
@@ -59,6 +68,10 @@ import {
   isCanonicalOwnedProviderRequest,
   normalizeCanonicalProviderRequestIds,
 } from "@/lib/customer/bookings/customer-booking-membership";
+import {
+  canCustomerReviewProviderRequest,
+  normalizeCustomerBookingReviewStatus,
+} from "@/lib/customer/bookings/customer-booking-review";
 
 describe("customer booking dedicated detail page", () => {
   beforeEach(() => {
@@ -69,6 +82,7 @@ describe("customer booking dedicated detail page", () => {
       created: false,
       canSendMessages: true,
     });
+    mocks.submitReview.mockResolvedValue({created: true});
   });
 
   it("server-loads an owned direct URL and renders accessible read-only details", async () => {
@@ -389,21 +403,290 @@ describe("customer booking dedicated detail page", () => {
       .not.toBeInTheDocument();
   });
 
-  it("presents completion only when the event and every request are completed", () => {
-    const result = detailResult();
-    result.details.booking.status = "completed";
-    result.details.providerRequests = [providerRequestFixture({
-      status: "completed",
-      paymentStatus: "paid",
-      completedAt: "2026-08-16T04:00:00.000Z",
-    })];
+  it("presents a completed single-provider booking with one eligible review action", () => {
+    const result = completedDetailResult();
 
     render(<CustomerBookingDetailPage result={result} />);
 
     expect(screen.getByRole("heading", {
       name: "All provider services are completed",
     })).toBeVisible();
-    expect(screen.queryByRole("button", {name: /review/iu})).not.toBeInTheDocument();
+    expect(screen.getByText(/Booking completed: Aug 16, 2026/iu)).toBeVisible();
+    expect(screen.getByText(/Completed Aug 16, 2026/iu)).toBeVisible();
+    expect(screen.getByRole("button", {
+      name: "Leave a review for Maria's Catering",
+    })).toBeVisible();
+    expect(screen.getByRole("link", {name: "View Payments"})).toBeVisible();
+    expect(screen.getByRole("link", {
+      name: "View Maria's Catering provider profile",
+    })).toBeVisible();
+  });
+
+  it("keeps completed multi-provider review actions independent", () => {
+    const result = completedDetailResult([
+      providerRequestFixture({
+        status: "completed",
+        paymentStatus: "paid",
+        completedAt: "2026-08-16T04:00:00.000Z",
+        reviewStatus: "not_submitted",
+      }),
+      providerRequestFixture({
+        id: "request-2",
+        providerRequestId: "request-2",
+        providerId: "provider-002",
+        providerName: "Bright Day Photography",
+        type: "addon",
+        status: "completed",
+        paymentStatus: "paid",
+        completedAt: "2026-08-16T05:00:00.000Z",
+        reviewStatus: "not_submitted",
+      }),
+    ]);
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.getByRole("button", {
+      name: "Leave a review for Maria's Catering",
+    })).toBeVisible();
+    expect(screen.getByRole("button", {
+      name: "Leave a review for Bright Day Photography",
+    })).toBeVisible();
+  });
+
+  it("offers review only for the completed request in a mixed multi-provider record", () => {
+    const result = completedDetailResult([
+      providerRequestFixture({
+        status: "completed",
+        reviewStatus: "not_submitted",
+      }),
+      providerRequestFixture({
+        id: "request-2",
+        providerRequestId: "request-2",
+        providerId: "provider-002",
+        providerName: "Bright Day Photography",
+        status: "in_progress",
+        reviewStatus: "not_submitted",
+      }),
+    ]);
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.getByRole("button", {
+      name: "Leave a review for Maria's Catering",
+    })).toBeVisible();
+    expect(screen.queryByRole("button", {
+      name: "Leave a review for Bright Day Photography",
+    })).not.toBeInTheDocument();
+  });
+
+  it("renders an existing review as submitted without a second action", () => {
+    const result = completedDetailResult([
+      providerRequestFixture({
+        status: "completed",
+        paymentStatus: "paid",
+        reviewStatus: "submitted",
+      }),
+    ]);
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.getByLabelText(
+      "Review submitted for Maria's Catering",
+    )).toBeVisible();
+    expect(screen.queryByRole("button", {name: /leave a review/iu}))
+      .not.toBeInTheDocument();
+  });
+
+  it("requires trusted completed event and request states for review eligibility", () => {
+    const eventNotCompleted = completedDetailResult();
+    eventNotCompleted.details.booking.status = "in_progress";
+    const {rerender} = render(
+      <CustomerBookingDetailPage result={eventNotCompleted} />,
+    );
+    expect(screen.queryByRole("button", {name: /leave a review/iu}))
+      .not.toBeInTheDocument();
+
+    for (const status of [
+      "pending",
+      "confirmed",
+      "in_progress",
+      "rejected",
+      "cancelled",
+      "expired",
+    ] as const) {
+      const requestNotCompleted = completedDetailResult([
+        providerRequestFixture({
+          status,
+          reviewStatus: "not_submitted",
+        }),
+      ]);
+      rerender(<CustomerBookingDetailPage result={requestNotCompleted} />);
+      expect(screen.queryByRole("button", {name: /leave a review/iu}))
+        .not.toBeInTheDocument();
+    }
+  });
+
+  it("opens an accessible review form and validates the callable contract", async () => {
+    render(<CustomerBookingDetailPage result={completedDetailResult()} />);
+
+    fireEvent.click(screen.getByRole("button", {name: /leave a review/iu}));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(screen.getByRole("heading", {
+      name: "Review Maria's Catering",
+    })).toBeVisible();
+    expect(screen.getByRole("radiogroup", {name: "Review rating"})).toBeVisible();
+    expect(screen.getByRole("textbox", {name: /^Review/iu})).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", {name: "Submit review"}));
+    expect(await screen.findByText("Choose a rating from 1 to 5 stars.")).toBeVisible();
+    expect(screen.getByText("Enter at least 2 characters.")).toBeVisible();
+    expect(mocks.submitReview).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("radio", {name: "5 stars"}));
+    fireEvent.change(screen.getByRole("textbox", {name: /^Review/iu}), {
+      target: {value: "x"},
+    });
+    fireEvent.click(screen.getByRole("button", {name: "Submit review"}));
+    expect(await screen.findByText("Enter at least 2 characters.")).toBeVisible();
+    expect(mocks.submitReview).not.toHaveBeenCalled();
+  });
+
+  it("waits for authoritative review success and prevents duplicate submission", async () => {
+    const pending = deferredReview();
+    mocks.submitReview.mockReturnValueOnce(pending.promise);
+    render(<CustomerBookingDetailPage result={completedDetailResult()} />);
+
+    fireEvent.click(screen.getByRole("button", {name: /leave a review/iu}));
+    fireEvent.click(screen.getByRole("radio", {name: "5 stars"}));
+    fireEvent.change(screen.getByRole("textbox", {name: /^Review/iu}), {
+      target: {value: "Excellent service and coordination."},
+    });
+    const submit = screen.getByRole("button", {name: "Submit review"});
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+
+    expect(mocks.submitReview).toHaveBeenCalledTimes(1);
+    expect(mocks.submitReview).toHaveBeenCalledWith({
+      providerRequestId: "request-1",
+      rating: 5,
+      comment: "Excellent service and coordination.",
+    });
+    expect(screen.getByRole("button", {name: "Submitting review"})).toBeDisabled();
+    const cancel = screen.getByRole("button", {name: "Cancel"});
+    expect(cancel).toBeDisabled();
+    expect(screen.queryByRole("button", {name: "Close dialog"}))
+      .not.toBeInTheDocument();
+    fireEvent.click(cancel);
+    fireEvent.keyDown(screen.getByRole("dialog"), {key: "Escape"});
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(screen.queryByText("Review submitted")).not.toBeInTheDocument();
+
+    await act(async () => pending.resolve({created: true}));
+
+    expect(await screen.findByText("Review submitted")).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: /leave a review/iu}))
+      .not.toBeInTheDocument();
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Your review was submitted.");
+  });
+
+  it("handles an authoritative duplicate as an idempotent reviewed state", async () => {
+    mocks.submitReview.mockResolvedValueOnce({created: false});
+    render(<CustomerBookingDetailPage result={completedDetailResult()} />);
+
+    fireEvent.click(screen.getByRole("button", {name: /leave a review/iu}));
+    fireEvent.click(screen.getByRole("radio", {name: "4 stars"}));
+    fireEvent.change(screen.getByRole("textbox", {name: /^Review/iu}), {
+      target: {value: "A very good provider experience."},
+    });
+    fireEvent.click(screen.getByRole("button", {name: "Submit review"}));
+
+    expect(await screen.findByText("Review submitted")).toBeVisible();
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(
+      "Your review was already submitted.",
+    );
+  });
+
+  it("keeps a failed review form open and usable for retry", async () => {
+    mocks.submitReview.mockRejectedValueOnce(
+      new Error("The review service is temporarily unavailable. Please try again."),
+    );
+    render(<CustomerBookingDetailPage result={completedDetailResult()} />);
+
+    fireEvent.click(screen.getByRole("button", {name: /leave a review/iu}));
+    fireEvent.click(screen.getByRole("radio", {name: "3 stars"}));
+    fireEvent.change(screen.getByRole("textbox", {name: /^Review/iu}), {
+      target: {value: "Service was generally satisfactory."},
+    });
+    fireEvent.click(screen.getByRole("button", {name: "Submit review"}));
+
+    expect(await screen.findByText(/temporarily unavailable/iu)).toBeVisible();
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(screen.getByRole("radio", {name: "3 stars"})).toBeChecked();
+    expect(screen.getByRole("textbox", {name: /^Review/iu}))
+      .toHaveValue("Service was generally satisfactory.");
+    expect(screen.getByRole("button", {name: "Submit review"})).toBeEnabled();
+    expect(screen.queryByText("Review submitted")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", {name: "Submit review"}));
+
+    expect(await screen.findByText("Review submitted")).toBeVisible();
+    expect(mocks.submitReview).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not publish a stale review result after unmount", async () => {
+    const pending = deferredReview();
+    mocks.submitReview.mockReturnValueOnce(pending.promise);
+    const view = render(
+      <CustomerBookingDetailPage result={completedDetailResult()} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", {name: /leave a review/iu}));
+    fireEvent.click(screen.getByRole("radio", {name: "5 stars"}));
+    fireEvent.change(screen.getByRole("textbox", {name: /^Review/iu}), {
+      target: {value: "Excellent service and coordination."},
+    });
+    fireEvent.click(screen.getByRole("button", {name: "Submit review"}));
+
+    view.unmount();
+    await act(async () => pending.resolve({created: true}));
+
+    expect(mocks.submitReview).toHaveBeenCalledTimes(1);
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+  });
+
+  it("reviewing provider A does not mark provider B reviewed", async () => {
+    const result = completedDetailResult([
+      providerRequestFixture({
+        status: "completed",
+        reviewStatus: "not_submitted",
+      }),
+      providerRequestFixture({
+        id: "request-2",
+        providerRequestId: "request-2",
+        providerId: "provider-002",
+        providerName: "Bright Day Photography",
+        status: "completed",
+        reviewStatus: "not_submitted",
+      }),
+    ]);
+    render(<CustomerBookingDetailPage result={result} />);
+
+    fireEvent.click(screen.getByRole("button", {
+      name: "Leave a review for Maria's Catering",
+    }));
+    fireEvent.click(screen.getByRole("radio", {name: "5 stars"}));
+    fireEvent.change(screen.getByRole("textbox", {name: /^Review/iu}), {
+      target: {value: "Wonderful service."},
+    });
+    fireEvent.click(screen.getByRole("button", {name: "Submit review"}));
+
+    expect(await screen.findByLabelText(
+      "Review submitted for Maria's Catering",
+    )).toBeVisible();
+    expect(screen.getByRole("button", {
+      name: "Leave a review for Bright Day Photography",
+    })).toBeVisible();
   });
 
   it("starts one checkout, disables the action immediately, and redirects with the trusted result", async () => {
@@ -777,6 +1060,82 @@ describe("customer booking safe model normalization", () => {
     }, expected)).toBe(false);
   });
 
+  it("normalizes review state only for the canonical owned relationship", () => {
+    const request = providerRequestFixture({
+      status: "completed",
+      reviewStatus: "unavailable",
+    });
+    const canonicalReview = {
+      schemaVersion: 2,
+      relationshipVersion: "provider_request_v1",
+      providerRequestId: request.providerRequestId,
+      mainEventId: request.mainEventId,
+      providerId: request.providerId,
+      customerId: "customer-001",
+      rating: 5,
+      comment: "Private review content is not needed by this DTO.",
+      internalAudit: "must-not-pass-through",
+    };
+
+    expect(normalizeCustomerBookingReviewStatus({
+      reviewExists: false,
+      reviewData: {},
+      request,
+      bookingId: request.mainEventId,
+      customerId: "customer-001",
+      mainEventStatus: "completed",
+    })).toBe("not_submitted");
+    expect(normalizeCustomerBookingReviewStatus({
+      reviewExists: true,
+      reviewData: canonicalReview,
+      request,
+      bookingId: request.mainEventId,
+      customerId: "customer-001",
+      mainEventStatus: "completed",
+    })).toBe("submitted");
+    expect(normalizeCustomerBookingReviewStatus({
+      reviewExists: true,
+      reviewData: {...canonicalReview, customerId: "foreign-customer"},
+      request,
+      bookingId: request.mainEventId,
+      customerId: "customer-001",
+      mainEventStatus: "completed",
+    })).toBe("unavailable");
+    expect(normalizeCustomerBookingReviewStatus({
+      reviewExists: true,
+      reviewData: {...canonicalReview, providerRequestId: "other-request"},
+      request,
+      bookingId: request.mainEventId,
+      customerId: "customer-001",
+      mainEventStatus: "completed",
+    })).toBe("unavailable");
+  });
+
+  it("fails review eligibility closed for malformed or mismatched requests", () => {
+    const result = completedDetailResult();
+    const canonical = result.details.providerRequests[0];
+    expect(canCustomerReviewProviderRequest(
+      result.details.booking,
+      canonical,
+    )).toBe(true);
+    expect(canCustomerReviewProviderRequest(
+      result.details.booking,
+      {...canonical, id: "different-request"},
+    )).toBe(false);
+    expect(canCustomerReviewProviderRequest(
+      result.details.booking,
+      {...canonical, mainEventId: "foreign-booking"},
+    )).toBe(false);
+    expect(canCustomerReviewProviderRequest(
+      result.details.booking,
+      {...canonical, providerRequestId: "providerRequests/unsafe"},
+    )).toBe(false);
+    expect(canCustomerReviewProviderRequest(
+      result.details.booking,
+      {...canonical, reviewStatus: "unavailable"},
+    )).toBe(false);
+  });
+
   it("normalizes only non-negative integer aggregate response counts", () => {
     expect(normalizeCustomerBookingAggregateCounts({
       providerRequestCount: 8,
@@ -854,6 +1213,30 @@ function detailResult(truncated = false): CustomerBookingDetailPageResult {
   };
 }
 
+function completedDetailResult(
+  providerRequests: CustomerBookingProviderRequest[] = [
+    providerRequestFixture({
+      status: "completed",
+      paymentStatus: "paid",
+      completedAt: "2026-08-16T04:00:00.000Z",
+      reviewStatus: "not_submitted",
+    }),
+  ],
+): CustomerBookingDetailPageResult {
+  const result = detailResult();
+  result.details.booking = bookingFixture();
+  result.details.booking.status = "completed";
+  result.details.booking.completedAt = "2026-08-16T05:30:00.000Z";
+  result.details.booking.providerRequestCount = providerRequests.length;
+  result.details.booking.waitingPaymentProviderRequestCount = 0;
+  result.details.booking.confirmedProviderRequestCount = 0;
+  result.details.booking.completedProviderRequestCount = providerRequests.filter(
+    (request) => request.status === "completed",
+  ).length;
+  result.details.providerRequests = providerRequests;
+  return result;
+}
+
 function bookingFixture(): CustomerBooking {
   return {
     id: "owned-booking-001",
@@ -884,6 +1267,7 @@ function bookingFixture(): CustomerBooking {
     rejectedProviderRequestCount: 0,
     completedProviderRequestCount: 0,
     submittedAt: "2026-08-01T01:00:00.000Z",
+    completedAt: null,
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: "2026-08-02T00:00:00.000Z",
   };
@@ -929,6 +1313,7 @@ function providerRequestFixture(
     completedAt: null,
     cancelledAt: null,
     expiresAt: null,
+    reviewStatus: "unavailable",
     ...overrides,
   };
 }
@@ -942,6 +1327,15 @@ function deferredCheckout() {
     created: boolean;
   }) => void;
   const promise = new Promise<Parameters<typeof resolve>[0]>((complete) => {
+    resolve = complete;
+  });
+
+  return {promise, resolve};
+}
+
+function deferredReview() {
+  let resolve!: (result: {created: boolean}) => void;
+  const promise = new Promise<{created: boolean}>((complete) => {
     resolve = complete;
   });
 

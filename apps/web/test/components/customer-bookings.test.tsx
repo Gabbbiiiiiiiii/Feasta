@@ -526,6 +526,7 @@ function bookingFixture(overrides: Partial<CustomerBooking> = {}): CustomerBooki
     rejectedProviderRequestCount: 1,
     completedProviderRequestCount: 0,
     submittedAt: "2026-08-01T01:00:00.000Z",
+    completedAt: null,
     createdAt: "2026-08-01T00:00:00.000Z",
     updatedAt: "2026-08-02T00:00:00.000Z",
     ...overrides,
@@ -610,6 +611,7 @@ function providerRequestFixture(
     completedAt: null,
     cancelledAt: null,
     expiresAt: "2026-08-10T01:00:00.000Z",
+    reviewStatus: "unavailable",
     ...overrides,
   };
 }

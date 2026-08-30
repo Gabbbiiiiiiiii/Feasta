@@ -5,6 +5,7 @@ import {
   bookingStatusLabel,
   boundedText,
   formatBookingDate,
+  formatBookingDateTime,
   formatBookingTimeRange,
 } from "@/components/customer/bookings/booking-formatters";
 import {
@@ -80,6 +81,11 @@ function CustomerBookingDetailPage({result}: CustomerBookingDetailPageProps) {
                   booking.eventEndTime,
                 )}
               </p>
+              {booking.status === "completed" && booking.completedAt ? (
+                <p className="mt-1 text-sm font-semibold text-muted-foreground">
+                  Booking completed: {formatBookingDateTime(booking.completedAt)}
+                </p>
+              ) : null}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">

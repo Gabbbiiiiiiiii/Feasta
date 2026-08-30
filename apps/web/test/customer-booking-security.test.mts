@@ -193,3 +193,35 @@ test("summary aggregates are loaded initially, not on every client transition", 
   assert.match(service, /export async function getCustomerBookingResults/u);
   assert.doesNotMatch(actions, /getCustomerBookingPage/u);
 });
+
+test("completed booking reviews use bounded canonical reads and the secure callable", async () => {
+  const [service, reviewPolicy, reviewClient, detail] = await Promise.all([
+    source("lib/customer/bookings/customer-booking-service.ts"),
+    source("lib/customer/bookings/customer-booking-review.ts"),
+    source("lib/customer/reviews/customer-review-client.ts"),
+    source("components/customer/bookings/customer-booking-detail-content.tsx"),
+  ]);
+
+  assert.match(service, /reviews: "reviews"/u);
+  assert.match(service, /canonicalCustomerReviewId\(providerRequestId, customerId\)/u);
+  assert.match(service, /adminDb\.getAll\(\.\.\.reviewReferences\)/u);
+  assert.match(service, /includeReviewStatus/u);
+  assert.doesNotMatch(service, /collection\(COLLECTIONS\.reviews\)\s*\.where\(/u);
+  assert.match(reviewPolicy, /reviewData\.providerRequestId === request\.providerRequestId/u);
+  assert.match(reviewPolicy, /reviewData\.mainEventId === bookingId/u);
+  assert.match(reviewPolicy, /reviewData\.customerId === customerId/u);
+  assert.match(reviewPolicy, /request\.mainEventId === bookingId/u);
+  assert.match(reviewPolicy, /request\.status === "completed"/u);
+  assert.match(reviewPolicy, /mainEventStatus === "completed"/u);
+
+  assert.match(reviewClient, /SUBMIT_REVIEW_FUNCTION = "submitReview"/u);
+  assert.match(reviewClient, /initializeBrowserAppCheck\(\)/u);
+  assert.match(reviewClient, /providerRequestId,/u);
+  assert.match(reviewClient, /rating: input\.rating/u);
+  assert.match(reviewClient, /comment,/u);
+  assert.match(reviewClient, /idempotencyKey:/u);
+  assert.doesNotMatch(reviewClient, /customerId\s*:/u);
+  assert.doesNotMatch(reviewClient, /providerId\s*:/u);
+  assert.doesNotMatch(reviewClient, /mainEventId\s*:/u);
+  assert.doesNotMatch(detail, /firebase\/firestore|onSnapshot|setInterval/u);
+});

@@ -3,10 +3,12 @@
 import {
   Building2,
   CalendarDays,
+  CircleCheckBig,
   CreditCard,
   Info,
   MessageSquareText,
   PhilippinePeso,
+  Star,
   Users,
   WalletCards,
 } from "lucide-react";
@@ -22,12 +24,14 @@ import {
   formatCurrency,
 } from "@/components/customer/bookings/booking-formatters";
 import {CustomerBookingProviderRequestCard} from "@/components/customer/bookings/customer-booking-provider-request-card";
+import {CustomerBookingReviewDialog} from "@/components/customer/bookings/customer-booking-review-dialog";
 import {feastaToast} from "@/components/feedback/toast";
 import {Button} from "@/components/ui/button";
 import {
   canStartCustomerBookingPayment,
   isCustomerBookingPaymentProcessing,
 } from "@/lib/customer/bookings/customer-booking-payment";
+import {canCustomerReviewProviderRequest} from "@/lib/customer/bookings/customer-booking-review";
 import type {CustomerBookingDetails} from "@/lib/customer/bookings/customer-booking-types";
 import {openCustomerProviderRequestChat} from "@/lib/customer/messages/customer-chat-client";
 import {
@@ -49,6 +53,13 @@ function CustomerBookingDetailContent({
   const router = useRouter();
   const [paymentRequestId, setPaymentRequestId] = useState<string | null>(null);
   const [messageRequestId, setMessageRequestId] = useState<string | null>(null);
+  const [selectedReviewRequestId, setSelectedReviewRequestId] =
+    useState<string | null>(null);
+  const [reviewedRequestIds, setReviewedRequestIds] =
+    useState<ReadonlySet<string>>(() => new Set());
+  const selectedReviewRequest = providerRequests.find(
+    (request) => request.providerRequestId === selectedReviewRequestId,
+  ) ?? null;
 
   async function startCheckout(providerRequestId: string) {
     if (paymentRequestId !== null) return;
@@ -171,6 +182,12 @@ function CustomerBookingDetailContent({
                   onMessage: openMessaging,
                 })}
                 providerAction={providerActionForRequest(request, booking.id)}
+                reviewAction={reviewActionForRequest({
+                  request,
+                  booking,
+                  reviewed: reviewedRequestIds.has(request.providerRequestId),
+                  onReview: setSelectedReviewRequestId,
+                })}
               />
             ))}
           </div>
@@ -194,6 +211,82 @@ function CustomerBookingDetailContent({
           </Button>
         </div>
       </DetailSection>
+
+      {selectedReviewRequest ? (
+        <CustomerBookingReviewDialog
+          key={selectedReviewRequest.providerRequestId}
+          request={selectedReviewRequest}
+          onClose={() => setSelectedReviewRequestId(null)}
+          onSubmitted={(providerRequestId) => {
+            setReviewedRequestIds((current) =>
+              new Set([...current, providerRequestId]));
+            setSelectedReviewRequestId(null);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function reviewActionForRequest({
+  request,
+  booking,
+  reviewed,
+  onReview,
+}: {
+  request: CustomerBookingDetails["providerRequests"][number];
+  booking: CustomerBookingDetails["booking"];
+  reviewed: boolean;
+  onReview: (providerRequestId: string) => void;
+}) {
+  if (
+    !SAFE_DOCUMENT_ID.test(request.providerRequestId) ||
+    request.id !== request.providerRequestId ||
+    request.mainEventId !== booking.id ||
+    !SAFE_DOCUMENT_ID.test(request.providerId)
+  ) {
+    return undefined;
+  }
+
+  if (request.reviewStatus === "submitted" || reviewed) {
+    return (
+      <div
+        className="flex min-w-0 items-start gap-3 rounded-xl border border-success/20 bg-success-subtle p-3.5"
+        role="status"
+        aria-label={`Review submitted for ${boundedText(request.providerName, "provider", 80)}`}
+      >
+        <CircleCheckBig aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-success" />
+        <div className="min-w-0">
+          <p className="font-bold text-success">Review submitted</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Your feedback for this provider service is recorded.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!canCustomerReviewProviderRequest(booking, request)) {
+    return undefined;
+  }
+
+  const providerName = boundedText(request.providerName, "provider", 80);
+  return (
+    <div className="grid gap-2 rounded-xl border border-primary/15 bg-primary-tint p-3.5">
+      <div>
+        <p className="text-sm font-bold">Share your experience</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">
+          Reviews are submitted separately for each completed provider service.
+        </p>
+      </div>
+      <Button
+        fullWidth
+        aria-label={`Leave a review for ${providerName}`}
+        onClick={() => onReview(request.providerRequestId)}
+      >
+        <Star aria-hidden="true" className="size-5" />
+        Leave a review
+      </Button>
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import "server-only";
 
+import {createHash} from "node:crypto";
+
 import {
   FieldPath,
   Timestamp,
@@ -38,6 +40,7 @@ import {
   isCanonicalOwnedProviderRequest,
   normalizeCanonicalProviderRequestIds,
 } from "@/lib/customer/bookings/customer-booking-membership";
+import {normalizeCustomerBookingReviewStatus} from "@/lib/customer/bookings/customer-booking-review";
 import {
   compareCustomerBookingTimelineEntries,
   normalizeCustomerBookingTimelineData,
@@ -52,6 +55,7 @@ import {adminDb} from "@/lib/firebase/admin";
 const COLLECTIONS = {
   mainEvents: "mainEvents",
   providerRequests: "providerRequests",
+  reviews: "reviews",
 } as const;
 
 const DEFAULT_PAGE_SIZE = 10;
@@ -163,6 +167,8 @@ export async function getCustomerBookingDetails(
     ownedBooking.id,
     ownedBooking.customerId,
     ownedBooking.providerRequestIds,
+    normalizeMainEventStatus(ownedBooking.snapshot.data()?.status),
+    false,
   );
 
   return {
@@ -177,12 +183,17 @@ export async function getCustomerBookingDetailsWithTimeline(
   bookingId: string,
 ): Promise<CustomerBookingDetailPageResult> {
   const ownedBooking = await loadOwnedCustomerBooking(bookingId);
+  const mainEventStatus = normalizeMainEventStatus(
+    ownedBooking.snapshot.data()?.status,
+  );
 
   const [providerRequests, timelineSnapshot] = await Promise.all([
     loadOwnedProviderRequests(
       ownedBooking.id,
       ownedBooking.customerId,
       ownedBooking.providerRequestIds,
+      mainEventStatus,
+      mainEventStatus === "completed",
     ),
     ownedBooking.snapshot.ref
       .collection("timeline")
@@ -275,16 +286,33 @@ async function loadOwnedProviderRequests(
   bookingId: string,
   customerId: string,
   providerRequestIds: readonly string[],
+  mainEventStatus: MainEventStatus,
+  includeReviewStatus: boolean,
 ): Promise<CustomerBookingProviderRequest[]> {
   if (providerRequestIds.length === 0) return [];
 
   const canonicalProviderRequestIds = new Set(providerRequestIds);
-  const requestSnapshots = await adminDb.getAll(
-    ...providerRequestIds.map((providerRequestId) =>
-      adminDb
-        .collection(COLLECTIONS.providerRequests)
-        .doc(providerRequestId),
-    ),
+  const requestReferences = providerRequestIds.map((providerRequestId) =>
+    adminDb
+      .collection(COLLECTIONS.providerRequests)
+      .doc(providerRequestId));
+  const reviewReferences = includeReviewStatus
+    ? providerRequestIds.map((providerRequestId) =>
+        adminDb
+          .collection(COLLECTIONS.reviews)
+          .doc(canonicalCustomerReviewId(providerRequestId, customerId)))
+    : [];
+  const [requestSnapshots, reviewSnapshots] = await Promise.all([
+    adminDb.getAll(...requestReferences),
+    includeReviewStatus
+      ? adminDb.getAll(...reviewReferences)
+      : Promise.resolve([]),
+  ]);
+  const reviewsByProviderRequestId = new Map(
+    providerRequestIds.map((providerRequestId, index) => [
+      providerRequestId,
+      reviewSnapshots[index],
+    ]),
   );
 
   return requestSnapshots
@@ -304,7 +332,24 @@ async function loadOwnedProviderRequests(
       });
     })
     .sort(compareProviderRequestDocuments)
-    .map(mapProviderRequestDocument);
+    .map((document) => {
+      const request = mapProviderRequestDocument(document);
+      return {
+        ...request,
+        reviewStatus: includeReviewStatus
+          ? normalizeCustomerBookingReviewStatus({
+              reviewExists:
+                reviewsByProviderRequestId.get(document.id)?.exists === true,
+              reviewData:
+                reviewsByProviderRequestId.get(document.id)?.data() ?? {},
+              request,
+              bookingId,
+              customerId,
+              mainEventStatus,
+            })
+          : "unavailable",
+      };
+    });
 }
 
 function compareProviderRequestDocuments(
@@ -469,6 +514,7 @@ function mapBookingDocument(
     remainingBalance: finiteNumber(data.remainingBalance),
     ...normalizeCustomerBookingAggregateCounts(data),
     submittedAt: isoDateValue(data.submittedAt),
+    completedAt: isoDateValue(data.completedAt),
     createdAt: isoDateValue(data.createdAt),
     updatedAt: isoDateValue(data.updatedAt),
   };
@@ -507,7 +553,17 @@ function mapProviderRequestDocument(
     completedAt: isoDateValue(data.completedAt),
     cancelledAt: isoDateValue(data.cancelledAt),
     expiresAt: isoDateValue(data.expiresAt),
+    reviewStatus: "unavailable",
   };
+}
+
+function canonicalCustomerReviewId(
+  providerRequestId: string,
+  customerId: string,
+): string {
+  return `review_${createHash("sha256")
+    .update(`${providerRequestId}\u0000${customerId}`)
+    .digest("hex")}`;
 }
 
 function normalizeServices(value: unknown): CustomerBookingService[] {
