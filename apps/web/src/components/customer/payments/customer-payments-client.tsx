@@ -68,10 +68,25 @@ export function CustomerPaymentsClient({
   const [paymentReturnRefreshing, setPaymentReturnRefreshing] =
     useState(false);
   const paymentReturnRequestGeneration = useRef(0);
+  const paymentPageRequestGeneration = useRef(0);
+  const paymentPageQuery = useRef({
+    search: submittedSearch,
+    status,
+    cursor: cursorHistory.at(-1) ?? null,
+  });
   const [isPending, startTransition] = useTransition();
+
+  useEffect(() => {
+    paymentPageQuery.current = {
+      search: submittedSearch,
+      status,
+      cursor: cursorHistory.at(-1) ?? null,
+    };
+  }, [cursorHistory, status, submittedSearch]);
 
   const loadPaymentReturn = useCallback(async (
     lookup: CustomerPaymentReturnLookup,
+    {reconcilePage = false}: {reconcilePage?: boolean} = {},
   ) => {
     const requestGeneration =
       ++paymentReturnRequestGeneration.current;
@@ -97,6 +112,48 @@ export function CustomerPaymentsClient({
 
       setPaymentReturn(result.payment);
       setPaymentReturnState("ready");
+
+      if (isTerminalPaymentStatus(result.payment.paymentStatus)) {
+        clearCustomerPaymentReturnContext();
+      }
+
+      if (reconcilePage) {
+        const pageRequestGeneration =
+          ++paymentPageRequestGeneration.current;
+        try {
+          const query = paymentPageQuery.current;
+          const nextPage = await loadCustomerPaymentsAction({
+            search: query.search,
+            status: query.status,
+            pageSize: PAGE_SIZE,
+            cursor: query.cursor,
+          });
+
+          if (
+            requestGeneration !==
+              paymentReturnRequestGeneration.current ||
+            pageRequestGeneration !==
+              paymentPageRequestGeneration.current
+          ) {
+            return;
+          }
+
+          setPage(nextPage);
+        } catch {
+          if (
+            requestGeneration !==
+              paymentReturnRequestGeneration.current ||
+            pageRequestGeneration !==
+              paymentPageRequestGeneration.current
+          ) {
+            return;
+          }
+
+          feastaToast.error(
+            "The payment was rechecked, but your payment records could not be refreshed.",
+          );
+        }
+      }
     } catch {
       if (
         requestGeneration !==
@@ -161,6 +218,7 @@ export function CustomerPaymentsClient({
   );
 
   function load(nextSearch: string, nextStatus: CustomerPaymentStatusFilter, cursor: string | null, history: (string | null)[]) {
+    const requestGeneration = ++paymentPageRequestGeneration.current;
     startTransition(async () => {
       try {
         const nextPage = await loadCustomerPaymentsAction({
@@ -169,9 +227,11 @@ export function CustomerPaymentsClient({
           pageSize: PAGE_SIZE,
           cursor,
         });
+        if (requestGeneration !== paymentPageRequestGeneration.current) return;
         setPage(nextPage);
         setCursorHistory(history);
       } catch {
+        if (requestGeneration !== paymentPageRequestGeneration.current) return;
         feastaToast.error("Your payments could not be loaded. Please try again.");
       }
     });
@@ -220,12 +280,14 @@ export function CustomerPaymentsClient({
   }
 
   function refreshReturnedPayment() {
+    if (paymentReturnRefreshing) return;
+
     if (!paymentReturnLookup) {
       setPaymentReturnState("unavailable");
       return;
     }
 
-    void loadPaymentReturn(paymentReturnLookup);
+    void loadPaymentReturn(paymentReturnLookup, {reconcilePage: true});
   }
 
   const currentIndex = cursorHistory.length - 1;
@@ -344,6 +406,12 @@ function PaymentCard({payment, disabled, onCheckout}: {
             value={paymentTypeLabel(payment.paymentType)}
           />
           <PaymentDetail label="Created" value={formatDate(payment.createdAt)} />
+          {payment.paidAt ? (
+            <PaymentDetail label="Paid" value={formatDate(payment.paidAt)} />
+          ) : null}
+          {payment.refundedAt ? (
+            <PaymentDetail label="Refunded" value={formatDate(payment.refundedAt)} />
+          ) : null}
         </dl>
       </div>
       {payment.canStartCheckout ? (
@@ -394,4 +462,15 @@ function paymentTypeLabel(
     default:
       return "Booking payment";
   }
+}
+
+function isTerminalPaymentStatus(
+  status: CustomerPayment["status"],
+): boolean {
+  return (
+    status === "paid" ||
+    status === "failed" ||
+    status === "expired" ||
+    status === "refunded"
+  );
 }

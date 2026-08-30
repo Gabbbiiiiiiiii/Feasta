@@ -1,9 +1,10 @@
-import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
+import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import {StrictMode} from "react";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 
 import {CustomerPaymentsClient} from "@/components/customer/payments/customer-payments-client";
 import type {
+  CustomerPayment,
   CustomerPaymentPage,
   CustomerPaymentReturnDetails,
   CustomerPaymentReturnLoadResult,
@@ -115,6 +116,7 @@ describe("customer payments", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.readPaymentReturn.mockReturnValue(null);
+    mocks.loadPayments.mockResolvedValue(initialPage);
   });
 
   it("does not inspect retained return context during a normal payments visit", () => {
@@ -185,6 +187,7 @@ describe("customer payments", () => {
   });
 
   it("shows confirmed only when the trusted return record is already paid", async () => {
+    const trustedBookingPath = "/customer/bookings/trusted_booking_12345678";
     mocks.readPaymentReturn.mockReturnValue(returnLookup);
     mocks.loadPaymentReturn.mockResolvedValue({
       status: "ready",
@@ -192,6 +195,7 @@ describe("customer payments", () => {
         ...processingReturn,
         paymentStatus: "paid",
         providerRequestStatus: "confirmed",
+        bookingDetailsPath: trustedBookingPath,
       },
     });
 
@@ -211,7 +215,11 @@ describe("customer payments", () => {
     expect(screen.getAllByText("â‚±2,500.00").length).toBeGreaterThan(0);
     expect(
       screen.getByRole("link", {name: "View booking details"}),
-    ).toHaveAttribute("href", `/customer/bookings/${returnLookup.bookingId}`);
+    ).toHaveAttribute("href", trustedBookingPath);
+    expect(
+      screen.getByRole("link", {name: "View booking details"}),
+    ).not.toHaveAttribute("href", `/customer/bookings/${returnLookup.bookingId}`);
+    expect(mocks.clearPaymentReturn).toHaveBeenCalledTimes(1);
   });
 
   it("does not infer paid from a success return while trusted state is processing", async () => {
@@ -235,14 +243,26 @@ describe("customer payments", () => {
     ).toBeVisible();
     expect(screen.queryByText("Payment confirmed")).not.toBeInTheDocument();
     expect(screen.getByText(/only the trusted backend confirmation/iu)).toBeVisible();
+    expect(mocks.clearPaymentReturn).not.toHaveBeenCalled();
   });
 
-  it("offers an explicit trusted-status recheck without polling", async () => {
-    mocks.readPaymentReturn.mockReturnValue(returnLookup);
-    mocks.loadPaymentReturn.mockResolvedValue({
-      status: "ready",
-      payment: processingReturn,
+  it("reconciles the bounded payment page after an explicit processing-to-paid recheck", async () => {
+    const paidAt = "2026-08-08T02:00:00.000Z";
+    const paidReturn = {
+      ...processingReturn,
+      paymentStatus: "paid" as const,
+      providerRequestStatus: "confirmed" as const,
+    };
+    const reconciledPage = pageWithReturnedPayment({
+      status: "paid",
+      paidAt,
+      canStartCheckout: false,
     });
+    mocks.readPaymentReturn.mockReturnValue(returnLookup);
+    mocks.loadPaymentReturn
+      .mockResolvedValueOnce({status: "ready", payment: processingReturn})
+      .mockResolvedValueOnce({status: "ready", payment: paidReturn});
+    mocks.loadPayments.mockResolvedValue(reconciledPage);
 
     render(
       <CustomerPaymentsClient
@@ -257,6 +277,238 @@ describe("customer payments", () => {
     await waitFor(() => expect(mocks.loadPaymentReturn).toHaveBeenCalledTimes(1));
     fireEvent.click(recheck);
     await waitFor(() => expect(mocks.loadPaymentReturn).toHaveBeenCalledTimes(2));
+    expect(
+      await screen.findByRole("heading", {name: "Payment confirmed"}),
+    ).toBeVisible();
+    expect(mocks.loadPayments).toHaveBeenCalledWith({
+      search: "",
+      status: "all",
+      pageSize: 10,
+      cursor: null,
+    });
+
+    const returnedPaymentCard = screen.getByRole("heading", {
+      name: "Ana Events",
+    }).closest("article");
+    expect(returnedPaymentCard).not.toBeNull();
+    expect(within(returnedPaymentCard!).getAllByText("Paid").length).toBeGreaterThan(0);
+    expect(
+      within(returnedPaymentCard!).getByText("Aug 8, 2026, 10:00 AM"),
+    ).toBeVisible();
+    expect(within(screen.getByRole("region", {name: "Paid"})).getByText("2")).toBeVisible();
+    expect(
+      within(screen.getByRole("region", {name: "Awaiting payment"})).getByText("0"),
+    ).toBeVisible();
+    expect(mocks.clearPaymentReturn).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    {status: "refunded" as const, title: "Payment was refunded"},
+    {status: "failed" as const, title: "Payment is not confirmed"},
+    {status: "expired" as const, title: "Payment is not confirmed"},
+  ])("reconciles a terminal $status recheck", async ({status, title}) => {
+    const refundedAt = status === "refunded"
+      ? "2026-08-09T03:00:00.000Z"
+      : null;
+    mocks.readPaymentReturn.mockReturnValue(returnLookup);
+    mocks.loadPaymentReturn
+      .mockResolvedValueOnce({status: "ready", payment: processingReturn})
+      .mockResolvedValueOnce({
+        status: "ready",
+        payment: {
+          ...processingReturn,
+          paymentStatus: status,
+          providerRequestStatus: "confirmed",
+        },
+      });
+    mocks.loadPayments.mockResolvedValue(pageWithReturnedPayment({
+      status,
+      refundedAt,
+      canStartCheckout: false,
+    }));
+
+    render(
+      <CustomerPaymentsClient
+        initialPage={initialPage}
+        paymentReturnKind="success"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", {name: "Recheck payment"}));
+
+    expect(await screen.findByRole("heading", {name: title})).toBeVisible();
+    const returnedPaymentCard = screen.getByRole("heading", {
+      name: "Ana Events",
+    }).closest("article");
+    expect(returnedPaymentCard).not.toBeNull();
+    expect(
+      within(returnedPaymentCard!).getAllByText(
+        status[0].toUpperCase() + status.slice(1),
+      ).length,
+    ).toBeGreaterThan(0);
+    if (refundedAt) {
+      expect(
+        within(returnedPaymentCard!).getByText(/Aug 9, 2026/iu),
+      ).toBeVisible();
+    }
+    expect(mocks.clearPaymentReturn).toHaveBeenCalledTimes(1);
+  });
+
+  it("prevents duplicate concurrent explicit rechecks", async () => {
+    const recheck = deferredReturnLoad();
+    mocks.readPaymentReturn.mockReturnValue(returnLookup);
+    mocks.loadPaymentReturn
+      .mockResolvedValueOnce({status: "ready", payment: processingReturn})
+      .mockReturnValueOnce(recheck.promise);
+
+    render(
+      <CustomerPaymentsClient
+        initialPage={initialPage}
+        paymentReturnKind="success"
+      />,
+    );
+
+    const button = await screen.findByRole("button", {name: "Recheck payment"});
+    fireEvent.click(button);
+    fireEvent.click(button);
+
+    expect(mocks.loadPaymentReturn).toHaveBeenCalledTimes(2);
+    expect(
+      screen.getByRole("button", {name: "Rechecking payment"}),
+    ).toBeDisabled();
+
+    await act(async () => {
+      recheck.resolve({status: "ready", payment: processingReturn});
+    });
+    await waitFor(() => expect(mocks.loadPayments).toHaveBeenCalledTimes(1));
+  });
+
+  it("preserves the active payment cursor while reconciling", async () => {
+    const firstPage = {
+      ...initialPage,
+      nextCursor: "cursor-page-2",
+      hasMore: true,
+    };
+    const secondPage = pageWithReturnedPayment({status: "processing"});
+    const reconciledSecondPage = pageWithReturnedPayment({
+      status: "paid",
+      paidAt: "2026-08-08T02:00:00.000Z",
+      canStartCheckout: false,
+    });
+    mocks.readPaymentReturn.mockReturnValue(returnLookup);
+    mocks.loadPaymentReturn
+      .mockResolvedValueOnce({status: "ready", payment: processingReturn})
+      .mockResolvedValueOnce({
+        status: "ready",
+        payment: {
+          ...processingReturn,
+          paymentStatus: "paid",
+          providerRequestStatus: "confirmed",
+        },
+      });
+    mocks.loadPayments
+      .mockResolvedValueOnce(secondPage)
+      .mockResolvedValueOnce(reconciledSecondPage);
+
+    render(
+      <CustomerPaymentsClient
+        initialPage={firstPage}
+        paymentReturnKind="success"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", {name: "Next"}));
+    expect(await screen.findByText("Page 2")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {name: "Recheck payment"}));
+
+    await waitFor(() => expect(mocks.loadPayments).toHaveBeenLastCalledWith({
+      search: "",
+      status: "all",
+      pageSize: 10,
+      cursor: "cursor-page-2",
+    }));
+    expect(screen.getByText("Page 2")).toBeVisible();
+  });
+
+  it("does not let an older reconciliation overwrite a newer filtered page", async () => {
+    const olderReconciliation = deferredPaymentPage();
+    const paidOnlyPage = {
+      ...initialPage,
+      payments: initialPage.payments.slice(1),
+    };
+    mocks.readPaymentReturn.mockReturnValue(returnLookup);
+    mocks.loadPaymentReturn
+      .mockResolvedValueOnce({status: "ready", payment: processingReturn})
+      .mockResolvedValueOnce({
+        status: "ready",
+        payment: {
+          ...processingReturn,
+          paymentStatus: "paid",
+          providerRequestStatus: "confirmed",
+        },
+      });
+    mocks.loadPayments
+      .mockReturnValueOnce(olderReconciliation.promise)
+      .mockResolvedValueOnce(paidOnlyPage);
+
+    render(
+      <CustomerPaymentsClient
+        initialPage={initialPage}
+        paymentReturnKind="success"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", {name: "Recheck payment"}));
+    await waitFor(() => expect(mocks.loadPayments).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByRole("combobox", {name: "Payment status"}), {
+      target: {value: "paid"},
+    });
+    await waitFor(() => expect(mocks.loadPayments).toHaveBeenLastCalledWith({
+      search: "",
+      status: "paid",
+      pageSize: 10,
+      cursor: null,
+    }));
+
+    await act(async () => {
+      olderReconciliation.resolve(initialPage);
+    });
+
+    const paymentRecords = screen.getByRole("region", {name: "Payment records"});
+    expect(within(paymentRecords).queryByText("Ana Events")).not.toBeInTheDocument();
+    expect(within(paymentRecords).getByText("Ormoc Catering")).toBeVisible();
+  });
+
+  it("does not synthesize a returned payment outside the current page", async () => {
+    const pageWithoutReturnedPayment = {
+      ...initialPage,
+      payments: initialPage.payments.slice(1),
+    };
+    mocks.readPaymentReturn.mockReturnValue(returnLookup);
+    mocks.loadPaymentReturn
+      .mockResolvedValueOnce({status: "ready", payment: processingReturn})
+      .mockResolvedValueOnce({
+        status: "ready",
+        payment: {
+          ...processingReturn,
+          paymentStatus: "paid",
+          providerRequestStatus: "confirmed",
+        },
+      });
+    mocks.loadPayments.mockResolvedValue(pageWithoutReturnedPayment);
+
+    render(
+      <CustomerPaymentsClient
+        initialPage={initialPage}
+        paymentReturnKind="success"
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", {name: "Recheck payment"}));
+    await screen.findByRole("heading", {name: "Payment confirmed"});
+    const paymentRecords = screen.getByRole("region", {name: "Payment records"});
+    expect(within(paymentRecords).queryByText("Ana Events")).not.toBeInTheDocument();
+    expect(within(paymentRecords).getByText("Ormoc Catering")).toBeVisible();
   });
 
   it("prevents a stale return response from overwriting a newer return state", async () => {
@@ -312,13 +564,15 @@ describe("customer payments", () => {
     });
     expect(screen.getByRole("heading", {name: "Payment confirmed"})).toBeVisible();
     expect(screen.getByText("Newer Studio")).toBeVisible();
-    expect(mocks.clearPaymentReturn).not.toHaveBeenCalled();
+    expect(mocks.clearPaymentReturn).toHaveBeenCalledTimes(1);
   });
 
-  it("invalidates an unfinished return load when the component unmounts", async () => {
-    const pending = deferredReturnLoad();
+  it("invalidates an unfinished explicit recheck when the component unmounts", async () => {
+    const pendingRecheck = deferredReturnLoad();
     mocks.readPaymentReturn.mockReturnValue(returnLookup);
-    mocks.loadPaymentReturn.mockReturnValue(pending.promise);
+    mocks.loadPaymentReturn
+      .mockResolvedValueOnce({status: "ready", payment: processingReturn})
+      .mockReturnValueOnce(pendingRecheck.promise);
 
     const {unmount} = render(
       <CustomerPaymentsClient
@@ -326,14 +580,23 @@ describe("customer payments", () => {
         paymentReturnKind="success"
       />,
     );
-    await waitFor(() => expect(mocks.loadPaymentReturn).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole("button", {name: "Recheck payment"}));
+    await waitFor(() => expect(mocks.loadPaymentReturn).toHaveBeenCalledTimes(2));
 
     unmount();
     await act(async () => {
-      pending.resolve({status: "unavailable"});
+      pendingRecheck.resolve({
+        status: "ready",
+        payment: {
+          ...processingReturn,
+          paymentStatus: "paid",
+          providerRequestStatus: "confirmed",
+        },
+      });
     });
 
     expect(mocks.clearPaymentReturn).not.toHaveBeenCalled();
+    expect(mocks.loadPayments).not.toHaveBeenCalled();
   });
 
   it("loads one effective return request under React Strict Mode", async () => {
@@ -382,6 +645,7 @@ describe("customer payments", () => {
     ).toBeVisible();
     expect(screen.getByText(/return did not change your payment/iu)).toBeVisible();
     expect(mocks.createCheckout).not.toHaveBeenCalled();
+    expect(mocks.clearPaymentReturn).not.toHaveBeenCalled();
     expect(screen.getByRole("button", {name: "Retry secure checkout"})).toBeVisible();
   });
 
@@ -526,4 +790,46 @@ function deferredReturnLoad() {
   });
 
   return {promise, resolve};
+}
+
+function deferredPaymentPage() {
+  let resolve!: (result: CustomerPaymentPage) => void;
+  const promise = new Promise<CustomerPaymentPage>((complete) => {
+    resolve = complete;
+  });
+
+  return {promise, resolve};
+}
+
+function pageWithReturnedPayment(
+  patch: Partial<CustomerPayment>,
+): CustomerPaymentPage {
+  const payments = initialPage.payments.map((payment) =>
+    payment.id === returnLookup.paymentId
+      ? {...payment, ...patch}
+      : payment,
+  );
+  const totalPaidInCentavos = payments
+    .filter((payment) => payment.status === "paid")
+    .reduce((total, payment) => total + payment.amountInCentavos, 0);
+
+  return {
+    ...initialPage,
+    payments,
+    statistics: {
+      ...initialPage.statistics,
+      awaitingPayment: payments.filter((payment) => payment.status === "pending").length,
+      processing: payments.filter((payment) => payment.status === "processing").length,
+      paid: payments.filter((payment) => payment.status === "paid").length,
+      failedOrExpired: payments.filter(
+        (payment) => payment.status === "failed" || payment.status === "expired",
+      ).length,
+      refunded: payments.filter((payment) => payment.status === "refunded").length,
+      totalPaidInCentavos,
+      totalPaidFormatted: new Intl.NumberFormat("en-PH", {
+        style: "currency",
+        currency: "PHP",
+      }).format(totalPaidInCentavos / 100),
+    },
+  };
 }
