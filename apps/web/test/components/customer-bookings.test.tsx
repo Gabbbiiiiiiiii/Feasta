@@ -605,6 +605,8 @@ function providerRequestFixture(
     rejectedAt: null,
     replacementStatus: null,
     confirmedAt: null,
+    paidAt: null,
+    refundedAt: null,
     completedAt: null,
     cancelledAt: null,
     expiresAt: "2026-08-10T01:00:00.000Z",

@@ -11,6 +11,9 @@ import {
   providerRequestResponseTimestamp,
   providerRequestServiceLabel,
 } from "@/components/customer/bookings/booking-formatters";
+import {
+  providerPaymentPresentation,
+} from "@/components/customer/bookings/customer-booking-confirmation";
 import {StatusBadge} from "@/components/shared/status-badge";
 import type {
   CustomerBookingProviderRequest,
@@ -21,8 +24,10 @@ import {cn} from "@/lib/utils";
 type CustomerBookingProviderRequestCardProps = {
   request: CustomerBookingProviderRequest;
   compact?: boolean;
+  durableConfirmation?: boolean;
   paymentAction?: ReactNode;
   messageAction?: ReactNode;
+  providerAction?: ReactNode;
 };
 
 const MAX_SERVICES_PER_REQUEST = 30;
@@ -30,8 +35,10 @@ const MAX_SERVICES_PER_REQUEST = 30;
 function CustomerBookingProviderRequestCard({
   request,
   compact = false,
+  durableConfirmation = false,
   paymentAction,
   messageAction,
+  providerAction,
 }: CustomerBookingProviderRequestCardProps) {
   const services = request.services.slice(0, MAX_SERVICES_PER_REQUEST);
   const explanation = request.status === "rejected" ?
@@ -40,6 +47,7 @@ function CustomerBookingProviderRequestCard({
       boundedText(request.cancellationReason, "No cancellation explanation was provided.", 500) :
       null;
   const responseTimestamp = providerRequestResponseTimestamp(request);
+  const paymentPresentation = providerPaymentPresentation(request);
 
   return (
     <article className={cn(
@@ -62,7 +70,9 @@ function CustomerBookingProviderRequestCard({
         </div>
         <div className="flex flex-wrap gap-1.5 sm:max-w-[13rem] sm:justify-end">
           <StatusBadge status={request.status} label={bookingStatusLabel(request.status)} />
-          <StatusBadge status={request.paymentStatus} />
+          {!durableConfirmation ? (
+            <StatusBadge status={request.paymentStatus} />
+          ) : null}
         </div>
       </header>
 
@@ -84,14 +94,54 @@ function CustomerBookingProviderRequestCard({
         "grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border",
         !compact && "xl:grid-cols-4",
       )}>
-        <FinancialMetric label="Request amount" value={formatCurrency(request.amount)} />
-        <FinancialMetric label="Down payment" value={formatCurrency(request.downPaymentAmount)} />
+        <FinancialMetric label="Service amount" value={formatCurrency(request.amount)} />
+        <FinancialMetric label="Required down payment" value={formatCurrency(request.downPaymentAmount)} />
         <FinancialMetric label="Remaining balance" value={formatCurrency(request.remainingBalance)} />
         <FinancialMetric label="Down payment rate" value={formatPercentage(request.downPaymentPercentage)} />
       </dl>
 
+      {durableConfirmation ? (
+        <section
+          aria-label={`Payment summary for ${boundedText(request.providerName, "provider", 80)}`}
+          className="grid min-w-0 gap-3 rounded-xl border border-border bg-muted/25 p-3.5"
+        >
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h4 className="text-sm font-black">Provider payment</h4>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {paymentPresentation.description}
+              </p>
+            </div>
+            <div className="shrink-0">
+              <StatusBadge
+                status={paymentPresentation.status}
+                label={paymentPresentation.label}
+              />
+            </div>
+          </div>
+
+          {paymentPresentation.showPaidAt && request.paidAt ? (
+            <PaymentDate label="Paid" value={request.paidAt} />
+          ) : null}
+          {paymentPresentation.showRefundedAt && request.refundedAt ? (
+            <PaymentDate label="Refunded" value={request.refundedAt} />
+          ) : null}
+
+          {request.remainingBalance > 0 ? (
+            <p className="border-t border-border pt-3 text-xs leading-5 text-muted-foreground">
+              The remaining balance is informational. FEASTA does not currently collect provider balances online.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
       {paymentAction}
-      {messageAction}
+      {messageAction || providerAction ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {messageAction}
+          {providerAction}
+        </div>
+      ) : null}
 
       <section
         className="grid min-w-0 gap-2.5"
@@ -150,6 +200,17 @@ function FinancialMetric({label, value}: {label: string; value: string}) {
         {value}
       </dd>
     </div>
+  );
+}
+
+function PaymentDate({label, value}: {label: string; value: string}) {
+  return (
+    <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3 text-sm">
+      <dt className="font-semibold text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 break-words font-bold">
+        {formatBookingDateTime(value)}
+      </dd>
+    </dl>
   );
 }
 

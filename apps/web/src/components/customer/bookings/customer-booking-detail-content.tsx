@@ -1,13 +1,16 @@
 "use client";
 
 import {
+  Building2,
   CalendarDays,
   CreditCard,
   Info,
   MessageSquareText,
   PhilippinePeso,
   Users,
+  WalletCards,
 } from "lucide-react";
+import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {useState} from "react";
 
@@ -154,6 +157,7 @@ function CustomerBookingDetailContent({
               <CustomerBookingProviderRequestCard
                 key={request.id}
                 request={request}
+                durableConfirmation
                 paymentAction={paymentActionForRequest({
                   request,
                   bookingId: booking.id,
@@ -166,6 +170,7 @@ function CustomerBookingDetailContent({
                   messageRequestId,
                   onMessage: openMessaging,
                 })}
+                providerAction={providerActionForRequest(request, booking.id)}
               />
             ))}
           </div>
@@ -175,7 +180,52 @@ function CustomerBookingDetailContent({
           </p>
         )}
       </DetailSection>
+
+      <DetailSection title="Next actions" icon={<WalletCards />}>
+        <p className="text-sm leading-6 text-muted-foreground">
+          Review all Customer-safe payment records for this booking. Provider communication and profile actions remain available on each eligible service above.
+        </p>
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <Button asChild variant="secondary" size="compact">
+            <Link href="/customer/payments">
+              <WalletCards aria-hidden="true" className="size-4" />
+              View Payments
+            </Link>
+          </Button>
+        </div>
+      </DetailSection>
     </div>
+  );
+}
+
+function providerActionForRequest(
+  request: CustomerBookingDetails["providerRequests"][number],
+  bookingId: string,
+) {
+  if (
+    !SAFE_DOCUMENT_ID.test(request.providerId) ||
+    request.id !== request.providerRequestId ||
+    request.mainEventId !== bookingId
+  ) {
+    return undefined;
+  }
+
+  const providerName = boundedText(
+    request.providerName,
+    "provider",
+    80,
+  );
+
+  return (
+    <Button asChild variant="secondary" fullWidth>
+      <Link
+        href={`/customer/providers/${encodeURIComponent(request.providerId)}`}
+        aria-label={`View ${providerName} provider profile`}
+      >
+        <Building2 aria-hidden="true" className="size-5" />
+        View Provider
+      </Link>
+    </Button>
   );
 }
 

@@ -2,23 +2,32 @@ import {ArrowLeft, CalendarCheck2} from "lucide-react";
 import Link from "next/link";
 
 import {
-  bookingNextStep,
   bookingStatusLabel,
   boundedText,
+  formatBookingDate,
+  formatBookingTimeRange,
 } from "@/components/customer/bookings/booking-formatters";
+import {
+  bookingConfirmationPresentation,
+} from "@/components/customer/bookings/customer-booking-confirmation";
 import {CustomerBookingDetailContent} from "@/components/customer/bookings/customer-booking-detail-content";
 import {CustomerBookingTimeline} from "@/components/customer/bookings/customer-booking-timeline";
 import {PageHeading} from "@/components/layout/page-heading";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
 import type {CustomerBookingDetailPageResult} from "@/lib/customer/bookings/customer-booking-types";
+import {cn} from "@/lib/utils";
 
 type CustomerBookingDetailPageProps = {
   result: CustomerBookingDetailPageResult;
 };
 
 function CustomerBookingDetailPage({result}: CustomerBookingDetailPageProps) {
-  const {booking} = result.details;
+  const {booking, providerRequests} = result.details;
+  const confirmation = bookingConfirmationPresentation(
+    booking,
+    providerRequests,
+  );
 
   return (
     <div className="mx-auto grid w-full max-w-[90rem] min-w-0 gap-5">
@@ -38,7 +47,17 @@ function CustomerBookingDetailPage({result}: CustomerBookingDetailPageProps) {
 
       <section
         aria-labelledby="customer-booking-current-state-heading"
-        className="rounded-card border border-primary/15 bg-primary-tint p-4 shadow-none sm:p-5"
+        className={cn(
+          "rounded-card border p-4 shadow-none sm:p-5",
+          confirmation.tone === "success" &&
+            "border-success/20 bg-success-subtle",
+          confirmation.tone === "info" &&
+            "border-info/20 bg-info-subtle",
+          confirmation.tone === "warning" &&
+            "border-warning/25 bg-warning-subtle",
+          confirmation.tone === "neutral" &&
+            "border-primary/15 bg-primary-tint",
+        )}
       >
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
@@ -46,14 +65,20 @@ function CustomerBookingDetailPage({result}: CustomerBookingDetailPageProps) {
               <CalendarCheck2 aria-hidden="true" className="size-4" />
             </span>
             <div className="min-w-0">
-              <p className="text-[0.6875rem] font-bold uppercase tracking-widest text-primary">
-                What happens next
+              <p className="text-[0.6875rem] font-bold uppercase tracking-widest text-primary-strong">
+                {confirmation.eyebrow}
               </p>
               <h2 id="customer-booking-current-state-heading" className="mt-0.5 text-lg font-black tracking-tight">
-                Current booking state
+                {confirmation.title}
               </h2>
               <p className="mt-1.5 max-w-2xl text-sm leading-6 text-foreground">
-                {bookingNextStep(booking)}
+                {confirmation.description}
+              </p>
+              <p className="mt-2 text-sm font-semibold text-muted-foreground">
+                Event schedule: {formatBookingDate(booking.eventDate)}, {formatBookingTimeRange(
+                  booking.eventTime,
+                  booking.eventEndTime,
+                )}
               </p>
             </div>
           </div>

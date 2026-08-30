@@ -23,6 +23,12 @@ type ProviderResponseFields = Pick<
   | "replacementStatus"
 >;
 
+type ProviderPaymentConfirmationFields = Pick<
+  CustomerBookingProviderRequest,
+  | "paidAt"
+  | "refundedAt"
+>;
+
 export function normalizeCustomerBookingAggregateCounts(
   data: Record<string, unknown>,
 ): AggregateResponseCounts {
@@ -50,6 +56,15 @@ export function normalizeCustomerBookingProviderResponseFields(
     acceptedAt: safeIsoDate(data.acceptedAt),
     rejectedAt: safeIsoDate(data.rejectedAt),
     replacementStatus: safeOptionalString(data.replacementStatus, 80),
+  };
+}
+
+export function normalizeCustomerBookingProviderPaymentConfirmationFields(
+  data: Record<string, unknown>,
+): ProviderPaymentConfirmationFields {
+  return {
+    paidAt: safeIsoDate(data.paidAt),
+    refundedAt: safeIsoDate(data.refundedAt),
   };
 }
 

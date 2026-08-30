@@ -31,8 +31,13 @@ import type {
 } from "@/lib/customer/bookings/customer-booking-types";
 import {
   normalizeCustomerBookingAggregateCounts,
+  normalizeCustomerBookingProviderPaymentConfirmationFields,
   normalizeCustomerBookingProviderResponseFields,
 } from "@/lib/customer/bookings/customer-booking-data-normalizers";
+import {
+  isCanonicalOwnedProviderRequest,
+  normalizeCanonicalProviderRequestIds,
+} from "@/lib/customer/bookings/customer-booking-membership";
 import {
   compareCustomerBookingTimelineEntries,
   normalizeCustomerBookingTimelineData,
@@ -157,6 +162,7 @@ export async function getCustomerBookingDetails(
   const providerRequests = await loadOwnedProviderRequests(
     ownedBooking.id,
     ownedBooking.customerId,
+    ownedBooking.providerRequestIds,
   );
 
   return {
@@ -176,6 +182,7 @@ export async function getCustomerBookingDetailsWithTimeline(
     loadOwnedProviderRequests(
       ownedBooking.id,
       ownedBooking.customerId,
+      ownedBooking.providerRequestIds,
     ),
     ownedBooking.snapshot.ref
       .collection("timeline")
@@ -235,6 +242,7 @@ async function loadOwnedCustomerBooking(
 ): Promise<{
   id: string;
   customerId: string;
+  providerRequestIds: string[];
   snapshot: DocumentSnapshot<DocumentData>;
 }> {
   const customer = await requireCustomer();
@@ -256,6 +264,9 @@ async function loadOwnedCustomerBooking(
   return {
     id: normalizedBookingId,
     customerId: customer.uid,
+    providerRequestIds: normalizeCanonicalProviderRequestIds(
+      bookingData.providerRequestIds,
+    ),
     snapshot: bookingSnapshot,
   };
 }
@@ -263,17 +274,49 @@ async function loadOwnedCustomerBooking(
 async function loadOwnedProviderRequests(
   bookingId: string,
   customerId: string,
+  providerRequestIds: readonly string[],
 ): Promise<CustomerBookingProviderRequest[]> {
-  const requestsSnapshot = await adminDb
-    .collection(COLLECTIONS.providerRequests)
-    .where("mainEventId", "==", bookingId)
-    .orderBy("createdAt", "asc")
-    .limit(30)
-    .get();
+  if (providerRequestIds.length === 0) return [];
 
-  return requestsSnapshot.docs
-    .filter((document) => document.data().customerId === customerId)
+  const canonicalProviderRequestIds = new Set(providerRequestIds);
+  const requestSnapshots = await adminDb.getAll(
+    ...providerRequestIds.map((providerRequestId) =>
+      adminDb
+        .collection(COLLECTIONS.providerRequests)
+        .doc(providerRequestId),
+    ),
+  );
+
+  return requestSnapshots
+    .filter((document) => {
+      if (!document.exists) return false;
+      const data = document.data() ?? {};
+
+      return isCanonicalOwnedProviderRequest({
+        documentId: document.id,
+        storedProviderRequestId: data.providerRequestId,
+        mainEventId: data.mainEventId,
+        customerId: data.customerId,
+      }, {
+        mainEventId: bookingId,
+        customerId,
+        canonicalProviderRequestIds,
+      });
+    })
+    .sort(compareProviderRequestDocuments)
     .map(mapProviderRequestDocument);
+}
+
+function compareProviderRequestDocuments(
+  left: DocumentSnapshot<DocumentData>,
+  right: DocumentSnapshot<DocumentData>,
+): number {
+  const leftCreatedAt = dateValue(left.data()?.createdAt)?.getTime() ??
+    Number.POSITIVE_INFINITY;
+  const rightCreatedAt = dateValue(right.data()?.createdAt)?.getTime() ??
+    Number.POSITIVE_INFINITY;
+
+  return leftCreatedAt - rightCreatedAt || left.id.localeCompare(right.id);
 }
 
 function normalizeFilters(
@@ -432,9 +475,9 @@ function mapBookingDocument(
 }
 
 function mapProviderRequestDocument(
-  document: QueryDocumentSnapshot<DocumentData>,
+  document: DocumentSnapshot<DocumentData>,
 ): CustomerBookingProviderRequest {
-  const data = document.data();
+  const data = document.data() ?? {};
 
   return {
     id: document.id,
@@ -460,6 +503,7 @@ function mapProviderRequestDocument(
     requestedAt: isoDateValue(data.requestedAt),
     ...normalizeCustomerBookingProviderResponseFields(data),
     confirmedAt: isoDateValue(data.confirmedAt),
+    ...normalizeCustomerBookingProviderPaymentConfirmationFields(data),
     completedAt: isoDateValue(data.completedAt),
     cancelledAt: isoDateValue(data.cancelledAt),
     expiresAt: isoDateValue(data.expiresAt),

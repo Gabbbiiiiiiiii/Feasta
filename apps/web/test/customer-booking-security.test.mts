@@ -67,15 +67,24 @@ test("customer filters map to canonical main-event statuses", async () => {
   assert.match(service, /query\.where\("status", "in", statuses\)/u);
 });
 
-test("canonical booking collections and provider-request ownership are preserved", async () => {
-  const service = await source(
-    "lib/customer/bookings/customer-booking-service.ts",
-  );
+test("canonical booking collections and provider-request membership are preserved", async () => {
+  const [service, membership] = await Promise.all([
+    source("lib/customer/bookings/customer-booking-service.ts"),
+    source("lib/customer/bookings/customer-booking-membership.ts"),
+  ]);
 
   assert.match(service, /mainEvents: "mainEvents"/u);
   assert.match(service, /providerRequests: "providerRequests"/u);
-  assert.match(service, /document\.data\(\)\.customerId === customerId/u);
+  assert.match(service, /normalizeCanonicalProviderRequestIds\(/u);
+  assert.match(service, /adminDb\.getAll\(/u);
+  assert.match(service, /isCanonicalOwnedProviderRequest\(/u);
+  assert.match(membership, /canonicalProviderRequestIds\.has\(request\.documentId\)/u);
+  assert.match(membership, /request\.storedProviderRequestId === request\.documentId/u);
+  assert.match(membership, /request\.mainEventId === expected\.mainEventId/u);
+  assert.match(membership, /request\.customerId === expected\.customerId/u);
+  assert.match(membership, /MAX_PROVIDER_REQUESTS_PER_BOOKING = 30/u);
   assert.doesNotMatch(service, /collection\(["']bookings["']\)/u);
+  assert.doesNotMatch(service, /\.collection\(COLLECTIONS\.providerRequests\)[\s\S]*\.where\("mainEventId"/u);
 });
 
 test("customer booking response fields are narrowly normalized without provider recovery IDs", async () => {
@@ -90,10 +99,13 @@ test("customer booking response fields are narrowly normalized without provider 
   assert.match(normalizers, /acceptedAt: safeIsoDate\(data\.acceptedAt\)/u);
   assert.match(normalizers, /rejectedAt: safeIsoDate\(data\.rejectedAt\)/u);
   assert.match(normalizers, /replacementStatus: safeOptionalString/u);
+  assert.match(normalizers, /paidAt: safeIsoDate\(data\.paidAt\)/u);
+  assert.match(normalizers, /refundedAt: safeIsoDate\(data\.refundedAt\)/u);
   assert.match(normalizers, /waitingPaymentProviderRequestCount/u);
   assert.match(normalizers, /paymentProcessingProviderRequestCount/u);
   assert.doesNotMatch(types, /rejectedByProviderIds/u);
   assert.doesNotMatch(service, /data\.rejectedByProviderIds/u);
+  assert.doesNotMatch(types, /paymongoResourceId|checkoutId|webhook/u);
 });
 
 test("dedicated detail loading proves ownership before child collection reads", async () => {

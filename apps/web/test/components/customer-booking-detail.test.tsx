@@ -52,8 +52,13 @@ import CustomerBookingDetailRoute from "@/app/customer/bookings/[bookingId]/page
 import {CustomerBookingDetailPage} from "@/components/customer/bookings/customer-booking-detail-page";
 import {
   normalizeCustomerBookingAggregateCounts,
+  normalizeCustomerBookingProviderPaymentConfirmationFields,
   normalizeCustomerBookingProviderResponseFields,
 } from "@/lib/customer/bookings/customer-booking-data-normalizers";
+import {
+  isCanonicalOwnedProviderRequest,
+  normalizeCanonicalProviderRequestIds,
+} from "@/lib/customer/bookings/customer-booking-membership";
 
 describe("customer booking dedicated detail page", () => {
   beforeEach(() => {
@@ -78,7 +83,9 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.getAllByRole("heading", {level: 1})).toHaveLength(1);
     expect(screen.getByRole("heading", {name: "Booking details"})).toBeVisible();
     expect(screen.getByRole("link", {name: "Back to bookings"})).toHaveAttribute("href", "/customer/bookings");
-    const currentState = screen.getByRole("heading", {name: "Current booking state"}).closest("section");
+    const currentState = screen.getByRole("heading", {
+      name: "A provider service requires a down payment",
+    }).closest("section");
     expect(currentState).not.toBeNull();
     expect(within(currentState as HTMLElement).getByLabelText("Status: Awaiting payment")).toBeVisible();
     expect(within(currentState as HTMLElement).queryByLabelText("Status: Unpaid")).not.toBeInTheDocument();
@@ -90,7 +97,7 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.getByText(/Response received Aug 1, 2026/u)).toBeVisible();
     expect(screen.getAllByText(/125,000\.00/u).length).toBeGreaterThan(0);
     expect(screen.getAllByLabelText("Status: Awaiting payment").length).toBeGreaterThan(0);
-    expect(screen.getByText("Accepted provider requests require a down payment. Review each request's payment status.")).toBeVisible();
+    expect(screen.getByText("Review each provider request and complete only the eligible required down payments shown below.")).toBeVisible();
     expect(screen.getByRole("heading", {name: "Provider requests"})).toBeVisible();
     expect(screen.queryByText("Primary provider")).not.toBeInTheDocument();
 
@@ -179,8 +186,224 @@ describe("customer booking dedicated detail page", () => {
 
     render(<CustomerBookingDetailPage result={result} />);
 
-    expect(screen.getByText("Payment processing")).toBeVisible();
+    expect(screen.getByRole("heading", {
+      name: "A provider payment is still processing",
+    })).toBeVisible();
+    expect(screen.getAllByText("Payment processing").length).toBeGreaterThan(0);
+    expect(screen.queryByText("All provider services are confirmed"))
+      .not.toBeInTheDocument();
     expect(screen.queryByRole("button", {name: /pay .* down payment/iu})).not.toBeInTheDocument();
+  });
+
+  it("renders a durable fully confirmed single-provider experience from request truth", () => {
+    const result = detailResult();
+    result.details.booking.status = "confirmed";
+    result.details.booking.paymentStatus = "unpaid";
+    result.details.providerRequests = [providerRequestFixture({
+      status: "confirmed",
+      paymentStatus: "paid",
+      paidAt: "2026-08-03T02:30:00.000Z",
+    })];
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.getByRole("heading", {
+      name: "Your provider service is confirmed",
+    })).toBeVisible();
+    expect(screen.getByLabelText("Status: Down payment confirmed")).toBeVisible();
+    expect(screen.getByText("Paid")).toBeVisible();
+    expect(screen.getByText(/Aug 3, 2026/u)).toBeVisible();
+    expect(screen.getByRole("button", {name: "Message Provider"})).toBeVisible();
+    expect(screen.queryByLabelText("Status: Unpaid")).not.toBeInTheDocument();
+  });
+
+  it("calls the event fully confirmed only when every provider request is confirmed", () => {
+    const result = detailResult();
+    result.details.booking.status = "confirmed";
+    result.details.providerRequests = [
+      providerRequestFixture({
+        status: "confirmed",
+        paymentStatus: "paid",
+        paidAt: "2026-08-03T02:30:00.000Z",
+      }),
+      providerRequestFixture({
+        id: "request-2",
+        providerRequestId: "request-2",
+        providerId: "provider-002",
+        providerName: "Bright Day Photography",
+        type: "addon",
+        status: "confirmed",
+        paymentStatus: "paid",
+        paidAt: "2026-08-04T02:30:00.000Z",
+      }),
+    ];
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.getByRole("heading", {
+      name: "All provider services are confirmed",
+    })).toBeVisible();
+    expect(screen.getAllByLabelText("Status: Down payment confirmed"))
+      .toHaveLength(2);
+  });
+
+  it("presents mixed confirmed and pending providers as partially confirmed", () => {
+    const result = detailResult();
+    result.details.booking.status = "pending_provider_approval";
+    result.details.providerRequests = [
+      providerRequestFixture({
+        status: "confirmed",
+        paymentStatus: "paid",
+      }),
+      providerRequestFixture({
+        id: "request-2",
+        providerRequestId: "request-2",
+        providerId: "provider-002",
+        providerName: "Bright Day Photography",
+        type: "addon",
+        status: "pending",
+        paymentStatus: "unpaid",
+      }),
+    ];
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.getByRole("heading", {
+      name: "Some provider services are confirmed",
+    })).toBeVisible();
+    expect(screen.getByText(/Provider services progress independently/u)).toBeVisible();
+    expect(screen.queryByText("All provider services are confirmed"))
+      .not.toBeInTheDocument();
+  });
+
+  it("does not call a confirmed-plus-waiting multi-provider event fully confirmed", () => {
+    const result = detailResult();
+    result.details.booking.status = "waiting_for_down_payment";
+    result.details.providerRequests = [
+      providerRequestFixture({
+        status: "confirmed",
+        paymentStatus: "paid",
+      }),
+      providerRequestFixture({
+        id: "request-2",
+        providerRequestId: "request-2",
+        providerId: "provider-002",
+        providerName: "Bright Day Photography",
+      }),
+    ];
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.getByRole("heading", {
+      name: "Some provider services are confirmed",
+    })).toBeVisible();
+    expect(screen.getByLabelText("Status: Down payment required")).toBeVisible();
+  });
+
+  it("presents a zero-down confirmed request without an unpaid state", () => {
+    const result = detailResult();
+    result.details.booking.status = "confirmed";
+    result.details.providerRequests = [providerRequestFixture({
+      status: "confirmed",
+      paymentStatus: "unpaid",
+      downPaymentAmount: 0,
+      downPaymentPercentage: 0,
+      remainingBalance: 100_000,
+    })];
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.getByLabelText("Status: No down payment required")).toBeVisible();
+    expect(screen.getByText(
+      "This provider service was confirmed without an online down payment.",
+    )).toBeVisible();
+    expect(screen.queryByLabelText("Status: Unpaid")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: /pay/iu})).not.toBeInTheDocument();
+  });
+
+  it("shows refundedAt safely without implying that the request was cancelled", () => {
+    const result = detailResult();
+    result.details.booking.status = "confirmed";
+    result.details.providerRequests = [providerRequestFixture({
+      status: "confirmed",
+      paymentStatus: "refunded",
+      refundedAt: "2026-08-05T04:15:00.000Z",
+    })];
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.getByLabelText("Status: Down payment refunded")).toBeVisible();
+    expect(screen.getByText("Refunded")).toBeVisible();
+    expect(screen.getByText(/Aug 5, 2026/u)).toBeVisible();
+    expect(screen.getByText(/No cancellation is implied/u)).toBeVisible();
+  });
+
+  it("keeps remaining balance informational and exposes only supported next actions", () => {
+    const result = detailResult();
+    result.details.booking.status = "confirmed";
+    result.details.providerRequests = [providerRequestFixture({
+      status: "confirmed",
+      paymentStatus: "paid",
+      paymentId: "internal-payment-id-must-not-render",
+      paidAt: "2026-08-03T02:30:00.000Z",
+    })];
+
+    const {container} = render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.getByText(/does not currently collect provider balances online/u)).toBeVisible();
+    expect(screen.queryByRole("button", {name: /pay .*balance/iu})).not.toBeInTheDocument();
+    expect(screen.getByRole("link", {name: "View Payments"})).toHaveAttribute(
+      "href",
+      "/customer/payments",
+    );
+    expect(screen.getByRole("link", {
+      name: "View Maria's Catering provider profile",
+    })).toHaveAttribute("href", "/customer/providers/provider-001");
+    expect(container).not.toHaveTextContent("internal-payment-id-must-not-render");
+    expect(container).not.toHaveTextContent(/paymongo/iu);
+  });
+
+  it("does not present a mixed completed and in-progress event as completed", () => {
+    const result = detailResult();
+    result.details.booking.status = "in_progress";
+    result.details.providerRequests = [
+      providerRequestFixture({
+        status: "completed",
+        paymentStatus: "paid",
+      }),
+      providerRequestFixture({
+        id: "request-2",
+        providerRequestId: "request-2",
+        providerId: "provider-002",
+        status: "in_progress",
+        paymentStatus: "paid",
+      }),
+    ];
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.getByRole("heading", {
+      name: "Provider services are in progress",
+    })).toBeVisible();
+    expect(screen.queryByText("All provider services are completed"))
+      .not.toBeInTheDocument();
+  });
+
+  it("presents completion only when the event and every request are completed", () => {
+    const result = detailResult();
+    result.details.booking.status = "completed";
+    result.details.providerRequests = [providerRequestFixture({
+      status: "completed",
+      paymentStatus: "paid",
+      completedAt: "2026-08-16T04:00:00.000Z",
+    })];
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.getByRole("heading", {
+      name: "All provider services are completed",
+    })).toBeVisible();
+    expect(screen.queryByRole("button", {name: /review/iu})).not.toBeInTheDocument();
   });
 
   it("starts one checkout, disables the action immediately, and redirects with the trusted result", async () => {
@@ -500,6 +723,60 @@ describe("customer booking safe model normalization", () => {
     });
   });
 
+  it("normalizes only safe provider payment confirmation timestamps", () => {
+    expect(normalizeCustomerBookingProviderPaymentConfirmationFields({
+      paidAt: "2026-08-03T02:30:00.000Z",
+      refundedAt: {toDate: () => new Date("2026-08-05T04:15:00.000Z")},
+      paymongoResourceId: "resource-must-not-pass-through",
+    })).toEqual({
+      paidAt: "2026-08-03T02:30:00.000Z",
+      refundedAt: "2026-08-05T04:15:00.000Z",
+    });
+
+    expect(normalizeCustomerBookingProviderPaymentConfirmationFields({
+      paidAt: "not-a-date",
+      refundedAt: {toDate: () => {
+        throw new Error("malformed timestamp");
+      }},
+    })).toEqual({paidAt: null, refundedAt: null});
+  });
+
+  it("accepts only canonical, owned provider-request membership", () => {
+    const canonicalIds = normalizeCanonicalProviderRequestIds([
+      "request-1",
+      "request-2",
+      "request-1",
+      "providerRequests/unsafe",
+      {internal: true},
+    ]);
+    const canonicalProviderRequestIds = new Set(canonicalIds);
+    const expected = {
+      mainEventId: "owned-booking-001",
+      customerId: "customer-001",
+      canonicalProviderRequestIds,
+    };
+
+    expect(canonicalIds).toEqual(["request-1", "request-2"]);
+    expect(isCanonicalOwnedProviderRequest({
+      documentId: "request-1",
+      storedProviderRequestId: "request-1",
+      mainEventId: "owned-booking-001",
+      customerId: "customer-001",
+    }, expected)).toBe(true);
+    expect(isCanonicalOwnedProviderRequest({
+      documentId: "unrelated-request",
+      storedProviderRequestId: "unrelated-request",
+      mainEventId: "owned-booking-001",
+      customerId: "customer-001",
+    }, expected)).toBe(false);
+    expect(isCanonicalOwnedProviderRequest({
+      documentId: "request-2",
+      storedProviderRequestId: "request-2",
+      mainEventId: "owned-booking-001",
+      customerId: "foreign-customer",
+    }, expected)).toBe(false);
+  });
+
   it("normalizes only non-negative integer aggregate response counts", () => {
     expect(normalizeCustomerBookingAggregateCounts({
       providerRequestCount: 8,
@@ -647,6 +924,8 @@ function providerRequestFixture(
     rejectedAt: null,
     replacementStatus: null,
     confirmedAt: null,
+    paidAt: null,
+    refundedAt: null,
     completedAt: null,
     cancelledAt: null,
     expiresAt: null,

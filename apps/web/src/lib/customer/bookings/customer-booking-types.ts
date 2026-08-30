@@ -54,6 +54,8 @@ export type CustomerBookingProviderRequest = {
   rejectedAt: string | null;
   replacementStatus: string | null;
   confirmedAt: string | null;
+  paidAt: string | null;
+  refundedAt: string | null;
   completedAt: string | null;
   cancelledAt: string | null;
   expiresAt: string | null;
