@@ -56,6 +56,13 @@ import {
   payMongoFailureCertainty,
   type PayMongoFailureCertainty,
 } from "./paymongo-client.js";
+import {
+  legacyActiveCancellationRequestId,
+} from "../cancellations/refund-cancellation-domain.js";
+import {
+  classifyProviderRequestRefundPolicyEvidence,
+  requireRefundEligibilityState,
+} from "../bookings/booking-refund-policy.js";
 
 const payMongoSecretKey = defineSecret(
   "PAYMONGO_SECRET_KEY",
@@ -228,6 +235,28 @@ export async function createPaymentSessionForCustomer(
         throw new HttpsError(
           "permission-denied",
           "You do not own this provider request.",
+        );
+      }
+
+      const cancellationEvidence =
+        classifyProviderRequestRefundPolicyEvidence(
+          providerRequest,
+        );
+
+      if (cancellationEvidence.status === "invalid") {
+        throw invalidLinkage();
+      }
+
+      const activeCancellationRequestId =
+        cancellationEvidence.status === "policy_backed"
+          ? requireRefundEligibilityState(providerRequest)
+            .activeCancellationRequestId
+          : legacyActiveCancellationRequestId(providerRequest);
+
+      if (activeCancellationRequestId !== null) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Payment checkout is locked by an active cancellation request.",
         );
       }
 

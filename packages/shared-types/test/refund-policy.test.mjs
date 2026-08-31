@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  FIRESTORE_COLLECTIONS,
   REFUND_BASIS_POINTS_MAX,
   REFUND_BASIS_POINTS_MIN,
   REFUND_ELIGIBILITY_STAGES,
@@ -9,6 +10,8 @@ import {
   REFUND_POLICY_TERMS_MAX_LENGTH,
   REFUND_POLICY_AGREEMENT_SCHEMA_VERSION,
   REFUND_ELIGIBILITY_STATE_SCHEMA_VERSION,
+  PROVIDER_REQUEST_CANCELLATION_SCHEMA_VERSION,
+  PROVIDER_REQUEST_CANCELLATION_STATUSES,
 } from "../dist/index.js";
 
 test("refund policy shared constants describe the approved serializable contract", () => {
@@ -23,4 +26,20 @@ test("refund policy shared constants describe the approved serializable contract
   assert.equal(REFUND_POLICY_TERMS_MAX_LENGTH, 4_000);
   assert.equal(REFUND_POLICY_AGREEMENT_SCHEMA_VERSION, 1);
   assert.equal(REFUND_ELIGIBILITY_STATE_SCHEMA_VERSION, 1);
+  assert.equal(PROVIDER_REQUEST_CANCELLATION_SCHEMA_VERSION, 1);
+  assert.deepEqual(PROVIDER_REQUEST_CANCELLATION_STATUSES, [
+    "submitted",
+    "awaiting_payment_resolution",
+    "under_review",
+    "approved",
+    "rejected",
+    "refund_processing",
+    "refund_failed",
+    "refund_completed",
+    "cancelled_no_refund",
+  ]);
+  assert.equal(
+    FIRESTORE_COLLECTIONS.providerRequestCancellationRequests,
+    "providerRequestCancellationRequests",
+  );
 });

@@ -1051,6 +1051,16 @@ service cloud.firestore {
     }
 
     // ============================================================
+    // providerRequestCancellationRequests
+    // ============================================================
+
+    match /providerRequestCancellationRequests/{cancellationRequestId} {
+      // Cancellation workflow records and all state transitions are exposed
+      // only through trusted, participant-scoped backend projections.
+      allow read, create, update, delete: if false;
+    }
+
+    // ============================================================
     // payments
     // ============================================================
 

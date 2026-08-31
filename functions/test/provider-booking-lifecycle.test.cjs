@@ -168,6 +168,12 @@ test("lifecycle callables preserve atomic side effects", () => {
   assert.match(source, /\.collection\("timeline"\)/u);
   assert.match(source, /writeAuditLogInTransaction\(/u);
   assert.match(source, /createNotificationInTransaction\(/u);
+  assert.match(source, /assertRefundEligibilityUnlocked/u);
+  assert.match(source, /activeCancellationRequestId/u);
+  assert.match(source, /legacyActiveCancellationRequestId/u);
+  assert.match(source, /service_started/u);
+  assert.match(source, /refund_eligibility\.stage_advanced/u);
+  assert.match(source, /providerRequestIds/u);
   assert.doesNotMatch(source, /collection\("bookings"\)/u);
 });
 

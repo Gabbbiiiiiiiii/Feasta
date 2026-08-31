@@ -9,4 +9,16 @@ export const REFUND_BASIS_POINTS_MAX = 10_000;
 export const REFUND_POLICY_TERMS_MAX_LENGTH = 4_000;
 export const REFUND_POLICY_AGREEMENT_SCHEMA_VERSION = 1;
 export const REFUND_ELIGIBILITY_STATE_SCHEMA_VERSION = 1;
+export const PROVIDER_REQUEST_CANCELLATION_SCHEMA_VERSION = 1;
+export const PROVIDER_REQUEST_CANCELLATION_STATUSES = [
+    "submitted",
+    "awaiting_payment_resolution",
+    "under_review",
+    "approved",
+    "rejected",
+    "refund_processing",
+    "refund_failed",
+    "refund_completed",
+    "cancelled_no_refund",
+];
 //# sourceMappingURL=refund-policy.js.map

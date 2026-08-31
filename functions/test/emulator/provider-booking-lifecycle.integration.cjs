@@ -109,14 +109,18 @@ async function createFixture() {
       isDeleted: false,
     }),
     db.collection("mainEvents").doc(mainEventId).set({
+      bookingId: mainEventId,
+      mainEventId,
       customerId,
       status: "confirmed",
+      providerRequestIds: [providerRequestId],
       eventDate,
       createdAt: Timestamp.now(),
       updatedAt: Timestamp.now(),
     }),
     db.collection("providerRequests").doc(providerRequestId).set({
       providerRequestId,
+      bookingId: mainEventId,
       mainEventId,
       customerId,
       providerId,
@@ -124,6 +128,9 @@ async function createFixture() {
       status: "confirmed",
       amount: 15_000,
       downPaymentAmount: 3_000,
+      refundPolicySnapshot: policySnapshot(providerId),
+      refundPolicyAgreement: policyAgreement(providerId),
+      refundEligibilityState: initialEligibilityState(),
       eventDate,
       eventTime: "10:00",
       eventEndTime: "14:00",
@@ -192,8 +199,11 @@ async function assertInvalidTransitions(fixture) {
     db.collection("mainEvents")
       .doc(invalidMainEventId)
       .set({
+        bookingId: invalidMainEventId,
+        mainEventId: invalidMainEventId,
         customerId: fixture.customerId,
         status: "pending_provider_approval",
+        providerRequestIds: [invalidRequestId],
         eventDate: fixture.eventDate,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
@@ -202,6 +212,7 @@ async function assertInvalidTransitions(fixture) {
       .doc(invalidRequestId)
       .set({
         providerRequestId: invalidRequestId,
+        bookingId: invalidMainEventId,
         mainEventId: invalidMainEventId,
         customerId: fixture.customerId,
         providerId: fixture.providerId,
@@ -262,6 +273,14 @@ async function assertStartAndCompletion(fixture) {
       .get(),
   ]);
   assert.equal(startedRequest.data()?.status, "in_progress");
+  assert.equal(
+    startedRequest.data()?.refundEligibilityState?.currentStage,
+    "service_started",
+  );
+  assert.equal(
+    startedRequest.data()?.refundEligibilityState?.stageSequence,
+    1,
+  );
   assert.ok(startedRequest.data()?.startedAt);
   assert.equal(startedEvent.data()?.status, "in_progress");
   assert.ok(startedEvent.data()?.startedAt);
@@ -336,6 +355,7 @@ async function assertStartAndCompletion(fixture) {
     new Set([
       "provider_request.in_progress",
       "provider_request.completed",
+      "refund_eligibility.stage_advanced",
     ]),
   );
   assert.equal(notificationSnapshot.size, 2);
@@ -349,6 +369,44 @@ async function assertStartAndCompletion(fixture) {
     },
   );
   assert.equal(completionReplay.changed, false);
+}
+
+function policySnapshot(providerId) {
+  return {
+    schemaVersion: 1,
+    policyKey: `provider_default:${providerId}:v1`,
+    source: {
+      kind: "provider_default",
+      sourceId: providerId,
+      policyVersion: 1,
+    },
+    rules: [
+      {stage: "preparation_not_started", refundBasisPoints: 10_000},
+      {stage: "preparation_started", refundBasisPoints: 5_000},
+      {stage: "service_started", refundBasisPoints: 0},
+    ],
+    terms: null,
+    capturedAt: Timestamp.now(),
+  };
+}
+
+function policyAgreement(providerId) {
+  return {
+    schemaVersion: 1,
+    policyKey: `provider_default:${providerId}:v1`,
+    agreedAt: Timestamp.now(),
+    channel: "booking_submission",
+  };
+}
+
+function initialEligibilityState() {
+  return {
+    schemaVersion: 1,
+    currentStage: "preparation_not_started",
+    stageSequence: 0,
+    enteredAt: Timestamp.now(),
+    activeCancellationRequestId: null,
+  };
 }
 
 function seedProviderOwner(uid, providerId) {

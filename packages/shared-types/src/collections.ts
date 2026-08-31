@@ -10,6 +10,8 @@ export const FIRESTORE_COLLECTIONS = {
 
   mainEvents: "mainEvents",
   providerRequests: "providerRequests",
+  providerRequestCancellationRequests:
+    "providerRequestCancellationRequests",
   payments: "payments",
 
   chatRooms: "chatRooms",

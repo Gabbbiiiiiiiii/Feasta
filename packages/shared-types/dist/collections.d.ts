@@ -8,6 +8,7 @@ export declare const FIRESTORE_COLLECTIONS: {
     readonly addons: "addons";
     readonly mainEvents: "mainEvents";
     readonly providerRequests: "providerRequests";
+    readonly providerRequestCancellationRequests: "providerRequestCancellationRequests";
     readonly payments: "payments";
     readonly chatRooms: "chatRooms";
     readonly reviews: "reviews";

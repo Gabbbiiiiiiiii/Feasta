@@ -8,8 +8,10 @@ import {
   parseRefundPolicyDraft,
   resolveEffectiveRefundPolicy,
   requireSafeDocumentId,
+  REFUND_ELIGIBILITY_STAGES,
   REFUND_POLICY_SCHEMA_VERSION,
   type EffectiveRefundPolicy,
+  type RefundEligibilityStage,
   type RefundPolicyRule,
 } from "../refund-policies/refund-policy-domain.js";
 
@@ -97,10 +99,10 @@ export type RefundEligibilityState<
   TTimestamp = unknown,
 > = {
   schemaVersion: typeof REFUND_ELIGIBILITY_STATE_SCHEMA_VERSION;
-  currentStage: "preparation_not_started";
-  stageSequence: 0;
+  currentStage: RefundEligibilityStage;
+  stageSequence: number;
   enteredAt: TTimestamp;
-  activeCancellationRequestId: null;
+  activeCancellationRequestId: string | null;
 };
 
 export type ProviderRequestRefundPolicyEvidence<
@@ -549,11 +551,33 @@ export function classifyProviderRequestRefundPolicyEvidence(
       !(agreement.agreedAt instanceof Timestamp) ||
       eligibility.schemaVersion !==
         REFUND_ELIGIBILITY_STATE_SCHEMA_VERSION ||
-      eligibility.currentStage !==
-        "preparation_not_started" ||
-      eligibility.stageSequence !== 0 ||
+      !REFUND_ELIGIBILITY_STAGES.includes(
+        eligibility.currentStage as RefundEligibilityStage,
+      ) ||
+      !Number.isSafeInteger(
+        eligibility.stageSequence,
+      ) ||
+      (eligibility.stageSequence as number) < 0 ||
+      (
+        eligibility.currentStage ===
+          "preparation_not_started" &&
+        eligibility.stageSequence !== 0
+      ) ||
+      (
+        eligibility.currentStage ===
+          "preparation_started" &&
+        eligibility.stageSequence !== 1
+      ) ||
+      (
+        eligibility.currentStage ===
+          "service_started" &&
+        eligibility.stageSequence !== 1 &&
+        eligibility.stageSequence !== 2
+      ) ||
       !(eligibility.enteredAt instanceof Timestamp) ||
-      eligibility.activeCancellationRequestId !== null
+      !validActiveCancellationRequestId(
+        eligibility.activeCancellationRequestId,
+      )
     ) {
       return {status: "invalid"};
     }
@@ -562,6 +586,32 @@ export function classifyProviderRequestRefundPolicyEvidence(
   } catch {
     return {status: "invalid"};
   }
+}
+
+export function requireRefundEligibilityState(
+  request: Readonly<UnknownRecord>,
+): RefundEligibilityState<Timestamp> {
+  if (
+    classifyProviderRequestRefundPolicyEvidence(request).status !==
+      "policy_backed"
+  ) {
+    throw refundPolicyError(
+      REFUND_POLICY_ERROR_REASONS.invalid,
+      "Provider refund policy evidence is invalid.",
+    );
+  }
+
+  const eligibility = request.refundEligibilityState as UnknownRecord;
+
+  return {
+    schemaVersion: REFUND_ELIGIBILITY_STATE_SCHEMA_VERSION,
+    currentStage:
+      eligibility.currentStage as RefundEligibilityStage,
+    stageSequence: eligibility.stageSequence as number,
+    enteredAt: eligibility.enteredAt as Timestamp,
+    activeCancellationRequestId:
+      eligibility.activeCancellationRequestId as string | null,
+  };
 }
 
 function requireExactRecord(
@@ -623,6 +673,24 @@ function boundedProviderName(
   }
 
   return value.trim();
+}
+
+function validActiveCancellationRequestId(
+  value: unknown,
+): boolean {
+  if (value === null) {
+    return true;
+  }
+
+  try {
+    requireSafeDocumentId(
+      value,
+      "Cancellation request",
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function acknowledgementInvalid(): HttpsError {

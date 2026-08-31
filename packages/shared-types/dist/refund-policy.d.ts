@@ -60,9 +60,33 @@ export type CustomerRefundPolicyAgreement<TTimestamp = unknown> = {
 };
 export type RefundEligibilityState<TTimestamp = unknown> = {
     schemaVersion: typeof REFUND_ELIGIBILITY_STATE_SCHEMA_VERSION;
-    currentStage: "preparation_not_started";
-    stageSequence: 0;
+    currentStage: RefundEligibilityStage;
+    stageSequence: number;
     enteredAt: TTimestamp;
-    activeCancellationRequestId: null;
+    activeCancellationRequestId: string | null;
+};
+export declare const PROVIDER_REQUEST_CANCELLATION_SCHEMA_VERSION: 1;
+export declare const PROVIDER_REQUEST_CANCELLATION_STATUSES: readonly ["submitted", "awaiting_payment_resolution", "under_review", "approved", "rejected", "refund_processing", "refund_failed", "refund_completed", "cancelled_no_refund"];
+export type ProviderRequestCancellationStatus = (typeof PROVIDER_REQUEST_CANCELLATION_STATUSES)[number];
+export type FrozenRefundEligibility<TTimestamp = unknown> = {
+    stage: RefundEligibilityStage;
+    stageSequence: number;
+    frozenAt: TTimestamp;
+};
+export type ProviderRequestCancellationRequest<TTimestamp = unknown> = {
+    schemaVersion: typeof PROVIDER_REQUEST_CANCELLATION_SCHEMA_VERSION;
+    mainEventId: string;
+    providerRequestId: string;
+    customerId: string;
+    providerId: string;
+    status: ProviderRequestCancellationStatus;
+    reason: string;
+    policyEvidenceStatus: "policy_backed" | "legacy";
+    frozenEligibility: FrozenRefundEligibility<TTimestamp> | null;
+    submittedAt: TTimestamp;
+    updatedAt: TTimestamp;
+    decision: null;
+    refundCalculation: null;
+    refundOperationId: null;
 };
 //# sourceMappingURL=refund-policy.d.ts.map

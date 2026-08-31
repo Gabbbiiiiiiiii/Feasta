@@ -254,6 +254,8 @@ const policies = [
   ["rejectProviderRequest", "provider-requests/reject-provider-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "assertCanonicalProviderRequestCore", "requireProviderResponseParentStatus", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
   ["markProviderBookingInProgress", "provider-requests/update-provider-booking-lifecycle.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
   ["completeProviderBooking", "provider-requests/update-provider-booking-lifecycle.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
+  ["advanceProviderRequestRefundEligibilityStage", "cancellations/advance-refund-eligibility-stage.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "executeIdempotently", "assertCanonicalProviderRequestCore", "canonicalPaymentLinkageReason", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  ["submitProviderRequestCancellation", "cancellations/submit-provider-request-cancellation.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "executeIdempotently", "canonicalRequestLinkageReason", "canonicalPaymentLinkageReason", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
   ["openProviderRequestChat", "messaging/provider-request-chat.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "loadCanonicalContext", "assertChatLifecycleEligible", "runTransaction"]],
   ["sendChatMessage", "messaging/provider-request-chat.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "validateSendChatMessageInput", "createNotificationInTransaction", "runTransaction"]],
   ["markChatRoomRead", "messaging/provider-request-chat.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "validateMarkChatReadInput", "runTransaction"]],
@@ -289,6 +291,28 @@ test("payment checkout keeps provider-request authority and fail-safe gateway ha
   }
   assert.ok(checkout.includes("checkoutCreationStatus"));
   assert.ok(checkout.includes('certainty: "ambiguous"'));
+  assert.ok(checkout.includes("activeCancellationRequestId"));
+  assert.ok(checkout.includes("legacyActiveCancellationRequestId"));
+  assert.ok(!checkout.includes("providerRequestCancellationRequests"));
+});
+
+test("cancellation attempt identity is server-derived and Customer-scoped", () => {
+  const cancellation = source(
+    "cancellations/submit-provider-request-cancellation.ts",
+  );
+  const domain = source("cancellations/refund-cancellation-domain.ts");
+  const inputContract = cancellation.slice(
+    cancellation.indexOf("const INPUT_FIELDS"),
+    cancellation.indexOf("type CancellationResult"),
+  );
+
+  assert.ok(cancellation.includes("cancellationRequestIdForAttempt"));
+  assert.ok(cancellation.includes("customerId: input.actorUid"));
+  assert.ok(cancellation.includes("operationKey: input.operationKey"));
+  assert.ok(!inputContract.includes("cancellationRequestId"));
+  assert.ok(domain.includes("input.providerRequestId"));
+  assert.ok(domain.includes("input.customerId"));
+  assert.ok(domain.includes("input.operationKey"));
 });
 
 test("PayMongo webhook records gateway truth without resurrecting booking state", () => {
@@ -325,6 +349,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   for (const match of index.matchAll(/export\s*\{\s*(\w+)[\s,}]/gu)) names.add(match[1]);
   assert.deepEqual([...names].sort(), [
     "acceptProviderRequest",
+    "advanceProviderRequestRefundEligibilityStage",
     "archiveProviderService",
     "checkCustomerProviderAvailability",
     "checkMarketplaceProviderAvailability",
@@ -369,6 +394,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "sendChatMessage",
     "setPackageRefundPolicyOverride",
     "submitBookingRequest",
+    "submitProviderRequestCancellation",
     "submitProviderVerification",
     "submitReview",
     "syncPhoneVerification",

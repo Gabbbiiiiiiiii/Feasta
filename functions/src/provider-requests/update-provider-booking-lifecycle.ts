@@ -16,7 +16,6 @@ import {
 import {
   isMainEventStatusTransitionAllowed,
   isProviderRequestStatusTransitionAllowed,
-  parseMainEventStatus,
   type MainEventStatus,
   type ProviderRequestStatus,
   USER_ROLES,
@@ -52,6 +51,22 @@ import {
 import {
   calculateMainEventRequestSummary,
 } from "./recalculate-main-event-status.js";
+import {
+  classifyProviderRequestRefundPolicyEvidence,
+  requireRefundEligibilityState,
+} from "../bookings/booking-refund-policy.js";
+import {
+  assertEligibilityLifecycleInvariant,
+  assertRefundEligibilityUnlocked,
+  cancellationError,
+  legacyActiveCancellationRequestId,
+  nextRefundEligibilityState,
+  policyEvidenceInvalid,
+  REFUND_CANCELLATION_ERROR_REASONS,
+} from "../cancellations/refund-cancellation-domain.js";
+import {
+  assertCanonicalProviderRequestCore,
+} from "./provider-request-integrity.js";
 
 type LifecycleTarget =
   | "in_progress"
@@ -159,7 +174,6 @@ async function updateProviderBookingLifecycle(
     const mainEventReference = db
       .collection("mainEvents")
       .doc(mainEventId);
-
     const result = await db.runTransaction(
       async (transaction) => {
         const requestSnapshot =
@@ -227,30 +241,20 @@ async function updateProviderBookingLifecycle(
 
         const mainEvent =
           mainEventSnapshot.data() ?? {};
-
-        if (
-          mainEvent.customerId !==
-            authorized.customerId
-        ) {
-          throw new HttpsError(
-            "failed-precondition",
-            "The main-event ownership is invalid.",
-          );
-        }
-
+        const core =
+          assertCanonicalProviderRequestCore({
+            authorized,
+            mainEventSnapshot,
+          });
         const currentMainEventStatus =
-          parseMainEventStatus(
-            mainEvent.status,
-          );
-
-        if (!currentMainEventStatus) {
-          throw new HttpsError(
-            "failed-precondition",
-            "The main-event status is invalid.",
-          );
-        }
+          core.mainEventStatus;
+        const canonicalRequestIds =
+          mainEvent.providerRequestIds;
 
         const hasInvalidRequestRelation =
+          !Array.isArray(canonicalRequestIds) ||
+          canonicalRequestIds.length !==
+            allRequestsSnapshot.size ||
           !allRequestsSnapshot.docs.some(
             (document) =>
               document.id ===
@@ -262,6 +266,9 @@ async function updateProviderBookingLifecycle(
                 document.data();
 
               return (
+                !canonicalRequestIds.includes(
+                  document.id,
+                ) ||
                 relatedRequest.mainEventId !==
                   mainEventId ||
                 relatedRequest.customerId !==
@@ -275,6 +282,35 @@ async function updateProviderBookingLifecycle(
             "failed-precondition",
             "The event provider-request relationships are invalid.",
           );
+        }
+
+        const evidenceClassification =
+          classifyProviderRequestRefundPolicyEvidence(
+            authorized.requestData,
+          );
+
+        if (evidenceClassification.status === "invalid") {
+          throw policyEvidenceInvalid();
+        }
+
+        const eligibilityState =
+          evidenceClassification.status === "policy_backed"
+            ? requireRefundEligibilityState(
+                authorized.requestData,
+              )
+            : null;
+        const activeCancellationRequestId =
+          eligibilityState
+            ? eligibilityState.activeCancellationRequestId
+            : legacyActiveCancellationRequestId(
+                authorized.requestData,
+              );
+
+        if (eligibilityState) {
+          assertEligibilityLifecycleInvariant({
+            providerRequestStatus: authorized.status,
+            state: eligibilityState,
+          });
         }
 
         if (authorized.status === targetStatus) {
@@ -291,6 +327,20 @@ async function updateProviderBookingLifecycle(
               currentMainEventStatus,
             changed: false,
           };
+        }
+
+        if (activeCancellationRequestId !== null) {
+          throw cancellationError(
+            "failed-precondition",
+            REFUND_CANCELLATION_ERROR_REASONS.eligibilityLocked,
+            "Provider service progression is locked by cancellation.",
+          );
+        }
+
+        if (eligibilityState) {
+          assertRefundEligibilityUnlocked(
+            eligibilityState,
+          );
         }
 
         assertLifecycleTransition(
@@ -325,22 +375,29 @@ async function updateProviderBookingLifecycle(
           );
         }
 
+        const timestamp = serverTimestamp();
         const requestUpdate: Record<
           string,
           unknown
         > = {
           status: targetStatus,
-          statusUpdatedAt:
-            serverTimestamp(),
-          updatedAt: serverTimestamp(),
+          statusUpdatedAt: timestamp,
+          updatedAt: timestamp,
         };
 
         if (targetStatus === "in_progress") {
-          requestUpdate.startedAt =
-            serverTimestamp();
+          requestUpdate.startedAt = timestamp;
+
+          if (eligibilityState) {
+            requestUpdate.refundEligibilityState =
+              nextRefundEligibilityState(
+                eligibilityState,
+                "service_started",
+                timestamp,
+              );
+          }
         } else {
-          requestUpdate.completedAt =
-            serverTimestamp();
+          requestUpdate.completedAt = timestamp;
         }
 
         transaction.update(
@@ -353,7 +410,7 @@ async function updateProviderBookingLifecycle(
           unknown
         > = {
           ...summary,
-          updatedAt: serverTimestamp(),
+          updatedAt: timestamp,
         };
 
         if (
@@ -361,7 +418,7 @@ async function updateProviderBookingLifecycle(
             currentMainEventStatus
         ) {
           mainEventUpdate.statusUpdatedAt =
-            serverTimestamp();
+            timestamp;
         }
 
         if (
@@ -370,7 +427,7 @@ async function updateProviderBookingLifecycle(
             "in_progress"
         ) {
           mainEventUpdate.startedAt =
-            serverTimestamp();
+            timestamp;
         }
 
         if (
@@ -379,7 +436,7 @@ async function updateProviderBookingLifecycle(
             "completed"
         ) {
           mainEventUpdate.completedAt =
-            serverTimestamp();
+            timestamp;
         }
 
         transaction.update(
@@ -438,6 +495,41 @@ async function updateProviderBookingLifecycle(
             },
           },
         );
+
+        if (
+          targetStatus === "in_progress" &&
+          eligibilityState
+        ) {
+          writeAuditLogInTransaction(
+            transaction,
+            {
+              actorId: actor.uid,
+              actorRole: "provider",
+              action:
+                "refund_eligibility.stage_advanced",
+              targetCollection:
+                "providerRequests",
+              targetId: providerRequestId,
+              before: {
+                stage:
+                  eligibilityState.currentStage,
+                stageSequence:
+                  eligibilityState.stageSequence,
+              },
+              after: {
+                stage: "service_started",
+                stageSequence:
+                  eligibilityState.stageSequence + 1,
+              },
+              metadata: {
+                mainEventId,
+                providerId,
+                source:
+                  "provider_booking_in_progress",
+              },
+            },
+          );
+        }
 
         return {
           providerRequestId,

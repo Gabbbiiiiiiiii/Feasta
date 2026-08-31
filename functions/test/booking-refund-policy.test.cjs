@@ -382,6 +382,38 @@ test("legacy evidence classification is explicit and partial or tampered evidenc
   );
   assert.deepEqual(
     domain.classifyProviderRequestRefundPolicyEvidence({
+      ...evidence,
+      refundEligibilityState: {
+        ...evidence.refundEligibilityState,
+        currentStage: "preparation_started",
+        stageSequence: 1,
+      },
+    }),
+    {status: "policy_backed"},
+  );
+  assert.deepEqual(
+    domain.classifyProviderRequestRefundPolicyEvidence({
+      ...evidence,
+      refundEligibilityState: {
+        ...evidence.refundEligibilityState,
+        currentStage: "preparation_started",
+        stageSequence: 2,
+      },
+    }),
+    {status: "invalid"},
+  );
+  assert.deepEqual(
+    domain.classifyProviderRequestRefundPolicyEvidence({
+      ...evidence,
+      refundEligibilityState: {
+        ...evidence.refundEligibilityState,
+        activeCancellationRequestId: "cancellation_policy_001",
+      },
+    }),
+    {status: "policy_backed"},
+  );
+  assert.deepEqual(
+    domain.classifyProviderRequestRefundPolicyEvidence({
       refundPolicySnapshot: evidence.refundPolicySnapshot,
     }),
     {status: "invalid"},

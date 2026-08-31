@@ -136,6 +136,12 @@ export {
   markProviderBookingInProgress,
 } from "./provider-requests/update-provider-booking-lifecycle.js";
 export {
+  advanceProviderRequestRefundEligibilityStage,
+} from "./cancellations/advance-refund-eligibility-stage.js";
+export {
+  submitProviderRequestCancellation,
+} from "./cancellations/submit-provider-request-cancellation.js";
+export {
   markChatRoomRead,
 } from "./messaging/provider-request-chat.js";
 export {

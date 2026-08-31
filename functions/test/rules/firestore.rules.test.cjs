@@ -1023,6 +1023,13 @@ test("canonical provider requests are server-created and main-event trust fields
         },
       },
     ));
+    await assertFails(updateDoc(
+      doc(actorDb, `providerRequests/${requestId}`),
+      {
+        activeCancellationRequestId:
+          "cancellation_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    ));
   }
 
   await assertSucceeds(updateDoc(doc(customer, `mainEvents/${eventId}`), {
@@ -1048,6 +1055,60 @@ test("canonical provider requests are server-created and main-event trust fields
     clientRequestId: "forged-client-request",
     submissionFingerprint: "forged-fingerprint",
   }));
+});
+
+test("cancellation workflow documents are Functions-only", async () => {
+  const cancellationPath =
+    "providerRequestCancellationRequests/cancellation-security-one";
+  const cancellation = {
+    schemaVersion: 1,
+    mainEventId: "event-security-one",
+    providerRequestId: "request-security-one",
+    customerId: "customer-one",
+    providerId: "provider-one",
+    status: "submitted",
+    reason: "The event plan changed.",
+    policyEvidenceStatus: "policy_backed",
+    frozenEligibility: {
+      stage: "preparation_not_started",
+      stageSequence: 0,
+      frozenAt: new Date(),
+    },
+    submittedAt: new Date(),
+    updatedAt: new Date(),
+    decision: null,
+    refundCalculation: null,
+    refundOperationId: null,
+  };
+
+  await seedDocuments(testEnv, {
+    "users/customer-one": userData("customer-one", "customer"),
+    "users/provider-owner": userData("provider-owner", "provider", {
+      providerId: "provider-one",
+    }),
+    "users/admin-one": userData("admin-one", "admin"),
+    [cancellationPath]: cancellation,
+  });
+
+  const customer = authenticated(testEnv, "customer-one", "customer")
+    .firestore();
+  const provider = authenticated(testEnv, "provider-owner", "provider")
+    .firestore();
+  const admin = authenticated(testEnv, "admin-one", "admin").firestore();
+
+  for (const actorDb of [customer, provider, admin]) {
+    const existing = doc(actorDb, cancellationPath);
+    await assertFails(getDoc(existing));
+    await assertFails(updateDoc(existing, {status: "approved"}));
+    await assertFails(deleteDoc(existing));
+    await assertFails(setDoc(
+      doc(
+        actorDb,
+        "providerRequestCancellationRequests/client-created-request",
+      ),
+      cancellation,
+    ));
+  }
 });
 
 test("only verified customers create main events", async () => {

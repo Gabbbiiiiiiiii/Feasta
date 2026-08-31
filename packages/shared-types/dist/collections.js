@@ -8,6 +8,7 @@ export const FIRESTORE_COLLECTIONS = {
     addons: "addons",
     mainEvents: "mainEvents",
     providerRequests: "providerRequests",
+    providerRequestCancellationRequests: "providerRequestCancellationRequests",
     payments: "payments",
     chatRooms: "chatRooms",
     reviews: "reviews",

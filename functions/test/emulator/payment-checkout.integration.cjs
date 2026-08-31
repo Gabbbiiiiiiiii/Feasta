@@ -34,6 +34,12 @@ const libRoot = process.env.FEASTA_FUNCTIONS_LIB_DIR ??
     libRoot,
     "payments/paymongo-client.js",
   ));
+  const {
+    cancellationRequestIdForAttempt,
+  } = require(path.join(
+    libRoot,
+    "cancellations/refund-cancellation-domain.js",
+  ));
 
   try {
     await concurrentCheckoutTest({
@@ -43,6 +49,7 @@ const libRoot = process.env.FEASTA_FUNCTIONS_LIB_DIR ??
     });
     await cachedCheckoutGuardTests({
       createPaymentSessionForCustomer,
+      cancellationRequestIdForAttempt,
     });
     await ambiguousFailureTest({
       createPaymentSessionForCustomer,
@@ -156,6 +163,38 @@ async function concurrentCheckoutTest(input) {
 }
 
 async function cachedCheckoutGuardTests(input) {
+  const cancellationLocked = {
+    eventId: "event-cancellation-locked-checkout",
+    requestId: "request-cancellation-locked-checkout",
+    providerId: "provider-cancellation-locked-checkout",
+  };
+  await seedEvent({
+    eventId: cancellationLocked.eventId,
+    requests: [cancellationLocked],
+  });
+  const cancellationRequestId = input.cancellationRequestIdForAttempt({
+    providerRequestId: cancellationLocked.requestId,
+    customerId: "customer-payment-test",
+    operationKey: "checkout-lock-operation",
+  });
+  await db.doc(`providerRequests/${cancellationLocked.requestId}`).update({
+    activeCancellationRequestId: cancellationRequestId,
+  });
+  await db.collection("providerRequestCancellationRequests")
+    .doc(cancellationRequestId)
+    .set({
+      providerRequestId: cancellationLocked.requestId,
+      status: "submitted",
+    });
+  await assert.rejects(
+    createSession(input.createPaymentSessionForCustomer, {
+      requestId: cancellationLocked.requestId,
+      clientKey: "cancellation-locked-checkout",
+      createCheckout: unexpectedGateway,
+    }),
+    (error) => error.code === "failed-precondition",
+  );
+
   const cancelledRequest = {
     eventId: "event-cancelled-request-cache",
     requestId: "request-cancelled-cache",
