@@ -9,10 +9,15 @@ import {
   PAYMENT_STATUSES,
   type PaymentStatus,
 } from "../shared/constants.js";
+import {
+  parsePayMongoRefundResource,
+  type PayMongoRefundResource,
+} from "./paymongo-client.js";
 
 const MAX_WEBHOOK_AGE_SECONDS = 5 * 60;
 
 export type PayMongoPaymentEvent = {
+  kind: "payment";
   eventId: string;
   eventType: string;
   paymentId: string;
@@ -20,6 +25,19 @@ export type PayMongoPaymentEvent = {
   amountInCentavos: number;
   currency: string;
 };
+
+export type PayMongoRefundEvent = {
+  kind: "refund";
+  eventId: string;
+  eventType: string;
+  paymentId: string;
+  refundOperationId: string;
+  refund: PayMongoRefundResource;
+};
+
+export type PayMongoWebhookEvent =
+  | PayMongoPaymentEvent
+  | PayMongoRefundEvent;
 
 export function verifyPayMongoSignature(input: {
   rawBody: Buffer;
@@ -86,6 +104,16 @@ export function verifyPayMongoSignature(input: {
 export function parsePayMongoPaymentEvent(
   rawBody: Buffer,
 ): PayMongoPaymentEvent {
+  const event = parsePayMongoWebhookEvent(rawBody);
+  if (event.kind !== "payment") {
+    throw new Error("Webhook payment resource is invalid.");
+  }
+  return event;
+}
+
+export function parsePayMongoWebhookEvent(
+  rawBody: Buffer,
+): PayMongoWebhookEvent {
   const payload = JSON.parse(
     rawBody.toString("utf8"),
   ) as unknown;
@@ -115,19 +143,31 @@ export function parsePayMongoPaymentEvent(
     "resource attributes",
   );
 
+  const resourceType = requireString(resource.type, "resource type");
+  const eventId = requireString(event.id, "event id");
+  const eventType = requireString(eventAttributes.type, "event type");
+
+  if (resourceType === "refund") {
+    const refund = parsePayMongoRefundResource({data: resource});
+    return {
+      kind: "refund",
+      eventId,
+      eventType,
+      paymentId: requireString(
+        refund.metadata.feasta_payment_id,
+        "refund payment metadata id",
+      ),
+      refundOperationId: requireString(
+        refund.metadata.feasta_refund_operation_id,
+        "refund operation metadata id",
+      ),
+      refund,
+    };
+  }
+
   const metadata = requireRecord(
     attributes.metadata,
     "payment metadata",
-  );
-
-  const eventId = requireString(
-    event.id,
-    "event id",
-  );
-
-  const eventType = requireString(
-    eventAttributes.type,
-    "event type",
   );
 
   const paymentId = requireString(
@@ -161,6 +201,7 @@ export function parsePayMongoPaymentEvent(
   }
 
   return {
+    kind: "payment",
     eventId,
     eventType,
     paymentId,

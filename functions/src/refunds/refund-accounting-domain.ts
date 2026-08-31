@@ -414,6 +414,20 @@ export function refundOperationId(input: {
     .slice(0, 40)}`;
 }
 
+export function gatewayRefundIdempotencyKey(
+  refundOperationIdValue: string,
+): string {
+  if (!/^refund_[a-f0-9]{40}$/u.test(refundOperationIdValue)) {
+    throw refundAccountingError(
+      "failed-precondition",
+      REFUND_ACCOUNTING_ERROR_REASONS.operationConflict,
+      "Refund operation identity is invalid.",
+    );
+  }
+
+  return `feasta-policy-${refundOperationIdValue}`;
+}
+
 export function assertRefundOperationTransition(
   current: RefundOperationStatus,
   target: RefundOperationStatus,
@@ -452,7 +466,12 @@ export function manualReviewRefundCalculation(): ManualReviewRefundCalculation {
 }
 
 export function refundAccountingError(
-  code: "invalid-argument" | "failed-precondition" | "already-exists",
+  code:
+    | "invalid-argument"
+    | "failed-precondition"
+    | "already-exists"
+    | "not-found"
+    | "unavailable",
   reason: string,
   message: string,
 ): HttpsError {

@@ -212,6 +212,7 @@ test("the reserved cancellation state machine rejects forbidden transitions", ()
     ["approved", "refund_processing"],
     ["refund_processing", "refund_failed"],
     ["refund_failed", "refund_processing"],
+    ["refund_failed", "refund_completed"],
   ]) {
     assert.doesNotThrow(() =>
       domain.assertCancellationStatusTransition(from, to));

@@ -197,12 +197,12 @@ function deriveMainEventStatus(
     return currentStatus;
   }
 
-  const inactiveCount =
-    counts.rejected +
-    counts.cancelled +
-    counts.expired;
+  const activeTotal = total - counts.cancelled;
 
-  if (counts.completed === total) {
+  if (
+    activeTotal > 0 &&
+    counts.completed === activeTotal
+  ) {
     return "completed";
   }
 
@@ -214,10 +214,7 @@ function deriveMainEventStatus(
     return "expired";
   }
 
-  if (
-    counts.rejected > 0 ||
-    inactiveCount > 0
-  ) {
+  if (counts.rejected > 0 || counts.expired > 0) {
     return "needs_provider_replacement";
   }
 
@@ -234,7 +231,7 @@ function deriveMainEventStatus(
     currentStatus === "in_progress" &&
     counts.confirmed +
       counts.completed ===
-      total
+      activeTotal
   ) {
     return "in_progress";
   }
@@ -256,7 +253,7 @@ function deriveMainEventStatus(
   if (
     counts.confirmed +
       counts.completed ===
-    total
+    activeTotal
   ) {
     return "confirmed";
   }

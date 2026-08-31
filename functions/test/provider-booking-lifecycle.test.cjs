@@ -152,6 +152,30 @@ test("all completed requests complete the main event", () => {
   assert.equal(summary.completedProviderRequestCount, 2);
 });
 
+test("Customer cancellation is isolated from active sibling Providers", () => {
+  const active = calculateMainEventRequestSummary([
+    queryDocument("request_a", "cancelled"),
+    queryDocument("request_b", "confirmed"),
+    queryDocument("request_c", "confirmed"),
+  ], "confirmed");
+  assert.equal(active.status, "confirmed");
+  assert.equal(active.cancelledProviderRequestCount, 1);
+
+  const completed = calculateMainEventRequestSummary([
+    queryDocument("request_a", "cancelled"),
+    queryDocument("request_b", "completed"),
+    queryDocument("request_c", "completed"),
+  ], "in_progress");
+  assert.equal(completed.status, "completed");
+
+  const cancelled = calculateMainEventRequestSummary([
+    queryDocument("request_a", "cancelled"),
+    queryDocument("request_b", "cancelled"),
+    queryDocument("request_c", "cancelled"),
+  ], "confirmed");
+  assert.equal(cancelled.status, "cancelled");
+});
+
 test("lifecycle callables preserve atomic side effects", () => {
   const source = readFileSync(
     join(

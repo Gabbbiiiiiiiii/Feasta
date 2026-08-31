@@ -256,6 +256,9 @@ const policies = [
   ["completeProviderBooking", "provider-requests/update-provider-booking-lifecycle.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
   ["advanceProviderRequestRefundEligibilityStage", "cancellations/advance-refund-eligibility-stage.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "executeIdempotently", "assertCanonicalProviderRequestCore", "canonicalPaymentLinkageReason", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["submitProviderRequestCancellation", "cancellations/submit-provider-request-cancellation.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "executeIdempotently", "canonicalRequestLinkageReason", "canonicalPaymentLinkageReason", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
+  ["approveProviderRequestCancellationRefund", "refunds/refund-execution.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "approveCancellation", "canonicalRequestLinkageReason", "canonicalPaymentLinkageReason", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  ["rejectProviderRequestCancellation", "refunds/refund-execution.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "rejectCancellation", "canonicalRequestLinkageReason", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  ["executeProviderRequestRefund", "refunds/refund-execution.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "defineSecret", "createPayMongoRefund", "gatewayRefundIdempotencyKey", "reconcileGatewayRefund", "appCheckCallableOptions"]],
   ["openProviderRequestChat", "messaging/provider-request-chat.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "loadCanonicalContext", "assertChatLifecycleEligible", "runTransaction"]],
   ["sendChatMessage", "messaging/provider-request-chat.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "validateSendChatMessageInput", "createNotificationInTransaction", "runTransaction"]],
   ["markChatRoomRead", "messaging/provider-request-chat.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "validateMarkChatReadInput", "runTransaction"]],
@@ -355,6 +358,17 @@ test("PayMongo webhook records gateway truth without resurrecting booking state"
   }
 });
 
+test("refund adjudication and execution never accept browser money authority", () => {
+  const execution = source("refunds/refund-execution.ts");
+  assert.ok(execution.includes('"cancellationRequestId",\n      "idempotencyKey"'));
+  assert.ok(execution.includes('"cancellationRequestId",\n      "reason",\n      "idempotencyKey"'));
+  assert.ok(execution.includes("calculateCancellationRefund({"));
+  assert.ok(execution.includes("amountInCentavos: prepared.amountInCentavos"));
+  assert.equal(execution.includes("input.refundAmount"), false);
+  assert.equal(execution.includes("input.refundBasisPoints"), false);
+  assert.equal(execution.includes("request.data.paymentId"), false);
+});
+
 for (const name of ["searchPlaces", "reverseGeocode", "getPlaceDetails", "getDirections"]) {
   test(`${name} is an authenticated, active and rate-limited Maps callable`, () => {
     const index = source("index.ts");
@@ -376,6 +390,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   assert.deepEqual([...names].sort(), [
     "acceptProviderRequest",
     "advanceProviderRequestRefundEligibilityStage",
+    "approveProviderRequestCancellationRefund",
     "archiveProviderService",
     "checkCustomerProviderAvailability",
     "checkMarketplaceProviderAvailability",
@@ -393,6 +408,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "deleteReview",
     "ensureProviderIdentity",
     "ensureUserProfile",
+    "executeProviderRequestRefund",
     "getDirections",
     "getBookingRefundPolicyDisclosures",
     "getPlaceDetails",
@@ -408,6 +424,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "prepareProviderPhoneVerification",
     "registerProvider",
     "registerVerificationDocument",
+    "rejectProviderRequestCancellation",
     "rejectProviderRequest",
     "removeVerificationDocument",
     "requestPaymentRefund",

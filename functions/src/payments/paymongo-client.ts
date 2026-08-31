@@ -9,7 +9,23 @@ type CheckoutSession = {
 
 export type PayMongoFailureCertainty =
   | "not_sent"
+  | "gateway_rejected"
   | "ambiguous";
+
+export type PayMongoRefundStatus =
+  | "pending"
+  | "processing"
+  | "succeeded"
+  | "failed";
+
+export type PayMongoRefundResource = {
+  id: string;
+  amountInCentavos: number;
+  currency: string;
+  gatewayPaymentId: string;
+  status: PayMongoRefundStatus;
+  metadata: Record<string, string>;
+};
 
 export class PayMongoRequestError extends Error {
   readonly certainty:
@@ -155,48 +171,110 @@ export async function createPayMongoRefund(
     gatewayPaymentId: string;
     amountInCentavos: number;
     reason: string;
+    metadata?: Record<string, string>;
   },
-): Promise<{id: string}> {
-  const response = await payMongoRequest(
-    input.secretKey,
-    "/v1/refunds",
-    {
-      method: "POST",
+): Promise<PayMongoRefundResource> {
+  try {
+    if (
+      !Number.isSafeInteger(input.amountInCentavos) ||
+      input.amountInCentavos < 100
+    ) {
+      throw new PayMongoRequestError(
+        "PayMongo refund amount is below the supported minimum.",
+        "not_sent",
+      );
+    }
 
-      headers: {
-        "Idempotency-Key":
-          input.idempotencyKey,
-      },
+    const response = await payMongoRequest(
+      input.secretKey,
+      "/v1/refunds",
+      {
+        method: "POST",
 
-      body: JSON.stringify({
-        data: {
-          attributes: {
-            amount:
-              input.amountInCentavos,
-
-            payment_id:
-              input.gatewayPaymentId,
-
-            reason:
-              input.reason,
-          },
+        headers: {
+          "Idempotency-Key":
+            input.idempotencyKey,
         },
-      }),
-    },
-  );
 
-  const responseRecord =
-    asRecord(response);
+        body: JSON.stringify({
+          data: {
+            attributes: {
+              amount:
+                input.amountInCentavos,
 
-  const data = asRecord(
-    responseRecord.data,
+              payment_id:
+                input.gatewayPaymentId,
+
+              reason:
+                input.reason,
+
+              ...(input.metadata
+                ? {metadata: input.metadata}
+                : {}),
+            },
+          },
+        }),
+      },
+    );
+
+    const refund = parsePayMongoRefundResource(response);
+
+    if (
+      refund.amountInCentavos !== input.amountInCentavos ||
+      refund.gatewayPaymentId !== input.gatewayPaymentId ||
+      refund.currency !== "PHP"
+    ) {
+      throw new Error("PayMongo refund response linkage is invalid.");
+    }
+
+    return refund;
+  } catch (error) {
+    if (error instanceof PayMongoRequestError) throw error;
+
+    /*
+     * A malformed successful response may still represent a created refund.
+     * It must therefore retain the same gateway identity and reconcile later.
+     */
+    throw new PayMongoRequestError(
+      "PayMongo refund response is invalid.",
+      "ambiguous",
+    );
+  }
+}
+
+export function parsePayMongoRefundResource(
+  value: unknown,
+): PayMongoRefundResource {
+  const root = asRecord(value);
+  const data = asRecord(root.data);
+  const attributes = asRecord(data.attributes);
+  const amount = attributes.amount;
+  const currency = requireString(attributes.currency, "PayMongo refund currency")
+    .toUpperCase();
+  const gatewayPaymentId = requireString(
+    attributes.payment_id,
+    "PayMongo refund payment ID",
   );
+  const status = attributes.status;
+
+  if (
+    !Number.isSafeInteger(amount) ||
+    (amount as number) <= 0 ||
+    status !== "pending" &&
+      status !== "processing" &&
+      status !== "succeeded" &&
+      status !== "failed"
+  ) {
+    throw new Error("PayMongo refund resource is invalid.");
+  }
 
   return {
-    id: requireString(
-      data.id,
-      "PayMongo refund ID",
-    ),
+    id: requireString(data.id, "PayMongo refund ID"),
+    amountInCentavos: amount as number,
+    currency,
+    gatewayPaymentId,
+    status,
+    metadata: optionalStringMap(attributes.metadata),
   };
 }
 
@@ -261,7 +339,14 @@ async function payMongoRequest(
     throw new PayMongoRequestError(
       "PayMongo request failed with " +
         `status ${response.status}.`,
-      "ambiguous",
+      response.status >= 400 &&
+        response.status < 500 &&
+        response.status !== 408 &&
+        response.status !== 409 &&
+        response.status !== 425 &&
+        response.status !== 429
+        ? "gateway_rejected"
+        : "ambiguous",
     );
   }
 
@@ -273,6 +358,25 @@ async function payMongoRequest(
       "ambiguous",
     );
   }
+}
+
+function optionalStringMap(value: unknown): Record<string, string> {
+  if (value === undefined || value === null) return {};
+  const record = asRecord(value);
+  const entries = Object.entries(record);
+
+  if (
+    entries.length > 20 ||
+    entries.some(([key, item]) =>
+      key.length < 1 ||
+      key.length > 80 ||
+      typeof item !== "string" ||
+      item.length > 256)
+  ) {
+    throw new Error("PayMongo refund metadata is invalid.");
+  }
+
+  return Object.fromEntries(entries) as Record<string, string>;
 }
 
 function asRecord(

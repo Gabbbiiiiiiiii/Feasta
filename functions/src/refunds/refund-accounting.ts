@@ -25,6 +25,7 @@ import {
   assertRefundOperationTransition,
   calculateCancellationRefund,
   derivePaymentRefundStatus,
+  gatewayRefundIdempotencyKey,
   readRefundAccounting,
   refundAccountingError,
   refundOperationId,
@@ -366,6 +367,20 @@ export async function reserveCancellationRefund(input: {
       failureCode: null,
       operationKey,
       calculation,
+      gateway: "paymongo",
+      gatewayPaymentId:
+        typeof payment.paymongoResourceId === "string"
+          ? payment.paymongoResourceId
+          : null,
+      gatewayRefundId: null,
+      gatewayStatus: null,
+      gatewayExecutionKey: gatewayRefundIdempotencyKey(operationId),
+      gatewayFailureCertainty: null,
+      gatewayRequestedAt: null,
+      gatewayAcceptedAt: null,
+      gatewayReconciledAt: null,
+      executionAttemptCount: 0,
+      lastExecutionAt: null,
     });
     transaction.update(paymentReference, {
       refundAccountingSchemaVersion: REFUND_ACCOUNTING_SCHEMA_VERSION,

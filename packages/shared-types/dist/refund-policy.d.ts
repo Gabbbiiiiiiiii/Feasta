@@ -85,10 +85,15 @@ export type ProviderRequestCancellationRequest<TTimestamp = unknown> = {
     frozenEligibility: FrozenRefundEligibility<TTimestamp> | null;
     submittedAt: TTimestamp;
     updatedAt: TTimestamp;
-    decision: null;
-    refundCalculation: null;
-    refundOperationId: null;
+    decision: CancellationDecision<TTimestamp> | null;
+    refundCalculation: RefundCalculation | null;
+    refundOperationId: string | null;
     refundOperationIds: readonly string[];
+};
+export type CancellationDecision<TTimestamp = unknown> = {
+    outcome: "approved" | "rejected";
+    decidedAt: TTimestamp;
+    reason: string | null;
 };
 export declare const REFUND_CALCULATION_SCHEMA_VERSION: 1;
 export declare const REFUND_ACCOUNTING_SCHEMA_VERSION: 1;
@@ -142,5 +147,16 @@ export type RefundOperation<TTimestamp = unknown> = {
     failureCode: string | null;
     operationKey: string;
     calculation: CalculatedRefund;
+    gateway: "paymongo";
+    gatewayPaymentId: string | null;
+    gatewayRefundId: string | null;
+    gatewayStatus: "pending" | "processing" | "succeeded" | "failed" | null;
+    gatewayExecutionKey: string;
+    gatewayFailureCertainty: "not_sent" | "gateway_rejected" | "ambiguous" | null;
+    gatewayRequestedAt: TTimestamp | null;
+    gatewayAcceptedAt: TTimestamp | null;
+    gatewayReconciledAt: TTimestamp | null;
+    executionAttemptCount: number;
+    lastExecutionAt: TTimestamp | null;
 };
 //# sourceMappingURL=refund-policy.d.ts.map

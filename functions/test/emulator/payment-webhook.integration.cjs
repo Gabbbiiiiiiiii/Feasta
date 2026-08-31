@@ -47,6 +47,10 @@ const libRoot = process.env.FEASTA_FUNCTIONS_LIB_DIR ??
       processPayMongoWebhook,
       paymentIdForProviderRequest,
     });
+    await awaitingCancellationSettlementTest({
+      processPayMongoWebhook,
+      paymentIdForProviderRequest,
+    });
 
     console.log(
       "Payment webhook emulator integration passed.",
@@ -328,6 +332,85 @@ async function lifecycleConflictTests(input) {
       .collection("timeline")
       .get()
   ).size, conflictTimelineBeforeReplay);
+}
+
+async function awaitingCancellationSettlementTest(input) {
+  const seeded = await seed(
+    input.paymentIdForProviderRequest,
+    "awaiting-cancellation",
+  );
+  const cancellationRequestId = "cancellation-awaiting-payment";
+  const now = Timestamp.now();
+  const requestReference = db.doc(
+    `providerRequests/${seeded.providerRequestId}`,
+  );
+  const request = (await requestReference.get()).data();
+  await requestReference.update({
+    refundPolicySnapshot: {
+      schemaVersion: 1,
+      policyKey: `provider_default:${request.providerId}:v1`,
+      source: {
+        kind: "provider_default",
+        sourceId: request.providerId,
+        policyVersion: 1,
+      },
+      rules: [
+        {stage: "preparation_not_started", refundBasisPoints: 10_000},
+        {stage: "preparation_started", refundBasisPoints: 5_000},
+        {stage: "service_started", refundBasisPoints: 0},
+      ],
+      terms: null,
+      capturedAt: now,
+    },
+    refundPolicyAgreement: {
+      schemaVersion: 1,
+      policyKey: `provider_default:${request.providerId}:v1`,
+      agreedAt: now,
+      channel: "booking_submission",
+    },
+    refundEligibilityState: {
+      schemaVersion: 1,
+      currentStage: "preparation_not_started",
+      stageSequence: 0,
+      enteredAt: now,
+      activeCancellationRequestId: cancellationRequestId,
+    },
+  });
+  await db.doc(
+    `providerRequestCancellationRequests/${cancellationRequestId}`,
+  ).set({
+    schemaVersion: 1,
+    mainEventId: seeded.mainEventId,
+    providerRequestId: seeded.providerRequestId,
+    customerId: "customer-webhook-test",
+    providerId: request.providerId,
+    status: "awaiting_payment_resolution",
+    reason: "Await original payment settlement.",
+    policyEvidenceStatus: "policy_backed",
+    frozenEligibility: {
+      stage: "preparation_not_started",
+      stageSequence: 0,
+      frozenAt: now,
+    },
+    submittedAt: now,
+    updatedAt: now,
+    decision: null,
+    refundCalculation: null,
+    refundOperationId: null,
+    refundOperationIds: [],
+  });
+  const result = await input.processPayMongoWebhook(eventBody({
+    eventId: "evt_awaiting_cancellation_paid",
+    paymentId: seeded.paymentId,
+  }));
+  assert.equal(result.applied, true);
+  assert.equal((await db.doc(
+    `providerRequestCancellationRequests/${cancellationRequestId}`,
+  ).get()).data().status, "submitted");
+  assert.equal((await requestReference.get()).data().status, "confirmed");
+  assert.equal((await requestReference.get()).data()
+    .refundEligibilityState.activeCancellationRequestId,
+  cancellationRequestId);
 }
 
 async function seed(paymentIdForProviderRequest, suffix, overrides = {}) {

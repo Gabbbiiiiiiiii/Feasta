@@ -261,7 +261,7 @@ export const requestPaymentRefund = onCall(
               reason: "others",
             });
           } catch (error) {
-            if (payMongoFailureCertainty(error) === "not_sent") {
+            if (payMongoFailureCertainty(error) !== "ambiguous") {
               await releaseLegacyAdminRefundLock({
                 paymentReference,
                 operationKey: executionKey,
@@ -369,7 +369,12 @@ export const requestPaymentRefund = onCall(
 
                   refundExecutionLock: {
                     ...(executionLock as Record<string, unknown>),
-                    state: "gateway_accepted",
+                    state:
+                      currentStatus === "refunded" ||
+                      (executionLock as Record<string, unknown>).state ===
+                        "completed"
+                        ? "completed"
+                        : "gateway_accepted",
                     updatedAt: timestamp,
                   },
 

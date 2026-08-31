@@ -104,6 +104,7 @@ const CANCELLATION_TRANSITIONS: Readonly<
   ],
   refund_failed: [
     "refund_processing",
+    "refund_completed",
   ],
   refund_completed: [],
   cancelled_no_refund: [],
