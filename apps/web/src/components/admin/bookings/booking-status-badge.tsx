@@ -1,5 +1,6 @@
 import type {
   MainEventStatus,
+  PaymentStatus,
   ProviderRequestStatus,
 } from "@feasta/shared-types";
 
@@ -13,6 +14,7 @@ import {
 
 type BookingStatus =
   | MainEventStatus
+  | PaymentStatus
   | ProviderRequestStatus
   | AdminBookingOverallPaymentStatus;
 
@@ -111,6 +113,11 @@ const STATUS_PRESENTATIONS:
     paid: {
       label: "Paid",
       tone: "success",
+    },
+
+    partially_refunded: {
+      label: "Partially refunded",
+      tone: "info",
     },
 
     failed: {

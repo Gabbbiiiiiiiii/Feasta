@@ -24,6 +24,7 @@ export declare const FIRESTORE_COLLECTIONS: {
 export declare const FIRESTORE_SUBCOLLECTIONS: {
     readonly timeline: "timeline";
     readonly messages: "messages";
+    readonly refunds: "refunds";
     readonly documents: "documents";
     readonly activity: "activity";
 };

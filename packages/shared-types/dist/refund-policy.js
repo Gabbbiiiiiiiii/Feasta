@@ -21,4 +21,14 @@ export const PROVIDER_REQUEST_CANCELLATION_STATUSES = [
     "refund_completed",
     "cancelled_no_refund",
 ];
+export const REFUND_CALCULATION_SCHEMA_VERSION = 1;
+export const REFUND_ACCOUNTING_SCHEMA_VERSION = 1;
+export const REFUND_OPERATION_SCHEMA_VERSION = 1;
+export const REFUND_OPERATION_STATUSES = [
+    "reserved",
+    "processing",
+    "completed",
+    "failed",
+    "released",
+];
 //# sourceMappingURL=refund-policy.js.map

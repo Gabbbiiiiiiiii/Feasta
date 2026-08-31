@@ -12,6 +12,8 @@ import {
   REFUND_ELIGIBILITY_STATE_SCHEMA_VERSION,
   PROVIDER_REQUEST_CANCELLATION_SCHEMA_VERSION,
   PROVIDER_REQUEST_CANCELLATION_STATUSES,
+  PAYMENT_STATUSES,
+  PAYMENT_STATUS_TRANSITIONS,
 } from "../dist/index.js";
 
 test("refund policy shared constants describe the approved serializable contract", () => {
@@ -41,5 +43,17 @@ test("refund policy shared constants describe the approved serializable contract
   assert.equal(
     FIRESTORE_COLLECTIONS.providerRequestCancellationRequests,
     "providerRequestCancellationRequests",
+  );
+});
+
+test("payment contracts include canonical partial-refund transitions", () => {
+  assert.equal(PAYMENT_STATUSES.includes("partially_refunded"), true);
+  assert.deepEqual(
+    PAYMENT_STATUS_TRANSITIONS.paid,
+    ["partially_refunded", "refunded"],
+  );
+  assert.deepEqual(
+    PAYMENT_STATUS_TRANSITIONS.partially_refunded,
+    ["refunded"],
   );
 });

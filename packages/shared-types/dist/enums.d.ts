@@ -29,7 +29,7 @@ export declare const PROVIDER_REQUEST_STATUSES: readonly ["pending", "accepted",
 export type ProviderRequestStatus = (typeof PROVIDER_REQUEST_STATUSES)[number];
 export declare const PROVIDER_REQUEST_TYPES: readonly ["catering", "addon"];
 export type ProviderRequestType = (typeof PROVIDER_REQUEST_TYPES)[number];
-export declare const PAYMENT_STATUSES: readonly ["pending", "processing", "paid", "failed", "expired", "refunded"];
+export declare const PAYMENT_STATUSES: readonly ["pending", "processing", "paid", "partially_refunded", "failed", "expired", "refunded"];
 export declare const MAIN_EVENT_STATUS_TRANSITIONS: {
     readonly draft: readonly ["pending_provider_approval", "cancelled"];
     readonly pending_provider_approval: readonly ["needs_provider_replacement", "waiting_for_down_payment", "confirmed", "cancelled", "expired"];
@@ -59,7 +59,8 @@ export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 export declare const PAYMENT_STATUS_TRANSITIONS: {
     readonly pending: readonly ["processing", "paid", "failed", "expired"];
     readonly processing: readonly ["paid", "failed", "expired"];
-    readonly paid: readonly ["refunded"];
+    readonly paid: readonly ["partially_refunded", "refunded"];
+    readonly partially_refunded: readonly ["refunded"];
     readonly failed: readonly ["processing"];
     readonly expired: readonly ["processing"];
     readonly refunded: readonly [];

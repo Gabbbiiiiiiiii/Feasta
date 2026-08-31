@@ -1084,6 +1084,12 @@ service cloud.firestore {
        */
       allow create, update, delete: if false;
 
+      match /refunds/{refundOperationId} {
+        // Refund authority, reservations, and accounting are Functions-only.
+        // Participant UIs must use bounded trusted projections.
+        allow read, create, update, delete: if false;
+      }
+
       match /events/{eventId} {
         allow read: if isAdmin() ||
             (

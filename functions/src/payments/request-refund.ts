@@ -41,6 +41,7 @@ import {
 } from "../shared/validation.js";
 import {
   createPayMongoRefund,
+  payMongoFailureCertainty,
 } from "./paymongo-client.js";
 
 const payMongoSecretKey = defineSecret(
@@ -233,8 +234,22 @@ export const requestPaymentRefund = onCall(
         actorId: user.uid,
 
         handler: async () => {
-          const refund =
-            await createPayMongoRefund({
+          await acquireLegacyAdminRefundLock({
+            paymentReference,
+            providerRequestReference,
+            mainEventReference,
+            paymentId,
+            providerRequestId,
+            mainEventId,
+            customerId,
+            providerId,
+            operationKey: executionKey,
+          });
+
+          let refund: {id: string};
+
+          try {
+            refund = await createPayMongoRefund({
               secretKey:
                 payMongoSecretKey.value(),
 
@@ -245,6 +260,15 @@ export const requestPaymentRefund = onCall(
               amountInCentavos,
               reason: "others",
             });
+          } catch (error) {
+            if (payMongoFailureCertainty(error) === "not_sent") {
+              await releaseLegacyAdminRefundLock({
+                paymentReference,
+                operationKey: executionKey,
+              });
+            }
+            throw error;
+          }
 
           await db.runTransaction(
             async (transaction) => {
@@ -304,6 +328,24 @@ export const requestPaymentRefund = onCall(
                 );
               }
 
+              const executionLock =
+                currentPayment.refundExecutionLock;
+
+              if (
+                !executionLock ||
+                typeof executionLock !== "object" ||
+                Array.isArray(executionLock) ||
+                (executionLock as Record<string, unknown>).kind !==
+                  "legacy_admin_full_refund" ||
+                (executionLock as Record<string, unknown>).operationKey !==
+                  executionKey
+              ) {
+                throw new HttpsError(
+                  "failed-precondition",
+                  "Refund execution authority changed unexpectedly.",
+                );
+              }
+
               const timestamp =
                 serverTimestamp();
 
@@ -324,6 +366,12 @@ export const requestPaymentRefund = onCall(
 
                   refundRequestedAt:
                     timestamp,
+
+                  refundExecutionLock: {
+                    ...(executionLock as Record<string, unknown>),
+                    state: "gateway_accepted",
+                    updatedAt: timestamp,
+                  },
 
                   updatedAt: timestamp,
                 },
@@ -452,6 +500,123 @@ function validateRefundablePayment(
         "requested for this payment.",
     );
   }
+}
+
+async function acquireLegacyAdminRefundLock(input: {
+  paymentReference: FirebaseFirestore.DocumentReference;
+  providerRequestReference: FirebaseFirestore.DocumentReference;
+  mainEventReference: FirebaseFirestore.DocumentReference;
+  paymentId: string;
+  providerRequestId: string;
+  mainEventId: string;
+  customerId: string;
+  providerId: string;
+  operationKey: string;
+}): Promise<void> {
+  await db.runTransaction(async (transaction) => {
+    const [paymentSnapshot, providerRequestSnapshot, mainEventSnapshot] =
+      await transaction.getAll(
+        input.paymentReference,
+        input.providerRequestReference,
+        input.mainEventReference,
+      );
+
+    if (
+      !paymentSnapshot.exists ||
+      !providerRequestSnapshot.exists ||
+      !mainEventSnapshot.exists
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "The refund linkage is incomplete.",
+      );
+    }
+
+    const payment = paymentSnapshot.data() ?? {};
+    const providerRequest = providerRequestSnapshot.data() ?? {};
+    const mainEvent = mainEventSnapshot.data() ?? {};
+    validateRefundablePayment(payment);
+    validatePaymentLinkage({
+      paymentId: input.paymentId,
+      mainEventId: input.mainEventId,
+      providerRequestId: input.providerRequestId,
+      customerId: input.customerId,
+      providerId: input.providerId,
+      providerRequest,
+      mainEvent,
+    });
+
+    const existingLock = payment.refundExecutionLock;
+    if (existingLock !== undefined && existingLock !== null) {
+      if (
+        typeof existingLock === "object" &&
+        !Array.isArray(existingLock) &&
+        (existingLock as Record<string, unknown>).kind ===
+          "legacy_admin_full_refund" &&
+        (existingLock as Record<string, unknown>).operationKey ===
+          input.operationKey
+      ) {
+        return;
+      }
+      throw new HttpsError(
+        "already-exists",
+        "Another refund operation is already active.",
+      );
+    }
+
+    if (
+      payment.refundAccountingSchemaVersion !== undefined ||
+      payment.refundedAmountInCentavos !== undefined ||
+      payment.refundReservedAmountInCentavos !== undefined ||
+      providerRequest.approvedCancellationRequestId !== undefined &&
+        providerRequest.approvedCancellationRequestId !== null
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "This payment is managed by policy refund accounting.",
+      );
+    }
+
+    const timestamp = serverTimestamp();
+    transaction.update(input.paymentReference, {
+      refundExecutionLock: {
+        schemaVersion: 1,
+        kind: "legacy_admin_full_refund",
+        operationKey: input.operationKey,
+        state: "reserved",
+        lockedAt: timestamp,
+        updatedAt: timestamp,
+      },
+      updatedAt: timestamp,
+    });
+  });
+}
+
+async function releaseLegacyAdminRefundLock(input: {
+  paymentReference: FirebaseFirestore.DocumentReference;
+  operationKey: string;
+}): Promise<void> {
+  await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(input.paymentReference);
+    if (!snapshot.exists) return;
+    const payment = snapshot.data() ?? {};
+    const lock = payment.refundExecutionLock;
+
+    if (
+      lock &&
+      typeof lock === "object" &&
+      !Array.isArray(lock) &&
+      (lock as Record<string, unknown>).kind ===
+        "legacy_admin_full_refund" &&
+      (lock as Record<string, unknown>).operationKey === input.operationKey &&
+      (lock as Record<string, unknown>).state === "reserved"
+    ) {
+      transaction.update(input.paymentReference, {
+        refundExecutionLock: null,
+        updatedAt: serverTimestamp(),
+      });
+    }
+  });
 }
 
 function validatePaymentLinkage(

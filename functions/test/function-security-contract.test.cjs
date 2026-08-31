@@ -315,6 +315,32 @@ test("cancellation attempt identity is server-derived and Customer-scoped", () =
   assert.ok(domain.includes("input.operationKey"));
 });
 
+test("refund accounting is internal, canonical, and never browser-amount authority", () => {
+  const index = source("index.ts");
+  const accounting = source("refunds/refund-accounting.ts");
+  const domain = source("refunds/refund-accounting-domain.ts");
+  const legacyAdmin = source("payments/request-refund.ts");
+
+  assert.ok(!index.includes("reserveCancellationRefund"));
+  assert.ok(!index.includes("completeRefundAccounting"));
+  assert.ok(!accounting.includes("onCall("));
+  for (const control of [
+    "canonicalPaymentLinkageReason",
+    "paymentIdForProviderRequest",
+    "approvedCancellationRequestId",
+    "activeCancellationRequestId",
+    "runTransaction",
+    "transaction.create(operationReference",
+  ]) {
+    assert.ok(accounting.includes(control), `refund accounting is missing ${control}`);
+  }
+  assert.ok(domain.includes("BigInt(amount)"));
+  assert.ok(domain.includes("refundPolicySnapshot"));
+  assert.ok(domain.includes("frozenEligibility"));
+  assert.ok(legacyAdmin.includes("acquireLegacyAdminRefundLock"));
+  assert.ok(legacyAdmin.includes("refundExecutionLock"));
+});
+
 test("PayMongo webhook records gateway truth without resurrecting booking state", () => {
   const webhook = source("payments/process-webhook.ts");
   for (const control of [

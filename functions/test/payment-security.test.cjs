@@ -19,6 +19,22 @@ const {
   validStoredCheckoutReason,
   webhookLifecycleConflictReason,
 } = require(path.join(libRoot, "payments/payment-lifecycle.js"));
+const {
+  PAYMENT_STATUSES,
+  PAYMENT_STATUS_TRANSITIONS,
+} = require(path.join(libRoot, "shared/constants.js"));
+
+test("payment lifecycle includes partial-refund semantics", () => {
+  assert.equal(PAYMENT_STATUSES.includes("partially_refunded"), true);
+  assert.deepEqual(
+    PAYMENT_STATUS_TRANSITIONS.paid,
+    ["partially_refunded", "refunded"],
+  );
+  assert.deepEqual(
+    PAYMENT_STATUS_TRANSITIONS.partially_refunded,
+    ["refunded"],
+  );
+});
 
 test("PayMongo signatures reject invalid, stale, and missing values", () => {
   const secret = "unit-test-webhook-secret";

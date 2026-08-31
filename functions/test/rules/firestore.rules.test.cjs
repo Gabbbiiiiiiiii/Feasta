@@ -1170,6 +1170,11 @@ test("canonical payments are readable by participants and never client-written",
       status: "pending",
       amount: 1000,
     },
+    "payments/payment-one/refunds/refund-one": {
+      schemaVersion: 1,
+      status: "reserved",
+      amountInCentavos: 1000,
+    },
     "paymentWebhookEvents/event-one": {
       eventId: "event-one",
       paymentId: "payment-one",
@@ -1207,6 +1212,23 @@ test("canonical payments are readable by participants and never client-written",
     doc(admin, "payments/payment-one"),
     {status: "refunded", refundedAt: new Date()},
   ));
+  for (const client of [customer, provider, admin]) {
+    await assertFails(getDoc(doc(
+      client,
+      "payments/payment-one/refunds/refund-one",
+    )));
+    await assertFails(setDoc(doc(
+      client,
+      "payments/payment-one/refunds/client-refund",
+    ), {
+      status: "completed",
+      amountInCentavos: 1,
+    }));
+    await assertFails(updateDoc(doc(
+      client,
+      "payments/payment-one/refunds/refund-one",
+    ), {status: "completed"}));
+  }
   await assertFails(getDoc(doc(customer, "paymentWebhookEvents/event-one")));
   await assertSucceeds(getDoc(doc(admin, "paymentWebhookEvents/event-one")));
   await assertFails(setDoc(doc(admin, "paymentWebhookEvents/forged"), {

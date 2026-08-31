@@ -88,5 +88,59 @@ export type ProviderRequestCancellationRequest<TTimestamp = unknown> = {
     decision: null;
     refundCalculation: null;
     refundOperationId: null;
+    refundOperationIds: readonly string[];
+};
+export declare const REFUND_CALCULATION_SCHEMA_VERSION: 1;
+export declare const REFUND_ACCOUNTING_SCHEMA_VERSION: 1;
+export declare const REFUND_OPERATION_SCHEMA_VERSION: 1;
+export type RefundCalculationStatus = "calculated" | "manual_review_required" | "nothing_refundable";
+export type CalculatedRefund = {
+    schemaVersion: typeof REFUND_CALCULATION_SCHEMA_VERSION;
+    calculationStatus: "calculated" | "nothing_refundable";
+    frozenStage: RefundEligibilityStage;
+    refundBasisPoints: number;
+    originalPaidAmountInCentavos: number;
+    targetTotalRefundAmountInCentavos: number;
+    completedRefundAmountInCentavos: number;
+    reservedRefundAmountInCentavos: number;
+    eligibleRefundAmountInCentavos: number;
+    remainingRefundableAmountInCentavos: number;
+    currency: "PHP";
+};
+export type ManualReviewRefundCalculation = {
+    schemaVersion: typeof REFUND_CALCULATION_SCHEMA_VERSION;
+    calculationStatus: "manual_review_required";
+    frozenStage: null;
+    refundBasisPoints: null;
+    originalPaidAmountInCentavos: null;
+    targetTotalRefundAmountInCentavos: null;
+    completedRefundAmountInCentavos: null;
+    reservedRefundAmountInCentavos: null;
+    eligibleRefundAmountInCentavos: null;
+    remainingRefundableAmountInCentavos: null;
+    currency: null;
+};
+export type RefundCalculation = CalculatedRefund | ManualReviewRefundCalculation;
+export type RefundPaymentAccounting = {
+    refundAccountingSchemaVersion: typeof REFUND_ACCOUNTING_SCHEMA_VERSION;
+    refundedAmountInCentavos: number;
+    refundReservedAmountInCentavos: number;
+};
+export declare const REFUND_OPERATION_STATUSES: readonly ["reserved", "processing", "completed", "failed", "released"];
+export type RefundOperationStatus = (typeof REFUND_OPERATION_STATUSES)[number];
+export type RefundOperation<TTimestamp = unknown> = {
+    schemaVersion: typeof REFUND_OPERATION_SCHEMA_VERSION;
+    providerRequestId: string;
+    mainEventId: string;
+    cancellationRequestId: string;
+    amountInCentavos: number;
+    currency: "PHP";
+    status: RefundOperationStatus;
+    createdAt: TTimestamp;
+    updatedAt: TTimestamp;
+    completedAt: TTimestamp | null;
+    failureCode: string | null;
+    operationKey: string;
+    calculation: CalculatedRefund;
 };
 //# sourceMappingURL=refund-policy.d.ts.map

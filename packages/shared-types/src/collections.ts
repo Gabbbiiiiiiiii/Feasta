@@ -31,6 +31,7 @@ export const FIRESTORE_COLLECTIONS = {
 export const FIRESTORE_SUBCOLLECTIONS = {
   timeline: "timeline",
   messages: "messages",
+  refunds: "refunds",
   documents: "documents",
   activity: "activity",
 } as const;

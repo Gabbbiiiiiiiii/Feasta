@@ -350,6 +350,7 @@ async function submitCancellation(input: {
       decision: null,
       refundCalculation: null,
       refundOperationId: null,
+      refundOperationIds: [],
       submissionOperationKey: input.operationKey,
     });
 
