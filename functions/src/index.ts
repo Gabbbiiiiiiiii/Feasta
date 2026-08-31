@@ -153,6 +153,9 @@ export {
 export {createComplaint} from "./content/create-complaint.js";
 export {submitBookingRequest} from "./bookings/submit-booking-request.js";
 export {
+  getBookingRefundPolicyDisclosures,
+} from "./bookings/get-booking-refund-policy-disclosures.js";
+export {
   checkCustomerProviderAvailability,
 } from "./provider-availability/check-customer-provider-availability.js";
 export {

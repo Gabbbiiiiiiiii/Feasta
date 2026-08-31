@@ -1,7 +1,10 @@
 import {createHash} from "node:crypto";
 
 import {getAuth} from "firebase-admin/auth";
-import {Timestamp} from "firebase-admin/firestore";
+import {
+  Timestamp,
+  type FieldValue,
+} from "firebase-admin/firestore";
 import {
   HttpsError,
   onCall,
@@ -44,6 +47,17 @@ import {
   validateBookingPackage,
   type BookingPackageValidation,
 } from "./booking-contract.js";
+import {
+  assertRefundPolicyAcknowledgements,
+  buildProviderRequestRefundPolicyEvidence,
+  parseBookingRefundPolicyRollout,
+  parseRefundPolicyAcknowledgements,
+  rejectClientRefundPolicyAuthority,
+  resolveBookingRefundPolicies,
+  REFUND_POLICY_ROLLOUT_DOCUMENT_ID,
+  type BookingRefundPolicyRelationship,
+  type ProviderRequestRefundPolicyEvidence,
+} from "./booking-refund-policy.js";
 import {
   AVAILABILITY_COUNTED_REQUEST_STATUSES,
   manilaDateRange,
@@ -90,6 +104,7 @@ const COLLECTIONS = {
   providers: "providers",
   packages: "packages",
   addons: "addons",
+  appSettings: "appSettings",
   mainEvents: "mainEvents",
   providerRequests: "providerRequests",
 } as const;
@@ -231,6 +246,15 @@ export const submitBookingRequest = onCall(
       const willArrangeOwnAddOns =
         input.willArrangeOwnAddOns === true;
 
+      rejectClientRefundPolicyAuthority(
+        input,
+      );
+
+      const policyAcknowledgements =
+        parseRefundPolicyAcknowledgements(
+          input.policyAcknowledgements,
+        );
+
       const authUser = await getAuth().getUser(
         actor.uid,
       );
@@ -289,6 +313,12 @@ export const submitBookingRequest = onCall(
         .collection(COLLECTIONS.packages)
         .doc(packageId);
 
+      const refundPolicyRolloutReference = db
+        .collection(COLLECTIONS.appSettings)
+        .doc(
+          REFUND_POLICY_ROLLOUT_DOCUMENT_ID,
+        );
+
       const addonReferences = addonIds.map(
         (addonId) =>
           db
@@ -304,6 +334,7 @@ export const submitBookingRequest = onCall(
             customerSnapshot,
             cateringProviderSnapshot,
             packageSnapshot,
+            refundPolicyRolloutSnapshot,
             ...addonSnapshots
           ] = await Promise.all([
             transaction.get(bookingReference),
@@ -313,6 +344,9 @@ export const submitBookingRequest = onCall(
               cateringProviderReference,
             ),
             transaction.get(packageReference),
+            transaction.get(
+              refundPolicyRolloutReference,
+            ),
             ...addonReferences.map((reference) =>
               transaction.get(reference),
             ),
@@ -380,6 +414,16 @@ export const submitBookingRequest = onCall(
 
           const customer =
             customerSnapshot.data() ?? {};
+
+          const refundPolicyRolloutMode =
+            parseBookingRefundPolicyRollout({
+              exists:
+                refundPolicyRolloutSnapshot
+                  .exists,
+              data:
+                refundPolicyRolloutSnapshot
+                  .data(),
+            });
 
           const customerPhoneNumber =
             stringValue(user.phoneNumber);
@@ -753,6 +797,74 @@ export const submitBookingRequest = onCall(
               throw new HttpsError(
                 "failed-precondition",
                 "An add-on is unavailable.",
+              );
+            }
+          }
+
+          const refundPolicyEvidence =
+            new Map<
+              string,
+              ProviderRequestRefundPolicyEvidence<FieldValue>
+            >();
+
+          if (
+            refundPolicyRolloutMode ===
+              "required"
+          ) {
+            const relationships:
+              BookingRefundPolicyRelationship[] = [
+                {
+                  providerId:
+                    cateringProviderId,
+                  providerName:
+                    stringValue(
+                      cateringProvider
+                        .businessName,
+                    ),
+                  providerData:
+                    cateringProvider,
+                  packageRecord: {
+                    packageId,
+                    data: packageData,
+                  },
+                },
+                ...[
+                  ...marketplaceProviders
+                    .values(),
+                ].map(
+                  (provider) => ({
+                    providerId:
+                      provider.providerId,
+                    providerName:
+                      provider.businessName,
+                    providerData:
+                      provider.data,
+                    packageRecord: null,
+                  }),
+                ),
+              ];
+            const policies =
+              resolveBookingRefundPolicies(
+                relationships,
+              );
+
+            assertRefundPolicyAcknowledgements(
+              policies,
+              policyAcknowledgements,
+            );
+
+            const evidenceTimestamp =
+              serverTimestamp();
+
+            for (
+              const policy of policies.values()
+            ) {
+              refundPolicyEvidence.set(
+                policy.providerId,
+                buildProviderRequestRefundPolicyEvidence(
+                  policy,
+                  evidenceTimestamp,
+                ),
               );
             }
           }
@@ -1196,6 +1308,12 @@ export const submitBookingRequest = onCall(
               paymentId: null,
               paidAt: null,
 
+              ...requiredRefundPolicyEvidence(
+                refundPolicyRolloutMode,
+                refundPolicyEvidence,
+                cateringProviderId,
+              ),
+
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
             },
@@ -1262,6 +1380,13 @@ export const submitBookingRequest = onCall(
               calculateEffectivePercentage(
                 amount,
                 providerDownPaymentAmount,
+              );
+
+            const providerRefundPolicyEvidence =
+              requiredRefundPolicyEvidence(
+                refundPolicyRolloutMode,
+                refundPolicyEvidence,
+                marketplaceProviderId,
               );
 
             transaction.create(
@@ -1342,6 +1467,8 @@ export const submitBookingRequest = onCall(
 
                 paymentId: null,
                 paidAt: null,
+
+                ...providerRefundPolicyEvidence,
 
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
@@ -1958,4 +2085,35 @@ function normalizeStringArray(
       typeof item === "string" &&
       item.length > 0,
   );
+}
+
+function requiredRefundPolicyEvidence(
+  rolloutMode: "off" | "required",
+  evidence: ReadonlyMap<
+    string,
+    ProviderRequestRefundPolicyEvidence<FieldValue>
+  >,
+  providerId: string,
+):
+  ProviderRequestRefundPolicyEvidence<FieldValue> |
+  Record<string, never> {
+  if (rolloutMode === "off") {
+    return {};
+  }
+
+  const providerEvidence =
+    evidence.get(providerId);
+
+  if (!providerEvidence) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Provider refund policy evidence is unavailable.",
+      {
+        reason: "REFUND_POLICY_INVALID",
+        refreshRefundPolicies: false,
+      },
+    );
+  }
+
+  return providerEvidence;
 }

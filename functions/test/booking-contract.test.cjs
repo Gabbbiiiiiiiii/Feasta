@@ -257,3 +257,65 @@ test(
     );
   },
 );
+
+test(
+  "refund policies are transactionally re-resolved only for enforced new bookings",
+  () => {
+    const transactionStart = source.indexOf(
+      "db.runTransaction(",
+    );
+    const replay = source.indexOf(
+      "if (existingSnapshot.exists)",
+    );
+    const resolution = source.indexOf(
+      "resolveBookingRefundPolicies(",
+    );
+    const firstProviderRequest = source.indexOf(
+      "COLLECTIONS.providerRequests",
+      resolution,
+    );
+
+    assert.ok(transactionStart >= 0);
+    assert.ok(replay > transactionStart);
+    assert.ok(resolution > replay);
+    assert.ok(firstProviderRequest > resolution);
+    assert.match(
+      source,
+      /transaction\.get\(\s*refundPolicyRolloutReference/u,
+    );
+    assert.match(
+      source,
+      /refundPolicyRolloutMode ===\s*"required"/u,
+    );
+    assert.match(
+      source,
+      /assertRefundPolicyAcknowledgements/u,
+    );
+    assert.match(
+      source,
+      /buildProviderRequestRefundPolicyEvidence/u,
+    );
+  },
+);
+
+test(
+  "policy acknowledgement is not part of the durable booking fingerprint",
+  () => {
+    const fingerprintStart = source.indexOf(
+      "createSubmissionFingerprint({",
+    );
+    const fingerprintEnd = source.indexOf(
+      "});",
+      fingerprintStart,
+    );
+    const fingerprint = source.slice(
+      fingerprintStart,
+      fingerprintEnd,
+    );
+
+    assert.doesNotMatch(
+      fingerprint,
+      /policyAcknowledgements/u,
+    );
+  },
+);

@@ -7,6 +7,8 @@ import {
   REFUND_ELIGIBILITY_STAGES,
   REFUND_POLICY_SCHEMA_VERSION,
   REFUND_POLICY_TERMS_MAX_LENGTH,
+  REFUND_POLICY_AGREEMENT_SCHEMA_VERSION,
+  REFUND_ELIGIBILITY_STATE_SCHEMA_VERSION,
 } from "../dist/index.js";
 
 test("refund policy shared constants describe the approved serializable contract", () => {
@@ -19,4 +21,6 @@ test("refund policy shared constants describe the approved serializable contract
   assert.equal(REFUND_BASIS_POINTS_MIN, 0);
   assert.equal(REFUND_BASIS_POINTS_MAX, 10_000);
   assert.equal(REFUND_POLICY_TERMS_MAX_LENGTH, 4_000);
+  assert.equal(REFUND_POLICY_AGREEMENT_SCHEMA_VERSION, 1);
+  assert.equal(REFUND_ELIGIBILITY_STATE_SCHEMA_VERSION, 1);
 });

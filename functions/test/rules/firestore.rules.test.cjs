@@ -910,6 +910,35 @@ test("canonical provider requests are server-created and main-event trust fields
     remainingBalance: 8000,
     providerNotes: null,
     adminNotes: null,
+    refundPolicySnapshot: {
+      schemaVersion: 1,
+      policyKey: "provider_default:provider-one:v1",
+      source: {
+        kind: "provider_default",
+        sourceId: "provider-one",
+        policyVersion: 1,
+      },
+      rules: [
+        {stage: "preparation_not_started", refundBasisPoints: 10000},
+        {stage: "preparation_started", refundBasisPoints: 5000},
+        {stage: "service_started", refundBasisPoints: 0},
+      ],
+      terms: null,
+      capturedAt: new Date(),
+    },
+    refundPolicyAgreement: {
+      schemaVersion: 1,
+      policyKey: "provider_default:provider-one:v1",
+      agreedAt: new Date(),
+      channel: "booking_submission",
+    },
+    refundEligibilityState: {
+      schemaVersion: 1,
+      currentStage: "preparation_not_started",
+      stageSequence: 0,
+      enteredAt: new Date(),
+      activeCancellationRequestId: null,
+    },
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -966,6 +995,35 @@ test("canonical provider requests are server-created and main-event trust fields
     adminNotes: "Reviewed by operations.",
     updatedAt: new Date(),
   }));
+  for (const actorDb of [customer, provider, admin]) {
+    await assertFails(updateDoc(
+      doc(actorDb, `providerRequests/${requestId}`),
+      {
+        refundPolicySnapshot: {
+          ...providerRequest.refundPolicySnapshot,
+          policyKey: "provider_default:provider-one:v99",
+        },
+      },
+    ));
+    await assertFails(updateDoc(
+      doc(actorDb, `providerRequests/${requestId}`),
+      {
+        refundPolicyAgreement: {
+          ...providerRequest.refundPolicyAgreement,
+          agreedAt: new Date(),
+        },
+      },
+    ));
+    await assertFails(updateDoc(
+      doc(actorDb, `providerRequests/${requestId}`),
+      {
+        refundEligibilityState: {
+          ...providerRequest.refundEligibilityState,
+          currentStage: "service_started",
+        },
+      },
+    ));
+  }
 
   await assertSucceeds(updateDoc(doc(customer, `mainEvents/${eventId}`), {
     eventAddress: "456 Customer Editable Street",

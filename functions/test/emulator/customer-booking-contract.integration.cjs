@@ -81,6 +81,9 @@ async function run() {
     await assertTrustedCreationAndReplay(
       fixture,
     );
+    await assertRefundPolicyAgreementFlow(
+      fixture,
+    );
 
     console.log(
       "Customer booking contract integration passed.",
@@ -291,6 +294,11 @@ async function createFixture() {
         maxGuestsPerEvent: 500,
         availableStaffCount: 10,
         availableEquipmentCount: 10,
+        refundPolicy: refundPolicy(
+          1,
+          [9_000, 4_000, 0],
+          "Provider default terms.",
+        ),
       }),
     db.collection("providers")
       .doc(independentProviderId)
@@ -327,6 +335,11 @@ async function createFixture() {
         maxGuestsPerEvent: 0,
         availableStaffCount: 0,
         availableEquipmentCount: 0,
+        refundPolicy: refundPolicy(
+          1,
+          [8_000, 3_000, 0],
+          "Photography refund terms.",
+        ),
       }),
     db.collection("packages")
       .doc(packageId)
@@ -343,6 +356,33 @@ async function createFixture() {
         decorInclusions: [],
         furnitureInclusions: [],
         serviceInclusions: ["Coordination"],
+        status: "published",
+        isActive: true,
+        isPublished: true,
+        providerPubliclyVisible: true,
+        isDeleted: false,
+        refundPolicyOverride: refundPolicy(
+          1,
+          [10_000, 5_000, 0],
+          "Package-specific refund terms.",
+        ),
+        refundPolicyOverrideVersion: 1,
+      }),
+    db.collection("packages")
+      .doc("package_booking_contract_foreign")
+      .set({
+        providerId: independentProviderId,
+        name: "Foreign Provider Package",
+        description: "A package owned by another Provider.",
+        eventType: "wedding",
+        price: 9_000,
+        downPaymentPercentage: 20,
+        minimumGuests: 1,
+        maximumGuests: 100,
+        foodInclusions: [],
+        decorInclusions: [],
+        furnitureInclusions: [],
+        serviceInclusions: ["Photography"],
         status: "published",
         isActive: true,
         isPublished: true,
@@ -600,6 +640,11 @@ async function assertTrustedCreationAndReplay(
     independentRequest?.data().services.map((service) => service.serviceId),
     [fixture.independentAddonId],
   );
+  for (const request of requests.docs) {
+    assert.equal(request.data().refundPolicySnapshot, undefined);
+    assert.equal(request.data().refundPolicyAgreement, undefined);
+    assert.equal(request.data().refundEligibilityState, undefined);
+  }
 
   await db.collection("packages")
     .doc(fixture.packageId)
@@ -630,6 +675,350 @@ async function assertTrustedCreationAndReplay(
   assert.equal(
     (await db.collection("bookings").get()).size,
     0,
+  );
+}
+
+async function assertRefundPolicyAgreementFlow(fixture) {
+  await signInRefundPolicyCustomer();
+
+  await db.collection("packages")
+    .doc(fixture.packageId)
+    .update({
+      status: "published",
+      isActive: true,
+      isPublished: true,
+      providerPubliclyVisible: true,
+    });
+  await Promise.all([
+    db.collection("providers")
+      .doc(fixture.providerId)
+      .update({maxEventsPerDay: 5}),
+    db.collection("providers")
+      .doc(fixture.independentProviderId)
+      .update({maxEventsPerDay: 5}),
+  ]);
+
+  const disclosureInput = {
+    providerId: fixture.providerId,
+    packageId: fixture.packageId,
+    addonIds: [
+      fixture.providerOwnedAddonId,
+      fixture.independentAddonId,
+    ],
+  };
+  const initialDisclosure = await callCallable(
+    "getBookingRefundPolicyDisclosures",
+    disclosureInput,
+  );
+
+  assert.equal(initialDisclosure.rolloutMode, "off");
+  assert.equal(initialDisclosure.acknowledgementsRequired, false);
+  assert.equal(initialDisclosure.policies.length, 2);
+  assert.equal(
+    initialDisclosure.policies.find(
+      (entry) => entry.providerId === fixture.providerId,
+    ).sourceKind,
+    "package_override",
+  );
+  assert.equal(
+    initialDisclosure.policies.find(
+      (entry) => entry.providerId === fixture.independentProviderId,
+    ).sourceKind,
+    "provider_default",
+  );
+  assert.doesNotMatch(
+    JSON.stringify(initialDisclosure),
+    /ownerId|effectiveAt|verificationStatus|private|audit/u,
+  );
+
+  await assert.rejects(
+    () => callCallable(
+      "getBookingRefundPolicyDisclosures",
+      {
+        ...disclosureInput,
+        packageId: "package_booking_contract_foreign",
+      },
+    ),
+    /selected booking service is unavailable/u,
+  );
+
+  const independentReference = db.collection("providers")
+    .doc(fixture.independentProviderId);
+  const independentSnapshot = await independentReference.get();
+  const independentPolicy = independentSnapshot.data().refundPolicy;
+  await independentReference.update({refundPolicy: null});
+  await assert.rejects(
+    () => callCallable(
+      "getBookingRefundPolicyDisclosures",
+      disclosureInput,
+    ),
+    /REFUND_POLICY_REQUIRED/u,
+  );
+  await independentReference.update({refundPolicy: independentPolicy});
+
+  await db.collection("appSettings")
+    .doc("refundPolicyBookingAgreement")
+    .set({
+      schemaVersion: 1,
+      enforcementMode: "required",
+      isPublic: false,
+      updatedAt: Timestamp.now(),
+    });
+
+  const enforcedDisclosure = await callCallable(
+    "getBookingRefundPolicyDisclosures",
+    disclosureInput,
+  );
+  assert.equal(enforcedDisclosure.rolloutMode, "required");
+  assert.equal(enforcedDisclosure.acknowledgementsRequired, true);
+
+  const eventDate = futureDateKey(31);
+  const missingAcknowledgement = bookingPayload(
+    fixture,
+    "refund-policy-missing-ack",
+    {eventDate, eventTime: "16:00", eventEndTime: "18:00"},
+  );
+  await assert.rejects(
+    () => callFunction(missingAcknowledgement),
+    /REFUND_POLICY_ACKNOWLEDGEMENT_REQUIRED/u,
+  );
+  await assertNoBooking(missingAcknowledgement);
+
+  const acknowledgements = enforcedDisclosure.policies.map(
+    (entry) => ({
+      providerId: entry.providerId,
+      effectivePolicyKey: entry.effectivePolicyKey,
+    }),
+  );
+  const packageReference = db.collection("packages")
+    .doc(fixture.packageId);
+  await packageReference.update({
+    refundPolicyOverride: refundPolicy(
+      2,
+      [9_500, 4_500, 0],
+      "Updated package-specific refund terms.",
+    ),
+    refundPolicyOverrideVersion: 2,
+  });
+
+  const stalePayload = bookingPayload(
+    fixture,
+    "refund-policy-stale-ack",
+    {
+      eventDate,
+      eventTime: "16:00",
+      eventEndTime: "18:00",
+      policyAcknowledgements: acknowledgements,
+    },
+  );
+  await assert.rejects(
+    () => callFunction(stalePayload),
+    /REFUND_POLICY_CHANGED/u,
+  );
+  await assertNoBooking(stalePayload);
+
+  const currentDisclosure = await callCallable(
+    "getBookingRefundPolicyDisclosures",
+    disclosureInput,
+  );
+  const currentAcknowledgements = currentDisclosure.policies.map(
+    (entry) => ({
+      providerId: entry.providerId,
+      effectivePolicyKey: entry.effectivePolicyKey,
+    }),
+  );
+
+  for (const [index, invalidAcknowledgements] of [
+    currentAcknowledgements.slice(0, 1),
+    [
+      ...currentAcknowledgements,
+      {
+        providerId: "provider_booking_contract_extra",
+        effectivePolicyKey:
+          "provider_default:provider_booking_contract_extra:v1",
+      },
+    ],
+    currentAcknowledgements.map((entry, index) =>
+      index === 0
+        ? {...entry, providerId: "provider_booking_contract_wrong"}
+        : entry),
+  ].entries()) {
+    const invalidPayload = bookingPayload(
+      fixture,
+      `refund-policy-invalid-${index}`,
+      {
+        eventDate,
+        eventTime: "16:00",
+        eventEndTime: "18:00",
+        policyAcknowledgements: invalidAcknowledgements,
+      },
+    );
+    await assert.rejects(
+      () => callFunction(invalidPayload),
+      /REFUND_POLICY_ACKNOWLEDGEMENT_REQUIRED/u,
+    );
+    await assertNoBooking(invalidPayload);
+  }
+
+  const authorityPayload = bookingPayload(
+    fixture,
+    "refund-policy-client-authority",
+    {
+      eventDate,
+      policyAcknowledgements: currentAcknowledgements,
+      refundPolicySnapshot: {refundBasisPoints: 10_000},
+    },
+  );
+  await assert.rejects(
+    () => callFunction(authorityPayload),
+    /REFUND_POLICY_ACKNOWLEDGEMENT_INVALID/u,
+  );
+  await assertNoBooking(authorityPayload);
+
+  const validPayload = bookingPayload(
+    fixture,
+    "refund-policy-valid-booking",
+    {
+      eventDate,
+      eventTime: "16:00",
+      eventEndTime: "18:00",
+      policyAcknowledgements: currentAcknowledgements,
+    },
+  );
+  const created = await callFunction(validPayload);
+  assert.equal(created.created, true);
+
+  const requests = await db.collection("providerRequests")
+    .where("mainEventId", "==", created.bookingId)
+    .get();
+  assert.equal(requests.size, 2);
+  assert.deepEqual(
+    new Set(created.providerRequestIds),
+    new Set(requests.docs.map((snapshot) => snapshot.id)),
+  );
+
+  const requestSnapshots = new Map(
+    requests.docs.map((snapshot) => [
+      snapshot.data().providerId,
+      snapshot.data().refundPolicySnapshot,
+    ]),
+  );
+  for (const request of requests.docs) {
+    const data = request.data();
+    const disclosure = currentDisclosure.policies.find(
+      (entry) => entry.providerId === data.providerId,
+    );
+    assert.ok(disclosure);
+    assert.equal(
+      data.refundPolicySnapshot.policyKey,
+      disclosure.effectivePolicyKey,
+    );
+    assert.equal(
+      data.refundPolicySnapshot.policyKey,
+      data.refundPolicyAgreement.policyKey,
+    );
+    assert.deepEqual(
+      data.refundPolicySnapshot.rules,
+      disclosure.rules,
+    );
+    assert.equal(
+      data.refundPolicySnapshot.terms,
+      disclosure.terms,
+    );
+    assert.ok(data.refundPolicySnapshot.capturedAt instanceof Timestamp);
+    assert.ok(data.refundPolicyAgreement.agreedAt instanceof Timestamp);
+    assert.equal(data.refundPolicyAgreement.channel, "booking_submission");
+    assert.deepEqual(
+      {
+        schemaVersion: data.refundEligibilityState.schemaVersion,
+        currentStage: data.refundEligibilityState.currentStage,
+        stageSequence: data.refundEligibilityState.stageSequence,
+        activeCancellationRequestId:
+          data.refundEligibilityState.activeCancellationRequestId,
+      },
+      {
+        schemaVersion: 1,
+        currentStage: "preparation_not_started",
+        stageSequence: 0,
+        activeCancellationRequestId: null,
+      },
+    );
+    assert.ok(data.refundEligibilityState.enteredAt instanceof Timestamp);
+    assert.equal(data.refundPolicyAgreement.customerId, undefined);
+  }
+
+  await Promise.all([
+    packageReference.update({
+      refundPolicyOverride: refundPolicy(
+        3,
+        [7_000, 2_000, 0],
+        "Later package terms.",
+      ),
+      refundPolicyOverrideVersion: 3,
+    }),
+    independentReference.update({
+      refundPolicy: refundPolicy(
+        2,
+        [6_000, 1_000, 0],
+        "Later photography terms.",
+      ),
+    }),
+  ]);
+
+  const requestsAfterPolicyEdit = await db.collection("providerRequests")
+    .where("mainEventId", "==", created.bookingId)
+    .get();
+  for (const request of requestsAfterPolicyEdit.docs) {
+    assert.deepEqual(
+      request.data().refundPolicySnapshot,
+      requestSnapshots.get(request.data().providerId),
+    );
+  }
+
+  const replay = await callFunction(validPayload);
+  assert.equal(replay.created, false);
+  assert.equal(replay.bookingId, created.bookingId);
+  assert.deepEqual(replay.providerRequestIds, created.providerRequestIds);
+}
+
+async function signInRefundPolicyCustomer() {
+  const email =
+    "customer.refund-policy.contract@feasta.test";
+  const phoneNumber = "+639171234569";
+  const customer = await adminAuth.createUser({
+    email,
+    password,
+    emailVerified: true,
+    phoneNumber,
+  });
+
+  await Promise.all([
+    db.collection("users").doc(customer.uid).set({
+      uid: customer.uid,
+      role: "customer",
+      accountStatus: "active",
+      isActive: true,
+      isBlocked: false,
+      isPhoneVerified: true,
+      phoneNumber,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    }),
+    db.collection("customers").doc(customer.uid).set({
+      userId: customer.uid,
+      firstName: "Refund Policy",
+      lastName: "Customer",
+      email,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    }),
+  ]);
+
+  await signOut(auth);
+  await signInWithEmailAndPassword(
+    auth,
+    email,
+    password,
   );
 }
 
@@ -723,7 +1112,8 @@ async function callCallable(functionName, data, authenticated = true) {
   if (!response.ok || body.error) {
     throw new Error(
       `${body.error?.status ?? response.status}: ` +
-      `${body.error?.message ?? "Callable failed"}`,
+      `${body.error?.message ?? "Callable failed"} ` +
+      `${JSON.stringify(body.error?.details ?? {})}`,
     );
   }
 
@@ -750,4 +1140,23 @@ function requiredEnv(name) {
   const value = process.env[name];
   assert.ok(value, `${name} is required.`);
   return value;
+}
+
+function refundPolicy(version, values, terms) {
+  const stages = [
+    "preparation_not_started",
+    "preparation_started",
+    "service_started",
+  ];
+
+  return {
+    schemaVersion: 1,
+    policyVersion: version,
+    rules: stages.map((stage, index) => ({
+      stage,
+      refundBasisPoints: values[index],
+    })),
+    terms,
+    effectiveAt: Timestamp.now(),
+  };
 }

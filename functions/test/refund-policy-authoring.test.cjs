@@ -112,9 +112,9 @@ test("audit records identify versions without copying policy contents", () => {
   }
 });
 
-test("B2 leaves booking submission policy-optional and behavior-compatible", () => {
-  assert.equal(booking.includes("refundPolicySnapshot"), false);
-  assert.equal(booking.includes("refundPolicyAgreement"), false);
-  assert.equal(booking.includes("policyAcknowledgements"), false);
-  assert.equal(booking.includes("resolveEffectiveRefundPolicy"), false);
+test("B3 booking integration reuses the B2 policy domain without changing authoring", () => {
+  assert.ok(booking.includes("policyAcknowledgements"));
+  assert.ok(booking.includes("resolveBookingRefundPolicies"));
+  assert.ok(booking.includes("buildProviderRequestRefundPolicyEvidence"));
+  assert.equal(booking.includes("publishProviderRefundPolicy"), false);
 });
