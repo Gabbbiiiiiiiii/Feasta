@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
-import {useState} from "react";
+import {useId, useState} from "react";
 
 import {
   boundedText,
@@ -23,6 +23,7 @@ import {
   formatCount,
   formatCurrency,
 } from "@/components/customer/bookings/booking-formatters";
+import {CustomerBookingCancellationDialog} from "@/components/customer/bookings/customer-booking-cancellation-dialog";
 import {CustomerBookingProviderRequestCard} from "@/components/customer/bookings/customer-booking-provider-request-card";
 import {CustomerBookingReviewDialog} from "@/components/customer/bookings/customer-booking-review-dialog";
 import {feastaToast} from "@/components/feedback/toast";
@@ -55,11 +56,27 @@ function CustomerBookingDetailContent({
   const [messageRequestId, setMessageRequestId] = useState<string | null>(null);
   const [selectedReviewRequestId, setSelectedReviewRequestId] =
     useState<string | null>(null);
+  const [selectedCancellationRequestId, setSelectedCancellationRequestId] =
+    useState<string | null>(null);
+  const [selectedCancellationTriggerId, setSelectedCancellationTriggerId] =
+    useState<string | null>(null);
+  const cancellationTriggerPrefix = useId();
   const [reviewedRequestIds, setReviewedRequestIds] =
     useState<ReadonlySet<string>>(() => new Set());
   const selectedReviewRequest = providerRequests.find(
     (request) => request.providerRequestId === selectedReviewRequestId,
   ) ?? null;
+  const selectedCancellationRequest = providerRequests.find(
+    (request) => request.providerRequestId === selectedCancellationRequestId,
+  ) ?? null;
+
+  function openCancellation(
+    providerRequestId: string,
+    triggerId: string,
+  ) {
+    setSelectedCancellationTriggerId(triggerId);
+    setSelectedCancellationRequestId(providerRequestId);
+  }
 
   async function startCheckout(providerRequestId: string) {
     if (paymentRequestId !== null) return;
@@ -164,7 +181,7 @@ function CustomerBookingDetailContent({
         </div>
         {providerRequests.length > 0 ? (
           <div className="mt-4 grid gap-4">
-            {providerRequests.map((request) => (
+            {providerRequests.map((request, index) => (
               <CustomerBookingProviderRequestCard
                 key={request.id}
                 request={request}
@@ -187,6 +204,12 @@ function CustomerBookingDetailContent({
                   booking,
                   reviewed: reviewedRequestIds.has(request.providerRequestId),
                   onReview: setSelectedReviewRequestId,
+                })}
+                cancellationAction={cancellationActionForRequest({
+                  request,
+                  bookingId: booking.id,
+                  triggerId: `${cancellationTriggerPrefix}-cancellation-${index}`,
+                  onCancel: openCancellation,
                 })}
               />
             ))}
@@ -224,6 +247,53 @@ function CustomerBookingDetailContent({
           }}
         />
       ) : null}
+
+      {selectedCancellationRequest ? (
+        <CustomerBookingCancellationDialog
+          key={selectedCancellationRequest.providerRequestId}
+          request={selectedCancellationRequest}
+          onClose={() => setSelectedCancellationRequestId(null)}
+          restoreFocusId={selectedCancellationTriggerId ?? undefined}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function cancellationActionForRequest({
+  request,
+  bookingId,
+  triggerId,
+  onCancel,
+}: {
+  request: CustomerBookingDetails["providerRequests"][number];
+  bookingId: string;
+  triggerId: string;
+  onCancel: (providerRequestId: string, triggerId: string) => void;
+}) {
+  if (
+    !SAFE_DOCUMENT_ID.test(request.providerRequestId) ||
+    request.id !== request.providerRequestId ||
+    request.mainEventId !== bookingId
+  ) {
+    return undefined;
+  }
+
+  const providerName = boundedText(request.providerName, "provider", 80);
+  return (
+    <div className="grid gap-2 border-t border-border pt-4">
+      <Button
+        id={triggerId}
+        variant="secondary"
+        fullWidth
+        aria-label={`Review cancellation options for ${providerName}'s service`}
+        onClick={() => onCancel(request.providerRequestId, triggerId)}
+      >
+        Review cancellation options
+      </Button>
+      <p className="text-xs leading-5 text-muted-foreground">
+        This action applies only to this Provider service. FEASTA checks eligibility securely before allowing submission.
+      </p>
     </div>
   );
 }

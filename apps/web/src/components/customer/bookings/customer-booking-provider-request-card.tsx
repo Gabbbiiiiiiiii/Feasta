@@ -29,6 +29,7 @@ type CustomerBookingProviderRequestCardProps = {
   messageAction?: ReactNode;
   providerAction?: ReactNode;
   reviewAction?: ReactNode;
+  cancellationAction?: ReactNode;
 };
 
 const MAX_SERVICES_PER_REQUEST = 30;
@@ -41,6 +42,7 @@ function CustomerBookingProviderRequestCard({
   messageAction,
   providerAction,
   reviewAction,
+  cancellationAction,
 }: CustomerBookingProviderRequestCardProps) {
   const services = request.services.slice(0, MAX_SERVICES_PER_REQUEST);
   const explanation = request.status === "rejected" ?
@@ -149,6 +151,7 @@ function CustomerBookingProviderRequestCard({
         </div>
       ) : null}
       {reviewAction}
+      {cancellationAction}
 
       <section
         className="grid min-w-0 gap-2.5"

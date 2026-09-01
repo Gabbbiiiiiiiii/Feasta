@@ -24,6 +24,10 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
   submitReview: vi.fn(),
+  getCancellationOptions: vi.fn(),
+  getCancellationStatus: vi.fn(),
+  submitCancellation: vi.fn(),
+  cancellationKey: vi.fn(() => "customer-cancellation:request-1:secure-key"),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -48,6 +52,13 @@ vi.mock("@/lib/customer/messages/customer-chat-client", () => ({
 
 vi.mock("@/lib/customer/reviews/customer-review-client", () => ({
   submitCustomerReview: mocks.submitReview,
+}));
+
+vi.mock("@/lib/customer/bookings/customer-cancellation-client", () => ({
+  getCustomerProviderRequestCancellationOptions: mocks.getCancellationOptions,
+  getCustomerProviderRequestCancellationStatus: mocks.getCancellationStatus,
+  submitCustomerProviderRequestCancellation: mocks.submitCancellation,
+  createCustomerCancellationIdempotencyKey: mocks.cancellationKey,
 }));
 
 vi.mock("@/components/feedback/toast", () => ({
@@ -83,6 +94,18 @@ describe("customer booking dedicated detail page", () => {
       canSendMessages: true,
     });
     mocks.submitReview.mockResolvedValue({created: true});
+    mocks.getCancellationOptions.mockResolvedValue({
+      providerRequestId: "request-1",
+      cancellationAllowed: false,
+      reasonCode: "PROVIDER_REQUEST_STATUS_INELIGIBLE",
+      activeCancellation: null,
+      policy: null,
+      refundPreview: null,
+    });
+    mocks.getCancellationStatus.mockResolvedValue({
+      providerRequestId: "request-1",
+      cancellation: null,
+    });
   });
 
   it("server-loads an owned direct URL and renders accessible read-only details", async () => {
@@ -120,7 +143,11 @@ describe("customer booking dedicated detail page", () => {
     expect(within(timeline as HTMLElement).getByRole("list", {name: "Booking activity"})).toBeInTheDocument();
 
     expect(screen.getByRole("button", {name: /pay .*25,000\.00 down payment/iu})).toBeVisible();
-    expect(screen.queryByRole("button", {name: /cancel|refund|review|chat/iu})).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {
+      name: "Review cancellation options for Maria's Catering's service",
+    })).toBeVisible();
+    expect(screen.queryByRole("button", {name: /cancel (?:this )?booking|refund now/iu}))
+      .not.toBeInTheDocument();
   });
 
   it("shows the request-scoped down-payment amount in the eligible action", () => {
@@ -133,6 +160,81 @@ describe("customer booking dedicated detail page", () => {
         name: /pay .*25,000\.00 down payment/iu,
       }),
     ).toBeVisible();
+  });
+
+  it("targets only the selected Provider request and leaves other Provider cards unchanged", async () => {
+    const result = detailResult();
+    result.details.providerRequests.push(providerRequestFixture({
+      id: "request-photo",
+      providerRequestId: "request-photo",
+      providerId: "provider-photo",
+      providerName: "Photo Studio",
+      type: "addon",
+      packageId: null,
+      packageName: null,
+      status: "confirmed",
+      paymentStatus: "paid",
+      services: [{
+        id: "photo-service",
+        name: "Event photography",
+        category: "Photography",
+        price: 30_000,
+        downPaymentPercentage: 20,
+        downPaymentAmount: 6_000,
+      }],
+    }));
+    mocks.getCancellationOptions.mockImplementation(
+      async (providerRequestId: string) => ({
+        providerRequestId,
+        cancellationAllowed: false,
+        reasonCode: "PROVIDER_REQUEST_STATUS_INELIGIBLE",
+        activeCancellation: null,
+        policy: null,
+        refundPreview: null,
+      }),
+    );
+    mocks.getCancellationStatus.mockImplementation(
+      async (providerRequestId: string) => ({
+        providerRequestId,
+        cancellation: null,
+      }),
+    );
+
+    render(<CustomerBookingDetailPage result={result} />);
+    const selectedTrigger = screen.getByRole("button", {
+      name: "Review cancellation options for Photo Studio's service",
+    });
+    const cateringCard = screen.getByRole("heading", {name: "Maria's Catering"})
+      .closest("article");
+    const photoCard = screen.getByRole("heading", {name: "Photo Studio"})
+      .closest("article");
+    expect(cateringCard).not.toBeNull();
+    expect(photoCard).not.toBeNull();
+    expect(within(cateringCard as HTMLElement).getByLabelText("Status: Awaiting payment"))
+      .toBeVisible();
+    expect(within(photoCard as HTMLElement).getByLabelText("Status: Confirmed"))
+      .toBeVisible();
+    fireEvent.click(selectedTrigger);
+
+    expect(await screen.findByRole("heading", {
+      name: "Cancel Photo Studio's service?",
+    })).toBeVisible();
+    expect(mocks.getCancellationOptions).toHaveBeenCalledTimes(1);
+    expect(mocks.getCancellationOptions).toHaveBeenCalledWith("request-photo");
+    expect(mocks.getCancellationStatus).toHaveBeenCalledWith("request-photo");
+    expect(screen.getByText(/Other Provider services attached to this event remain independent/u))
+      .toBeVisible();
+
+    expect(cateringCard).toHaveTextContent("Maria's Catering");
+    expect(cateringCard).toHaveTextContent("Awaiting payment");
+    expect(photoCard).toHaveTextContent("Photo Studio");
+    expect(photoCard).toHaveTextContent("Confirmed");
+    expect(document.body).not.toHaveTextContent("request-photo");
+    expect(document.body).not.toHaveTextContent("provider-photo");
+
+    fireEvent.click(screen.getByRole("button", {name: "Close"}));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(selectedTrigger).toHaveFocus();
   });
 
   it("opens messaging through the trusted callable and canonical provider-request room", async () => {
