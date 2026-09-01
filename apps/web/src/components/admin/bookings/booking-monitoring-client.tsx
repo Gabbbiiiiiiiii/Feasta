@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
   useTransition,
+  type ReactNode,
 } from "react";
 
 import {
@@ -56,6 +57,7 @@ import type {
 
 type BookingMonitoringClientProps = {
   initialPage: AdminBookingPage;
+  supplementalContent?: ReactNode;
 };
 
 const FIRST_PAGE_CURSOR = "__first_page__";
@@ -86,6 +88,7 @@ const dateFormatter =
 
 function BookingMonitoringClient({
   initialPage,
+  supplementalContent,
 }: BookingMonitoringClientProps) {
   const [page, setPage] =
     useState(initialPage);
@@ -445,6 +448,8 @@ function BookingMonitoringClient({
         title="Booking Monitoring"
         description="Monitor customer events, provider responses, and payment progress across FEASTA."
       />
+
+      {supplementalContent}
 
       <section
         className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"

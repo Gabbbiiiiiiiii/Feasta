@@ -559,8 +559,80 @@ function mapProviderBooking(
     ),
     cancellationReason: optionalText(request.cancellationReason, 500),
     cancellationActor: optionalText(request.cancellationActor, 80),
+    refundEligibility: mapRefundEligibility(request, requestStatus, payment),
     timelineCount: null,
   };
+}
+
+function mapRefundEligibility(
+  request: DocumentData,
+  requestStatus: ProviderRequestStatus,
+  payment: ProviderBookingPayment | null,
+): ProviderBooking["refundEligibility"] {
+  const snapshotPresent = request.refundPolicySnapshot !== undefined && request.refundPolicySnapshot !== null;
+  const agreementPresent = request.refundPolicyAgreement !== undefined && request.refundPolicyAgreement !== null;
+  const statePresent = request.refundEligibilityState !== undefined && request.refundEligibilityState !== null;
+  const presentCount = [snapshotPresent, agreementPresent, statePresent].filter(Boolean).length;
+
+  if (presentCount === 0) {
+    return {
+      evidenceStatus: "legacy",
+      currentStage: null,
+      activeCancellationLocked: optionalDocumentId(request.activeCancellationRequestId) !== null,
+      canMarkPreparationStarted: false,
+    };
+  }
+
+  const state = recordValue(request.refundEligibilityState);
+  const stage = refundEligibilityStage(state?.currentStage);
+  const sequence = state?.stageSequence;
+  const activeCancellationId = state?.activeCancellationRequestId === null
+    ? null
+    : optionalDocumentId(state?.activeCancellationRequestId);
+  const stageSequenceValid = stage === "preparation_not_started"
+    ? sequence === 0
+    : stage === "preparation_started"
+      ? sequence === 1
+      : stage === "service_started" && (sequence === 1 || sequence === 2);
+
+  if (presentCount !== 3 || !stage || !stageSequenceValid ||
+    (state?.activeCancellationRequestId !== null && !activeCancellationId)) {
+    return {
+      evidenceStatus: "invalid",
+      currentStage: null,
+      activeCancellationLocked: true,
+      canMarkPreparationStarted: false,
+    };
+  }
+
+  const paymentReady = nonNegativeMoney(request.downPaymentAmount) === 0 || (
+    request.paymentStatus === "paid" &&
+    payment?.status === "paid" &&
+    dateValue(request.paidAt) !== null
+  );
+
+  return {
+    evidenceStatus: "policy_backed",
+    currentStage: stage,
+    activeCancellationLocked: activeCancellationId !== null,
+    canMarkPreparationStarted:
+      stage === "preparation_not_started" &&
+      activeCancellationId === null &&
+      requestStatus === "confirmed" &&
+      paymentReady,
+  };
+}
+
+function refundEligibilityStage(value: unknown): ProviderBooking["refundEligibility"]["currentStage"] {
+  return value === "preparation_not_started" || value === "preparation_started" || value === "service_started"
+    ? value
+    : null;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
 function mapPayment(

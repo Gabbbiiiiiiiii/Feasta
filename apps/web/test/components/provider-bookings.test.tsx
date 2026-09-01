@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   loadTimeline: vi.fn(),
   start: vi.fn(),
   complete: vi.fn(),
+  prepare: vi.fn(),
   success: vi.fn(),
   error: vi.fn(),
 }));
@@ -38,6 +39,7 @@ vi.mock("@/app/provider/bookings/actions", () => ({
 vi.mock("@/lib/provider/bookings/provider-booking-client", () => ({
   markProviderBookingInProgress: mocks.start,
   completeProviderBooking: mocks.complete,
+  markProviderPreparationStarted: mocks.prepare,
 }));
 
 vi.mock("@/components/feedback/toast", () => ({
@@ -136,6 +138,12 @@ function booking(
     rejectionReason: null,
     cancellationReason: null,
     cancellationActor: null,
+    refundEligibility: {
+      evidenceStatus: "policy_backed",
+      currentStage: "preparation_not_started",
+      activeCancellationLocked: false,
+      canMarkPreparationStarted: true,
+    },
     timelineCount: 2,
   };
 }
@@ -190,6 +198,13 @@ beforeEach(() => {
     mainEventId: "event-1",
     status: "completed",
     mainEventStatus: "completed",
+    changed: true,
+  });
+  mocks.prepare.mockResolvedValue({
+    providerRequestId: "request-confirmed",
+    mainEventId: "event-1",
+    currentStage: "preparation_started",
+    stageSequence: 1,
     changed: true,
   });
 });
@@ -352,5 +367,44 @@ describe("provider bookings workspace", () => {
         "This booking is not eligible for that action.",
       );
     });
+  });
+
+  it("records factual preparation through the forward-only trusted operation", async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await user.click(screen.getAllByRole("button", {name: "View booking for Ana Reyes"})[0]);
+    await user.click(await screen.findByRole("button", {name: "Mark preparation started"}));
+    const confirmation = screen.getAllByRole("dialog").at(-1)!;
+    await user.type(
+      within(confirmation).getByRole("textbox"),
+      "Ingredient purchasing began",
+    );
+    await user.click(within(confirmation).getByRole("button", {name: "Record preparation"}));
+
+    await waitFor(() => {
+      expect(mocks.prepare).toHaveBeenCalledWith(expect.objectContaining({
+        providerRequestId: "request-confirmed",
+        evidence: "Ingredient purchasing began",
+        idempotencyKey: expect.stringContaining("provider-preparation:request-confirmed:"),
+      }));
+    });
+    expect(screen.queryByText(/refund amount control|refund percentage control/iu)).not.toBeInTheDocument();
+  });
+
+  it("shows the active-cancellation lock and withholds stage advancement", async () => {
+    const locked = booking();
+    locked.refundEligibility = {
+      ...locked.refundEligibility,
+      activeCancellationLocked: true,
+      canMarkPreparationStarted: false,
+    };
+    mocks.loadBooking.mockResolvedValueOnce(locked);
+    const user = userEvent.setup();
+    renderWorkspace([locked]);
+
+    await user.click(screen.getAllByRole("button", {name: "View booking for Ana Reyes"})[0]);
+    expect(await screen.findByText("Stage advancement is locked by an active cancellation request.")).toBeVisible();
+    expect(screen.queryByRole("button", {name: "Mark preparation started"})).not.toBeInTheDocument();
   });
 });

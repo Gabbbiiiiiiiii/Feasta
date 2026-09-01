@@ -3,7 +3,15 @@ import type {
   PaymentStatus,
   ProviderRequestStatus,
   ProviderRequestType,
+  RefundEligibilityStage,
 } from "@feasta/shared-types";
+
+export type ProviderRefundEligibilityView = {
+  evidenceStatus: "policy_backed" | "legacy" | "invalid";
+  currentStage: RefundEligibilityStage | null;
+  activeCancellationLocked: boolean;
+  canMarkPreparationStarted: boolean;
+};
 
 export type ProviderBookingFilter =
   | "all"
@@ -90,6 +98,7 @@ export type ProviderBooking = {
   rejectionReason: string | null;
   cancellationReason: string | null;
   cancellationActor: string | null;
+  refundEligibility: ProviderRefundEligibilityView;
   timelineCount: number | null;
 };
 

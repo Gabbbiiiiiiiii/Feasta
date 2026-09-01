@@ -18,6 +18,49 @@ type ProviderBookingLifecycleResult = {
   changed: boolean;
 };
 
+type ProviderPreparationStageResult = {
+  providerRequestId: string;
+  mainEventId: string;
+  currentStage: "preparation_started";
+  stageSequence: number;
+  changed: boolean;
+};
+
+export async function markProviderPreparationStarted(input: {
+  providerRequestId: string;
+  evidence?: string;
+  idempotencyKey: string;
+}): Promise<ProviderPreparationStageResult> {
+  if (!auth.currentUser) {
+    throw new WebAuthenticationError("Your provider session has expired. Sign in again.");
+  }
+  const providerRequestId = input.providerRequestId.trim();
+  const evidence = input.evidence?.trim().replace(/\s+/gu, " ") ?? "";
+  if (!/^[A-Za-z0-9_-]{1,160}$/u.test(providerRequestId) ||
+    input.idempotencyKey.length < 8 || input.idempotencyKey.length > 200 ||
+    evidence.length > 500 || (evidence.length > 0 && evidence.length < 3)) {
+    throw new Error("The preparation update is invalid.");
+  }
+  initializeBrowserAppCheck();
+  const callable = httpsCallable<{
+    providerRequestId: string;
+    targetStage: "preparation_started";
+    evidence?: string;
+    idempotencyKey: string;
+  }, ProviderPreparationStageResult>(functions, "advanceProviderRequestRefundEligibilityStage", {timeout: 30_000});
+  try {
+    const response = await callable({
+      providerRequestId,
+      targetStage: "preparation_started",
+      ...(evidence ? {evidence} : {}),
+      idempotencyKey: input.idempotencyKey,
+    });
+    return response.data;
+  } catch (error) {
+    throw normalizeProviderBookingError(error, "Unable to record preparation right now.");
+  }
+}
+
 export async function markProviderBookingInProgress(
   providerRequestId: string,
 ): Promise<ProviderBookingLifecycleResult> {
@@ -112,4 +155,4 @@ function normalizeProviderBookingError(
   return error instanceof Error ? error : new Error(fallbackMessage);
 }
 
-export type {ProviderBookingLifecycleResult};
+export type {ProviderBookingLifecycleResult, ProviderPreparationStageResult};

@@ -29,6 +29,7 @@ type ProviderBookingDetailDrawerProps = {
   onRetry: () => void;
   onStart: () => void;
   onComplete: () => void;
+  onPreparationStarted: () => void;
 };
 
 export function ProviderBookingDetailDrawer({
@@ -42,6 +43,7 @@ export function ProviderBookingDetailDrawer({
   onRetry,
   onStart,
   onComplete,
+  onPreparationStarted,
 }: ProviderBookingDetailDrawerProps) {
   return (
     <DetailDrawer
@@ -153,6 +155,36 @@ export function ProviderBookingDetailDrawer({
               status={booking.paymentStatus}
               emptyLabel="No payment recorded"
             />
+          </DrawerSection>
+
+          <DrawerSection title="Cancellation-stage evidence">
+            {booking.refundEligibility.evidenceStatus === "policy_backed" ? (
+              <>
+                <DetailRow
+                  label="Factual service stage"
+                  value={booking.refundEligibility.currentStage
+                    ? formatLabel(booking.refundEligibility.currentStage)
+                    : "Unavailable"}
+                />
+                {booking.refundEligibility.activeCancellationLocked ? (
+                  <div className="rounded-lg border border-warning bg-warning-subtle p-3 text-sm" role="status">
+                    Stage advancement is locked by an active cancellation request.
+                  </div>
+                ) : null}
+                {booking.refundEligibility.canMarkPreparationStarted ? (
+                  <Button variant="secondary" disabled={actionPending} onClick={onPreparationStarted}>
+                    Mark preparation started
+                  </Button>
+                ) : null}
+                <p className="text-sm text-muted-foreground">
+                  This records factual preparation progress only. It does not approve a cancellation or choose any refund amount or percentage.
+                </p>
+              </>
+            ) : booking.refundEligibility.evidenceStatus === "legacy" ? (
+              <p className="text-sm text-muted-foreground">This legacy booking has no policy-backed preparation stage. FEASTA handles any cancellation through manual review.</p>
+            ) : (
+              <p className="text-sm text-warning">Preparation-stage evidence is unavailable and requires FEASTA review.</p>
+            )}
           </DrawerSection>
 
           <DrawerSection title="Timeline">

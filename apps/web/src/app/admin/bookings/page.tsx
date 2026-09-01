@@ -1,18 +1,15 @@
 import {
   BookingMonitoringClient,
 } from "@/components/admin/bookings/booking-monitoring-client";
+import {CancellationManagementClient} from "@/components/admin/bookings/cancellation-management-client";
 import {
   getAdminBookingPage,
 } from "@/lib/admin/bookings/admin-booking-service";
+import {getAdminCancellationQueue} from "@/lib/admin/cancellations/admin-cancellation-service";
 
 export default async function AdminBookingsPage() {
-  /*
-   * getAdminBookingPage() already calls requireAdmin().
-   * Avoid calling requireAdmin() again here so authentication
-   * is not unnecessarily checked twice.
-   */
-  const initialPage =
-    await getAdminBookingPage({
+  const [initialPage, initialCancellationQueue] = await Promise.all([
+    getAdminBookingPage({
       search: "",
       status: "all",
       paymentStatus: "all",
@@ -21,11 +18,16 @@ export default async function AdminBookingsPage() {
       sortDirection: "descending",
       pageSize: 10,
       cursor: null,
-    });
+    }),
+    getAdminCancellationQueue(),
+  ]);
 
   return (
     <BookingMonitoringClient
       initialPage={initialPage}
+      supplementalContent={(
+        <CancellationManagementClient initialQueue={initialCancellationQueue} />
+      )}
     />
   );
 }

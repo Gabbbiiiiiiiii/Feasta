@@ -27,6 +27,7 @@ import {Button} from "@/components/ui/button";
 import {
   completeProviderBooking,
   markProviderBookingInProgress,
+  markProviderPreparationStarted,
 } from "@/lib/provider/bookings/provider-booking-client";
 import type {
   ProviderBooking,
@@ -47,7 +48,7 @@ type ProviderBookingsClientProps = {
   initialFilters: ProviderBookingFilters;
 };
 
-type LifecycleAction = "start" | "complete";
+type LifecycleAction = "prepare" | "start" | "complete";
 
 const FIRST_PAGE_CURSOR = "__first_provider_booking_page__";
 
@@ -84,6 +85,8 @@ export function ProviderBookingsClient({
   const [detailError, setDetailError] = useState<string | null>(null);
   const [lifecycleAction, setLifecycleAction] = useState<LifecycleAction | null>(null);
   const [actionPending, setActionPending] = useState(false);
+  const [preparationEvidence, setPreparationEvidence] = useState("");
+  const [preparationKey, setPreparationKey] = useState<string | null>(null);
 
   const columns = useMemo<readonly DataTableColumn<ProviderBooking>[]>(() => [
     {
@@ -208,16 +211,29 @@ export function ProviderBookingsClient({
     setActionPending(true);
 
     try {
-      if (lifecycleAction === "start") {
+      if (lifecycleAction === "prepare") {
+        const idempotencyKey = preparationKey ??
+          `provider-preparation:${selectedRequestId}:${crypto.randomUUID()}`.slice(0, 200);
+        setPreparationKey(idempotencyKey);
+        await markProviderPreparationStarted({
+          providerRequestId: selectedRequestId,
+          evidence: preparationEvidence,
+          idempotencyKey,
+        });
+      } else if (lifecycleAction === "start") {
         await markProviderBookingInProgress(selectedRequestId);
       } else {
         await completeProviderBooking(selectedRequestId);
       }
 
-      const successMessage = lifecycleAction === "start"
-        ? "The event is now in progress."
-        : "The booking has been marked completed.";
+      const successMessage = lifecycleAction === "prepare"
+        ? "Preparation has been recorded."
+        : lifecycleAction === "start"
+          ? "The event is now in progress."
+          : "The booking has been marked completed.";
       setLifecycleAction(null);
+      setPreparationEvidence("");
+      setPreparationKey(null);
       await Promise.all([
         loadPage(filters, cursorHistory, pageNumber),
         refreshSelectedBooking(),
@@ -368,20 +384,49 @@ export function ProviderBookingsClient({
         onRetry={() => selectedRequestId && void openBooking(selectedRequestId)}
         onStart={() => setLifecycleAction("start")}
         onComplete={() => setLifecycleAction("complete")}
+        onPreparationStarted={() => setLifecycleAction("prepare")}
       />
 
       <ConfirmationDialog
         open={lifecycleAction !== null}
-        onOpenChange={(open) => !open && setLifecycleAction(null)}
-        title={lifecycleAction === "start" ? "Start this event?" : "Mark this event as completed?"}
-        description={lifecycleAction === "start"
-          ? "This booking will be marked as in progress and the customer will be notified."
-          : "This confirms that your service for this booking has been completed."}
-        confirmLabel={lifecycleAction === "start" ? "Start Event" : "Mark Completed"}
-        loadingLabel={lifecycleAction === "start" ? "Starting event" : "Completing booking"}
+        onOpenChange={(open) => {
+          if (!open && !actionPending) {
+            setLifecycleAction(null);
+            setPreparationEvidence("");
+            setPreparationKey(null);
+          }
+        }}
+        title={lifecycleAction === "prepare"
+          ? "Record preparation started?"
+          : lifecycleAction === "start" ? "Start this event?" : "Mark this event as completed?"}
+        description={lifecycleAction === "prepare"
+          ? "This forward-only factual stage can affect the frozen policy calculation if the Customer later requests cancellation."
+          : lifecycleAction === "start"
+            ? "This booking will be marked as in progress and the customer will be notified."
+            : "This confirms that your service for this booking has been completed."}
+        confirmLabel={lifecycleAction === "prepare" ? "Record preparation" : lifecycleAction === "start" ? "Start Event" : "Mark Completed"}
+        loadingLabel={lifecycleAction === "prepare" ? "Recording preparation" : lifecycleAction === "start" ? "Starting event" : "Completing booking"}
         loading={actionPending}
+        confirmDisabled={lifecycleAction === "prepare" && preparationEvidence.trim().length > 0 && preparationEvidence.trim().length < 3}
         onConfirm={runLifecycleAction}
-      />
+      >
+        {lifecycleAction === "prepare" ? (
+          <label className="grid gap-2" htmlFor="provider-preparation-evidence">
+            <span className="text-sm font-bold">Factual preparation note (optional)</span>
+            <textarea
+              id="provider-preparation-evidence"
+              rows={4}
+              maxLength={500}
+              disabled={actionPending}
+              value={preparationEvidence}
+              placeholder="For example: ingredient purchasing began."
+              className="w-full resize-y rounded-lg border border-input bg-card px-4 py-3 text-base focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onChange={(event) => setPreparationEvidence(event.currentTarget.value)}
+            />
+            <span className="text-sm text-muted-foreground">Facts only. This does not set or approve a refund.</span>
+          </label>
+        ) : null}
+      </ConfirmationDialog>
     </div>
   );
 }
