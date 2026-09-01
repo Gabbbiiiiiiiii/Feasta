@@ -73,6 +73,7 @@ export type FrozenRefundEligibility<TTimestamp = unknown> = {
     stageSequence: number;
     frozenAt: TTimestamp;
 };
+/** Trusted Firestore storage shape. Browser code should use cancellation DTOs. */
 export type ProviderRequestCancellationRequest<TTimestamp = unknown> = {
     schemaVersion: typeof PROVIDER_REQUEST_CANCELLATION_SCHEMA_VERSION;
     mainEventId: string;
@@ -133,6 +134,7 @@ export type RefundPaymentAccounting = {
 };
 export declare const REFUND_OPERATION_STATUSES: readonly ["reserved", "processing", "completed", "failed", "released"];
 export type RefundOperationStatus = (typeof REFUND_OPERATION_STATUSES)[number];
+/** Trusted Firestore storage shape. Never expose this type as a participant DTO. */
 export type RefundOperation<TTimestamp = unknown> = {
     schemaVersion: typeof REFUND_OPERATION_SCHEMA_VERSION;
     providerRequestId: string;

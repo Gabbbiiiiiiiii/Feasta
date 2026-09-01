@@ -261,7 +261,7 @@ async function advanceStage(input: {
       metadata: {
         mainEventId,
         providerId,
-        evidence: input.evidence,
+        evidenceProvided: input.evidence !== null,
       },
     });
 

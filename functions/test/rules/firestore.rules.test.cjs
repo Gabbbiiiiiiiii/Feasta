@@ -1030,6 +1030,13 @@ test("canonical provider requests are server-created and main-event trust fields
           "cancellation_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       },
     ));
+    await assertFails(updateDoc(
+      doc(actorDb, `providerRequests/${requestId}`),
+      {
+        latestCancellationRequestId:
+          "cancellation_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      },
+    ));
   }
 
   await assertSucceeds(updateDoc(doc(customer, `mainEvents/${eventId}`), {
@@ -1151,7 +1158,7 @@ test("only verified customers create main events", async () => {
   }));
 });
 
-test("canonical payments are readable by participants and never client-written", async () => {
+test("canonical payments are server-readable only and never client-written", async () => {
   await seedDocuments(testEnv, {
     "users/customer-one": userData("customer-one", "customer"),
     "users/customer-other": userData("customer-other", "customer"),
@@ -1175,6 +1182,11 @@ test("canonical payments are readable by participants and never client-written",
       status: "reserved",
       amountInCentavos: 1000,
     },
+    "payments/payment-one/events/payment-event-one": {
+      eventId: "payment-event-one",
+      status: "processed",
+      gatewayResourceId: "pay_sensitive_gateway_id",
+    },
     "paymentWebhookEvents/event-one": {
       eventId: "event-one",
       paymentId: "payment-one",
@@ -1189,9 +1201,10 @@ test("canonical payments are readable by participants and never client-written",
     .firestore();
   const admin = authenticated(testEnv, "admin-one", "admin").firestore();
 
-  await assertSucceeds(getDoc(doc(customer, "payments/payment-one")));
-  await assertSucceeds(getDoc(doc(provider, "payments/payment-one")));
+  await assertFails(getDoc(doc(customer, "payments/payment-one")));
+  await assertFails(getDoc(doc(provider, "payments/payment-one")));
   await assertFails(getDoc(doc(unrelated, "payments/payment-one")));
+  await assertSucceeds(getDoc(doc(admin, "payments/payment-one")));
   await assertFails(setDoc(doc(customer, "payments/client-payment"), {
     customerId: "customer-one",
     status: "paid",
@@ -1231,6 +1244,18 @@ test("canonical payments are readable by participants and never client-written",
   }
   await assertFails(getDoc(doc(customer, "paymentWebhookEvents/event-one")));
   await assertSucceeds(getDoc(doc(admin, "paymentWebhookEvents/event-one")));
+  await assertFails(getDoc(doc(
+    customer,
+    "payments/payment-one/events/payment-event-one",
+  )));
+  await assertFails(getDoc(doc(
+    provider,
+    "payments/payment-one/events/payment-event-one",
+  )));
+  await assertSucceeds(getDoc(doc(
+    admin,
+    "payments/payment-one/events/payment-event-one",
+  )));
   await assertFails(setDoc(doc(admin, "paymentWebhookEvents/forged"), {
     eventId: "forged",
     status: "processed",
@@ -1794,6 +1819,17 @@ test("app settings distinguish public reads from active admin writes", async () 
     "users/admin-one": userData("admin-one", "admin"),
     "appSettings/public": {isPublic: true, value: "public"},
     "appSettings/private": {isPublic: false, value: "private"},
+    "appSettings/refundPolicyBookingAgreement": {
+      schemaVersion: 1,
+      isPublic: false,
+      enforcementMode: "off",
+    },
+    "appSettings/cancellationRefundRollout": {
+      schemaVersion: 1,
+      isPublic: false,
+      customerCancellationMode: "off",
+      automaticPolicyRefundApprovalMode: "off",
+    },
   });
   const publicDb = testEnv.unauthenticatedContext().firestore();
   const customer = authenticated(testEnv, "customer-one", "customer")
@@ -1809,6 +1845,14 @@ test("app settings distinguish public reads from active admin writes", async () 
   await assertSucceeds(updateDoc(doc(admin, "appSettings/private"), {
     value: "updated",
   }));
+  await assertFails(updateDoc(doc(
+    admin,
+    "appSettings/refundPolicyBookingAgreement",
+  ), {enforcementMode: "required"}));
+  await assertFails(updateDoc(doc(
+    admin,
+    "appSettings/cancellationRefundRollout",
+  ), {customerCancellationMode: "enabled"}));
 });
 
 test("provider onboarding drafts remain callable and server only", async () => {

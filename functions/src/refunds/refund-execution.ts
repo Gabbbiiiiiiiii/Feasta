@@ -91,6 +91,8 @@ export const REFUND_EXECUTION_ERROR_REASONS = {
   webhookMismatch: "REFUND_WEBHOOK_MISMATCH",
   reconciliationRequired: "REFUND_RECONCILIATION_REQUIRED",
   retryNotAllowed: "REFUND_RETRY_NOT_ALLOWED",
+  gatewayMinimumUnsupported: "REFUND_GATEWAY_MINIMUM_UNSUPPORTED",
+  paymentCapabilityUnconfirmed: "REFUND_PAYMENT_CAPABILITY_UNCONFIRMED",
 } as const;
 
 type ApprovalResult = {
@@ -664,7 +666,7 @@ export async function rejectCancellation(input: {
   });
 }
 
-async function executeRefund(input: {
+export async function executeRefund(input: {
   cancellationRequestId: string;
   actorId: string;
 }): Promise<Omit<ExecutionResult, "idempotentReplay">> {
@@ -680,6 +682,36 @@ async function executeRefund(input: {
     };
   }
   let refund: PayMongoRefundResource;
+  if (prepared.amountInCentavos < 100) {
+    await recordExecutionFailure({
+      ...prepared,
+      actorId: input.actorId,
+      certainty: "not_sent",
+      failureCode: "GATEWAY_MINIMUM_UNSUPPORTED",
+    });
+    throw refundAccountingError(
+      "failed-precondition",
+      REFUND_EXECUTION_ERROR_REASONS.gatewayMinimumUnsupported,
+      "The refund requires manual reconciliation because it is below the gateway minimum.",
+    );
+  }
+  if (
+    prepared.amountInCentavos < prepared.originalAmountInCentavos &&
+    prepared.paymentMethodType !== "card" &&
+    prepared.paymentMethodType !== "gcash"
+  ) {
+    await recordExecutionFailure({
+      ...prepared,
+      actorId: input.actorId,
+      certainty: "not_sent",
+      failureCode: "PARTIAL_REFUND_CAPABILITY_UNCONFIRMED",
+    });
+    throw refundAccountingError(
+      "failed-precondition",
+      REFUND_EXECUTION_ERROR_REASONS.paymentCapabilityUnconfirmed,
+      "The settled payment method is not confirmed for partial refunds.",
+    );
+  }
   try {
     refund = await createPayMongoRefund({
       secretKey: payMongoSecretKey.value(),
@@ -725,6 +757,8 @@ type PreparedExecution = {
   paymentId: string;
   refundOperationId: string;
   amountInCentavos: number;
+  originalAmountInCentavos: number;
+  paymentMethodType: "card" | "gcash" | "paymaya" | null;
   gatewayPaymentId: string;
   gatewayExecutionKey: string;
   customerId: string;
@@ -791,6 +825,8 @@ export async function prepareRefundExecution(input: {
         paymentId,
         refundOperationId: operationId,
         amountInCentavos: amount,
+        originalAmountInCentavos: positiveCentavos(payment.amountInCentavos),
+        paymentMethodType: paymentMethodType(payment.paymentMethodType),
         gatewayPaymentId,
         gatewayExecutionKey,
         customerId: ids.customerId,
@@ -880,6 +916,8 @@ export async function prepareRefundExecution(input: {
       paymentId,
       refundOperationId: operationId,
       amountInCentavos: amount,
+      originalAmountInCentavos: positiveCentavos(payment.amountInCentavos),
+      paymentMethodType: paymentMethodType(payment.paymentMethodType),
       gatewayPaymentId,
       gatewayExecutionKey,
       customerId: ids.customerId,
@@ -892,6 +930,7 @@ export async function recordExecutionFailure(
   input: PreparedExecution & {
     actorId: string;
     certainty: PayMongoFailureCertainty;
+    failureCode?: string;
   },
 ): Promise<void> {
   const paymentReference = db.collection("payments").doc(input.paymentId);
@@ -919,7 +958,7 @@ export async function recordExecutionFailure(
     transaction.update(operationReference, {
       status: operationStatus,
       gatewayFailureCertainty: input.certainty,
-      failureCode: input.certainty.toUpperCase(),
+      failureCode: input.failureCode ?? input.certainty.toUpperCase(),
       updatedAt: timestamp,
     });
     transaction.update(cancellationReference, {
@@ -1569,6 +1608,16 @@ function assertGatewayRetryWindow(
   attemptCount: number,
 ): void {
   if (
+    operation.failureCode === "GATEWAY_MINIMUM_UNSUPPORTED" ||
+    operation.failureCode === "PARTIAL_REFUND_CAPABILITY_UNCONFIRMED"
+  ) {
+    throw refundAccountingError(
+      "failed-precondition",
+      REFUND_EXECUTION_ERROR_REASONS.reconciliationRequired,
+      "The refund requires manual reconciliation before retry.",
+    );
+  }
+  if (
     attemptCount === 0 ||
     operation.gatewayFailureCertainty === "not_sent" ||
     operation.gatewayFailureCertainty === "gateway_rejected"
@@ -1589,6 +1638,16 @@ function assertGatewayRetryWindow(
       "The prior refund attempt must be reconciled before retry.",
     );
   }
+}
+
+function paymentMethodType(
+  value: unknown,
+): "card" | "gcash" | "paymaya" | null {
+  if (value === undefined || value === null) return null;
+  if (value === "card" || value === "gcash" || value === "paymaya") {
+    return value;
+  }
+  throw gatewayLinkageInvalid();
 }
 
 function replayedWebhookResult(

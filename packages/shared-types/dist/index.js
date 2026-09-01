@@ -1,5 +1,6 @@
 export * from "./authentication.js";
 export * from "./booking.js";
+export * from "./cancellation.js";
 export * from "./collections.js";
 export * from "./enums.js";
 export * from "./provider.js";

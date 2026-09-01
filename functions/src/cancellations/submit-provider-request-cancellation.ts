@@ -45,6 +45,11 @@ import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {logSecurityEvent} from "../shared/security-events.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {requireObject, requireString} from "../shared/validation.js";
+import {
+  assertCustomerCancellationEnabled,
+  CANCELLATION_REFUND_ROLLOUT_DOCUMENT_ID,
+  parseCancellationRefundRollout,
+} from "./cancellation-rollout.js";
 
 const INPUT_FIELDS = new Set([
   "providerRequestId",
@@ -55,7 +60,6 @@ const INPUT_FIELDS = new Set([
 type CancellationResult = {
   cancellationRequestId: string;
   providerRequestId: string;
-  mainEventId: string;
   status: ProviderRequestCancellationStatus;
   policyEvidenceStatus: CancellationPolicyEvidenceStatus;
   frozenEligibility: {
@@ -157,6 +161,8 @@ async function submitCancellation(input: {
   const providerReference = db.collection("providers").doc(providerId);
   const paymentId = paymentIdForProviderRequest(input.providerRequestId);
   const paymentReference = db.collection("payments").doc(paymentId);
+  const rolloutReference = db.collection("appSettings")
+    .doc(CANCELLATION_REFUND_ROLLOUT_DOCUMENT_ID);
   const cancellationRequestId =
     cancellationRequestIdForAttempt({
       providerRequestId: input.providerRequestId,
@@ -169,13 +175,20 @@ async function submitCancellation(input: {
 
   return db.runTransaction(async (transaction) => {
     const [requestSnapshot, mainEventSnapshot, providerSnapshot,
-      paymentSnapshot, cancellationSnapshot] = await transaction.getAll(
+      paymentSnapshot, cancellationSnapshot,
+      rolloutSnapshot] = await transaction.getAll(
       requestReference,
       mainEventReference,
       providerReference,
       paymentReference,
       cancellationReference,
+      rolloutReference,
     );
+
+    assertCustomerCancellationEnabled(parseCancellationRefundRollout({
+      exists: rolloutSnapshot.exists,
+      data: rolloutSnapshot.data(),
+    }));
 
     if (!requestSnapshot.exists || !mainEventSnapshot.exists) {
       throw cancellationNotAllowed();
@@ -356,6 +369,7 @@ async function submitCancellation(input: {
 
     if (eligibilityState) {
       transaction.update(requestReference, {
+        latestCancellationRequestId: cancellationRequestId,
         refundEligibilityState: {
           ...eligibilityState,
           activeCancellationRequestId: cancellationRequestId,
@@ -365,6 +379,7 @@ async function submitCancellation(input: {
     } else {
       transaction.update(requestReference, {
         activeCancellationRequestId: cancellationRequestId,
+        latestCancellationRequestId: cancellationRequestId,
         updatedAt: timestamp,
       });
     }
@@ -412,7 +427,6 @@ async function submitCancellation(input: {
     return cancellationResult({
       cancellationRequestId,
       providerRequestId: input.providerRequestId,
-      mainEventId,
       status,
       policyEvidenceStatus,
       eligibilityState,
@@ -438,7 +452,6 @@ function exactInput(value: unknown): Record<string, unknown> {
 function cancellationResult(input: {
   cancellationRequestId: string;
   providerRequestId: string;
-  mainEventId: string;
   status: ProviderRequestCancellationStatus;
   policyEvidenceStatus: CancellationPolicyEvidenceStatus;
   eligibilityState: {
@@ -450,7 +463,6 @@ function cancellationResult(input: {
   return {
     cancellationRequestId: input.cancellationRequestId,
     providerRequestId: input.providerRequestId,
-    mainEventId: input.mainEventId,
     status: input.status,
     policyEvidenceStatus: input.policyEvidenceStatus,
     frozenEligibility: input.eligibilityState
@@ -487,7 +499,6 @@ function resultFromStoredCancellation(
   return cancellationResult({
     cancellationRequestId,
     providerRequestId: stringValue(data.providerRequestId),
-    mainEventId: stringValue(data.mainEventId),
     status,
     policyEvidenceStatus,
     eligibilityState: frozen,

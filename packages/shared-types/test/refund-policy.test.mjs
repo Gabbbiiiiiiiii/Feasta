@@ -16,6 +16,8 @@ import {
   PAYMENT_STATUS_TRANSITIONS,
 } from "../dist/index.js";
 
+import {readFileSync} from "node:fs";
+
 test("refund policy shared constants describe the approved serializable contract", () => {
   assert.equal(REFUND_POLICY_SCHEMA_VERSION, 1);
   assert.deepEqual(REFUND_ELIGIBILITY_STAGES, [
@@ -55,5 +57,19 @@ test("payment contracts include canonical partial-refund transitions", () => {
   assert.deepEqual(
     PAYMENT_STATUS_TRANSITIONS.partially_refunded,
     ["refunded"],
+  );
+});
+
+test("participant cancellation DTOs exclude storage and gateway authority", () => {
+  const declaration = readFileSync(
+    new URL("../dist/cancellation.d.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(declaration, /ParticipantCancellationProjection/u);
+  assert.match(declaration, /CustomerCancellationOptions/u);
+  assert.match(declaration, /RefundReconciliationInspection/u);
+  assert.doesNotMatch(
+    declaration,
+    /gatewayRefundId|gatewayPaymentId|operationKey|customerId|providerId/u,
   );
 });

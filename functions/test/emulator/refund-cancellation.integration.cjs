@@ -47,6 +47,7 @@ async function run() {
   try {
     const fixture = await createFixture();
 
+    await assertRolloutFailsClosed(fixture);
     await assertAuthorizationAndPreparationReadiness(fixture);
     await assertPolicyBackedCancellationAndIsolation(fixture);
     await assertLegacyAndInvalidEvidence(fixture);
@@ -83,6 +84,11 @@ async function createFixture() {
     "refund.provider.b@feasta.test",
     password,
   )).user;
+  const admin = (await createUserWithEmailAndPassword(
+    auth,
+    "refund.admin@feasta.test",
+    password,
+  )).user;
   const providerA = "provider_refund_a";
   const providerB = "provider_refund_b";
 
@@ -91,6 +97,7 @@ async function createFixture() {
     seedUser(foreignCustomer.uid, "customer"),
     seedUser(ownerA.uid, "provider", providerA),
     seedUser(ownerB.uid, "provider", providerB),
+    seedUser(admin.uid, "admin"),
     seedProvider(providerA, ownerA.uid),
     seedProvider(providerB, ownerB.uid),
   ]);
@@ -128,12 +135,53 @@ async function createFixture() {
     foreignCustomer,
     ownerA,
     ownerB,
+    admin,
     providerA,
     providerB,
     eventId,
     requestA,
     requestB,
   };
+}
+
+async function assertRolloutFailsClosed(fixture) {
+  const rollout = db.collection("appSettings").doc("cancellationRefundRollout");
+  await rollout.delete();
+  const closed = await callFunction(
+    "getProviderRequestCancellationOptions",
+    fixture.customer,
+    {providerRequestId: fixture.requestA},
+  );
+  assert.equal(closed.cancellationAllowed, false);
+  assert.equal(closed.reasonCode, "ROLLOUT_DISABLED");
+  await assert.rejects(
+    () => callFunction(
+      "submitProviderRequestCancellation",
+      fixture.customer,
+      cancellationInput(fixture.requestA, "rollout-closed-submit"),
+    ),
+    hasReason("CUSTOMER_CANCELLATION_DISABLED"),
+  );
+  await rollout.set({
+    schemaVersion: 1,
+    isPublic: false,
+    customerCancellationMode: "review_only",
+    automaticPolicyRefundApprovalMode: "enabled",
+  });
+  await assert.rejects(
+    () => callFunction(
+      "getProviderRequestCancellationOptions",
+      fixture.customer,
+      {providerRequestId: fixture.requestA},
+    ),
+    hasReason("CANCELLATION_ROLLOUT_INVALID"),
+  );
+  await rollout.set({
+    schemaVersion: 1,
+    isPublic: false,
+    customerCancellationMode: "review_only",
+    automaticPolicyRefundApprovalMode: "off",
+  });
 }
 
 async function assertAuthorizationAndPreparationReadiness(fixture) {
@@ -207,6 +255,34 @@ async function assertAuthorizationAndPreparationReadiness(fixture) {
 }
 
 async function assertPolicyBackedCancellationAndIsolation(fixture) {
+  const preflight = await callFunction(
+    "getProviderRequestCancellationOptions",
+    fixture.customer,
+    {providerRequestId: fixture.requestA},
+  );
+  assert.equal(preflight.cancellationAllowed, true);
+  assert.equal(preflight.reasonCode, "ALLOWED");
+  assert.equal(preflight.refundPreview.refundAmountInCentavos, 0);
+  assert.doesNotMatch(
+    JSON.stringify(preflight),
+    /customerId|providerId|paymentId|gateway|operationKey|reservedAmount/u,
+  );
+  await assert.rejects(
+    () => callFunction(
+      "getProviderRequestCancellationOptions",
+      fixture.foreignCustomer,
+      {providerRequestId: fixture.requestA},
+    ),
+    hasStatus("PERMISSION_DENIED"),
+  );
+  await assert.rejects(
+    () => callFunction(
+      "getProviderRequestCancellationOptions",
+      fixture.customer,
+      {providerRequestId: fixture.requestA, refundAmount: 1},
+    ),
+    hasStatus("INVALID_ARGUMENT"),
+  );
   await assert.rejects(
     () => callFunction(
       "submitProviderRequestCancellation",
@@ -245,6 +321,108 @@ async function assertPolicyBackedCancellationAndIsolation(fixture) {
     stageSequence: 1,
   });
   assert.equal(created.manualReviewRequired, false);
+  assert.equal(created.mainEventId, undefined);
+
+  const inspection = await callFunction(
+    "inspectProviderRequestRefundReconciliation",
+    fixture.admin,
+    {cancellationRequestId: created.cancellationRequestId},
+  );
+  assert.equal(inspection.cancellationStatus, "submitted");
+  assert.equal(inspection.refundOperationId, null);
+  assert.doesNotMatch(
+    JSON.stringify(inspection),
+    /gatewayRefundId|gatewayPaymentId|operationKey|customerId|providerId/u,
+  );
+  await assert.rejects(
+    () => callFunction(
+      "inspectProviderRequestRefundReconciliation",
+      fixture.customer,
+      {cancellationRequestId: created.cancellationRequestId},
+    ),
+    hasStatus("PERMISSION_DENIED"),
+  );
+  await assert.rejects(
+    () => callFunction(
+      "inspectProviderRequestRefundReconciliation",
+      fixture.admin,
+      {cancellationRequestId: created.cancellationRequestId, paymentId: "x"},
+    ),
+    hasStatus("INVALID_ARGUMENT"),
+  );
+  for (const [name, user, data] of [
+    [
+      "approveProviderRequestCancellationRefund",
+      fixture.customer,
+      {
+        cancellationRequestId: created.cancellationRequestId,
+        idempotencyKey: "customer-approval-denied",
+      },
+    ],
+    [
+      "rejectProviderRequestCancellation",
+      fixture.ownerA,
+      {
+        cancellationRequestId: created.cancellationRequestId,
+        reason: "Provider cannot decide refund money.",
+        idempotencyKey: "provider-rejection-denied",
+      },
+    ],
+    [
+      "executeProviderRequestRefund",
+      fixture.customer,
+      {
+        cancellationRequestId: created.cancellationRequestId,
+        idempotencyKey: "customer-execution-denied",
+      },
+    ],
+  ]) {
+    await assert.rejects(
+      () => callFunction(name, user, data),
+      hasStatus("PERMISSION_DENIED"),
+    );
+  }
+
+  const [customerStatus, providerStatus, siblingStatus] = await Promise.all([
+    callFunction(
+      "getProviderRequestCancellationStatus",
+      fixture.customer,
+      {providerRequestId: fixture.requestA},
+    ),
+    callFunction(
+      "getProviderRequestCancellationStatus",
+      fixture.ownerA,
+      {providerRequestId: fixture.requestA},
+    ),
+    callFunction(
+      "getProviderRequestCancellationStatus",
+      fixture.customer,
+      {providerRequestId: fixture.requestB},
+    ),
+  ]);
+  assert.equal(customerStatus.cancellation.status, "submitted");
+  assert.deepEqual(providerStatus, customerStatus);
+  assert.equal(siblingStatus.cancellation, null);
+  assert.doesNotMatch(
+    JSON.stringify(customerStatus),
+    /customerId|providerId|paymentId|gateway|operationKey|submissionOperationKey/u,
+  );
+  await assert.rejects(
+    () => callFunction(
+      "getProviderRequestCancellationStatus",
+      fixture.ownerB,
+      {providerRequestId: fixture.requestA},
+    ),
+    hasStatus("PERMISSION_DENIED"),
+  );
+  await assert.rejects(
+    () => callFunction(
+      "getProviderRequestCancellationStatus",
+      fixture.admin,
+      {providerRequestId: fixture.requestA},
+    ),
+    hasStatus("PERMISSION_DENIED"),
+  );
 
   const replay = await callFunction(
     "submitProviderRequestCancellation",
@@ -430,6 +608,15 @@ async function assertLegacyAndInvalidEvidence(fixture) {
     evidenceKind: "legacy",
     customerId: fixture.foreignCustomer.uid,
   });
+  const legacyOptions = await callFunction(
+    "getProviderRequestCancellationOptions",
+    fixture.foreignCustomer,
+    {providerRequestId: legacy.requestId},
+  );
+  assert.equal(legacyOptions.cancellationAllowed, true);
+  assert.equal(legacyOptions.reasonCode, "LEGACY_MANUAL_REVIEW");
+  assert.equal(legacyOptions.policy, null);
+  assert.equal(legacyOptions.refundPreview, null);
   const legacyResult = await callFunction(
     "submitProviderRequestCancellation",
     fixture.foreignCustomer,
@@ -509,6 +696,14 @@ async function assertLegacyAndInvalidEvidence(fixture) {
   });
   await assert.rejects(
     () => callFunction(
+      "getProviderRequestCancellationOptions",
+      fixture.customer,
+      {providerRequestId: invalid.requestId},
+    ),
+    hasReason("REFUND_POLICY_EVIDENCE_INVALID"),
+  );
+  await assert.rejects(
+    () => callFunction(
       "submitProviderRequestCancellation",
       fixture.customer,
       cancellationInput(invalid.requestId, "invalid-cancel"),
@@ -537,6 +732,14 @@ async function assertPaymentProcessingRouting(fixture) {
     status: "processing",
     amount: 300,
   });
+  const options = await callFunction(
+    "getProviderRequestCancellationOptions",
+    fixture.customer,
+    {providerRequestId: processing.requestId},
+  );
+  assert.equal(options.cancellationAllowed, true);
+  assert.equal(options.reasonCode, "PAYMENT_RECONCILIATION_REQUIRED");
+  assert.equal(options.refundPreview, null);
   const result = await callFunction(
     "submitProviderRequestCancellation",
     fixture.customer,

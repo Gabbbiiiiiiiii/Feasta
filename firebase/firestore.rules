@@ -1065,18 +1065,9 @@ service cloud.firestore {
     // ============================================================
 
     match /payments/{paymentId} {
-      allow read: if isActiveSignedInUser() &&
-          (
-            (
-              resource.data.customerId is string &&
-              resource.data.customerId == currentUserId()
-            ) ||
-            (
-              resource.data.providerId is string &&
-              ownsProvider(resource.data.providerId)
-            ) ||
-            isAdmin()
-          );
+      // Payment documents contain gateway correlation, webhook state, and
+      // refund accounting. Participant clients use bounded server DTOs.
+      allow read: if isAdmin();
 
       /*
        * Canonical payment creation and all status mutations must be
@@ -1091,19 +1082,7 @@ service cloud.firestore {
       }
 
       match /events/{eventId} {
-        allow read: if isAdmin() ||
-            (
-              isActiveSignedInUser() &&
-              exists(
-                /databases/$(database)/documents/payments/$(paymentId)
-              ) &&
-              get(
-                /databases/$(database)/documents/payments/$(paymentId)
-              ).data.customerId is string &&
-              get(
-                /databases/$(database)/documents/payments/$(paymentId)
-              ).data.customerId == currentUserId()
-            );
+        allow read: if isAdmin();
 
         allow create, update, delete: if false;
       }
@@ -1480,7 +1459,10 @@ service cloud.firestore {
         ) ||
           isAdmin();
 
-      allow create, update: if isAdmin();
+      // Financial rollout controls are server-managed even for Admin users.
+      allow create, update: if isAdmin() &&
+          settingId != 'refundPolicyBookingAgreement' &&
+          settingId != 'cancellationRefundRollout';
       allow delete: if false;
     }
 

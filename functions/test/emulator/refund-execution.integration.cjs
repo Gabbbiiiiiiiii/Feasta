@@ -34,6 +34,8 @@ const libRoot = process.env.FEASTA_FUNCTIONS_LIB_DIR ??
     await rejectionHistory(execution, paymentIdForProviderRequest);
     await decisionConcurrency(execution, paymentIdForProviderRequest);
     await failureAndRetry(execution, paymentIdForProviderRequest);
+    await belowGatewayMinimum(execution, paymentIdForProviderRequest);
+    await partialCapabilityFailsClosed(execution, paymentIdForProviderRequest);
     await gatewayMismatchFailsClosed(execution, paymentIdForProviderRequest);
     await legacyEarlyWebhook(webhook, paymentIdForProviderRequest);
     console.log("Refund execution B6 integration passed.");
@@ -189,6 +191,80 @@ async function zeroRefundApproval(execution, paymentIdForProviderRequest) {
     .status, "cancelled");
   assert.equal((await data(`mainEvents/${seeded.mainEventId}`)).status,
     "cancelled");
+}
+
+async function belowGatewayMinimum(execution, paymentIdForProviderRequest) {
+  const seeded = await seed(paymentIdForProviderRequest, "minimum", {
+    rate: 1,
+  });
+  const approved = await execution.approveCancellation({
+    cancellationRequestId: seeded.cancellationRequestId,
+    actorId: "admin-b6",
+  });
+  assert.equal(approved.refundAmountInCentavos, 10);
+  await assert.rejects(
+    () => execution.executeRefund({
+      cancellationRequestId: seeded.cancellationRequestId,
+      actorId: "admin-b6",
+    }),
+    reason("REFUND_GATEWAY_MINIMUM_UNSUPPORTED"),
+  );
+  const [payment, cancellation, operations] = await Promise.all([
+    data(`payments/${seeded.paymentId}`),
+    data(
+      `providerRequestCancellationRequests/${seeded.cancellationRequestId}`,
+    ),
+    refunds(seeded.paymentId),
+  ]);
+  assert.equal(payment.refundedAmountInCentavos, 0);
+  assert.equal(payment.refundReservedAmountInCentavos, 10);
+  assert.equal(cancellation.status, "refund_failed");
+  assert.equal(operations.size, 1);
+  assert.equal(operations.docs[0].data().status, "failed");
+  assert.equal(
+    operations.docs[0].data().failureCode,
+    "GATEWAY_MINIMUM_UNSUPPORTED",
+  );
+  await assert.rejects(
+    () => execution.executeRefund({
+      cancellationRequestId: seeded.cancellationRequestId,
+      actorId: "admin-b6",
+    }),
+    reason("REFUND_RECONCILIATION_REQUIRED"),
+  );
+  assert.equal((await refunds(seeded.paymentId)).size, 1);
+}
+
+async function partialCapabilityFailsClosed(
+  execution,
+  paymentIdForProviderRequest,
+) {
+  const seeded = await seed(paymentIdForProviderRequest, "capability", {
+    rate: 5_000,
+    paymentMethodType: null,
+  });
+  await execution.approveCancellation({
+    cancellationRequestId: seeded.cancellationRequestId,
+    actorId: "admin-b6",
+  });
+  await assert.rejects(
+    () => execution.executeRefund({
+      cancellationRequestId: seeded.cancellationRequestId,
+      actorId: "admin-b6",
+    }),
+    reason("REFUND_PAYMENT_CAPABILITY_UNCONFIRMED"),
+  );
+  const operation = (await refunds(seeded.paymentId)).docs[0].data();
+  assert.equal(operation.status, "failed");
+  assert.equal(
+    operation.failureCode,
+    "PARTIAL_REFUND_CAPABILITY_UNCONFIRMED",
+  );
+  assert.equal(
+    (await data(`payments/${seeded.paymentId}`))
+      .refundReservedAmountInCentavos,
+    50_000,
+  );
 }
 
 async function rejectionHistory(execution, paymentIdForProviderRequest) {
@@ -476,6 +552,9 @@ async function seed(paymentIdForProviderRequest, suffix, options = {}) {
     paymentType: "provider_down_payment",
     gateway: "paymongo",
     paymongoResourceId: gatewayPaymentId,
+    paymentMethodType: options.paymentMethodType === undefined
+      ? "card"
+      : options.paymentMethodType,
     status: "paid",
     paidAt: now,
   });

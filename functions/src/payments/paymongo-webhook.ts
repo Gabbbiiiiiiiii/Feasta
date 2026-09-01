@@ -2,6 +2,7 @@ import {
   defineSecret,
 } from "firebase-functions/params";
 import {
+  HttpsError,
   onRequest,
 } from "firebase-functions/v2/https";
 
@@ -114,14 +115,13 @@ export const payMongoWebhook = onRequest(
         duplicate: result.duplicate,
         applied: result.applied,
       });
-    } catch {
+    } catch (error) {
       logSecurityEvent({
         action: "payment_webhook",
         outcome: "failed",
         targetId: "paymongo",
         correlationId,
-        reasonCode:
-          "invalid_or_failed_event",
+        reasonCode: safeWebhookFailureReason(error),
       });
 
       // Never expose payment payloads.
@@ -131,3 +131,20 @@ export const payMongoWebhook = onRequest(
     }
   },
 );
+
+function safeWebhookFailureReason(error: unknown): string {
+  if (error instanceof HttpsError) {
+    const reason = error.details && typeof error.details === "object"
+      ? (error.details as Record<string, unknown>).reason
+      : null;
+    if (typeof reason === "string" && /^[A-Z0-9_:-]{1,80}$/u.test(reason)) {
+      return reason.toLowerCase();
+    }
+  }
+  if (error instanceof Error &&
+    (error.message.includes("refund payment metadata id") ||
+      error.message.includes("refund operation metadata id"))) {
+    return "missing_refund_metadata";
+  }
+  return "invalid_or_failed_event";
+}

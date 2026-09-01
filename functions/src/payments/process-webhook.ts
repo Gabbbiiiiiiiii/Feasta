@@ -71,6 +71,15 @@ export async function processPayMongoWebhook(
       parsedEvent.eventType !== "refund.succeeded" &&
       parsedEvent.eventType !== "payment.refund.updated"
     ) {
+      logSecurityEvent({
+        action: "payment_webhook",
+        outcome: "denied",
+        actorUid: "paymongo",
+        targetId: parsedEvent.paymentId,
+        correlationId: parsedEvent.eventId,
+        reasonCode: "unsupported_refund_event",
+        metadata: {eventType: parsedEvent.eventType},
+      });
       return {
         duplicate: false,
         applied: false,
