@@ -35,6 +35,7 @@ import {cn} from "@/lib/utils";
 type CustomerBookingCancellationDialogProps = {
   request: CustomerBookingProviderRequest;
   onClose: () => void;
+  onStatusChanged?: (providerRequestId: string) => void;
   restoreFocusId?: string;
 };
 
@@ -46,6 +47,7 @@ type SubmissionAttempt = {
 function CustomerBookingCancellationDialog({
   request,
   onClose,
+  onStatusChanged,
   restoreFocusId,
 }: CustomerBookingCancellationDialogProps) {
   const [options, setOptions] = useState<CustomerCancellationOptions | null>(null);
@@ -184,6 +186,7 @@ function CustomerBookingCancellationDialog({
       }
 
       if (mountedRef.current) {
+        onStatusChanged?.(request.providerRequestId);
         feastaToast.success(
           submitted.created
             ? "Cancellation request submitted."

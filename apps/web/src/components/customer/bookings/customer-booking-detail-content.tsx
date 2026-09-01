@@ -24,6 +24,7 @@ import {
   formatCurrency,
 } from "@/components/customer/bookings/booking-formatters";
 import {CustomerBookingCancellationDialog} from "@/components/customer/bookings/customer-booking-cancellation-dialog";
+import {CustomerBookingCancellationStatus} from "@/components/customer/bookings/customer-booking-cancellation-status";
 import {CustomerBookingProviderRequestCard} from "@/components/customer/bookings/customer-booking-provider-request-card";
 import {CustomerBookingReviewDialog} from "@/components/customer/bookings/customer-booking-review-dialog";
 import {feastaToast} from "@/components/feedback/toast";
@@ -60,6 +61,8 @@ function CustomerBookingDetailContent({
     useState<string | null>(null);
   const [selectedCancellationTriggerId, setSelectedCancellationTriggerId] =
     useState<string | null>(null);
+  const [cancellationRefreshTokens, setCancellationRefreshTokens] =
+    useState<Readonly<Record<string, number>>>({});
   const cancellationTriggerPrefix = useId();
   const [reviewedRequestIds, setReviewedRequestIds] =
     useState<ReadonlySet<string>>(() => new Set());
@@ -205,6 +208,11 @@ function CustomerBookingDetailContent({
                   reviewed: reviewedRequestIds.has(request.providerRequestId),
                   onReview: setSelectedReviewRequestId,
                 })}
+                cancellationStatus={canonicalCancellationStatusForRequest({
+                  request,
+                  bookingId: booking.id,
+                  refreshToken: cancellationRefreshTokens[request.providerRequestId] ?? 0,
+                })}
                 cancellationAction={cancellationActionForRequest({
                   request,
                   bookingId: booking.id,
@@ -253,10 +261,42 @@ function CustomerBookingDetailContent({
           key={selectedCancellationRequest.providerRequestId}
           request={selectedCancellationRequest}
           onClose={() => setSelectedCancellationRequestId(null)}
+          onStatusChanged={(providerRequestId) => {
+            setCancellationRefreshTokens((current) => ({
+              ...current,
+              [providerRequestId]: (current[providerRequestId] ?? 0) + 1,
+            }));
+          }}
           restoreFocusId={selectedCancellationTriggerId ?? undefined}
         />
       ) : null}
     </div>
+  );
+}
+
+function canonicalCancellationStatusForRequest({
+  request,
+  bookingId,
+  refreshToken,
+}: {
+  request: CustomerBookingDetails["providerRequests"][number];
+  bookingId: string;
+  refreshToken: number;
+}) {
+  if (
+    !SAFE_DOCUMENT_ID.test(request.providerRequestId) ||
+    request.id !== request.providerRequestId ||
+    request.mainEventId !== bookingId
+  ) {
+    return undefined;
+  }
+
+  return (
+    <CustomerBookingCancellationStatus
+      providerRequestId={request.providerRequestId}
+      providerName={request.providerName}
+      refreshToken={refreshToken}
+    />
   );
 }
 

@@ -27,6 +27,34 @@ test("Customer cancellation uses only trusted callable boundaries", async () => 
   assert.doesNotMatch(client, /paymongo|checkoutUrl|gatewayId|gatewayResource/iu);
 });
 
+test("Customer refund status UI has no browser financial authority or raw document reads", async () => {
+  const [statusComponent, presentation] = await Promise.all([
+    webSource(
+      "components/customer/bookings/customer-booking-cancellation-status.tsx",
+    ),
+    webSource(
+      "lib/customer/bookings/customer-cancellation-presentation.ts",
+    ),
+  ]);
+  const source = `${statusComponent}\n${presentation}`;
+
+  assert.match(source, /getCustomerProviderRequestCancellationStatus/u);
+  assert.match(source, /This Provider service only/u);
+  assert.doesNotMatch(
+    source,
+    /firebase\/firestore|collection\(|doc\(|getDoc\(|getDocs\(|onSnapshot\(|setDoc\(|addDoc\(|updateDoc\(|writeBatch\(/u,
+  );
+  assert.doesNotMatch(source, /paymongo|gatewayPaymentId|refundOperationId/iu);
+  assert.doesNotMatch(
+    source,
+    /httpsCallable|refundAmount\s*:|refundPercentage\s*:|policyRules\s*:|eligibilityStage\s*:/u,
+  );
+  assert.doesNotMatch(
+    presentation,
+    /amountInCentavos\s*\*|completedAmountInCentavos\s*\*|refundBasisPoints/u,
+  );
+});
+
 test("submission payload contains only request, reason, and idempotency authority", async () => {
   const client = await webSource(
     "lib/customer/bookings/customer-cancellation-client.ts",

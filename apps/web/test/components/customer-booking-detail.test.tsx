@@ -882,6 +882,54 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.queryByText("private-timeline-rejected-id")).not.toBeInTheDocument();
   });
 
+  it("normalizes real cancellation and refund milestones without fabricating timestamps", () => {
+    const providerNames = new Map([["request-photo", "Photo Studio"]]);
+    const requested = normalizeCustomerBookingTimelineData(
+      "timeline-cancellation-requested",
+      {
+        type: "cancellation_requested",
+        title: "Cancellation requested",
+        description: "A cancellation request was submitted for one Provider service.",
+        providerRequestId: "request-photo",
+        createdByRole: "customer",
+        createdBy: "customer-private-uid",
+        createdAt: new Date("2026-08-20T01:00:00.000Z"),
+      },
+      providerNames,
+    );
+    const completed = normalizeCustomerBookingTimelineData(
+      "timeline-refund-completed",
+      {
+        type: "refund_completed",
+        title: "Refund completed",
+        description: "The approved Provider service refund was completed.",
+        providerRequestId: "request-photo",
+        paymentId: "payment-private-id",
+        cancellationRequestId: "cancellation-private-id",
+        createdByRole: "system",
+        createdAt: new Date("2026-08-22T03:00:00.000Z"),
+      },
+      providerNames,
+    );
+
+    expect(requested).toMatchObject({
+      type: "cancellation_requested",
+      actorRole: "customer",
+      providerName: "Photo Studio",
+      createdAt: "2026-08-20T01:00:00.000Z",
+    });
+    expect(completed).toMatchObject({
+      type: "refund_completed",
+      actorRole: "system",
+      providerName: "Photo Studio",
+      createdAt: "2026-08-22T03:00:00.000Z",
+    });
+    expect(JSON.stringify([requested, completed])).not.toMatch(
+      /customer-private-uid|payment-private-id|cancellation-private-id/u,
+    );
+    expect(compareCustomerBookingTimelineEntries(requested!, completed!)).toBeLessThan(0);
+  });
+
   it("renders mixed provider identities, outcomes, response fallbacks, and replacement state", () => {
     const result = detailResult();
     const longRejectionReason = "r".repeat(700);

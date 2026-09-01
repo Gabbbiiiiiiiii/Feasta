@@ -18,6 +18,13 @@ const CUSTOMER_TIMELINE_TYPES = [
   "payment_expired",
   "payment_refunded",
   "payment_updated",
+  "cancellation_requested",
+  "cancellation_approved",
+  "cancellation_approved_no_refund",
+  "cancellation_rejected",
+  "refund_processing",
+  "refund_failed",
+  "refund_completed",
 ] as const;
 const MAX_TIMELINE_TITLE_LENGTH = 200;
 const MAX_TIMELINE_DESCRIPTION_LENGTH = 1_000;
@@ -96,6 +103,20 @@ function customerTimelineTitle(type: CustomerTimelineType | null): string {
       return "Payment refunded";
     case "payment_updated":
       return "Payment updated";
+    case "cancellation_requested":
+      return "Cancellation requested";
+    case "cancellation_approved":
+      return "Cancellation approved";
+    case "cancellation_approved_no_refund":
+      return "Cancelled without refund";
+    case "cancellation_rejected":
+      return "Cancellation request rejected";
+    case "refund_processing":
+      return "Refund processing";
+    case "refund_failed":
+      return "Refund requires attention";
+    case "refund_completed":
+      return "Refund completed";
     case "provider_accepted":
       return "Provider accepted request";
     case "provider_rejected":
@@ -119,7 +140,10 @@ function customerTimelineActorRole(
     return normalized as CustomerBookingTimelineActorRole;
   }
 
-  return type?.startsWith("payment_") ? "system" : null;
+  if (normalized === "admin") return "system";
+
+  return type?.startsWith("payment_") || type?.startsWith("refund_") ||
+    type?.startsWith("cancellation_") ? "system" : null;
 }
 
 function optionalMainEventStatus(value: unknown): MainEventStatus | null {

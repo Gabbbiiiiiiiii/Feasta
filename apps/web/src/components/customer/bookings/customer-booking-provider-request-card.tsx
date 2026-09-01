@@ -29,6 +29,7 @@ type CustomerBookingProviderRequestCardProps = {
   messageAction?: ReactNode;
   providerAction?: ReactNode;
   reviewAction?: ReactNode;
+  cancellationStatus?: ReactNode;
   cancellationAction?: ReactNode;
 };
 
@@ -42,6 +43,7 @@ function CustomerBookingProviderRequestCard({
   messageAction,
   providerAction,
   reviewAction,
+  cancellationStatus,
   cancellationAction,
 }: CustomerBookingProviderRequestCardProps) {
   const services = request.services.slice(0, MAX_SERVICES_PER_REQUEST);
@@ -151,6 +153,7 @@ function CustomerBookingProviderRequestCard({
         </div>
       ) : null}
       {reviewAction}
+      {cancellationStatus}
       {cancellationAction}
 
       <section

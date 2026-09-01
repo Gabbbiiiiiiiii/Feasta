@@ -100,8 +100,9 @@ function CustomerBookingTimeline({timeline}: CustomerBookingTimelineProps) {
 
 function timelineIcon(entry: CustomerBookingTimelineEntry): ReactNode {
   if (entry.type === "provider_accepted") return <CheckCircle2 />;
-  if (entry.type === "provider_rejected") return <XCircle />;
-  if (entry.type?.startsWith("payment_")) return <CreditCard />;
+  if (entry.type === "provider_rejected" || entry.type === "cancellation_rejected") return <XCircle />;
+  if (entry.type?.startsWith("payment_") || entry.type?.startsWith("refund_")) return <CreditCard />;
+  if (entry.type?.startsWith("cancellation_")) return <Clock3 />;
 
   switch (entry.actorRole) {
     case "customer":
@@ -119,11 +120,14 @@ function timelineIconClassName(entry: CustomerBookingTimelineEntry): string {
   if (entry.type === "provider_accepted") {
     return "border-success/20 bg-success-subtle text-success";
   }
-  if (entry.type === "provider_rejected") {
+  if (entry.type === "provider_rejected" || entry.type === "cancellation_rejected") {
     return "border-destructive/20 bg-destructive-subtle text-destructive";
   }
-  if (entry.type?.startsWith("payment_")) {
+  if (entry.type?.startsWith("payment_") || entry.type?.startsWith("refund_")) {
     return "border-info/20 bg-info-subtle text-info";
+  }
+  if (entry.type?.startsWith("cancellation_")) {
+    return "border-warning/25 bg-warning-subtle text-warning";
   }
 
   switch (entry.actorRole) {
