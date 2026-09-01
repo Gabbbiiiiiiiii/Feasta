@@ -170,6 +170,13 @@ const providerBusinessNavigation: readonly NavigationItem[] = [
   {
     kind: "link",
     section: "BUSINESS",
+    label: "Refund Policy",
+    href: "/provider/refund-policy",
+    icon: ScrollText,
+  },
+  {
+    kind: "link",
+    section: "BUSINESS",
     label: "Reviews",
     href: "/provider/reviews",
     icon: Star,

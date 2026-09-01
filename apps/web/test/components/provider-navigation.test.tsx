@@ -139,6 +139,7 @@ describe("provider navigation configuration", () => {
       "/provider/account",
     ]);
     expect(hrefs(approvedProvider)).toContain("/provider/requests");
+    expect(hrefs(approvedProvider)).toContain("/provider/refund-policy");
   });
 
   it("keeps active matching exact for the dashboard and nested for owned routes", () => {
@@ -178,6 +179,7 @@ describe("provider navigation configuration", () => {
       "/provider/calendar",
       "/provider/availability",
       "/provider/payments",
+      "/provider/refund-policy",
       "/provider/reviews",
       "/provider/messages",
       "/provider/business-profile",
@@ -289,6 +291,8 @@ describe("provider navigation rendering", () => {
       .toHaveAttribute("href", "/provider/availability");
     expect(within(desktop).getByRole("link", {name: "Payments"}))
       .toHaveAttribute("href", "/provider/payments");
+    expect(within(desktop).getByRole("link", {name: "Refund Policy"}))
+      .toHaveAttribute("href", "/provider/refund-policy");
     expect(within(desktop).queryByText("Payments & Earnings"))
       .not.toBeInTheDocument();
     expect(within(desktop).queryByText("Coming soon")).not.toBeInTheDocument();
@@ -385,6 +389,8 @@ describe("provider navigation rendering", () => {
       .toHaveAttribute("href", "/provider/availability");
     expect(within(complete).getByRole("link", {name: "Payments"}))
       .toHaveAttribute("href", "/provider/payments");
+    expect(within(complete).getByRole("link", {name: "Refund Policy"}))
+      .toHaveAttribute("href", "/provider/refund-policy");
     expect(within(complete).getByRole("link", {name: "Reviews"}))
       .toHaveAttribute("href", "/provider/reviews");
     expect(within(complete).getByRole("link", {name: "Business Profile"}))
