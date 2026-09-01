@@ -8,6 +8,9 @@ import {
   functions,
   initializeBrowserAppCheck,
 } from "@/lib/firebase/client";
+import type {
+  BookingRefundPolicyAcknowledgement,
+} from "@/lib/customer/bookings/customer-refund-policy-client";
 
 /* ==================================================================
    TYPES
@@ -36,6 +39,7 @@ export type SubmitBookingRequestInput = {
   specialRequest?: string;
   willArrangeOwnAddOns: boolean;
   customerArrangedAddOnsNote?: string;
+  policyAcknowledgements: readonly BookingRefundPolicyAcknowledgement[];
 };
 
 export type SubmitBookingRequestResult = {
@@ -161,6 +165,16 @@ function normalizeBookingSubmissionError(
     "functions/",
     "",
   );
+
+  const refundPolicyReason = bookingRefundPolicyReason(error);
+  if (refundPolicyReason) {
+    return new CustomerBookingSubmissionError(
+      refundPolicyReason === "REFUND_POLICY_CHANGED"
+        ? "A Provider refund policy changed. Review the current policy and acknowledge it again."
+        : "Review and acknowledge every current Provider refund policy before submitting.",
+      refundPolicyReason,
+    );
+  }
 
   switch (code) {
     case "unauthenticated":
@@ -297,4 +311,45 @@ function safeCallableMessage(
   }
 
   return message;
+}
+
+const REFUND_POLICY_REFRESH_REASONS = [
+  "REFUND_POLICY_CHANGED",
+  "REFUND_POLICY_REQUIRED",
+  "REFUND_POLICY_ACKNOWLEDGEMENT_REQUIRED",
+] as const;
+
+type RefundPolicyRefreshReason =
+  (typeof REFUND_POLICY_REFRESH_REASONS)[number];
+
+export class CustomerBookingSubmissionError extends Error {
+  constructor(
+    message: string,
+    readonly refundPolicyReason: RefundPolicyRefreshReason | null = null,
+  ) {
+    super(message);
+    this.name = "CustomerBookingSubmissionError";
+  }
+}
+
+export function bookingSubmissionRequiresRefundPolicyRefresh(
+  error: unknown,
+): boolean {
+  return error instanceof CustomerBookingSubmissionError &&
+    error.refundPolicyReason !== null;
+}
+
+function bookingRefundPolicyReason(
+  error: FirebaseError,
+): RefundPolicyRefreshReason | null {
+  const details = (error as FirebaseError & {details?: unknown}).details ??
+    error.customData?.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) {
+    return null;
+  }
+  const reason = (details as {reason?: unknown}).reason;
+  return typeof reason === "string" &&
+    REFUND_POLICY_REFRESH_REASONS.includes(reason as RefundPolicyRefreshReason)
+    ? reason as RefundPolicyRefreshReason
+    : null;
 }

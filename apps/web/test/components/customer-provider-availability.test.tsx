@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   checkAvailability: vi.fn(),
   replace: vi.fn(),
   submitBooking: vi.fn(),
+  loadRefundPolicies: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -28,6 +29,16 @@ vi.mock(
   "@/lib/customer/bookings/customer-booking-submission-client",
   () => ({
     submitCustomerBookingRequest: mocks.submitBooking,
+    bookingSubmissionRequiresRefundPolicyRefresh: () => false,
+  }),
+);
+
+vi.mock(
+  "@/lib/customer/bookings/customer-refund-policy-client",
+  () => ({
+    getCustomerBookingRefundPolicyDisclosures: mocks.loadRefundPolicies,
+    buildRefundPolicyAcknowledgements: (policies: Array<{providerId: string; effectivePolicyKey: string}>) =>
+      policies.map(({providerId, effectivePolicyKey}) => ({providerId, effectivePolicyKey})),
   }),
 );
 
@@ -42,6 +53,10 @@ describe("customer provider availability planning", () => {
     vi.useRealTimers();
     vi.setSystemTime(new Date("2026-08-27T04:00:00.000Z"));
     mocks.checkAvailability.mockResolvedValue(availableResults());
+    mocks.loadRefundPolicies.mockResolvedValue({
+      acknowledgementsRequired: true,
+      policies: [],
+    });
   });
 
   it("renders accessible schedule fields and batches a valid precheck", async () => {

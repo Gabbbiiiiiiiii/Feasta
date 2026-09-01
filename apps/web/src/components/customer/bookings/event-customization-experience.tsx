@@ -10,6 +10,7 @@ import {
   MapPin,
   PackageOpen,
   Palette,
+  ReceiptText,
   Soup,
   Sparkles,
   TriangleAlert,
@@ -19,6 +20,7 @@ import {
 import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -31,10 +33,17 @@ import {
   type CustomerProviderAvailabilityInput,
 } from "@/lib/customer/bookings/customer-provider-availability-client";
 import {
+  bookingSubmissionRequiresRefundPolicyRefresh,
   submitCustomerBookingRequest,
   type SubmitBookingRequestInput,
   type SubmitBookingRequestResult,
 } from "@/lib/customer/bookings/customer-booking-submission-client";
+import {
+  buildRefundPolicyAcknowledgements,
+  getCustomerBookingRefundPolicyDisclosures,
+  type CustomerRefundPolicyDisclosure,
+  type CustomerRefundPolicyDisclosureResult,
+} from "@/lib/customer/bookings/customer-refund-policy-client";
 
 import {PriceDisplay} from "@/components/shared/price-display";
 import {Button} from "@/components/ui/button";
@@ -76,6 +85,12 @@ type PackageCustomizationDraft = {
 };
 
 type AvailabilityStatus =
+  | "idle"
+  | "loading"
+  | "ready"
+  | "error";
+
+type RefundPolicyStatus =
   | "idle"
   | "loading"
   | "ready"
@@ -162,6 +177,60 @@ const submissionIdentityRef =
     selectedEventServiceIds,
     setSelectedEventServiceIds,
   ] = useState<string[]>([]);
+
+  const [refundPolicyStatus, setRefundPolicyStatus] =
+    useState<RefundPolicyStatus>("idle");
+  const [refundPolicyResult, setRefundPolicyResult] =
+    useState<CustomerRefundPolicyDisclosureResult | null>(null);
+  const [refundPolicyError, setRefundPolicyError] =
+    useState<string | null>(null);
+  const [refundPolicyNotice, setRefundPolicyNotice] =
+    useState<string | null>(null);
+  const [acknowledgedPolicyKeys, setAcknowledgedPolicyKeys] =
+    useState<Record<string, string>>({});
+  const refundPolicyGenerationRef = useRef(0);
+
+  const loadRefundPolicyDisclosures = useCallback(async (
+    notice: string | null = null,
+  ) => {
+    const generation = refundPolicyGenerationRef.current + 1;
+    refundPolicyGenerationRef.current = generation;
+    setRefundPolicyStatus("loading");
+    setRefundPolicyResult(null);
+    setRefundPolicyError(null);
+    setRefundPolicyNotice(notice);
+    setAcknowledgedPolicyKeys({});
+
+    try {
+      const result = await getCustomerBookingRefundPolicyDisclosures({
+        providerId: provider.id,
+        packageId: packageRecord.id,
+        addonIds: selectedEventServiceIds,
+      });
+      if (refundPolicyGenerationRef.current !== generation) return;
+      setRefundPolicyResult(result);
+      setRefundPolicyStatus("ready");
+    } catch (error) {
+      if (refundPolicyGenerationRef.current !== generation) return;
+      setRefundPolicyStatus("error");
+      setRefundPolicyError(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : "Refund policy details could not be loaded. Please try again.",
+      );
+    }
+  }, [packageRecord.id, provider.id, selectedEventServiceIds]);
+
+  useEffect(() => {
+    if (step !== 4) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      void loadRefundPolicyDisclosures();
+    }, 0);
+    return () => {
+      window.clearTimeout(timeoutId);
+      refundPolicyGenerationRef.current += 1;
+    };
+  }, [loadRefundPolicyDisclosures, step]);
 
   const [
     willArrangeOwnAddOns,
@@ -461,6 +530,7 @@ function continueFromEventServices() {
 
 function buildSubmissionInput(
   clientRequestId: string,
+  policyAcknowledgements: SubmitBookingRequestInput["policyAcknowledgements"],
 ): SubmitBookingRequestInput {
   const eventType =
     packageRecord.eventType?.trim();
@@ -520,6 +590,8 @@ function buildSubmissionInput(
 
     addonIds:
       selectedEventServiceIds,
+
+    policyAcknowledgements,
 
     ...(specialRequest
       ? {
@@ -664,6 +736,30 @@ async function handleSubmitBooking() {
     return;
   }
 
+  if (
+    refundPolicyStatus !== "ready" ||
+    !refundPolicyResult
+  ) {
+    setSubmissionError(
+      "Wait for the current refund policies to load before submitting.",
+    );
+    return;
+  }
+
+  const everyPolicyAcknowledged =
+    refundPolicyResult.policies.every(
+      (policy) =>
+        acknowledgedPolicyKeys[policy.providerId] ===
+          policy.effectivePolicyKey,
+    );
+
+  if (!everyPolicyAcknowledged) {
+    setSubmissionError(
+      "Review and acknowledge every Provider refund policy before submitting.",
+    );
+    return;
+  }
+
   try {
     setIsSubmitting(true);
 
@@ -678,6 +774,9 @@ async function handleSubmitBooking() {
     const input =
       buildSubmissionInput(
         clientRequestId,
+        buildRefundPolicyAcknowledgements(
+          refundPolicyResult.policies,
+        ),
       );
 
     const selectedProviderIds = [
@@ -725,6 +824,17 @@ async function handleSubmitBooking() {
 
     navigateToSubmittedBooking(result);
   } catch (error) {
+    if (
+      bookingSubmissionRequiresRefundPolicyRefresh(
+        error,
+      )
+    ) {
+      const message =
+        "A Provider refund policy changed. Review the refreshed policy and acknowledge it again before submitting.";
+      await loadRefundPolicyDisclosures(message);
+      return;
+    }
+
     setSubmissionError(
       error instanceof Error &&
         error.message.trim()
@@ -1731,6 +1841,28 @@ async function handleSubmitBooking() {
               submissionResult={
                 submissionResult
               }
+              refundPolicyStatus={refundPolicyStatus}
+              refundPolicyResult={refundPolicyResult}
+              refundPolicyError={refundPolicyError}
+              refundPolicyNotice={refundPolicyNotice}
+              acknowledgedPolicyKeys={acknowledgedPolicyKeys}
+              onRefundPolicyAcknowledgementChange={(policy, checked) => {
+                setAcknowledgedPolicyKeys((current) => {
+                  if (checked) {
+                    return {
+                      ...current,
+                      [policy.providerId]: policy.effectivePolicyKey,
+                    };
+                  }
+                  const next = {...current};
+                  delete next[policy.providerId];
+                  return next;
+                });
+                setSubmissionError(null);
+              }}
+              onRetryRefundPolicies={() => {
+                void loadRefundPolicyDisclosures();
+              }}
               onBack={() =>
                 setStep(3)
               }
@@ -2361,6 +2493,13 @@ function BookingReview({
   isSubmitting,
   submissionError,
   submissionResult,
+  refundPolicyStatus,
+  refundPolicyResult,
+  refundPolicyError,
+  refundPolicyNotice,
+  acknowledgedPolicyKeys,
+  onRefundPolicyAcknowledgementChange,
+  onRetryRefundPolicies,
   onBack,
   onSubmit,
 }: {
@@ -2399,6 +2538,23 @@ function BookingReview({
   submissionResult:
     SubmitBookingRequestResult | null;
 
+  refundPolicyStatus: RefundPolicyStatus;
+
+  refundPolicyResult: CustomerRefundPolicyDisclosureResult | null;
+
+  refundPolicyError: string | null;
+
+  refundPolicyNotice: string | null;
+
+  acknowledgedPolicyKeys: Readonly<Record<string, string>>;
+
+  onRefundPolicyAcknowledgementChange: (
+    policy: CustomerRefundPolicyDisclosure,
+    checked: boolean,
+  ) => void;
+
+  onRetryRefundPolicies: () => void;
+
   onBack:
     () => void;
 
@@ -2410,6 +2566,15 @@ function BookingReview({
       ? packageRecord.price +
         selectedEventServicesSubtotal
       : null;
+
+  const everyPolicyAcknowledged =
+    refundPolicyStatus === "ready" &&
+    refundPolicyResult !== null &&
+    refundPolicyResult.policies.every(
+      (policy) =>
+        acknowledgedPolicyKeys[policy.providerId] ===
+          policy.effectivePolicyKey,
+    );
 
   return (
     <section
@@ -2713,6 +2878,16 @@ function BookingReview({
           )}
         </ReviewSection>
 
+        <RefundPolicyReview
+          status={refundPolicyStatus}
+          result={refundPolicyResult}
+          error={refundPolicyError}
+          notice={refundPolicyNotice}
+          acknowledgedPolicyKeys={acknowledgedPolicyKeys}
+          onAcknowledgementChange={onRefundPolicyAcknowledgementChange}
+          onRetry={onRetryRefundPolicies}
+        />
+
         {/* ==========================================================
             ESTIMATE
            ========================================================== */}
@@ -2847,19 +3022,25 @@ function BookingReview({
         </Button>
 
         <div className="flex max-w-md flex-col gap-2 sm:items-end">
-          <p className="text-xs leading-5 text-feasta-text-secondary sm:text-right">
-            Sending this request asks the
-            selected provider and any
-            additional FEASTA service
-            providers to review your event.
+          <p
+            id="booking-refund-policy-submit-requirement"
+            className="text-xs leading-5 text-feasta-text-secondary sm:text-right"
+          >
+            {refundPolicyStatus !== "ready"
+              ? "Current refund policies must be loaded before submission."
+              : !everyPolicyAcknowledged
+                ? "Acknowledge every displayed Provider refund policy to continue."
+                : "Sending this request asks each selected Provider to review your event."}
           </p>
 
           <Button
             type="button"
             disabled={
               isSubmitting ||
-              submissionResult !== null
+              submissionResult !== null ||
+              !everyPolicyAcknowledged
             }
+            aria-describedby="booking-refund-policy-submit-requirement"
             aria-busy={
               isSubmitting
             }
@@ -3002,6 +3183,169 @@ function ReviewEmptyState({
       </p>
     </div>
   );
+}
+
+function RefundPolicyReview({
+  status,
+  result,
+  error,
+  notice,
+  acknowledgedPolicyKeys,
+  onAcknowledgementChange,
+  onRetry,
+}: {
+  status: RefundPolicyStatus;
+  result: CustomerRefundPolicyDisclosureResult | null;
+  error: string | null;
+  notice: string | null;
+  acknowledgedPolicyKeys: Readonly<Record<string, string>>;
+  onAcknowledgementChange: (
+    policy: CustomerRefundPolicyDisclosure,
+    checked: boolean,
+  ) => void;
+  onRetry: () => void;
+}) {
+  return (
+    <section
+      aria-labelledby="booking-refund-policy-title"
+      aria-busy={status === "loading" || undefined}
+      className="overflow-hidden rounded-[20px] border border-primary/20 bg-white"
+    >
+      <div className="border-b border-primary/10 bg-secondary px-4 py-4 sm:px-5">
+        <div className="flex items-start gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground">
+            <ReceiptText aria-hidden="true" className="size-5" />
+          </span>
+          <div>
+            <h3 id="booking-refund-policy-title" className="text-base font-extrabold tracking-[-0.02em] text-foreground">
+              Refund Policy
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+              Review and acknowledge the effective policy for every Provider before submitting. No refund amount is estimated here.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 p-4 sm:p-5">
+        {notice ? (
+          <div role="alert" className="rounded-[14px] border border-warning/30 bg-warning-subtle p-3 text-sm font-semibold text-warning">
+            {notice}
+          </div>
+        ) : null}
+
+        {status === "loading" || status === "idle" ? (
+          <div role="status" className="grid gap-3">
+            <p className="text-sm font-semibold text-feasta-text-secondary">
+              Loading current Provider refund policies…
+            </p>
+            <div className="h-36 animate-pulse rounded-[16px] bg-feasta-surface-muted motion-reduce:animate-none" />
+          </div>
+        ) : null}
+
+        {status === "error" ? (
+          <div role="alert" className="rounded-[16px] border border-destructive/20 bg-destructive-subtle p-4">
+            <p className="font-bold text-destructive">Refund policies unavailable</p>
+            <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
+              {error ?? "Refund policy details could not be loaded."}
+            </p>
+            <Button type="button" variant="secondary" size="compact" className="mt-3" onClick={onRetry}>
+              Try again
+            </Button>
+          </div>
+        ) : null}
+
+        {status === "ready" && result ? (
+          <div className="grid gap-4">
+            {result.policies.map((policy) => {
+              const checked = acknowledgedPolicyKeys[policy.providerId] ===
+                policy.effectivePolicyKey;
+              return (
+                <article key={policy.providerId} className="min-w-0 rounded-[18px] border border-feasta-border-soft bg-feasta-canvas p-4 sm:p-5">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <h4 className="break-words text-lg font-extrabold text-foreground">
+                        {policy.providerName}
+                      </h4>
+                      <p className="mt-1 text-xs font-bold uppercase tracking-[0.08em] text-primary-strong">
+                        {policy.sourceKind === "package_override"
+                          ? "Package-specific policy"
+                          : "Provider default policy"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <dl className="mt-4 grid gap-3 md:grid-cols-3">
+                    {policy.rules.map((rule) => (
+                      <div key={rule.stage} className="rounded-[14px] border border-feasta-border-soft bg-white p-3">
+                        <dt className="text-xs font-bold text-feasta-text-secondary">
+                          {refundStageTitle(rule.stage)}
+                        </dt>
+                        <dd className="mt-1 text-xl font-extrabold text-foreground">
+                          {formatRefundBasisPoints(rule.refundBasisPoints)}%
+                        </dd>
+                        <dd className="mt-1 text-xs leading-5 text-feasta-text-tertiary">
+                          {refundStageDescription(rule.stage)}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+
+                  {policy.terms ? (
+                    <div className="mt-4 rounded-[14px] border border-feasta-border-soft bg-white p-3">
+                      <p className="text-xs font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
+                        Additional policy terms
+                      </p>
+                      <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-feasta-text-secondary">
+                        {policy.terms}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-[14px] border border-primary/20 bg-white p-4 text-sm leading-6 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(event) => onAcknowledgementChange(
+                        policy,
+                        event.currentTarget.checked,
+                      )}
+                      className="mt-1 size-5 shrink-0 accent-primary"
+                    />
+                    <span>
+                      I have reviewed {policy.providerName}&apos;s refund policy. I understand that the policy attached to this booking is the version I agree to now, and later Provider policy changes will not alter this existing booking.
+                    </span>
+                  </label>
+                </article>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function refundStageTitle(stage: CustomerRefundPolicyDisclosure["rules"][number]["stage"]): string {
+  if (stage === "preparation_not_started") return "Preparation Not Started";
+  if (stage === "preparation_started") return "Preparation Started";
+  return "Service Started";
+}
+
+function refundStageDescription(stage: CustomerRefundPolicyDisclosure["rules"][number]["stage"]): string {
+  if (stage === "preparation_not_started") {
+    return "Before the Provider starts preparing for the event.";
+  }
+  if (stage === "preparation_started") {
+    return "After preparation, procurement, or event setup has started.";
+  }
+  return "Once the actual event service has begun.";
+}
+
+function formatRefundBasisPoints(value: number): string {
+  const whole = Math.floor(value / 100);
+  const decimal = String(value % 100).padStart(2, "0").replace(/0+$/u, "");
+  return decimal ? `${whole}.${decimal}` : String(whole);
 }
 
 function ProviderAvailabilityPanel({
