@@ -187,13 +187,15 @@ function AdminSettingsClient({
                   maxLength={80}
                   disabled={isPending}
                   autoComplete="organization"
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const value =
+                      event.currentTarget.value;
+
                     setDraft((current) => ({
                       ...current,
-                      platformName:
-                        event.currentTarget.value,
-                    }))
-                  }
+                      platformName: value,
+                    }));
+                  }}
                 />
               </label>
 
@@ -208,13 +210,15 @@ function AdminSettingsClient({
                   maxLength={120}
                   disabled={isPending}
                   autoComplete="address-level2"
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const value =
+                      event.currentTarget.value;
+
                     setDraft((current) => ({
                       ...current,
-                      operatingCity:
-                        event.currentTarget.value,
-                    }))
-                  }
+                      operatingCity: value,
+                    }));
+                  }}
                 />
               </label>
 
@@ -231,13 +235,15 @@ function AdminSettingsClient({
                   disabled={isPending}
                   autoComplete="email"
                   placeholder="support@example.com"
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const value =
+                      event.currentTarget.value;
+
                     setDraft((current) => ({
                       ...current,
-                      supportEmail:
-                        event.currentTarget.value,
-                    }))
-                  }
+                      supportEmail: value,
+                    }));
+                  }}
                 />
 
                 <span className="text-sm text-muted-foreground">
@@ -260,13 +266,16 @@ function AdminSettingsClient({
                   maxLength={500}
                   disabled={isPending}
                   rows={5}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    const value =
+                      event.currentTarget.value;
+
                     setDraft((current) => ({
                       ...current,
                       serviceAreaDescription:
-                        event.currentTarget.value,
-                    }))
-                  }
+                        value,
+                    }));
+                  }}
                 />
 
                 <span className="text-right text-sm text-muted-foreground">
@@ -317,11 +326,14 @@ function AdminSettingsClient({
                 disabled={isPending}
                 rows={4}
                 placeholder="Explain why these platform settings are being changed."
-                onChange={(event) =>
+                onChange={(event) => {
+                  const value =
+                    event.currentTarget.value;
+
                   setInternalReason(
-                    event.currentTarget.value,
-                  )
-                }
+                    value,
+                  );
+                }}
               />
 
               <span className="text-right text-sm text-muted-foreground">

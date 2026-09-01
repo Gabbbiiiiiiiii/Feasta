@@ -77,6 +77,163 @@ describe("Admin platform settings", () => {
     expect(
       screen.getByText("PHP"),
     ).toBeInTheDocument();
+
+    expect(
+      screen.queryByLabelText("Timezone"),
+    ).not.toBeInTheDocument();
+
+    expect(
+      screen.queryByLabelText("Currency"),
+    ).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["Platform name", "FEASTA Leyte"],
+    ["Operating city", "Tacloban City"],
+    ["Support email", "help@feasta.ph"],
+    [
+      "Service-area description",
+      "FEASTA supports verified event services across Leyte.",
+    ],
+    [
+      "Internal reason",
+      "Update the public platform configuration.",
+    ],
+  ])(
+    "changes %s without crashing",
+    (label, value) => {
+      render(
+        <AdminSettingsClient
+          initialSettings={initialSettings}
+        />,
+      );
+
+      const control =
+        screen.getByLabelText(
+          new RegExp(`^${label}`, "u"),
+        );
+
+      expect(() => {
+        fireEvent.change(control, {
+          target: {value},
+        });
+      }).not.toThrow();
+
+      expect(control).toHaveValue(value);
+    },
+  );
+
+  it("supports multiple sequential field edits and enables dirty controls", () => {
+    render(
+      <AdminSettingsClient
+        initialSettings={initialSettings}
+      />,
+    );
+
+    const changes = [
+      ["Platform name", "FEASTA Leyte"],
+      ["Operating city", "Tacloban City"],
+      ["Support email", "help@feasta.ph"],
+      [
+        "Service-area description",
+        "FEASTA supports verified event services across Leyte.",
+      ],
+      [
+        "Internal reason",
+        "Update the public platform configuration.",
+      ],
+    ] as const;
+
+    for (const [label, value] of changes) {
+      fireEvent.change(
+        screen.getByLabelText(
+          new RegExp(`^${label}`, "u"),
+        ),
+        {target: {value}},
+      );
+    }
+
+    for (const [label, value] of changes) {
+      expect(
+        screen.getByLabelText(
+          new RegExp(`^${label}`, "u"),
+        ),
+      ).toHaveValue(value);
+    }
+
+    expect(
+      screen.getByRole("button", {
+        name: "Discard changes",
+      }),
+    ).toBeEnabled();
+
+    expect(
+      screen.getByRole("button", {
+        name: "Save settings",
+      }),
+    ).toBeEnabled();
+
+    expect(
+      screen.getByText("53/500"),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText(/41\/1000/iu),
+    ).toBeInTheDocument();
+  });
+
+  it("discards edits and restores every persisted value", () => {
+    render(
+      <AdminSettingsClient
+        initialSettings={initialSettings}
+      />,
+    );
+
+    fireEvent.change(
+      screen.getByLabelText("Platform name"),
+      {target: {value: "FEASTA Leyte"}},
+    );
+    fireEvent.change(
+      screen.getByLabelText("Operating city"),
+      {target: {value: "Tacloban City"}},
+    );
+    fireEvent.change(
+      screen.getByLabelText(/^Support email/u),
+      {target: {value: "help@feasta.ph"}},
+    );
+    fireEvent.change(
+      screen.getByLabelText(
+        /^Service-area description/u,
+      ),
+      {target: {value: "Updated service area description."}},
+    );
+    fireEvent.change(
+      screen.getByLabelText("Internal reason"),
+      {target: {value: "Administrative QA update reason."}},
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Discard changes",
+      }),
+    );
+
+    expect(screen.getByLabelText("Platform name"))
+      .toHaveValue(initialSettings.platformName);
+    expect(screen.getByLabelText("Operating city"))
+      .toHaveValue(initialSettings.operatingCity);
+    expect(screen.getByLabelText(/^Support email/u))
+      .toHaveValue(initialSettings.supportEmail);
+    expect(screen.getByLabelText(
+      /^Service-area description/u,
+    ))
+      .toHaveValue(initialSettings.serviceAreaDescription);
+    expect(screen.getByLabelText("Internal reason"))
+      .toHaveValue("");
+    expect(screen.getByRole("button", {name: "Discard changes"}))
+      .toBeDisabled();
+    expect(screen.getByRole("button", {name: "Save settings"}))
+      .toBeDisabled();
   });
 
   it("requires a change and an internal reason", () => {
@@ -181,6 +338,23 @@ describe("Admin platform settings", () => {
           "Align the public platform identity.",
       });
     });
+
+    const submitted = vi.mocked(
+      updateAdminPlatformSettingsAction,
+    ).mock.calls[0]?.[0];
+
+    expect(submitted).not.toHaveProperty(
+      "timezone",
+    );
+    expect(submitted).not.toHaveProperty(
+      "currencyCode",
+    );
+    expect(submitted).not.toHaveProperty(
+      "schemaVersion",
+    );
+    expect(submitted).not.toHaveProperty(
+      "isPublic",
+    );
 
     expect(
       await screen.findByText(
