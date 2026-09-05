@@ -86,6 +86,7 @@ export function normalizePublicProvider(
     logoUrl: providerImageUrl(provider, "logo"),
     coverImageUrl: providerImageUrl(provider, "cover"),
     approvalLabel: "Approved",
+    favoriteCount: safeInteger(provider.favoriteCount, 0, Number.MAX_SAFE_INTEGER),
   };
 }
 

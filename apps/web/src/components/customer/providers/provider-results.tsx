@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowRight,
   Search,
   SearchX,
   SlidersHorizontal,
@@ -14,9 +15,11 @@ import {
   providerServiceTypeLabel,
 } from "@/lib/customer/providers/provider-catalog";
 import {providerDiscoveryHref} from "@/lib/customer/providers/provider-query";
+import {providerDiscoverySections} from "@/lib/customer/providers/provider-discovery-sections";
 import type {
   ProviderDiscoveryFilters,
   ProviderDiscoveryPage,
+  PublicProvider,
 } from "@/lib/customer/providers/provider-types";
 import type {CustomerProviderAvailability} from "@/lib/customer/bookings/customer-provider-availability-client";
 
@@ -94,6 +97,9 @@ export function ProviderResults({
   const currentAvailabilityStatus = availabilityRequestKey === requestKey
     ? availabilityStatus
     : "idle";
+  const hasEventPlanningContext = Boolean(
+    filters.eventContext || filters.planningContext,
+  );
   const filtered =
     filters.search.length > 0 ||
     filters.serviceType !== "all" ||
@@ -155,11 +161,11 @@ export function ProviderResults({
             Marketplace results
           </p>
 
-          <h2 className="mt-2 text-2xl font-extrabold tracking-[-0.035em] text-foreground">
+          <h1 id="provider-results-title" tabIndex={-1} className="mt-2 text-2xl font-extrabold tracking-[-0.035em] text-foreground">
             {filtered
               ? "No providers match those filters."
               : "No public providers yet."}
-          </h2>
+          </h1>
 
           <p className="mt-3 max-w-sm text-sm leading-6 text-feasta-text-secondary">
             {filtered
@@ -200,6 +206,29 @@ export function ProviderResults({
     filters,
     filters.cursor,
   );
+  const {sections, remaining} = providerDiscoverySections(page, filters);
+
+  function providerGrid(providers: readonly PublicProvider[]) {
+    return (
+      <div className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(min(100%,17.5rem),1fr))] gap-4">
+        {providers.map((provider) => (
+          <ProviderCard
+            key={provider.id}
+            provider={provider}
+            marketplaceHref={marketplaceHref}
+            favoriteState={{
+              authenticated: authenticatedCustomer,
+              favorited: favoriteProviderIds.has(provider.id),
+            }}
+            availability={availabilityIsCurrent
+              ? availabilityByProvider.get(provider.id) ?? null
+              : null}
+            availabilityLoading={Boolean(filters.eventContext) && currentAvailabilityStatus === "loading"}
+          />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <section
@@ -210,19 +239,20 @@ export function ProviderResults({
           RESULT HEADER
          ================================================================ */}
 
-      <header className="rounded-[22px] border border-feasta-border-soft bg-white p-5 shadow-[0_5px_20px_rgb(43_33_29/0.03)] sm:p-6">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between">
+      <header className="rounded-[22px] border border-feasta-border-soft bg-white p-4 shadow-[0_5px_20px_rgb(43_33_29/0.03)] sm:px-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
               Marketplace results
             </p>
 
-            <h2
+            <h1
               id="provider-results-title"
+              tabIndex={-1}
               className="mt-1.5 text-2xl font-extrabold tracking-[-0.035em] text-foreground"
             >
-              {filters.eventContext ? "Providers for your event" : "Marketplace providers"}
-            </h2>
+              {hasEventPlanningContext ? "Providers for your event" : "Marketplace providers"}
+            </h1>
 
             <p
               className="mt-2 text-sm text-feasta-text-secondary"
@@ -237,7 +267,7 @@ export function ProviderResults({
                 : "providers"}{" "}
               on this page.
             </p>
-            {!filters.eventContext ? (
+            {!hasEventPlanningContext ? (
               <p className="mt-2 text-sm text-feasta-text-secondary">
                 Choose your event date and details to check availability.
               </p>
@@ -281,7 +311,7 @@ export function ProviderResults({
 
         {/* Active filter summary */}
         {activeFilterLabels.length > 0 ? (
-          <div className="mt-5 flex flex-wrap gap-2 border-t border-feasta-divider pt-4">
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-feasta-divider pt-3">
             {activeFilterLabels.map((label) => (
               <span
                 key={label}
@@ -298,25 +328,28 @@ export function ProviderResults({
           PROVIDER GRID
          ================================================================ */}
 
-      <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {page.providers.map((provider) => (
-          <ProviderCard
-            key={provider.id}
-            provider={provider}
-            marketplaceHref={marketplaceHref}
-            favoriteState={{
-              authenticated: authenticatedCustomer,
-              favorited: favoriteProviderIds.has(
-                provider.id,
-              ),
-            }}
-            availability={availabilityIsCurrent
-              ? availabilityByProvider.get(provider.id) ?? null
-              : null}
-            availabilityLoading={Boolean(filters.eventContext) && currentAvailabilityStatus === "loading"}
-          />
-        ))}
-      </div>
+      {sections.map((section) => (
+        <section key={section.id} aria-labelledby={`provider-discovery-${section.id}`} className="grid min-w-0 gap-4">
+          <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+            <div className="min-w-0">
+              <h2 id={`provider-discovery-${section.id}`} className="text-xl font-extrabold tracking-tight text-foreground">{section.title}</h2>
+              <p className="mt-1 text-sm text-feasta-text-secondary">{section.description}</p>
+            </div>
+            {section.href ? (
+              <Link href={section.href} aria-label={`See all ${section.title} providers`} className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-lg px-2 text-sm font-bold text-primary-strong hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                See all <ArrowRight aria-hidden="true" className="size-4" />
+              </Link>
+            ) : null}
+          </header>
+          {providerGrid(section.providers)}
+        </section>
+      ))}
+      {sections.length > 0 ? (
+        <section aria-labelledby="remaining-provider-results-title" className="grid min-w-0 gap-4">
+          <h2 id="remaining-provider-results-title" className="text-xl font-extrabold tracking-tight text-foreground">More providers</h2>
+          {providerGrid(remaining)}
+        </section>
+      ) : providerGrid(remaining)}
     </section>
   );
 }

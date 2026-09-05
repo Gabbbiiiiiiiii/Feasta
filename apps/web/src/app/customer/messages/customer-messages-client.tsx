@@ -840,9 +840,8 @@ function formatStatus(value: string | null): string {
 function formatConversationTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Recently";
-  return formatDate(value, date.toDateString() === new Date().toDateString()
-    ? {hour: "numeric", minute: "2-digit"}
-    : {month: "short", day: "numeric"});
+  // Render from the message timestamp, never from the server/browser local day.
+  return formatDate(value, {month: "short", day: "numeric", hour: "numeric", minute: "2-digit"});
 }
 
 function formatMessageTime(value: string): string {

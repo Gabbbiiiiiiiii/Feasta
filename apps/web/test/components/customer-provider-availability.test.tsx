@@ -1,5 +1,6 @@
 import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import {beforeEach, describe, expect, it, vi} from "vitest";
+import {assertHydration} from "../helpers/assert-hydration";
 
 import type {
   PublicEventService,
@@ -48,6 +49,20 @@ const PRIMARY_PROVIDER_ID = "provider_primary_12345678";
 const ADDON_PROVIDER_ID = "provider_photo_12345678";
 
 describe("customer provider availability planning", () => {
+  it("hydrates the booking date input across Manila midnight", async () => {
+    vi.useFakeTimers({toFake: ["Date"]});
+    vi.setSystemTime(new Date("2026-08-27T15:59:59Z"));
+    try {
+      await assertHydration(<EventCustomizationExperience detail={detailFixture()} eventServices={serviceFixtures()} />, (container) => {
+        expect(container.querySelector('input[type="date"]')).not.toHaveAttribute("min");
+        vi.setSystemTime(new Date("2026-08-27T16:00:01Z"));
+      }, (container) => {
+        expect(container.querySelector('input[type="date"]')).toHaveAttribute("min", "2026-08-29");
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();

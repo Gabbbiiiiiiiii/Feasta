@@ -1,4 +1,3 @@
-import {ProviderFilterForm} from "@/components/customer/providers/provider-filter-form";
 import {ProviderDirectoryShell} from "@/components/customer/providers/provider-directory-shell";
 import {ProviderPagination} from "@/components/customer/providers/provider-pagination";
 import {ProviderResults} from "@/components/customer/providers/provider-results";
@@ -28,30 +27,18 @@ export default async function CustomerProvidersPage({
       page.providers.map((provider) => provider.id),
     )
     : new Set<string>();
-  const filterStateKey = [
-    filters.search,
-    filters.serviceType,
-    filters.category,
-    filters.eventContext?.eventDate ?? "",
-    filters.eventContext?.eventTime ?? "",
-    filters.eventContext?.eventEndTime ?? "",
-    filters.eventContext?.guestCount ?? "",
-  ].join("\u0000");
 
   return (
     <ProviderDirectoryShell>
       <ProviderEventContextPanel filters={filters} />
-      <div className="grid min-w-0 items-start gap-5 md:grid-cols-[17rem_minmax(0,1fr)] md:gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
-        <ProviderFilterForm key={filterStateKey} filters={filters} />
-        <div className="grid min-w-0 gap-5">
-          <ProviderResults
-            page={page}
-            filters={filters}
-            favoriteProviderIds={favoriteProviderIds}
-            authenticatedCustomer={authenticatedCustomer}
-          />
-          <ProviderPagination page={page} filters={filters} />
-        </div>
+      <div className="grid min-w-0 gap-5">
+        <ProviderResults
+          page={page}
+          filters={filters}
+          favoriteProviderIds={favoriteProviderIds}
+          authenticatedCustomer={authenticatedCustomer}
+        />
+        <ProviderPagination page={page} filters={filters} />
       </div>
     </ProviderDirectoryShell>
   );

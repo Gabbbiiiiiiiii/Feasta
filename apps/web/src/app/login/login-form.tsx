@@ -3,8 +3,10 @@
 import {
   ArrowLeft,
   Mail,
+  ExternalLink,
 } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   type FormEvent,
   useRef,
@@ -13,7 +15,7 @@ import {
 import {useRouter} from "next/navigation";
 import {authenticationGatePresentation} from "@feasta/shared-types";
 
-import {AuthCard} from "@/components/auth/auth-card";
+
 import {AuthStatus} from "@/components/auth/auth-status";
 import {FormField} from "@/components/forms/form-field";
 import {PasswordInput} from "@/components/forms/password-input";
@@ -105,14 +107,16 @@ function accessibleSignInError(caught: unknown) {
 export function LoginForm({
   returnTo,
   initialNotice,
+  initialMode = "gateway",
 }: {
   returnTo?: string;
   initialNotice?: string;
+  initialMode?: LoginMode;
 }) {
   const router = useRouter();
 
   const [mode, setMode] =
-    useState<LoginMode>("gateway");
+    useState<LoginMode>(initialMode);
 
   const [email, setEmail] =
     useState("");
@@ -177,51 +181,155 @@ export function LoginForm({
   }
 
   return (
-    <AuthCard
-      title={
-        mode === "gateway"
-          ? "Welcome!"
-          : "Log in with email"
-      }
-      description={
-        mode === "gateway"
-          ? "Sign in or create an account to continue planning your event."
-          : "Enter the email address and password connected to your customer account."
-      }
-    >
-      {initialNotice ? (
-        <AuthStatus
-          className="mb-5"
-          message={initialNotice}
-        />
-      ) : null}
+  <main className="min-h-dvh bg-white">
+  <section className="grid min-h-dvh w-full lg:grid-cols-2">
+      <CustomerLoginBrandPanel />
 
-      {mode === "gateway" ? (
-        <AuthenticationGateway
-          loading={loading}
-          error={error}
-          returnTo={returnTo}
-          onGoogle={() =>
-            void completeSignIn(() =>
-              signInWithGoogle(returnTo),
-            )
-          }
-          onEmail={showEmailLogin}
-        />
-      ) : (
-        <EmailLoginForm
-          email={email}
-          password={password}
-          error={error}
-          loading={loading}
-          returnTo={returnTo}
-          onEmailChange={setEmail}
-          onPasswordChange={setPassword}
-          onBack={showGateway}
-          onSubmit={submit}
-        />
-      )}
-    </AuthCard>
+      <div className="flex min-h-dvh items-center bg-white px-6 py-12 sm:px-10 lg:min-h-0 lg:px-16 xl:px-24">
+        <div className="mx-auto w-full max-w-[540px]">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-primary-strong">
+            Customer account
+          </p>
+
+          <h1 className="mt-3 text-4xl font-black tracking-[-0.04em] text-foreground sm:text-[2.65rem]">
+            {mode === "gateway"
+              ? "Welcome!"
+              : "Log in with email"}
+          </h1>
+
+          <p className="mt-3 text-base leading-7 text-muted-foreground">
+            {mode === "gateway"
+              ? "Sign in or create an account to continue planning your event."
+              : "Enter the email address and password connected to your customer account."}
+          </p>
+
+          <div className="mt-8">
+            {initialNotice ? (
+              <AuthStatus
+                className="mb-5"
+                message={initialNotice}
+              />
+            ) : null}
+
+            {mode === "gateway" ? (
+              <AuthenticationGateway
+                loading={loading}
+                error={error}
+                returnTo={returnTo}
+                onGoogle={() =>
+                  void completeSignIn(() =>
+                    signInWithGoogle(returnTo),
+                  )
+                }
+                onEmail={showEmailLogin}
+              />
+            ) : (
+              <EmailLoginForm
+                email={email}
+                password={password}
+                error={error}
+                loading={loading}
+                returnTo={returnTo}
+                onEmailChange={setEmail}
+                onPasswordChange={setPassword}
+                onBack={showGateway}
+                onSubmit={submit}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+);
+}
+
+function CustomerLoginBrandPanel() {
+  return (
+    <aside className="relative hidden min-h-dvh overflow-hidden bg-[#3a241d] px-12 py-14 text-white lg:flex lg:flex-col xl:px-20 xl:py-16">
+      <div
+        aria-hidden="true"
+        className="absolute -left-20 -top-20 size-72 rounded-full bg-primary/10"
+      />
+
+      <div
+        aria-hidden="true"
+        className="absolute -bottom-28 -right-28 size-80 rounded-full bg-primary/10"
+      />
+
+      <div className="relative z-10 flex h-full flex-col">
+        <Link
+          href="/"
+          aria-label="FEASTA home"
+          className="inline-flex w-fit rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+        >
+          <Image
+            src="/images/feasta_logo.svg"
+            alt="Feasta"
+            width={586}
+            height={202}
+            priority
+            className="h-[42px] w-auto object-contain"
+          />
+        </Link>
+
+        <div className="mt-24 xl:mt-28">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-primary">
+            FEASTA Customer
+          </p>
+
+          <h2 className="mt-5 max-w-xl text-4xl font-black leading-[1.05] tracking-[-0.04em] text-white xl:text-5xl">
+            Plan your celebration in one place.
+          </h2>
+
+          <p className="mt-5 max-w-md text-base leading-7 text-white/75">
+            Discover trusted event Providers, organize your bookings,
+            and keep your celebration plans together with FEASTA.
+          </p>
+        </div>
+
+        <div className="mt-10 grid gap-4">
+          <CustomerLoginBenefit
+            title="Discover trusted providers"
+            description="Compare services and packages for your celebration."
+          />
+
+          <CustomerLoginBenefit
+            title="Manage bookings in one place"
+            description="Track requests, schedules, and payment progress."
+          />
+
+          <CustomerLoginBenefit
+            title="Book with confidence"
+            description="Connect with verified providers through FEASTA."
+          />
+        </div>
+
+        <p className="mt-auto pt-10 text-xs font-medium text-white/55">
+          FEASTA Customer Portal
+        </p>
+      </div>
+    </aside>
+  );
+}
+
+function CustomerLoginBenefit({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-[16px] border border-white/5 bg-white/10 px-5 py-4">
+      <p className="font-bold text-white">
+        {title}
+      </p>
+
+      <p className="mt-1 text-sm leading-6 text-white/70">
+        {description}
+      </p>
+    </div>
   );
 }
 
@@ -453,10 +561,16 @@ function PortalLinks() {
       <p>
         Offering event services?{" "}
         <Link
-          className="font-bold text-primary-strong underline-offset-4 hover:underline"
-          href="/provider-login"
+          className="inline-flex items-center gap-1 font-bold text-primary-strong underline-offset-4 hover:underline"
+          href="/provider-register"
+          target="_blank"
+          rel="noopener noreferrer"
         >
           Provider portal
+          <ExternalLink
+            aria-hidden="true"
+            className="size-3.5"
+          />
         </Link>
       </p>
     </div>

@@ -1,4 +1,4 @@
-import { getApp, getApps, initializeApp } from "firebase/app";
+import {getApp, getApps, initializeApp} from "firebase/app";
 import {
   initializeAppCheck,
   ReCaptchaEnterpriseProvider,
@@ -33,7 +33,9 @@ const firebaseConfig = {
 
 for (const [key, value] of Object.entries(firebaseConfig)) {
   if (!value) {
-    throw new Error(`Missing Firebase environment variable: ${key}`);
+    throw new Error(
+      `Missing Firebase environment variable: ${key}`,
+    );
   }
 }
 
@@ -44,28 +46,41 @@ export const firebaseApp =
 
 export const auth = getAuth(firebaseApp);
 export const db = getFirestore(firebaseApp);
+
 export const functions = getFunctions(
   firebaseApp,
   "asia-southeast1",
 );
+
 export const storage = getStorage(firebaseApp);
 
 const useEmulators =
   process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS === "true";
 
-export function shouldDisablePhoneAppVerificationForTesting(input: {
-  useEmulators?: string;
-  explicitOptIn?: string;
-  nodeEnv?: string;
-} = {}): boolean {
-  const emulatorSetting = input.useEmulators ??
+export function shouldDisablePhoneAppVerificationForTesting(
+  input: {
+    useEmulators?: string;
+    explicitOptIn?: string;
+    nodeEnv?: string;
+  } = {},
+): boolean {
+  const emulatorSetting =
+    input.useEmulators ??
     process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS;
-  const explicitSetting = input.explicitOptIn ??
-    process.env.NEXT_PUBLIC_FIREBASE_AUTH_DISABLE_APP_VERIFICATION_FOR_TESTING;
-  const environment = input.nodeEnv ?? process.env.NODE_ENV;
-  return emulatorSetting === "true" &&
+
+  const explicitSetting =
+    input.explicitOptIn ??
+    process.env
+      .NEXT_PUBLIC_FIREBASE_AUTH_DISABLE_APP_VERIFICATION_FOR_TESTING;
+
+  const environment =
+    input.nodeEnv ?? process.env.NODE_ENV;
+
+  return (
+    emulatorSetting === "true" &&
     explicitSetting === "true" &&
-    environment !== "production";
+    environment !== "production"
+  );
 }
 
 type EmulatorGlobal = typeof globalThis & {
@@ -73,69 +88,105 @@ type EmulatorGlobal = typeof globalThis & {
   __feastaBrowserAppCheck?: AppCheck;
 };
 
-
-const emulatorGlobal = globalThis as EmulatorGlobal;
+const emulatorGlobal =
+  globalThis as EmulatorGlobal;
 
 export function initializeBrowserAppCheck(): AppCheck | null {
-  if (typeof window === "undefined" || useEmulators) return null;
+  if (
+    typeof window === "undefined" ||
+    useEmulators
+  ) {
+    return null;
+  }
+
   if (emulatorGlobal.__feastaBrowserAppCheck) {
     return emulatorGlobal.__feastaBrowserAppCheck;
   }
 
-  const siteKey = process.env.NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY?.trim();
+  const siteKey =
+    process.env
+      .NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY
+      ?.trim();
+
   if (!siteKey) {
     if (process.env.NODE_ENV === "production") {
-      throw new Error("Firebase App Check site key is required in production.");
+      throw new Error(
+        "Firebase App Check site key is required in production.",
+      );
     }
-    console.warn("Firebase App Check is not configured for this web environment.");
+
+    console.warn(
+      "Firebase App Check is not configured for this web environment.",
+    );
+
     return null;
   }
 
-  emulatorGlobal.__feastaBrowserAppCheck = initializeAppCheck(firebaseApp, {
-    provider: new ReCaptchaEnterpriseProvider(siteKey),
-    isTokenAutoRefreshEnabled: true,
-  });
+  emulatorGlobal.__feastaBrowserAppCheck =
+    initializeAppCheck(firebaseApp, {
+      provider:
+        new ReCaptchaEnterpriseProvider(siteKey),
+      isTokenAutoRefreshEnabled: true,
+    });
+
   return emulatorGlobal.__feastaBrowserAppCheck;
 }
 
-if (
-  typeof window !== "undefined" &&
-  useEmulators &&
-  !emulatorGlobal.__feastaFirebaseEmulatorsConnected
-) {
-  connectAuthEmulator(
-    auth,
-    "http://127.0.0.1:9099",
-    {
-      disableWarnings: true,
-    },
-  );
-
-  if (shouldDisablePhoneAppVerificationForTesting()) {
-    auth.settings.appVerificationDisabledForTesting = true;
+export function initializeBrowserFirebase(): void {
+  if (typeof window === "undefined") {
+    return;
   }
 
-  connectFirestoreEmulator(
-    db,
-    "127.0.0.1",
-    8080,
-  );
+  if (useEmulators) {
+    if (
+      emulatorGlobal
+        .__feastaFirebaseEmulatorsConnected
+    ) {
+      return;
+    }
 
-  connectFunctionsEmulator(
-    functions,
-    "127.0.0.1",
-    5001,
-  );
+    connectAuthEmulator(
+      auth,
+      "http://127.0.0.1:9099",
+      {
+        disableWarnings: true,
+      },
+    );
 
-  connectStorageEmulator(
-    storage,
-    "127.0.0.1",
-    9199,
-  );
+    if (
+      shouldDisablePhoneAppVerificationForTesting()
+    ) {
+      auth.settings.appVerificationDisabledForTesting =
+        true;
+    }
 
-  emulatorGlobal.__feastaFirebaseEmulatorsConnected = true;
+    connectFirestoreEmulator(
+      db,
+      "127.0.0.1",
+      8080,
+    );
 
-  console.info("FEASTA connected to Firebase emulators.");
-} else if (typeof window !== "undefined") {
+    connectFunctionsEmulator(
+      functions,
+      "127.0.0.1",
+      5001,
+    );
+
+    connectStorageEmulator(
+      storage,
+      "127.0.0.1",
+      9199,
+    );
+
+    emulatorGlobal.__feastaFirebaseEmulatorsConnected =
+      true;
+
+    console.info(
+      "FEASTA connected to Firebase emulators.",
+    );
+
+    return;
+  }
+
   initializeBrowserAppCheck();
 }

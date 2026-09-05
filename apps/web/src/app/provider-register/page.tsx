@@ -42,39 +42,33 @@ const providerJourney = [
 export default function ProviderRegistrationPage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <header className="relative z-30 border-b border-border bg-card">
-        <div className="mx-auto flex h-[72px] w-full max-w-[1440px] items-center justify-between px-4 sm:px-8 lg:px-10">
-          <Link
-            href="/"
-            aria-label="FEASTA home"
-            className="inline-flex items-center gap-2 rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            <Image
-              src="/images/feasta_logo.png"
-              alt=""
-              width={42}
-              height={42}
-              priority
-              className="size-10 object-contain"
-            />
-            <span className="text-xl font-black tracking-[-0.03em] sm:text-2xl">
-              <span className="text-primary">Feasta</span>{" "}
-              <span className="text-foreground">Provider</span>
-            </span>
-          </Link>
-          <Link
-            href="/provider-login"
-            className="inline-flex min-h-11 items-center justify-center rounded-[10px] bg-primary px-5 text-sm font-bold text-primary-foreground transition-colors hover:bg-primary-hover active:bg-primary-pressed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          >
-            Login
-          </Link>
-        </div>
-      </header>
+      <header className="relative z-30 border-b border-border/70 bg-card">
+  <div className="mx-auto flex h-[64px] w-full max-w-[1360px] items-center px-5 sm:px-7 lg:px-10 xl:px-12">
+    <Link
+      href="/provider-register"
+      aria-label="FEASTA home"
+      className={[
+        "inline-flex items-center rounded-lg",
+        "focus-visible:outline-none focus-visible:ring-2",
+        "focus-visible:ring-ring focus-visible:ring-offset-2",
+      ].join(" ")}
+    >
+      <Image
+        src="/images/feasta_logo.svg"
+        alt="FEASTA"
+        width={586}
+        height={202}
+        priority
+        className="h-7 w-auto object-contain sm:h-8"
+      />
+    </Link>
+  </div>
+</header>
 
       <section className="relative isolate overflow-hidden bg-foreground">
         <Image
-          src="https://images.unsplash.com/photo-1464366400600-7168b8af9bc3?auto=format&fit=crop&w=2200&q=90"
-          alt="Catering team preparing an elegant event venue"
+          src="/images/landing/providers-banner.jpg"
+          alt="Event setup prepared by professional event service providers"
           fill
           priority
           sizes="100vw"
@@ -86,10 +80,10 @@ export default function ProviderRegistrationPage() {
           className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/55 to-black/35 lg:from-black/45 lg:via-black/55 lg:to-black/75"
         />
 
-        <div className="relative z-10 mx-auto grid w-full max-w-[1440px] gap-8 px-4 py-8 sm:px-8 sm:py-10 lg:min-h-[760px] lg:grid-cols-[minmax(0,560px)_minmax(0,1fr)] lg:items-center lg:gap-16 lg:px-10 lg:py-14 xl:gap-24">
+        <div className="relative z-10 mx-auto grid w-full max-w-[1360px] gap-8 px-5 py-10 sm:px-7 lg:min-h-[620px] lg:grid-cols-[minmax(0,520px)_minmax(0,1fr)] lg:items-center lg:gap-16 lg:px-10 lg:py-12 xl:px-12 xl:gap-20">
           <section
             aria-label="Provider mobile registration"
-            className="order-2 w-full rounded-[14px] border border-white/20 bg-card p-5 shadow-modal sm:p-7 lg:order-1"
+            className="order-2 w-full rounded-[20px] border border-white/20 bg-card p-5 shadow-[0_20px_60px_rgb(0_0_0/0.18)] sm:p-7 lg:order-1"
           >
             <ProviderPhoneRegistrationForm />
             <p className="mt-5 text-center text-sm text-muted-foreground">
@@ -103,21 +97,46 @@ export default function ProviderRegistrationPage() {
             </p>
           </section>
 
-          <div className="order-1 max-w-2xl text-white lg:order-2">
+          <div className="order-1 max-w-xl text-white lg:order-2">
             <p className="text-sm font-black uppercase tracking-[0.2em] text-primary">
               Become a FEASTA provider
             </p>
-            <h1 className="mt-4 text-4xl font-black leading-[1.06] tracking-[-0.04em] sm:text-5xl lg:text-6xl">
+
+            <h1 className="mt-4 text-4xl font-black leading-[1.02] tracking-[-0.04em] sm:text-5xl lg:text-[52px]">
               Grow your event business with FEASTA.
             </h1>
-            <p className="mt-5 max-w-xl text-base leading-7 text-white/85 sm:text-lg sm:leading-8">
+
+            <p className="mt-5 max-w-xl text-base leading-7 text-white/90 sm:text-lg sm:leading-8">
               Connect with customers looking for trusted catering and event
               services in Ormoc City.
             </p>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-white/75 sm:text-base">
+
+            <p className="mt-3 max-w-xl text-sm leading-6 text-white/70 sm:text-base">
               Secure your provider account by verifying your mobile number
               before adding account and business details.
             </p>
+
+            <div className="mt-7 grid gap-3">
+              {[
+                "Reach customers planning events in Ormoc City",
+                "Manage your services and business profile",
+                "Receive and review booking opportunities",
+              ].map((item) => (
+                <div
+                  key={item}
+                  className="flex items-center gap-3 text-sm font-semibold text-white/90"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="grid size-6 shrink-0 place-items-center rounded-full bg-primary text-xs font-black text-primary-foreground"
+                  >
+                    ✓
+                  </span>
+
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>

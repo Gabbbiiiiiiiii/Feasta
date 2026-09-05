@@ -8,7 +8,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import {useRouter} from "next/navigation";
-import {useMemo, useState, type FormEvent, type ReactNode} from "react";
+import {useEffect, useRef, useState, type FormEvent, type ReactNode} from "react";
 
 import {Button} from "@/components/ui/button";
 import {PROVIDER_SERVICE_TYPE_OPTIONS} from "@/lib/customer/providers/provider-catalog";
@@ -30,7 +30,10 @@ const INITIAL_DRAFT: CustomerEventContextDraft = {
 
 export function MarketplaceSearch() {
   const router = useRouter();
-  const minimumDate = useMemo(() => manilaDateValue(), []);
+  const dateInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (dateInput.current) dateInput.current.min = manilaDateValue();
+  }, []);
   const [draft, setDraft] = useState(INITIAL_DRAFT);
   const [search, setSearch] = useState("");
   const [errors, setErrors] = useState<CustomerEventContextErrors>({});
@@ -47,7 +50,7 @@ export function MarketplaceSearch() {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const validation = validateCustomerEventContext(draft, minimumDate);
+    const validation = validateCustomerEventContext(draft, manilaDateValue());
     setErrors(validation.errors);
     if (!validation.context) return;
 
@@ -91,7 +94,7 @@ export function MarketplaceSearch() {
           <input
             id="home-event-date"
             type="date"
-            min={minimumDate}
+            ref={dateInput}
             value={draft.eventDate}
             onChange={(event) => updateDraft("eventDate", event.target.value)}
             aria-invalid={Boolean(errors.eventDate)}

@@ -877,7 +877,7 @@ describe("provider authentication and onboarding", () => {
       level: 1,
       name: "Grow your event business with FEASTA.",
     })).toBeInTheDocument();
-    expect(screen.getByRole("link", {name: "Login"})).toHaveAttribute(
+    expect(screen.getByRole("link", {name: "Log in"})).toHaveAttribute(
       "href",
       "/provider-login",
     );
@@ -944,7 +944,7 @@ describe("provider authentication and onboarding", () => {
 
   it("uses the scoped orange provider Login link without a pill or arrow", () => {
     render(<ProviderRegistrationPage />);
-    const loginLink = screen.getByRole("link", {name: "Login"});
+    const loginLink = screen.getByRole("link", {name: "Log in"});
     expect(loginLink).toHaveAttribute("href", "/provider-login");
     expect(loginLink).toHaveClass("rounded-[10px]", "bg-primary", "min-h-11");
     expect(loginLink).not.toHaveClass("rounded-pill");

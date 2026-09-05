@@ -91,7 +91,7 @@ export function ProviderCard({
           PROVIDER MEDIA
          ================================================================ */}
 
-      <div className="relative grid aspect-[16/10] place-items-center overflow-hidden bg-feasta-surface-muted">
+      <div className="relative grid aspect-[16/9] place-items-center overflow-hidden bg-feasta-surface-muted">
         {imageUrl ? (
           // Media URLs are restricted to verified FEASTA Cloudinary public IDs.
           // eslint-disable-next-line @next/next/no-img-element
@@ -105,13 +105,13 @@ export function ProviderCard({
             className={cn(
               "size-full transition-transform duration-slow motion-reduce:transform-none",
               isLogoOnly
-                ? "bg-feasta-canvas object-contain p-9"
+                ? "bg-feasta-canvas object-contain p-6"
                 : "object-cover group-hover:scale-[1.035]",
             )}
           />
         ) : (
           <div className="grid justify-items-center gap-2 text-feasta-text-tertiary">
-            <span className="grid size-14 place-items-center rounded-2xl bg-white/75 shadow-sm">
+            <span className="grid size-12 place-items-center rounded-2xl bg-white/75 shadow-sm">
               <Store
                 aria-hidden="true"
                 className="size-6"
@@ -157,7 +157,7 @@ export function ProviderCard({
           PROVIDER INFORMATION
          ================================================================ */}
 
-      <div className="flex flex-1 flex-col p-5">
+      <div className="flex flex-1 flex-col p-4">
         {availabilityLoading ? (
           <div className="mb-4 flex items-start gap-2 rounded-xl border border-feasta-border-soft bg-feasta-canvas px-3 py-2.5 text-xs font-bold text-feasta-text-secondary" role="status">
             <LoaderCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0 animate-spin motion-reduce:animate-none" />
@@ -227,7 +227,7 @@ export function ProviderCard({
           {provider.location ? (
             <p
               aria-label={`Location: ${provider.location}`}
-              className="mt-3 flex min-w-0 items-start gap-2 text-sm text-feasta-text-secondary"
+              className="mt-2 flex min-w-0 items-start gap-2 text-sm text-feasta-text-secondary"
             >
               <MapPin
                 aria-hidden="true"
@@ -246,9 +246,9 @@ export function ProviderCard({
            ============================================================== */}
 
         {guestRange || hasLeadTime ? (
-          <dl className="mt-5 grid grid-cols-[repeat(auto-fit,minmax(min(100%,7.5rem),1fr))] gap-3 border-t border-feasta-divider pt-4">
+          <dl className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(min(100%,7.5rem),1fr))] gap-3 border-t border-feasta-divider pt-3">
             {guestRange ? (
-              <div className="flex min-w-0 items-start gap-2.5">
+              <div className="flex min-w-0 items-start gap-2">
                 <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-primary-strong">
                   <UsersRound
                     aria-hidden="true"
@@ -269,7 +269,7 @@ export function ProviderCard({
             ) : null}
 
             {hasLeadTime ? (
-              <div className="flex min-w-0 items-start gap-2.5">
+              <div className="flex min-w-0 items-start gap-2">
                 <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-primary-strong">
                   <CalendarClock
                     aria-hidden="true"
@@ -298,8 +298,8 @@ export function ProviderCard({
             CARD FOOTER
            ============================================================== */}
 
-        <div className="mt-auto pt-5">
-          <div className="flex items-center justify-between gap-3 border-t border-feasta-divider pt-4">
+        <div className="mt-auto pt-3">
+          <div className="flex items-center justify-between gap-3 border-t border-feasta-divider pt-3">
             <span className="text-xs font-semibold text-feasta-text-tertiary">
               {availability?.available === false
                 ? "Browsing only for this event"

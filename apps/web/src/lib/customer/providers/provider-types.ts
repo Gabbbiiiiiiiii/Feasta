@@ -2,7 +2,10 @@ import type {
   ProviderServiceCategory,
   ProviderServiceType,
 } from "@feasta/shared-types";
-import type {CustomerEventContext} from "@/lib/customer/planning/event-planning-context";
+import type {
+  CustomerEventContext,
+  CustomerPlanningContext,
+} from "@/lib/customer/planning/event-planning-context";
 
 export type ProviderDiscoveryFilters = {
   search: string;
@@ -10,6 +13,7 @@ export type ProviderDiscoveryFilters = {
   category: ProviderServiceCategory | "all";
   cursor: string | null;
   eventContext?: CustomerEventContext | null;
+  planningContext?: CustomerPlanningContext | null;
 };
 
 export type PublicProvider = {
@@ -29,6 +33,8 @@ export type PublicProvider = {
   logoUrl: string | null;
   coverImageUrl: string | null;
   approvalLabel: "Approved";
+  /** Existing aggregate maintained by the canonical customer favorite transaction. */
+  favoriteCount?: number | null;
 };
 
 export type ProviderDiscoveryPage = {

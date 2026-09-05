@@ -29,20 +29,25 @@ export function AuthCard({
     return (
       <main className="flex min-h-screen min-w-0 items-center justify-center overflow-x-clip bg-background px-4 py-6 sm:px-6 lg:py-10">
         <section
-          className="relative grid w-full max-w-5xl overflow-hidden rounded-card border border-border bg-card shadow-floating lg:grid-cols-[0.9fr_1.1fr]"
-          data-auth-portal="customer"
+          className="relative grid w-full max-w-[1120px] overflow-hidden rounded-[20px] border border-border bg-card shadow-floating lg:grid-cols-[0.9fr_1.1fr]"
         >
           <CustomerAuthBrandPanel />
 
           <div className="relative min-w-0 px-5 py-8 sm:px-10 sm:py-10 lg:px-12 lg:py-12">
-            <ButtonCloseLink />
 
             <Link
               href="/"
-              className="inline-flex min-h-12 items-center rounded-lg text-2xl font-black tracking-tight text-primary-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
               aria-label="FEASTA home"
+              className="mb-8 inline-flex w-fit items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
             >
-              FEASTA
+              <Image
+                src="/images/feasta_logo.svg"
+                alt="Feasta"
+                width={586}
+                height={202}
+                priority
+                className="h-9 w-auto object-contain"
+              />
             </Link>
 
             <p className="mt-5 text-sm font-bold uppercase tracking-widest text-primary-strong lg:mt-0">
@@ -135,10 +140,17 @@ export function AuthCard({
       >
         <Link
           href="/"
-          className="inline-flex min-h-12 items-center rounded-lg text-xl font-black tracking-tight text-primary-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="FEASTA home"
+          className="inline-flex w-fit items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
         >
-          FEASTA
+          <Image
+            src="/images/feasta_logo.svg"
+            alt="Feasta"
+            width={586}
+            height={202}
+            priority
+            className="h-8 w-auto object-contain"
+          />
         </Link>
 
         <p className="mt-4 text-sm font-bold uppercase tracking-wide text-muted-foreground">
@@ -256,27 +268,34 @@ function ProviderAuthBenefit({
 
 function CustomerAuthBrandPanel() {
   return (
-    <aside className="relative hidden min-h-[680px] overflow-hidden bg-primary p-10 text-primary-foreground lg:flex lg:flex-col lg:justify-between">
+    <aside className="relative hidden min-h-[680px] overflow-hidden bg-[#3a241d] p-10 text-white lg:flex lg:flex-col lg:justify-between">
       <div
         aria-hidden="true"
-        className="absolute -left-20 -top-24 size-72 rounded-full bg-card/10"
+        className="absolute -left-20 -top-24 size-72 rounded-full bg-primary/20"
       />
 
       <div
         aria-hidden="true"
-        className="absolute -bottom-24 -right-20 size-80 rounded-full bg-card/10"
+        className="absolute -bottom-24 -right-20 size-80 rounded-full bg-primary/15"
       />
 
       <div className="relative">
         <Link
           href="/"
-          className="inline-flex min-h-12 items-center rounded-lg text-3xl font-black tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground"
           aria-label="FEASTA home"
+          className="inline-flex w-fit items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground"
         >
-          FEASTA
+          <Image
+            src="/images/feasta_logo.svg"
+            alt="Feasta"
+            width={586}
+            height={202}
+            priority
+            className="h-9 w-auto object-contain"
+          />
         </Link>
 
-        <p className="mt-3 max-w-sm text-base leading-7 text-primary-foreground/90">
+        <p className="mt-5 max-w-sm text-base leading-7 text-white/80">
           Plan memorable celebrations with trusted catering and event
           providers in Ormoc City.
         </p>
@@ -302,7 +321,7 @@ function CustomerAuthBrandPanel() {
         />
       </div>
 
-      <p className="relative text-sm text-primary-foreground/80">
+      <p className="relative text-sm text-white/70">
         Catering and event services made easier.
       </p>
     </aside>

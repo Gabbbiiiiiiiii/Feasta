@@ -1,8 +1,6 @@
 import type {Metadata} from "next";
 import Image from "next/image";
-import Link from "next/link";
 import {
-  ArrowRight,
   CalendarCheck,
   Check,
   MapPin,
@@ -55,66 +53,44 @@ const providerJourney = [
   "Continue the booking journey",
 ];
 
+const landingContainerClassName =
+  "mx-auto w-full max-w-[1360px] px-5 sm:px-7 lg:px-10 xl:px-12";
+
 export default function AboutPage() {
   return (
     <>
       <LandingHeader />
 
       <main className="overflow-hidden bg-background pt-[72px] text-foreground">
-        {/* About hero */}
-        <section className="relative isolate overflow-hidden bg-secondary px-5 py-16 sm:px-8 sm:py-20 lg:py-24">
+        {/* About introduction */}
+        <section className="py-14 sm:py-16 lg:py-20">
           <div
-            aria-hidden="true"
-            className="absolute -right-32 -top-40 size-96 rounded-full bg-primary/10 blur-3xl"
-          />
-          <div
-            aria-hidden="true"
-            className="absolute -bottom-48 -left-32 size-96 rounded-full bg-primary/10 blur-3xl"
-          />
-
-          <div className="relative mx-auto max-w-[1180px] text-center">
-            <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
-              About Feasta
-            </p>
-            <h1 className="mx-auto mt-4 max-w-4xl text-4xl font-bold leading-tight tracking-[-0.035em] sm:text-5xl lg:text-6xl">
-              Making event planning simpler, more organized, and easier to
-              explore.
-            </h1>
-            <p className="mx-auto mt-6 max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
-              FEASTA brings customers and event-service providers into one
-              organized marketplace, making it easier to discover services,
-              compare options, and move through the booking journey.
-            </p>
-          </div>
-        </section>
-
-        {/* What Feasta is */}
-        <section className="px-5 py-16 sm:px-8 sm:py-20 lg:py-24">
-          <div className="mx-auto grid max-w-[1180px] items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16 xl:gap-20">
-            <div className="relative aspect-[4/3] overflow-hidden rounded-card shadow-card sm:aspect-[16/11] lg:aspect-[5/6] xl:aspect-[6/5]">
+            className={`${landingContainerClassName} grid items-center gap-9 md:grid-cols-2 md:gap-12 lg:gap-16`}
+          >
+            <div className="relative h-[320px] overflow-hidden rounded-[24px] border border-border bg-muted shadow-card sm:h-[400px] md:h-[460px] lg:h-[500px]">
               <Image
-                src="https://images.unsplash.com/photo-1507504031003-b417219a0fde?auto=format&fit=crop&w=1400&q=85"
-                alt="Guests gathering at a thoughtfully planned celebration"
+                src="/images/landing/cta-banner.jpg"
+                alt="Outdoor celebration venue arranged with dining tables, flowers, and string lights"
                 fill
-                sizes="(min-width: 1280px) 550px, (min-width: 1024px) 48vw, (min-width: 640px) calc(100vw - 64px), calc(100vw - 40px)"
-                className="object-cover"
+                priority
+                sizes="(min-width: 1280px) 620px, (min-width: 1024px) calc(50vw - 56px), (min-width: 600px) calc(100vw - 56px), calc(100vw - 40px)"
+                className="object-cover object-center"
               />
             </div>
 
-            <div className="max-w-xl">
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
+            <div className="max-w-[600px] md:justify-self-end">
+              <p className="feasta-eyebrow">
                 What Feasta is
               </p>
-              <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-5xl">
+              <h1 className="mt-3 text-4xl font-extrabold leading-[1.05] tracking-[-0.04em] text-foreground sm:text-5xl lg:text-[3.4rem]">
                 One place to discover and plan your event.
-              </h2>
+              </h1>
               <p className="mt-5 text-base leading-7 text-muted-foreground sm:text-lg sm:leading-8">
-                Event planning often starts across separate pages, messages,
-                and provider conversations. FEASTA brings service discovery,
-                package exploration, event customization, and booking requests
-                into one connected experience.
+                FEASTA brings customers and event-service providers into one
+                organized marketplace, making it easier to discover services,
+                compare options, and move through the booking journey.
               </p>
-              <p className="mt-4 leading-7 text-muted-foreground">
+              <p className="mt-4 text-base leading-7 text-muted-foreground">
                 Customers can keep their planning journey organized while
                 providers have a clear place to present their services and
                 respond to event opportunities.
@@ -124,8 +100,8 @@ export default function AboutPage() {
         </section>
 
         {/* Who Feasta serves */}
-        <section className="bg-secondary px-5 py-20 sm:px-8 lg:py-28">
-          <div className="mx-auto max-w-[1180px]">
+        <section className="bg-secondary py-14 sm:py-16 lg:py-20">
+          <div className={landingContainerClassName}>
             <div className="max-w-3xl">
               <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
                 Who Feasta serves
@@ -202,8 +178,8 @@ export default function AboutPage() {
         </section>
 
         {/* Why Feasta exists */}
-        <section className="px-5 py-20 sm:px-8 lg:py-28">
-          <div className="mx-auto grid max-w-[1180px] gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:gap-20">
+        <section className="py-14 sm:py-16 lg:py-20">
+          <div className={`${landingContainerClassName} grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:gap-20`}>
             <div className="max-w-xl">
               <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
                 Why Feasta exists
@@ -234,13 +210,13 @@ export default function AboutPage() {
         </section>
 
         {/* Marketplace connection */}
-        <section className="bg-foreground px-5 py-20 text-white sm:px-8 lg:py-28">
-          <div className="mx-auto max-w-[1180px]">
+        <section className="bg-foreground py-14 text-white sm:py-16 lg:py-20">
+          <div className={landingContainerClassName}>
             <div className="mx-auto max-w-3xl text-center">
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary">
+              <p className="text-sm font-bold uppercase tracking-[0.2em] text-white/70">
                 One connected marketplace
               </p>
-              <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-5xl">
+              <h2 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-5xl">
                 How Feasta connects both sides.
               </h2>
               <p className="mt-5 leading-7 text-white/70">
@@ -255,7 +231,7 @@ export default function AboutPage() {
                   <span className="flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground">
                     <Search aria-hidden="true" className="size-5" />
                   </span>
-                  <h3 className="text-xl font-bold">Customer journey</h3>
+                  <h3 className="text-xl font-bold text-white">Customer journey</h3>
                 </div>
                 <ol className="mt-6 border-l border-white/20 pl-6">
                   {customerJourney.map((step, index) => (
@@ -264,7 +240,7 @@ export default function AboutPage() {
                         aria-hidden="true"
                         className="absolute -left-[29px] top-1.5 size-2 rounded-full bg-primary"
                       />
-                      <span className="text-xs font-bold tracking-[0.14em] text-primary">
+                      <span className="text-xs font-bold tracking-[0.14em] text-white/70">
                         STEP {String(index + 1).padStart(2, "0")}
                       </span>
                       <p className="mt-1 font-bold text-white">{step}</p>
@@ -278,7 +254,7 @@ export default function AboutPage() {
                   <span className="flex size-11 items-center justify-center rounded-xl bg-primary text-primary-foreground">
                     <CalendarCheck aria-hidden="true" className="size-5" />
                   </span>
-                  <h3 className="text-xl font-bold">Provider response</h3>
+                  <h3 className="text-xl font-bold text-white">Provider response</h3>
                 </div>
                 <ol className="mt-6 border-l border-white/20 pl-6">
                   {providerJourney.map((step, index) => (
@@ -287,7 +263,7 @@ export default function AboutPage() {
                         aria-hidden="true"
                         className="absolute -left-[29px] top-1.5 size-2 rounded-full bg-primary"
                       />
-                      <span className="text-xs font-bold tracking-[0.14em] text-primary">
+                      <span className="text-xs font-bold tracking-[0.14em] text-white/70">
                         STEP {String(index + 1).padStart(2, "0")}
                       </span>
                       <p className="mt-1 font-bold text-white">{step}</p>
@@ -305,8 +281,8 @@ export default function AboutPage() {
         </section>
 
         {/* Local focus */}
-        <section className="px-5 py-20 sm:px-8 lg:py-24">
-          <div className="mx-auto flex max-w-[1180px] flex-col gap-6 rounded-dialog border border-border bg-secondary px-6 py-10 shadow-card sm:px-10 sm:py-12 md:flex-row md:items-center md:gap-10 lg:px-14">
+        <section className="py-14 sm:py-16 lg:py-20">
+          <div className={`${landingContainerClassName} flex flex-col gap-6 rounded-dialog border border-border bg-secondary py-10 shadow-card sm:py-12 md:flex-row md:items-center md:gap-10`}>
             <span className="flex size-14 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-card">
               <MapPin aria-hidden="true" className="size-6" />
             </span>
@@ -321,37 +297,6 @@ export default function AboutPage() {
                 FEASTA&apos;s current focus is helping customers and event-service
                 providers connect around celebrations in Ormoc City, Leyte.
               </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Final CTA */}
-        <section className="px-5 pb-20 sm:px-8 lg:pb-28">
-          <div className="relative isolate mx-auto max-w-[1180px] overflow-hidden rounded-dialog bg-foreground px-6 py-14 text-center shadow-modal sm:px-12 sm:py-16 lg:px-16 lg:py-20">
-            <div
-              aria-hidden="true"
-              className="absolute -right-20 -top-24 size-72 rounded-full bg-primary/20 blur-3xl"
-            />
-            <div className="relative z-10">
-              <h2 className="text-3xl font-bold tracking-tight text-white sm:text-5xl">
-                Ready to plan with Feasta?
-              </h2>
-              <p className="mx-auto mt-5 max-w-2xl leading-7 text-white/70">
-                Explore event services and find options for your next
-                celebration.
-              </p>
-              <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-                <Link
-                  href="/services"
-                  className="group inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-pill bg-primary px-7 font-bold text-primary-foreground shadow-card transition-all hover:-translate-y-0.5 hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-foreground sm:w-auto"
-                >
-                  Explore Event Services
-                  <ArrowRight
-                    aria-hidden="true"
-                    className="size-5 transition-transform group-hover:translate-x-1"
-                  />
-                </Link>
-              </div>
             </div>
           </div>
         </section>

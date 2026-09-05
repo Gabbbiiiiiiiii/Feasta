@@ -5,6 +5,7 @@ import {
   PUBLIC_PROVIDER_MARKETPLACE_REQUEST_HEADER,
   PUBLIC_PROVIDER_MARKETPLACE_RETURN_HEADER,
   isPublicMarketplacePath,
+  isPublicMarketplaceReturnPath,
   isPublicProviderMarketplacePath,
   isPublicProviderMarketplaceReturnPath,
   publicProviderIdFromPath,
@@ -28,7 +29,7 @@ describe("customer marketplace route access", () => {
     )).toBe("/customer/providers?service=catering");
   });
 
-  it("allows the exact package marketplace while protecting descendants", () => {
+  it("allows the package marketplace and safe public package detail paths", () => {
     const response = proxy(new NextRequest(
       "https://feasta.test/customer/packages?event=wedding",
     ));
@@ -42,7 +43,13 @@ describe("customer marketplace route access", () => {
     )).toBe("/customer/packages?event=wedding");
     expect(isPublicMarketplacePath("/customer/packages")).toBe(true);
     expect(isPublicMarketplacePath("/customer/packages/package-one"))
-      .toBe(false);
+      .toBe(true);
+    const detail = proxy(new NextRequest("https://feasta.test/customer/packages/package-one?eventDate=2099-09-10"));
+    expect(detail.status).toBe(200);
+    expect(detail.headers.get("location")).toBeNull();
+    expect(detail.headers.get(`x-middleware-request-${PUBLIC_PROVIDER_MARKETPLACE_RETURN_HEADER}`))
+      .toBe("/customer/packages/package-one?eventDate=2099-09-10");
+    expect(isPublicMarketplaceReturnPath("/customer/packages/package-one?eventDate=2099-09-10")).toBe(true);
   });
 
   it("allows one safe provider ID segment and preserves its return destination", () => {
@@ -80,7 +87,10 @@ describe("customer marketplace route access", () => {
       "/customer/favorites",
       "/customer/notifications",
       "/customer/payments",
-      "/customer/packages/package-one",
+      "/customer/packages/package-one/book",
+      "/customer/packages/package-one/other",
+      "/customer/packages/bad.id",
+      "/customer/packages-extra",
       "/customer/providers/provider-one/packages",
       "/customer/providers/bad.id",
     ]) {

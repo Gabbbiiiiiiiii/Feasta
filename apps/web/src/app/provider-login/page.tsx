@@ -99,7 +99,7 @@ export default function ProviderLoginPage() {
           <div className="relative z-10 flex h-full flex-col">
             {/* Brand */}
             <Link
-              href="/"
+              href="/provider-register"
               aria-label="Feasta home"
               className="
                 inline-flex w-fit items-center gap-3
@@ -112,18 +112,13 @@ export default function ProviderLoginPage() {
               "
             >
               <Image
-                src="/images/feasta_logo.png"
-                alt=""
-                width={44}
-                height={44}
-                className="size-11 object-contain"
+                src="/images/feasta_logo.svg"
+                alt="FEASTA"
+                width={586}
+                height={202}
+                className="h-7 w-auto object-contain sm:h-8"
                 priority
               />
-
-              <span className="text-2xl font-black tracking-[-0.03em]">
-                <span className="text-primary">Feasta</span>{" "}
-                <span className="text-white">Provider</span>
-              </span>
             </Link>
 
             {/* Main left content */}
@@ -192,7 +187,7 @@ export default function ProviderLoginPage() {
           <div className="w-full max-w-[500px]">
             {/* Mobile brand */}
             <Link
-              href="/"
+              href="/provider-register"
               aria-label="Feasta home"
               className="
                 mb-10 inline-flex items-center gap-2
@@ -204,17 +199,12 @@ export default function ProviderLoginPage() {
               "
             >
               <Image
-                src="/images/feasta_logo.png"
-                alt=""
-                width={38}
-                height={38}
-                className="size-9 object-contain"
+                src="/images/feasta_logo.svg"
+                alt="FEASTA"
+                width={586}
+                height={202}
+                className="h-7 w-auto object-contain sm:h-8"
               />
-
-              <span className="text-xl font-black tracking-[-0.03em]">
-                <span className="text-primary">Feasta</span>{" "}
-                <span className="text-foreground">Provider</span>
-              </span>
             </Link>
 
             {/* Heading */}

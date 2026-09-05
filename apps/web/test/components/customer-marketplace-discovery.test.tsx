@@ -2,12 +2,16 @@ import {readFileSync} from "node:fs";
 import {join} from "node:path";
 
 import {fireEvent, render, screen} from "@testing-library/react";
-import {describe, expect, it, vi} from "vitest";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+
+import CustomerProvidersPage from "@/app/customer/providers/page";
+import {getPublicProviderPage} from "@/lib/customer/providers/provider-discovery-service";
+import {getOptionalAccountContext} from "@/lib/auth/session";
 
 import CustomerProvidersError from "@/app/customer/providers/error";
 import {MarketplacePackageSection} from "@/components/customer/discovery/marketplace-package-section";
 import {ProviderDirectoryShell} from "@/components/customer/providers/provider-directory-shell";
-import {ProviderFilterForm} from "@/components/customer/providers/provider-filter-form";
+import {EventFinder} from "@/components/customer/layout/event-finder";
 import {ProviderResults} from "@/components/customer/providers/provider-results";
 import {
   isPublicProviderRecord,
@@ -29,6 +33,14 @@ import type {
 vi.mock("@/app/customer/favorites/actions", () => ({
   setProviderFavoriteAction: vi.fn(),
 }));
+
+vi.mock("@/lib/customer/providers/provider-discovery-service", () => ({getPublicProviderPage: vi.fn()}));
+vi.mock("@/lib/auth/session", () => ({getOptionalAccountContext: vi.fn()}));
+vi.mock("@/lib/customer/favorites/customer-favorite-service", () => ({getCustomerFavoriteProviderIds: vi.fn()}));
+
+vi.mock("next/navigation", () => ({useRouter: () => ({push: vi.fn()})}));
+vi.mock("@/lib/customer/planning/event-venue-client", () => ({searchEventVenues: vi.fn(), getEventVenueDetails: vi.fn()}));
+beforeEach(() => window.sessionStorage.clear());
 
 const owner = {
   role: "provider",
@@ -146,6 +158,17 @@ describe("customer marketplace provider policy", () => {
 });
 
 describe("customer marketplace search presentation", () => {
+  it("renders the full marketplace page with canonical filtering and no permanent sidebar", async () => {
+    vi.mocked(getOptionalAccountContext).mockResolvedValue(null);
+    vi.mocked(getPublicProviderPage).mockResolvedValue(pageWith([provider]));
+    render(await CustomerProvidersPage({searchParams: Promise.resolve({q: "ana", service: "addon", category: "event_coordinator"})}));
+    expect(getPublicProviderPage).toHaveBeenCalledWith({search: "ana", serviceType: "addon", category: "event_coordinator", cursor: null});
+    expect(screen.queryByText("Refine results")).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(screen.getByRole("region", {name: "Marketplace introduction"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Marketplace providers", level: 1})).toBeVisible();
+    expect(screen.getByRole("article", {name: /Ana Events/})).toBeVisible();
+  });
   it("whitelists and bounds URL filters", () => {
     expect(parseProviderDiscoveryFilters({
       q: `  ${"a".repeat(100)}  `,
@@ -203,7 +226,7 @@ describe("customer marketplace search presentation", () => {
 
   it("remounts URL-driven controls when canonical filter state changes", () => {
     const {rerender} = render(
-      <ProviderFilterForm key="all" filters={emptyFilters} />,
+      <EventFinder key="all" query="q=initial" onFind={() => {}} />,
     );
     fireEvent.change(
       screen.getByRole("searchbox", {name: "Search approved providers"}),
@@ -216,11 +239,11 @@ describe("customer marketplace search presentation", () => {
       category: "venue_provider",
       cursor: null,
     };
-    rerender(<ProviderFilterForm key="venue-addon" filters={nextFilters} />);
+    rerender(<EventFinder key="venue-addon" query={providerDiscoveryHref(nextFilters).split("?")[1]} onFind={() => {}} />);
 
     expect(screen.getByRole("searchbox", {name: "Search approved providers"})).toHaveValue("venue");
-    expect(screen.getByRole("radio", {name: "Event services"})).toBeChecked();
-    expect(screen.getByRole("combobox", {name: "Category"})).toHaveValue("venue_provider");
+    expect(screen.getByRole("combobox", {name: "Provider Type"})).toHaveValue("addon");
+    expect(screen.getByRole("combobox", {name: "Service Category"})).toHaveValue("venue_provider");
     expect(
       new FormData(screen.getByRole("search") as HTMLFormElement).has("cursor"),
     ).toBe(false);
@@ -229,18 +252,19 @@ describe("customer marketplace search presentation", () => {
   it("renders accessible canonical filters and provider facts without fake metrics", () => {
     render(
       <>
-        <ProviderFilterForm filters={emptyFilters} />
+        <EventFinder query="" onFind={() => {}} />
         <ProviderResults page={pageWith([provider])} filters={emptyFilters} />
       </>,
     );
 
     expect(screen.getByRole("searchbox", {name: "Search approved providers"})).toHaveAttribute("maxlength", "80");
-    const serviceTypeFilter = screen.getByRole("group", {name: "Service type"});
+    fireEvent.click(screen.getByText("More filters"));
+    const serviceTypeFilter = screen.getByRole("combobox", {name: "Provider Type"});
     expect(serviceTypeFilter).toHaveTextContent("Catering");
     expect(serviceTypeFilter).toHaveTextContent("Event services");
     expect(serviceTypeFilter).toHaveTextContent("Catering and event services");
-    expect(screen.getByRole("combobox", {name: "Category"})).toHaveTextContent("Venue Provider");
-    expect(screen.getByRole("button", {name: "Apply filters"})).toBeVisible();
+    expect(screen.getByRole("combobox", {name: "Service Category"})).toHaveTextContent("Venue Provider");
+    expect(screen.getByRole("button", {name: "Find Services"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Ana Events"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Ana Events"}))
       .not.toHaveClass("line-clamp-2");
@@ -276,24 +300,37 @@ describe("customer marketplace search presentation", () => {
     );
   });
 
-  it("presents accurate location copy and a usable mobile filter toggle", () => {
+  it("keeps conditional provider capacity, lead time, and favorite controls on compact cards", () => {
+    const {rerender} = render(<ProviderResults page={pageWith([{...provider, minimumGuests: null, maximumGuests: 100, bookingLeadTimeDays: 0}])} filters={emptyFilters} />);
+    expect(screen.getByText("Up to 100 guests")).toBeVisible();
+    expect(screen.getByText("0 days")).toBeVisible();
+    expect(screen.getByText("Approved")).toBeVisible();
+    expect(screen.getByRole("link", {name: /Add Ana Events to favorites/})).toBeVisible();
+    rerender(<ProviderResults page={pageWith([{...provider, minimumGuests: null, maximumGuests: null, bookingLeadTimeDays: null}])} filters={emptyFilters} />);
+    expect(screen.queryByText("Capacity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Lead time")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", {name: "Ana Events"})).toBeVisible();
+    expect(screen.getByText("Ormoc City, Leyte")).toBeVisible();
+  });
+
+  it("presents the compact introduction and results without a filter sidebar", () => {
     render(
       <ProviderDirectoryShell>
-        <ProviderFilterForm filters={emptyFilters} />
+        <ProviderResults page={pageWith([provider])} filters={emptyFilters} />
       </ProviderDirectoryShell>,
     );
 
     expect(screen.getByText("FEASTA Marketplace")).toBeVisible();
     expect(screen.getByRole("heading", {
-      level: 1,
+      level: 2,
       name: /Find services that fit your celebration/iu,
     })).toBeVisible();
     expect(screen.getByText(/Browse approved public providers/iu)).toBeVisible();
 
-    const toggle = screen.getByRole("button", {name: "Filters"});
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByText("Refine results")).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", {name: "Provider discovery filters"})).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", {level: 1, name: "Marketplace providers"})).toBeVisible();
+    expect(screen.getByRole("article", {name: /Ana Events/})).toBeVisible();
   });
 
   it("distinguishes empty, filtered-empty, and error states", () => {
@@ -360,24 +397,24 @@ describe("customer marketplace server query contracts", () => {
   it("includes responsive grids and reduced-motion loading behavior", () => {
     const providerResults = readFileSync(join(webRoot, "src/components/customer/providers/provider-results.tsx"), "utf8");
     const providerPage = readFileSync(join(webRoot, "src/app/customer/providers/page.tsx"), "utf8");
-    const providerFilters = readFileSync(join(webRoot, "src/components/customer/providers/provider-filter-form.tsx"), "utf8");
     const directoryShell = readFileSync(join(webRoot, "src/components/customer/providers/provider-directory-shell.tsx"), "utf8");
     const marketplaceHeader = readFileSync(join(webRoot, "src/components/customer/layout/customer-marketplace-header.tsx"), "utf8");
     const loading = readFileSync(join(webRoot, "src/app/customer/providers/loading.tsx"), "utf8");
     const globalStyles = readFileSync(join(webRoot, "src/app/globals.css"), "utf8");
     expect(providerResults).toContain(
-      "sm:grid-cols-2 xl:grid-cols-3",
+      "grid-cols-[repeat(auto-fill,minmax(min(100%,17.5rem),1fr))]",
     );
     expect(globalStyles).toContain("--breakpoint-sm: 37.5rem");
     expect(globalStyles).toContain("--breakpoint-md: 64rem");
     expect(globalStyles).toContain("--breakpoint-lg: 80rem");
     expect(globalStyles).toContain("--breakpoint-xl: 96rem");
-    expect(providerPage).toContain("md:grid-cols-[17rem_minmax(0,1fr)]");
-    expect(providerFilters).toContain("md:sticky md:top-[156px]");
+    expect(providerPage).not.toContain("ProviderFilterForm");
+    expect(providerPage).not.toContain("md:grid-cols-[17rem_minmax(0,1fr)]");
+    expect(loading).toContain("grid-cols-[repeat(auto-fill,minmax(min(100%,17.5rem),1fr))]");
     expect(directoryShell).toContain("sm:-mx-6");
     expect(directoryShell).toContain("lg:-mx-8");
     expect(directoryShell).not.toContain("lg:-mx-10");
-    expect(marketplaceHeader).toContain("Search event services");
+    expect(marketplaceHeader).toContain("Open Event Finder");
     expect(marketplaceHeader).not.toContain("Search event services in Ormoc City");
     expect(loading).toContain("motion-reduce:animate-none");
     expect(loading).toContain('role="status"');

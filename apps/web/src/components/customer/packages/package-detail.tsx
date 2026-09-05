@@ -13,6 +13,7 @@ import {
 import Link from "next/link";
 import type {ReactNode} from "react";
 
+import {CustomerAuthLink} from "@/components/customer/layout/customer-auth-provider";
 import {PriceDisplay} from "@/components/shared/price-display";
 import type {
   PublicPackageDetail,
@@ -198,7 +199,7 @@ export function PackageDetail({
               deciding whether this option fits your event.
             </p>
 
-            <Link
+            <CustomerAuthLink returnTo={bookingHref}
               href={bookingHref}
               className={[
                 "group mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2",
@@ -219,7 +220,7 @@ export function PackageDetail({
                 aria-hidden="true"
                 className="size-4 transition-transform duration-normal group-hover:translate-x-0.5 motion-reduce:transform-none"
               />
-            </Link>
+            </CustomerAuthLink>
           </aside>
         </div>
       </section>
@@ -506,7 +507,7 @@ export function PackageDetail({
           </div>
 
           <div className="flex flex-col gap-2.5 sm:flex-row lg:flex-col">
-            <Link
+            <CustomerAuthLink returnTo={bookingHref}
               href={bookingHref}
               className={[
                 "group inline-flex min-h-12 items-center justify-center gap-2",
@@ -527,7 +528,7 @@ export function PackageDetail({
                 aria-hidden="true"
                 className="size-4 transition-transform duration-normal group-hover:translate-x-0.5 motion-reduce:transform-none"
               />
-            </Link>
+            </CustomerAuthLink>
 
             <Link
               href={PUBLIC_PACKAGE_MARKETPLACE_PATH}

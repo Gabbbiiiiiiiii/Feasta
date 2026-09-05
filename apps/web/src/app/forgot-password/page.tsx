@@ -44,7 +44,7 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <AuthCard title="Reset your password" description="Enter your account email. If it matches a FEASTA account, we will send reset instructions." footer={<Link className="font-bold text-primary-strong underline-offset-4 hover:underline" href="/login">Return to sign in</Link>}>
+    <AuthCard title="Reset your password" description="Enter your account email. If it matches a FEASTA account, we will send reset instructions." footer={<Link className="font-bold text-primary-strong underline-offset-4 hover:underline" href="/customer/providers?auth=email">Return to sign in</Link>}>
       {sent ? (
         <div className="grid gap-5">
           <AuthStatus

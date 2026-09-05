@@ -4,6 +4,7 @@ import {join} from "node:path";
 import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {beforeEach, describe, expect, it, vi} from "vitest";
+import {assertHydration} from "../helpers/assert-hydration";
 
 import type {
   CustomerChatMessage,
@@ -42,6 +43,18 @@ vi.mock("@/lib/customer/messages/customer-chat-client", () => ({
 }));
 
 import {CustomerMessagesClient} from "@/app/customer/messages/customer-messages-client";
+
+it("hydrates conversation timestamps independently of the current local day", async () => {
+  vi.useFakeTimers({toFake: ["Date"]});
+  vi.setSystemTime(new Date("2026-08-22T04:00:00Z"));
+  try {
+    await assertHydration(<CustomerMessagesClient initialFilters={{pageSize: 10, cursor: null}} initialPage={roomPage()} initialRoom={null} initialMessages={null} initialSelectionError={false} />, () => {
+      vi.setSystemTime(new Date("2026-08-23T04:00:00Z"));
+    });
+  } finally {
+    vi.useRealTimers();
+  }
+});
 
 function room(overrides: Partial<CustomerChatRoom> = {}): CustomerChatRoom {
   return {

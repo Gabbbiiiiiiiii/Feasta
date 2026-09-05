@@ -4,29 +4,19 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  ArrowRight,
-  Heart,
-  LogIn,
+  BriefcaseBusiness,
+  ChevronDown,
   Menu,
-  Search,
-  Store,
+  UserRound,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import {
-  isPublicProviderMarketplaceReturnPath,
-} from "@/lib/customer/providers/provider-route-policy";
-
 const publicNavigation = [
-  {
-    label: "Home",
-    href: "/",
-  },
-  {
-    label: "Event Services",
-    href: "/services",
-  },
+  // {
+  //   label: "Event Services",
+  //   href: "/services",
+  // },
   {
     label: "How It Works",
     href: "/how-it-works",
@@ -37,28 +27,16 @@ const publicNavigation = [
   },
 ] as const;
 
-export function LandingHeader({
-  authReturnTo,
-}: {
-  authReturnTo?: string;
-} = {}) {
+export function LandingHeader() {
   const pathname = usePathname();
 
   const [isVisible, setIsVisible] = useState(true);
   const [isScrolled, setIsScrolled] = useState(false);
+  const [isMobileMenuExpanded, setIsMobileMenuExpanded] = useState(false);
 
   const previousScrollY = useRef(0);
   const mobileMenuRef = useRef<HTMLDetailsElement>(null);
   const isMobileMenuOpen = useRef(false);
-
-  const safeAuthReturnTo =
-    authReturnTo && isPublicProviderMarketplaceReturnPath(authReturnTo)
-      ? authReturnTo
-      : null;
-
-  const loginHref = safeAuthReturnTo
-    ? `/login?next=${encodeURIComponent(safeAuthReturnTo)}`
-    : "/login";
 
   useEffect(() => {
     const handleScroll = () => {
@@ -97,6 +75,7 @@ export function LandingHeader({
 
   const closeMobileMenu = () => {
     isMobileMenuOpen.current = false;
+    setIsMobileMenuExpanded(false);
 
     if (mobileMenuRef.current) {
       mobileMenuRef.current.open = false;
@@ -116,7 +95,7 @@ export function LandingHeader({
       ].join(" ")}
     >
       <div className="feasta-container-wide">
-        <div className="flex h-[72px] items-center">
+        <div className="grid h-[72px] grid-cols-[1fr_auto] items-center">
           {/* ================================================================
               BRAND
              ================================================================ */}
@@ -124,7 +103,7 @@ export function LandingHeader({
           <Link
             href="/"
             aria-label="FEASTA home"
-            className="group inline-flex shrink-0 items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className="group col-start-1 inline-flex shrink-0 items-center justify-self-start rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             <Image
               src="/images/feasta_logo.svg"
@@ -132,139 +111,152 @@ export function LandingHeader({
               width={586}
               height={202}
               priority
-              className="h-[34px] w-auto object-contain transition-transform duration-normal group-hover:scale-[1.03] motion-reduce:transform-none"
-            />
+              className="h-[30px] w-auto object-contain transition-transform duration-normal group-hover:scale-[1.03] sm:h-[32px] lg:h-[34px] motion-reduce:transform-none"            />
           </Link>
 
           {/* ================================================================
-              DESKTOP NAVIGATION
-             ================================================================ */}
+                DESKTOP NAVIGATION + ACTIONS
+              ================================================================ */}
 
-          <nav
-            aria-label="Main navigation"
-            className="ml-auto hidden h-full items-center gap-1 xl:flex"
-          >
-            {publicNavigation.map((item) => {
-              const isActive =
-                item.href === "/"
-                  ? pathname === "/"
-                  : pathname === item.href ||
+            <div className="col-start-2 hidden min-w-0 items-center justify-self-end gap-1 lg:flex xl:gap-2">
+              <nav
+                aria-label="Main navigation"
+                className="flex items-center gap-1"
+              >
+                {publicNavigation.map((item) => {
+                  const isActive =
+                    pathname === item.href ||
                     pathname.startsWith(`${item.href}/`);
 
-              return (
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      aria-current={isActive ? "page" : undefined}
+                      className={[
+                        "relative inline-flex h-10 items-center justify-center",
+                        "rounded-full px-3 xl:px-4",
+                        "text-[13px] font-semibold xl:text-[14px]",
+                        "transition-colors duration-fast",
+                        "focus-visible:outline-none focus-visible:ring-2",
+                        "focus-visible:ring-primary focus-visible:ring-offset-2",
+                        isActive
+                          ? "bg-secondary text-primary-strong"
+                          : "text-foreground hover:bg-feasta-surface-soft hover:text-primary-strong",
+                      ].join(" ")}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </nav>
+
+              <details className="group relative ml-1 xl:ml-3">
+              <summary
+                className={[
+                  "inline-flex min-h-10 cursor-pointer list-none items-center justify-center gap-2",
+                  "rounded-full bg-primary px-4 xl:px-5",
+                  "text-[13px] font-bold text-primary-foreground xl:text-[14px]",
+                  "shadow-brand-soft",
+                  "transition-[transform,background-color,box-shadow]",
+                  "duration-normal",
+                  "hover:-translate-y-0.5 hover:bg-primary-hover",
+                  "hover:shadow-brand",
+                  "focus-visible:outline-none focus-visible:ring-2",
+                  "focus-visible:ring-primary focus-visible:ring-offset-2",
+                  "motion-reduce:transform-none",
+                  "[&::-webkit-details-marker]:hidden",
+                ].join(" ")}
+              >
+                Join Feasta
+
+                <ChevronDown
+                  aria-hidden="true"
+                  className="size-4 transition-transform duration-200 group-open:rotate-180"
+                />
+              </summary>
+
+              <div
+                className={[
+                  "absolute right-0 top-[calc(100%+12px)] z-50",
+                  "w-[min(330px,calc(100vw-2rem))] overflow-hidden",
+                  "rounded-[20px]",
+                  "border border-feasta-border-soft",
+                  "bg-white",
+                  "p-2",
+                  "shadow-modal",
+                ].join(" ")}
+              >
                 <Link
-                  key={item.href}
-                  href={item.href}
-                  aria-current={isActive ? "page" : undefined}
+                  href="/register"
                   className={[
-                    "relative inline-flex h-10 items-center justify-center",
-                    "rounded-full px-4",
-                    "text-[14px] font-semibold",
+                    "group/item flex items-start gap-4 rounded-[14px] px-4 py-4",
                     "transition-colors duration-fast",
+                    "hover:bg-feasta-surface-soft",
                     "focus-visible:outline-none focus-visible:ring-2",
-                    "focus-visible:ring-primary focus-visible:ring-offset-2",
-                    isActive
-                      ? "bg-secondary text-primary-strong"
-                      : "text-foreground hover:bg-feasta-surface-soft hover:text-primary-strong",
+                    "focus-visible:ring-primary focus-visible:ring-inset",
                   ].join(" ")}
                 >
-                  {item.label}
+                  <span
+                    className={[
+                      "grid size-11 shrink-0 place-items-center rounded-full",
+                      "bg-secondary text-primary-strong",
+                    ].join(" ")}
+                  >
+                    <UserRound
+                      aria-hidden="true"
+                      className="size-5"
+                    />
+                  </span>
+
+                  <span className="min-w-0">
+                    <span className="block text-sm font-bold text-foreground">
+                      Plan an Event
+                    </span>
+
+                    <span className="mt-1 block text-sm leading-5 text-feasta-text-secondary">
+                      Find trusted local event providers.
+                    </span>
+                  </span>
                 </Link>
-              );
-            })}
-          </nav>
 
-          {/* ================================================================
-              DESKTOP ACTIONS
-             ================================================================ */}
+                <div className="mx-3 h-px bg-feasta-divider" />
 
-          <div className="ml-4 hidden items-center gap-1.5 xl:flex">
-            <div
-              aria-hidden="true"
-              className="mx-1.5 h-6 w-px bg-feasta-divider"
-            />
+                <Link
+                  href="/become-a-provider"
+                  className={[
+                    "group/item flex items-start gap-4 rounded-[14px] px-4 py-4",
+                    "transition-colors duration-fast",
+                    "hover:bg-feasta-surface-soft",
+                    "focus-visible:outline-none focus-visible:ring-2",
+                    "focus-visible:ring-primary focus-visible:ring-inset",
+                  ].join(" ")}
+                >
+                  <span
+                    className={[
+                      "grid size-11 shrink-0 place-items-center rounded-full",
+                      "bg-secondary text-primary-strong",
+                    ].join(" ")}
+                  >
+                    <BriefcaseBusiness
+                      aria-hidden="true"
+                      className="size-5"
+                    />
+                  </span>
 
-            {/* Search */}
-            <Link
-              href="/customer/providers"
-              aria-label="Search event services"
-              className={[
-                "grid size-10 place-items-center rounded-full",
-                "text-feasta-text-secondary",
-                "transition-colors duration-fast",
-                "hover:bg-feasta-surface-soft hover:text-primary-strong",
-                "focus-visible:outline-none focus-visible:ring-2",
-                "focus-visible:ring-primary focus-visible:ring-offset-2",
-              ].join(" ")}
-            >
-              <Search
-                aria-hidden="true"
-                className="size-[19px]"
-                strokeWidth={2}
-              />
-            </Link>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-bold text-foreground">
+                      Become a Provider
+                    </span>
 
-            {/* Favorites */}
-            <Link
-              href="/customer/favorites"
-              aria-label="View favorites"
-              className={[
-                "grid size-10 place-items-center rounded-full",
-                "text-feasta-text-secondary",
-                "transition-colors duration-fast",
-                "hover:bg-feasta-surface-soft hover:text-primary-strong",
-                "focus-visible:outline-none focus-visible:ring-2",
-                "focus-visible:ring-primary focus-visible:ring-offset-2",
-              ].join(" ")}
-            >
-              <Heart
-                aria-hidden="true"
-                className="size-[19px]"
-                strokeWidth={2}
-              />
-            </Link>
-
-            {/* Login */}
-            <Link
-              href={loginHref}
-              className={[
-                "ml-1 inline-flex min-h-10 items-center justify-center",
-                "rounded-full px-3.5",
-                "text-[14px] font-semibold text-foreground",
-                "transition-colors duration-fast",
-                "hover:bg-feasta-surface-soft hover:text-primary-strong",
-                "focus-visible:outline-none focus-visible:ring-2",
-                "focus-visible:ring-primary focus-visible:ring-offset-2",
-              ].join(" ")}
-            >
-              Log in
-            </Link>
-
-            {/* Main marketplace CTA */}
-            <Link
-              href="/customer/providers"
-              className={[
-                "group ml-1 inline-flex min-h-11 items-center justify-center",
-                "gap-2 rounded-full bg-primary px-5",
-                "text-[14px] font-bold text-primary-foreground",
-                "shadow-brand-soft",
-                "transition-[transform,background-color,box-shadow]",
-                "duration-normal",
-                "hover:-translate-y-0.5 hover:bg-primary-hover",
-                "hover:shadow-brand",
-                "focus-visible:outline-none focus-visible:ring-2",
-                "focus-visible:ring-primary focus-visible:ring-offset-2",
-                "motion-reduce:transform-none",
-              ].join(" ")}
-            >
-              Explore Marketplace
-
-              <ArrowRight
-                aria-hidden="true"
-                className="size-4 transition-transform duration-normal group-hover:translate-x-0.5 motion-reduce:transform-none"
-              />
-            </Link>
-          </div>
+                    <span className="mt-1 block text-sm leading-5 text-feasta-text-secondary">
+                      List your services and grow your business.
+                    </span>
+                  </span>
+                </Link>
+              </div>
+            </details>
+            </div>
 
           {/* ================================================================
               MOBILE / TABLET NAVIGATION
@@ -272,16 +264,20 @@ export function LandingHeader({
 
           <details
             ref={mobileMenuRef}
-            className="group relative ml-auto xl:hidden"
+            className="group relative col-start-2 justify-self-end lg:hidden"
             onToggle={(event) => {
-              isMobileMenuOpen.current = event.currentTarget.open;
+              const open = event.currentTarget.open;
 
-              if (event.currentTarget.open) {
+              isMobileMenuOpen.current = open;
+              setIsMobileMenuExpanded(open);
+
+              if (open) {
                 setIsVisible(true);
               }
             }}
           >
             <summary
+              aria-expanded={isMobileMenuExpanded}
               className={[
                 "grid size-11 cursor-pointer list-none place-items-center",
                 "rounded-full text-foreground marker:hidden",
@@ -291,15 +287,17 @@ export function LandingHeader({
                 "focus-visible:ring-ring focus-visible:ring-offset-2",
               ].join(" ")}
             >
-              <Menu
-                aria-hidden="true"
-                className="size-5 group-open:hidden"
-              />
-
-              <X
-                aria-hidden="true"
-                className="hidden size-5 group-open:block"
-              />
+              {isMobileMenuExpanded ? (
+                <X
+                  aria-hidden="true"
+                  className="size-5"
+                />
+              ) : (
+                <Menu
+                  aria-hidden="true"
+                  className="size-5"
+                />
+              )}
 
               <span className="sr-only">
                 Toggle navigation menu
@@ -338,10 +336,8 @@ export function LandingHeader({
               >
                 {publicNavigation.map((item) => {
                   const isActive =
-                    item.href === "/"
-                      ? pathname === "/"
-                      : pathname === item.href ||
-                        pathname.startsWith(`${item.href}/`);
+                    pathname === item.href ||
+                    pathname.startsWith(`${item.href}/`);
 
                   return (
                     <Link
@@ -368,120 +364,71 @@ export function LandingHeader({
 
               <div className="my-2 h-px bg-feasta-divider" />
 
-              {/* Discovery actions */}
-              <div className="flex flex-col gap-1">
-                <Link
-                  href="/customer/providers"
-                  onClick={closeMobileMenu}
-                  className={[
-                    "flex min-h-11 items-center gap-3",
-                    "rounded-xl px-4",
-                    "text-sm font-semibold text-foreground",
-                    "transition-colors duration-fast",
-                    "hover:bg-feasta-surface-soft hover:text-primary-strong",
-                    "focus-visible:outline-none focus-visible:ring-2",
-                    "focus-visible:ring-primary focus-visible:ring-inset",
-                  ].join(" ")}
-                >
-                  <Search
-                    aria-hidden="true"
-                    className="size-[18px] text-feasta-text-secondary"
-                  />
-
-                  Search Event Services
-                </Link>
-
-                <Link
-                  href="/customer/favorites"
-                  onClick={closeMobileMenu}
-                  className={[
-                    "flex min-h-11 items-center gap-3",
-                    "rounded-xl px-4",
-                    "text-sm font-semibold text-foreground",
-                    "transition-colors duration-fast",
-                    "hover:bg-feasta-surface-soft hover:text-primary-strong",
-                    "focus-visible:outline-none focus-visible:ring-2",
-                    "focus-visible:ring-primary focus-visible:ring-inset",
-                  ].join(" ")}
-                >
-                  <Heart
-                    aria-hidden="true"
-                    className="size-[18px] text-feasta-text-secondary"
-                  />
-
-                  Favorites
-                </Link>
-              </div>
-
-              <div className="my-2 h-px bg-feasta-divider" />
-
               {/* Account / provider actions */}
               <div className="flex flex-col gap-1">
+                <p className="px-4 pb-1 pt-2 text-xs font-bold uppercase tracking-[0.14em] text-primary-strong">
+                  Join Feasta
+                </p>
+
                 <Link
-                  href={loginHref}
+                  href="/register"
                   onClick={closeMobileMenu}
                   className={[
-                    "flex min-h-11 items-center gap-3",
-                    "rounded-xl px-4",
-                    "text-sm font-semibold text-foreground",
+                    "flex min-h-14 items-start gap-3 rounded-xl px-4 py-3",
                     "transition-colors duration-fast",
-                    "hover:bg-feasta-surface-soft hover:text-primary-strong",
+                    "hover:bg-feasta-surface-soft",
                     "focus-visible:outline-none focus-visible:ring-2",
                     "focus-visible:ring-primary focus-visible:ring-inset",
                   ].join(" ")}
                 >
-                  <LogIn
-                    aria-hidden="true"
-                    className="size-[18px] text-feasta-text-secondary"
-                  />
+                  <span className="grid size-9 shrink-0 place-items-center rounded-full bg-secondary text-primary-strong">
+                    <UserRound
+                      aria-hidden="true"
+                      className="size-[18px]"
+                    />
+                  </span>
 
-                  Log in
+                  <span>
+                    <span className="block text-sm font-bold text-foreground">
+                      Plan an Event
+                    </span>
+
+                    <span className="mt-0.5 block text-xs leading-5 text-feasta-text-secondary">
+                      Find trusted local event providers.
+                    </span>
+                  </span>
                 </Link>
 
                 <Link
                   href="/become-a-provider"
                   onClick={closeMobileMenu}
                   className={[
-                    "flex min-h-11 items-center gap-3",
-                    "rounded-xl px-4",
-                    "text-sm font-semibold text-foreground",
+                    "flex min-h-14 items-start gap-3 rounded-xl px-4 py-3",
                     "transition-colors duration-fast",
-                    "hover:bg-feasta-surface-soft hover:text-primary-strong",
+                    "hover:bg-feasta-surface-soft",
                     "focus-visible:outline-none focus-visible:ring-2",
                     "focus-visible:ring-primary focus-visible:ring-inset",
                   ].join(" ")}
                 >
-                  <Store
-                    aria-hidden="true"
-                    className="size-[18px] text-feasta-text-secondary"
-                  />
+                  <span className="grid size-9 shrink-0 place-items-center rounded-full bg-secondary text-primary-strong">
+                    <BriefcaseBusiness
+                      aria-hidden="true"
+                      className="size-[18px]"
+                    />
+                  </span>
 
-                  Become a Provider
+                  <span>
+                    <span className="block text-sm font-bold text-foreground">
+                      Become a Provider
+                    </span>
+
+                    <span className="mt-0.5 block text-xs leading-5 text-feasta-text-secondary">
+                      List your services and grow your business.
+                    </span>
+                  </span>
                 </Link>
               </div>
-
-              {/* Primary mobile CTA */}
-              <Link
-                href="/customer/providers"
-                onClick={closeMobileMenu}
-                className={[
-                  "group mt-3 flex min-h-12 items-center justify-center",
-                  "gap-2 rounded-xl bg-primary px-5",
-                  "text-sm font-bold text-primary-foreground",
-                  "shadow-brand-soft",
-                  "transition-colors duration-fast",
-                  "hover:bg-primary-hover",
-                  "focus-visible:outline-none focus-visible:ring-2",
-                  "focus-visible:ring-primary focus-visible:ring-offset-2",
-                ].join(" ")}
-              >
-                Explore Marketplace
-
-                <ArrowRight
-                  aria-hidden="true"
-                  className="size-4 transition-transform duration-normal group-hover:translate-x-0.5 motion-reduce:transform-none"
-                />
-              </Link>
+              <div className="my-2 h-px bg-feasta-divider" />
             </div>
           </details>
         </div>

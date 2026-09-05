@@ -261,10 +261,11 @@ const submissionIdentityRef =
     useState(0);
   const availabilityGenerationRef = useRef(0);
 
-  const minimumDate = useMemo(
-    () => tomorrowDateValue(),
-    [],
-  );
+  const eventDateInput = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    // Refresh after commits, including when returning to the schedule step.
+    if (eventDateInput.current) eventDateInput.current.min = tomorrowDateValue();
+  });
 
   const expectedAvailabilityProviderIds = useMemo(
     () => [
@@ -1090,7 +1091,7 @@ async function handleSubmitBooking() {
                 >
                   <Input
                     type="date"
-                    min={minimumDate}
+                    ref={eventDateInput}
                     value={draft.eventDate}
                     onChange={(event) =>
                       updateDraft(

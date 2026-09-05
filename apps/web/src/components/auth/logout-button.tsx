@@ -8,9 +8,9 @@ import {Button} from "@/components/ui/button";
 import {logoutWebSession} from "@/lib/auth/client-session";
 
 export function LogoutButton({
-  destination = "/login",
+  destination = "/customer/providers",
 }: {
-  destination?: "/login" | "/provider-login" | "/admin-login";
+  destination?: "/customer/providers" | "/provider-login" | "/admin-login";
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);

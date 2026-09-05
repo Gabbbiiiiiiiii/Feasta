@@ -8,6 +8,10 @@ import {
   type VerificationDocumentStatus,
   type VerificationDocumentType,
 } from "./enums.js";
+import {
+  PROVIDER_SERVICE_AREAS,
+  normalizeProviderServiceArea,
+} from "./provider-service-area.js";
 
 export const REQUIRED_VERIFICATION_DOCUMENT_TYPES = [
   "business_permit",
@@ -657,7 +661,7 @@ export function validateProviderOnboardingInput(
     input.locationCoordinates,
     issues,
   );
-  const serviceAreas = stringList(input.serviceAreas, "serviceAreas", issues);
+  const serviceAreas = serviceAreaList(input.serviceAreas, issues);
   const serviceCategories = serviceCategoryList(
     input.serviceCategories,
     providerCategory,

@@ -161,7 +161,7 @@ function ApplicationHeader({
                   ? "/admin-login"
                   : role === "provider"
                     ? "/provider-login"
-                    : "/login"
+                    : "/customer/providers"
               }
             />
           </div>

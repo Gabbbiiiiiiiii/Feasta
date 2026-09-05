@@ -20,12 +20,16 @@ vi.mock("@/app/customer/favorites/actions", () => ({
 vi.mock("@/lib/customer/providers/marketplace-provider-availability-client", () => ({
   checkMarketplaceProviderAvailability: mocks.checkMarketplaceAvailability,
 }));
+vi.mock("@/lib/customer/planning/event-venue-client", () => ({
+  searchEventVenues: vi.fn(),
+  getEventVenueDetails: vi.fn(),
+}));
 
 import {MarketplaceSearch} from "@/components/customer/discovery/marketplace-search";
 import {PublicPackageCard} from "@/components/customer/packages/public-package-card";
 import {PackageDetail} from "@/components/customer/packages/package-detail";
 import {ProviderEventContextPanel} from "@/components/customer/providers/provider-event-context-panel";
-import {ProviderFilterForm} from "@/components/customer/providers/provider-filter-form";
+import {EventFinder} from "@/components/customer/layout/event-finder";
 import {ProviderPagination} from "@/components/customer/providers/provider-pagination";
 import {ProviderResults} from "@/components/customer/providers/provider-results";
 import {
@@ -141,11 +145,10 @@ describe("customer home event planning", () => {
     expect(href).toContain("q=Maria+Catering");
   });
 
-  it("keeps the existing active-event summary separate from the new planning form", () => {
+  it("keeps the retired customer home redirect separate from the planning component", () => {
     const home = readFileSync(join(process.cwd(), "src/app/customer/page.tsx"), "utf8");
     const planning = readFileSync(join(process.cwd(), "src/components/customer/discovery/marketplace-search.tsx"), "utf8");
-    expect(home).toContain("<MarketplaceSearch />");
-    expect(home).toContain("<MarketplaceActiveEventStrip />");
+    expect(home).toContain("redirect(PUBLIC_PROVIDER_MARKETPLACE_PATH)");
     expect(planning).not.toContain("getCustomerBookingPage");
   });
 });
@@ -179,7 +182,7 @@ describe("availability-aware marketplace", () => {
     expect(screen.getByText(/6:00 PM–10:00 PM/iu)).toBeVisible();
     expect(screen.getByText("100 guests")).toBeVisible();
     expect(screen.getByLabelText("Date")).toHaveValue("2026-09-10");
-    expect(screen.getByRole("button", {name: "Update availability"})).toBeVisible();
+    expect(screen.getByRole("button", {name: "Update details"})).toBeVisible();
   });
 
   it("updates event details while preserving canonical marketplace filters and restarting pagination", () => {
@@ -192,7 +195,7 @@ describe("availability-aware marketplace", () => {
     fireEvent.change(screen.getByLabelText("End"), {target: {value: "23:00"}});
     fireEvent.change(screen.getByLabelText("Guests"), {target: {value: "120"}});
 
-    const form = screen.getByRole("button", {name: "Update availability"}).closest("form");
+    const form = screen.getByRole("button", {name: "Update details"}).closest("form");
     if (!form) throw new Error("Expected the event-context update form.");
     const values = Object.fromEntries(new FormData(form));
     const parameters = new URLSearchParams(values as Record<string, string>);
@@ -265,9 +268,13 @@ describe("availability-aware marketplace", () => {
     expect(href).toContain("cursor=next_cursor");
     expect(href).toContain("eventDate=2026-09-10");
     expect(href).toContain("guestCount=100");
-    const filterView = render(<ProviderFilterForm filters={filters(context)} />);
-    expect(filterView.container.querySelector('form input[name="eventDate"]')).toHaveValue("2026-09-10");
-    expect(filterView.container.querySelector('form input[name="eventEndTime"]')).toHaveValue("22:00");
+    render(<EventFinder query={href.split("?")[1]} onFind={() => {}} />);
+    expect(screen.getByLabelText("Event Date")).toHaveValue("2026-09-10");
+    fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
+    const submittedUrl = new URL(mocks.push.mock.calls.at(-1)?.[0], "https://feasta.test");
+    const expectedUrl = new URL(providerDiscoveryHref(filters(context)), "https://feasta.test");
+    expect(submittedUrl.pathname).toBe(expectedUrl.pathname);
+    expect(Object.fromEntries(submittedUrl.searchParams)).toEqual(Object.fromEntries(expectedUrl.searchParams));
     render(<ProviderPagination page={page} filters={filters(context)} />);
     expect(screen.getByRole("link", {name: "Next"})).toHaveAttribute("href", expect.stringContaining("eventEndTime=22%3A00"));
   });
@@ -307,7 +314,7 @@ describe("availability-aware marketplace", () => {
           price: 50_000,
           minimumGuests: 20,
           maximumGuests: 200,
-          inclusions: ["Buffet"],
+          inclusions: ["Buffet", "Styling", "Service staff"],
           imageUrl: null,
         },
         provider,
@@ -315,6 +322,10 @@ describe("availability-aware marketplace", () => {
       }}
       eventContext={context}
     />);
+    expect(screen.getByText("A complete event package.")).toBeVisible();
+    for (const inclusion of ["Buffet", "Styling", "Service staff"]) {
+      expect(screen.getByText(inclusion)).toBeVisible();
+    }
     for (const link of screen.getAllByRole("link", {name: "Customize & request"})) {
       expect(link).toHaveAttribute("href", expect.stringContaining("/book?eventDate=2026-09-10"));
       expect(link).toHaveAttribute("href", expect.stringContaining("eventEndTime=22%3A00"));

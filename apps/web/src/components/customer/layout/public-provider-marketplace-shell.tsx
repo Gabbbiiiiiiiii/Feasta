@@ -1,6 +1,7 @@
 import type {ReactNode} from "react";
 
 import {CustomerMarketplaceHeader} from "@/components/customer/layout/customer-marketplace-header";
+import {CustomerAuthProvider} from "./customer-auth-provider";
 
 export function PublicProviderMarketplaceShell({
   authReturnTo,
@@ -10,6 +11,7 @@ export function PublicProviderMarketplaceShell({
   children: ReactNode;
 }) {
   return (
+    <CustomerAuthProvider>
     <div
       data-public-provider-marketplace-shell
       className="min-h-dvh overflow-x-clip bg-[#FFF8F6] text-[#261814]"
@@ -31,5 +33,6 @@ export function PublicProviderMarketplaceShell({
         {children}
       </main>
     </div>
+    </CustomerAuthProvider>
   );
 }

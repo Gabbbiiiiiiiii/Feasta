@@ -125,12 +125,12 @@ export default function ServicesPage() {
 
             <div className="relative aspect-[4/3] overflow-hidden rounded-card shadow-card sm:aspect-[16/10] lg:aspect-[4/5] xl:aspect-[6/5]">
               <Image
-                src="https://images.unsplash.com/photo-1464366400600-7168b8af9bc3?auto=format&fit=crop&w=1400&q=85"
-                alt="Event tables and décor prepared for a celebration"
+                src="/images/landing/providers-banner.jpg"
+                alt="Event services arranged for a celebration"
                 fill
                 priority
                 sizes="(min-width: 1280px) 510px, (min-width: 1024px) 44vw, (min-width: 640px) calc(100vw - 64px), calc(100vw - 40px)"
-                className="object-cover"
+                className="object-cover object-center"
               />
             </div>
           </div>

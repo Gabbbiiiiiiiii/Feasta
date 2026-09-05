@@ -5,6 +5,35 @@ import {
 
 export const MAX_EVENT_GUESTS = 10_000;
 
+export const CUSTOMER_PLANNING_EVENT_TYPES = [
+  "birthday",
+  "wedding",
+  "debut",
+  "corporate",
+  "anniversary",
+  "other",
+] as const;
+
+export type CustomerPlanningEventType =
+  (typeof CUSTOMER_PLANNING_EVENT_TYPES)[number];
+
+export type CustomerEventVenue = {
+  label: string;
+  address: string;
+  city: string;
+  province: string;
+  placeId: string;
+  latitude: number;
+  longitude: number;
+};
+
+export type CustomerPlanningContext = {
+  eventType?: CustomerPlanningEventType;
+  eventDate?: string;
+  guestCount?: number;
+  eventVenue?: CustomerEventVenue;
+};
+
 export type CustomerEventContext = {
   eventDate: string;
   eventTime: string;
@@ -29,6 +58,68 @@ type SearchParameters = Record<string, string | string[] | undefined>;
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 const TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/u;
+const PLACE_ID_PATTERN = /^(?:places\/)?[A-Za-z0-9_-]{4,200}$/u;
+
+export function parseCustomerPlanningContext(
+  parameters: SearchParameters,
+  minimumDate = manilaDateValue(),
+): CustomerPlanningContext | null {
+  const eventTypeValue = first(parameters.eventType).trim();
+  const eventType = (
+    CUSTOMER_PLANNING_EVENT_TYPES as readonly string[]
+  ).includes(eventTypeValue)
+    ? eventTypeValue as CustomerPlanningEventType
+    : undefined;
+  const eventDateValue = first(parameters.eventDate).trim();
+  const eventDate = isCanonicalDate(eventDateValue) &&
+    eventDateValue >= minimumDate
+    ? eventDateValue
+    : undefined;
+  const guestCountValue = first(parameters.guestCount).trim();
+  const guestCountNumber = Number(guestCountValue);
+  const guestCount = /^\d{1,5}$/u.test(guestCountValue) &&
+    Number.isSafeInteger(guestCountNumber) &&
+    guestCountNumber >= 1 &&
+    guestCountNumber <= MAX_EVENT_GUESTS
+    ? guestCountNumber
+    : undefined;
+  const eventVenue = parseEventVenue(parameters);
+
+  if (!eventType && !eventDate && !guestCount && !eventVenue) return null;
+
+  return {
+    ...(eventType ? {eventType} : {}),
+    ...(eventDate ? {eventDate} : {}),
+    ...(guestCount ? {guestCount} : {}),
+    ...(eventVenue ? {eventVenue} : {}),
+  };
+}
+
+export function appendCustomerPlanningContext(
+  parameters: URLSearchParams,
+  context: CustomerPlanningContext | null | undefined,
+): URLSearchParams {
+  if (!context) return parameters;
+  if (context.eventType) parameters.set("eventType", context.eventType);
+  if (context.eventDate) parameters.set("eventDate", context.eventDate);
+  if (context.guestCount) {
+    parameters.set("guestCount", String(context.guestCount));
+  }
+  if (context.eventVenue) {
+    parameters.set("eventVenueLabel", context.eventVenue.label);
+    parameters.set("eventVenueAddress", context.eventVenue.address);
+    if (context.eventVenue.city) {
+      parameters.set("eventVenueCity", context.eventVenue.city);
+    }
+    if (context.eventVenue.province) {
+      parameters.set("eventVenueProvince", context.eventVenue.province);
+    }
+    parameters.set("eventVenuePlaceId", context.eventVenue.placeId);
+    parameters.set("eventVenueLat", String(context.eventVenue.latitude));
+    parameters.set("eventVenueLng", String(context.eventVenue.longitude));
+  }
+  return parameters;
+}
 
 export function parseCustomerEventContext(
   parameters: SearchParameters,
@@ -120,6 +211,7 @@ export function customerEventContextQuery(
 
 export function customerEventContextFromHref(
   href: string,
+  minimumDate?: string,
 ): CustomerEventContext | null {
   const queryIndex = href.indexOf("?");
   if (queryIndex === -1) return null;
@@ -132,7 +224,7 @@ export function customerEventContextFromHref(
     serviceType: parameters.has("serviceType")
       ? parameters.getAll("serviceType")
       : parameters.getAll("service"),
-  });
+  }, minimumDate);
 }
 
 export function manilaDateValue(date = new Date()): string {
@@ -173,6 +265,43 @@ function isCanonicalDate(value: string): boolean {
   if (!DATE_PATTERN.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00+08:00`);
   return !Number.isNaN(parsed.getTime()) && manilaDateValue(parsed) === value;
+}
+
+function parseEventVenue(
+  parameters: SearchParameters,
+): CustomerEventVenue | undefined {
+  const label = boundedText(first(parameters.eventVenueLabel), 120);
+  const address = boundedText(first(parameters.eventVenueAddress), 240);
+  const city = boundedText(first(parameters.eventVenueCity), 100);
+  const province = boundedText(first(parameters.eventVenueProvince), 100);
+  const placeId = first(parameters.eventVenuePlaceId).trim();
+  const latitude = Number(first(parameters.eventVenueLat));
+  const longitude = Number(first(parameters.eventVenueLng));
+  const inPhilippines = Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= 4 &&
+    latitude <= 22 &&
+    longitude >= 116 &&
+    longitude <= 127;
+
+  return label &&
+    address &&
+    PLACE_ID_PATTERN.test(placeId) &&
+    inPhilippines
+    ? {
+        label,
+        address,
+        city,
+        province,
+        placeId,
+        latitude,
+        longitude,
+      }
+    : undefined;
+}
+
+function boundedText(value: string, maximum: number): string {
+  return value.trim().replace(/\s+/gu, " ").slice(0, maximum);
 }
 
 function providerServiceType(value: string): ProviderServiceType | "all" | null {

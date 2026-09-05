@@ -11,7 +11,7 @@ export default function CustomerPackagesLoading() {
       >
         <span className="sr-only">Loading marketplace packages.</span>
         <div className="h-24 animate-pulse rounded-xl border border-[#E8C9BE] bg-white shadow-sm motion-reduce:animate-none" />
-        <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))] gap-4">
+        <div className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(min(100%,17.5rem),1fr))] gap-4">
           {Array.from({length: 8}, (_, index) => (
             <div key={index} className="overflow-hidden rounded-xl border border-[#E8C9BE] bg-white shadow-sm">
               <div className="aspect-[16/9] animate-pulse bg-[#F6DCD3] motion-reduce:animate-none" />

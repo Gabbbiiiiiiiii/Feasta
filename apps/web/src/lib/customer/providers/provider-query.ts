@@ -16,13 +16,16 @@ import {
 import type {ProviderDiscoveryFilters} from "./provider-types";
 import {
   appendCustomerEventContext,
+  appendCustomerPlanningContext,
   parseCustomerEventContext,
+  parseCustomerPlanningContext,
 } from "@/lib/customer/planning/event-planning-context";
 
 type SearchParameters = Record<string, string | string[] | undefined>;
 
 export function parseProviderDiscoveryFilters(
   parameters: SearchParameters,
+  minimumDate?: string,
 ): ProviderDiscoveryFilters {
   const search = boundedText(first(parameters.q), 80);
   const serviceType = enumValue(
@@ -33,7 +36,8 @@ export function parseProviderDiscoveryFilters(
   const eventContext = parseCustomerEventContext({
     ...parameters,
     serviceType,
-  });
+  }, minimumDate);
+  const planningContext = parseCustomerPlanningContext(parameters, minimumDate);
   return {
     search: search.length >= 2 ? search : "",
     serviceType,
@@ -44,6 +48,7 @@ export function parseProviderDiscoveryFilters(
     ),
     cursor: providerCursorValue(first(parameters.cursor)),
     ...(eventContext ? {eventContext} : {}),
+    ...(planningContext ? {planningContext} : {}),
   };
 }
 
@@ -60,6 +65,7 @@ export function providerDiscoveryHref(
     parameters.set("category", filters.category);
   }
   if (cursor) parameters.set("cursor", cursor);
+  appendCustomerPlanningContext(parameters, filters.planningContext);
   appendCustomerEventContext(
     parameters,
     filters.eventContext
@@ -103,7 +109,15 @@ export function parseProviderDirectoryReturnHref(
     eventTime: parameters.getAll("eventTime"),
     eventEndTime: parameters.getAll("eventEndTime"),
     guestCount: parameters.getAll("guestCount"),
-  });
+    eventType: parameters.getAll("eventType"),
+    eventVenueLabel: parameters.getAll("eventVenueLabel"),
+    eventVenueAddress: parameters.getAll("eventVenueAddress"),
+    eventVenueCity: parameters.getAll("eventVenueCity"),
+    eventVenueProvince: parameters.getAll("eventVenueProvince"),
+    eventVenuePlaceId: parameters.getAll("eventVenuePlaceId"),
+    eventVenueLat: parameters.getAll("eventVenueLat"),
+    eventVenueLng: parameters.getAll("eventVenueLng"),
+  }, ""); // Normalize return links without a render-time clock; queries validate dates.
   return providerDiscoveryHref(filters, filters.cursor);
 }
 

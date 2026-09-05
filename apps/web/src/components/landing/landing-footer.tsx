@@ -1,16 +1,14 @@
 import Image from "next/image";
 import Link from "next/link";
+import {PUBLIC_PROVIDER_MARKETPLACE_PATH} from "@/lib/customer/providers/provider-route-policy";
 import {
-  ArrowRight,
-  Heart,
   Mail,
   MapPin,
-  Store,
 } from "lucide-react";
 
 const footerLinkClassName = [
   "inline-flex w-fit items-center rounded-md",
-  "text-sm text-white/68",
+  "text-sm text-white/90",
   "transition-colors duration-fast",
   "hover:text-white",
   "focus-visible:outline-none focus-visible:ring-2",
@@ -31,79 +29,6 @@ export function LandingFooter() {
         aria-hidden="true"
         className="pointer-events-none absolute -bottom-40 -left-40 size-[26rem] rounded-full bg-primary/5 blur-3xl"
       />
-
-      {/* ================================================================
-          PRE-FOOTER CTA
-         ================================================================ */}
-
-      <section className="relative border-b border-white/10">
-        <div className="feasta-container-wide py-10 sm:py-12 lg:py-14">
-          <div className="grid gap-8 lg:grid-cols-[1fr_auto] lg:items-center">
-            <div className="max-w-2xl">
-              <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-primary">
-                Your celebration starts here
-              </p>
-
-              <h2 className="mt-3 text-3xl font-extrabold tracking-[-0.035em] text-white sm:text-4xl lg:text-[44px] lg:leading-[1.05]">
-                Bring your event together with Feasta.
-              </h2>
-
-              <p className="mt-4 max-w-xl text-base leading-7 text-white/68">
-                Discover trusted local event providers, compare services,
-                and keep your celebration planning organized in one place.
-              </p>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row lg:justify-end">
-              <Link
-                href="/customer/providers"
-                className={[
-                  "group inline-flex min-h-12 items-center justify-center",
-                  "gap-2 rounded-full bg-primary px-6",
-                  "text-sm font-bold text-primary-foreground",
-                  "shadow-brand",
-                  "transition-[transform,background-color,box-shadow]",
-                  "duration-normal",
-                  "hover:-translate-y-0.5 hover:bg-primary-hover",
-                  "hover:shadow-brand-strong",
-                  "focus-visible:outline-none focus-visible:ring-2",
-                  "focus-visible:ring-primary focus-visible:ring-offset-2",
-                  "focus-visible:ring-offset-[#241d1a]",
-                  "motion-reduce:transform-none",
-                ].join(" ")}
-              >
-                Explore Marketplace
-
-                <ArrowRight
-                  aria-hidden="true"
-                  className="size-4 transition-transform duration-normal group-hover:translate-x-0.5 motion-reduce:transform-none"
-                />
-              </Link>
-
-              <Link
-                href="/become-a-provider"
-                className={[
-                  "inline-flex min-h-12 items-center justify-center",
-                  "gap-2 rounded-full border border-white/18 px-6",
-                  "text-sm font-bold text-white",
-                  "transition-colors duration-fast",
-                  "hover:border-white/30 hover:bg-white/7",
-                  "focus-visible:outline-none focus-visible:ring-2",
-                  "focus-visible:ring-primary focus-visible:ring-offset-2",
-                  "focus-visible:ring-offset-[#241d1a]",
-                ].join(" ")}
-              >
-                <Store
-                  aria-hidden="true"
-                  className="size-4 text-primary"
-                />
-
-                Become a Provider
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
 
       {/* ================================================================
           MAIN FOOTER
@@ -139,14 +64,14 @@ export function LandingFooter() {
               Your event, built in one place.
             </p>
 
-            <p className="mt-3 max-w-sm text-sm leading-6 text-white/65">
+            <p className="mt-3 max-w-sm text-sm leading-6 text-white/70">
               Feasta brings local event services together around one
               celebration, helping customers discover providers, compare
               options, and manage their booking journey.
             </p>
 
             <div className="mt-6 space-y-3">
-              <div className="flex items-start gap-3 text-sm text-white/65">
+              <div className="flex items-start gap-3 text-sm text-white/70">
                 <MapPin
                   aria-hidden="true"
                   className="mt-0.5 size-4 shrink-0 text-primary"
@@ -155,7 +80,7 @@ export function LandingFooter() {
                 <span>Serving customers and event providers in Ormoc City</span>
               </div>
 
-              <div className="flex items-start gap-3 text-sm text-white/65">
+              <div className="flex items-start gap-3 text-sm text-white/70">
                 <Mail
                   aria-hidden="true"
                   className="mt-0.5 size-4 shrink-0 text-primary"
@@ -173,27 +98,21 @@ export function LandingFooter() {
           <nav aria-labelledby="footer-discover-title">
             <h2
               id="footer-discover-title"
-              className="text-xs font-extrabold uppercase tracking-[0.16em] text-primary"
+              className="text-xs font-extrabold uppercase tracking-[0.16em] text-white/80"
             >
               Discover
             </h2>
 
             <ul className="mt-5 space-y-3.5">
-              <li>
-                <Link href="/" className={footerLinkClassName}>
-                  Home
-                </Link>
-              </li>
-
-              <li>
+              {/* <li>
                 <Link href="/services" className={footerLinkClassName}>
                   Event Services
                 </Link>
-              </li>
+              </li> */}
 
               <li>
                 <Link
-                  href="/customer/providers"
+                  href={PUBLIC_PROVIDER_MARKETPLACE_PATH}
                   className={footerLinkClassName}
                 >
                   Browse Providers
@@ -221,7 +140,7 @@ export function LandingFooter() {
           <nav aria-labelledby="footer-account-title">
             <h2
               id="footer-account-title"
-              className="text-xs font-extrabold uppercase tracking-[0.16em] text-primary"
+              className="text-xs font-extrabold uppercase tracking-[0.16em] text-white/80"
             >
               Account &amp; Providers
             </h2>
@@ -241,22 +160,6 @@ export function LandingFooter() {
 
               <li>
                 <Link
-                  href="/customer/favorites"
-                  className={footerLinkClassName}
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <Heart
-                      aria-hidden="true"
-                      className="size-3.5"
-                    />
-
-                    Favorites
-                  </span>
-                </Link>
-              </li>
-
-              <li>
-                <Link
                   href="/become-a-provider"
                   className={footerLinkClassName}
                 >
@@ -264,14 +167,14 @@ export function LandingFooter() {
                 </Link>
               </li>
 
-              <li>
+              {/* <li>
                 <Link
                   href="/provider-login"
                   className={footerLinkClassName}
                 >
                   Provider Login
                 </Link>
-              </li>
+              </li> */}
             </ul>
           </nav>
 
@@ -282,7 +185,7 @@ export function LandingFooter() {
           <nav aria-labelledby="footer-legal-title">
             <h2
               id="footer-legal-title"
-              className="text-xs font-extrabold uppercase tracking-[0.16em] text-primary"
+              className="text-xs font-extrabold uppercase tracking-[0.16em] text-white/80"
             >
               Legal
             </h2>
@@ -309,11 +212,11 @@ export function LandingFooter() {
 
         <div className="mt-12 border-t border-white/10 pt-6 sm:mt-14">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-white/48">
+            <p className="text-sm text-white/60">
               &copy; {new Date().getFullYear()} FEASTA. All rights reserved.
             </p>
 
-            <p className="text-sm text-white/48">
+            <p className="text-sm text-white/60">
               Built around celebrations in Ormoc City.
             </p>
           </div>

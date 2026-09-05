@@ -31,7 +31,15 @@ export function isPublicProviderMarketplacePath(pathname: string): boolean {
 
 export function isPublicMarketplacePath(pathname: string): boolean {
   return isPublicProviderMarketplacePath(pathname) ||
-    pathname === PUBLIC_PACKAGE_MARKETPLACE_PATH;
+    isPublicPackageMarketplacePath(pathname);
+}
+
+export function isPublicPackageMarketplacePath(pathname: string): boolean {
+  if (pathname === PUBLIC_PACKAGE_MARKETPLACE_PATH) return true;
+  const prefix = `${PUBLIC_PACKAGE_MARKETPLACE_PATH}/`;
+  // Only the public detail page is guest-accessible; /book and other descendants
+  // still pass through the existing protected-route authentication boundary.
+  return pathname.startsWith(prefix) && isPublicProviderId(pathname.slice(prefix.length));
 }
 
 export function isPublicProviderMarketplaceReturnPath(value: string): boolean {

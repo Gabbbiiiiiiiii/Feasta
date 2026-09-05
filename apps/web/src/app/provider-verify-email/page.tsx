@@ -14,9 +14,9 @@ import {useRouter} from "next/navigation";
 import {useEffect, useRef, useState} from "react";
 
 import {AuthStatus} from "@/components/auth/auth-status";
+import {useCurrentUserEmail} from "@/components/auth/use-current-user-email";
 import {Button} from "@/components/ui/button";
 import {
-  currentUserEmail,
   logoutWebSession,
 } from "@/lib/auth/client-session";
 import {customerAuthenticationError} from "@/lib/auth/error-messages";
@@ -39,7 +39,7 @@ export default function ProviderVerifyEmailPage() {
 
   const actionInProgress = useRef(false);
 
-  const email = currentUserEmail();
+  const email = useCurrentUserEmail();
   const maskedEmail = email
     ? maskEmail(email)
     : "your provider email";
@@ -156,16 +156,16 @@ export default function ProviderVerifyEmailPage() {
             className="inline-flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Image
-              src="/images/feasta_logo.png"
+              src="/images/feasta_logo.svg"
               alt=""
-              width={40}
-              height={40}
+              width={586}
+              height={202}
               priority
-              className="size-10 object-contain"
+              className="h-10 w-auto object-contain"
             />
 
             <span className="text-[22px] font-bold tracking-[-0.03em] text-primary sm:text-2xl">
-              <span className="text-primary">Feasta</span>{" "}
+              {/* <span className="text-primary">Feasta</span>{" "} */}
               <span className="text-foreground">provider</span>
             </span>
           </Link>

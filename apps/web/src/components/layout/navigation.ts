@@ -30,6 +30,8 @@ import type {
   ProviderVerificationStatus,
 } from "@feasta/shared-types";
 
+import {PUBLIC_PROVIDER_MARKETPLACE_PATH} from "@/lib/customer/providers/provider-route-policy";
+
 export type ShellRole = "customer" | "provider" | "admin";
 
 type NavigationItemBase = {
@@ -69,7 +71,7 @@ export type NavigationGroup = {
 };
 
 export const roleHome: Record<ShellRole, string> = {
-  customer: "/customer",
+  customer: PUBLIC_PROVIDER_MARKETPLACE_PATH,
   provider: "/provider",
   admin: "/admin",
 };
@@ -81,8 +83,7 @@ export const roleLabels: Record<ShellRole, string> = {
 };
 
 const customerNavigation: readonly NavigationItem[] = [
-  {kind: "link", label: "Home", href: "/customer", icon: House},
-  {kind: "link", label: "Event Services", href: "/customer/providers", icon: Store},
+  {kind: "link", label: "Event Services", href: PUBLIC_PROVIDER_MARKETPLACE_PATH, icon: Store},
   {kind: "link", label: "Packages", href: "/customer/packages", icon: PackageOpen},
   {kind: "link", label: "Bookings", href: "/customer/bookings", icon: CalendarDays},
   {kind: "link", label: "Favorites", href: "/customer/favorites", icon: Heart},

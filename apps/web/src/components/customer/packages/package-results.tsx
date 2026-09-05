@@ -158,13 +158,14 @@ export function PackageResults({
         </div>
       </header>
 
-      <div className="grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(min(100%,17.5rem),1fr))] gap-4">
         {page.packages.map((packageRecord) => (
           <PublicPackageCard
             key={packageRecord.id}
             packageRecord={packageRecord}
             marketplaceHref={marketplaceHref}
             headingLevel="h3"
+            compactPreview
           />
         ))}
       </div>

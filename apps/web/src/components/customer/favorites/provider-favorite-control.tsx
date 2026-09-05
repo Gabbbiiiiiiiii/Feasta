@@ -1,7 +1,7 @@
 "use client";
 
 import {Heart} from "lucide-react";
-import Link from "next/link";
+import {CustomerAuthLink} from "@/components/customer/layout/customer-auth-provider";
 import {useRouter} from "next/navigation";
 import {useState, useTransition} from "react";
 
@@ -35,14 +35,15 @@ export function ProviderFavoriteControl({
       ? loginReturnTo
       : providerProfileHref(providerId);
     return (
-      <Link
+      <CustomerAuthLink
+        returnTo={safeReturnTo}
         href={`/login?next=${encodeURIComponent(safeReturnTo)}`}
         aria-label={`Add ${providerName} to favorites. Log in required.`}
         className={favoriteControlClassName(false, className)}
       >
         <Heart aria-hidden="true" className="size-5" />
         {showLabel ? <span>Save provider</span> : null}
-      </Link>
+      </CustomerAuthLink>
     );
   }
 
