@@ -628,11 +628,8 @@ class _ConversationCard extends StatelessWidget {
 
       await Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => ChatScreen(
-            booking: booking,
-            currentRole: UserRoles.customer,
-            existingChatRoomId: normalizedChatRoomId,
-          ),
+          builder: (_) =>
+              ChatScreen(booking: booking, currentRole: UserRoles.customer),
         ),
       );
     } catch (error) {

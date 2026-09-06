@@ -90,7 +90,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFB02F00);
+    const primary = Color(0xFFFF6333);
 
     return Scaffold(
       appBar: AppBar(
@@ -233,7 +233,7 @@ class ChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFB02F00);
+    const primary = Color(0xFFFF6333);
 
     return Align(
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,

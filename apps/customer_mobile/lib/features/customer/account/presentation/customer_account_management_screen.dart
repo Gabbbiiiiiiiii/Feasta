@@ -24,6 +24,7 @@ class CustomerAccountManagementScreen extends StatefulWidget {
     this.controller,
     this.repository,
     this.accountLoader,
+    this.profilePhotoService,
     super.key,
   });
 
@@ -31,6 +32,7 @@ class CustomerAccountManagementScreen extends StatefulWidget {
   final FeastaRepository? repository;
   final Future<(UserModel, CustomerModel)> Function()? accountLoader;
 
+  final CustomerProfilePhotoService? profilePhotoService;
   @override
   State<CustomerAccountManagementScreen> createState() =>
       _CustomerAccountManagementScreenState();
@@ -48,8 +50,11 @@ class _CustomerAccountManagementScreenState
   final CustomerProfilePreferencesService _profilePreferencesService =
       CustomerProfilePreferencesService();
 
-  final CustomerProfilePhotoService _profilePhotoService =
-      CustomerProfilePhotoService();
+  CustomerProfilePhotoService? _profilePhotoService;
+
+  CustomerProfilePhotoService get profilePhotoService =>
+      _profilePhotoService ??=
+          widget.profilePhotoService ?? CustomerProfilePhotoService();
   final ImagePicker _imagePicker = ImagePicker();
   final ImageCropper _imageCropper = ImageCropper();
 
@@ -471,7 +476,7 @@ class _CustomerAccountManagementScreenState
         _photoUploading = true;
       });
 
-      final newUrl = await _profilePhotoService.uploadProfilePhoto(
+      final newUrl = await profilePhotoService.uploadProfilePhoto(
         imageFile: File(cropped.path),
         previousImageUrl: previousImageUrl,
       );
@@ -513,7 +518,7 @@ class _CustomerAccountManagementScreenState
     });
 
     try {
-      await _profilePhotoService.removeProfilePhoto(
+      await profilePhotoService.removeProfilePhoto(
         currentImageUrl: currentImageUrl,
       );
 
@@ -1760,55 +1765,65 @@ class _SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final borderRadius = BorderRadius.circular(AppRadius.large);
+
     return Container(
       margin: const EdgeInsets.only(bottom: AppSpacing.lg),
-      padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(AppRadius.large),
-        border: Border.all(color: AppColors.border),
+        borderRadius: borderRadius,
         boxShadow: AppShadows.card,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: Material(
+        color: AppColors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: borderRadius,
+          side: const BorderSide(color: AppColors.border),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 38,
-                height: 38,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: AppColors.primarySubtle,
-                  borderRadius: BorderRadius.circular(AppRadius.medium),
-                ),
-                child: Icon(icon, color: AppColors.primary, size: 20),
+              Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySubtle,
+                      borderRadius: BorderRadius.circular(AppRadius.medium),
+                    ),
+                    child: Icon(icon, color: AppColors.primary, size: 20),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: AppTypography.sectionTitle.copyWith(
+                        color: AppColors.mainText,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Text(
-                  title,
-                  style: AppTypography.sectionTitle.copyWith(
-                    color: AppColors.mainText,
-                    fontWeight: FontWeight.w900,
+              if (description != null) ...[
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  description!,
+                  style: AppTypography.bodySmall.copyWith(
+                    color: AppColors.secondaryTextAccessible,
+                    height: 1.4,
                   ),
                 ),
-              ),
+              ],
+              const SizedBox(height: AppSpacing.md),
+              child,
             ],
           ),
-          if (description != null) ...[
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              description!,
-              style: AppTypography.bodySmall.copyWith(
-                color: AppColors.secondaryTextAccessible,
-                height: 1.4,
-              ),
-            ),
-          ],
-          const SizedBox(height: AppSpacing.lg),
-          child,
-        ],
+        ),
       ),
     );
   }

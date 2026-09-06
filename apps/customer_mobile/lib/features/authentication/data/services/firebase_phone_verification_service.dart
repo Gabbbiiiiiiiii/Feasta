@@ -67,69 +67,65 @@ class FirebasePhoneVerificationService implements PhoneVerificationGateway {
     }
   }
 
-  Future<void> _linkAndSynchronize(
-  PhoneAuthCredential credential,
-) async {
-  final user = _auth.currentUser;
+  Future<void> _linkAndSynchronize(PhoneAuthCredential credential) async {
+    final user = _auth.currentUser;
 
-  if (user == null) {
-    throw const PhoneVerificationException(
-      PhoneVerificationFailureKind.sessionExpired,
-    );
-  }
-
-  final uid = user.uid;
-
-  final hasPhoneProvider = user.providerData.any(
-    (provider) =>
-        provider.providerId == PhoneAuthProvider.PROVIDER_ID,
-  );
-
-  if (hasPhoneProvider) {
-    await user.updatePhoneNumber(credential);
-  } else {
-    await user.linkWithCredential(credential);
-  }
-
-  await user.reload();
-
-  final refreshedUser = _auth.currentUser;
-
-  if (refreshedUser == null || refreshedUser.uid != uid) {
-    throw const PhoneVerificationException(
-      PhoneVerificationFailureKind.sessionExpired,
-    );
-  }
-
-  // Refresh the Firebase Auth token after the phone provider was linked.
-  await refreshedUser.getIdToken(true);
-
-  final latestUser = _auth.currentUser;
-
-  if (latestUser == null || latestUser.uid != uid) {
-    throw const PhoneVerificationException(
-      PhoneVerificationFailureKind.sessionExpired,
-    );
-  }
-
-  try {
-    await _functions
-        .httpsCallable('syncPhoneVerification')
-        .call<void>();
-  } on FirebaseFunctionsException catch (error) {
-    // Firebase Auth is still valid here. Do NOT tell the user their session
-    // expired merely because the synchronization callable failed.
-    if (_auth.currentUser != null &&
-        _auth.currentUser!.uid == uid &&
-        error.code == 'unauthenticated') {
+    if (user == null) {
       throw const PhoneVerificationException(
-        PhoneVerificationFailureKind.configuration,
+        PhoneVerificationFailureKind.sessionExpired,
       );
     }
 
-    rethrow;
+    final uid = user.uid;
+
+    final hasPhoneProvider = user.providerData.any(
+      (provider) => provider.providerId == PhoneAuthProvider.PROVIDER_ID,
+    );
+
+    if (hasPhoneProvider) {
+      await user.updatePhoneNumber(credential);
+    } else {
+      await user.linkWithCredential(credential);
+    }
+
+    await user.reload();
+
+    final refreshedUser = _auth.currentUser;
+
+    if (refreshedUser == null || refreshedUser.uid != uid) {
+      throw const PhoneVerificationException(
+        PhoneVerificationFailureKind.sessionExpired,
+      );
+    }
+
+    // Refresh the Firebase Auth token after the phone provider was linked.
+    await refreshedUser.getIdToken(true);
+
+    final latestUser = _auth.currentUser;
+
+    if (latestUser == null || latestUser.uid != uid) {
+      throw const PhoneVerificationException(
+        PhoneVerificationFailureKind.sessionExpired,
+      );
+    }
+
+    try {
+      await _functions.httpsCallable('syncPhoneVerification').call<void>();
+    } on FirebaseFunctionsException catch (error) {
+      // Firebase Auth is still valid here. Do NOT tell the user their session
+      // expired merely because the synchronization callable failed.
+      if (_auth.currentUser != null &&
+          _auth.currentUser!.uid == uid &&
+          error.code == 'unauthenticated') {
+        throw const PhoneVerificationException(
+          PhoneVerificationFailureKind.configuration,
+        );
+      }
+
+      rethrow;
+    }
   }
-}
+
   User _requireCurrentUser() {
     final user = _auth.currentUser;
     if (user == null) {
@@ -150,18 +146,9 @@ class FirebasePhoneVerificationService implements PhoneVerificationGateway {
         'session-expired' => PhoneVerificationFailureKind.expiredCode,
         'too-many-requests' ||
         'quota-exceeded' => PhoneVerificationFailureKind.tooManyRequests,
-        'credential-already-in-use' ||
-        'phone-number-already-exists' ||
-        'account-exists-with-different-credential' =>
+        'credential-already-in-use' || 'phone-number-already-exists' =>
           PhoneVerificationFailureKind.phoneAlreadyInUse,
-<<<<<<< HEAD
         'no-current-user' ||
-=======
-        'provider-already-linked' ||
-        'user-mismatch' ||
-        'requires-recent-login' => PhoneVerificationFailureKind.sessionExpired,
-        'user-disabled' => PhoneVerificationFailureKind.blocked,
->>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
         'user-token-expired' ||
         'invalid-user-token' ||
         'id-token-revoked' => PhoneVerificationFailureKind.sessionExpired,
@@ -176,7 +163,7 @@ class FirebasePhoneVerificationService implements PhoneVerificationGateway {
     if (error is FirebaseFunctionsException) {
       return PhoneVerificationException(switch (error.code) {
         'permission-denied' => PhoneVerificationFailureKind.blocked,
-        'unauthenticated' =>PhoneVerificationFailureKind.configuration,
+        'unauthenticated' => PhoneVerificationFailureKind.configuration,
         'resource-exhausted' => PhoneVerificationFailureKind.tooManyRequests,
         'unavailable' ||
         'deadline-exceeded' => PhoneVerificationFailureKind.network,

@@ -69,10 +69,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
     }
 
     try {
-      final exists =
-          await (widget.reviewExistsChecker ?? repository.hasReviewedBooking)(
-            widget.booking.id,
-          );
+      final exists = widget.reviewExistsChecker == null
+          ? false
+          : await widget.reviewExistsChecker!(widget.booking.id);
 
       if (!mounted) {
         return;
@@ -117,13 +116,23 @@ class _ReviewScreenState extends State<ReviewScreen> {
     });
 
     try {
-      final submitReview = widget.reviewSubmitter ?? repository.submitReview;
+      final bool created;
 
-      final created = await submitReview(
-        booking: widget.booking,
-        rating: selectedRating,
-        comment: comment,
-      );
+      if (widget.reviewSubmitter != null) {
+        created = await widget.reviewSubmitter!(
+          booking: widget.booking,
+          rating: selectedRating,
+          comment: comment,
+        );
+      } else {
+        await repository.submitReview(
+          booking: widget.booking,
+          rating: selectedRating,
+          comment: comment,
+        );
+
+        created = true;
+      }
 
       if (!mounted) {
         return;

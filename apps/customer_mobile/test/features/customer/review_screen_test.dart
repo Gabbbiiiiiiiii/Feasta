@@ -218,6 +218,7 @@ BookingModel _booking({required String status}) {
     bookingCode: 'FEASTA-TEST-001',
     customerId: 'customer-one',
     providerId: 'provider-one',
+    providerRequestIds: const <String>[],
     packageId: 'package-one',
     customerFirstName: 'Customer',
     customerLastName: 'One',
