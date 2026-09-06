@@ -8,7 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart' as fs;
 
 class PromotionRepository {
   PromotionRepository({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+    : _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _firestore;
 
@@ -31,10 +31,10 @@ class PromotionRepository {
     return PromotionModel.fromDoc(snapshot);
   }
 
-  Future<List<PromotionModel>> getPromotions({bool includeInactive = true}) async {
-    return getPromotionsWithOptions(
-      includeInactive: includeInactive,
-    );
+  Future<List<PromotionModel>> getPromotions({
+    bool includeInactive = true,
+  }) async {
+    return getPromotionsWithOptions(includeInactive: includeInactive);
   }
 
   Future<List<PromotionModel>> getPromotionsWithOptions({
@@ -48,20 +48,27 @@ class PromotionRepository {
     int? limit,
   }) async {
     // Try cache first for read-heavy list queries
-    final cacheKey = 'promotions:${includeInactive ? 'all' : 'active'}:${promotionType ?? ''}:${providerId ?? ''}:${isFeatured ?? ''}:${includeDeleted ? 'del' : 'nodelete'}:$orderByField:${descending ? 'desc' : 'asc'}:${limit ?? 'nolimit'}';
+    final cacheKey =
+        'promotions:${includeInactive ? 'all' : 'active'}:${promotionType ?? ''}:${providerId ?? ''}:${isFeatured ?? ''}:${includeDeleted ? 'del' : 'nodelete'}:$orderByField:${descending ? 'desc' : 'asc'}:${limit ?? 'nolimit'}';
     final cached = PromotionCache.instance.get<List<PromotionModel>>(cacheKey);
     if (cached != null) return cached;
 
     Query<Map<String, dynamic>> query = _collection;
 
-    query = QueryBuilder.applyFilters(query,
-        promotionType: promotionType,
-        providerId: providerId,
-        isFeatured: isFeatured,
-        isActive: !includeInactive,
-        isDeleted: !includeDeleted);
+    query = QueryBuilder.applyFilters(
+      query,
+      promotionType: promotionType,
+      providerId: providerId,
+      isFeatured: isFeatured,
+      isActive: !includeInactive,
+      isDeleted: !includeDeleted,
+    );
 
-    query = QueryBuilder.applySorting(query, orderByField: orderByField, descending: descending);
+    query = QueryBuilder.applySorting(
+      query,
+      orderByField: orderByField,
+      descending: descending,
+    );
 
     query = QueryBuilder.applyPagination(query, limit: limit);
 
@@ -69,7 +76,11 @@ class PromotionRepository {
     final results = snapshot.docs.map(PromotionModel.fromDoc).toList();
 
     // Cache short-lived list results to reduce reads in admin UI
-    PromotionCache.instance.set<List<PromotionModel>>(cacheKey, results, ttl: Duration(seconds: 60));
+    PromotionCache.instance.set<List<PromotionModel>>(
+      cacheKey,
+      results,
+      ttl: Duration(seconds: 60),
+    );
 
     return results;
   }
@@ -89,23 +100,37 @@ class PromotionRepository {
   }) {
     Query<Map<String, dynamic>> query = _collection;
 
-    query = QueryBuilder.applyFilters(query,
-        promotionType: promotionType,
-        providerId: providerId,
-        isFeatured: isFeatured,
-        isActive: !includeInactive,
-        isDeleted: !includeDeleted);
+    query = QueryBuilder.applyFilters(
+      query,
+      promotionType: promotionType,
+      providerId: providerId,
+      isFeatured: isFeatured,
+      isActive: !includeInactive,
+      isDeleted: !includeDeleted,
+    );
 
-    query = QueryBuilder.applySorting(query, orderByField: orderByField, descending: descending);
+    query = QueryBuilder.applySorting(
+      query,
+      orderByField: orderByField,
+      descending: descending,
+    );
 
-    return query.snapshots().map((snapshot) => snapshot.docs.map(PromotionModel.fromDoc).toList());
+    return query.snapshots().map(
+      (snapshot) => snapshot.docs.map(PromotionModel.fromDoc).toList(),
+    );
   }
 
   Stream<List<PromotionModel>> watchActivePromotions() {
     Query<Map<String, dynamic>> query = _collection;
     query = QueryBuilder.applyFilters(query, isActive: true, isDeleted: false);
-    query = QueryBuilder.applySorting(query, orderByField: PromotionFirestoreSchema.orderField, descending: false);
-    return query.snapshots().map((snapshot) => snapshot.docs.map(PromotionModel.fromDoc).toList());
+    query = QueryBuilder.applySorting(
+      query,
+      orderByField: PromotionFirestoreSchema.orderField,
+      descending: false,
+    );
+    return query.snapshots().map(
+      (snapshot) => snapshot.docs.map(PromotionModel.fromDoc).toList(),
+    );
   }
 
   Future<void> updatePromotion(String id, Map<String, dynamic> data) async {
@@ -123,16 +148,27 @@ class PromotionRepository {
     });
   }
 
-  Future<void> recordImpression(String promotionId, {String? providerId}) async {
+  Future<void> recordImpression(
+    String promotionId, {
+    String? providerId,
+  }) async {
     final promoRef = _collection.doc(promotionId);
     final dateKey = _dateKey(DateTime.now());
-    final statsRef = _firestore.collection('promotion_stats').doc(promotionId).collection('daily').doc(dateKey);
+    final statsRef = _firestore
+        .collection('promotion_stats')
+        .doc(promotionId)
+        .collection('daily')
+        .doc(dateKey);
 
     await _firestore.runTransaction((tx) async {
       // increment promotion impressions
       final promoSnap = await tx.get(promoRef);
       if (!promoSnap.exists) throw Exception('Promotion not found');
-      tx.update(promoRef, {PromotionFirestoreSchema.impressionsField: fs.FieldValue.increment(1), PromotionFirestoreSchema.updatedAtField: fs.FieldValue.serverTimestamp()});
+      tx.update(promoRef, {
+        PromotionFirestoreSchema.impressionsField: fs.FieldValue.increment(1),
+        PromotionFirestoreSchema.updatedAtField:
+            fs.FieldValue.serverTimestamp(),
+      });
 
       // update daily stats
       final statsSnap = await tx.get(statsRef);
@@ -153,15 +189,21 @@ class PromotionRepository {
   Future<void> recordClick(String promotionId, {String? providerId}) async {
     final promoRef = _collection.doc(promotionId);
     final dateKey = _dateKey(DateTime.now());
-    final statsRef = _firestore.collection('promotion_stats').doc(promotionId).collection('daily').doc(dateKey);
+    final statsRef = _firestore
+        .collection('promotion_stats')
+        .doc(promotionId)
+        .collection('daily')
+        .doc(dateKey);
 
     await _firestore.runTransaction((tx) async {
       final promoSnap = await tx.get(promoRef);
       if (!promoSnap.exists) throw Exception('Promotion not found');
       tx.update(promoRef, {
         PromotionFirestoreSchema.clicksField: fs.FieldValue.increment(1),
-        PromotionFirestoreSchema.lastClickedAtField: fs.FieldValue.serverTimestamp(),
-        PromotionFirestoreSchema.updatedAtField: fs.FieldValue.serverTimestamp(),
+        PromotionFirestoreSchema.lastClickedAtField:
+            fs.FieldValue.serverTimestamp(),
+        PromotionFirestoreSchema.updatedAtField:
+            fs.FieldValue.serverTimestamp(),
       });
 
       final statsSnap = await tx.get(statsRef);

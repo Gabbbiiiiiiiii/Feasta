@@ -92,11 +92,13 @@ class FirebaseCustomerAuthStateRepository
         .doc(uid)
         .snapshots()
         .map<void>((_) {});
+
     final customerChanges = _firestore
         .collection(FirestoreCollections.customers)
         .doc(uid)
         .snapshots()
         .map<void>((_) {});
+
     return MergeStream<void>([userChanges, customerChanges]);
   }
 
@@ -107,6 +109,7 @@ class FirebaseCustomerAuthStateRepository
   }) async {
     try {
       final user = _auth.currentUser;
+
       if (user == null || user.uid != identity.uid) {
         throw const CustomerAuthLoadFailure(
           CustomerAuthLoadFailureKind.sessionExpired,
@@ -114,22 +117,35 @@ class FirebaseCustomerAuthStateRepository
       }
 
       await user.reload();
+
       final refreshedUser = _auth.currentUser;
+
       if (refreshedUser == null || refreshedUser.uid != identity.uid) {
         throw const CustomerAuthLoadFailure(
           CustomerAuthLoadFailureKind.sessionExpired,
         );
       }
+
       await refreshedUser.getIdToken(forceTokenRefresh);
+
+      final latestUser = _auth.currentUser;
+
+      if (latestUser == null || latestUser.uid != identity.uid) {
+        throw const CustomerAuthLoadFailure(
+          CustomerAuthLoadFailureKind.sessionExpired,
+        );
+      }
 
       final userSnapshot = await _firestore
           .collection(FirestoreCollections.users)
           .doc(identity.uid)
           .get();
+
       final userData = userSnapshot.data();
+
       if (!userSnapshot.exists || userData == null) {
         return CustomerAccountLoadResult(
-          identity: _identity(refreshedUser)!,
+          identity: _identity(latestUser)!,
           userProfile: null,
         );
       }
@@ -139,16 +155,17 @@ class FirebaseCustomerAuthStateRepository
             .collection(FirestoreCollections.customers)
             .doc(identity.uid)
             .get();
+
         if (!customerSnapshot.exists) {
           return CustomerAccountLoadResult(
-            identity: _identity(refreshedUser)!,
+            identity: _identity(latestUser)!,
             userProfile: null,
           );
         }
       }
 
       return CustomerAccountLoadResult(
-        identity: _identity(refreshedUser)!,
+        identity: _identity(latestUser)!,
         userProfile: AuthenticationUserProfileInput(
           role: userData['role'],
           accountStatus: userData['accountStatus'],
@@ -166,6 +183,7 @@ class FirebaseCustomerAuthStateRepository
         error: error,
         stackTrace: stackTrace,
       );
+
       throw CustomerAuthLoadFailure(_authFailureKind(error.code));
     } on FirebaseException catch (error, stackTrace) {
       secureDebugLog(
@@ -173,6 +191,7 @@ class FirebaseCustomerAuthStateRepository
         error: error,
         stackTrace: stackTrace,
       );
+
       throw CustomerAuthLoadFailure(_firebaseFailureKind(error.code));
     } catch (error, stackTrace) {
       secureDebugLog(
@@ -180,6 +199,7 @@ class FirebaseCustomerAuthStateRepository
         error: error,
         stackTrace: stackTrace,
       );
+
       throw const CustomerAuthLoadFailure(CustomerAuthLoadFailureKind.server);
     }
   }
@@ -191,11 +211,15 @@ class FirebaseCustomerAuthStateRepository
     } catch (_) {
       // Firebase sign-out remains authoritative when no Google session exists.
     }
+
     await _auth.signOut();
   }
 
   static CustomerAuthIdentity? _identity(User? user) {
-    if (user == null) return null;
+    if (user == null) {
+      return null;
+    }
+
     return CustomerAuthIdentity(
       uid: user.uid,
       email: user.email,
@@ -205,10 +229,11 @@ class FirebaseCustomerAuthStateRepository
 
   static CustomerAuthLoadFailureKind _authFailureKind(String code) {
     return switch (code) {
-      'user-disabled' => CustomerAuthLoadFailureKind.disabledAuthAccount,
+      'no-current-user' ||
       'id-token-revoked' ||
       'user-token-expired' ||
       'invalid-user-token' => CustomerAuthLoadFailureKind.sessionExpired,
+      'user-disabled' => CustomerAuthLoadFailureKind.disabledAuthAccount,
       'network-request-failed' => CustomerAuthLoadFailureKind.network,
       _ => CustomerAuthLoadFailureKind.server,
     };

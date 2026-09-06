@@ -162,8 +162,12 @@ class PromotionModel {
       PromotionFirestoreSchema.imageUrlField: imageUrl,
       PromotionFirestoreSchema.linkUrlField: linkUrl,
       PromotionFirestoreSchema.buttonTextField: buttonText,
-      PromotionFirestoreSchema.startDateField: startDate != null ? Timestamp.fromDate(startDate!) : null,
-      PromotionFirestoreSchema.endDateField: endDate != null ? Timestamp.fromDate(endDate!) : null,
+      PromotionFirestoreSchema.startDateField: startDate != null
+          ? Timestamp.fromDate(startDate!)
+          : null,
+      PromotionFirestoreSchema.endDateField: endDate != null
+          ? Timestamp.fromDate(endDate!)
+          : null,
       PromotionFirestoreSchema.orderField: order,
       PromotionFirestoreSchema.promotionTypeField: promotionType,
       PromotionFirestoreSchema.actionTypeField: actionType,
@@ -178,7 +182,9 @@ class PromotionModel {
       PromotionFirestoreSchema.isDeletedField: isDeleted,
       PromotionFirestoreSchema.clicksField: clicks,
       PromotionFirestoreSchema.impressionsField: impressions,
-      PromotionFirestoreSchema.lastClickedAtField: lastClickedAt != null ? Timestamp.fromDate(lastClickedAt!) : null,
+      PromotionFirestoreSchema.lastClickedAtField: lastClickedAt != null
+          ? Timestamp.fromDate(lastClickedAt!)
+          : null,
       PromotionFirestoreSchema.weeklyFeaturedField: weeklyFeatured,
       PromotionFirestoreSchema.limitedField: limited,
       PromotionFirestoreSchema.maxImpressionsField: maxImpressions,
@@ -195,34 +201,68 @@ class PromotionModel {
       id: doc.id,
       title: data[PromotionFirestoreSchema.titleField]?.toString() ?? '',
       subtitle: data[PromotionFirestoreSchema.subtitleField]?.toString(),
-      description: data[PromotionFirestoreSchema.descriptionField]?.toString() ?? '',
+      description:
+          data[PromotionFirestoreSchema.descriptionField]?.toString() ?? '',
       imageUrl: data[PromotionFirestoreSchema.imageUrlField]?.toString(),
       linkUrl: data[PromotionFirestoreSchema.linkUrlField]?.toString(),
-      buttonText: data[PromotionFirestoreSchema.buttonTextField]?.toString() ?? 'View More',
+      buttonText:
+          data[PromotionFirestoreSchema.buttonTextField]?.toString() ??
+          'View More',
       startDate: _dateFromValue(data[PromotionFirestoreSchema.startDateField]),
       endDate: _dateFromValue(data[PromotionFirestoreSchema.endDateField]),
-      order: data[PromotionFirestoreSchema.orderField] is int ? data[PromotionFirestoreSchema.orderField] as int : 0,
+      order: data[PromotionFirestoreSchema.orderField] is int
+          ? data[PromotionFirestoreSchema.orderField] as int
+          : 0,
       isActive: data[PromotionFirestoreSchema.isActiveField] as bool? ?? true,
-      isFeatured: data[PromotionFirestoreSchema.isFeaturedField] as bool? ?? false,
-      isSponsored: data[PromotionFirestoreSchema.isSponsoredField] as bool? ?? false,
-      promotionType: data[PromotionFirestoreSchema.promotionTypeField]?.toString() ?? '',
+      isFeatured:
+          data[PromotionFirestoreSchema.isFeaturedField] as bool? ?? false,
+      isSponsored:
+          data[PromotionFirestoreSchema.isSponsoredField] as bool? ?? false,
+      promotionType:
+          data[PromotionFirestoreSchema.promotionTypeField]?.toString() ?? '',
       actionType: data[PromotionFirestoreSchema.actionTypeField]?.toString(),
       providerId: data[PromotionFirestoreSchema.providerIdField]?.toString(),
       packageId: data[PromotionFirestoreSchema.packageIdField]?.toString(),
       category: data[PromotionFirestoreSchema.categoryField]?.toString(),
-      discount: data[PromotionFirestoreSchema.discountField] is num ? (data[PromotionFirestoreSchema.discountField] as num).toDouble() : null,
-      status: data[PromotionFirestoreSchema.statusField]?.toString() ?? PromotionStatus.active,
+      discount: data[PromotionFirestoreSchema.discountField] is num
+          ? (data[PromotionFirestoreSchema.discountField] as num).toDouble()
+          : null,
+      status:
+          data[PromotionFirestoreSchema.statusField]?.toString() ??
+          PromotionStatus.active,
       createdAt: _dateFromValue(data[PromotionFirestoreSchema.createdAtField]),
       updatedAt: _dateFromValue(data[PromotionFirestoreSchema.updatedAtField]),
       createdBy: data[PromotionFirestoreSchema.createdByField]?.toString(),
-      isDeleted: data[PromotionFirestoreSchema.isDeletedField] as bool? ?? false,
-      clicks: data[PromotionFirestoreSchema.clicksField] is int ? data[PromotionFirestoreSchema.clicksField] as int : (data[PromotionFirestoreSchema.clicksField] is num ? (data[PromotionFirestoreSchema.clicksField] as num).toInt() : 0),
-      impressions: data[PromotionFirestoreSchema.impressionsField] is int ? data[PromotionFirestoreSchema.impressionsField] as int : (data[PromotionFirestoreSchema.impressionsField] is num ? (data[PromotionFirestoreSchema.impressionsField] as num).toInt() : 0),
-      lastClickedAt: _dateFromValue(data[PromotionFirestoreSchema.lastClickedAtField]),
-      weeklyFeatured: data[PromotionFirestoreSchema.weeklyFeaturedField] as bool? ?? false,
+      isDeleted:
+          data[PromotionFirestoreSchema.isDeletedField] as bool? ?? false,
+      clicks: data[PromotionFirestoreSchema.clicksField] is int
+          ? data[PromotionFirestoreSchema.clicksField] as int
+          : (data[PromotionFirestoreSchema.clicksField] is num
+                ? (data[PromotionFirestoreSchema.clicksField] as num).toInt()
+                : 0),
+      impressions: data[PromotionFirestoreSchema.impressionsField] is int
+          ? data[PromotionFirestoreSchema.impressionsField] as int
+          : (data[PromotionFirestoreSchema.impressionsField] is num
+                ? (data[PromotionFirestoreSchema.impressionsField] as num)
+                      .toInt()
+                : 0),
+      lastClickedAt: _dateFromValue(
+        data[PromotionFirestoreSchema.lastClickedAtField],
+      ),
+      weeklyFeatured:
+          data[PromotionFirestoreSchema.weeklyFeaturedField] as bool? ?? false,
       limited: data[PromotionFirestoreSchema.limitedField] as bool? ?? false,
-      maxImpressions: data[PromotionFirestoreSchema.maxImpressionsField] is int ? data[PromotionFirestoreSchema.maxImpressionsField] as int : (data[PromotionFirestoreSchema.maxImpressionsField] is num ? (data[PromotionFirestoreSchema.maxImpressionsField] as num).toInt() : null),
-      maxClicks: data[PromotionFirestoreSchema.maxClicksField] is int ? data[PromotionFirestoreSchema.maxClicksField] as int : (data[PromotionFirestoreSchema.maxClicksField] is num ? (data[PromotionFirestoreSchema.maxClicksField] as num).toInt() : null),
+      maxImpressions: data[PromotionFirestoreSchema.maxImpressionsField] is int
+          ? data[PromotionFirestoreSchema.maxImpressionsField] as int
+          : (data[PromotionFirestoreSchema.maxImpressionsField] is num
+                ? (data[PromotionFirestoreSchema.maxImpressionsField] as num)
+                      .toInt()
+                : null),
+      maxClicks: data[PromotionFirestoreSchema.maxClicksField] is int
+          ? data[PromotionFirestoreSchema.maxClicksField] as int
+          : (data[PromotionFirestoreSchema.maxClicksField] is num
+                ? (data[PromotionFirestoreSchema.maxClicksField] as num).toInt()
+                : null),
     );
   }
 

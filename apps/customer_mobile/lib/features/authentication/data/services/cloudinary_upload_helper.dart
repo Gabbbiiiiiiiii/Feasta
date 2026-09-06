@@ -11,18 +11,16 @@ class CloudinaryUploadHelper {
     required Uint8List fileBytes,
     required String fileName,
   }) async {
-    final url = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/auto/upload');
+    final url = Uri.parse(
+      'https://api.cloudinary.com/v1_1/$cloudName/auto/upload',
+    );
     final request = http.MultipartRequest('POST', url);
 
     request.fields['upload_preset'] = uploadPreset;
     request.fields['folder'] = 'feasta_promotions';
 
     request.files.add(
-      http.MultipartFile.fromBytes(
-        'file',
-        fileBytes,
-        filename: fileName,
-      ),
+      http.MultipartFile.fromBytes('file', fileBytes, filename: fileName),
     );
 
     final response = await request.send();

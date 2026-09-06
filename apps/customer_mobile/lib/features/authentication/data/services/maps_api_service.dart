@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cloud_functions/cloud_functions.dart';
 
 import '../../../../shared/models/customer_address_model.dart';
+import 'package:flutter/foundation.dart';
 
 class PlaceSearchResult {
   final String placeId;
@@ -73,9 +74,11 @@ class MapsApiService {
 
   Future<List<PlaceSearchResult>> searchPlaces(String query) async {
     final trimmedQuery = query.trim();
-    if (trimmedQuery.length < 2) return [];
+    if (trimmedQuery.length < 2) return const <PlaceSearchResult>[];
 
-    final response = await _call('searchPlaces', {'query': trimmedQuery});
+    final response = await _call('searchPlaces', <String, dynamic>{
+      'query': trimmedQuery,
+    });
 
     if (response is! List) {
       throw const MapsApiException(
@@ -87,7 +90,7 @@ class MapsApiService {
         .whereType<Map>()
         .map((item) => PlaceSearchResult.fromMap(_castMap(item)))
         .where((item) => item.placeId.isNotEmpty)
-        .toList();
+        .toList(growable: false);
   }
 
   Future<CustomerAddressModel> reverseGeocode({
@@ -95,22 +98,31 @@ class MapsApiService {
     required double longitude,
     String? addressLabel,
   }) async {
-    final response = await _callMap('reverseGeocode', {
+    final response = await _callMap('reverseGeocode', <String, dynamic>{
       'latitude': latitude,
       'longitude': longitude,
     });
 
-    return CustomerAddressModel.fromCallableMap({
+    return CustomerAddressModel.fromCallableMap(<String, dynamic>{
       ...response,
       if (addressLabel != null && addressLabel.trim().isNotEmpty)
-        'addressLabel': addressLabel,
+        'addressLabel': addressLabel.trim(),
     });
   }
 
   Future<CustomerAddressModel> getPlaceDetails(String placeId) async {
-    final response = await _callMap('getPlaceDetails', {'placeId': placeId});
+    final normalizedPlaceId = placeId.trim();
+    if (normalizedPlaceId.isEmpty) {
+      throw const MapsApiException(
+        'This location could not be opened. Please choose another result.',
+      );
+    }
 
-    return CustomerAddressModel.fromCallableMap({
+    final response = await _callMap('getPlaceDetails', <String, dynamic>{
+      'placeId': normalizedPlaceId,
+    });
+
+    return CustomerAddressModel.fromCallableMap(<String, dynamic>{
       ...response,
       'addressLabel': _labelFromAddressParts(response),
     });
@@ -122,7 +134,7 @@ class MapsApiService {
     required double destinationLat,
     required double destinationLng,
   }) async {
-    final response = await _callMap('getDirections', {
+    final response = await _callMap('getDirections', <String, dynamic>{
       'originLat': originLat,
       'originLng': originLng,
       'destinationLat': destinationLat,
@@ -137,7 +149,6 @@ class MapsApiService {
     Map<String, dynamic> data,
   ) async {
     final response = await _call(functionName, data);
-
     if (response is Map) return _castMap(response);
 
     throw const MapsApiException(
@@ -153,8 +164,18 @@ class MapsApiService {
       );
       final result = await callable.call<dynamic>(data);
       return result.data;
-    } on FirebaseFunctionsException catch (e) {
-      throw MapsApiException(_friendlyFunctionMessage(e));
+    } on FirebaseFunctionsException catch (error) {
+      debugPrint(
+        '[MapsApiService] '
+        'function=$functionName '
+        'code=${error.code} '
+        'message=${error.message} '
+        'details=${error.details}',
+      );
+
+      throw MapsApiException(
+        'Firebase ${error.code}: ${error.message ?? 'No message'}',
+      );
     } on TimeoutException {
       throw const MapsApiException(
         'The location request timed out. Check your connection and try again.',
@@ -175,28 +196,33 @@ Map<String, dynamic> _castMap(Map<dynamic, dynamic> map) {
 
 String _friendlyFunctionMessage(FirebaseFunctionsException exception) {
   final message = exception.message?.trim() ?? '';
+
   if (_containsGoogleApiKeyRestrictionMessage(message)) {
-    return 'Unable to load address. Please try again or enter manually.';
-  }
-
-  if (message.isNotEmpty) {
-    if (exception.code == 'unavailable' || exception.code == 'internal') {
-      return 'Unable to load address. Please try again or enter manually.';
-    }
-
-    return message;
+    return 'Location services are temporarily unavailable. Please try again.';
   }
 
   switch (exception.code) {
+    case 'unauthenticated':
+      return 'Location search is temporarily unavailable. Please try again.';
+    case 'permission-denied':
+      return 'Location search is not available right now. Please try again.';
     case 'not-found':
       return 'No matching location was found.';
     case 'invalid-argument':
       return 'Please check the location details and try again.';
     case 'deadline-exceeded':
       return 'The location request timed out. Please try again.';
+    case 'resource-exhausted':
+      return 'Too many location requests. Please wait a moment and try again.';
+    case 'failed-precondition':
+      return 'Location services are not configured correctly right now.';
     case 'unavailable':
-      return 'Unable to load address. Please try again or enter manually.';
+    case 'internal':
+      return 'Unable to load location results. Please try again.';
     default:
+      if (message.isNotEmpty && message.toUpperCase() != 'UNAUTHENTICATED') {
+        return message;
+      }
       return 'Unable to complete the location request. Please try again.';
   }
 }

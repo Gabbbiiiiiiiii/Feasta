@@ -1,21 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../app/router/customer_route_guard.dart';
 import '../../core/helpers/auth_guard.dart';
 import '../../core/services/device_permission_service.dart';
 import '../../shared/models/feasta_models.dart';
-import '../authentication/data/repositories/auth_repository.dart';
-import '../authentication/application/customer_auth_scope.dart';
-import '../authentication/data/repositories/feasta_repository.dart';
 import '../../shared/widgets/loading_skeleton.dart';
-import '../presentation/screens/login_screen.dart';
-import '../presentation/screens/role_selection_screen.dart';
+import '../authentication/application/customer_auth_scope.dart';
+import '../authentication/data/repositories/auth_repository.dart';
+import '../authentication/data/repositories/feasta_repository.dart';
 import '../notifications/notifications_screen.dart';
+import '../presentation/screens/role_selection_screen.dart';
+import '../presentation/widgets/customer_login_modal.dart';
+import 'account/presentation/customer_account_management_screen.dart';
 import 'customer_main_screen.dart';
 import 'phone_verification_screen.dart';
-import 'account/presentation/customer_account_management_screen.dart';
 
-const Color _primary = Color(0xFFFF6333);
+const Color _primary = Color(0xFFB02F00);
 const Color _textPrimary = Color(0xFF242126);
 const Color _textSecondary = Color(0xFF777177);
 const Color _surface = Color(0xFFF7F7F7);
@@ -65,16 +66,42 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
     widget.onOpenTab?.call(index);
   }
 
-  void _openLogin() {
-    Navigator.pushAndRemoveUntil(
+  Future<void> _openLogin() async {
+    final gateController = CustomerAuthenticationScope.maybeOf(context);
+
+    if (gateController == null) {
+      debugPrint(
+        'FEASTA ACCOUNT LOGIN: authentication scope is missing; '
+        'refusing to replace the root route.',
+      );
+      return;
+    }
+
+    final signedIn = await showCustomerLoginModal(
       context,
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (_) => false,
+      intendedLocation: CustomerAppLocations.account,
+      contextMessage:
+          'Log in or create a Feasta account to manage your profile.',
     );
+
+    if (!mounted || !signedIn) {
+      return;
+    }
+
+    await gateController.refresh(forceTokenRefresh: true);
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      customerFuture = _loadCustomer();
+    });
   }
 
   Future<void> _logout() async {
     final gateController = CustomerAuthenticationScope.maybeOf(context);
+
     if (gateController != null) {
       await gateController.signOut();
     } else {
@@ -82,7 +109,9 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
     }
 
     if (!mounted) return;
+
     Navigator.popUntil(context, (route) => route.isFirst);
+
     if (gateController == null) {
       Navigator.pushAndRemoveUntil(
         context,
@@ -101,7 +130,10 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
             : const CustomerAccountManagementScreen(),
       ),
     );
-    if (mounted && !isGuestUser) await _refresh();
+
+    if (mounted && !isGuestUser) {
+      await _refresh();
+    }
   }
 
   void _openNotifications() {
@@ -130,7 +162,10 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
       backgroundColor: _surface,
       body: SafeArea(
         child: isGuestUser
-            ? _SignedOutAccount(onLogin: _openLogin, onSettings: _openSettings)
+            ? _SignedOutAccount(
+                onLogin: () => _openLogin(),
+                onSettings: _openSettings,
+              )
             : StreamBuilder<UserModel?>(
                 stream: repository.currentUserData(),
                 builder: (context, userSnapshot) {
@@ -153,7 +188,7 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
 
                   if (user == null) {
                     return _SignedOutAccount(
-                      onLogin: _openLogin,
+                      onLogin: () => _openLogin(),
                       onSettings: _openSettings,
                     );
                   }
@@ -457,7 +492,7 @@ class _AccountStatusPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
@@ -496,12 +531,13 @@ class _AccountSection extends StatelessWidget {
               ),
             ),
           ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: Colors.white,
+          Material(
+            color: Colors.white,
+            shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _divider),
+              side: const BorderSide(color: _divider),
             ),
+            clipBehavior: Clip.antiAlias,
             child: Column(
               children: [
                 for (var i = 0; i < children.length; i++) ...[
@@ -803,8 +839,13 @@ class _SettingToggleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: _settingsCardDecoration(),
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: _divider),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: CheckboxListTile(
         value: value,
         activeColor: _primary,
@@ -961,10 +1002,16 @@ BoxDecoration _settingsCardDecoration() {
 
 String _profileName(UserModel user, CustomerModel? customer) {
   final customerName = customer?.fullName.trim() ?? '';
-  if (customerName.isNotEmpty) return customerName;
+
+  if (customerName.isNotEmpty) {
+    return customerName;
+  }
 
   final userName = user.fullName.trim();
-  if (userName.isNotEmpty) return userName;
+
+  if (userName.isNotEmpty) {
+    return userName;
+  }
 
   return 'Feasta customer';
 }

@@ -37,6 +37,7 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
   late final PhoneVerificationController _controller;
   late final bool _ownsController;
   bool _completionHandled = false;
+  String? _previousVerificationId;
 
   @override
   void initState() {
@@ -47,11 +48,24 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
         PhoneVerificationController(
           gateway: FirebasePhoneVerificationService(),
         );
+    _previousVerificationId = _controller.state.verificationId;
     _controller.addListener(_stateChanged);
   }
 
   void _stateChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+
+    final currentVerificationId = _controller.state.verificationId;
+
+    if (_previousVerificationId != null &&
+        currentVerificationId == null &&
+        _otpController.text.isNotEmpty) {
+      _otpController.clear();
+    }
+
+    _previousVerificationId = currentVerificationId;
+    setState(() {});
+
     if (_controller.state.isVerified && !_completionHandled) {
       _completionHandled = true;
       unawaited(_completeVerification());
@@ -66,7 +80,11 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
         context,
       )?.refresh(forceTokenRefresh: true);
     }
-    if (widget.onVerified != null) await widget.onVerified!();
+
+    if (widget.onVerified != null) {
+      await widget.onVerified!();
+    }
+
     if (!mounted) return;
     Navigator.of(context).pop(true);
   }
@@ -83,8 +101,10 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
   @override
   Widget build(BuildContext context) {
     final state = _controller.state;
-    final hasCode = state.verificationId != null;
+    final showCodeEntry = state.codeRequested;
+    final hasUsableCode = state.verificationId != null;
     final busy = state.isSending || state.isConfirming;
+
     final pinTheme = PinTheme(
       width: 48,
       height: 56,
@@ -121,7 +141,7 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 Text(
-                  hasCode
+                  showCodeEntry
                       ? 'Enter your verification code'
                       : 'Confirm your mobile number',
                   style: AppTypography.headline,
@@ -138,7 +158,7 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: AppSpacing.xl),
-                if (!hasCode)
+                if (!showCodeEntry)
                   FeastaTextField(
                     label: 'Philippine mobile number',
                     controller: _phoneController,
@@ -206,16 +226,20 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
                 const SizedBox(height: AppSpacing.xl),
                 FeastaPrimaryButton(
                   key: const Key('phone-verification-primary'),
-                  label: hasCode ? 'Verify code' : 'Send verification code',
-                  loadingLabel: hasCode ? 'Verifying code' : 'Sending code',
+                  label: showCodeEntry
+                      ? 'Verify code'
+                      : 'Send verification code',
+                  loadingLabel: showCodeEntry
+                      ? 'Verifying code'
+                      : 'Sending code',
                   isLoading: busy,
                   onPressed: busy
                       ? null
-                      : hasCode
-                      ? _confirm
+                      : showCodeEntry
+                      ? (hasUsableCode ? _confirm : null)
                       : () => _controller.sendCode(_phoneController.text),
                 ),
-                if (hasCode) ...[
+                if (showCodeEntry) ...[
                   const SizedBox(height: AppSpacing.sm),
                   FeastaSecondaryButton(
                     key: const Key('resend-phone-code'),
@@ -224,10 +248,13 @@ class _PhoneVerificationScreenState extends State<PhoneVerificationScreen> {
                         : 'Resend code',
                     onPressed: busy || state.cooldownSeconds > 0
                         ? null
-                        : () => _controller.sendCode(
-                            state.normalizedPhone ?? _phoneController.text,
-                            resend: true,
-                          ),
+                        : () {
+                            _otpController.clear();
+                            _controller.sendCode(
+                              state.normalizedPhone ?? _phoneController.text,
+                              resend: true,
+                            );
+                          },
                   ),
                 ],
               ],

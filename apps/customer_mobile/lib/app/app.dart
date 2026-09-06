@@ -5,6 +5,8 @@ import '../features/authentication/application/customer_auth_controller.dart';
 import '../features/authentication/application/customer_auth_scope.dart';
 import '../features/authentication/data/repositories/customer_auth_state_repository.dart';
 import '../features/authentication/presentation/authentication_gate.dart';
+import '../features/onboarding/onboarding_gate.dart';
+import 'router/customer_route_guard.dart';
 
 class FeastaApp extends StatefulWidget {
   const FeastaApp({
@@ -27,19 +29,25 @@ class _FeastaAppState extends State<FeastaApp> {
   @override
   void initState() {
     super.initState();
+
     _ownsController = widget.authenticationController == null;
+
     _controller =
         widget.authenticationController ??
         CustomerAuthenticationController(
           repository: FirebaseCustomerAuthStateRepository(),
           initialLocation: widget.initialLocation,
         );
+
     _controller.start();
   }
 
   @override
   void dispose() {
-    if (_ownsController) _controller.dispose();
+    if (_ownsController) {
+      _controller.dispose();
+    }
+
     super.dispose();
   }
 
@@ -49,9 +57,14 @@ class _FeastaAppState extends State<FeastaApp> {
       title: 'Feasta',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
-      home: CustomerAuthenticationScope(
-        controller: _controller,
-        child: AuthenticationGate(controller: _controller),
+      home: OnboardingGate(
+        onFirstOnboardingCompleted: () {
+          _controller.requestIntendedLocation(CustomerAppLocations.login);
+        },
+        child: CustomerAuthenticationScope(
+          controller: _controller,
+          child: AuthenticationGate(controller: _controller),
+        ),
       ),
     );
   }

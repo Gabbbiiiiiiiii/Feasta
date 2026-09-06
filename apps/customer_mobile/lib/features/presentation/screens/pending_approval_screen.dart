@@ -23,7 +23,11 @@ class PendingApprovalScreen extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.pending_actions, size: 70, color: Colors.orange),
+                  const Icon(
+                    Icons.pending_actions,
+                    size: 70,
+                    color: Colors.orange,
+                  ),
                   const SizedBox(height: 16),
                   const Text(
                     'Your provider account is pending approval.',
@@ -42,7 +46,9 @@ class PendingApprovalScreen extends StatelessWidget {
                       if (context.mounted) {
                         Navigator.pushReplacement(
                           context,
-                          MaterialPageRoute(builder: (_) => const LoginScreen()),
+                          MaterialPageRoute(
+                            builder: (_) => const LoginScreen(),
+                          ),
                         );
                       }
                     },

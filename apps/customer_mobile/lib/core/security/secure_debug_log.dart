@@ -1,10 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-void secureDebugLog(
-  String message, {
-  Object? error,
-  StackTrace? stackTrace,
-}) {
+void secureDebugLog(String message, {Object? error, StackTrace? stackTrace}) {
   if (!kDebugMode) return;
   final detail = error == null ? message : '$message: $error';
   debugPrint(_redact(detail));
@@ -19,7 +15,10 @@ String _redact(String value) {
       )
       .replaceAll(RegExp(r'\+?\d[\d\s().-]{7,}\d'), '[masked-phone]')
       .replaceAll(
-        RegExp(r'(?:bearer|token|password|secret)\s*[:=]?\s*\S+', caseSensitive: false),
+        RegExp(
+          r'(?:bearer|token|password|secret)\s*[:=]?\s*\S+',
+          caseSensitive: false,
+        ),
         '[redacted]',
       );
 }

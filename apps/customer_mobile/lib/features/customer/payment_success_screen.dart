@@ -17,7 +17,7 @@ class PaymentSuccessScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFFF6333);
+    const primary = Color(0xFFB02F00);
 
     return Scaffold(
       body: SafeArea(
@@ -26,19 +26,12 @@ class PaymentSuccessScreen extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(
-                Icons.check_circle,
-                color: Colors.green,
-                size: 115,
-              ),
+              const Icon(Icons.check_circle, color: Colors.green, size: 115),
               const SizedBox(height: 28),
               const Text(
                 'Payment Successful',
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w900,
-                ),
+                style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 12),
               Text(
@@ -67,7 +60,7 @@ class PaymentSuccessScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '₱${amountPaid.toStringAsFixed(0)}',
+                      'â‚±${amountPaid.toStringAsFixed(0)}',
                       style: const TextStyle(
                         color: primary,
                         fontSize: 28,
@@ -104,9 +97,8 @@ class PaymentSuccessScreen extends StatelessWidget {
                     Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => BookingDetailsScreen(
-                          bookingId: bookingId,
-                        ),
+                        builder: (_) =>
+                            BookingDetailsScreen(bookingId: bookingId),
                       ),
                     );
                   },

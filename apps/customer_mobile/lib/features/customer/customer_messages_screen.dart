@@ -1,0 +1,1163 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+
+import '../../core/constants/status_constants.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_radius.dart';
+import '../../core/theme/app_shadows.dart';
+import '../../core/theme/app_sizes.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/widgets/widgets.dart';
+import '../authentication/data/repositories/feasta_repository.dart';
+import '../chat/chat_screen.dart';
+
+class CustomerMessagesScreen extends StatelessWidget {
+  const CustomerMessagesScreen({
+    required this.isGuest,
+    required this.onLogin,
+    super.key,
+  });
+
+  final bool isGuest;
+  final Future<void> Function() onLogin;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isGuest) {
+      return _GuestMessagesState(onLogin: onLogin);
+    }
+
+    return const _AuthenticatedMessages();
+  }
+}
+
+class _GuestMessagesState extends StatelessWidget {
+  const _GuestMessagesState({required this.onLogin});
+
+  final Future<void> Function() onLogin;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const FeastaPageHeader(title: 'Messages'),
+          Expanded(
+            child: Center(
+              child: SingleChildScrollView(
+                physics: const ClampingScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.screen,
+                  AppSpacing.xl,
+                  AppSpacing.screen,
+                  AppSpacing.massive,
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 380),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 96,
+                        height: 96,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          shape: BoxShape.circle,
+                          boxShadow: AppShadows.card,
+                        ),
+                        child: const Icon(
+                          Icons.chat_bubble_outline_rounded,
+                          size: 44,
+                          color: AppColors.secondaryTextAccessible,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.xl),
+                      Text(
+                        'Log in to see messages',
+                        textAlign: TextAlign.center,
+                        style: AppTypography.title.copyWith(
+                          color: AppColors.mainText,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.xs),
+                      Text(
+                        'Once you log in, your conversations with '
+                        'caterers will appear here.',
+                        textAlign: TextAlign.center,
+                        style: AppTypography.bodySmall.copyWith(
+                          color: AppColors.secondaryTextAccessible,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.xl),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 240),
+                        child: FeastaPrimaryButton(
+                          label: 'Log in',
+                          icon: const Icon(Icons.login_rounded),
+                          onPressed: onLogin,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AuthenticatedMessages extends StatefulWidget {
+  const _AuthenticatedMessages();
+
+  @override
+  State<_AuthenticatedMessages> createState() => _AuthenticatedMessagesState();
+}
+
+class _AuthenticatedMessagesState extends State<_AuthenticatedMessages> {
+  late final FeastaRepository _repository;
+  late final TextEditingController _searchController;
+
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+
+    _repository = FeastaRepository();
+    _searchController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+
+    super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    final normalized = value.trim().toLowerCase();
+
+    if (_searchQuery == normalized) {
+      return;
+    }
+
+    setState(() {
+      _searchQuery = normalized;
+    });
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+
+    if (_searchQuery.isEmpty) {
+      return;
+    }
+
+    setState(() {
+      _searchQuery = '';
+    });
+  }
+
+  // ============================================================
+  // CONVERSATION DEDUPLICATION
+  // ============================================================
+  //
+  // A provider can currently have more than one chat-room document
+  // because chat rooms are associated with bookings.
+  //
+  // We do NOT blindly collapse every room from the same provider,
+  // because two bookings may eventually contain two legitimate
+  // conversations.
+  //
+  // Instead:
+  //
+  // 1. If a provider has a conversation containing messages,
+  //    hide empty "Start a conversation" rooms for that provider.
+  //
+  // 2. If every room for that provider is empty, show only the newest
+  //    empty room.
+  //
+  // 3. If multiple rooms all contain real messages, preserve them.
+  //
+  // This removes the redundant empty card without destroying legitimate
+  // booking conversations.
+  List<QueryDocumentSnapshot<Map<String, dynamic>>>
+  _deduplicateConversationRooms(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> rooms,
+  ) {
+    final groupedRooms =
+        <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+
+    for (final room in rooms) {
+      final data = room.data();
+
+      final customerId = data['customerId']?.toString().trim() ?? '';
+
+      final providerId = data['providerId']?.toString().trim() ?? '';
+
+      // If identity information is incomplete, keep the room using its
+      // document ID as a unique grouping key instead of accidentally
+      // combining unrelated records.
+      final groupKey = customerId.isNotEmpty && providerId.isNotEmpty
+          ? '$customerId::$providerId'
+          : 'room::${room.id}';
+
+      groupedRooms
+          .putIfAbsent(
+            groupKey,
+            () => <QueryDocumentSnapshot<Map<String, dynamic>>>[],
+          )
+          .add(room);
+    }
+
+    final visibleRooms = <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+    for (final group in groupedRooms.values) {
+      if (group.length == 1) {
+        visibleRooms.add(group.first);
+        continue;
+      }
+
+      final roomsWithMessages = group.where((room) {
+        final lastMessage = room.data()['lastMessage']?.toString().trim() ?? '';
+
+        return lastMessage.isNotEmpty;
+      }).toList();
+
+      // If at least one actual conversation exists, suppress only the
+      // empty "Start a conversation" entries.
+      if (roomsWithMessages.isNotEmpty) {
+        visibleRooms.addAll(roomsWithMessages);
+        continue;
+      }
+
+      // Every room is still empty. Keep only the newest empty room so the
+      // user does not see several identical "Start a conversation" cards.
+      group.sort((a, b) {
+        final aTime = a.data()['lastMessageAt'];
+        final bTime = b.data()['lastMessageAt'];
+
+        return _compareTimestampsDescending(aTime, bTime);
+      });
+
+      visibleRooms.add(group.first);
+    }
+
+    // Keep the final inbox ordered newest first.
+    visibleRooms.sort((a, b) {
+      final aTime = a.data()['lastMessageAt'];
+      final bTime = b.data()['lastMessageAt'];
+
+      return _compareTimestampsDescending(aTime, bTime);
+    });
+
+    return visibleRooms;
+  }
+
+  int _compareTimestampsDescending(dynamic first, dynamic second) {
+    if (first is Timestamp && second is Timestamp) {
+      return second.compareTo(first);
+    }
+
+    if (first is Timestamp) {
+      return -1;
+    }
+
+    if (second is Timestamp) {
+      return 1;
+    }
+
+    return 0;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const FeastaPageHeader(title: 'Messages'),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: _repository.myChatRooms(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return _MessagesErrorState(
+                    message: _friendlyError(snapshot.error),
+                  );
+                }
+
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const _MessagesLoadingState();
+                }
+
+                final rawRooms =
+                    snapshot.data?.docs ??
+                    const <QueryDocumentSnapshot<Map<String, dynamic>>>[];
+
+                final rooms = _deduplicateConversationRooms(rawRooms);
+
+                if (rooms.isEmpty) {
+                  return const _NoMessagesState();
+                }
+
+                final filteredRooms = rooms.where((room) {
+                  if (_searchQuery.isEmpty) {
+                    return true;
+                  }
+
+                  final data = room.data();
+
+                  final providerName =
+                      data['providerBusinessName']?.toString().toLowerCase() ??
+                      '';
+
+                  final lastMessage =
+                      data['lastMessage']?.toString().toLowerCase() ?? '';
+
+                  return providerName.contains(_searchQuery) ||
+                      lastMessage.contains(_searchQuery);
+                }).toList();
+
+                final unreadConversationCount = rooms.where((room) {
+                  return _readInt(room.data()['unreadCountCustomer']) > 0;
+                }).length;
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.screen,
+                        0,
+                        AppSpacing.screen,
+                        AppSpacing.md,
+                      ),
+                      child: _MessagesOverview(
+                        conversationCount: rooms.length,
+                        unreadConversationCount: unreadConversationCount,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.screen,
+                      ),
+                      child: _MessagesSearchField(
+                        controller: _searchController,
+                        onChanged: _onSearchChanged,
+                        onClear: _clearSearch,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Expanded(
+                      child: filteredRooms.isEmpty
+                          ? _NoSearchResults(
+                              query: _searchController.text.trim(),
+                              onClear: _clearSearch,
+                            )
+                          : ListView.separated(
+                              keyboardDismissBehavior:
+                                  ScrollViewKeyboardDismissBehavior.onDrag,
+                              padding: const EdgeInsets.fromLTRB(
+                                AppSpacing.screen,
+                                0,
+                                AppSpacing.screen,
+                                AppSpacing.xl,
+                              ),
+                              itemCount: filteredRooms.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(height: AppSpacing.sm),
+                              itemBuilder: (context, index) {
+                                return _ConversationCard(
+                                  room: filteredRooms[index],
+                                  repository: _repository,
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _friendlyError(Object? error) {
+    if (error is FirebaseException && error.code == 'failed-precondition') {
+      return 'Messages are being prepared. '
+          'Please try again shortly.';
+    }
+
+    if (error is FirebaseException && error.code == 'unavailable') {
+      return 'We couldn\'t reach Feasta right now. '
+          'Check your internet connection and try again.';
+    }
+
+    return 'We couldn\'t load your messages. '
+        'Please check your connection and try again.';
+  }
+}
+
+class _MessagesOverview extends StatelessWidget {
+  const _MessagesOverview({
+    required this.conversationCount,
+    required this.unreadConversationCount,
+  });
+
+  final int conversationCount;
+  final int unreadConversationCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Your conversations',
+          style: AppTypography.sectionTitle.copyWith(
+            color: AppColors.mainText,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: AppSpacing.xxs),
+        Text(
+          _description,
+          style: AppTypography.bodySmall.copyWith(
+            color: AppColors.secondaryTextAccessible,
+            height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String get _description {
+    if (unreadConversationCount > 0) {
+      return '$unreadConversationCount unread '
+          '${unreadConversationCount == 1 ? 'conversation' : 'conversations'}';
+    }
+
+    return '$conversationCount '
+        '${conversationCount == 1 ? 'conversation' : 'conversations'}';
+  }
+}
+
+class _MessagesSearchField extends StatelessWidget {
+  const _MessagesSearchField({
+    required this.controller,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: controller,
+      builder: (context, value, child) {
+        final hasText = value.text.trim().isNotEmpty;
+
+        return TextField(
+          controller: controller,
+          onChanged: onChanged,
+          textInputAction: TextInputAction.search,
+          autocorrect: false,
+          decoration: InputDecoration(
+            hintText: 'Search conversations',
+            hintStyle: AppTypography.bodySmall.copyWith(
+              color: AppColors.secondaryTextAccessible,
+            ),
+            prefixIcon: const Icon(
+              Icons.search_rounded,
+              color: AppColors.secondaryTextAccessible,
+            ),
+            suffixIcon: hasText
+                ? IconButton(
+                    tooltip: 'Clear search',
+                    onPressed: onClear,
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: AppColors.secondaryTextAccessible,
+                    ),
+                  )
+                : null,
+            filled: true,
+            fillColor: AppColors.surface,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.md,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              borderSide: const BorderSide(color: AppColors.border),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              borderSide: const BorderSide(
+                color: AppColors.primary,
+                width: 1.5,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ConversationCard extends StatelessWidget {
+  const _ConversationCard({required this.room, required this.repository});
+
+  final QueryDocumentSnapshot<Map<String, dynamic>> room;
+
+  final FeastaRepository repository;
+
+  @override
+  Widget build(BuildContext context) {
+    final data = room.data();
+
+    final providerName = data['providerBusinessName']?.toString().trim();
+
+    final providerLogoUrl = data['providerLogoUrl']?.toString().trim();
+
+    final lastMessage = data['lastMessage']?.toString().trim() ?? '';
+
+    final bookingId =
+        data['bookingId']?.toString().trim() ??
+        data['mainEventId']?.toString().trim() ??
+        '';
+
+    final unreadCount = _readInt(data['unreadCountCustomer']);
+
+    final lastMessageAt = data['lastMessageAt'] is Timestamp
+        ? (data['lastMessageAt'] as Timestamp).toDate()
+        : null;
+
+    final hasUnread = unreadCount > 0;
+
+    final displayName = providerName?.isNotEmpty == true
+        ? providerName!
+        : 'Caterer';
+
+    final largeText = MediaQuery.textScalerOf(context).scale(16) >= 22;
+
+    return Semantics(
+      button: bookingId.isNotEmpty,
+      label:
+          '$displayName conversation. '
+          '${hasUnread ? '$unreadCount unread messages. ' : ''}'
+          '${lastMessage.isEmpty ? 'No messages yet.' : lastMessage}',
+      child: FeastaCard(
+        onTap: bookingId.isEmpty
+            ? null
+            : () {
+                _openConversation(
+                  context,
+                  bookingId: bookingId,
+                  chatRoomId: room.id,
+                );
+              },
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: largeText
+            ? _LargeTextConversationLayout(
+                displayName: displayName,
+                providerLogoUrl: providerLogoUrl,
+                lastMessage: lastMessage,
+                lastMessageAt: lastMessageAt,
+                unreadCount: unreadCount,
+              )
+            : _StandardConversationLayout(
+                displayName: displayName,
+                providerLogoUrl: providerLogoUrl,
+                lastMessage: lastMessage,
+                lastMessageAt: lastMessageAt,
+                unreadCount: unreadCount,
+              ),
+      ),
+    );
+  }
+
+  Future<void> _openConversation(
+    BuildContext context, {
+    required String bookingId,
+    required String chatRoomId,
+  }) async {
+    final normalizedBookingId = bookingId.trim();
+
+    final normalizedChatRoomId = chatRoomId.trim();
+
+    if (normalizedBookingId.isEmpty || normalizedChatRoomId.isEmpty) {
+      _showError(
+        context,
+        'This conversation is missing required booking information.',
+      );
+
+      return;
+    }
+
+    try {
+      final booking = await repository.bookingById(normalizedBookingId).first;
+
+      if (!context.mounted) {
+        return;
+      }
+
+      if (booking == null) {
+        _showError(
+          context,
+          'This conversation is no longer associated '
+          'with an available booking.',
+        );
+
+        return;
+      }
+
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ChatScreen(
+            booking: booking,
+            currentRole: UserRoles.customer,
+            existingChatRoomId: normalizedChatRoomId,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+
+      debugPrint(
+        'FEASTA MESSAGES: failed to open '
+        'chatRoom=$normalizedChatRoomId '
+        'booking=$normalizedBookingId '
+        'error=$error',
+      );
+
+      _showError(
+        context,
+        'We couldn\'t open this conversation. '
+        'Please try again.',
+      );
+    }
+  }
+
+  void _showError(BuildContext context, String message) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+class _StandardConversationLayout extends StatelessWidget {
+  const _StandardConversationLayout({
+    required this.displayName,
+    required this.providerLogoUrl,
+    required this.lastMessage,
+    required this.lastMessageAt,
+    required this.unreadCount,
+  });
+
+  final String displayName;
+  final String? providerLogoUrl;
+  final String lastMessage;
+  final DateTime? lastMessageAt;
+  final int unreadCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasUnread = unreadCount > 0;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        _ProviderAvatar(
+          imageUrl: providerLogoUrl,
+          providerName: displayName,
+          hasUnread: hasUnread,
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      displayName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.cardTitle.copyWith(
+                        color: AppColors.mainText,
+                        fontWeight: hasUnread
+                            ? FontWeight.w900
+                            : FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (lastMessageAt != null) ...[
+                    const SizedBox(width: AppSpacing.xs),
+                    Text(
+                      _formatMessageTime(lastMessageAt!),
+                      style: AppTypography.caption.copyWith(
+                        color: hasUnread
+                            ? AppColors.primaryStrong
+                            : AppColors.secondaryTextAccessible,
+                        fontWeight: hasUnread
+                            ? FontWeight.w800
+                            : FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Text(
+                      lastMessage.isEmpty
+                          ? 'Start a conversation'
+                          : lastMessage,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.bodySmall.copyWith(
+                        color: hasUnread
+                            ? AppColors.mainText
+                            : AppColors.secondaryTextAccessible,
+                        fontWeight: hasUnread
+                            ? FontWeight.w700
+                            : FontWeight.w400,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                  if (hasUnread) ...[
+                    const SizedBox(width: AppSpacing.sm),
+                    _UnreadBadge(count: unreadCount),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: AppSpacing.xs),
+        const Icon(
+          Icons.chevron_right_rounded,
+          size: AppSizes.iconMedium,
+          color: AppColors.secondaryTextAccessible,
+        ),
+      ],
+    );
+  }
+}
+
+class _LargeTextConversationLayout extends StatelessWidget {
+  const _LargeTextConversationLayout({
+    required this.displayName,
+    required this.providerLogoUrl,
+    required this.lastMessage,
+    required this.lastMessageAt,
+    required this.unreadCount,
+  });
+
+  final String displayName;
+  final String? providerLogoUrl;
+  final String lastMessage;
+  final DateTime? lastMessageAt;
+  final int unreadCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasUnread = unreadCount > 0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _ProviderAvatar(
+          imageUrl: providerLogoUrl,
+          providerName: displayName,
+          hasUnread: hasUnread,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          displayName,
+          style: AppTypography.cardTitle.copyWith(
+            color: AppColors.mainText,
+            fontWeight: hasUnread ? FontWeight.w900 : FontWeight.w700,
+          ),
+        ),
+        if (lastMessageAt != null) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            _formatMessageTime(lastMessageAt!),
+            style: AppTypography.caption.copyWith(
+              color: hasUnread
+                  ? AppColors.primaryStrong
+                  : AppColors.secondaryTextAccessible,
+              fontWeight: hasUnread ? FontWeight.w800 : FontWeight.w500,
+            ),
+          ),
+        ],
+        const SizedBox(height: AppSpacing.sm),
+        Text(
+          lastMessage.isEmpty ? 'Start a conversation' : lastMessage,
+          style: AppTypography.bodySmall.copyWith(
+            color: hasUnread
+                ? AppColors.mainText
+                : AppColors.secondaryTextAccessible,
+            fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w400,
+            height: 1.45,
+          ),
+        ),
+        if (hasUnread) ...[
+          const SizedBox(height: AppSpacing.sm),
+          _UnreadBadge(count: unreadCount),
+        ],
+      ],
+    );
+  }
+}
+
+class _ProviderAvatar extends StatelessWidget {
+  const _ProviderAvatar({
+    required this.imageUrl,
+    required this.providerName,
+    required this.hasUnread,
+  });
+
+  final String? imageUrl;
+  final String providerName;
+  final bool hasUnread;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasImage = imageUrl != null && imageUrl!.isNotEmpty;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: 58,
+          height: 58,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: AppColors.primarySubtle,
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: hasUnread ? AppColors.primary : AppColors.border,
+              width: hasUnread ? 2 : 1,
+            ),
+          ),
+          child: hasImage
+              ? Image.network(
+                  imageUrl!,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return _AvatarInitials(providerName: providerName);
+                  },
+                )
+              : _AvatarInitials(providerName: providerName),
+        ),
+        if (hasUnread)
+          Positioned(
+            right: -1,
+            bottom: -1,
+            child: Container(
+              width: 15,
+              height: 15,
+              decoration: BoxDecoration(
+                color: AppColors.primary,
+                shape: BoxShape.circle,
+                border: Border.all(color: AppColors.surface, width: 2),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _AvatarInitials extends StatelessWidget {
+  const _AvatarInitials({required this.providerName});
+
+  final String providerName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        _initials(providerName),
+        style: AppTypography.label.copyWith(
+          color: AppColors.primaryStrong,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    );
+  }
+
+  String _initials(String value) {
+    final text = value.trim();
+
+    if (text.isEmpty) {
+      return 'F';
+    }
+
+    final words = text
+        .split(RegExp(r'\s+'))
+        .where((word) => word.isNotEmpty)
+        .toList();
+
+    if (words.length == 1) {
+      return words.first.substring(0, 1).toUpperCase();
+    }
+
+    return '${words.first[0]}'
+            '${words.last[0]}'
+        .toUpperCase();
+  }
+}
+
+class _UnreadBadge extends StatelessWidget {
+  const _UnreadBadge({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = count > 99 ? '99+' : '$count';
+
+    return Semantics(
+      label: '$count unread messages',
+      child: ExcludeSemantics(
+        child: Container(
+          constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: AppColors.primary,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+          child: Text(
+            label,
+            style: AppTypography.caption.copyWith(
+              color: AppColors.surface,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NoMessagesState extends StatelessWidget {
+  const _NoMessagesState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: SingleChildScrollView(
+        physics: ClampingScrollPhysics(),
+        padding: EdgeInsets.fromLTRB(
+          AppSpacing.screen,
+          AppSpacing.xl,
+          AppSpacing.screen,
+          AppSpacing.massive,
+        ),
+        child: FeastaEmptyState(
+          icon: Icons.chat_bubble_outline_rounded,
+          title: 'No messages yet',
+          message: 'Your conversations with caterers will appear here.',
+        ),
+      ),
+    );
+  }
+}
+
+class _NoSearchResults extends StatelessWidget {
+  const _NoSearchResults({required this.query, required this.onClear});
+
+  final String query;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(AppSpacing.screen),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 360),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 82,
+                height: 82,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  shape: BoxShape.circle,
+                  boxShadow: AppShadows.card,
+                ),
+                child: const Icon(
+                  Icons.search_off_rounded,
+                  size: 38,
+                  color: AppColors.secondaryTextAccessible,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              Text(
+                'No conversations found',
+                textAlign: TextAlign.center,
+                style: AppTypography.title.copyWith(
+                  color: AppColors.mainText,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                query.isEmpty
+                    ? 'Try another search.'
+                    : 'We couldn\'t find a conversation matching "$query".',
+                textAlign: TextAlign.center,
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.secondaryTextAccessible,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              TextButton(
+                onPressed: onClear,
+                child: Text(
+                  'Clear search',
+                  style: AppTypography.label.copyWith(
+                    color: AppColors.primaryStrong,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MessagesLoadingState extends StatelessWidget {
+  const _MessagesLoadingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const FeastaListSkeleton(
+      itemCount: 5,
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.screen,
+        AppSpacing.sm,
+        AppSpacing.screen,
+        AppSpacing.xl,
+      ),
+    );
+  }
+}
+
+class _MessagesErrorState extends StatelessWidget {
+  const _MessagesErrorState({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: FeastaErrorState(title: 'Messages unavailable', message: message),
+    );
+  }
+}
+
+int _readInt(dynamic value) {
+  if (value is int) {
+    return value;
+  }
+
+  if (value is num) {
+    return value.toInt();
+  }
+
+  return int.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+String _formatMessageTime(DateTime date) {
+  final now = DateTime.now();
+  final localDate = date.toLocal();
+
+  final today = DateTime(now.year, now.month, now.day);
+
+  final messageDay = DateTime(localDate.year, localDate.month, localDate.day);
+
+  final difference = today.difference(messageDay).inDays;
+
+  if (difference == 0) {
+    final hour = localDate.hour == 0
+        ? 12
+        : localDate.hour > 12
+        ? localDate.hour - 12
+        : localDate.hour;
+
+    final minute = localDate.minute.toString().padLeft(2, '0');
+
+    final period = localDate.hour >= 12 ? 'PM' : 'AM';
+
+    return '$hour:$minute $period';
+  }
+
+  if (difference == 1) {
+    return 'Yesterday';
+  }
+
+  if (difference > 1 && difference < 7) {
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+    return weekdays[localDate.weekday - 1];
+  }
+
+  if (localDate.year == now.year) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
+    return '${months[localDate.month - 1]} '
+        '${localDate.day}';
+  }
+
+  return '${localDate.month}/'
+      '${localDate.day}/'
+      '${localDate.year}';
+}

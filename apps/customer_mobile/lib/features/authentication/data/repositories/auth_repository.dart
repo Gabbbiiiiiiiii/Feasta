@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -260,30 +262,41 @@ class AuthRepository
         email: email.trim().toLowerCase(),
         password: password,
       );
-      if (credential.user == null) {
+
+      final user = credential.user;
+
+      if (user == null) {
         throw StateError('Unable to load the signed-in account.');
       }
 
       try {
         await _syncUserAuthState();
       } on FirebaseFunctionsException catch (error) {
-        if (error.code != 'not-found') rethrow;
+        if (error.code != 'not-found') {
+          rethrow;
+        }
+
         await _ensureCustomerProfile();
         await _syncUserAuthState();
       }
-      await _loadActiveCustomerProfile(credential.user!.uid);
-      await credential.user!.getIdToken(true);
+
+      await _loadActiveCustomerProfile(user.uid);
+      await user.getIdToken(true);
+
       return CustomerLoginResult(
-        uid: credential.user!.uid,
-        email: credential.user!.email,
-        emailVerified: credential.user!.emailVerified,
+        uid: user.uid,
+        email: user.email,
+        emailVerified: user.emailVerified,
       );
-    } on CustomerLoginException {
-      await _auth.signOut();
+    } on CustomerLoginException catch (error) {
+      await _signOutIfLoginMustBeRejected(error.kind);
       rethrow;
     } catch (error) {
-      await _auth.signOut();
-      throw CustomerLoginException(_loginFailureKind(error));
+      final kind = _loginFailureKind(error);
+
+      await _signOutIfLoginMustBeRejected(kind);
+
+      throw CustomerLoginException(kind);
     }
   }
 
@@ -323,36 +336,109 @@ class AuthRepository
   Future<CustomerLoginResult> signInWithGoogle() async {
     try {
       await GoogleSignIn.instance.initialize();
+
       final googleUser = await GoogleSignIn.instance.authenticate();
       final googleAuth = googleUser.authentication;
+
       final credential = GoogleAuthProvider.credential(
         idToken: googleAuth.idToken,
       );
+
       final userCredential = await _auth.signInWithCredential(credential);
+
       final user = userCredential.user;
 
-      if (user == null) throw StateError('Google sign-in failed.');
+      if (user == null) {
+        throw StateError('Google sign-in failed.');
+      }
 
-      await _ensureCustomerProfile();
-      await _loadActiveCustomerProfile(user.uid);
-      await user.getIdToken(true);
+      // Firebase Authentication is now the source of truth for whether the
+      // sign-in succeeded. Do not make the login result depend on secondary
+      // Firestore/Functions work, because those operations are also observed
+      // by CustomerAuthenticationController and may race with auth-state and
+      // ID-token events.
+      //
+      // Any profile repair/synchronization is intentionally best-effort.
+      // The authentication gate remains responsible for validating role,
+      // account status, customer profile availability, and routing.
+      unawaited(_repairCustomerProfileAfterGoogleSignIn(user));
+
       return CustomerLoginResult(
         uid: user.uid,
         email: user.email,
         emailVerified: user.emailVerified,
       );
     } on GoogleSignInException catch (error) {
-      await logout();
       if (error.code == GoogleSignInExceptionCode.canceled) {
         throw const CustomerLoginException(CustomerLoginFailureKind.cancelled);
       }
+
+      secureDebugLog(
+        'Google account selection failed',
+        error: error,
+        stackTrace: StackTrace.current,
+      );
+
       throw const CustomerLoginException(CustomerLoginFailureKind.unknown);
+    } on FirebaseAuthException catch (error, stackTrace) {
+      secureDebugLog(
+        'Firebase Google sign-in failed with code ${error.code}',
+        error: error,
+        stackTrace: stackTrace,
+      );
+
+      final kind = _loginFailureKind(error);
+
+      await _signOutIfLoginMustBeRejected(kind);
+
+      throw CustomerLoginException(kind);
     } on CustomerLoginException {
-      await logout();
       rethrow;
-    } catch (error) {
-      await logout();
-      throw CustomerLoginException(_loginFailureKind(error));
+    } catch (error, stackTrace) {
+      secureDebugLog(
+        'Google sign-in failed before a usable Firebase session was returned',
+        error: error,
+        stackTrace: stackTrace,
+      );
+
+      final kind = _loginFailureKind(error);
+
+      await _signOutIfLoginMustBeRejected(kind);
+
+      throw CustomerLoginException(kind);
+    }
+  }
+
+  Future<void> _repairCustomerProfileAfterGoogleSignIn(User user) async {
+    try {
+      // Existing customer accounts do not need ensureUserProfile to run on
+      // every login. Re-running the callable on each login creates extra
+      // writes, account-change events, App Check/rate-limit exposure, and
+      // unnecessary overlap with CustomerAuthenticationController.loadAccount.
+      final userSnapshot = await _db
+          .collection(FirestoreCollections.users)
+          .doc(user.uid)
+          .get();
+
+      if (!userSnapshot.exists) {
+        // For a genuinely missing profile, keep the repair path. If the
+        // callable cannot create/repair it, the authentication gate will see
+        // the missing profile and route accordingly instead of falsely
+        // reporting that Google authentication itself failed.
+        await _ensureCustomerProfile();
+        return;
+      }
+
+      // Keep Auth-backed fields such as email verification synchronized, but
+      // never turn a valid Firebase sign-in into a failed login just because
+      // this secondary synchronization is temporarily unavailable.
+      await _syncUserAuthState();
+    } catch (error, stackTrace) {
+      secureDebugLog(
+        'Post-Google-sign-in profile synchronization was deferred',
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -421,6 +507,40 @@ class AuthRepository
       'acceptedTerms': ?acceptedTerms,
       'acceptedPrivacy': ?acceptedPrivacy,
     });
+  }
+
+  Future<void> _signOutIfLoginMustBeRejected(
+    CustomerLoginFailureKind kind,
+  ) async {
+    if (!_shouldRejectAuthenticatedSession(kind)) {
+      return;
+    }
+
+    try {
+      await GoogleSignIn.instance.signOut();
+    } catch (_) {
+      // Firebase sign-out remains authoritative when Google has no session.
+    }
+
+    await _auth.signOut();
+  }
+
+  bool _shouldRejectAuthenticatedSession(CustomerLoginFailureKind kind) {
+    return switch (kind) {
+      CustomerLoginFailureKind.blocked ||
+      CustomerLoginFailureKind.disabled ||
+      CustomerLoginFailureKind.unsupportedRole ||
+      CustomerLoginFailureKind.missingProfile ||
+      CustomerLoginFailureKind.sessionExpired => true,
+
+      CustomerLoginFailureKind.invalidCredentials ||
+      CustomerLoginFailureKind.invalidEmail ||
+      CustomerLoginFailureKind.tooManyRequests ||
+      CustomerLoginFailureKind.network ||
+      CustomerLoginFailureKind.cancelled ||
+      CustomerLoginFailureKind.configuration ||
+      CustomerLoginFailureKind.unknown => false,
+    };
   }
 
   CustomerRegistrationFailureKind _registrationFailureKind(Object error) {

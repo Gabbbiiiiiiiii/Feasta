@@ -1,3 +1,4 @@
+import 'package:feasta/features/authentication/domain/customer_login.dart';
 import 'package:feasta/features/authentication/domain/customer_registration.dart';
 import 'package:feasta/features/presentation/screens/customer_register_screen.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ void main() {
       MaterialApp(
         home: CustomerRegisterScreen(
           registrationGateway: ScreenFakeGateway(),
+          googleLoginGateway: ScreenLoginGateway(),
           onRegistrationComplete: (_) {},
           onOpenTerms: () {},
           onOpenPrivacy: () {},
@@ -21,18 +23,24 @@ void main() {
     expect(find.text('First name *'), findsOneWidget);
     expect(find.text('Email address *'), findsOneWidget);
     expect(find.byTooltip('Show password'), findsNWidgets(2));
-    expect(find.text('Read Terms of Service'), findsOneWidget);
-    expect(find.text('Read Privacy Policy'), findsOneWidget);
+
+    expect(find.textContaining('Terms of Service'), findsWidgets);
+
+    expect(find.textContaining('Privacy Policy'), findsWidgets);
 
     await tester.ensureVisible(
       find.byKey(const Key('create-customer-account')),
     );
+
     await tester.tap(find.byKey(const Key('create-customer-account')));
+
     await tester.pump();
+
     expect(
       find.text('Accept the Terms of Service to continue.'),
       findsOneWidget,
     );
+
     expect(find.text('Accept the Privacy Policy to continue.'), findsOneWidget);
   });
 
@@ -41,11 +49,15 @@ void main() {
     (tester) async {
       final gateway = ScreenFakeGateway();
       CustomerRegistrationResult? completed;
+
       await tester.pumpWidget(
         MaterialApp(
           home: CustomerRegisterScreen(
             registrationGateway: gateway,
-            onRegistrationComplete: (result) => completed = result,
+            googleLoginGateway: ScreenLoginGateway(),
+            onRegistrationComplete: (result) {
+              completed = result;
+            },
             onOpenTerms: () {},
             onOpenPrivacy: () {},
           ),
@@ -56,28 +68,43 @@ void main() {
         find.widgetWithText(TextFormField, 'First name *'),
         ' Ana ',
       );
+
       await tester.enterText(
         find.widgetWithText(TextFormField, 'Last name *'),
         ' Cruz ',
       );
+
       await tester.enterText(
         find.widgetWithText(TextFormField, 'Email address *'),
         'ANA@FEASTA.TEST ',
       );
+
       final passwordFields = find.byType(TextFormField);
+
       await tester.enterText(passwordFields.at(3), 'secret1');
+
       await tester.enterText(passwordFields.at(4), 'secret1');
-      await tester.ensureVisible(find.text('I accept the Terms of Service.'));
-      await tester.tap(find.text('I accept the Terms of Service.'));
-      await tester.tap(find.text('I accept the Privacy Policy.'));
+
+      await tester.ensureVisible(find.byKey(const Key('terms-consent')));
+
+      await tester.tap(find.byKey(const Key('terms-consent')));
+
+      await tester.tap(find.byKey(const Key('privacy-consent')));
+
       await tester.ensureVisible(
         find.byKey(const Key('create-customer-account')),
       );
+
       await tester.tap(find.byKey(const Key('create-customer-account')));
+
       await tester.pumpAndSettle();
 
       expect(gateway.calls, 1);
+      expect(gateway.input?.firstName, 'Ana');
+      expect(gateway.input?.lastName, 'Cruz');
       expect(gateway.input?.email, 'ana@feasta.test');
+      expect(gateway.input?.acceptedTerms, isTrue);
+      expect(gateway.input?.acceptedPrivacy, isTrue);
       expect(completed?.email, 'ana@feasta.test');
     },
   );
@@ -87,7 +114,9 @@ void main() {
   ) async {
     tester.view.physicalSize = const Size(360, 800);
     tester.view.devicePixelRatio = 1;
+
     addTearDown(tester.view.resetPhysicalSize);
+
     addTearDown(tester.view.resetDevicePixelRatio);
 
     await tester.pumpWidget(
@@ -96,6 +125,7 @@ void main() {
         child: MaterialApp(
           home: CustomerRegisterScreen(
             registrationGateway: ScreenFakeGateway(),
+            googleLoginGateway: ScreenLoginGateway(),
             onRegistrationComplete: (_) {},
             onOpenTerms: () {},
             onOpenPrivacy: () {},
@@ -103,12 +133,20 @@ void main() {
         ),
       ),
     );
+
+    expect(find.byType(CustomerRegisterScreen), findsOneWidget);
+
+    expect(find.byType(SingleChildScrollView), findsOneWidget);
+
     await tester.drag(
       find.byType(SingleChildScrollView),
       const Offset(0, -600),
     );
+
     await tester.pump();
+
     expect(tester.takeException(), isNull);
+
     expect(find.byKey(const Key('create-customer-account')), findsOneWidget);
   });
 }
@@ -123,9 +161,33 @@ class ScreenFakeGateway implements CustomerRegistrationGateway {
   ) async {
     calls++;
     this.input = input;
+
     return CustomerRegistrationResult(
       email: input.email,
       verificationEmailSent: true,
+    );
+  }
+}
+
+class ScreenLoginGateway implements CustomerLoginGateway {
+  @override
+  Future<CustomerLoginResult> signInWithEmail({
+    required String email,
+    required String password,
+  }) async {
+    return const CustomerLoginResult(
+      uid: 'customer-one',
+      email: 'customer@feasta.test',
+      emailVerified: true,
+    );
+  }
+
+  @override
+  Future<CustomerLoginResult> signInWithGoogle() async {
+    return const CustomerLoginResult(
+      uid: 'customer-one',
+      email: 'customer@feasta.test',
+      emailVerified: true,
     );
   }
 }

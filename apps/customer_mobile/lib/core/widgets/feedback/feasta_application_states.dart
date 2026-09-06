@@ -67,6 +67,7 @@ class FeastaApplicationErrorState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final copy = feastaErrorCopy(kind);
+
     return FeastaErrorState(
       title: copy.title,
       message: message ?? copy.message,
@@ -107,7 +108,7 @@ class FeastaListSkeleton extends StatelessWidget {
   const FeastaListSkeleton({
     this.itemCount = 4,
     this.showImage = false,
-    this.padding = const EdgeInsets.all(AppSpacing.xl),
+    this.padding = const EdgeInsets.all(AppSpacing.screen),
     super.key,
   });
 
@@ -121,25 +122,105 @@ class FeastaListSkeleton extends StatelessWidget {
       padding: padding,
       itemCount: itemCount,
       separatorBuilder: (_, _) => const SizedBox(height: AppSpacing.md),
-      itemBuilder: (_, index) => Semantics(
-        label: index == 0 ? 'Loading list' : null,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (showImage) ...[
+      itemBuilder: (_, index) {
+        return Semantics(
+          label: index == 0 ? 'Loading list' : null,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (showImage) ...[
+                const FeastaSkeleton(
+                  height: 168,
+                  borderRadius: AppRadius.card,
+                  semanticLabel: 'Loading image',
+                ),
+                const SizedBox(height: AppSpacing.sm),
+              ],
               const FeastaSkeleton(
-                height: 168,
-                borderRadius: AppRadius.card,
-                semanticLabel: 'Loading image',
+                height: 20,
+                width: 210,
+                borderRadius: AppRadius.small,
               ),
               const SizedBox(height: AppSpacing.sm),
+              const FeastaSkeleton(height: 14, borderRadius: AppRadius.small),
+              const SizedBox(height: AppSpacing.xs),
+              const FeastaSkeleton(
+                height: 14,
+                width: 150,
+                borderRadius: AppRadius.small,
+              ),
             ],
-            const FeastaSkeleton(height: 20, width: 210),
-            const SizedBox(height: AppSpacing.sm),
-            const FeastaSkeleton(height: 14),
-            const SizedBox(height: AppSpacing.xs),
-            const FeastaSkeleton(height: 14, width: 150),
-          ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class FeastaSkeletonHorizontalCards extends StatelessWidget {
+  const FeastaSkeletonHorizontalCards({
+    this.itemCount = 3,
+    this.cardWidth = 190,
+    this.cardHeight = 214,
+    this.imageHeight = 108,
+    this.spacing = AppSpacing.sm,
+    super.key,
+  });
+
+  final int itemCount;
+  final double cardWidth;
+  final double cardHeight;
+  final double imageHeight;
+  final double spacing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      container: true,
+      label: 'Loading providers',
+      child: ExcludeSemantics(
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          clipBehavior: Clip.none,
+          itemCount: itemCount,
+          separatorBuilder: (_, _) {
+            return SizedBox(width: spacing);
+          },
+          itemBuilder: (_, index) {
+            return SizedBox(
+              width: cardWidth,
+              height: cardHeight,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  FeastaSkeleton(
+                    width: cardWidth,
+                    height: imageHeight,
+                    borderRadius: AppRadius.card,
+                    semanticLabel: 'Loading provider image',
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  const FeastaSkeleton(
+                    height: 18,
+                    width: 150,
+                    borderRadius: AppRadius.small,
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  const FeastaSkeleton(
+                    height: 14,
+                    width: 110,
+                    borderRadius: AppRadius.small,
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  const FeastaSkeleton(
+                    height: 14,
+                    width: 80,
+                    borderRadius: AppRadius.small,
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );

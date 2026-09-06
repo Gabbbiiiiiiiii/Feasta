@@ -9,11 +9,19 @@ import '../../../../shared/models/feasta_models.dart';
 import '../../../../core/helpers/provider_category_helper.dart';
 
 class FeastaRepository {
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
-    region: 'asia-southeast1',
-  );
+  FeastaRepository({
+    FirebaseFirestore? firestore,
+    FirebaseAuth? auth,
+    FirebaseFunctions? functions,
+  }) : _db = firestore ?? FirebaseFirestore.instance,
+       _auth = auth ?? FirebaseAuth.instance,
+       _functions =
+           functions ??
+           FirebaseFunctions.instanceFor(region: 'asia-southeast1');
+
+  final FirebaseFirestore _db;
+  final FirebaseAuth _auth;
+  final FirebaseFunctions _functions;
 
   String get currentUid {
     final user = _auth.currentUser;
@@ -1570,64 +1578,12 @@ class FeastaRepository {
     String bookingId,
   ) {
     return _db
-        .collection(FirestoreCollections.bookingTimelines)
-        .where('bookingId', isEqualTo: bookingId)
-        .orderBy('createdAt', descending: true)
-        .orderBy(FieldPath.documentId, descending: true)
-        .limit(20)
-        .snapshots();
-  }
-
-  Future<void> acceptBooking({required BookingModel booking}) async {
-    final deadline = DateTime.now().add(const Duration(hours: 24));
-    final now = FieldValue.serverTimestamp();
-
-    final batch = _db.batch();
-
-    final bookingRef = _db
         .collection(FirestoreCollections.mainEvents)
-        .doc(booking.id);
-
-    final timelineRef = _db
-        .collection(FirestoreCollections.bookingTimelines)
-        .doc();
-
-    final notificationRef = _db
-        .collection(FirestoreCollections.notifications)
-        .doc();
-
-    batch.update(bookingRef, {
-      'status': BookingStatus.waitingPayment,
-      'paymentDeadline': Timestamp.fromDate(deadline),
-      'acceptedAt': now,
-      'updatedAt': now,
-    });
-
-    batch.set(timelineRef, {
-      'bookingId': booking.id,
-      'status': BookingStatus.waitingPayment,
-      'title': 'Booking Request Accepted',
-      'description':
-          'Provider accepted the booking request. Customer must complete the down payment.',
-      'createdBy': currentUid,
-      'createdByRole': UserRoles.provider,
-      'createdAt': now,
-    });
-
-    batch.set(notificationRef, {
-      'userId': booking.customerId,
-      'title': 'Booking Accepted',
-      'message':
-          '${booking.providerBusinessName} accepted your booking request. Please complete your down payment.',
-      'type': NotificationType.booking,
-      'relatedId': booking.id,
-      'relatedCollection': FirestoreCollections.mainEvents,
-      'isRead': false,
-      'readAt': null,
-      'createdAt': now,
-    });
-
-    await batch.commit();
+        .doc(bookingId)
+        .collection('timeline')
+        .orderBy('createdAt', descending: false)
+        .limit(100)
+        .snapshots();
   }
 
   Future<({String paymentId, String checkoutUrl})> createPaymentSession({
@@ -1971,54 +1927,113 @@ class FeastaRepository {
     await batch.commit(); */
   }
 
+  Stream<QuerySnapshot<Map<String, dynamic>>> myFavorites() {
+    final uid = currentUid.trim();
+
+    if (uid.isEmpty) {
+      return const Stream<QuerySnapshot<Map<String, dynamic>>>.empty();
+    }
+
+    return _db
+        .collection(FirestoreCollections.favorites)
+        .where('customerId', isEqualTo: uid)
+        .snapshots();
+  }
+
   Future<void> addToFavorites({required ProviderModel provider}) async {
-    final favoriteId = '${currentUid}_${provider.id}';
+    final uid = currentUid.trim();
+    final providerId = provider.id.trim();
+
+    if (uid.isEmpty) {
+      throw Exception('You must be logged in to save favorites.');
+    }
+
+    if (providerId.isEmpty) {
+      throw Exception('This provider cannot be added to favorites.');
+    }
+
+    final favoriteId = '${uid}_$providerId';
 
     await _db.collection(FirestoreCollections.favorites).doc(favoriteId).set({
-      'customerId': currentUid,
-      'providerId': provider.id,
+      'customerId': uid,
+      'providerId': providerId,
       'providerBusinessName': provider.businessName,
       'providerImageUrl': provider.coverImageUrl,
       'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    await _db
-        .collection(FirestoreCollections.providers)
-        .doc(provider.id)
-        .update({'favoriteCount': FieldValue.increment(1)});
+    }, SetOptions(merge: false));
   }
 
   Future<void> removeFromFavorites(String providerId) async {
-    final favoriteId = '${currentUid}_$providerId';
+    final uid = currentUid.trim();
+    final normalizedProviderId = providerId.trim();
+
+    if (uid.isEmpty) {
+      throw Exception('You must be logged in to manage favorites.');
+    }
+
+    if (normalizedProviderId.isEmpty) {
+      throw Exception('This favorite could not be removed.');
+    }
+
+    final favoriteId = '${uid}_$normalizedProviderId';
 
     await _db
         .collection(FirestoreCollections.favorites)
         .doc(favoriteId)
         .delete();
-
-    await _db.collection(FirestoreCollections.providers).doc(providerId).update(
-      {'favoriteCount': FieldValue.increment(-1)},
-    );
-  }
-
-  Stream<QuerySnapshot<Map<String, dynamic>>> myFavorites() {
-    return _db
-        .collection(FirestoreCollections.favorites)
-        .where('customerId', isEqualTo: currentUid)
-        .orderBy('createdAt', descending: true)
-        .orderBy(FieldPath.documentId, descending: true)
-        .limit(20)
-        .snapshots();
   }
 
   Future<String> createChatRoom({
     required BookingModel booking,
     String? providerLogoUrl,
   }) async {
-    final chatRoomId = booking.id;
+    final chatRoomId = booking.id.trim();
+
+    if (chatRoomId.isEmpty) {
+      throw Exception('This booking cannot be used to start a conversation.');
+    }
+
+    final chatRoomRef = _db
+        .collection(FirestoreCollections.chatRooms)
+        .doc(chatRoomId);
+
+    final existingRoom = await chatRoomRef.get();
+
+    // A chat room uses the booking ID as its document ID.
+    //
+    // If it already exists, opening the conversation must be read-only.
+    // Do not rewrite createdAt, lastMessage, unread counters, or the
+    // participant/booking identity fields.
+    if (existingRoom.exists) {
+      final data = existingRoom.data();
+
+      if (data == null) {
+        throw Exception('This conversation could not be loaded.');
+      }
+
+      final existingBookingId = data['bookingId']?.toString().trim() ?? '';
+      final existingCustomerId = data['customerId']?.toString().trim() ?? '';
+      final existingProviderId = data['providerId']?.toString().trim() ?? '';
+
+      if (existingBookingId != booking.id.trim() ||
+          existingCustomerId != booking.customerId.trim() ||
+          existingProviderId != booking.providerId.trim()) {
+        throw Exception(
+          'This conversation does not match the selected booking.',
+        );
+      }
+
+      return chatRoomId;
+    }
+
     final now = FieldValue.serverTimestamp();
 
-    await _db.collection(FirestoreCollections.chatRooms).doc(chatRoomId).set({
+    // Create the room only when it does not already exist.
+    //
+    // Do not use SetOptions(merge: true) here. A merge write against an
+    // existing room could overwrite conversation state such as lastMessage,
+    // unread counters, and timestamps.
+    await chatRoomRef.set({
       'bookingId': booking.id,
       'customerId': booking.customerId,
       'providerId': booking.providerId,
@@ -2034,7 +2049,7 @@ class FeastaRepository {
       'isActive': true,
       'createdAt': now,
       'updatedAt': now,
-    }, SetOptions(merge: true));
+    });
 
     return chatRoomId;
   }
@@ -2046,17 +2061,34 @@ class FeastaRepository {
     String messageType = 'text',
     String? attachmentUrl,
   }) async {
-    final now = FieldValue.serverTimestamp();
+    final normalizedChatRoomId = chatRoomId.trim();
+    final normalizedMessage = message.trim();
 
-    final messageRef = _db
-        .collection(FirestoreCollections.chatRooms)
-        .doc(chatRoomId)
-        .collection(FirestoreCollections.messages)
-        .doc();
+    if (normalizedChatRoomId.isEmpty) {
+      throw Exception('Conversation not found.');
+    }
+
+    if (normalizedMessage.isEmpty) {
+      return;
+    }
+
+    if (normalizedMessage.length > 4000) {
+      throw Exception('Messages cannot exceed 4000 characters.');
+    }
+
+    final uid = currentUid.trim();
+
+    if (uid.isEmpty) {
+      throw Exception('You must be logged in to send messages.');
+    }
+
+    if (senderRole != UserRoles.customer && senderRole != UserRoles.provider) {
+      throw Exception('Invalid message sender role.');
+    }
 
     final chatRoomRef = _db
         .collection(FirestoreCollections.chatRooms)
-        .doc(chatRoomId);
+        .doc(normalizedChatRoomId);
 
     final chatRoomDoc = await chatRoomRef.get();
 
@@ -2064,48 +2096,35 @@ class FeastaRepository {
       throw Exception('Chat room not found.');
     }
 
-    final chatRoomData = chatRoomDoc.data()!;
+    final chatRoomData = chatRoomDoc.data();
 
-    final customerId = chatRoomData['customerId'];
-    final providerId = chatRoomData['providerId'];
-    final providerBusinessName =
-        chatRoomData['providerBusinessName'] ?? 'Provider';
-    final customerFirstName = chatRoomData['customerFirstName'] ?? 'Customer';
-    final customerLastName = chatRoomData['customerLastName'] ?? '';
-
-    String receiverId = '';
-    String notificationTitle = '';
-    String notificationMessage = '';
-
-    if (senderRole == UserRoles.customer) {
-      final providerDoc = await _db
-          .collection(FirestoreCollections.providers)
-          .doc(providerId)
-          .get();
-
-      receiverId = providerDoc.data()?['ownerId'] ?? '';
-      notificationTitle = 'New Message';
-      notificationMessage =
-          '$customerFirstName $customerLastName sent you a message.';
-    } else if (senderRole == UserRoles.provider) {
-      receiverId = customerId;
-      notificationTitle = 'New Message from $providerBusinessName';
-      notificationMessage = message.length > 80
-          ? '${message.substring(0, 80)}...'
-          : message;
+    if (chatRoomData == null) {
+      throw Exception('Chat room data could not be loaded.');
     }
 
-    final notificationRef = _db
-        .collection(FirestoreCollections.notifications)
+    final customerId = chatRoomData['customerId']?.toString().trim() ?? '';
+
+    final providerId = chatRoomData['providerId']?.toString().trim() ?? '';
+
+    if (customerId.isEmpty || providerId.isEmpty) {
+      throw Exception(
+        'This conversation has incomplete participant information.',
+      );
+    }
+
+    final now = FieldValue.serverTimestamp();
+
+    final messageRef = chatRoomRef
+        .collection(FirestoreCollections.messages)
         .doc();
 
     final batch = _db.batch();
 
     batch.set(messageRef, {
-      'chatRoomId': chatRoomId,
-      'senderId': currentUid,
+      'chatRoomId': normalizedChatRoomId,
+      'senderId': uid,
       'senderRole': senderRole,
-      'message': message.trim(),
+      'message': normalizedMessage,
       'messageType': messageType,
       'attachmentUrl': attachmentUrl,
       'isRead': false,
@@ -2114,45 +2133,86 @@ class FeastaRepository {
     });
 
     batch.update(chatRoomRef, {
-      'lastMessage': message.trim(),
+      'lastMessage': normalizedMessage,
       'lastMessageAt': now,
-      'lastMessageSenderId': currentUid,
+      'lastMessageSenderId': uid,
       'updatedAt': now,
+
       if (senderRole == UserRoles.customer)
         'unreadCountProvider': FieldValue.increment(1),
+
       if (senderRole == UserRoles.provider)
         'unreadCountCustomer': FieldValue.increment(1),
     });
 
-    if (receiverId.isNotEmpty) {
-      batch.set(notificationRef, {
-        'userId': receiverId,
-        'title': notificationTitle,
-        'message': notificationMessage,
-        'type': NotificationType.chat,
-        'relatedId': chatRoomId,
-        'relatedCollection': FirestoreCollections.chatRooms,
-        'isRead': false,
-        'readAt': null,
-        'createdAt': now,
-      });
-    }
+    // IMPORTANT:
+    //
+    // Do NOT create a notification from the Flutter client here.
+    //
+    // Firestore security rules intentionally keep notification creation
+    // backend-controlled. Putting a notification write in this batch causes
+    // the entire message send to fail with PERMISSION_DENIED.
+    //
+    // Chat notifications should later be created by a trusted Cloud Function.
 
     await batch.commit();
   }
 
-  Future<void> submitReview({
+  Future<bool> hasReviewedBooking(String bookingId) async {
+    final uid = currentUid.trim();
+    final normalizedBookingId = bookingId.trim();
+
+    if (uid.isEmpty || normalizedBookingId.isEmpty) {
+      return false;
+    }
+
+    final reviewId = '${normalizedBookingId}_$uid';
+
+    final snapshot = await _db
+        .collection(FirestoreCollections.reviews)
+        .doc(reviewId)
+        .get();
+
+    return snapshot.exists;
+  }
+
+  Stream<bool> reviewExistsStream(String bookingId) {
+    final uid = currentUid.trim();
+    final normalizedBookingId = bookingId.trim();
+
+    if (uid.isEmpty || normalizedBookingId.isEmpty) {
+      return Stream<bool>.value(false);
+    }
+
+    final reviewId = '${normalizedBookingId}_$uid';
+
+    return _db
+        .collection(FirestoreCollections.reviews)
+        .doc(reviewId)
+        .snapshots()
+        .map((snapshot) => snapshot.exists);
+  }
+
+  Future<bool> submitReview({
     required BookingModel booking,
     required int rating,
     required String comment,
   }) async {
     try {
-      await _functions.httpsCallable('submitReview').call({
+      final result = await _functions.httpsCallable('submitReview').call({
         'bookingId': booking.id,
         'rating': rating,
         'comment': comment.trim(),
         'idempotencyKey': '${booking.id}_$currentUid',
       });
+
+      final data = result.data;
+
+      if (data is Map) {
+        return data['created'] == true;
+      }
+
+      return true;
     } on FirebaseFunctionsException catch (error) {
       throw Exception(error.message ?? 'The review could not be submitted.');
     }
@@ -2332,7 +2392,7 @@ class FeastaRepository {
             'userId': addonProviderOwnerId,
             'title': 'Event Request Under Recovery',
             'message':
-                'The main catering request connected to ${booking.customerFirstName} ${booking.customerLastName}’s event was rejected. Your add-on request is on hold while the customer reviews other caterers.',
+                'The main catering request connected to ${booking.customerFirstName} ${booking.customerLastName}â€™s event was rejected. Your add-on request is on hold while the customer reviews other caterers.',
             'type': NotificationType.booking,
             'relatedId': doc.id,
             'relatedCollection': FirestoreCollections.addonRequests,
@@ -2486,6 +2546,17 @@ class FeastaRepository {
 
           return offers;
         });
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> myChatRooms() {
+    return _db
+        .collection(FirestoreCollections.chatRooms)
+        .where('customerId', isEqualTo: currentUid)
+        .where('isActive', isEqualTo: true)
+        .orderBy('lastMessageAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(50)
+        .snapshots();
   }
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> chatRoomStream(
@@ -2744,6 +2815,7 @@ class FeastaRepository {
     return _db
         .collection(FirestoreCollections.reviews)
         .where('providerId', isEqualTo: providerId)
+        .where('moderationStatus', isEqualTo: 'published')
         .where('isVisible', isEqualTo: true)
         .where('isDeleted', isEqualTo: false)
         .orderBy('createdAt', descending: true)

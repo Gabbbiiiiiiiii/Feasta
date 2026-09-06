@@ -7,10 +7,22 @@ abstract final class AppBreakpoints {
   static const double largeDesktop = 1536;
 
   static AppWindowClass windowClassFor(double width) {
-    if (width >= largeDesktop) return AppWindowClass.largeDesktop;
-    if (width >= desktop) return AppWindowClass.desktop;
-    if (width >= laptop) return AppWindowClass.laptop;
-    if (width >= tablet) return AppWindowClass.tablet;
+    if (width >= largeDesktop) {
+      return AppWindowClass.largeDesktop;
+    }
+
+    if (width >= desktop) {
+      return AppWindowClass.desktop;
+    }
+
+    if (width >= laptop) {
+      return AppWindowClass.laptop;
+    }
+
+    if (width >= tablet) {
+      return AppWindowClass.tablet;
+    }
+
     return AppWindowClass.mobile;
   }
 }

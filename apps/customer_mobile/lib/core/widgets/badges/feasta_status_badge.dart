@@ -25,6 +25,7 @@ class FeastaStatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = _colorsFor(tone);
+
     final effectiveIcon = icon ?? _iconFor(tone);
 
     return Semantics(
@@ -34,12 +35,12 @@ class FeastaStatusBadge extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.sm,
-            vertical: AppSpacing.xxs,
+            vertical: AppSpacing.xs,
           ),
           decoration: BoxDecoration(
             color: colors.background,
             borderRadius: BorderRadius.circular(AppRadius.pill),
-            border: Border.all(color: colors.foreground),
+            border: Border.all(color: AppColors.border),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -53,8 +54,11 @@ class FeastaStatusBadge extends StatelessWidget {
               Flexible(
                 child: Text(
                   label,
-                  style: AppTypography.label.copyWith(color: colors.foreground),
                   softWrap: true,
+                  style: AppTypography.label.copyWith(
+                    color: colors.foreground,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -64,40 +68,44 @@ class FeastaStatusBadge extends StatelessWidget {
     );
   }
 
-  static _BadgeColors _colorsFor(FeastaStatusTone tone) => switch (tone) {
-    FeastaStatusTone.neutral => const _BadgeColors(
-      AppColors.surfaceMuted,
-      AppColors.mainText,
-    ),
-    FeastaStatusTone.success => const _BadgeColors(
-      AppColors.successSubtle,
-      AppColors.success,
-    ),
-    FeastaStatusTone.warning => const _BadgeColors(
-      AppColors.warningSubtle,
-      AppColors.warning,
-    ),
-    FeastaStatusTone.error => const _BadgeColors(
-      AppColors.errorSubtle,
-      AppColors.error,
-    ),
-    FeastaStatusTone.info => const _BadgeColors(
-      AppColors.infoSubtle,
-      AppColors.info,
-    ),
-  };
+  static _BadgeColors _colorsFor(FeastaStatusTone tone) {
+    return switch (tone) {
+      FeastaStatusTone.neutral => const _BadgeColors(
+        background: AppColors.surfaceMuted,
+        foreground: AppColors.mainText,
+      ),
+      FeastaStatusTone.success => const _BadgeColors(
+        background: AppColors.successSubtle,
+        foreground: AppColors.success,
+      ),
+      FeastaStatusTone.warning => const _BadgeColors(
+        background: AppColors.warningSubtle,
+        foreground: AppColors.warning,
+      ),
+      FeastaStatusTone.error => const _BadgeColors(
+        background: AppColors.errorSubtle,
+        foreground: AppColors.error,
+      ),
+      FeastaStatusTone.info => const _BadgeColors(
+        background: AppColors.infoSubtle,
+        foreground: AppColors.info,
+      ),
+    };
+  }
 
-  static IconData _iconFor(FeastaStatusTone tone) => switch (tone) {
-    FeastaStatusTone.neutral => Icons.circle_outlined,
-    FeastaStatusTone.success => Icons.check_circle_outline,
-    FeastaStatusTone.warning => Icons.warning_amber_rounded,
-    FeastaStatusTone.error => Icons.error_outline,
-    FeastaStatusTone.info => Icons.info_outline,
-  };
+  static IconData _iconFor(FeastaStatusTone tone) {
+    return switch (tone) {
+      FeastaStatusTone.neutral => Icons.circle_outlined,
+      FeastaStatusTone.success => Icons.check_circle_outline_rounded,
+      FeastaStatusTone.warning => Icons.schedule_rounded,
+      FeastaStatusTone.error => Icons.error_outline_rounded,
+      FeastaStatusTone.info => Icons.info_outline_rounded,
+    };
+  }
 }
 
 class _BadgeColors {
-  const _BadgeColors(this.background, this.foreground);
+  const _BadgeColors({required this.background, required this.foreground});
 
   final Color background;
   final Color foreground;

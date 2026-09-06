@@ -20,7 +20,8 @@ class DevicePermissionService {
     final shouldAskLocation =
         requestLocation && !(prefs.getBool(_locationAskedKey) ?? false);
 
-    final shouldAskNotifications = requestNotifications &&
+    final shouldAskNotifications =
+        requestNotifications &&
         !(prefs.getBool(_notificationAskedKey) ?? false);
 
     if (!shouldAskLocation && !shouldAskNotifications) {
@@ -41,10 +42,12 @@ class DevicePermissionService {
             'Device access',
             style: TextStyle(fontWeight: FontWeight.w900),
           ),
-          content: Text(_permissionMessage(
-            location: shouldAskLocation,
-            notifications: shouldAskNotifications,
-          )),
+          content: Text(
+            _permissionMessage(
+              location: shouldAskLocation,
+              notifications: shouldAskNotifications,
+            ),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),

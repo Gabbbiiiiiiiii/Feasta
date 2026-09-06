@@ -9,7 +9,7 @@ import '../authentication/data/services/location_service.dart';
 import '../authentication/data/services/maps_api_service.dart';
 import 'manual_address_screen.dart';
 
-const Color _primary = Color(0xFFFF6333);
+const Color _primary = Color(0xFFB02F00);
 const Color _background = Color(0xFFF8F6F3);
 const Color _textPrimary = Color(0xFF2B211D);
 const Color _textSecondary = Color(0xFF8C817A);
@@ -83,6 +83,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       setState(() {
         suggestions = [];
         isSearching = false;
+        errorMessage = null;
       });
       return;
     }
@@ -251,7 +252,9 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _toggleMapType() async {
-    final nextType = mapType == MapType.normal ? MapType.satellite : MapType.normal;
+    final nextType = mapType == MapType.normal
+        ? MapType.satellite
+        : MapType.normal;
 
     setState(() {
       mapType = nextType;
@@ -289,8 +292,8 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       isDefault: true,
       createdAt:
           address.createdAt == CustomerAddressModel.defaultOrmoc.createdAt
-              ? DateTime.now()
-              : address.createdAt,
+          ? DateTime.now()
+          : address.createdAt,
     );
 
     try {
@@ -316,8 +319,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       context,
       MaterialPageRoute(
         builder: (context) => ManualAddressScreen(
-          initialAddress:
-              editCurrent ? address ?? previewAddress : null,
+          initialAddress: editCurrent ? address ?? previewAddress : null,
           preserveAddressId: editCurrent,
         ),
       ),
@@ -340,7 +342,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor: _background,
       body: isLoading
           ? const _LocationLoading()
@@ -367,9 +372,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _MapCloseButton(
-                          onTap: () => Navigator.pop(context),
-                        ),
+                        _MapCloseButton(onTap: () => Navigator.pop(context)),
                         const SizedBox(width: 10),
                         Expanded(
                           child: _SearchPanel(
@@ -386,19 +389,35 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                 ),
                 Align(
                   alignment: Alignment.bottomCenter,
-                  child: _LocationActionPanel(
-                    address: previewAddress,
-                    errorMessage: errorMessage,
-                    accuracyWarning: accuracyWarning,
-                    isResolvingAddress: isResolvingAddress,
-                    isSaving: isSaving,
-                    isLocating: isLocating,
-                    onConfirm: _confirmPreviewAddress,
-                    onUseCurrentLocation: _useCurrentLocation,
-                    onDismiss: () => Navigator.pop(context),
-                    onManualEntry: () => _openManualAddress(),
-                    onEditAddress: (address) =>
-                        _openManualAddress(address: address, editCurrent: true),
+                  child: IgnorePointer(
+                    ignoring: keyboardOpen,
+                    child: AnimatedSlide(
+                      offset: keyboardOpen
+                          ? const Offset(0, 1.05)
+                          : Offset.zero,
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      child: AnimatedOpacity(
+                        opacity: keyboardOpen ? 0 : 1,
+                        duration: const Duration(milliseconds: 160),
+                        child: _LocationActionPanel(
+                          address: previewAddress,
+                          errorMessage: errorMessage,
+                          accuracyWarning: accuracyWarning,
+                          isResolvingAddress: isResolvingAddress,
+                          isSaving: isSaving,
+                          isLocating: isLocating,
+                          onConfirm: _confirmPreviewAddress,
+                          onUseCurrentLocation: _useCurrentLocation,
+                          onDismiss: () => Navigator.pop(context),
+                          onManualEntry: () => _openManualAddress(),
+                          onEditAddress: (address) => _openManualAddress(
+                            address: address,
+                            editCurrent: true,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -481,14 +500,14 @@ class _SearchPanel extends StatelessWidget {
                       ),
                     )
                   : controller.text.isEmpty
-                      ? null
-                      : IconButton(
-                          onPressed: () {
-                            controller.clear();
-                            onChanged('');
-                          },
-                          icon: const Icon(Icons.close_rounded),
-                        ),
+                  ? null
+                  : IconButton(
+                      onPressed: () {
+                        controller.clear();
+                        onChanged('');
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
               filled: true,
               fillColor: _background,
               border: OutlineInputBorder(
@@ -501,13 +520,15 @@ class _SearchPanel extends StatelessWidget {
           if (suggestions.isNotEmpty) ...[
             const SizedBox(height: 10),
             Container(
-              constraints: const BoxConstraints(maxHeight: 168),
+              constraints: const BoxConstraints(maxHeight: 240),
               decoration: _cardDecoration(),
               child: ListView.separated(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: EdgeInsets.zero,
                 shrinkWrap: true,
                 itemCount: suggestions.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
+                separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final suggestion = suggestions[index];
                   return ListTile(
@@ -563,49 +584,49 @@ class _MapPickerArea extends StatelessWidget {
     final target = LatLng(address.latitude, address.longitude);
 
     return Stack(
-  children: [
-    GoogleMap(
-      initialCameraPosition: CameraPosition(target: target, zoom: 18),
-      mapType: mapType,
-      myLocationButtonEnabled: false,
-      zoomControlsEnabled: false,
-      mapToolbarEnabled: false,
-      onMapCreated: onMapCreated,
-      onCameraMove: onCameraMove,
-      onCameraIdle: onCameraIdle,
-    ),
-    const IgnorePointer(
-      child: Center(
-        child: Padding(
-          padding: EdgeInsets.only(bottom: 42),
-          child: Icon(Icons.location_pin, color: _primary, size: 52),
+      children: [
+        GoogleMap(
+          initialCameraPosition: CameraPosition(target: target, zoom: 18),
+          mapType: mapType,
+          myLocationButtonEnabled: false,
+          zoomControlsEnabled: false,
+          mapToolbarEnabled: false,
+          onMapCreated: onMapCreated,
+          onCameraMove: onCameraMove,
+          onCameraIdle: onCameraIdle,
         ),
-      ),
-    ),
-    Positioned(
-      right: 18,
-      bottom: 360,
-      child: Column(
-        children: [
-          _FloatingMapButton(
-            tooltip: mapType == MapType.normal ? 'Satellite' : 'Map',
-            icon: mapType == MapType.normal
-                ? Icons.satellite_alt_outlined
-                : Icons.map_outlined,
-            onTap: onToggleMapType,
+        const IgnorePointer(
+          child: Center(
+            child: Padding(
+              padding: EdgeInsets.only(bottom: 42),
+              child: Icon(Icons.location_pin, color: _primary, size: 52),
+            ),
           ),
-          const SizedBox(height: 10),
-          _FloatingMapButton(
-            tooltip: 'Use current location',
-            icon: isLocating
-                ? Icons.hourglass_top_rounded
-                : Icons.my_location_rounded,
-            onTap: isLocating ? null : onUseCurrentLocation,
+        ),
+        Positioned(
+          right: 18,
+          bottom: 360,
+          child: Column(
+            children: [
+              _FloatingMapButton(
+                tooltip: mapType == MapType.normal ? 'Satellite' : 'Map',
+                icon: mapType == MapType.normal
+                    ? Icons.satellite_alt_outlined
+                    : Icons.map_outlined,
+                onTap: onToggleMapType,
+              ),
+              const SizedBox(height: 10),
+              _FloatingMapButton(
+                tooltip: 'Use current location',
+                icon: isLocating
+                    ? Icons.hourglass_top_rounded
+                    : Icons.my_location_rounded,
+                onTap: isLocating ? null : onUseCurrentLocation,
+              ),
+            ],
           ),
-        ],
-      ),
-    ),
-  ],
+        ),
+      ],
     );
   }
 }
@@ -804,10 +825,7 @@ class _SelectedAddressCard extends StatelessWidget {
   final CustomerAddressModel address;
   final VoidCallback onEdit;
 
-  const _SelectedAddressCard({
-    required this.address,
-    required this.onEdit,
-  });
+  const _SelectedAddressCard({required this.address, required this.onEdit});
 
   @override
   Widget build(BuildContext context) {
@@ -952,10 +970,7 @@ class _ErrorNotice extends StatelessWidget {
   final String message;
   final VoidCallback onManualEntry;
 
-  const _ErrorNotice({
-    required this.message,
-    required this.onManualEntry,
-  });
+  const _ErrorNotice({required this.message, required this.onManualEntry});
 
   @override
   Widget build(BuildContext context) {
@@ -981,10 +996,7 @@ class _ErrorNotice extends StatelessWidget {
               ),
             ),
           ),
-          TextButton(
-            onPressed: onManualEntry,
-            child: const Text('Enter'),
-          ),
+          TextButton(onPressed: onManualEntry, child: const Text('Enter')),
         ],
       ),
     );
@@ -1032,11 +1044,7 @@ BoxDecoration _cardDecoration({Color borderColor = _border}) {
     borderRadius: BorderRadius.circular(18),
     border: Border.all(color: borderColor),
     boxShadow: const [
-      BoxShadow(
-        color: Color(0x08000000),
-        blurRadius: 14,
-        offset: Offset(0, 6),
-      ),
+      BoxShadow(color: Color(0x08000000), blurRadius: 14, offset: Offset(0, 6)),
     ],
   );
 }

@@ -39,31 +39,42 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
   CustomerAuthenticationState _state =
       const CustomerAuthenticationState.loading();
+
   CustomerAuthenticationState get state => _state;
 
   String _intendedLocation;
+
   String get intendedLocation => _intendedLocation;
 
   StreamSubscription<CustomerAuthIdentity?>? _authSubscription;
+
   StreamSubscription<CustomerAuthIdentity?>? _tokenSubscription;
+
   StreamSubscription<void>? _accountSubscription;
+
   CustomerAuthIdentity? _identity;
+
   Future<void>? _activeLoad;
+
   bool _reloadQueued = false;
   bool _forceRefreshQueued = false;
   bool _started = false;
   bool _disposed = false;
   bool _preserveTerminalState = false;
+
   int _identityGeneration = 0;
 
   void start() {
     if (_started) return;
+
     _started = true;
+
     _authSubscription = repository.authStateChanges().listen(
       (identity) => _handleIdentity(identity, forceTokenRefresh: false),
       onError: (_) =>
           _setTransientFailure(CustomerAuthenticationFailureKind.server),
     );
+
     _tokenSubscription = repository.idTokenChanges().listen(
       (identity) => _handleIdentity(identity, forceTokenRefresh: false),
       onError: (_) =>
@@ -73,23 +84,57 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
   bool requestIntendedLocation(Object? location) {
     final safeLocation = CustomerRouteGuard.sanitizeIntendedLocation(location);
-    if (safeLocation == null) return false;
+
+    if (safeLocation == null) {
+      return false;
+    }
+
     if (_intendedLocation != safeLocation) {
       _intendedLocation = safeLocation;
       notifyListeners();
     }
+
+    return true;
+  }
+
+  /// Stores the user's intended destination without notifying listeners.
+  ///
+  /// This is used by modal authentication so AuthenticationGate does not
+  /// replace the current guest screen with a full login page while the
+  /// modal is open.
+  bool stageIntendedLocation(Object? location) {
+    final safeLocation = CustomerRouteGuard.sanitizeIntendedLocation(location);
+
+    if (safeLocation == null) {
+      return false;
+    }
+
+    _intendedLocation = safeLocation;
+
     return true;
   }
 
   String consumeIntendedLocation() {
     final location = _intendedLocation;
+
     _intendedLocation = CustomerAppLocations.customer;
+
     return location;
   }
 
   Future<void> refresh({bool forceTokenRefresh = true}) async {
     final identity = repository.currentIdentity ?? _identity;
+
+    debugPrint(
+      'FEASTA AUTH REFRESH START: '
+      'repositoryUid=${repository.currentIdentity?.uid}, '
+      'controllerUid=${_identity?.uid}, '
+      'gate=${_state.gate.kind}',
+    );
+
     if (identity == null) {
+      _identity = null;
+
       _setState(
         const CustomerAuthenticationState(
           gate: AuthenticationGateResult(
@@ -97,21 +142,58 @@ class CustomerAuthenticationController extends ChangeNotifier {
           ),
         ),
       );
+
+      debugPrint('FEASTA AUTH REFRESH END: no Firebase identity');
+
       return;
     }
+
+    final identityChanged = _identity?.uid != identity.uid;
+
+    _preserveTerminalState = false;
     _identity = identity;
+
+    if (identityChanged) {
+      _identityGeneration++;
+      _bindAccountChanges(identity.uid);
+
+      _setState(
+        CustomerAuthenticationState(
+          gate: const AuthenticationGateResult(AuthenticationGateKind.loading),
+          email: identity.email,
+        ),
+      );
+    }
+
     await _requestLoad(forceTokenRefresh: forceTokenRefresh);
+
+    debugPrint(
+      'FEASTA AUTH REFRESH END: '
+      'uid=${identity.uid}, '
+      'gate=${_state.gate.kind}, '
+      'email=${_state.email}',
+    );
   }
 
   Future<void> signOut() async {
     _preserveTerminalState = false;
-    await repository.signOut();
+
+    _identityGeneration++;
+
+    await _accountSubscription?.cancel();
+    _accountSubscription = null;
+
     _identity = null;
     _intendedLocation = CustomerAppLocations.browse;
     _reloadQueued = false;
     _forceRefreshQueued = false;
-    await _accountSubscription?.cancel();
-    _accountSubscription = null;
+
+    await repository.signOut();
+
+    if (_disposed) {
+      return;
+    }
+
     _setState(
       const CustomerAuthenticationState(
         gate: AuthenticationGateResult(AuthenticationGateKind.unauthenticated),
@@ -121,7 +203,9 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
   Future<void> acknowledgeSessionExpired() async {
     _preserveTerminalState = false;
+
     _intendedLocation = CustomerAppLocations.browse;
+
     _setState(
       const CustomerAuthenticationState(
         gate: AuthenticationGateResult(AuthenticationGateKind.unauthenticated),
@@ -135,10 +219,17 @@ class CustomerAuthenticationController extends ChangeNotifier {
   }) {
     if (identity == null) {
       _identity = null;
+
       _identityGeneration++;
+
       unawaited(_accountSubscription?.cancel());
+
       _accountSubscription = null;
-      if (_preserveTerminalState) return;
+
+      if (_preserveTerminalState) {
+        return;
+      }
+
       _setState(
         const CustomerAuthenticationState(
           gate: AuthenticationGateResult(
@@ -146,15 +237,21 @@ class CustomerAuthenticationController extends ChangeNotifier {
           ),
         ),
       );
+
       return;
     }
 
     _preserveTerminalState = false;
+
     final identityChanged = _identity?.uid != identity.uid;
+
     _identity = identity;
+
     if (identityChanged) {
       _identityGeneration++;
+
       _bindAccountChanges(identity.uid);
+
       _setState(
         CustomerAuthenticationState(
           gate: const AuthenticationGateResult(AuthenticationGateKind.loading),
@@ -162,42 +259,52 @@ class CustomerAuthenticationController extends ChangeNotifier {
         ),
       );
     }
+
     unawaited(_requestLoad(forceTokenRefresh: forceTokenRefresh));
   }
 
   void _bindAccountChanges(String uid) {
     unawaited(_accountSubscription?.cancel());
+
+    final generation = _identityGeneration;
+
     _accountSubscription = repository
         .accountChanges(uid)
         .listen(
           (_) {
-            if (_identity?.uid == uid) {
-              unawaited(_requestLoad(forceTokenRefresh: false));
+            if (!_isCurrent(uid, generation)) {
+              return;
             }
+
+            unawaited(_requestLoad(forceTokenRefresh: false));
           },
-          onError: (_) {
-            _setState(
-              CustomerAuthenticationState(
-                gate: const AuthenticationGateResult(
-                  AuthenticationGateKind.invalidAccountState,
-                ),
-                email: _identity?.email,
-              ),
+          onError: (Object error, StackTrace stackTrace) {
+            if (!_isCurrent(uid, generation)) {
+              return;
+            }
+
+            debugPrint(
+              'FEASTA AUTH ACCOUNT LISTENER ERROR: uid=$uid error=$error',
             );
-            _terminateSessionPreservingState();
+
+            unawaited(_requestLoad(forceTokenRefresh: true));
           },
         );
   }
 
   Future<void> _requestLoad({required bool forceTokenRefresh}) {
     _forceRefreshQueued = _forceRefreshQueued || forceTokenRefresh;
+
     if (_activeLoad != null) {
       _reloadQueued = true;
+
       return _activeLoad!;
     }
 
     final load = _drainLoads();
+
     _activeLoad = load;
+
     return load;
   }
 
@@ -205,8 +312,11 @@ class CustomerAuthenticationController extends ChangeNotifier {
     try {
       do {
         _reloadQueued = false;
+
         final forceTokenRefresh = _forceRefreshQueued;
+
         _forceRefreshQueued = false;
+
         await _performLoad(forceTokenRefresh: forceTokenRefresh);
       } while (_reloadQueued && !_disposed);
     } finally {
@@ -216,7 +326,11 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
   Future<void> _performLoad({required bool forceTokenRefresh}) async {
     final identity = _identity;
-    if (identity == null) return;
+
+    if (identity == null) {
+      return;
+    }
+
     final generation = _identityGeneration;
 
     try {
@@ -224,7 +338,10 @@ class CustomerAuthenticationController extends ChangeNotifier {
         identity: identity,
         forceTokenRefresh: forceTokenRefresh,
       );
-      if (!_isCurrent(identity.uid, generation)) return;
+
+      if (!_isCurrent(identity.uid, generation)) {
+        return;
+      }
 
       final gate = resolveAuthenticationGate(
         AuthenticationGateInput(
@@ -234,14 +351,19 @@ class CustomerAuthenticationController extends ChangeNotifier {
           requiredRoles: const {UserRole.customer},
         ),
       );
+
       _setState(
         CustomerAuthenticationState(gate: gate, email: result.identity.email),
       );
+
       if (_requiresTermination(gate.kind)) {
         _terminateSessionPreservingState();
       }
     } on CustomerAuthLoadFailure catch (failure) {
-      if (!_isCurrent(identity.uid, generation)) return;
+      if (!_isCurrent(identity.uid, generation)) {
+        return;
+      }
+
       _handleLoadFailure(failure.kind);
     }
   }
@@ -257,9 +379,11 @@ class CustomerAuthenticationController extends ChangeNotifier {
       case CustomerAuthLoadFailureKind.network:
         _setTransientFailure(CustomerAuthenticationFailureKind.network);
         return;
+
       case CustomerAuthLoadFailureKind.server:
         _setTransientFailure(CustomerAuthenticationFailureKind.server);
         return;
+
       case CustomerAuthLoadFailureKind.sessionExpired:
         _setState(
           CustomerAuthenticationState(
@@ -269,8 +393,11 @@ class CustomerAuthenticationController extends ChangeNotifier {
             email: _identity?.email,
           ),
         );
+
         _terminateSessionPreservingState();
+
         return;
+
       case CustomerAuthLoadFailureKind.disabledAuthAccount:
         _setState(
           CustomerAuthenticationState(
@@ -280,8 +407,11 @@ class CustomerAuthenticationController extends ChangeNotifier {
             email: _identity?.email,
           ),
         );
+
         _terminateSessionPreservingState();
+
         return;
+
       case CustomerAuthLoadFailureKind.authorization:
         _setState(
           CustomerAuthenticationState(
@@ -291,8 +421,11 @@ class CustomerAuthenticationController extends ChangeNotifier {
             email: _identity?.email,
           ),
         );
+
         _terminateSessionPreservingState();
+
         return;
+
       case CustomerAuthLoadFailureKind.configuration:
         _setState(
           CustomerAuthenticationState(
@@ -302,6 +435,7 @@ class CustomerAuthenticationController extends ChangeNotifier {
             email: _identity?.email,
           ),
         );
+
         return;
     }
   }
@@ -318,7 +452,9 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
   void _setState(CustomerAuthenticationState value) {
     if (_disposed) return;
+
     _state = value;
+
     notifyListeners();
   }
 
@@ -342,19 +478,29 @@ class CustomerAuthenticationController extends ChangeNotifier {
   };
 
   void _terminateSessionPreservingState() {
-    if (_preserveTerminalState || _disposed) return;
+    if (_preserveTerminalState || _disposed) {
+      return;
+    }
+
     _preserveTerminalState = true;
+    _identityGeneration++;
+
     unawaited(_accountSubscription?.cancel());
     _accountSubscription = null;
+
     unawaited(repository.signOut().catchError((_) {}));
   }
 
   @override
   void dispose() {
     _disposed = true;
+
     unawaited(_authSubscription?.cancel());
+
     unawaited(_tokenSubscription?.cancel());
+
     unawaited(_accountSubscription?.cancel());
+
     super.dispose();
   }
 }

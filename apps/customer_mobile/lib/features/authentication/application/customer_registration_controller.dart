@@ -51,6 +51,7 @@ class CustomerRegistrationController extends ChangeNotifier {
   final CustomerRegistrationGateway gateway;
 
   CustomerRegistrationState _state = const CustomerRegistrationState();
+
   CustomerRegistrationState get state => _state;
 
   Future<CustomerRegistrationResult?> submit({
@@ -62,7 +63,9 @@ class CustomerRegistrationController extends ChangeNotifier {
     required bool acceptedTerms,
     required bool acceptedPrivacy,
   }) async {
-    if (_state.isSubmitting) return null;
+    if (_state.isSubmitting) {
+      return null;
+    }
 
     final errors = validate(
       firstName: firstName,
@@ -73,12 +76,15 @@ class CustomerRegistrationController extends ChangeNotifier {
       acceptedTerms: acceptedTerms,
       acceptedPrivacy: acceptedPrivacy,
     );
+
     if (errors.hasErrors) {
       _setState(CustomerRegistrationState(errors: errors));
+
       return null;
     }
 
     _setState(const CustomerRegistrationState(isSubmitting: true));
+
     try {
       final result = await gateway.registerCustomer(
         CustomerRegistrationInput(
@@ -90,20 +96,25 @@ class CustomerRegistrationController extends ChangeNotifier {
           acceptedPrivacy: acceptedPrivacy,
         ).normalized(),
       );
+
       _setState(CustomerRegistrationState(result: result));
+
       return result;
     } on CustomerRegistrationException catch (error) {
       _setState(
         CustomerRegistrationState(generalError: messageFor(error.kind)),
       );
+
       return null;
     } catch (_) {
       _setState(
         const CustomerRegistrationState(
           generalError:
-              'Registration could not be completed. Please try again.',
+              'We could not create your Feasta account. '
+              'Please try again.',
         ),
       );
+
       return null;
     }
   }
@@ -119,19 +130,23 @@ class CustomerRegistrationController extends ChangeNotifier {
     required bool acceptedPrivacy,
   }) {
     final normalizedEmail = email.trim();
+
     final emailValid = RegExp(
       r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
     ).hasMatch(normalizedEmail);
+
     return CustomerRegistrationFieldErrors(
       firstName: firstName.trim().isEmpty ? 'First name is required.' : null,
       lastName: lastName.trim().isEmpty ? 'Last name is required.' : null,
       email: normalizedEmail.isEmpty
-          ? 'Email is required.'
-          : (!emailValid ? 'Enter a valid email address.' : null),
+          ? 'Email address is required.'
+          : (!emailValid
+                ? 'Enter a valid email address, such as name@example.com.'
+                : null),
       password: password.isEmpty
           ? 'Password is required.'
           : (password.length < 6
-                ? 'Password must be at least 6 characters.'
+                ? 'Password must contain at least 6 characters.'
                 : null),
       confirmPassword: confirmPassword.isEmpty
           ? 'Confirm your password.'
@@ -143,28 +158,44 @@ class CustomerRegistrationController extends ChangeNotifier {
     );
   }
 
-  static String messageFor(
-    CustomerRegistrationFailureKind kind,
-  ) => switch (kind) {
-    CustomerRegistrationFailureKind.emailAlreadyInUse =>
-      'This email is already registered. Sign in to recover your account.',
-    CustomerRegistrationFailureKind.weakPassword =>
-      'That password does not meet the account security requirements.',
-    CustomerRegistrationFailureKind.invalidEmail =>
-      'Please enter a valid email address.',
-    CustomerRegistrationFailureKind.network =>
-      'Check your internet connection and try again.',
-    CustomerRegistrationFailureKind.tooManyRequests =>
-      'Too many registration attempts. Wait a moment before trying again.',
-    CustomerRegistrationFailureKind.profileCreation =>
-      'Your account profile could not be created. The new sign-in was rolled back; please try again.',
-    CustomerRegistrationFailureKind.blockedAccount =>
-      'This account cannot be recovered here. Contact FEASTA support.',
-    CustomerRegistrationFailureKind.configuration =>
-      'Registration is temporarily unavailable because the app is not configured correctly.',
-    CustomerRegistrationFailureKind.unknown =>
-      'Registration could not be completed. Please try again.',
-  };
+  static String messageFor(CustomerRegistrationFailureKind kind) =>
+      switch (kind) {
+        CustomerRegistrationFailureKind.emailAlreadyInUse =>
+          'An account already exists with this email address. '
+              'Sign in instead or use a different email.',
+
+        CustomerRegistrationFailureKind.weakPassword =>
+          'Your password does not meet the account security requirements. '
+              'Use at least 6 characters and try again.',
+
+        CustomerRegistrationFailureKind.invalidEmail =>
+          'Enter a valid email address, such as name@example.com.',
+
+        CustomerRegistrationFailureKind.network =>
+          'We could not connect to Feasta. '
+              'Check your internet connection and try again.',
+
+        CustomerRegistrationFailureKind.tooManyRequests =>
+          'Too many account creation attempts were made. '
+              'Please wait a moment before trying again.',
+
+        CustomerRegistrationFailureKind.profileCreation =>
+          'Your Feasta customer profile could not be created. '
+              'The new sign-in was rolled back when possible, '
+              'so you can safely try again.',
+
+        CustomerRegistrationFailureKind.blockedAccount =>
+          'This account cannot be used to create a customer profile. '
+              'Please contact Feasta support for assistance.',
+
+        CustomerRegistrationFailureKind.configuration =>
+          'Account creation is temporarily unavailable. '
+              'Please try again later.',
+
+        CustomerRegistrationFailureKind.unknown =>
+          'We could not create your Feasta account. '
+              'Please try again.',
+      };
 
   void _setState(CustomerRegistrationState value) {
     _state = value;

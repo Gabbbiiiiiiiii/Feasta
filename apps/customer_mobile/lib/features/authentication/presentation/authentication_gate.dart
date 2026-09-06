@@ -27,6 +27,7 @@ class AuthenticationGate extends StatelessWidget {
   });
 
   final CustomerAuthenticationController controller;
+
   final AuthenticationGateBuilder? publicBuilder;
   final AuthenticationGateBuilder? customerBuilder;
   final AuthenticationGateBuilder? loginBuilder;
@@ -36,16 +37,30 @@ class AuthenticationGate extends StatelessWidget {
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: controller,
-      builder: (context, _) => _buildState(context),
+      builder: (context, _) {
+        return _buildState(context);
+      },
     );
   }
 
   Widget _buildState(BuildContext context) {
     final state = controller.state;
+    final kind = state.gate.kind;
+
+    debugPrint(
+      'FEASTA AUTH GATE: '
+      'kind=$kind '
+      'email=${state.email} '
+      'destination=${controller.intendedLocation}',
+    );
+
     if (state.failure != null) {
       return _StateScaffold(
+        key: const ValueKey('authentication-transient-error'),
         child: FeastaApplicationErrorState(
-          kind: state.failure == CustomerAuthenticationFailureKind.network
+          kind:
+              state.failure ==
+                  CustomerAuthenticationFailureKind.network
               ? FeastaErrorKind.connectivity
               : FeastaErrorKind.server,
           onRetry: controller.refresh,
@@ -53,28 +68,60 @@ class AuthenticationGate extends StatelessWidget {
       );
     }
 
-    final kind = state.gate.kind;
     final destination = CustomerRouteGuard.resolve(
       gate: kind,
       requestedLocation: controller.intendedLocation,
     );
 
-    if (kind == AuthenticationGateKind.loading) return const SplashScreen();
-
-    if (kind == AuthenticationGateKind.unauthenticated) {
-      if (destination == CustomerAppLocations.login) {
-        return loginBuilder?.call(context, controller) ??
-            const LoginScreen(
-              canSkip: false,
-              managedByAuthenticationGate: true,
-            );
-      }
-      return publicBuilder?.call(context, controller) ??
-          const CustomerMainScreen();
+    //
+    // LOADING
+    //
+    if (kind == AuthenticationGateKind.loading) {
+      return const SplashScreen(
+        key: ValueKey('authentication-loading'),
+      );
     }
 
+    //
+    // GUEST / UNAUTHENTICATED
+    //
+    if (kind == AuthenticationGateKind.unauthenticated) {
+      if (destination == CustomerAppLocations.login) {
+        return KeyedSubtree(
+          key: const ValueKey('authentication-login'),
+          child:
+              loginBuilder?.call(context, controller) ??
+              const LoginScreen(
+                canSkip: false,
+                managedByAuthenticationGate: true,
+              ),
+        );
+      }
+
+      //
+      // IMPORTANT:
+      //
+      // Give the guest CustomerMainScreen a unique key.
+      //
+      // This prevents Flutter from reusing the guest CustomerMainScreen
+      // when the authentication state later changes to customerReady.
+      //
+      return KeyedSubtree(
+        key: const ValueKey('customer-shell-guest'),
+        child:
+            publicBuilder?.call(context, controller) ??
+            const CustomerMainScreen(
+              key: ValueKey('customer-main-guest'),
+            ),
+      );
+    }
+
+    //
+    // SESSION EXPIRED
+    //
     if (kind == AuthenticationGateKind.sessionExpired) {
       return _StateScaffold(
+        key: const ValueKey('authentication-session-expired'),
         child: FeastaApplicationErrorState(
           kind: FeastaErrorKind.sessionExpired,
           onRetry: controller.acknowledgeSessionExpired,
@@ -82,26 +129,75 @@ class AuthenticationGate extends StatelessWidget {
       );
     }
 
+    //
+    // EMAIL VERIFICATION
+    //
     if (kind == AuthenticationGateKind.emailVerificationRequired) {
-      return verificationBuilder?.call(context, controller) ??
-          EmailVerificationScreen(
-            email: state.email ?? '',
-            managedByAuthenticationGate: true,
-          );
+      return KeyedSubtree(
+        key: const ValueKey('authentication-email-verification'),
+        child:
+            verificationBuilder?.call(context, controller) ??
+            EmailVerificationScreen(
+              email: state.email ?? '',
+              managedByAuthenticationGate: true,
+            ),
+      );
     }
 
+    //
+    // CUSTOMER AUTHENTICATED
+    //
     if (kind == AuthenticationGateKind.customerReady ||
-        kind == AuthenticationGateKind.customerPhoneVerificationRequired) {
+        kind ==
+            AuthenticationGateKind
+                .customerPhoneVerificationRequired) {
       if (customerBuilder != null) {
-        return customerBuilder!(context, controller);
+        return KeyedSubtree(
+          key: const ValueKey('customer-shell-authenticated'),
+          child: customerBuilder!(
+            context,
+            controller,
+          ),
+        );
       }
-      final intended = controller.consumeIntendedLocation();
-      return CustomerMainScreen(initialIndex: _tabForLocation(intended));
+
+      final intended =
+          controller.consumeIntendedLocation();
+
+      debugPrint(
+        'FEASTA AUTHENTICATED CUSTOMER: '
+        'opening=$intended',
+      );
+
+      //
+      // IMPORTANT:
+      //
+      // This key MUST be different from the guest key above.
+      //
+      // Flutter will therefore dispose the guest CustomerMainScreen and
+      // construct a fresh authenticated CustomerMainScreen.
+      //
+      return CustomerMainScreen(
+        key: const ValueKey(
+          'customer-main-authenticated',
+        ),
+        initialIndex: _tabForLocation(
+          intended,
+        ),
+      );
     }
 
+    //
+    // MISSING CUSTOMER PROFILE
+    //
     if (kind == AuthenticationGateKind.missingUserProfile) {
-      final presentation = authenticationGatePresentation(kind);
+      final presentation =
+          authenticationGatePresentation(kind);
+
       return _StateScaffold(
+        key: const ValueKey(
+          'authentication-missing-profile',
+        ),
         child: FeastaErrorState(
           title: presentation.label,
           message: presentation.message,
@@ -111,8 +207,14 @@ class AuthenticationGate extends StatelessWidget {
       );
     }
 
+    //
+    // PROVIDER / ADMIN ACCOUNT USED IN CUSTOMER APP
+    //
     if (_isUnsupportedRole(kind)) {
       return _StateScaffold(
+        key: const ValueKey(
+          'authentication-unsupported-role',
+        ),
         child: FeastaErrorState(
           title: 'Use the correct FEASTA app',
           message:
@@ -124,27 +226,52 @@ class AuthenticationGate extends StatelessWidget {
       );
     }
 
+    //
+    // OTHER TERMINAL ACCOUNT STATES
+    //
+    final presentation =
+        authenticationGatePresentation(kind);
+
     return _StateScaffold(
+      key: ValueKey(
+        'authentication-state-${kind.name}',
+      ),
       child: FeastaErrorState(
-        title: authenticationGatePresentation(kind).label,
-        message: authenticationGatePresentation(kind).message,
+        title: presentation.label,
+        message: presentation.message,
         retryLabel: 'Sign out',
         onRetry: controller.signOut,
       ),
     );
   }
 
-  static bool _isUnsupportedRole(AuthenticationGateKind kind) {
-    return kind == AuthenticationGateKind.forbiddenRole ||
-        kind == AuthenticationGateKind.providerBusinessSetupRequired ||
-        kind == AuthenticationGateKind.providerVerificationDraft ||
-        kind == AuthenticationGateKind.providerVerificationSubmitted ||
-        kind == AuthenticationGateKind.providerUnderReview ||
-        kind == AuthenticationGateKind.providerResubmissionRequired ||
-        kind == AuthenticationGateKind.providerRejected ||
-        kind == AuthenticationGateKind.providerSuspended ||
-        kind == AuthenticationGateKind.providerApproved ||
-        kind == AuthenticationGateKind.adminReady;
+  static bool _isUnsupportedRole(
+    AuthenticationGateKind kind,
+  ) {
+    return kind ==
+            AuthenticationGateKind.forbiddenRole ||
+        kind ==
+            AuthenticationGateKind
+                .providerBusinessSetupRequired ||
+        kind ==
+            AuthenticationGateKind
+                .providerVerificationDraft ||
+        kind ==
+            AuthenticationGateKind
+                .providerVerificationSubmitted ||
+        kind ==
+            AuthenticationGateKind.providerUnderReview ||
+        kind ==
+            AuthenticationGateKind
+                .providerResubmissionRequired ||
+        kind ==
+            AuthenticationGateKind.providerRejected ||
+        kind ==
+            AuthenticationGateKind.providerSuspended ||
+        kind ==
+            AuthenticationGateKind.providerApproved ||
+        kind ==
+            AuthenticationGateKind.adminReady;
   }
 
   static int _tabForLocation(String location) {
@@ -158,7 +285,10 @@ class AuthenticationGate extends StatelessWidget {
 }
 
 class _StateScaffold extends StatelessWidget {
-  const _StateScaffold({required this.child});
+  const _StateScaffold({
+    required this.child,
+    super.key,
+  });
 
   final Widget child;
 
@@ -166,7 +296,11 @@ class _StateScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        child: Center(child: SingleChildScrollView(child: child)),
+        child: Center(
+          child: SingleChildScrollView(
+            child: child,
+          ),
+        ),
       ),
     );
   }

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../theme/app_colors.dart';
+import '../../theme/app_radius.dart';
 import '../../theme/app_sizes.dart';
+import '../../theme/app_spacing.dart';
 
 class FeastaTextField extends StatefulWidget {
   const FeastaTextField({
@@ -41,27 +44,38 @@ class FeastaTextField extends StatefulWidget {
   final String? initialValue;
   final FocusNode? focusNode;
   final FocusNode? nextFocusNode;
+
   final String? hintText;
   final String? helperText;
   final String? errorText;
+
   final bool isRequired;
   final bool isPassword;
   final bool enabled;
   final bool readOnly;
+
   final Widget? prefixIcon;
   final Widget? suffixIcon;
+
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
+
   final Iterable<String>? autofillHints;
+
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
+
   final FormFieldValidator<String>? validator;
+
   final String? semanticLabel;
+
   final int? maxLines;
   final int? minLines;
   final int? maxLength;
+
   final bool autocorrect;
   final bool enableSuggestions;
+
   final List<TextInputFormatter>? inputFormatters;
 
   @override
@@ -80,6 +94,7 @@ class _FeastaTextFieldState extends State<FeastaTextField> {
   @override
   void didUpdateWidget(FeastaTextField oldWidget) {
     super.didUpdateWidget(oldWidget);
+
     if (oldWidget.isPassword != widget.isPassword) {
       _obscureText = widget.isPassword;
     }
@@ -88,17 +103,24 @@ class _FeastaTextFieldState extends State<FeastaTextField> {
   @override
   Widget build(BuildContext context) {
     final label = widget.isRequired ? '${widget.label} *' : widget.label;
+
     final accessibleLabel =
         widget.semanticLabel ??
         (widget.isRequired ? '${widget.label}, required' : widget.label);
+
     final accessibleHint = widget.errorText == null
         ? widget.helperText
         : 'Error: ${widget.errorText}';
+
     final passwordToggle = widget.isPassword
         ? IconButton(
             tooltip: _obscureText ? 'Show password' : 'Hide password',
             onPressed: widget.enabled && !widget.readOnly
-                ? () => setState(() => _obscureText = !_obscureText)
+                ? () {
+                    setState(() {
+                      _obscureText = !_obscureText;
+                    });
+                  }
                 : null,
             icon: Icon(
               _obscureText
@@ -129,6 +151,7 @@ class _FeastaTextFieldState extends State<FeastaTextField> {
         onChanged: widget.onChanged,
         onFieldSubmitted: (value) {
           widget.onSubmitted?.call(value);
+
           if (widget.nextFocusNode != null) {
             widget.nextFocusNode!.requestFocus();
           }
@@ -176,38 +199,67 @@ class FeastaSearchField extends StatelessWidget {
   final TextEditingController? controller;
   final FocusNode? focusNode;
   final String? hintText;
+
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
+
   final VoidCallback? onClear;
+
   final bool enabled;
   final bool autofocus;
 
   @override
   Widget build(BuildContext context) {
+    final border = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppRadius.pill),
+      borderSide: const BorderSide(color: AppColors.border),
+    );
+
+    final focusedBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(AppRadius.pill),
+      borderSide: const BorderSide(color: AppColors.focus, width: 1.5),
+    );
+
     return Semantics(
       textField: true,
       label: label,
       enabled: enabled,
-      child: TextFormField(
-        controller: controller,
-        focusNode: focusNode,
-        autofocus: autofocus,
-        enabled: enabled,
-        keyboardType: TextInputType.text,
-        textInputAction: TextInputAction.search,
-        onChanged: onChanged,
-        onFieldSubmitted: onSubmitted,
-        decoration: InputDecoration(
-          labelText: label,
-          hintText: hintText,
-          prefixIcon: const Icon(Icons.search),
-          suffixIcon: onClear == null
-              ? null
-              : IconButton(
-                  tooltip: 'Clear search',
-                  onPressed: enabled ? onClear : null,
-                  icon: const Icon(Icons.close),
-                ),
+      child: SizedBox(
+        height: AppSizes.searchHeight,
+        child: TextFormField(
+          controller: controller,
+          focusNode: focusNode,
+          autofocus: autofocus,
+          enabled: enabled,
+          keyboardType: TextInputType.text,
+          textInputAction: TextInputAction.search,
+          onChanged: onChanged,
+          onFieldSubmitted: onSubmitted,
+          decoration: InputDecoration(
+            labelText: null,
+            hintText: hintText ?? label,
+            filled: true,
+            fillColor: AppColors.surface,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.lg,
+              vertical: AppSpacing.md,
+            ),
+            prefixIcon: const Icon(
+              Icons.search_rounded,
+              size: AppSizes.iconDefault,
+            ),
+            suffixIcon: onClear == null
+                ? null
+                : IconButton(
+                    tooltip: 'Clear search',
+                    onPressed: enabled ? onClear : null,
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+            border: border,
+            enabledBorder: border,
+            focusedBorder: focusedBorder,
+            disabledBorder: border,
+          ),
         ),
       ),
     );
