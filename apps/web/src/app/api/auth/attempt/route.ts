@@ -1,4 +1,5 @@
 import {NextResponse} from "next/server";
+import {normalizePhilippineMobile} from "@feasta/shared-types";
 
 import {adminAuth} from "@/lib/firebase/admin";
 import {loadTrustedAccountContext} from "@/lib/auth/session";
@@ -17,6 +18,7 @@ import {
 const publicActions = new Set<WebAuthenticationAttemptAction>([
   "customer_registration",
   "provider_registration",
+  "provider_phone_registration",
   "password_reset",
 ]);
 
@@ -39,7 +41,7 @@ export async function POST(request: Request) {
     }
 
     const subject = publicActions.has(body.action)
-      ? normalizePublicIdentifier(body.identifier)
+      ? normalizePublicIdentifier(body.identifier, body.action)
       : await authenticatedSubject(body.idToken);
     await enforceWebAuthenticationActionRateLimit(
       request,
@@ -76,6 +78,9 @@ export async function POST(request: Request) {
         },
       );
     }
+    if (error instanceof PublicIdentifierError) {
+      return denied(correlationId, "invalid_identifier", 400);
+    }
     return denied(correlationId, "invalid_or_expired_authentication", 401);
   }
 }
@@ -87,18 +92,28 @@ function isAuthenticationAttemptAction(
     (WEB_AUTHENTICATION_ATTEMPT_ACTIONS as readonly string[]).includes(value);
 }
 
-function normalizePublicIdentifier(value: unknown): string {
-  if (typeof value !== "string") throw new Error("Identifier is required.");
+function normalizePublicIdentifier(
+  value: unknown,
+  action: WebAuthenticationAttemptAction,
+): string {
+  if (typeof value !== "string") throw new PublicIdentifierError();
+  if (action === "provider_phone_registration") {
+    const phoneNumber = normalizePhilippineMobile(value);
+    if (!phoneNumber) throw new PublicIdentifierError();
+    return `phone:${phoneNumber}`;
+  }
   const normalized = value.trim().toLowerCase();
   if (
     normalized.length < 3 ||
     normalized.length > 320 ||
     !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(normalized)
   ) {
-    throw new Error("Identifier is invalid.");
+    throw new PublicIdentifierError();
   }
   return `email:${normalized}`;
 }
+
+class PublicIdentifierError extends Error {}
 
 async function authenticatedSubject(idToken: unknown): Promise<string> {
   if (typeof idToken !== "string" || idToken.length < 100) {

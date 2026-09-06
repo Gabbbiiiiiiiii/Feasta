@@ -2,6 +2,7 @@
   "name": "feasta-monorepo",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.13.0",
   "scripts": {
     "security:secrets": "node scripts/scan-secrets.mjs",
     "security:coverage": "node scripts/verify-phase4-coverage.mjs",

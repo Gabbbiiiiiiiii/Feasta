@@ -18,6 +18,7 @@ export const AUTHENTICATION_GATE_KINDS = [
   "emailVerificationRequired",
   "customerReady",
   "customerPhoneVerificationRequired",
+  "providerPhoneVerificationRequired",
   "providerBusinessSetupRequired",
   "providerVerificationDraft",
   "providerVerificationSubmitted",
@@ -133,6 +134,11 @@ export const AUTHENTICATION_GATE_PRESENTATION = {
     label: "Phone verification required",
     message: "Verify your phone number before submitting a booking.",
     recoveryAction: "Verify phone number",
+  },
+  providerPhoneVerificationRequired: {
+    label: "Mobile verification required",
+    message: "Verify your mobile number before continuing provider setup.",
+    recoveryAction: "Verify mobile number",
   },
   providerBusinessSetupRequired: {
     label: "Business setup required",
@@ -297,6 +303,10 @@ export function resolveAuthenticationGate(
   }
 
   if (role === "admin") return {kind: "adminReady", ...context};
+
+  if (input.userProfile.isPhoneVerified !== true) {
+    return {kind: "providerPhoneVerificationRequired", ...context};
+  }
 
   if (
     typeof input.userProfile.providerId !== "string" ||

@@ -58,7 +58,6 @@ function userData(uid, role, overrides = {}) {
     firstName: uid,
     lastName: "Tester",
     email: `${uid}@example.test`,
-    phoneNumber: "+639171234567",
     role,
     accountStatus: "active",
     providerId: role === "provider" ? `${uid}-provider` : null,

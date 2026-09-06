@@ -10,6 +10,10 @@ import {requireObject, requireString} from "../shared/validation.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {
+  authoritativeFirebasePhone,
+  requireGlobalPhoneIdentityOwnership,
+} from "../shared/phone-identity.js";
+import {
   CURRENT_PRIVACY_VERSION,
   CURRENT_TERMS_VERSION,
 } from "./customer-consent-policy.js";
@@ -28,6 +32,14 @@ export const ensureUserProfile = onCall(
       windowSeconds: 10 * 60,
     });
     const input = requireObject(request.data ?? {});
+    rejectUnknownFields(input, [
+      "firstName",
+      "lastName",
+      "acceptedTerms",
+      "acceptedPrivacy",
+      "termsPolicyVersion",
+      "privacyPolicyVersion",
+    ]);
     const authUser = await getAuth().getUser(authenticatedUser.uid);
     if (authUser.disabled) {
       throw new HttpsError("permission-denied", "This account is disabled.");
@@ -41,9 +53,13 @@ export const ensureUserProfile = onCall(
     );
     const firstName = suppliedFirstName ?? fallbackName.firstName;
     const lastName = suppliedLastName ?? fallbackName.lastName;
-    const phoneNumber = typeof input.phoneNumber === "string" ?
-      input.phoneNumber.trim().slice(0, 30) :
-      (authUser.phoneNumber ?? "");
+    const authoritativePhone = authoritativeFirebasePhone(authUser);
+    if (authoritativePhone) {
+      await requireGlobalPhoneIdentityOwnership(
+        authUser,
+        authoritativePhone,
+      );
+    }
     const email = authUser.email ?? authenticatedUser.email ?? null;
     const provider = authUser.providerData[0]?.providerId ?? "password";
     const acceptedTerms = input.acceptedTerms === true;
@@ -98,11 +114,17 @@ export const ensureUserProfile = onCall(
             );
           }
 
+          requireConsistentPhoneProjection(
+            existing,
+            customerSnapshot.data(),
+            authoritativePhone,
+          );
+
           transaction.update(userReference, {
             firstName,
             lastName,
             email,
-            phoneNumber,
+            ...(authoritativePhone ? {phoneNumber: authoritativePhone} : {}),
             profileImageUrl: authUser.photoURL ?? existing.profileImageUrl ?? null,
             isEmailVerified: authUser.emailVerified,
             authProvider: provider,
@@ -137,7 +159,7 @@ export const ensureUserProfile = onCall(
             firstName,
             lastName,
             email,
-            phoneNumber,
+            phoneNumber: authoritativePhone ?? "",
             role: USER_ROLES.customer,
             accountStatus: "active",
             providerId: null,
@@ -166,7 +188,7 @@ export const ensureUserProfile = onCall(
             firstName,
             lastName,
             email,
-            phoneNumber,
+            ...(authoritativePhone ? {phoneNumber: authoritativePhone} : {}),
             profileImageUrl: authUser.photoURL ??
               customerSnapshot.data()?.profileImageUrl ?? null,
             updatedAt: serverTimestamp(),
@@ -177,7 +199,7 @@ export const ensureUserProfile = onCall(
             firstName,
             lastName,
             email,
-            phoneNumber,
+            phoneNumber: authoritativePhone ?? "",
             address: "",
             city: "Ormoc City",
             province: "Leyte",
@@ -241,4 +263,44 @@ function splitDisplayName(
 
   const emailName = email.split("@")[0]?.trim() || "Customer";
   return {firstName: emailName.slice(0, 80), lastName: ""};
+}
+
+function requireConsistentPhoneProjection(
+  user: Record<string, unknown> | undefined,
+  customer: Record<string, unknown> | undefined,
+  authoritativePhone: string | null,
+): void {
+  for (const projected of [user?.phoneNumber, customer?.phoneNumber]) {
+    if (
+      typeof projected === "string" &&
+      projected.trim() !== "" &&
+      projected !== authoritativePhone
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "The mobile identity relationship is inconsistent. Contact support.",
+      );
+    }
+  }
+  if (user?.isPhoneVerified === true && !authoritativePhone) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The verified mobile identity is unavailable or inconsistent.",
+    );
+  }
+}
+
+function rejectUnknownFields(
+  input: Record<string, unknown>,
+  allowed: readonly string[],
+): void {
+  const unknown = Object.keys(input).filter(
+    (field) => !allowed.includes(field),
+  );
+  if (unknown.length > 0) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Unsupported customer identity fields: ${unknown.join(", ")}.`,
+    );
+  }
 }

@@ -181,11 +181,10 @@ describe("customer authentication forms", () => {
   it("retains mobile-safe sizing and touch targets", () => {
     Object.defineProperty(window, "innerWidth", {configurable: true, value: 360});
     const {container} = render(<CustomerRegistrationPage />);
-        expect(container.querySelector("main")).toHaveClass(
-      "min-w-0",
-      "overflow-x-clip",
-      "px-4",
-    );
+    const form = screen.getByRole("button", {name: "Create account"}).closest("form");
+    expect(form).toHaveClass("grid", "gap-4");
+    expect(form?.closest("section")).toHaveClass("px-6", "sm:px-10");
+    expect(container.querySelector("main")).toHaveClass("min-h-screen");
     for (const button of screen.getAllByRole("button")) {
       expect(button.className).toMatch(/min-h-12|size-12/u);
     }

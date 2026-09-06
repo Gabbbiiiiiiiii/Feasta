@@ -19,7 +19,7 @@ export declare const VERIFICATION_DOCUMENT_TYPES: readonly ["business_permit", "
 export type VerificationDocumentType = (typeof VERIFICATION_DOCUMENT_TYPES)[number];
 export declare const PROVIDER_SERVICE_TYPES: readonly ["catering", "addon", "both"];
 export type ProviderServiceType = (typeof PROVIDER_SERVICE_TYPES)[number];
-export declare const PACKAGE_STATUSES: readonly ["draft", "active", "inactive", "archived"];
+export declare const PACKAGE_STATUSES: readonly ["draft", "published", "archived"];
 export type PackageStatus = (typeof PACKAGE_STATUSES)[number];
 export declare const ADDON_PRICING_TYPES: readonly ["fixed", "per_guest", "per_hour", "per_unit", "custom_quote"];
 export type AddonPricingType = (typeof ADDON_PRICING_TYPES)[number];
@@ -29,7 +29,7 @@ export declare const PROVIDER_REQUEST_STATUSES: readonly ["pending", "accepted",
 export type ProviderRequestStatus = (typeof PROVIDER_REQUEST_STATUSES)[number];
 export declare const PROVIDER_REQUEST_TYPES: readonly ["catering", "addon"];
 export type ProviderRequestType = (typeof PROVIDER_REQUEST_TYPES)[number];
-export declare const PAYMENT_STATUSES: readonly ["pending", "processing", "paid", "failed", "expired", "refunded"];
+export declare const PAYMENT_STATUSES: readonly ["pending", "processing", "paid", "partially_refunded", "failed", "expired", "refunded"];
 export declare const MAIN_EVENT_STATUS_TRANSITIONS: {
     readonly draft: readonly ["pending_provider_approval", "cancelled"];
     readonly pending_provider_approval: readonly ["needs_provider_replacement", "waiting_for_down_payment", "confirmed", "cancelled", "expired"];
@@ -59,7 +59,8 @@ export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 export declare const PAYMENT_STATUS_TRANSITIONS: {
     readonly pending: readonly ["processing", "paid", "failed", "expired"];
     readonly processing: readonly ["paid", "failed", "expired"];
-    readonly paid: readonly ["refunded"];
+    readonly paid: readonly ["partially_refunded", "refunded"];
+    readonly partially_refunded: readonly ["refunded"];
     readonly failed: readonly ["processing"];
     readonly expired: readonly ["processing"];
     readonly refunded: readonly [];

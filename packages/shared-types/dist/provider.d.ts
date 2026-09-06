@@ -9,6 +9,12 @@ export interface ProviderVerificationDocumentPolicy {
 export declare const UNVERSIONED_POLICY_VERSION: "unversioned";
 export declare const PROVIDER_SERVICE_CATEGORIES: readonly ["catering_service", "food_trays_packed_meals", "catering_event_styling", "photographer", "videographer", "photo_booth", "event_coordinator", "event_host_emcee", "sound_system", "lights_and_sounds", "singer_band", "dancer_performer", "decorator_event_stylist", "florist", "cake_provider", "gown_suit_rental", "car_rental", "venue_provider", "tables_chairs_rental", "other_event_service"];
 export type ProviderServiceCategory = (typeof PROVIDER_SERVICE_CATEGORIES)[number];
+export interface ProviderCapacityCapabilities {
+    requiresGuestCapacity: boolean;
+    usesStaffCapacity: boolean;
+    usesEquipmentCapacity: boolean;
+}
+export declare function providerCapacityCapabilities(serviceCategories: readonly ProviderServiceCategory[]): ProviderCapacityCapabilities;
 export declare const CATERING_SERVICE_CATEGORIES: readonly ["catering_service", "food_trays_packed_meals", "catering_event_styling"];
 export declare const ADDON_SERVICE_CATEGORIES: readonly ProviderServiceCategory[];
 export declare const PROVIDER_EVENT_TYPES: readonly ["birthday", "wedding", "anniversary", "reunion", "corporate", "baptism", "graduation", "other"];
@@ -46,7 +52,7 @@ export declare const PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS: readonly [{
     readonly required: false;
 }];
 export declare const PROVIDER_ONBOARDING_CLIENT_FIELDS: readonly ["ownerFirstName", "ownerLastName", "businessName", "businessEmail", "businessPhone", "description", "address", "city", "province", "locationCoordinates", "providerServiceType", "providerCategory", "serviceCategories", "serviceAreas", "maxServiceDistanceKm", "eventTypesSupported", "minGuestsPerEvent", "maxGuestsPerEvent", "guestCapacity", "acceptsMultipleEventsPerDay", "maxEventsPerDay", "availableStaffCount", "availableEquipmentCount", "operatingDays", "bookingLeadTimeDays", "unavailableDates", "logoUrl", "logoPublicId", "coverImageUrl", "coverPublicId", "idempotencyKey"];
-export declare const PROVIDER_SERVER_OWNED_FIELDS: readonly ["ownerId", "ownerEmail", "ownerPhone", "verificationStatus", "isActive", "isFeatured", "isSuspended", "suspendedAt", "suspendedBy", "approvedAt", "approvedBy", "reviewedAt", "reviewedBy", "rejectionReason", "resubmissionReason", "suspensionReason", "searchTokens", "ratingAverage", "reviewCount", "totalCompletedBookings", "totalViews", "favoriteCount", "createdAt", "updatedAt", "deletedAt", "deletedBy"];
+export declare const PROVIDER_SERVER_OWNED_FIELDS: readonly ["ownerId", "ownerEmail", "ownerPhone", "verificationStatus", "isActive", "isFeatured", "isSuspended", "suspendedAt", "suspendedBy", "approvedAt", "approvedBy", "reviewedAt", "reviewedBy", "rejectionReason", "resubmissionReason", "suspensionReason", "searchTokens", "ratingAverage", "reviewCount", "canonicalReviewCount", "canonicalRatingTotal", "canonicalRatingDistribution", "totalCompletedBookings", "totalViews", "favoriteCount", "createdAt", "updatedAt", "deletedAt", "deletedBy"];
 export type ProviderTimestamp = Date | string | number | {
     seconds: number;
     nanoseconds: number;
@@ -206,6 +212,7 @@ export declare function normalizeProviderEmail(value: unknown): string | null;
  * carrier-prefix lists. The canonical value is E.164-like `+63...`.
  */
 export declare function normalizePhilippinePhone(value: unknown): string | null;
+export declare function normalizePhilippineMobile(value: unknown): string | null;
 export declare function parseVerificationDocumentType(value: unknown): VerificationDocumentType | null;
 export declare function parseVerificationDocumentStatus(value: unknown): VerificationDocumentStatus | null;
 export declare function parseProviderVerificationStatusStrict(value: unknown): ProviderVerificationStatus | null;

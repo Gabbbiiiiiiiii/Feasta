@@ -83,15 +83,78 @@ test("no unguarded Next.js admin route handlers or server actions exist", async 
   const privilegedFiles = adminFiles.filter((file) =>
     /(?:route|actions?)\.(?:ts|tsx)$/u.test(file.toString())
   );
+  const delegatedActions = new Map<string, {
+    servicePath: string;
+    importPath: string;
+    entryPoints: readonly string[];
+  }>([
+    ["reviews/actions.ts", {
+      servicePath: "lib/admin/reviews/admin-review-service.ts",
+      importPath: "@/lib/admin/reviews/admin-review-service",
+      entryPoints: ["getAdminReviewPage", "getAdminReviewDetails"],
+    }],
+    ["reports/actions.ts", {
+      servicePath: "lib/admin/reports/admin-report-service.ts",
+      importPath: "@/lib/admin/reports/admin-report-service",
+      entryPoints: ["getAdminReport"],
+    }],
+    ["payments/actions.ts", {
+      servicePath: "lib/admin/payments/admin-payment-service.ts",
+      importPath: "@/lib/admin/payments/admin-payment-service",
+      entryPoints: ["getAdminPaymentPage", "getAdminPaymentDetails"],
+    }],
+    ["notifications/actions.ts", {
+      servicePath: "lib/notifications/admin-notification-service.ts",
+      importPath: "@/lib/notifications/admin-notification-service",
+      entryPoints: [
+        "loadAdminNotificationPage",
+        "loadAdminNotificationMenuSummary",
+        "markOwnedAdminNotificationRead",
+        "markOwnedAdminNotificationsRead",
+      ],
+    }],
+  ]);
   for (const privilegedFile of privilegedFiles) {
+    const normalizedFile = privilegedFile.toString().replaceAll("\\", "/");
     const privilegedSource = await readFile(
       new URL(
-        privilegedFile.toString().replaceAll("\\", "/"),
+        normalizedFile,
         new URL("app/admin/", sourceRoot),
       ),
       "utf8",
     );
-    assert.match(privilegedSource, /requireAdmin\(\)/u);
+    if (/requireAdmin\(\)/u.test(privilegedSource)) continue;
+
+    const delegation = delegatedActions.get(normalizedFile);
+    assert.ok(
+      delegation,
+      `${normalizedFile} has neither inline nor approved delegated authorization`,
+    );
+    assert.ok(privilegedSource.includes(`from "${delegation.importPath}"`));
+    assert.doesNotMatch(privilegedSource, /firebase-admin|adminDb/u);
+
+    const service = await source(delegation.servicePath);
+    assert.match(service, /^import "server-only";/u);
+    for (const entryPoint of delegation.entryPoints) {
+      assert.match(privilegedSource, new RegExp(`\\b${entryPoint}\\(`, "u"));
+      const entryStart = service.indexOf(
+        `export async function ${entryPoint}(`,
+      );
+      assert.notEqual(entryStart, -1, `${entryPoint} is not exported`);
+      const nextEntry = service.indexOf(
+        "export async function ",
+        entryStart + 1,
+      );
+      const entrySource = service.slice(
+        entryStart,
+        nextEntry === -1 ? undefined : nextEntry,
+      );
+      assert.match(
+        entrySource,
+        /await requireAdmin\(\)/u,
+        `${entryPoint} must authorize before accessing admin data`,
+      );
+    }
   }
 });
 

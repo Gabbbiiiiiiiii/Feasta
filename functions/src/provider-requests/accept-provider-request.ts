@@ -16,7 +16,6 @@ import {
   requireRole,
 } from "../shared/authorization.js";
 import {
-  parseMainEventStatus,
   USER_ROLES,
 } from "../shared/constants.js";
 import {
@@ -49,16 +48,18 @@ import {
   requirePendingProviderRequest,
 } from "./provider-request-authorization.js";
 import {
+  assertCanonicalProviderRequestCore,
+  requireProviderResponseParentStatus,
+  validateAcceptanceProviderRequest,
+} from "./provider-request-integrity.js";
+import {
   calculateMainEventRequestSummary,
 } from "./recalculate-main-event-status.js";
-
-const ACTIVE_PROVIDER_STATUSES = [
-  "accepted",
-  "waiting_for_down_payment",
-  "payment_processing",
-  "confirmed",
-  "in_progress",
-] as const;
+import {
+  AVAILABILITY_COUNTED_REQUEST_STATUSES,
+  manilaDateRange,
+  validateProviderAvailability,
+} from "../provider-availability/validate-provider-availability.js";
 
 const PAYMENT_WINDOW_HOURS = 24;
 
@@ -117,8 +118,7 @@ export const acceptProviderRequest = onCall(
       );
 
       const mainEventId = stringValue(
-        initialRequest.mainEventId ??
-          initialRequest.bookingId,
+        initialRequest.mainEventId,
       );
 
       if (!providerId || !mainEventId) {
@@ -144,7 +144,6 @@ export const acceptProviderRequest = onCall(
               60 *
               1_000,
         );
-
       const result = await db.runTransaction(
         async (transaction) => {
           const requestSnapshot =
@@ -169,8 +168,7 @@ export const acceptProviderRequest = onCall(
 
           const currentMainEventId =
             stringValue(
-              requestData.mainEventId ??
-                requestData.bookingId,
+              requestData.mainEventId,
             );
 
           if (
@@ -194,6 +192,18 @@ export const acceptProviderRequest = onCall(
             );
           }
 
+          const eventDateRange =
+            manilaDateRange(
+              eventDate.toDate(),
+            );
+
+          if (!eventDateRange) {
+            throw new HttpsError(
+              "failed-precondition",
+              "The provider request event date is invalid.",
+            );
+          }
+
           const allRequestsQuery = db
             .collection("providerRequests")
             .where(
@@ -211,13 +221,24 @@ export const acceptProviderRequest = onCall(
             )
             .where(
               "eventDate",
-              "==",
-              eventDate,
+              ">=",
+              Timestamp.fromDate(
+                eventDateRange.start,
+              ),
+            )
+            .where(
+              "eventDate",
+              "<",
+              Timestamp.fromDate(
+                eventDateRange.end,
+              ),
             )
             .where(
               "status",
               "in",
-              [...ACTIVE_PROVIDER_STATUSES],
+              [
+                ...AVAILABILITY_COUNTED_REQUEST_STATUSES,
+              ],
             );
 
           const [
@@ -251,6 +272,12 @@ export const acceptProviderRequest = onCall(
               providerSnapshot,
             });
 
+          const core =
+            assertCanonicalProviderRequestCore({
+              authorized,
+              mainEventSnapshot,
+            });
+
           if (
             authorized.status ===
               "waiting_for_down_payment" ||
@@ -269,81 +296,82 @@ export const acceptProviderRequest = onCall(
             authorized,
           );
 
-          if (!mainEventSnapshot.exists) {
-            throw new HttpsError(
-              "not-found",
-              "The main event was not found.",
-            );
-          }
+          requireProviderResponseParentStatus(
+            core.mainEventStatus,
+          );
 
-          const mainEvent =
-            mainEventSnapshot.data() ?? {};
+          const acceptanceTime = new Date();
 
-          if (
-            mainEvent.customerId !==
-              authorized.customerId
-          ) {
+          const acceptanceSnapshot =
+            validateAcceptanceProviderRequest({
+              authorized,
+              mainEventData:
+                core.mainEventData,
+              now: acceptanceTime,
+            });
+
+          const availability =
+            validateProviderAvailability({
+              providerData:
+                authorized.providerData,
+              request: {
+                providerRequestId,
+                type: authorized.type,
+                eventDate:
+                  acceptanceSnapshot
+                    .eventDate.toDate(),
+                eventTime:
+                  acceptanceSnapshot
+                    .eventTime,
+                eventEndTime:
+                  acceptanceSnapshot
+                    .eventEndTime,
+                guestCount:
+                  acceptanceSnapshot
+                    .guestCount,
+                services:
+                  authorized.requestData
+                    .services,
+              },
+              existingBookings:
+                activeRequestsSnapshot.docs
+                  .map((document) => ({
+                    providerRequestId:
+                      document.id,
+                    status:
+                      document.data()
+                        .status,
+                    eventTime:
+                      document.data()
+                        .eventTime,
+                    eventEndTime:
+                      document.data()
+                        .eventEndTime,
+                  })),
+              now: acceptanceTime,
+            });
+
+          if (!availability.available) {
             throw new HttpsError(
               "failed-precondition",
-              "The main-event ownership is invalid.",
+              "The provider is not available for this event.",
+              {
+                issues:
+                  availability.issues,
+              },
             );
           }
-
-          const currentMainEventStatus =
-            parseMainEventStatus(
-              mainEvent.status,
-            );
-
-          if (!currentMainEventStatus) {
-            throw new HttpsError(
-              "failed-precondition",
-              "The main-event status is invalid.",
-            );
-          }
-
-          if (
-            [
-              "completed",
-              "cancelled",
-              "expired",
-            ].includes(
-              currentMainEventStatus,
-            )
-          ) {
-            throw new HttpsError(
-              "failed-precondition",
-              "This event can no longer accept provider responses.",
-            );
-          }
-
-          assertProviderCapacity({
-            providerData:
-              authorized.providerData,
-
-            requestType:
-              authorized.type,
-
-            requestGuestCount:
-              authorized.guestCount,
-
-            currentRequestId:
-              providerRequestId,
-
-            activeRequestIds:
-              activeRequestsSnapshot.docs.map(
-                (document) => document.id,
-              ),
-          });
 
           const nextStatus =
-            authorized.downPaymentAmount > 0
+            acceptanceSnapshot
+              .downPaymentAmount > 0
               ? "waiting_for_down_payment"
               : "confirmed";
 
           const summary =
             calculateMainEventRequestSummary(
               allRequestsSnapshot.docs,
-              currentMainEventStatus,
+              core.mainEventStatus,
               [
                 {
                   providerRequestId,
@@ -465,7 +493,7 @@ export const acceptProviderRequest = onCall(
                 mainEventId,
                 providerId,
                 downPaymentRequired:
-                  authorized
+                  acceptanceSnapshot
                     .downPaymentAmount > 0,
               },
             },
@@ -520,77 +548,6 @@ export const acceptProviderRequest = onCall(
     }
   },
 );
-
-function assertProviderCapacity(
-  input: {
-    providerData:
-      Record<string, unknown>;
-
-    requestType:
-      "catering" | "addon";
-
-    requestGuestCount: number;
-
-    currentRequestId: string;
-
-    activeRequestIds:
-      readonly string[];
-  },
-): void {
-  const otherActiveRequestCount =
-    input.activeRequestIds.filter(
-      (requestId) =>
-        requestId !==
-        input.currentRequestId,
-    ).length;
-
-  const acceptsMultipleEvents =
-    input.providerData
-      .acceptsMultipleEventsPerDay ===
-    true;
-
-  const configuredMaximum =
-    input.providerData.maxEventsPerDay;
-
-  const maximumEvents =
-    acceptsMultipleEvents &&
-    Number.isSafeInteger(
-      configuredMaximum,
-    ) &&
-    (configuredMaximum as number) > 0
-      ? configuredMaximum as number
-      : 1;
-
-  if (
-    otherActiveRequestCount >=
-    maximumEvents
-  ) {
-    throw new HttpsError(
-      "resource-exhausted",
-      "The provider has reached its event capacity for this date.",
-    );
-  }
-
-  if (input.requestType !== "catering") {
-    return;
-  }
-
-  const maximumGuests =
-    input.providerData.maxGuestsPerEvent;
-
-  if (
-    typeof maximumGuests === "number" &&
-    Number.isFinite(maximumGuests) &&
-    maximumGuests > 0 &&
-    input.requestGuestCount >
-      maximumGuests
-  ) {
-    throw new HttpsError(
-      "resource-exhausted",
-      "The requested guest count exceeds the provider's capacity.",
-    );
-  }
-}
 
 function stringValue(
   value: unknown,

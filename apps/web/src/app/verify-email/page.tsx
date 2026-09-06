@@ -13,9 +13,9 @@ import {
 
 import {AuthCard} from "@/components/auth/auth-card";
 import {AuthStatus} from "@/components/auth/auth-status";
+import {useCurrentUserEmail} from "@/components/auth/use-current-user-email";
 import {Button} from "@/components/ui/button";
 import {
-  currentUserEmail,
   logoutWebSession,
   refreshCurrentUserVerification,
   resendCurrentUserVerification,
@@ -66,7 +66,7 @@ function VerifyEmailContent() {
       null
     >(null);
 
-  const email = currentUserEmail();
+  const email = useCurrentUserEmail();
 
   useEffect(() => {
     if (cooldown <= 0) return;

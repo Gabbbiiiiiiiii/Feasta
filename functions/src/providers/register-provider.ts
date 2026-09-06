@@ -2,6 +2,7 @@ import {
   HttpsError,
   onCall,
 } from "firebase-functions/v2/https";
+import {getAuth} from "firebase-admin/auth";
 import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
@@ -15,6 +16,7 @@ import {
   PROVIDER_SERVICE_CATEGORIES,
   PROVIDER_SERVICE_TYPES,
   USER_ROLES,
+  providerCapacityCapabilities,
   serviceCategoryMatchesProviderType,
   type ProviderServiceCategory,
 } from "../shared/constants.js";
@@ -32,9 +34,12 @@ import {
 import {serverTimestamp} from "../shared/timestamps.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
+import {requireTrustedProviderIdentity} from "../shared/provider-identity-prerequisites.js";
 import {
   requireEnum,
   requireObject,
+  requirePhilippineMobile,
+  requirePhilippinePhone,
   requireString,
 } from "../shared/validation.js";
 import {writeVerificationHistoryInTransaction} from "../shared/verification-history.js";
@@ -89,6 +94,13 @@ export const registerProvider = onCall(
         "The provider account could not be verified.",
       );
     }
+    const authUser = await getAuth().getUser(authenticatedUser.uid);
+    const identityUserSnapshot = await db
+      .collection("users")
+      .doc(authenticatedUser.uid)
+      .get();
+    await requireTrustedProviderIdentity(authUser, identityUserSnapshot.data());
+    requireProviderRegistrationConsent(identityUserSnapshot.data());
 
     const input = requireObject(request.data);
     rejectUnknownFields(input, [
@@ -152,14 +164,10 @@ export const registerProvider = onCall(
       );
     }
 
-    const businessPhone = normalizePhilippinePhone(requireString(
+    const businessPhone = requirePhilippinePhone(
       input.businessPhone,
       "businessPhone",
-      {
-        minLength: 7,
-        maxLength: 30,
-      },
-    ), "businessPhone");
+    );
 
     const ownerFirstName = requireString(
       input.ownerFirstName,
@@ -245,6 +253,10 @@ export const registerProvider = onCall(
         "Service categories must match the provider service type and primary category.",
       );
     }
+    const capacityCapabilities =
+    providerCapacityCapabilities(
+      serviceCategories as ProviderServiceCategory[],
+    );
     const serviceAreas = optionalStringList(input.serviceAreas, "serviceAreas");
     const eventTypesSupported = input.serviceCategories === undefined
       ? optionalStringList(input.eventTypesSupported, "eventTypesSupported")
@@ -261,21 +273,53 @@ export const registerProvider = onCall(
     const locationCoordinates = optionalCoordinates(
       input.locationCoordinates,
     );
-    const maxGuestsPerEvent = compatibleGuestCapacity(input);
-    const minGuestsPerEvent = optionalInteger(
-      input.minGuestsPerEvent,
-      "minGuestsPerEvent",
-      {minimum: 0, maximum: 100000, fallback: 0},
-    );
+    const parsedMaxGuestsPerEvent =
+      compatibleGuestCapacity(input);
+
+    const parsedMinGuestsPerEvent =
+      optionalInteger(
+        input.minGuestsPerEvent,
+        "minGuestsPerEvent",
+        {
+          minimum: 0,
+          maximum: 100000,
+          fallback: 0,
+        },
+      );
+
     if (
-      maxGuestsPerEvent > 0 &&
-      minGuestsPerEvent > maxGuestsPerEvent
+      capacityCapabilities.requiresGuestCapacity &&
+      (
+        parsedMinGuestsPerEvent < 1 ||
+        parsedMaxGuestsPerEvent < 1
+      )
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Guest capacity must be at least 1 for the selected services.",
+      );
+    }
+
+    if (
+      capacityCapabilities.requiresGuestCapacity &&
+      parsedMinGuestsPerEvent >
+        parsedMaxGuestsPerEvent
     ) {
       throw new HttpsError(
         "invalid-argument",
         "Minimum guests cannot exceed maximum guests.",
       );
     }
+
+    const minGuestsPerEvent =
+      capacityCapabilities.requiresGuestCapacity
+        ? parsedMinGuestsPerEvent
+        : 0;
+
+    const maxGuestsPerEvent =
+      capacityCapabilities.requiresGuestCapacity
+        ? parsedMaxGuestsPerEvent
+        : 0;
     const acceptsMultipleEventsPerDay = optionalBoolean(
       input.acceptsMultipleEventsPerDay,
       "acceptsMultipleEventsPerDay",
@@ -292,16 +336,37 @@ export const registerProvider = onCall(
         "maxEventsPerDay must be 1 when multiple daily events are disabled.",
       );
     }
-    const availableStaffCount = optionalInteger(
-      input.availableStaffCount,
-      "availableStaffCount",
-      {minimum: 0, maximum: 100000, fallback: 0},
-    );
-    const availableEquipmentCount = optionalInteger(
-      input.availableEquipmentCount,
-      "availableEquipmentCount",
-      {minimum: 0, maximum: 100000, fallback: 0},
-    );
+    const parsedAvailableStaffCount =
+      optionalInteger(
+        input.availableStaffCount,
+        "availableStaffCount",
+        {
+          minimum: 0,
+          maximum: 100000,
+          fallback: 0,
+        },
+      );
+
+    const parsedAvailableEquipmentCount =
+      optionalInteger(
+        input.availableEquipmentCount,
+        "availableEquipmentCount",
+        {
+          minimum: 0,
+          maximum: 100000,
+          fallback: 0,
+        },
+      );
+
+    const availableStaffCount =
+      capacityCapabilities.usesStaffCapacity
+        ? parsedAvailableStaffCount
+        : 0;
+
+    const availableEquipmentCount =
+      capacityCapabilities.usesEquipmentCapacity
+        ? parsedAvailableEquipmentCount
+        : 0;
     const operatingDays = optionalEnumList(
       input.operatingDays,
       "operatingDays",
@@ -423,6 +488,11 @@ export const registerProvider = onCall(
               "Your account is not active.",
             );
           }
+          const identity = await requireTrustedProviderIdentity(
+            authUser,
+            userData,
+          );
+          requireProviderRegistrationConsent(userData);
 
           /*
            * First trust an existing users/{uid}.providerId link.
@@ -596,6 +666,10 @@ export const registerProvider = onCall(
             };
           }
 
+          const ownerPhone = requirePhilippineMobile(
+            identity.phoneNumber,
+          );
+
           transaction.create(
             newProviderReference,
             {
@@ -610,10 +684,7 @@ export const registerProvider = onCall(
                 typeof userData?.email === "string"
                   ? userData.email.trim().toLowerCase()
                   : null,
-              ownerPhone:
-                typeof userData?.phoneNumber === "string"
-                  ? userData.phoneNumber.trim()
-                  : null,
+              ownerPhone,
               description,
               location:
                 `${city}, ${province}`,
@@ -660,6 +731,15 @@ export const registerProvider = onCall(
               maxPrice: 0,
               ratingAverage: 0,
               reviewCount: 0,
+              canonicalReviewCount: 0,
+              canonicalRatingTotal: 0,
+              canonicalRatingDistribution: {
+                1: 0,
+                2: 0,
+                3: 0,
+                4: 0,
+                5: 0,
+              },
               totalCompletedBookings: 0,
               totalViews: 0,
               favoriteCount: 0,
@@ -854,6 +934,20 @@ export const registerProvider = onCall(
   },
 );
 
+function requireProviderRegistrationConsent(
+  userData: Record<string, unknown> | undefined,
+): void {
+  if (
+    userData?.termsAcceptedAt == null ||
+    userData?.privacyAcceptedAt == null
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Accept the required Terms and Privacy Policy before completing provider setup.",
+    );
+  }
+}
+
 function optionalStringList(value: unknown, field: string): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 50) {
@@ -1023,24 +1117,6 @@ function optionalBoolean(
     );
   }
   return value;
-}
-
-function normalizePhilippinePhone(value: string, field: string): string {
-  const compact = value.replace(/[\s().-]/gu, "");
-  const normalized = compact.startsWith("+63")
-    ? compact
-    : compact.startsWith("63")
-      ? `+${compact}`
-      : compact.startsWith("0")
-        ? `+63${compact.slice(1)}`
-        : "";
-  if (!/^\+63\d{8,10}$/u.test(normalized)) {
-    throw new HttpsError(
-      "invalid-argument",
-      `${field} must be a valid Philippine phone number.`,
-    );
-  }
-  return normalized;
 }
 
 function providerMediaFields(

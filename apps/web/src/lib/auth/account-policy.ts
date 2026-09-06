@@ -1,8 +1,12 @@
 import {
+  PROVIDER_SERVICE_CATEGORIES,
   parseAccountStatus,
+  parseProviderServiceType,
   parseProviderVerificationStatus,
   parseUserRole,
   type AccountStatus,
+  type ProviderServiceCategory,
+  type ProviderServiceType,
   type ProviderVerificationStatus,
   type UserRole,
 } from "@feasta/shared-types";
@@ -15,6 +19,13 @@ export interface ServerProviderContext {
   isActive: boolean;
   isSuspended: boolean;
   isDeleted: boolean;
+
+  providerServiceType: ProviderServiceType;
+  serviceCategories: readonly ProviderServiceCategory[];
+
+  eventTypesSupported: string[];
+  minGuestsPerEvent: number;
+  maxGuestsPerEvent: number;
 }
 
 export interface ServerAccountContext {
@@ -26,6 +37,7 @@ export interface ServerAccountContext {
   isActive: true;
   isBlocked: false;
   isPhoneVerified: boolean;
+  phoneNumber: string;
   providerId: string | null;
   provider: ServerProviderContext | null;
 }
@@ -40,8 +52,10 @@ export type AccountContextFailureReason =
   | "deactivated_account"
   | "inactive_account"
   | "invalid_provider_link"
+  | "invalid_phone_identity"
   | "missing_provider_profile"
-  | "invalid_provider_status";
+  | "invalid_provider_status"
+  | "invalid_provider_service_type";
 
 export type AccountContextResolution =
   | {ok: true; account: ServerAccountContext}
@@ -110,13 +124,63 @@ export function resolveTrustedAccountContext(
     if (!verificationStatus) {
       return {ok: false, reason: "invalid_provider_status"};
     }
+    const providerServiceType = parseProviderServiceType(
+      providerProfile.providerServiceType,
+    );
+
+    if (!providerServiceType) {
+      return {
+        ok: false,
+        reason: "invalid_provider_service_type",
+      };
+    }
+    const serviceCategories =
+  Array.isArray(
+    providerProfile.serviceCategories,
+  )
+    ? providerProfile.serviceCategories.filter(
+        (
+          value,
+        ): value is ProviderServiceCategory =>
+          typeof value === "string" &&
+          PROVIDER_SERVICE_CATEGORIES.includes(
+            value as ProviderServiceCategory,
+          ),
+      )
+    : [];
     provider = {
-      id: providerId,
-      verificationStatus,
-      isActive: providerProfile.isActive === true,
-      isSuspended: providerProfile.isSuspended === true,
-      isDeleted: providerProfile.isDeleted === true,
-    };
+    id: providerId,
+    verificationStatus,
+    isActive: providerProfile.isActive === true,
+    isSuspended: providerProfile.isSuspended === true,
+    isDeleted: providerProfile.isDeleted === true,
+
+    providerServiceType,
+    serviceCategories,
+
+    eventTypesSupported: Array.isArray(
+      providerProfile.eventTypesSupported,
+    )
+      ? providerProfile.eventTypesSupported.filter(
+          (value): value is string =>
+            typeof value === "string",
+        )
+      : [],
+
+    minGuestsPerEvent:
+      typeof providerProfile.minGuestsPerEvent === "number" &&
+      Number.isSafeInteger(providerProfile.minGuestsPerEvent) &&
+      providerProfile.minGuestsPerEvent >= 1
+        ? providerProfile.minGuestsPerEvent
+        : 1,
+
+    maxGuestsPerEvent:
+      typeof providerProfile.maxGuestsPerEvent === "number" &&
+      Number.isSafeInteger(providerProfile.maxGuestsPerEvent) &&
+      providerProfile.maxGuestsPerEvent >= 1
+        ? providerProfile.maxGuestsPerEvent
+        : 1,
+  };
   }
 
   return {
@@ -130,6 +194,9 @@ export function resolveTrustedAccountContext(
       isActive: true,
       isBlocked: false,
       isPhoneVerified: profile.isPhoneVerified === true,
+      phoneNumber: typeof profile.phoneNumber === "string"
+        ? profile.phoneNumber.trim().slice(0, 30)
+        : "",
       providerId,
       provider,
     },
@@ -142,13 +209,53 @@ export function accountHomePath(role: UserRole): string {
 
 export function safeReturnPathForAccount(
   value: unknown,
-  account: Pick<ServerAccountContext, "role">,
+  account: Pick<
+    ServerAccountContext,
+    "role" | "emailVerified" | "isPhoneVerified" | "provider"
+  >,
 ): string {
   const home = accountHomePath(account.role);
-  if (!isSafeRelativeReturnTo(value)) {
-    return home;
+  if (account.role === "provider") {
+    if (!account.emailVerified) {
+      if (!account.isPhoneVerified) return "/provider-verify-email";
+      return isIdentityLevelProviderPath(value) ? value : "/provider";
+    }
+    if (!account.isPhoneVerified) return "/provider-verify-phone";
   }
-  return value === home || value.startsWith(`${home}/`) ? value : home;
+  if (!isSafeRelativeReturnTo(value)) {
+    return account.role === "provider"
+      ? providerAccessDestination(account)
+      : home;
+  }
+  if (value === home || value.startsWith(`${home}/`)) {
+    return value === "/provider" && account.role === "provider"
+      ? providerAccessDestination(account)
+      : value;
+  }
+  return account.role === "provider"
+    ? providerAccessDestination(account)
+    : home;
+}
+
+export function providerAccountDestination(
+  account: Pick<
+    ServerAccountContext,
+    "emailVerified" | "isPhoneVerified" | "provider"
+  >,
+): string {
+  if (!account.emailVerified) {
+    return account.isPhoneVerified
+      ? "/provider"
+      : "/provider-verify-email";
+  }
+  if (!account.isPhoneVerified) return "/provider-verify-phone";
+  return providerAccessDestination(account);
+}
+
+function isIdentityLevelProviderPath(
+  value: unknown,
+): value is "/provider" | "/provider/account" {
+  return value === "/provider" || value === "/provider/account";
 }
 
 export function providerAccessDestination(

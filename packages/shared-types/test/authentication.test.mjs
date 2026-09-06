@@ -86,6 +86,22 @@ test("resolves provider business setup and every verification state", () => {
   }).kind, "providerApproved");
 });
 
+test("provider phone verification is required after email and before setup", () => {
+  assert.equal(gate({
+    userProfile: active({
+      role: "provider",
+      isPhoneVerified: false,
+    }),
+  }).kind, "providerPhoneVerificationRequired");
+  assert.equal(gate({
+    emailVerified: false,
+    userProfile: active({
+      role: "provider",
+      isPhoneVerified: false,
+    }),
+  }).kind, "emailVerificationRequired");
+});
+
 test("resolves admin and fails closed for role violations", () => {
   assert.equal(gate({userProfile: active({role: "admin"})}).kind, "adminReady");
   assert.equal(gate({requiredRoles: ["admin"]}).kind, "forbiddenRole");

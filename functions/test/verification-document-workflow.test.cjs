@@ -55,7 +55,8 @@ test("submission uses the dynamic server policy rather than client flags", () =>
 test("submission enforces complete trusted state and safely replays", () => {
   for (const contract of [
     "getAuth().getUser",
-    "if (!emailVerified)",
+    "if (!authUser.emailVerified)",
+    "requireTrustedProviderIdentity(authUser, userData)",
     "providerSubmissionProfileIssues",
     "userData?.accountStatus !== \"active\"",
     "userData?.providerId !== providerId",

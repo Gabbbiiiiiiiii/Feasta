@@ -6,7 +6,7 @@ import {
   createUserWithEmailAndPassword,
   deleteUser,
   GoogleAuthProvider,
-  browserSessionPersistence,
+  browserLocalPersistence,
   reload,
   sendEmailVerification,
   sendPasswordResetEmail,
@@ -26,6 +26,7 @@ export type WebUserRole = UserRole;
 export type WebAuthenticationAttemptAction =
   | "customer_registration"
   | "provider_registration"
+  | "provider_phone_registration"
   | "password_reset"
   | "email_verification_resend"
   | "email_update"
@@ -61,19 +62,16 @@ export async function signInWithEmail(
   password: string,
   returnTo?: string,
 ): Promise<WebSessionResult> {
-  await setPersistence(auth, browserSessionPersistence);
+  await setPersistence(auth, browserLocalPersistence);
   const credential = await signInWithEmailAndPassword(
     auth,
     email.trim().toLowerCase(),
     password,
   );
   try {
-    // Repairs only absent customer records. The callable rejects an existing
-    // provider/admin role, blocked state, or inactive account.
-    await ensureCustomerProfile({
-      acceptedTerms: true,
-      acceptedPrivacy: true,
-    });
+    // Repair customer records without manufacturing consent during sign-in.
+    // New profiles still require explicit terms and privacy acceptance.
+    await ensureCustomerProfile({});
     return await exchangeCredentialForSession(
       await credential.user.getIdToken(true),
       returnTo,
@@ -88,13 +86,10 @@ export async function signInWithEmail(
 export async function signInWithGoogle(
   returnTo?: string,
 ): Promise<WebSessionResult> {
-  await setPersistence(auth, browserSessionPersistence);
+  await setPersistence(auth, browserLocalPersistence);
   const credential = await signInWithPopup(auth, new GoogleAuthProvider());
   try {
-    await ensureCustomerProfile({
-      acceptedTerms: true,
-      acceptedPrivacy: true,
-    });
+    await ensureCustomerProfile({});
     return await exchangeCredentialForSession(
       await credential.user.getIdToken(true),
       returnTo,
@@ -113,7 +108,7 @@ export async function registerCustomer(
     "customer_registration",
     input.email,
   );
-  await setPersistence(auth, browserSessionPersistence);
+  await setPersistence(auth, browserLocalPersistence);
   const credential = await createUserWithEmailAndPassword(
     auth,
     input.email.trim().toLowerCase(),
@@ -215,6 +210,7 @@ export async function authorizeWebAuthenticationAttempt(
   const requiresAuthentication = ![
     "customer_registration",
     "provider_registration",
+    "provider_phone_registration",
     "password_reset",
   ].includes(action);
   const idToken = requiresAuthentication
@@ -270,7 +266,7 @@ async function exchangeCredentialForSession(
   return {role: body.role, destination: body.destination};
 }
 
-async function getCsrfToken(): Promise<string> {
+export async function getCsrfToken(): Promise<string> {
   const response = await fetch("/api/auth/csrf", {
     method: "GET",
     credentials: "same-origin",

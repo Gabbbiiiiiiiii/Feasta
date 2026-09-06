@@ -3,6 +3,7 @@ import {
   onCall,
 } from "firebase-functions/v2/https";
 import {getStorage} from "firebase-admin/storage";
+import {getAuth, type UserRecord} from "firebase-admin/auth";
 import type {
   DocumentData,
   DocumentReference,
@@ -36,6 +37,7 @@ import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {logSecurityEvent} from "../shared/security-events.js";
 import {writeVerificationHistoryInTransaction} from "../shared/verification-history.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
+import {requireTrustedProviderIdentity} from "../shared/provider-identity-prerequisites.js";
 import {
   requireEnum,
   requireObject,
@@ -148,9 +150,13 @@ export const reviewProviderVerification = onCall(
     }
 
     try {
-      const storageValidatedDocuments = action === "approve" ?
-        await validateApprovalStorageEvidence(verificationId) :
-        null;
+      const [storageValidatedDocuments, approvalOwnerAuth] = action ===
+        "approve" ?
+        await Promise.all([
+          validateApprovalStorageEvidence(verificationId),
+          loadApprovalOwnerAuth(verificationReference),
+        ]) :
+        [null, null];
       const result = await db.runTransaction(
         async (transaction) => {
           const verificationSnapshot =
@@ -228,6 +234,28 @@ export const reviewProviderVerification = onCall(
             throw new HttpsError(
               "failed-precondition",
               "The provider owner account was not found.",
+            );
+          }
+
+          const ownerData = ownerSnapshot.data();
+          if (action === "approve") {
+            if (
+              !approvalOwnerAuth ||
+              approvalOwnerAuth.uid !== ownerId ||
+              ownerData?.role !== USER_ROLES.provider ||
+              ownerData.accountStatus !== "active" ||
+              ownerData.isActive !== true ||
+              ownerData.isBlocked !== false ||
+              ownerData.providerId !== providerId
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "The provider owner identity is incomplete or incorrectly linked.",
+              );
+            }
+            await requireTrustedProviderIdentity(
+              approvalOwnerAuth,
+              ownerData,
             );
           }
 
@@ -502,6 +530,44 @@ export const reviewProviderVerification = onCall(
     }
   },
 );
+
+async function loadApprovalOwnerAuth(
+  verificationReference: DocumentReference,
+): Promise<UserRecord> {
+  const verificationSnapshot = await verificationReference.get();
+  if (!verificationSnapshot.exists) {
+    throw new HttpsError(
+      "not-found",
+      "Provider verification was not found.",
+    );
+  }
+
+  const providerId = verificationSnapshot.data()?.providerId;
+  if (typeof providerId !== "string" || providerId.trim() === "") {
+    throw new HttpsError(
+      "failed-precondition",
+      "The verification record has no valid provider reference.",
+    );
+  }
+
+  const providerSnapshot = await db.collection("providers").doc(providerId).get();
+  const ownerId = providerSnapshot.data()?.ownerId;
+  if (!providerSnapshot.exists || typeof ownerId !== "string" || !ownerId) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The provider profile has no valid owner.",
+    );
+  }
+
+  try {
+    return await getAuth().getUser(ownerId);
+  } catch {
+    throw new HttpsError(
+      "failed-precondition",
+      "The provider owner authentication account was not found.",
+    );
+  }
+}
 
 function resolveNextStatus(
   action: ReviewAction,

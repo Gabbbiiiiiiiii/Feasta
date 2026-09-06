@@ -31,6 +31,10 @@ const statusConfiguration: Record<
     label: "Paid",
     tone: "success",
   },
+  partially_refunded: {
+    label: "Partially refunded",
+    tone: "info",
+  },
   failed: {
     label: "Failed",
     tone: "destructive",

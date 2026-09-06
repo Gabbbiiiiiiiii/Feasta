@@ -29,6 +29,7 @@ import type {
 const review: AdminReview = {
   id: "booking-one_customer-one",
   reviewId: "booking-one_customer-one",
+  providerRequestId: null,
   bookingId: "booking-one",
   bookingCode: "BK-001",
   packageId: "package-one",

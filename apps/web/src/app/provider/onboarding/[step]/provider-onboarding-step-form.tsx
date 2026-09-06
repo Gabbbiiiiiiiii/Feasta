@@ -6,8 +6,10 @@ import {
   PROVIDER_EVENT_TYPES,
   PROVIDER_OPERATING_DAYS,
   PROVIDER_SERVICE_CATEGORIES,
+  normalizePhilippineMobile,
   normalizePhilippinePhone,
   normalizeProviderEmail,
+  providerCapacityCapabilities,
   serviceCategoryMatchesProviderType,
   type ProviderOnboardingInput,
   type ProviderServiceCategory,
@@ -339,9 +341,9 @@ function StepFields({
         <FormField label="Account email" description="Managed by your authenticated account." disabled>
           <Input type="email" value={values.ownerEmail} readOnly />
         </FormField>
-        <FormField label="Owner phone" description="Use a Philippine number, such as 0917 123 4567." required disabled={loading} error={fieldErrors.ownerPhone}>
+        <FormField label="Owner mobile" description="Use a Philippine mobile number, such as 0917 123 4567." required disabled={loading} error={fieldErrors.ownerPhone}>
           <Input type="tel" inputMode="tel" autoComplete="tel" value={values.ownerPhone} onChange={(event) => update("ownerPhone", event.target.value)} onBlur={() => {
-            const normalized = normalizePhilippinePhone(values.ownerPhone);
+            const normalized = normalizePhilippineMobile(values.ownerPhone);
             if (normalized) update("ownerPhone", normalized);
           }} />
         </FormField>
@@ -492,62 +494,184 @@ function StepFields({
   }
 
   if (step === 5) {
-    return (
-      <div className="grid gap-4 sm:grid-cols-2">
-        <NumberField label="Minimum guests per event" value={values.minGuestsPerEvent} minimum={1} disabled={loading} error={fieldErrors.minGuestsPerEvent} onChange={(value) => update("minGuestsPerEvent", integer(value))} />
-        <NumberField label="Maximum guests per event" value={values.maxGuestsPerEvent} minimum={1} disabled={loading} error={fieldErrors.maxGuestsPerEvent} onChange={(value) => update("maxGuestsPerEvent", integer(value))} />
-        <NumberField label="Available staff" value={values.availableStaffCount} minimum={0} disabled={loading} onChange={(value) => update("availableStaffCount", integer(value))} />
-        <NumberField label="Available equipment units" value={values.availableEquipmentCount} minimum={0} disabled={loading} onChange={(value) => update("availableEquipmentCount", integer(value))} />
-        <NumberField label="Maximum events per day" value={values.maxEventsPerDay} minimum={1} disabled={loading || !values.acceptsMultipleEventsPerDay} onChange={(value) => update("maxEventsPerDay", integer(value, 1))} />
-        <NumberField label="Booking lead time (days)" value={values.bookingLeadTimeDays} minimum={0} maximum={365} disabled={loading} error={fieldErrors.bookingLeadTimeDays} onChange={(value) => update("bookingLeadTimeDays", integer(value))} />
-        <div className="sm:col-span-2">
-          <CheckboxField
-            label="Accept multiple events on the same day"
-            description="Only enable this when staffing and equipment capacity support it."
-            checked={values.acceptsMultipleEventsPerDay}
-            disabled={loading}
-            onChange={(event) => {
-              update("acceptsMultipleEventsPerDay", event.target.checked);
-              if (!event.target.checked) update("maxEventsPerDay", 1);
-            }}
-          />
-        </div>
-        <div className="sm:col-span-2">
-          <CheckboxGroup
-            legend="Operating days"
-            description="These are normal operating days, not a promise of availability."
-            values={PROVIDER_OPERATING_DAYS}
-            selected={values.operatingDays}
-            disabled={loading}
-            error={fieldErrors.operatingDays}
-            label={titleFromValue}
-            onToggle={(day) =>
-              update("operatingDays", toggleList(values.operatingDays, day))}
-          />
-        </div>
-        <FormField
-          className="sm:col-span-2"
-          label="Unavailable dates"
-          description="Optional dates in YYYY-MM-DD format, separated by commas. Booking availability is verified separately."
-          disabled={loading}
-          error={fieldErrors.unavailableDates}
-        >
-          <Textarea
-            value={values.unavailableDates.join(", ")}
-            placeholder="2026-12-24, 2026-12-25"
-            onChange={(event) =>
-              update("unavailableDates", textList(event.target.value))}
-          />
-        </FormField>
-        <div className="sm:col-span-2">
-          <AuthStatus
-            tone="info"
-            message="Capacity and schedule settings are planning constraints only. FEASTA verifies actual availability when a booking is submitted."
-          />
-        </div>
-      </div>
+  const capabilities =
+    providerCapacityCapabilities(
+      values.serviceCategories,
     );
-  }
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      {capabilities.requiresGuestCapacity ? (
+        <>
+          <NumberField
+            label="Minimum guests per event"
+            description="The smallest event size your business normally accepts."
+            value={values.minGuestsPerEvent}
+            minimum={1}
+            disabled={loading}
+            error={fieldErrors.minGuestsPerEvent}
+            onChange={(value) =>
+              update(
+                "minGuestsPerEvent",
+                integer(value),
+              )
+            }
+          />
+
+          <NumberField
+            label="Maximum guests per event"
+            description="The largest event size your business can currently support."
+            value={values.maxGuestsPerEvent}
+            minimum={1}
+            disabled={loading}
+            error={fieldErrors.maxGuestsPerEvent}
+            onChange={(value) =>
+              update(
+                "maxGuestsPerEvent",
+                integer(value),
+              )
+            }
+          />
+        </>
+      ) : null}
+
+      {capabilities.usesStaffCapacity ? (
+        <NumberField
+          label="Available staff"
+          description="People normally available to fulfill bookings."
+          value={values.availableStaffCount}
+          minimum={0}
+          disabled={loading}
+          onChange={(value) =>
+            update(
+              "availableStaffCount",
+              integer(value),
+            )
+          }
+        />
+      ) : null}
+
+      {capabilities.usesEquipmentCapacity ? (
+        <NumberField
+          label="Available equipment units"
+          description="Equipment, vehicles, booths, rental units, or other service resources currently available."
+          value={values.availableEquipmentCount}
+          minimum={0}
+          disabled={loading}
+          onChange={(value) =>
+            update(
+              "availableEquipmentCount",
+              integer(value),
+            )
+          }
+        />
+      ) : null}
+
+      <NumberField
+        label="Maximum events per day"
+        description="Maximum bookings your business can fulfill on the same day."
+        value={values.maxEventsPerDay}
+        minimum={1}
+        disabled={
+          loading ||
+          !values.acceptsMultipleEventsPerDay
+        }
+        onChange={(value) =>
+          update(
+            "maxEventsPerDay",
+            integer(value, 1),
+          )
+        }
+      />
+
+      <NumberField
+        label="Booking lead time (days)"
+        description="Minimum number of days customers should book in advance."
+        value={values.bookingLeadTimeDays}
+        minimum={0}
+        maximum={365}
+        disabled={loading}
+        error={fieldErrors.bookingLeadTimeDays}
+        onChange={(value) =>
+          update(
+            "bookingLeadTimeDays",
+            integer(value),
+          )
+        }
+      />
+
+      <div className="sm:col-span-2">
+        <CheckboxField
+          label="Accept multiple events on the same day"
+          description="Enable this only when your staffing, equipment, and schedule can support multiple bookings."
+          checked={
+            values.acceptsMultipleEventsPerDay
+          }
+          disabled={loading}
+          onChange={(event) => {
+            update(
+              "acceptsMultipleEventsPerDay",
+              event.target.checked,
+            );
+
+            if (!event.target.checked) {
+              update(
+                "maxEventsPerDay",
+                1,
+              );
+            }
+          }}
+        />
+      </div>
+
+      <div className="sm:col-span-2">
+        <CheckboxGroup
+          legend="Operating days"
+          description="These are your normal operating days, not a guarantee of availability."
+          values={PROVIDER_OPERATING_DAYS}
+          selected={values.operatingDays}
+          disabled={loading}
+          error={fieldErrors.operatingDays}
+          label={titleFromValue}
+          onToggle={(day) =>
+            update(
+              "operatingDays",
+              toggleList(
+                values.operatingDays,
+                day,
+              ),
+            )
+          }
+        />
+      </div>
+
+      <FormField
+        className="sm:col-span-2"
+        label="Unavailable dates"
+        description="Optional dates in YYYY-MM-DD format, separated by commas. Booking availability is verified separately."
+        disabled={loading}
+        error={fieldErrors.unavailableDates}
+      >
+        <Textarea
+          value={
+            values.unavailableDates.join(
+              ", ",
+            )
+          }
+          placeholder="2026-12-24, 2026-12-25"
+          onChange={(event) =>
+            update(
+              "unavailableDates",
+              textList(
+                event.target.value,
+              ),
+            )
+          }
+        />
+      </FormField>
+    </div>
+  );
+}
 
   return (
     <div className="grid gap-5">
@@ -758,7 +882,7 @@ function prepareStepValues(
   if (step === 1) {
     normalized.ownerFirstName = values.ownerFirstName.trim();
     normalized.ownerLastName = values.ownerLastName.trim();
-    const phone = normalizePhilippinePhone(values.ownerPhone);
+    const phone = normalizePhilippineMobile(values.ownerPhone);
     if (!normalized.ownerFirstName) {
       errors.ownerFirstName = "Enter the owner's first name.";
     }
@@ -766,7 +890,7 @@ function prepareStepValues(
       errors.ownerLastName = "Enter the owner's last name.";
     }
     if (!phone) {
-      errors.ownerPhone = "Enter a valid Philippine phone number.";
+      errors.ownerPhone = "Enter a valid Philippine mobile number.";
     } else {
       normalized.ownerPhone = phone;
     }
@@ -817,33 +941,73 @@ function prepareStepValues(
     }
   }
   if (step === 5) {
+  const capabilities =
+    providerCapacityCapabilities(
+      values.serviceCategories,
+    );
+
+  if (capabilities.requiresGuestCapacity) {
     if (
       values.minGuestsPerEvent < 1 ||
-      values.minGuestsPerEvent > values.maxGuestsPerEvent
+      values.minGuestsPerEvent >
+        values.maxGuestsPerEvent
     ) {
       errors.minGuestsPerEvent =
         "Minimum guests must be at least 1 and not exceed the maximum.";
     }
+
     if (values.maxGuestsPerEvent < 1) {
-      errors.maxGuestsPerEvent = "Maximum guests must be at least 1.";
+      errors.maxGuestsPerEvent =
+        "Maximum guests must be at least 1.";
     }
-    if (values.operatingDays.length === 0) {
-      errors.operatingDays = "Choose at least one operating day.";
-    }
-    if (
-      values.bookingLeadTimeDays < 0 ||
-      values.bookingLeadTimeDays > 365
-    ) {
-      errors.bookingLeadTimeDays =
-        "Booking lead time must be between 0 and 365 days.";
-    }
-    if (values.unavailableDates.some((date) =>
-      !/^\d{4}-\d{2}-\d{2}$/u.test(date) ||
-      Number.isNaN(Date.parse(`${date}T00:00:00Z`))
-    )) {
-      errors.unavailableDates = "Use valid YYYY-MM-DD dates.";
-    }
+  } else {
+    normalized.minGuestsPerEvent = 0;
+    normalized.maxGuestsPerEvent = 0;
   }
+
+  if (!capabilities.usesStaffCapacity) {
+    normalized.availableStaffCount = 0;
+  }
+
+  if (!capabilities.usesEquipmentCapacity) {
+    normalized.availableEquipmentCount = 0;
+  }
+
+  if (!values.acceptsMultipleEventsPerDay) {
+    normalized.maxEventsPerDay = 1;
+  } else if (values.maxEventsPerDay < 1) {
+    errors.maxEventsPerDay =
+      "Maximum events per day must be at least 1.";
+  }
+
+  if (values.operatingDays.length === 0) {
+    errors.operatingDays =
+      "Choose at least one operating day.";
+  }
+
+  if (
+    values.bookingLeadTimeDays < 0 ||
+    values.bookingLeadTimeDays > 365
+  ) {
+    errors.bookingLeadTimeDays =
+      "Booking lead time must be between 0 and 365 days.";
+  }
+
+  if (
+    values.unavailableDates.some(
+      (date) =>
+        !/^\d{4}-\d{2}-\d{2}$/u.test(date) ||
+        Number.isNaN(
+          Date.parse(
+            `${date}T00:00:00Z`,
+          ),
+        ),
+    )
+  ) {
+    errors.unavailableDates =
+      "Use valid YYYY-MM-DD dates.";
+  }
+}
   return {values: normalized, errors};
 }
 

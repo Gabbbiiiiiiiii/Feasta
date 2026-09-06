@@ -26,6 +26,7 @@ import {serverTimestamp} from "../shared/timestamps.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {logSecurityEvent} from "../shared/security-events.js";
+import {requireTrustedProviderIdentity} from "../shared/provider-identity-prerequisites.js";
 import {writeVerificationHistoryInTransaction} from "../shared/verification-history.js";
 import {
   requireObject,
@@ -61,22 +62,19 @@ export const submitProviderVerification = onCall(
       );
     }
 
-    let emailVerified: boolean;
-    try {
-      emailVerified = (await getAuth().getUser(authenticatedUser.uid))
-        .emailVerified;
-    } catch (error) {
-      logError(
-        "Provider Auth state lookup failed",
-        error,
-        {uid: authenticatedUser.uid},
-      );
-      throw new HttpsError(
-        "internal",
-        "The provider account could not be verified.",
-      );
-    }
-    if (!emailVerified) {
+    const authUser = await getAuth().getUser(authenticatedUser.uid)
+      .catch((error: unknown) => {
+        logError(
+          "Provider Auth state lookup failed",
+          error,
+          {uid: authenticatedUser.uid},
+        );
+        throw new HttpsError(
+          "internal",
+          "The provider account could not be verified.",
+        );
+      });
+    if (!authUser.emailVerified) {
       throw new HttpsError(
         "failed-precondition",
         "Verify your email address before submitting provider verification.",
@@ -166,6 +164,7 @@ export const submitProviderVerification = onCall(
               "The provider account is not active or correctly linked.",
             );
           }
+          await requireTrustedProviderIdentity(authUser, userData);
 
           const verificationQuery = db
             .collection(

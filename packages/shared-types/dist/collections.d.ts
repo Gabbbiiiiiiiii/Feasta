@@ -8,6 +8,7 @@ export declare const FIRESTORE_COLLECTIONS: {
     readonly addons: "addons";
     readonly mainEvents: "mainEvents";
     readonly providerRequests: "providerRequests";
+    readonly providerRequestCancellationRequests: "providerRequestCancellationRequests";
     readonly payments: "payments";
     readonly chatRooms: "chatRooms";
     readonly reviews: "reviews";
@@ -23,6 +24,7 @@ export declare const FIRESTORE_COLLECTIONS: {
 export declare const FIRESTORE_SUBCOLLECTIONS: {
     readonly timeline: "timeline";
     readonly messages: "messages";
+    readonly refunds: "refunds";
     readonly documents: "documents";
     readonly activity: "activity";
 };

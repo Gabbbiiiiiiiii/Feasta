@@ -8,9 +8,10 @@ const source = (relative) => readFileSync(path.join(root, relative), "utf8");
 
 const policies = [
   ["ensureUserProfile", "auth/ensure-user-profile.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions"]],
-  ["ensureProviderIdentity", "auth/ensure-provider-identity.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions"]],
+  ["ensureProviderIdentity", "auth/ensure-provider-identity.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions", "isAuthoritativeAuthPhone", "passwordLinked", "authEmail !== submittedEmail", "requireProviderConsent"]],
   ["syncUserAuthState", "auth/sync-user-auth-state.ts", ["requireAuth(request)", "enforceCallableRateLimit", "authUser.disabled", "appCheckCallableOptions"]],
   ["syncPhoneVerification", "auth/sync-phone-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "getAuth().getUser", "appCheckCallableOptions"]],
+  ["prepareProviderPhoneVerification", "auth/prepare-provider-phone-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "getAuth().getUser", "appCheckCallableOptions", "requirePhoneAvailableToUid"]],
   ["updateCustomerProfile", "auth/manage-customer-account.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["updateCustomerPreferences", "auth/manage-customer-account.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["deactivateCustomerAccount", "auth/manage-customer-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "revokeRefreshTokens", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
@@ -20,9 +21,23 @@ const policies = [
   ["revokeAllAccountSessions", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "enforceCallableRateLimit", "revokeRefreshTokens", "appCheckCallableOptions"]],
   ["deactivateProviderAccount", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "enforceCallableRateLimit", "activeProviderRequestStatuses", "revokeRefreshTokens", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["submitBookingRequest", "bookings/submit-booking-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "assertBookingSubmissionAllowed", "runTransaction", "appCheckCallableOptions"]],
-  ["registerProvider", "providers/register-provider.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction"]],
-  ["saveProviderOnboardingDraft", "providers/save-provider-onboarding-draft.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "runTransaction"]],
+  [
+    "getBookingRefundPolicyDisclosures",
+    "bookings/get-booking-refund-policy-disclosures.ts",
     [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "runTransaction",
+      "appCheckCallableOptions",
+      "resolveBookingRefundPolicies",
+    ],
+  ],
+  ["checkCustomerProviderAvailability", "provider-availability/check-customer-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "rejectUnknownFields", "validateBookingPackage", "validateProviderAvailability", "isProviderPubliclyEligible"]],
+  ["checkMarketplaceProviderAvailability", "provider-availability/check-marketplace-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "rejectUnknownFields", "MAX_PROVIDER_IDS", "validateProviderAvailability", "isProviderPubliclyEligible"]],
+  ["registerProvider", "providers/register-provider.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "requireTrustedProviderIdentity", "requireProviderRegistrationConsent"]],
+  ["saveProviderOnboardingDraft", "providers/save-provider-onboarding-draft.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "runTransaction", "requireTrustedProviderIdentity"]],
+  [
     "createProviderMediaUploadSignature",
     "providers/provider-media.ts",
     [
@@ -32,6 +47,185 @@ const policies = [
       "appCheckCallableOptions",
       "cloudinarySecrets",
       "createProviderUploadSignature",
+    ],
+  ],
+  [
+    "deleteProviderOnboardingMedia",
+    "providers/provider-media.ts",
+    [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "appCheckCallableOptions",
+      "cloudinarySecrets",
+      "requireUnlinkedProviderOnboarding",
+      "deleteProviderMedia",
+    ],
+  ],
+  [
+    "createProviderPackage",
+    "packages/create-provider-package.ts",
+    [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "appCheckCallableOptions",
+      "authorizeProviderForPackageManagement",
+      "runTransaction",
+    ],
+  ],
+  [
+    "updateProviderPackage",
+    "packages/update-provider-package.ts",
+    [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "appCheckCallableOptions",
+      "authorizeProviderForPackageManagement",
+      "authorizeOwnedPackage",
+      "runTransaction",
+    ],
+  ],
+  [
+    "publishProviderPackage",
+    "packages/publish-provider-package.ts",
+    [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "appCheckCallableOptions",
+      "authorizeProviderForPackageManagement",
+      "authorizeOwnedPackage",
+      "isProviderPubliclyEligible",
+      "runTransaction",
+    ],
+  ],
+  [
+    "archiveProviderPackage",
+    "packages/archive-provider-package.ts",
+    [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "appCheckCallableOptions",
+      "authorizeProviderForPackageManagement",
+      "authorizeOwnedPackage",
+      "runTransaction",
+    ],
+  ],
+  [
+    "publishProviderRefundPolicy",
+    "refund-policies/refund-policy-authoring.ts",
+    [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "appCheckCallableOptions",
+      "executeIdempotently",
+      "authorizeProviderForPackageManagement",
+      "runTransaction",
+      "writeAuditLogInTransaction",
+    ],
+  ],
+  [
+    "setPackageRefundPolicyOverride",
+    "refund-policies/refund-policy-authoring.ts",
+    [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "appCheckCallableOptions",
+      "executeIdempotently",
+      "authorizeProviderForPackageManagement",
+      "authorizeOwnedPackage",
+      "runTransaction",
+      "writeAuditLogInTransaction",
+    ],
+  ],
+  [
+    "createProviderService",
+    "providers/provider-service-management.ts",
+    [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "appCheckCallableOptions",
+      "rejectUnknownFields",
+      "requireOwnedServiceProvider",
+      "assertServiceCategoryAllowed",
+      "verifyProviderServiceImage",
+      "runTransaction",
+    ],
+  ],
+  [
+    "updateProviderService",
+    "providers/provider-service-management.ts",
+    [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "appCheckCallableOptions",
+      "rejectUnknownFields",
+      "requireOwnedServiceProvider",
+      "assertOwnedService",
+      "assertServiceCategoryAllowed",
+      "verifyProviderServiceImage",
+      "runTransaction",
+    ],
+  ],
+  [
+    "publishProviderService",
+    "providers/provider-service-management.ts",
+    [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "appCheckCallableOptions",
+      "rejectUnknownFields",
+      "requireOwnedServiceProvider",
+      "assertOwnedService",
+      "assertServiceCategoryAllowed",
+      "isApprovedProviderForOperations",
+      "runTransaction",
+    ],
+  ],
+  [
+    "archiveProviderService",
+    "providers/provider-service-management.ts",
+    [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "appCheckCallableOptions",
+      "rejectUnknownFields",
+      "requireOwnedServiceProvider",
+      "assertOwnedService",
+      "runTransaction",
+    ],
+  ],
+  [
+    "createProviderServiceImageUploadSignature",
+    "providers/provider-media.ts",
+    [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "appCheckCallableOptions",
+      "cloudinarySecrets",
+      "createProviderServiceImageUploadSignature",
+    ],
+  ],
+  [
+    "deleteProviderServiceImage",
+    "providers/provider-media.ts",
+    [
+      "requireAuth(request)",
+      "requireRole",
+      "enforceCallableRateLimit",
+      "appCheckCallableOptions",
+      "cloudinarySecrets",
+      "deleteProviderServiceImage",
     ],
   ],
   [
@@ -50,11 +244,30 @@ const policies = [
   ],
   ["registerVerificationDocument", "verification/register-verification-document.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "idempotentReplay", "writeAuditLogInTransaction"]],
   ["removeVerificationDocument", "verification/remove-verification-document.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "EDITABLE_STATUSES", "writeAuditLogInTransaction"]],
-  ["submitProviderVerification", "verification/submit-provider-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction"]],
-  ["reviewProviderVerification", "verification/review-provider-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "createNotificationInTransaction"]],
+  ["submitProviderVerification", "verification/submit-provider-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "requireTrustedProviderIdentity"]],
+  ["reviewProviderVerification", "verification/review-provider-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "createNotificationInTransaction", "loadApprovalOwnerAuth", "requireTrustedProviderIdentity"]],
   ["createComplaint", "content/create-complaint.ts", ["requireAuth(request)", "requireActiveUser", "enforceCallableRateLimit", "executeIdempotently", "writeAuditLogInTransaction"]],
   ["submitReview", "content/submit-review.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "executeIdempotently"]],
-  ["createPaymentSession", "payments/create-payment-session.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "defineSecret", "runTransaction"]],
+  ["deleteReview", "content/delete-review.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "executeIdempotently", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  ["createPaymentSession", "payments/create-payment-session.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "defineSecret", "rejectUnknownFields", "paymentIdForProviderRequest", "canonicalPaymentLinkageReason", "providerOperationalReason", "payMongoFailureCertainty", "calculateMainEventRequestSummary", "runTransaction"]],
+  ["acceptProviderRequest", "provider-requests/accept-provider-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "assertCanonicalProviderRequestCore", "requireProviderResponseParentStatus", "validateAcceptanceProviderRequest", "validateProviderAvailability", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
+  ["rejectProviderRequest", "provider-requests/reject-provider-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "assertCanonicalProviderRequestCore", "requireProviderResponseParentStatus", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
+  ["markProviderBookingInProgress", "provider-requests/update-provider-booking-lifecycle.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
+  ["completeProviderBooking", "provider-requests/update-provider-booking-lifecycle.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
+  ["advanceProviderRequestRefundEligibilityStage", "cancellations/advance-refund-eligibility-stage.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "executeIdempotently", "assertCanonicalProviderRequestCore", "canonicalPaymentLinkageReason", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  ["submitProviderRequestCancellation", "cancellations/submit-provider-request-cancellation.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "executeIdempotently", "canonicalRequestLinkageReason", "canonicalPaymentLinkageReason", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
+  ["getProviderRequestCancellationOptions", "cancellations/get-provider-request-cancellation.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "INPUT_FIELDS", "canonicalRequestLinkageReason", "canonicalPaymentLinkageReason", "parseCancellationRefundRollout", "runTransaction", "appCheckCallableOptions"]],
+  ["getProviderRequestCancellationStatus", "cancellations/get-provider-request-cancellation.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "INPUT_FIELDS", "canonicalRequestLinkageReason", "canonicalPaymentLinkageReason", "participantCancellationStatus", "appCheckCallableOptions"]],
+  ["approveProviderRequestCancellationRefund", "refunds/refund-execution.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "approveCancellation", "canonicalRequestLinkageReason", "canonicalPaymentLinkageReason", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  ["rejectProviderRequestCancellation", "refunds/refund-execution.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "rejectCancellation", "canonicalRequestLinkageReason", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  ["executeProviderRequestRefund", "refunds/refund-execution.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "defineSecret", "createPayMongoRefund", "gatewayRefundIdempotencyKey", "reconcileGatewayRefund", "appCheckCallableOptions"]],
+  ["inspectProviderRequestRefundReconciliation", "refunds/inspect-refund-reconciliation.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "cancellationIdInput", "canonicalRequestLinkageReason", "canonicalPaymentLinkageReason", "appCheckCallableOptions"]],
+  ["openProviderRequestChat", "messaging/provider-request-chat.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "loadCanonicalContext", "assertChatLifecycleEligible", "runTransaction"]],
+  ["sendChatMessage", "messaging/provider-request-chat.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "validateSendChatMessageInput", "createNotificationInTransaction", "runTransaction"]],
+  ["markChatRoomRead", "messaging/provider-request-chat.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "validateMarkChatReadInput", "runTransaction"]],
+  ["updateProviderAvailability", "providers/update-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "isApprovedProviderForOperations", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  ["updateProviderAvailabilitySettings", "providers/update-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "isApprovedProviderForOperations", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  ["updateProviderBusinessProfile", "providers/update-provider-business-profile.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "isApprovedProviderForOperations", "isProviderOwnerAccountActive", "validateProviderBusinessProfileUpdate", "verifyProviderMedia", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions", "cloudinarySecrets"]],
   ["requestPaymentRefund", "payments/request-refund.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "executeIdempotently", "defineSecret", "writeAuditLog"]],
   ["payMongoWebhook", "payments/paymongo-webhook.ts", ["defineSecret", "verifyPayMongoSignature", "rawBody", "processPayMongoWebhook"]],
 ];
@@ -67,6 +280,97 @@ for (const [name, file, controls] of policies) {
     }
   });
 }
+
+test("payment checkout keeps provider-request authority and fail-safe gateway handling", () => {
+  const checkout = source("payments/create-payment-session.ts");
+  const callable = checkout.slice(
+    0,
+    checkout.indexOf("export async function createPaymentSessionForCustomer"),
+  );
+  assert.ok(callable.includes('"providerRequestId"'));
+  assert.ok(callable.includes('"idempotencyKey"'));
+  for (const field of ["amount", "customerId", "providerId", "bookingId", "paymentStatus", "successUrl", "cancelUrl"]) {
+    assert.ok(
+      !callable.includes(`input.${field}`),
+      `createPaymentSession must not trust input.${field}`,
+    );
+  }
+  assert.ok(checkout.includes("checkoutCreationStatus"));
+  assert.ok(checkout.includes('certainty: "ambiguous"'));
+  assert.ok(checkout.includes("activeCancellationRequestId"));
+  assert.ok(checkout.includes("legacyActiveCancellationRequestId"));
+  assert.ok(!checkout.includes("providerRequestCancellationRequests"));
+});
+
+test("cancellation attempt identity is server-derived and Customer-scoped", () => {
+  const cancellation = source(
+    "cancellations/submit-provider-request-cancellation.ts",
+  );
+  const domain = source("cancellations/refund-cancellation-domain.ts");
+  const inputContract = cancellation.slice(
+    cancellation.indexOf("const INPUT_FIELDS"),
+    cancellation.indexOf("type CancellationResult"),
+  );
+
+  assert.ok(cancellation.includes("cancellationRequestIdForAttempt"));
+  assert.ok(cancellation.includes("customerId: input.actorUid"));
+  assert.ok(cancellation.includes("operationKey: input.operationKey"));
+  assert.ok(!inputContract.includes("cancellationRequestId"));
+  assert.ok(domain.includes("input.providerRequestId"));
+  assert.ok(domain.includes("input.customerId"));
+  assert.ok(domain.includes("input.operationKey"));
+});
+
+test("refund accounting is internal, canonical, and never browser-amount authority", () => {
+  const index = source("index.ts");
+  const accounting = source("refunds/refund-accounting.ts");
+  const domain = source("refunds/refund-accounting-domain.ts");
+  const legacyAdmin = source("payments/request-refund.ts");
+
+  assert.ok(!index.includes("reserveCancellationRefund"));
+  assert.ok(!index.includes("completeRefundAccounting"));
+  assert.ok(!accounting.includes("onCall("));
+  for (const control of [
+    "canonicalPaymentLinkageReason",
+    "paymentIdForProviderRequest",
+    "approvedCancellationRequestId",
+    "activeCancellationRequestId",
+    "runTransaction",
+    "transaction.create(operationReference",
+  ]) {
+    assert.ok(accounting.includes(control), `refund accounting is missing ${control}`);
+  }
+  assert.ok(domain.includes("BigInt(amount)"));
+  assert.ok(domain.includes("refundPolicySnapshot"));
+  assert.ok(domain.includes("frozenEligibility"));
+  assert.ok(legacyAdmin.includes("acquireLegacyAdminRefundLock"));
+  assert.ok(legacyAdmin.includes("refundExecutionLock"));
+});
+
+test("PayMongo webhook records gateway truth without resurrecting booking state", () => {
+  const webhook = source("payments/process-webhook.ts");
+  for (const control of [
+    "canonicalPaymentLinkageReason",
+    "webhookLifecycleConflictReason",
+    "providerOperationalReason",
+    "processed_with_conflict",
+    "payment.lifecycle_conflict",
+    "allowFailedToPaidRecovery",
+  ]) {
+    assert.ok(webhook.includes(control), `payment webhook is missing ${control}`);
+  }
+});
+
+test("refund adjudication and execution never accept browser money authority", () => {
+  const execution = source("refunds/refund-execution.ts");
+  assert.ok(execution.includes('"cancellationRequestId",\n      "idempotencyKey"'));
+  assert.ok(execution.includes('"cancellationRequestId",\n      "reason",\n      "idempotencyKey"'));
+  assert.ok(execution.includes("calculateCancellationRefund({"));
+  assert.ok(execution.includes("amountInCentavos: prepared.amountInCentavos"));
+  assert.equal(execution.includes("input.refundAmount"), false);
+  assert.equal(execution.includes("input.refundBasisPoints"), false);
+  assert.equal(execution.includes("request.data.paymentId"), false);
+});
 
 for (const name of ["searchPlaces", "reverseGeocode", "getPlaceDetails", "getDirections"]) {
   test(`${name} is an authenticated, active and rate-limited Maps callable`, () => {
@@ -88,22 +392,45 @@ test("all deployed exports remain in the reviewed inventory", () => {
   for (const match of index.matchAll(/export\s*\{\s*(\w+)[\s,}]/gu)) names.add(match[1]);
   assert.deepEqual([...names].sort(), [
     "acceptProviderRequest",
+    "advanceProviderRequestRefundEligibilityStage",
+    "approveProviderRequestCancellationRefund",
+    "archiveProviderService",
+    "checkCustomerProviderAvailability",
+    "checkMarketplaceProviderAvailability",
+    "completeProviderBooking",
     "createComplaint",
     "createPaymentSession",
     "createProviderMediaUploadSignature",
+    "archiveProviderPackage",
+    "createProviderPackage",
+    "publishProviderPackage",
+    "publishProviderRefundPolicy",
+    "updateProviderPackage",
     "deactivateCustomerAccount",
     "deactivateProviderAccount",
+    "deleteReview",
     "ensureProviderIdentity",
     "ensureUserProfile",
+    "executeProviderRequestRefund",
     "getDirections",
+    "getBookingRefundPolicyDisclosures",
     "getPlaceDetails",
+    "getProviderRequestCancellationOptions",
+    "getProviderRequestCancellationStatus",
     "healthCheck",
+    "inspectProviderRequestRefundReconciliation",
     "moderateReview",
+    "markProviderBookingInProgress",
+    "markChatRoomRead",
     "onPromotionWrite",
     "onUserSecurityStateChanged",
+    "openProviderRequestChat",
     "payMongoWebhook",
+    "prepareCustomerPhoneVerification",
+    "prepareProviderPhoneVerification",
     "registerProvider",
     "registerVerificationDocument",
+    "rejectProviderRequestCancellation",
     "rejectProviderRequest",
     "removeVerificationDocument",
     "requestPaymentRefund",
@@ -113,7 +440,10 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "revokeAllCustomerSessions",
     "saveProviderOnboardingDraft",
     "searchPlaces",
+    "sendChatMessage",
+    "setPackageRefundPolicyOverride",
     "submitBookingRequest",
+    "submitProviderRequestCancellation",
     "submitProviderVerification",
     "submitReview",
     "syncPhoneVerification",
@@ -121,6 +451,9 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "updateAccountPreferences",
     "updateCustomerPreferences",
     "updateCustomerProfile",
+    "updateProviderAvailability",
+    "updateProviderAvailabilitySettings",
+    "updateProviderBusinessProfile",
     "updateRoleAccountProfile",
   ].sort());
   assert.equal(index.includes("onSchedule"), false);
@@ -149,13 +482,17 @@ test("customer profile creation forces the customer role and trusted flags", () 
   assert.equal(content.includes("input.role"), false);
   assert.equal(content.includes("input.isEmailVerified"), false);
   assert.equal(content.includes("input.isPhoneVerified"), false);
+  assert.equal(content.includes("input.phoneNumber"), false);
+  assert.ok(content.includes("authoritativeFirebasePhone(authUser)"));
 });
 
-test("provider identity creation ignores client role and verification flags", () => {
+test("provider identity creation derives verification from Firebase Auth", () => {
   const content = source("auth/ensure-provider-identity.ts");
   assert.ok(content.includes("role: USER_ROLES.provider"));
   assert.ok(content.includes("isEmailVerified: authUser.emailVerified"));
-  assert.ok(content.includes("isPhoneVerified: false"));
+  assert.ok(content.includes("isAuthoritativeAuthPhone(authUser, phoneNumber)"));
+  assert.ok(content.includes("isPhoneVerified: phoneVerified"));
+  assert.ok(content.includes("requireProviderConsent"));
   assert.ok(content.includes("accountStatus: \"active\""));
   assert.equal(content.includes("input.role"), false);
   assert.equal(content.includes("input.isEmailVerified"), false);
@@ -166,15 +503,15 @@ test("provider identity creation ignores client role and verification flags", ()
 test("booking and payment callables revalidate approved providers", () => {
   const bookings = source("bookings/submit-booking-request.ts");
   const payments = source("payments/create-payment-session.ts");
+  const lifecycle = source("payments/payment-lifecycle.ts");
   assert.ok(
     (bookings.match(/isApprovedProviderForOperations\(\s*\w+/gu) ?? [])
       .length >= 2,
     "each selected provider must be revalidated",
   );
-  assert.match(
-    payments,
-    /isApprovedProviderForOperations\(\s*provider\s*\)/u,
-  );
+  assert.ok(payments.includes("providerOperationalReason"));
+  assert.match(lifecycle, /isApprovedProviderForOperations\(\s*provider/u);
+  assert.match(lifecycle, /isProviderOwnerAccountActive\(\s*providerId/u);
 });
 
 test("Maps proxy cache and timeout controls do not persist API keys", () => {

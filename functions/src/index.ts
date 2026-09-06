@@ -36,6 +36,13 @@ export {
   syncPhoneVerification,
 } from "./auth/sync-phone-verification.js";
 
+export {
+  prepareProviderPhoneVerification,
+} from "./auth/prepare-provider-phone-verification.js";
+export {
+  prepareCustomerPhoneVerification,
+} from "./auth/prepare-customer-phone-verification.js";
+
 export {deactivateCustomerAccount} from "./auth/manage-customer-account.js";
 export {revokeAllCustomerSessions} from "./auth/manage-customer-account.js";
 export {updateCustomerPreferences} from "./auth/manage-customer-account.js";
@@ -64,8 +71,43 @@ export {
   saveProviderOnboardingDraft,
 } from "./providers/save-provider-onboarding-draft.js";
 export {
+  updateProviderAvailability,
+} from "./providers/update-provider-availability.js";
+export {
+  updateProviderAvailabilitySettings,
+} from "./providers/update-provider-availability.js";
+export {
+  updateProviderBusinessProfile,
+} from "./providers/update-provider-business-profile.js";
+export {
+  archiveProviderService,
+  createProviderService,
+  publishProviderService,
+  updateProviderService,
+} from "./providers/provider-service-management.js";
+export {
+  createProviderPackage,
+} from "./packages/create-provider-package.js";
+export {
+  updateProviderPackage,
+} from "./packages/update-provider-package.js";
+export {
+  publishProviderPackage,
+} from "./packages/publish-provider-package.js";
+export {
+  archiveProviderPackage,
+} from "./packages/archive-provider-package.js";
+export {
+  publishProviderRefundPolicy,
+} from "./refund-policies/refund-policy-authoring.js";
+export {
+  setPackageRefundPolicyOverride,
+} from "./refund-policies/refund-policy-authoring.js";
+export {
   createProviderMediaUploadSignature,
+  createProviderServiceImageUploadSignature,
   deleteProviderOnboardingMedia,
+  deleteProviderServiceImage,
 } from "./providers/provider-media.js";
 export {
   submitProviderVerification,
@@ -87,16 +129,61 @@ export {
 export {
   rejectProviderRequest,
 } from "./provider-requests/reject-provider-request.js";
+export {
+  completeProviderBooking,
+} from "./provider-requests/update-provider-booking-lifecycle.js";
+export {
+  markProviderBookingInProgress,
+} from "./provider-requests/update-provider-booking-lifecycle.js";
+export {
+  advanceProviderRequestRefundEligibilityStage,
+} from "./cancellations/advance-refund-eligibility-stage.js";
+export {
+  submitProviderRequestCancellation,
+} from "./cancellations/submit-provider-request-cancellation.js";
+export {
+  getProviderRequestCancellationOptions,
+} from "./cancellations/get-provider-request-cancellation.js";
+export {
+  getProviderRequestCancellationStatus,
+} from "./cancellations/get-provider-request-cancellation.js";
+export {
+  markChatRoomRead,
+} from "./messaging/provider-request-chat.js";
+export {
+  openProviderRequestChat,
+} from "./messaging/provider-request-chat.js";
+export {
+  sendChatMessage,
+} from "./messaging/provider-request-chat.js";
 
 export {submitReview} from "./content/submit-review.js";
+export {deleteReview} from "./content/delete-review.js";
 export {
   moderateReview,
 } from "./content/moderate-review.js";
 export {createComplaint} from "./content/create-complaint.js";
 export {submitBookingRequest} from "./bookings/submit-booking-request.js";
+export {
+  getBookingRefundPolicyDisclosures,
+} from "./bookings/get-booking-refund-policy-disclosures.js";
+export {
+  checkCustomerProviderAvailability,
+} from "./provider-availability/check-customer-provider-availability.js";
+export {
+  checkMarketplaceProviderAvailability,
+} from "./provider-availability/check-marketplace-provider-availability.js";
 export {createPaymentSession} from "./payments/create-payment-session.js";
 export {payMongoWebhook} from "./payments/paymongo-webhook.js";
 export {requestPaymentRefund} from "./payments/request-refund.js";
+export {approveProviderRequestCancellationRefund} from
+  "./refunds/refund-execution.js";
+export {executeProviderRequestRefund} from
+  "./refunds/refund-execution.js";
+export {rejectProviderRequestCancellation} from
+  "./refunds/refund-execution.js";
+export {inspectProviderRequestRefundReconciliation} from
+  "./refunds/inspect-refund-reconciliation.js";
 
 
 

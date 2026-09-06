@@ -1,3 +1,4 @@
+import {getAuth} from "firebase-admin/auth";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 
 import {requireAuth} from "../shared/auth.js";
@@ -12,18 +13,22 @@ import {
   PROVIDER_SERVICE_CATEGORIES,
   PROVIDER_SERVICE_TYPES,
   USER_ROLES,
+  providerCapacityCapabilities,
   serviceCategoryMatchesProviderType,
   type ProviderServiceCategory,
 } from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
+import {requireTrustedProviderIdentity} from "../shared/provider-identity-prerequisites.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {
   requireBoolean,
   requireEnum,
   requireNumber,
   requireObject,
+  requirePhilippineMobile,
+  requirePhilippinePhone,
   requireString,
 } from "../shared/validation.js";
 
@@ -43,6 +48,7 @@ export const saveProviderOnboardingDraft = onCall(
       limit: 60,
       windowSeconds: 10 * 60,
     });
+    const authUser = await getAuth().getUser(actor.uid);
 
     const input = requireObject(request.data);
     rejectUnknownFields(input, ["step", "data"]);
@@ -51,7 +57,7 @@ export const saveProviderOnboardingDraft = onCall(
       throw new HttpsError("invalid-argument", "step must be an integer.");
     }
     const data = requireObject(input.data, "data");
-    const validated = validateStep(step, data, actor.uid);
+    let validated = validateStep(step, data, actor.uid);
     if (step === 2) {
       await Promise.all([
         verifyProviderMedia({
@@ -97,6 +103,7 @@ export const saveProviderOnboardingDraft = onCall(
           "The provider account is not active.",
         );
       }
+      const identity = await requireTrustedProviderIdentity(authUser, user);
       if (
         typeof user.providerId === "string" &&
         user.providerId.trim().length > 0
@@ -108,6 +115,13 @@ export const saveProviderOnboardingDraft = onCall(
       }
 
       const existing = draftSnapshot.data() ?? {};
+      if (step === 5) {
+        validated =
+          normalizeStepFiveCapacity(
+            validated,
+            existing,
+          );
+      }
       const completed = new Set<number>(
         Array.isArray(existing.completedSteps)
           ? existing.completedSteps.filter(
@@ -146,10 +160,18 @@ export const saveProviderOnboardingDraft = onCall(
       );
 
       if (step === 1) {
+        if (validated.ownerPhone !== identity.phoneNumber) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Verify the new mobile number before using it as the provider owner phone.",
+          );
+        }
         transaction.update(userReference, {
           firstName: validated.ownerFirstName,
           lastName: validated.ownerLastName,
-          phoneNumber: validated.ownerPhone,
+          phoneNumber: identity.phoneNumber,
+          isPhoneVerified: true,
+          phoneVerifiedAt: user.phoneVerifiedAt ?? serverTimestamp(),
           updatedAt: serverTimestamp(),
         });
       }
@@ -199,7 +221,7 @@ function validateStep(
           "ownerLastName",
           {minLength: 1, maxLength: 80},
         ),
-        ownerPhone: requirePhilippinePhone(data.ownerPhone, "ownerPhone"),
+        ownerPhone: requirePhilippineMobile(data.ownerPhone),
       };
     case 2: {
       rejectUnknownFields(data, [
@@ -356,15 +378,17 @@ function validateStep(
       const minGuestsPerEvent = requiredInteger(
         data.minGuestsPerEvent,
         "minGuestsPerEvent",
-        1,
+        0,
         100000,
       );
+
       const maxGuestsPerEvent = requiredInteger(
-          data.maxGuestsPerEvent,
-          "maxGuestsPerEvent",
-          1,
-          100000,
+        data.maxGuestsPerEvent,
+        "maxGuestsPerEvent",
+        0,
+        100000,
       );
+
       if (minGuestsPerEvent > maxGuestsPerEvent) {
         throw new HttpsError(
           "invalid-argument",
@@ -433,6 +457,102 @@ function validateStep(
     default:
       throw new HttpsError("invalid-argument", "Unknown onboarding step.");
   }
+}
+
+function normalizeStepFiveCapacity(
+  validated: Record<string, unknown>,
+  existingDraft: Record<string, unknown>,
+): Record<string, unknown> {
+  const serviceCategories =
+    Array.isArray(
+      existingDraft.serviceCategories,
+    )
+      ? existingDraft.serviceCategories.filter(
+          (
+            value,
+          ): value is ProviderServiceCategory =>
+            typeof value === "string" &&
+            PROVIDER_SERVICE_CATEGORIES.includes(
+              value as ProviderServiceCategory,
+            ),
+        )
+      : [];
+
+  if (serviceCategories.length === 0) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Complete service selection before configuring capacity.",
+    );
+  }
+
+  const capabilities =
+    providerCapacityCapabilities(
+      serviceCategories,
+    );
+
+  const minGuestsPerEvent =
+    requiredInteger(
+      validated.minGuestsPerEvent,
+      "minGuestsPerEvent",
+      0,
+      100000,
+    );
+
+  const maxGuestsPerEvent =
+    requiredInteger(
+      validated.maxGuestsPerEvent,
+      "maxGuestsPerEvent",
+      0,
+      100000,
+    );
+
+  if (
+    capabilities.requiresGuestCapacity &&
+    (
+      minGuestsPerEvent < 1 ||
+      maxGuestsPerEvent < 1
+    )
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Guest capacity must be at least 1 for the selected services.",
+    );
+  }
+
+  if (
+    capabilities.requiresGuestCapacity &&
+    minGuestsPerEvent >
+      maxGuestsPerEvent
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Minimum guests cannot exceed maximum guests.",
+    );
+  }
+
+  return {
+    ...validated,
+
+    minGuestsPerEvent:
+      capabilities.requiresGuestCapacity
+        ? minGuestsPerEvent
+        : 0,
+
+    maxGuestsPerEvent:
+      capabilities.requiresGuestCapacity
+        ? maxGuestsPerEvent
+        : 0,
+
+    availableStaffCount:
+      capabilities.usesStaffCapacity
+        ? validated.availableStaffCount
+        : 0,
+
+    availableEquipmentCount:
+      capabilities.usesEquipmentCapacity
+        ? validated.availableEquipmentCount
+        : 0,
+  };
 }
 
 function firstIncompleteStep(completed: ReadonlySet<number>): number {
@@ -547,27 +667,6 @@ function rejectUnknownFields(
       `Unknown onboarding fields: ${unknown.join(", ")}.`,
     );
   }
-}
-
-function requirePhilippinePhone(value: unknown, field: string): string {
-  const compact = requireString(value, field, {
-    minLength: 7,
-    maxLength: 30,
-  }).replace(/[\s().-]/gu, "");
-  const normalized = compact.startsWith("+63")
-    ? compact
-    : compact.startsWith("63")
-      ? `+${compact}`
-      : compact.startsWith("0")
-        ? `+63${compact.slice(1)}`
-        : "";
-  if (!/^\+63\d{8,10}$/u.test(normalized)) {
-    throw new HttpsError(
-      "invalid-argument",
-      `${field} must be a valid Philippine phone number.`,
-    );
-  }
-  return normalized;
 }
 
 function providerMediaFields(

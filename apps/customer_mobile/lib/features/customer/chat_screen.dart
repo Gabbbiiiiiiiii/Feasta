@@ -47,9 +47,15 @@ class _ChatScreenState extends State<ChatScreen> {
     _prepareChatRoom();
   }
 
+<<<<<<< HEAD
   @override
   void dispose() {
     messageController.removeListener(_handleComposerChanged);
+=======
+  Future<void> _prepareChatRoom() async {
+    try {
+      final id = await repository.createChatRoom(booking: widget.booking);
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
 
     messageController.dispose();
     scrollController.dispose();
@@ -122,6 +128,7 @@ class _ChatScreenState extends State<ChatScreen> {
         isPreparingRoom = false;
       });
 
+<<<<<<< HEAD
       await repository.markChatAsRead(
         chatRoomId: id,
         currentRole: widget.currentRole,
@@ -149,6 +156,14 @@ class _ChatScreenState extends State<ChatScreen> {
       await repository.markChatAsRead(
         chatRoomId: roomId,
         currentRole: widget.currentRole,
+=======
+      await repository.markChatAsRead(chatRoomId: id);
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
       );
     } catch (_) {
       // Read-state failures should not block chat.
@@ -169,16 +184,21 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     try {
+<<<<<<< HEAD
       await repository.sendMessage(
         chatRoomId: roomId,
         senderRole: widget.currentRole,
         message: message,
       );
+=======
+      await repository.sendMessage(chatRoomId: chatRoomId!, message: message);
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
 
       if (!mounted) {
         return;
       }
 
+<<<<<<< HEAD
       messageController.clear();
 
       await _markRoomAsRead();
@@ -188,6 +208,11 @@ class _ChatScreenState extends State<ChatScreen> {
       }
 
       _showMessage(error.toString().replaceAll('Exception: ', ''));
+=======
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
+      );
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
     } finally {
       if (mounted) {
         setState(() {
@@ -273,7 +298,13 @@ class _ChatScreenState extends State<ChatScreen> {
                 itemBuilder: (context, index) {
                   final document = messages[index];
 
+<<<<<<< HEAD
                   final data = document.data();
+=======
+                      if (snapshot.hasError) {
+                        return Center(child: Text('Unable to load messages.'));
+                      }
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
 
                   final senderId = data['senderId']?.toString() ?? '';
 
@@ -285,6 +316,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
                   final isMe = senderId == repository.currentUid;
 
+<<<<<<< HEAD
                   return ChatBubble(
                     message: message,
                     senderRole: senderRole,
@@ -303,6 +335,72 @@ class _ChatScreenState extends State<ChatScreen> {
           onSend: _sendMessage,
         ),
       ],
+=======
+                          return ChatBubble(
+                            message: message,
+                            senderRole: senderRole,
+                            isMe: isMe,
+                            createdAt: createdAt,
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+                SafeArea(
+                  top: false,
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: messageController,
+                            minLines: 1,
+                            maxLines: 4,
+                            decoration: InputDecoration(
+                              hintText: 'Type your message...',
+                              filled: true,
+                              fillColor: const Color(0xFFF7F8FA),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(18),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        CircleAvatar(
+                          backgroundColor: primary,
+                          child: IconButton(
+                            onPressed: isSending ? null : _sendMessage,
+                            icon: isSending
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.send, color: Colors.white),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
     );
   }
 }
@@ -321,6 +419,7 @@ class _ConversationAppBar extends StatelessWidget
   Widget build(BuildContext context) {
     final largeText = MediaQuery.textScalerOf(context).scale(16) >= 22;
 
+<<<<<<< HEAD
     return AppBar(
       backgroundColor: AppColors.surface,
       surfaceTintColor: Colors.transparent,
@@ -451,6 +550,30 @@ class _BookingContextCard extends StatelessWidget {
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
+=======
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.75,
+        ),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isMe ? primary : Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(18),
+            topRight: const Radius.circular(18),
+            bottomLeft: Radius.circular(isMe ? 18 : 4),
+            bottomRight: Radius.circular(isMe ? 4 : 18),
+          ),
+          border: isMe ? null : Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Column(
+          crossAxisAlignment: isMe
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
           children: [
             Container(
               width: 40,

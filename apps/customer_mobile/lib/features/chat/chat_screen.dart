@@ -44,6 +44,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _prepareChatRoom() async {
+<<<<<<< HEAD
     if (mounted) {
       setState(() {
         isPreparingRoom = true;
@@ -53,6 +54,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
     try {
       final suppliedRoomId = widget.existingChatRoomId?.trim() ?? '';
+=======
+    final id = await repository.createChatRoom(booking: widget.booking);
+
+    await repository.markChatAsRead(chatRoomId: id);
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
 
       final String id;
 
@@ -121,6 +127,7 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     try {
+<<<<<<< HEAD
       await repository.sendMessage(
         chatRoomId: id,
         senderRole: widget.currentRole,
@@ -129,6 +136,20 @@ class _ChatScreenState extends State<ChatScreen> {
 
       if (!mounted) {
         return;
+=======
+      await repository.sendMessage(chatRoomId: chatRoomId!, message: message);
+
+      messageController.clear();
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => isSending = false);
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
       }
 
       messageController.clear();
@@ -186,6 +207,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     messageController.dispose();
 
+<<<<<<< HEAD
     final id = chatRoomId;
 
     if (id != null && id.isNotEmpty) {
@@ -194,6 +216,10 @@ class _ChatScreenState extends State<ChatScreen> {
       repository
           .markChatAsRead(chatRoomId: id, currentRole: widget.currentRole)
           .catchError((_) {});
+=======
+    if (chatRoomId != null) {
+      repository.markChatAsRead(chatRoomId: chatRoomId!);
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
     }
 
     super.dispose();
@@ -323,6 +349,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     ),
                   ),
                 ),
+<<<<<<< HEAD
                 const SizedBox(width: 10),
                 CircleAvatar(
                   backgroundColor: primary,
@@ -340,6 +367,57 @@ class _ChatScreenState extends State<ChatScreen> {
                             ),
                           )
                         : const Icon(Icons.send_rounded, color: Colors.white),
+=======
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+                  ),
+                  child: SafeArea(
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: messageController,
+                            minLines: 1,
+                            maxLines: 4,
+                            decoration: InputDecoration(
+                              hintText: 'Type a message...',
+                              filled: true,
+                              fillColor: const Color(0xFFF7F8FA),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(24),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 18,
+                                vertical: 12,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        CircleAvatar(
+                          backgroundColor: primary,
+                          radius: 26,
+                          child: IconButton(
+                            onPressed: isSending ? null : _sendMessage,
+                            icon: isSending
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      color: Colors.white,
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.send, color: Colors.white),
+                          ),
+                        ),
+                      ],
+                    ),
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
                   ),
                 ),
               ],
@@ -472,7 +550,11 @@ class ChatBubble extends StatelessWidget {
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
         constraints: BoxConstraints(
+<<<<<<< HEAD
           maxWidth: MediaQuery.sizeOf(context).width * 0.72,
+=======
+          maxWidth: MediaQuery.of(context).size.width * 0.72,
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
         ),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         decoration: BoxDecoration(

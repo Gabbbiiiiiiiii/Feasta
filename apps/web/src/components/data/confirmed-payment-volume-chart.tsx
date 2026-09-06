@@ -182,9 +182,9 @@ function ConfirmedPaymentVolumeChart({
                 }
                 className={cn(
                   "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF6500]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   selected
-                    ? "bg-[#FF6500] text-white"
+                    ? "bg-primary text-primary-foreground"
                     : "text-[#9297A8] hover:bg-muted hover:text-foreground",
                 )}
               >

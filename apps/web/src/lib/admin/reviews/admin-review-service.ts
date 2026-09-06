@@ -237,7 +237,7 @@ async function loadReviewRelations(
 
   for (const document of documents) {
     const data = document.data() ?? {};
-    addString(bookingIds, data.bookingId);
+    addString(bookingIds, data.mainEventId ?? data.bookingId);
     addString(packageIds, data.packageId);
     addString(providerIds, data.providerId);
     addString(customerIds, data.customerId);
@@ -267,7 +267,8 @@ function mapReviewDocument(
   relations: ReviewRelations,
 ): AdminReview {
   const data = document.data() ?? {};
-  const bookingId = nullableString(data.bookingId) ?? "";
+  const providerRequestId = nullableString(data.providerRequestId);
+  const bookingId = nullableString(data.mainEventId ?? data.bookingId) ?? "";
   const packageId = nullableString(data.packageId);
   const customerId = nullableString(data.customerId) ?? "";
   const providerId = nullableString(data.providerId) ?? "";
@@ -282,6 +283,7 @@ function mapReviewDocument(
   return {
     id: document.id,
     reviewId: document.id,
+    providerRequestId,
     bookingId,
     bookingCode:
       nullableString(booking.bookingCode) ?? nullableString(booking.referenceCode),

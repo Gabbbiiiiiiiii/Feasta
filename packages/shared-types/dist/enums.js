@@ -53,8 +53,7 @@ export const PROVIDER_SERVICE_TYPES = [
 ];
 export const PACKAGE_STATUSES = [
     "draft",
-    "active",
-    "inactive",
+    "published",
     "archived",
 ];
 export const ADDON_PRICING_TYPES = [
@@ -95,6 +94,7 @@ export const PAYMENT_STATUSES = [
     "pending",
     "processing",
     "paid",
+    "partially_refunded",
     "failed",
     "expired",
     "refunded",
@@ -184,7 +184,8 @@ export function isProviderRequestStatusTransitionAllowed(from, to) {
 export const PAYMENT_STATUS_TRANSITIONS = {
     pending: ["processing", "paid", "failed", "expired"],
     processing: ["paid", "failed", "expired"],
-    paid: ["refunded"],
+    paid: ["partially_refunded", "refunded"],
+    partially_refunded: ["refunded"],
     failed: ["processing"],
     expired: ["processing"],
     refunded: [],

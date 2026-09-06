@@ -5,6 +5,8 @@ type StatusTone = NonNullable<BadgeProps["tone"]>;
 const statusMap: Record<string, {label: string; tone: StatusTone}> = {
   draft: {label: "Draft", tone: "neutral"},
   pending: {label: "Pending", tone: "warning"},
+  pending_provider_approval: {label: "Awaiting provider", tone: "warning"},
+  needs_provider_replacement: {label: "Provider update needed", tone: "warning"},
   verified: {label: "Verified", tone: "success"},
   missing: {label: "Not uploaded", tone: "neutral"},
   submitted: {label: "Submitted", tone: "info"},
@@ -17,7 +19,9 @@ const statusMap: Record<string, {label: string; tone: StatusTone}> = {
   paid: {label: "Paid", tone: "success"},
   processing: {label: "Processing", tone: "info"},
   payment_processing: {label: "Payment processing", tone: "info"},
+  waiting_for_down_payment: {label: "Awaiting payment", tone: "warning"},
   waiting_payment: {label: "Waiting for payment", tone: "warning"},
+  in_progress: {label: "In progress", tone: "info"},
   partially_paid: {label: "Partially paid", tone: "warning"},
   rejected: {label: "Rejected", tone: "destructive"},
   failed: {label: "Failed", tone: "destructive"},

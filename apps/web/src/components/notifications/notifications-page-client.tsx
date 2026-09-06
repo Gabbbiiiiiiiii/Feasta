@@ -19,6 +19,7 @@ import {useEffect, useRef, useState} from "react";
 
 import {PageHeading} from "@/components/layout/page-heading";
 import {type ShellRole} from "@/components/layout/navigation";
+import {resolveCustomerNotificationDestination} from "@/lib/customer/notifications/customer-notification-destination";
 import {
   markNotificationRead,
   markRecentNotificationsRead,
@@ -386,8 +387,13 @@ function NotificationTypeIcon({type}: {type: string}) {
 }
 
 function notificationDestination(role: ShellRole, notification: FeastaNotification): string | null {
+  if (role === "customer") {
+    return resolveCustomerNotificationDestination(notification);
+  }
+
   const collection = notification.relatedCollection?.toLowerCase() ?? "";
   const knownCollections = [
+    "chatrooms",
     "providerverifications",
     "payments",
     "reviews",
@@ -401,17 +407,28 @@ function notificationDestination(role: ShellRole, notification: FeastaNotificati
     return role === "admin" ? "/admin/notifications" : null;
   }
 
+  if (
+    collection === "chatrooms" &&
+    notification.type.toLowerCase() === "new_message" &&
+    notification.relatedId &&
+    /^[A-Za-z0-9_-]{1,160}$/u.test(notification.relatedId)
+  ) {
+    if (role === "provider") {
+      return `/provider/messages?room=${encodeURIComponent(notification.relatedId)}`;
+    }
+  }
+
   if (collection === "providerverifications" || notification.type.toLowerCase().includes("verification")) {
     return role === "admin" ? "/admin/providers" : role === "provider" ? "/provider/verification" : null;
   }
   if (collection === "payments" || notification.type.toLowerCase().includes("payment") || notification.type.toLowerCase().includes("refund")) {
-    return role === "admin" ? "/admin/payments" : role === "customer" ? "/customer/bookings" : "/provider";
+    return role === "admin" ? "/admin/payments" : "/provider";
   }
   if (collection === "reviews" || notification.type.toLowerCase().includes("review")) {
-    return role === "admin" ? "/admin/reviews" : role === "customer" ? "/customer/bookings" : "/provider";
+    return role === "admin" ? "/admin/reviews" : "/provider";
   }
   if (["mainevents", "bookings", "providerrequests", "bookingproviderrequests"].includes(collection) || notification.type.toLowerCase().includes("booking") || notification.type.toLowerCase().includes("request")) {
-    return role === "admin" ? "/admin/bookings" : role === "customer" ? "/customer/bookings" : "/provider";
+    return role === "admin" ? "/admin/bookings" : "/provider";
   }
   return null;
 }

@@ -1,12 +1,40 @@
 const assert = require("node:assert/strict");
 const {createHmac} = require("node:crypto");
+const path = require("node:path");
 const test = require("node:test");
+
+const libRoot = process.env.FEASTA_FUNCTIONS_LIB_DIR ??
+  path.resolve(__dirname, "../lib");
 
 const {
   parsePayMongoPaymentEvent,
   validateTrustedPaymentUpdate,
   verifyPayMongoSignature,
-} = require("../lib/payments/payment-security.js");
+} = require(path.join(libRoot, "payments/payment-security.js"));
+
+const {
+  canonicalPaymentLinkageReason,
+  checkoutEligibilityReason,
+  paymentIdForProviderRequest,
+  validStoredCheckoutReason,
+  webhookLifecycleConflictReason,
+} = require(path.join(libRoot, "payments/payment-lifecycle.js"));
+const {
+  PAYMENT_STATUSES,
+  PAYMENT_STATUS_TRANSITIONS,
+} = require(path.join(libRoot, "shared/constants.js"));
+
+test("payment lifecycle includes partial-refund semantics", () => {
+  assert.equal(PAYMENT_STATUSES.includes("partially_refunded"), true);
+  assert.deepEqual(
+    PAYMENT_STATUS_TRANSITIONS.paid,
+    ["partially_refunded", "refunded"],
+  );
+  assert.deepEqual(
+    PAYMENT_STATUS_TRANSITIONS.partially_refunded,
+    ["refunded"],
+  );
+});
 
 test("PayMongo signatures reject invalid, stale, and missing values", () => {
   const secret = "unit-test-webhook-secret";
@@ -48,6 +76,139 @@ test("trusted payment validation rejects amount, currency, and transition mismat
   assert.equal(validateTrustedPaymentUpdate({...base, actualAmountInCentavos: 1}), "amount_mismatch");
   assert.equal(validateTrustedPaymentUpdate({...base, actualCurrency: "USD"}), "currency_mismatch");
   assert.equal(validateTrustedPaymentUpdate({...base, currentStatus: "paid", nextStatus: "failed"}), "invalid_transition");
+});
+
+test("failed-to-paid recovery is narrowly opt-in and still validates gateway facts", () => {
+  const recovery = {
+    currentStatus: "failed",
+    nextStatus: "paid",
+    expectedAmountInCentavos: 1350000,
+    actualAmountInCentavos: 1350000,
+    expectedCurrency: "PHP",
+    actualCurrency: "PHP",
+  };
+  assert.equal(validateTrustedPaymentUpdate(recovery), "invalid_transition");
+  assert.equal(validateTrustedPaymentUpdate({
+    ...recovery,
+    allowFailedToPaidRecovery: true,
+  }), null);
+  assert.equal(validateTrustedPaymentUpdate({
+    ...recovery,
+    actualAmountInCentavos: 1,
+    allowFailedToPaidRecovery: true,
+  }), "amount_mismatch");
+  assert.equal(validateTrustedPaymentUpdate({
+    ...recovery,
+    actualCurrency: "USD",
+    allowFailedToPaidRecovery: true,
+  }), "currency_mismatch");
+  assert.equal(validateTrustedPaymentUpdate({
+    ...recovery,
+    currentStatus: "expired",
+    allowFailedToPaidRecovery: true,
+  }), "invalid_transition");
+});
+
+test("checkout reuse requires compatible lifecycle and PayMongo URL structure", () => {
+  const mainEvent = {status: "waiting_for_down_payment"};
+  const request = {
+    status: "payment_processing",
+    paymentStatus: "processing",
+  };
+  const payment = {status: "processing"};
+  assert.equal(checkoutEligibilityReason({
+    providerRequest: request,
+    mainEvent,
+    payment,
+  }), null);
+  assert.equal(checkoutEligibilityReason({
+    providerRequest: {...request, status: "cancelled"},
+    mainEvent,
+    payment,
+  }), "provider_request_not_payment_eligible");
+  assert.equal(checkoutEligibilityReason({
+    providerRequest: request,
+    mainEvent: {status: "cancelled"},
+    payment,
+  }), "main_event_not_payment_eligible");
+  assert.equal(validStoredCheckoutReason({
+    paymongoCheckoutId: "cs_test_checkout",
+    checkoutUrl: "https://checkout.paymongo.com/session/test",
+  }), null);
+  assert.equal(validStoredCheckoutReason({
+    paymongoCheckoutId: "cs_test_checkout",
+    checkoutUrl: "https://example.com/session/test",
+  }), "checkout_url_invalid");
+});
+
+test("canonical payment linkage binds one deterministic payment to one request", () => {
+  const providerRequestId = "provider-request-canonical";
+  const mainEventId = "main-event-canonical";
+  const paymentId = paymentIdForProviderRequest(providerRequestId);
+  const providerRequest = {
+    providerRequestId,
+    mainEventId,
+    bookingId: mainEventId,
+    customerId: "customer-canonical",
+    providerId: "provider-canonical",
+    downPaymentAmount: 13500,
+  };
+  const mainEvent = {
+    mainEventId,
+    bookingId: mainEventId,
+    customerId: "customer-canonical",
+    providerRequestIds: [providerRequestId],
+  };
+  const payment = {
+    paymentId,
+    providerRequestId,
+    mainEventId,
+    bookingId: mainEventId,
+    customerId: "customer-canonical",
+    providerId: "provider-canonical",
+    amount: 13500,
+    amountInCentavos: 1350000,
+    currency: "PHP",
+    paymentType: "provider_down_payment",
+    gateway: "paymongo",
+  };
+  const base = {
+    paymentId,
+    providerRequestId,
+    mainEventId,
+    customerId: "customer-canonical",
+    providerId: "provider-canonical",
+    payment,
+    providerRequest,
+    mainEvent,
+  };
+  assert.equal(canonicalPaymentLinkageReason(base), null);
+  assert.equal(canonicalPaymentLinkageReason({
+    ...base,
+    payment: {...payment, providerId: "provider-forged"},
+  }), "canonical_linkage_mismatch");
+  assert.equal(canonicalPaymentLinkageReason({
+    ...base,
+    payment: {...payment, amountInCentavos: 1},
+  }), "authoritative_amount_mismatch");
+});
+
+test("webhook lifecycle guards reject booking resurrection", () => {
+  assert.equal(webhookLifecycleConflictReason({
+    providerRequestStatus: "payment_processing",
+    mainEventStatus: "waiting_for_down_payment",
+    nextPaymentStatus: "paid",
+  }), null);
+  assert.equal(webhookLifecycleConflictReason({
+    providerRequestStatus: "cancelled",
+    mainEventStatus: "waiting_for_down_payment",
+    nextPaymentStatus: "paid",
+  }), "provider_request_lifecycle_conflict");
+  assert.equal(webhookLifecycleConflictReason({
+    providerRequestStatus: "payment_processing",
+    mainEventStatus: "cancelled",
+    nextPaymentStatus: "paid",
+  }), "main_event_lifecycle_conflict");
 });
 
 test("webhook parsing requires server-issued payment metadata", () => {

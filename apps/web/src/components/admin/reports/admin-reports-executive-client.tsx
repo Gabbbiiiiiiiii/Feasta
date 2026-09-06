@@ -126,7 +126,7 @@ export function AdminReportsExecutiveClient({
       >
         <div className="flex items-start justify-between gap-8 border-b-2 border-[#2B211D] pb-4">
           <div>
-            <p className="text-[10pt] font-black tracking-[0.14em] text-[#FF5A36]">
+            <p className="text-[10pt] font-black tracking-[0.14em] text-primary">
               FEASTA
             </p>
 

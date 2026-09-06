@@ -8,6 +8,10 @@ import {
   type VerificationDocumentStatus,
   type VerificationDocumentType,
 } from "./enums.js";
+import {
+  PROVIDER_SERVICE_AREAS,
+  normalizeProviderServiceArea,
+} from "./provider-service-area.js";
 
 export const REQUIRED_VERIFICATION_DOCUMENT_TYPES = [
   "business_permit",
@@ -60,6 +64,79 @@ export const PROVIDER_SERVICE_CATEGORIES = [
 
 export type ProviderServiceCategory =
   (typeof PROVIDER_SERVICE_CATEGORIES)[number];
+
+export interface ProviderCapacityCapabilities {
+  requiresGuestCapacity: boolean;
+  usesStaffCapacity: boolean;
+  usesEquipmentCapacity: boolean;
+}
+
+const GUEST_CAPACITY_SERVICE_CATEGORIES = [
+  "catering_service",
+  "food_trays_packed_meals",
+  "venue_provider",
+] as const satisfies readonly ProviderServiceCategory[];
+
+const STAFF_CAPACITY_SERVICE_CATEGORIES = [
+  "catering_service",
+  "catering_event_styling",
+  "photographer",
+  "videographer",
+  "photo_booth",
+  "event_coordinator",
+  "event_host_emcee",
+  "sound_system",
+  "lights_and_sounds",
+  "singer_band",
+  "dancer_performer",
+  "decorator_event_stylist",
+  "florist",
+  "cake_provider",
+  "gown_suit_rental",
+  "car_rental",
+  "venue_provider",
+  "tables_chairs_rental",
+  "other_event_service",
+] as const satisfies readonly ProviderServiceCategory[];
+
+const EQUIPMENT_CAPACITY_SERVICE_CATEGORIES = [
+  "catering_service",
+  "catering_event_styling",
+  "photographer",
+  "videographer",
+  "photo_booth",
+  "sound_system",
+  "lights_and_sounds",
+  "decorator_event_stylist",
+  "car_rental",
+  "venue_provider",
+  "tables_chairs_rental",
+  "other_event_service",
+] as const satisfies readonly ProviderServiceCategory[];
+
+export function providerCapacityCapabilities(
+  serviceCategories: readonly ProviderServiceCategory[],
+): ProviderCapacityCapabilities {
+  return {
+    requiresGuestCapacity: serviceCategories.some((category) =>
+      GUEST_CAPACITY_SERVICE_CATEGORIES.includes(
+        category as (typeof GUEST_CAPACITY_SERVICE_CATEGORIES)[number],
+      ),
+    ),
+
+    usesStaffCapacity: serviceCategories.some((category) =>
+      STAFF_CAPACITY_SERVICE_CATEGORIES.includes(
+        category as (typeof STAFF_CAPACITY_SERVICE_CATEGORIES)[number],
+      ),
+    ),
+
+    usesEquipmentCapacity: serviceCategories.some((category) =>
+      EQUIPMENT_CAPACITY_SERVICE_CATEGORIES.includes(
+        category as (typeof EQUIPMENT_CAPACITY_SERVICE_CATEGORIES)[number],
+      ),
+    ),
+  };
+}
 
 export const CATERING_SERVICE_CATEGORIES = [
   "catering_service",
@@ -180,6 +257,9 @@ export const PROVIDER_SERVER_OWNED_FIELDS = [
   "searchTokens",
   "ratingAverage",
   "reviewCount",
+  "canonicalReviewCount",
+  "canonicalRatingTotal",
+  "canonicalRatingDistribution",
   "totalCompletedBookings",
   "totalViews",
   "favoriteCount",
@@ -389,11 +469,16 @@ export function validateProviderOwnerIdentityInput(
     return {success: false, issues: [{field: "data", code: "invalid"}]};
   }
   const issues: ProviderValidationIssue[] = [];
+  const rawPhone = identityText(input, "phone", 7, 30, issues);
+  const phone = normalizePhilippineMobile(rawPhone);
+  if (rawPhone && !phone) {
+    issues.push({field: "phone", code: "invalid"});
+  }
   const value = {
     firstName: identityText(input, "firstName", 1, 80, issues),
     lastName: identityText(input, "lastName", 1, 80, issues),
     email: identityText(input, "email", 3, 160, issues).toLowerCase(),
-    phone: identityText(input, "phone", 7, 30, issues),
+    phone: phone ?? "",
     acceptedTerms: input.acceptedTerms === true,
     acceptedPrivacy: input.acceptedPrivacy === true,
     termsPolicyVersion: identityText(
@@ -465,6 +550,13 @@ export function normalizePhilippinePhone(value: unknown): string | null {
         ? `+63${compact.slice(1)}`
         : "";
   return /^\+63\d{8,10}$/u.test(normalized) ? normalized : null;
+}
+
+export function normalizePhilippineMobile(value: unknown): string | null {
+  const normalized = normalizePhilippinePhone(value);
+  return normalized && /^\+639\d{9}$/u.test(normalized)
+    ? normalized
+    : null;
 }
 
 export function parseVerificationDocumentType(
@@ -569,7 +661,7 @@ export function validateProviderOnboardingInput(
     input.locationCoordinates,
     issues,
   );
-  const serviceAreas = stringList(input.serviceAreas, "serviceAreas", issues);
+  const serviceAreas = serviceAreaList(input.serviceAreas, issues);
   const serviceCategories = serviceCategoryList(
     input.serviceCategories,
     providerCategory,

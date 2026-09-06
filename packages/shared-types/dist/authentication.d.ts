@@ -1,5 +1,5 @@
 import { type AccountStatus, type ProviderVerificationStatus, type UserRole } from "./enums.js";
-export declare const AUTHENTICATION_GATE_KINDS: readonly ["loading", "unauthenticated", "missingUserProfile", "disabledAuthAccount", "disabledAccount", "blocked", "deactivated", "emailVerificationRequired", "customerReady", "customerPhoneVerificationRequired", "providerBusinessSetupRequired", "providerVerificationDraft", "providerVerificationSubmitted", "providerUnderReview", "providerResubmissionRequired", "providerRejected", "providerSuspended", "providerApproved", "adminReady", "forbiddenRole", "sessionExpired", "configurationError", "invalidAccountState"];
+export declare const AUTHENTICATION_GATE_KINDS: readonly ["loading", "unauthenticated", "missingUserProfile", "disabledAuthAccount", "disabledAccount", "blocked", "deactivated", "emailVerificationRequired", "customerReady", "customerPhoneVerificationRequired", "providerPhoneVerificationRequired", "providerBusinessSetupRequired", "providerVerificationDraft", "providerVerificationSubmitted", "providerUnderReview", "providerResubmissionRequired", "providerRejected", "providerSuspended", "providerApproved", "adminReady", "forbiddenRole", "sessionExpired", "configurationError", "invalidAccountState"];
 export type AuthenticationGateKind = (typeof AUTHENTICATION_GATE_KINDS)[number];
 export interface AuthenticationUserProfileInput {
     role?: unknown;
@@ -92,6 +92,11 @@ export declare const AUTHENTICATION_GATE_PRESENTATION: {
         readonly label: "Phone verification required";
         readonly message: "Verify your phone number before submitting a booking.";
         readonly recoveryAction: "Verify phone number";
+    };
+    readonly providerPhoneVerificationRequired: {
+        readonly label: "Mobile verification required";
+        readonly message: "Verify your mobile number before continuing provider setup.";
+        readonly recoveryAction: "Verify mobile number";
     };
     readonly providerBusinessSetupRequired: {
         readonly label: "Business setup required";

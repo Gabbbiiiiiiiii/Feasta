@@ -38,6 +38,7 @@ type ConfirmationDialogProps = {
   loadingLabel?: string;
   contentClassName?: string;
   bodyClassName?: string;
+  restoreFocusId?: string;
 };
 
 function ConfirmationDialog({
@@ -56,6 +57,7 @@ function ConfirmationDialog({
   loadingLabel = "Submitting",
   contentClassName,
   bodyClassName,
+  restoreFocusId,
 }: ConfirmationDialogProps) {
   const [pending, setPending] =
     React.useState(false);
@@ -97,6 +99,15 @@ function ConfirmationDialog({
       <DialogContent
         className={contentClassName}
         showCloseButton={!isBusy}
+        onCloseAutoFocus={(event) => {
+          const target = restoreFocusId
+            ? document.getElementById(restoreFocusId)
+            : null;
+          if (target instanceof HTMLElement) {
+            event.preventDefault();
+            target.focus();
+          }
+        }}
         onEscapeKeyDown={(event) => {
           if (isBusy) {
             event.preventDefault();

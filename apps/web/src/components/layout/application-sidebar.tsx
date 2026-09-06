@@ -8,30 +8,34 @@ import {
 import {
   PanelLeftClose,
   PanelLeftOpen,
-  type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { Brand } from "@/components/layout/application-header";
 import {
+  getRoleNavigation,
+  groupNavigationItems,
   isNavigationItemActive,
   roleLabels,
-  roleNavigation,
+  type NavigationDisabledItem,
+  type NavigationLinkItem,
+  type ProviderNavigationContext,
   type ShellRole,
 } from "@/components/layout/navigation";
 import { cn } from "@/lib/utils";
 
 type ApplicationSidebarProps = {
   role: ShellRole;
+  providerContext?: ProviderNavigationContext;
   collapsed: boolean;
-  onCollapsedChange: (collapsed: boolean) => void;
+  onCollapsedChange: (
+    collapsed: boolean,
+  ) => void;
 };
 
 type SidebarNavigationItemProps = {
-  label: string;
-  href: string;
-  icon: LucideIcon;
+  item: NavigationLinkItem;
   active: boolean;
   collapsed: boolean;
   onPrefetch: (href: string) => void;
@@ -39,33 +43,33 @@ type SidebarNavigationItemProps = {
 
 const SidebarNavigationItem = memo(
   function SidebarNavigationItem({
-    label,
-    href,
-    icon: Icon,
+    item,
     active,
     collapsed,
     onPrefetch,
   }: SidebarNavigationItemProps) {
+    const Icon = item.icon;
+
     return (
       <li>
         <Link
-          href={href}
+          href={item.href}
           prefetch
           aria-current={active ? "page" : undefined}
-          aria-label={collapsed ? label : undefined}
-          title={collapsed ? label : undefined}
-          onMouseEnter={() => onPrefetch(href)}
-          onFocus={() => onPrefetch(href)}
+          aria-label={collapsed ? item.label : undefined}
+          title={collapsed ? item.label : undefined}
+          onMouseEnter={() => onPrefetch(item.href)}
+          onFocus={() => onPrefetch(item.href)}
           className={cn(
             "group relative flex h-13 items-center rounded-xl",
             "transition-colors duration-150",
             "focus-visible:outline-none",
-            "focus-visible:ring-2 focus-visible:ring-[#FF6500]/40",
+            "focus-visible:ring-2 focus-visible:ring-primary/40",
             collapsed
               ? "justify-center px-2"
               : "gap-3 px-3",
             active
-              ? "bg-[#FFF0E7] text-[#E95700]"
+              ? "bg-primary-tint text-primary-strong"
               : "text-slate-600 hover:bg-slate-50 hover:text-slate-950",
           )}
         >
@@ -74,7 +78,7 @@ const SidebarNavigationItem = memo(
               aria-hidden="true"
               className={cn(
                 "absolute inset-y-3 left-0",
-                "w-0.75 rounded-r-full bg-[#FF6500]",
+                "w-0.75 rounded-r-full bg-primary",
               )}
             />
           )}
@@ -84,11 +88,11 @@ const SidebarNavigationItem = memo(
               "grid size-9 shrink-0 place-items-center rounded-lg",
               "transition-colors duration-150",
               active
-                ? "bg-[#FFE3D2] text-[#FF6500]"
+                ? "bg-primary-tint-strong text-primary"
                 : [
                     "text-slate-500",
                     "group-hover:bg-white",
-                    "group-hover:text-[#FF6500]",
+                    "group-hover:text-primary",
                   ],
             )}
           >
@@ -105,7 +109,7 @@ const SidebarNavigationItem = memo(
               collapsed && "sr-only",
             )}
           >
-            {label}
+            {item.label}
           </span>
         </Link>
       </li>
@@ -113,18 +117,76 @@ const SidebarNavigationItem = memo(
   },
 );
 
+const SidebarDisabledNavigationItem = memo(
+  function SidebarDisabledNavigationItem({
+    item,
+    collapsed,
+  }: {
+    item: NavigationDisabledItem;
+    collapsed: boolean;
+  }) {
+    const Icon = item.icon;
+    const accessibleLabel = `${item.label} - ${item.disabledReason}`;
+
+    return (
+      <li>
+        <div
+          aria-disabled="true"
+          aria-label={accessibleLabel}
+          title={collapsed ? accessibleLabel : undefined}
+          className={cn(
+            "flex h-13 cursor-not-allowed items-center rounded-xl text-slate-400",
+            collapsed ? "justify-center px-2" : "gap-3 px-3",
+          )}
+        >
+          <span className="grid size-9 shrink-0 place-items-center rounded-lg text-slate-400">
+            <Icon
+              aria-hidden="true"
+              className="size-4.75"
+              strokeWidth={1.9}
+            />
+          </span>
+
+          <span
+            className={cn(
+              "min-w-0 flex-1 truncate text-sm font-medium",
+              collapsed && "sr-only",
+            )}
+          >
+            {item.label}
+          </span>
+
+          <span
+            className={cn(
+              "rounded-full bg-slate-100 px-2 py-0.5 text-[0.625rem] font-semibold text-slate-500",
+              collapsed && "sr-only",
+            )}
+          >
+            {item.disabledReason}
+          </span>
+        </div>
+      </li>
+    );
+  },
+);
+
 function ApplicationSidebarComponent({
   role,
+  providerContext,
   collapsed,
   onCollapsedChange,
 }: ApplicationSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
 
-  const navigationItems = useMemo(
-    () => roleNavigation[role],
-    [role],
-  );
+  const navigationGroups = useMemo(() => {
+    return groupNavigationItems(
+      getRoleNavigation(role, providerContext),
+    );
+  }, [
+    role,
+    providerContext,
+  ]);
 
   const sidebarLabel = useMemo(
     () => `${roleLabels[role]} sidebar`,
@@ -172,22 +234,61 @@ function ApplicationSidebarComponent({
         aria-label={`${roleLabels[role]} primary navigation`}
         className="min-h-0 flex-1 overflow-y-auto px-3 py-4"
       >
-        <ul className="space-y-1">
-          {navigationItems.map((item) => (
-            <SidebarNavigationItem
-              key={item.href}
-              label={item.label}
-              href={item.href}
-              icon={item.icon}
-              collapsed={collapsed}
-              active={isNavigationItemActive(
-                pathname,
-                item.href,
-              )}
-              onPrefetch={handlePrefetch}
-            />
-          ))}
-        </ul>
+        <div
+          className={cn(
+            collapsed ? "space-y-2" : "space-y-5",
+          )}
+        >
+          {navigationGroups.map((group, groupIndex) => {
+            const headingId =
+              `${role}-navigation-group-${groupIndex}`;
+
+            return (
+              <section
+                key={`${group.label ?? "primary"}-${groupIndex}`}
+                aria-labelledby={
+                  group.label ? headingId : undefined
+                }
+              >
+                {group.label ? (
+                  <h2
+                    id={headingId}
+                    className={cn(
+                      "mb-2 px-3 text-[0.6875rem] font-bold",
+                      "uppercase tracking-[0.14em] text-slate-400",
+                      collapsed && "sr-only",
+                    )}
+                  >
+                    {group.label}
+                  </h2>
+                ) : null}
+
+                <ul className="space-y-1">
+                  {group.items.map((item) => (
+                    item.kind === "link" ? (
+                      <SidebarNavigationItem
+                        key={item.href}
+                        item={item}
+                        collapsed={collapsed}
+                        active={isNavigationItemActive(
+                          pathname,
+                          item,
+                        )}
+                        onPrefetch={handlePrefetch}
+                      />
+                    ) : (
+                      <SidebarDisabledNavigationItem
+                        key={`${item.section}-${item.label}`}
+                        item={item}
+                        collapsed={collapsed}
+                      />
+                    )
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
       </nav>
 
       <footer className="shrink-0 border-t border-slate-200/80 p-3">
@@ -206,7 +307,7 @@ function ApplicationSidebarComponent({
             "transition-colors duration-150",
             "hover:bg-slate-100 hover:text-slate-900",
             "focus-visible:outline-none",
-            "focus-visible:ring-2 focus-visible:ring-[#FF6500]/40",
+            "focus-visible:ring-2 focus-visible:ring-primary/40",
             collapsed
               ? "justify-center"
               : "gap-3 px-3",

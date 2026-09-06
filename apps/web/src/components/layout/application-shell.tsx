@@ -7,6 +7,7 @@ import { ApplicationSidebar } from "@/components/layout/application-sidebar";
 import { MobileNavigation } from "@/components/layout/mobile-navigation";
 import {
   roleLabels,
+  type ProviderNavigationContext,
   type ShellRole,
 } from "@/components/layout/navigation";
 
@@ -15,6 +16,7 @@ type ApplicationShellProps = {
   accountLabel: string;
   children: ReactNode;
   pageTitle?: string;
+  providerContext?: ProviderNavigationContext;
 };
 
 function ApplicationShell({
@@ -22,6 +24,7 @@ function ApplicationShell({
   accountLabel,
   children,
   pageTitle,
+  providerContext,
 }: ApplicationShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(false);
@@ -43,6 +46,7 @@ function ApplicationShell({
         <div className="contents print:hidden">
           <ApplicationSidebar
             role={role}
+            providerContext={providerContext}
             collapsed={sidebarCollapsed}
             onCollapsedChange={setSidebarCollapsed}
           />
@@ -53,6 +57,9 @@ function ApplicationShell({
             <ApplicationHeader
               role={role}
               accountLabel={accountLabel}
+              showNotifications={
+                providerContext?.kind !== "identity-limited"
+              }
               pageTitle={
                 pageTitle ??
                 `${roleLabels[role]} workspace`
@@ -72,7 +79,10 @@ function ApplicationShell({
       </div>
 
       <div className="print:hidden">
-        <MobileNavigation role={role} />
+        <MobileNavigation
+          role={role}
+          providerContext={providerContext}
+        />
       </div>
     </div>
   );

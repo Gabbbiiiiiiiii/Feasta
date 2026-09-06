@@ -67,7 +67,6 @@ class AuthRepository
               createProfile: (_) => _ensureCustomerProfile(
                 firstName: input.firstName,
                 lastName: input.lastName,
-                phoneNumber: input.phoneNumber,
                 acceptedTerms: input.acceptedTerms,
                 acceptedPrivacy: input.acceptedPrivacy,
               ),
@@ -92,7 +91,6 @@ class AuthRepository
         await _ensureCustomerProfile(
           firstName: input.firstName,
           lastName: input.lastName,
-          phoneNumber: input.phoneNumber,
           acceptedTerms: input.acceptedTerms,
           acceptedPrivacy: input.acceptedPrivacy,
         );
@@ -495,7 +493,6 @@ class AuthRepository
   Future<void> _ensureCustomerProfile({
     String? firstName,
     String? lastName,
-    String? phoneNumber,
     bool? acceptedTerms,
     bool? acceptedPrivacy,
   }) async {
@@ -503,7 +500,6 @@ class AuthRepository
     await callable.call(<String, dynamic>{
       if (firstName != null) 'firstName': firstName.trim(),
       if (lastName != null) 'lastName': lastName.trim(),
-      if (phoneNumber != null) 'phoneNumber': phoneNumber.trim(),
       'acceptedTerms': ?acceptedTerms,
       'acceptedPrivacy': ?acceptedPrivacy,
     });

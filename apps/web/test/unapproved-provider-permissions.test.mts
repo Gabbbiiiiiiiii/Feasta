@@ -11,13 +11,19 @@ const repositorySource = (path: string) =>
   readFile(new URL(path, repositoryRoot), "utf8");
 
 test("manually entered provider operation routes retain server guards", async () => {
-  const [dashboard, packages, session] = await Promise.all([
+  const [dashboard, dashboardService, packages, session] = await Promise.all([
     webSource("app/provider/page.tsx"),
+    webSource("lib/provider/dashboard/provider-dashboard-service.ts"),
     webSource("app/provider/packages/layout.tsx"),
     webSource("lib/auth/session.ts"),
   ]);
 
-  assert.match(dashboard, /requireApprovedProvider\(\)/u);
+  assert.match(dashboard, /getProviderDashboardData\(\)/u);
+  assert.doesNotMatch(dashboard, /firebase-admin|adminDb/u);
+  assert.match(
+    dashboardService,
+    /getProviderDashboardData[\s\S]*?await requireApprovedProvider\(\)/u,
+  );
   assert.match(packages, /requireProviderCatalogAccess\(\)/u);
   assert.match(session, /account\.provider\.id !== account\.providerId/u);
   assert.match(session, /verificationStatus !== "approved"/u);
@@ -26,7 +32,7 @@ test("manually entered provider operation routes retain server guards", async ()
   assert.match(session, /account\.provider\.isDeleted === true/u);
 });
 
-test("public queries and direct writes fail closed for unapproved providers", async () => {
+test("public queries remain available while catalog writes are callable-only", async () => {
   const [firestoreRules, storageRules, mobileRepository] = await Promise.all([
     repositorySource("firebase/firestore.rules"),
     repositorySource("firebase/storage.rules"),
@@ -36,7 +42,16 @@ test("public queries and direct writes fail closed for unapproved providers", as
   ]);
 
   assert.match(firestoreRules, /function isApprovedProvider\(providerId\)/u);
-  assert.match(firestoreRules, /packageVisibilityAllowed\(request\.resource\.data\)/u);
+  for (const collectionName of ["packages", "menuItems", "addons"]) {
+    assert.match(
+      firestoreRules,
+      new RegExp(
+        `match /${collectionName}/\\{[^}]+\\}[\\s\\S]*?` +
+          "allow create, update, delete: if false;",
+        "u",
+      ),
+    );
+  }
   assert.match(
     firestoreRules,
     /match \/providerRequests[\s\S]*?isApprovedProvider\(request\.resource\.data\.providerId\)/u,
@@ -73,31 +88,53 @@ test("public queries and direct writes fail closed for unapproved providers", as
   );
 });
 
-test("forged package lifecycle fields create only an inactive draft", async () => {
-  const repository = await repositorySource(
-    "apps/customer_mobile/lib/features/authentication/data/repositories/feasta_repository.dart",
-  );
-  const createPackage = repository.slice(
-    repository.indexOf("Future<void> createPackage"),
-    repository.indexOf("Future<void> updatePackage"),
-  );
+test("active provider catalog clients delegate mutations to callables", async () => {
+  const [packageClient, serviceClient] = await Promise.all([
+    webSource("lib/provider/provider-package-client.ts"),
+    webSource("lib/provider/provider-service-client.ts"),
+  ]);
 
-  assert.match(createPackage, /'status': 'draft'/u);
-  assert.match(createPackage, /'isActive': false/u);
-  assert.match(createPackage, /'isPublished': false/u);
-  assert.match(createPackage, /'publishedAt': null/u);
-  assert.doesNotMatch(createPackage, /verificationStatus/u);
+  for (const [source, callables] of [
+    [packageClient, [
+      "createProviderPackage",
+      "updateProviderPackage",
+      "publishProviderPackage",
+      "archiveProviderPackage",
+    ]],
+    [serviceClient, [
+      "createProviderService",
+      "updateProviderService",
+      "publishProviderService",
+      "archiveProviderService",
+    ]],
+  ] as const) {
+    assert.match(source, /httpsCallable/u);
+    for (const callable of callables) assert.match(source, new RegExp(callable, "u"));
+    assert.doesNotMatch(
+      source,
+      /\b(?:setDoc|addDoc|updateDoc|deleteDoc|writeBatch)\b/u,
+    );
+  }
 });
 
 test("stale sessions cannot preserve an earlier approval decision", async () => {
-  const session = await webSource("lib/auth/session.ts");
+  const [session, securityPolicy] = await Promise.all([
+    webSource("lib/auth/session.ts"),
+    webSource("lib/security/policy.ts"),
+  ]);
+  assert.match(session, /verifyRevocationAwareSession\(/u);
   assert.match(
     session,
-    /verifySessionCookie[\s\S]*?return loadTrustedAccountContext\(decoded\.uid\)/u,
+    /adminAuth\.verifySessionCookie\(\s*value,\s*shouldCheckRevocation/u,
+  );
+  assert.match(securityPolicy, /return verifier\(cookie, checkRevoked\)/u);
+  assert.match(
+    session,
+    /return loadTrustedAccountContext\(\s*decoded\.uid,[\s\S]*?verifiedAuthStateFromToken/u,
   );
   assert.match(session, /adminAuth\.getUser\(uid\)/u);
   assert.match(
     session,
-    /adminDb\.collection\("providers"\)\.doc\(providerId\)\.get\(\)/u,
+    /adminDb\s*\.collection\("providers"\)\s*\.doc\(providerId\)\s*\.get\(\)/u,
   );
 });

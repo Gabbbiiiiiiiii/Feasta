@@ -222,6 +222,89 @@ export const PROVIDER_SERVICE_CATEGORIES = [
 export type ProviderServiceCategory =
   (typeof PROVIDER_SERVICE_CATEGORIES)[number];
 
+export interface ProviderCapacityCapabilities {
+  requiresGuestCapacity: boolean;
+  usesStaffCapacity: boolean;
+  usesEquipmentCapacity: boolean;
+}
+
+const GUEST_CAPACITY_SERVICE_CATEGORIES = [
+  "catering_service",
+  "food_trays_packed_meals",
+  "venue_provider",
+] as const satisfies readonly ProviderServiceCategory[];
+
+const STAFF_CAPACITY_SERVICE_CATEGORIES = [
+  "catering_service",
+  "catering_event_styling",
+  "photographer",
+  "videographer",
+  "photo_booth",
+  "event_coordinator",
+  "event_host_emcee",
+  "sound_system",
+  "lights_and_sounds",
+  "singer_band",
+  "dancer_performer",
+  "decorator_event_stylist",
+  "florist",
+  "cake_provider",
+  "gown_suit_rental",
+  "car_rental",
+  "venue_provider",
+  "tables_chairs_rental",
+  "other_event_service",
+] as const satisfies readonly ProviderServiceCategory[];
+
+const EQUIPMENT_CAPACITY_SERVICE_CATEGORIES = [
+  "catering_service",
+  "catering_event_styling",
+  "photographer",
+  "videographer",
+  "photo_booth",
+  "sound_system",
+  "lights_and_sounds",
+  "decorator_event_stylist",
+  "car_rental",
+  "venue_provider",
+  "tables_chairs_rental",
+  "other_event_service",
+] as const satisfies readonly ProviderServiceCategory[];
+
+export function providerCapacityCapabilities(
+  serviceCategories:
+    readonly ProviderServiceCategory[],
+): ProviderCapacityCapabilities {
+  return {
+    requiresGuestCapacity:
+      serviceCategories.some(
+        (category) =>
+          GUEST_CAPACITY_SERVICE_CATEGORIES.includes(
+            category as
+              (typeof GUEST_CAPACITY_SERVICE_CATEGORIES)[number],
+          ),
+      ),
+
+    usesStaffCapacity:
+      serviceCategories.some(
+        (category) =>
+          STAFF_CAPACITY_SERVICE_CATEGORIES.includes(
+            category as
+              (typeof STAFF_CAPACITY_SERVICE_CATEGORIES)[number],
+          ),
+      ),
+
+    usesEquipmentCapacity:
+      serviceCategories.some(
+        (category) =>
+          EQUIPMENT_CAPACITY_SERVICE_CATEGORIES.includes(
+            category as
+              (typeof EQUIPMENT_CAPACITY_SERVICE_CATEGORIES)[number],
+          ),
+      ),
+  };
+}
+
 export const CATERING_SERVICE_CATEGORIES = [
   "catering_service",
   "food_trays_packed_meals",
@@ -430,15 +513,33 @@ export function providerSubmissionProfileIssues(
     issues.add("operatingDays");
   }
 
-  const minimumGuests = provider.minGuestsPerEvent;
-  const maximumGuests = provider.maxGuestsPerEvent;
+  const capacityCapabilities =
+    providerCapacityCapabilities(
+      serviceCategories,
+    );
+
+  const minimumGuests =
+    provider.minGuestsPerEvent;
+
+  const maximumGuests =
+    provider.maxGuestsPerEvent;
+
   if (
-    typeof minimumGuests !== "number" ||
-    !Number.isInteger(minimumGuests) ||
-    minimumGuests < 1 ||
-    typeof maximumGuests !== "number" ||
-    !Number.isInteger(maximumGuests) ||
-    maximumGuests < minimumGuests
+    capacityCapabilities.requiresGuestCapacity
+  ) {
+    if (
+      typeof minimumGuests !== "number" ||
+      !Number.isInteger(minimumGuests) ||
+      minimumGuests < 1 ||
+      typeof maximumGuests !== "number" ||
+      !Number.isInteger(maximumGuests) ||
+      maximumGuests < minimumGuests
+    ) {
+      issues.add("guestCapacity");
+    }
+  } else if (
+    minimumGuests !== 0 ||
+    maximumGuests !== 0
   ) {
     issues.add("guestCapacity");
   }
@@ -731,6 +832,7 @@ export const PAYMENT_STATUSES = [
   "pending",
   "processing",
   "paid",
+  "partially_refunded",
   "failed",
   "expired",
   "refunded",
@@ -741,7 +843,8 @@ export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 export const PAYMENT_STATUS_TRANSITIONS = {
   pending: ["processing", "paid", "failed", "expired"],
   processing: ["paid", "failed", "expired"],
-  paid: ["refunded"],
+  paid: ["partially_refunded", "refunded"],
+  partially_refunded: ["refunded"],
   failed: ["processing"],
   expired: ["processing"],
   refunded: [],

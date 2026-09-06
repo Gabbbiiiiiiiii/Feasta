@@ -64,6 +64,11 @@ test("users bootstrap only their claimed customer or provider role", async () =>
     .firestore();
   const fakeAdmin = authenticated(testEnv, "fake-admin", "admin")
     .firestore();
+  const phoneBootstrap = authenticated(
+    testEnv,
+    "customer-phone-bootstrap",
+    "customer",
+  ).firestore();
   const roleEscalation = authenticated(
     testEnv,
     "customer-role-escalation",
@@ -85,6 +90,12 @@ test("users bootstrap only their claimed customer or provider role", async () =>
   await assertFails(setDoc(
     doc(roleEscalation, "users/customer-role-escalation"),
     userData("customer-role-escalation", "admin"),
+  ));
+  await assertFails(setDoc(
+    doc(phoneBootstrap, "users/customer-phone-bootstrap"),
+    userData("customer-phone-bootstrap", "customer", {
+      phoneNumber: "+639171234567",
+    }),
   ));
 });
 
@@ -108,6 +119,7 @@ test("users cannot change trusted fields and admin has bounded controls", async 
   await assertFails(updateDoc(customerRef, {marketingConsent: true}));
   await assertFails(updateDoc(customerRef, {preferencesUpdatedAt: new Date()}));
   await assertFails(updateDoc(customerRef, {email: "attacker@example.test"}));
+  await assertFails(updateDoc(customerRef, {phoneNumber: "+639179999999"}));
   await assertFails(updateDoc(customerRef, {adminNotes: "self-assigned"}));
   await assertSucceeds(updateDoc(customerRef, {
     firstName: "Updated",
@@ -171,6 +183,10 @@ test("customer profiles are private and retain immutable userId", async () => {
     doc(owner, "customers/customer-one"),
     {email: "unverified@example.test"},
   ));
+  await assertFails(updateDoc(
+    doc(owner, "customers/customer-one"),
+    {phoneNumber: "+639179999999"},
+  ));
   await assertSucceeds(updateDoc(
     doc(owner, "customers/customer-one"),
     {address: "Main Street", city: "Ormoc", province: "Leyte"},
@@ -219,7 +235,7 @@ test("provider visibility and lifecycle fields follow trusted ownership", async 
   await assertSucceeds(getDoc(doc(publicDb, "providers/provider-approved")));
   await assertFails(getDoc(doc(publicDb, "providers/provider-draft")));
   await assertSucceeds(getDoc(doc(owner, "providers/provider-draft")));
-  await assertSucceeds(updateDoc(
+  await assertFails(updateDoc(
     doc(owner, "providers/provider-draft"),
     {businessName: "Updated Draft"},
   ));
@@ -235,83 +251,256 @@ test("provider visibility and lifecycle fields follow trusted ownership", async 
     doc(owner, "providers/provider-draft"),
     {isActive: true},
   ));
+  await assertFails(updateDoc(
+    doc(owner, "providers/provider-approved"),
+    {providerServiceType: "both"},
+  ));
+  await assertFails(updateDoc(
+    doc(owner, "providers/provider-approved"),
+    {serviceCategories: ["catering_service", "photographer"]},
+  ));
 });
 
-test("unapproved providers can keep draft packages but cannot publish or operate", async () => {
+test("refund policy fields are readable with their catalog but callable-only to mutate", async () => {
+  const refundPolicy = {
+    schemaVersion: 1,
+    policyVersion: 1,
+    rules: [
+      {stage: "preparation_not_started", refundBasisPoints: 10000},
+      {stage: "preparation_started", refundBasisPoints: 5000},
+      {stage: "service_started", refundBasisPoints: 0},
+    ],
+    terms: null,
+    effectiveAt: new Date(),
+  };
+
+  await seedDocuments(testEnv, {
+    "users/provider-policy-owner": userData(
+      "provider-policy-owner",
+      "provider",
+      {providerId: "provider-policy"},
+    ),
+    "users/admin-policy": userData("admin-policy", "admin"),
+    "providers/provider-policy": publicProviderData(
+      "provider-policy-owner",
+      {refundPolicy},
+    ),
+    "packages/package-policy": {
+      providerId: "provider-policy",
+      name: "Policy package",
+      status: "published",
+      isActive: true,
+      isPublished: true,
+      providerPubliclyVisible: true,
+      publishedAt: new Date(),
+      isDeleted: false,
+      refundPolicyOverride: refundPolicy,
+      refundPolicyOverrideVersion: 1,
+    },
+  });
+
+  const owner = authenticated(
+    testEnv,
+    "provider-policy-owner",
+    "provider",
+  ).firestore();
+  const admin = authenticated(
+    testEnv,
+    "admin-policy",
+    "admin",
+  ).firestore();
+  const publicDb = testEnv.unauthenticatedContext().firestore();
+
+  await assertSucceeds(getDoc(doc(
+    publicDb,
+    "providers/provider-policy",
+  )));
+  await assertSucceeds(getDoc(doc(
+    publicDb,
+    "packages/package-policy",
+  )));
+
+  await assertFails(updateDoc(doc(
+    owner,
+    "providers/provider-policy",
+  ), {refundPolicy: {...refundPolicy, policyVersion: 99}}));
+  await assertFails(updateDoc(doc(
+    admin,
+    "providers/provider-policy",
+  ), {refundPolicy: {...refundPolicy, policyVersion: 99}}));
+  await assertFails(updateDoc(doc(
+    owner,
+    "packages/package-policy",
+  ), {refundPolicyOverride: null}));
+  await assertFails(updateDoc(doc(
+    admin,
+    "packages/package-policy",
+  ), {refundPolicyOverride: null}));
+});
+
+test("catalog reads remain available while every direct client mutation is denied", async () => {
   await seedDocuments(testEnv, {
     "users/provider-owner": userData("provider-owner", "provider", {
       providerId: "provider-approved",
     }),
+    "users/provider-other": userData("provider-other", "provider", {
+      providerId: "provider-other",
+    }),
     "users/customer-one": userData("customer-one", "customer"),
-    "providers/provider-draft": {
-      ownerId: "provider-owner",
-      verificationStatus: "draft",
-      isActive: false,
-      isSuspended: false,
-      isDeleted: false,
-    },
     "providers/provider-approved": publicProviderData("provider-owner"),
-    "mainEvents/event-one": {
-      customerId: "customer-one",
+    "providers/provider-other": publicProviderData("provider-other", {
+      businessName: "Other provider",
+    }),
+    "packages/private-package": {
+      providerId: "provider-approved",
+      name: "Private draft",
       status: "draft",
+      isActive: false,
+      isPublished: false,
+      providerPubliclyVisible: false,
+      publishedAt: null,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "packages/public-package": {
+      providerId: "provider-approved",
+      name: "Published package",
+      status: "published",
+      isActive: true,
+      isPublished: true,
+      providerPubliclyVisible: true,
+      publishedAt: new Date(),
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "menuItems/private-menu-item": {
+      providerId: "provider-approved",
+      name: "Private menu item",
+      status: "draft",
+      isActive: false,
+      isAvailable: false,
+      isPublished: false,
+      providerPubliclyVisible: false,
+      publishedAt: null,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "menuItems/public-menu-item": {
+      providerId: "provider-approved",
+      name: "Published menu item",
+      status: "published",
+      isActive: true,
+      isAvailable: true,
+      isPublished: true,
+      providerPubliclyVisible: true,
+      publishedAt: new Date(),
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "addons/private-addon": {
+      providerId: "provider-approved",
+      name: "Private service",
+      status: "draft",
+      isActive: false,
+      isAvailable: false,
+      isPublished: false,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "addons/public-addon": {
+      providerId: "provider-approved",
+      name: "Published service",
+      status: "published",
+      isActive: true,
+      isAvailable: true,
+      isPublished: true,
+      isDeleted: false,
+      createdAt: new Date(),
     },
   });
   const owner = authenticated(testEnv, "provider-owner", "provider")
     .firestore();
+  const otherProvider = authenticated(
+    testEnv,
+    "provider-other",
+    "provider",
+  ).firestore();
   const customer = authenticated(testEnv, "customer-one", "customer")
     .firestore();
   const publicDb = testEnv.unauthenticatedContext().firestore();
-  const draftPackage = {
-    providerId: "provider-draft",
-    name: "Private draft",
+
+  const packageInput = {
+    providerId: "provider-approved",
+    name: "Client-created package",
     status: "draft",
     isActive: false,
     isPublished: false,
+    providerPubliclyVisible: false,
     publishedAt: null,
     isDeleted: false,
     createdAt: new Date(),
   };
-
-  await assertSucceeds(setDoc(
-    doc(owner, "packages/private-draft"),
-    draftPackage,
-  ));
-  await assertSucceeds(updateDoc(
-    doc(owner, "packages/private-draft"),
-    {name: "Updated private draft"},
-  ));
-  await assertFails(getDoc(doc(publicDb, "packages/private-draft")));
-  await assertFails(updateDoc(
-    doc(owner, "packages/private-draft"),
-    {status: "published", isActive: true, isPublished: true},
-  ));
-  await assertFails(setDoc(doc(owner, "menuItems/forged-live-item"), {
-    providerId: "provider-draft",
-    name: "Forged live item",
-    isActive: true,
-    isDeleted: false,
-    createdAt: new Date(),
-  }));
-  await assertFails(setDoc(doc(owner, "addons/forged-live-addon"), {
-    providerId: "provider-draft",
-    name: "Forged live add-on",
-    isActive: true,
-    isAvailable: true,
-    isDeleted: false,
-    createdAt: new Date(),
-  }));
-  await assertSucceeds(setDoc(doc(owner, "packages/approved-package"), {
+  const menuItemInput = {
     providerId: "provider-approved",
-    name: "Approved package",
-    status: "published",
-    isActive: true,
-    isPublished: true,
-    providerPubliclyVisible: true,
-    publishedAt: new Date(),
+    name: "Client-created menu item",
+    status: "draft",
+    isActive: false,
+    isAvailable: false,
     isDeleted: false,
     createdAt: new Date(),
-  }));
-  await assertSucceeds(getDoc(doc(publicDb, "packages/approved-package")));
+  };
+  const addonInput = {
+    providerId: "provider-approved",
+    name: "Client-created service",
+    status: "draft",
+    isActive: false,
+    isAvailable: false,
+    isDeleted: false,
+    createdAt: new Date(),
+  };
+
+  await assertFails(setDoc(doc(owner, "packages/client-created"), packageInput));
+  await assertFails(updateDoc(
+    doc(owner, "packages/private-package"),
+    {name: "Client-updated package"},
+  ));
+  await assertFails(deleteDoc(doc(owner, "packages/private-package")));
+  await assertFails(setDoc(
+    doc(owner, "menuItems/client-created"),
+    menuItemInput,
+  ));
+  await assertFails(updateDoc(
+    doc(owner, "menuItems/private-menu-item"),
+    {name: "Client-updated menu item"},
+  ));
+  await assertFails(deleteDoc(doc(owner, "menuItems/private-menu-item")));
+  await assertFails(setDoc(doc(owner, "addons/client-created"), addonInput));
+  await assertFails(updateDoc(
+    doc(owner, "addons/private-addon"),
+    {name: "Client-updated service"},
+  ));
+  await assertFails(deleteDoc(doc(owner, "addons/private-addon")));
+
+  for (const path of [
+    "packages/private-package",
+    "menuItems/private-menu-item",
+    "addons/private-addon",
+  ]) {
+    await assertFails(updateDoc(doc(otherProvider, path), {name: "Hijacked"}));
+    await assertFails(updateDoc(doc(customer, path), {name: "Tampered"}));
+    await assertFails(updateDoc(doc(publicDb, path), {name: "Anonymous"}));
+  }
+
+  await assertSucceeds(getDoc(doc(owner, "packages/private-package")));
+  await assertSucceeds(getDoc(doc(owner, "menuItems/private-menu-item")));
+  await assertSucceeds(getDoc(doc(owner, "addons/private-addon")));
+  await assertFails(getDoc(doc(publicDb, "packages/private-package")));
+  await assertFails(getDoc(doc(publicDb, "menuItems/private-menu-item")));
+  await assertFails(getDoc(doc(publicDb, "addons/private-addon")));
+  await assertSucceeds(getDoc(doc(publicDb, "packages/public-package")));
+  await assertSucceeds(getDoc(doc(publicDb, "menuItems/public-menu-item")));
+  await assertSucceeds(getDoc(doc(publicDb, "addons/public-addon")));
+
   const publicPackages = query(
     collection(publicDb, "packages"),
     where("providerId", "==", "provider-approved"),
@@ -326,18 +515,6 @@ test("unapproved providers can keep draft packages but cannot publish or operate
     collection(publicDb, "packages"),
     where("providerId", "==", "provider-approved"),
   )));
-  await assertFails(setDoc(doc(customer, "providerRequests/forged-request"), {
-    customerId: "customer-one",
-    mainEventId: "event-one",
-    providerId: "provider-draft",
-    status: "pending",
-  }));
-  await assertFails(setDoc(doc(owner, "payments/forged-payment"), {
-    customerId: "customer-one",
-    providerId: "provider-draft",
-    status: "paid",
-    amount: 1,
-  }));
 });
 
 test("public provider list queries constrain every visibility field", async () => {
@@ -650,6 +827,297 @@ test("booking, event, and provider-request reads require participation", async (
   ));
 });
 
+test("canonical provider requests are server-created and main-event trust fields are immutable", async () => {
+  const eventId = "event-security-one";
+  const requestId = "request-security-one";
+  const eventDate = new Date("2027-06-18T00:00:00+08:00");
+  const mainEvent = {
+    bookingId: eventId,
+    mainEventId: eventId,
+    bookingCode: "FEASTA-SECURITY-ONE",
+    clientRequestId: "client-security-one",
+    submissionFingerprint: "fingerprint-security-one",
+    customerId: "customer-one",
+    providerId: "provider-one",
+    currentProviderId: "provider-one",
+    originalProviderId: "provider-one",
+    providerBusinessName: "Public FEASTA Provider",
+    packageId: "package-one",
+    packageName: "Trusted Package",
+    packagePrice: 10000,
+    selectedAddOns: [],
+    eventType: "Wedding",
+    eventDate,
+    eventTime: "10:00",
+    eventEndTime: "14:00",
+    guestCount: 100,
+    eventLocation: "Ormoc City",
+    eventAddress: "123 Trusted Street",
+    cateringAddOnsTotal: 0,
+    marketplaceAddOnsTotal: 0,
+    cateringSubtotal: 10000,
+    estimatedEventTotal: 10000,
+    addOnsTotal: 0,
+    totalAmount: 10000,
+    downPaymentPercentage: 20,
+    downPaymentAmount: 2000,
+    remainingBalance: 8000,
+    status: "pending_provider_approval",
+    paymentStatus: "unpaid",
+    recoveryStatus: "none",
+    cancellationStatus: "none",
+    refundStatus: "none",
+    refundAmount: 0,
+    providerRequestIds: [requestId],
+    providerRequestCount: 1,
+    pendingProviderRequestCount: 1,
+    confirmedProviderRequestCount: 0,
+    rejectedProviderRequestCount: 0,
+    completedProviderRequestCount: 0,
+    rejectedByProviderIds: [],
+    submittedAt: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  const providerRequest = {
+    providerRequestId: requestId,
+    bookingId: eventId,
+    mainEventId: eventId,
+    customerId: "customer-one",
+    providerId: "provider-one",
+    type: "catering",
+    status: "pending",
+    eventType: mainEvent.eventType,
+    eventDate,
+    eventTime: mainEvent.eventTime,
+    eventEndTime: mainEvent.eventEndTime,
+    guestCount: mainEvent.guestCount,
+    eventLocation: mainEvent.eventLocation,
+    eventAddress: mainEvent.eventAddress,
+    packageId: mainEvent.packageId,
+    packageName: mainEvent.packageName,
+    services: [{
+      serviceId: mainEvent.packageId,
+      name: mainEvent.packageName,
+      category: "catering",
+      price: 10000,
+      downPaymentPercentage: 20,
+      downPaymentAmount: 2000,
+    }],
+    amount: 10000,
+    downPaymentPercentage: 20,
+    downPaymentAmount: 2000,
+    remainingBalance: 8000,
+    providerNotes: null,
+    adminNotes: null,
+    refundPolicySnapshot: {
+      schemaVersion: 1,
+      policyKey: "provider_default:provider-one:v1",
+      source: {
+        kind: "provider_default",
+        sourceId: "provider-one",
+        policyVersion: 1,
+      },
+      rules: [
+        {stage: "preparation_not_started", refundBasisPoints: 10000},
+        {stage: "preparation_started", refundBasisPoints: 5000},
+        {stage: "service_started", refundBasisPoints: 0},
+      ],
+      terms: null,
+      capturedAt: new Date(),
+    },
+    refundPolicyAgreement: {
+      schemaVersion: 1,
+      policyKey: "provider_default:provider-one:v1",
+      agreedAt: new Date(),
+      channel: "booking_submission",
+    },
+    refundEligibilityState: {
+      schemaVersion: 1,
+      currentStage: "preparation_not_started",
+      stageSequence: 0,
+      enteredAt: new Date(),
+      activeCancellationRequestId: null,
+    },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  await seedDocuments(testEnv, {
+    "users/customer-one": userData("customer-one", "customer"),
+    "users/provider-owner": userData("provider-owner", "provider", {
+      providerId: "provider-one",
+    }),
+    "users/admin-one": userData("admin-one", "admin"),
+    "providers/provider-one": publicProviderData("provider-owner"),
+    [`mainEvents/${eventId}`]: mainEvent,
+    [`providerRequests/${requestId}`]: providerRequest,
+  });
+
+  const customer = authenticated(testEnv, "customer-one", "customer")
+    .firestore();
+  const provider = authenticated(testEnv, "provider-owner", "provider")
+    .firestore();
+  const admin = authenticated(testEnv, "admin-one", "admin").firestore();
+
+  await assertFails(setDoc(
+    doc(customer, "providerRequests/forged-canonical-request"),
+    {
+      ...providerRequest,
+      providerRequestId: "forged-canonical-request",
+    },
+  ));
+  await assertFails(setDoc(
+    doc(customer, "mainEvents/forged-trusted-draft"),
+    {
+      customerId: "customer-one",
+      status: "draft",
+      bookingId: "forged-trusted-draft",
+      mainEventId: "forged-trusted-draft",
+      clientRequestId: "forged-client-request",
+      submissionFingerprint: "forged-fingerprint",
+      providerRequestIds: ["forged-canonical-request"],
+      providerRequestCount: 1,
+      recoveryStatus: "none",
+      rejectedByProviderIds: [],
+      createdAt: new Date(),
+    },
+  ));
+
+  await assertSucceeds(getDoc(doc(customer, `providerRequests/${requestId}`)));
+  await assertSucceeds(getDoc(doc(provider, `providerRequests/${requestId}`)));
+  await assertSucceeds(getDoc(doc(admin, `providerRequests/${requestId}`)));
+  await assertSucceeds(updateDoc(doc(provider, `providerRequests/${requestId}`), {
+    providerNotes: "Available for this event.",
+    updatedAt: new Date(),
+  }));
+  await assertSucceeds(updateDoc(doc(admin, `providerRequests/${requestId}`), {
+    adminNotes: "Reviewed by operations.",
+    updatedAt: new Date(),
+  }));
+  for (const actorDb of [customer, provider, admin]) {
+    await assertFails(updateDoc(
+      doc(actorDb, `providerRequests/${requestId}`),
+      {
+        refundPolicySnapshot: {
+          ...providerRequest.refundPolicySnapshot,
+          policyKey: "provider_default:provider-one:v99",
+        },
+      },
+    ));
+    await assertFails(updateDoc(
+      doc(actorDb, `providerRequests/${requestId}`),
+      {
+        refundPolicyAgreement: {
+          ...providerRequest.refundPolicyAgreement,
+          agreedAt: new Date(),
+        },
+      },
+    ));
+    await assertFails(updateDoc(
+      doc(actorDb, `providerRequests/${requestId}`),
+      {
+        refundEligibilityState: {
+          ...providerRequest.refundEligibilityState,
+          currentStage: "service_started",
+        },
+      },
+    ));
+    await assertFails(updateDoc(
+      doc(actorDb, `providerRequests/${requestId}`),
+      {
+        activeCancellationRequestId:
+          "cancellation_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      },
+    ));
+    await assertFails(updateDoc(
+      doc(actorDb, `providerRequests/${requestId}`),
+      {
+        latestCancellationRequestId:
+          "cancellation_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      },
+    ));
+  }
+
+  await assertSucceeds(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    eventAddress: "456 Customer Editable Street",
+    updatedAt: new Date(),
+  }));
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    providerRequestIds: [requestId, "forged-request"],
+  }));
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    providerRequestCount: 99,
+    pendingProviderRequestCount: 99,
+  }));
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    recoveryStatus: "replacement_pending",
+    rejectedByProviderIds: ["provider-one"],
+    selectedRecoveryOfferId: "forged-recovery-offer",
+    recoveryOpenedAt: new Date(),
+  }));
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    bookingId: "forged-booking",
+    mainEventId: "forged-event",
+    clientRequestId: "forged-client-request",
+    submissionFingerprint: "forged-fingerprint",
+  }));
+});
+
+test("cancellation workflow documents are Functions-only", async () => {
+  const cancellationPath =
+    "providerRequestCancellationRequests/cancellation-security-one";
+  const cancellation = {
+    schemaVersion: 1,
+    mainEventId: "event-security-one",
+    providerRequestId: "request-security-one",
+    customerId: "customer-one",
+    providerId: "provider-one",
+    status: "submitted",
+    reason: "The event plan changed.",
+    policyEvidenceStatus: "policy_backed",
+    frozenEligibility: {
+      stage: "preparation_not_started",
+      stageSequence: 0,
+      frozenAt: new Date(),
+    },
+    submittedAt: new Date(),
+    updatedAt: new Date(),
+    decision: null,
+    refundCalculation: null,
+    refundOperationId: null,
+  };
+
+  await seedDocuments(testEnv, {
+    "users/customer-one": userData("customer-one", "customer"),
+    "users/provider-owner": userData("provider-owner", "provider", {
+      providerId: "provider-one",
+    }),
+    "users/admin-one": userData("admin-one", "admin"),
+    [cancellationPath]: cancellation,
+  });
+
+  const customer = authenticated(testEnv, "customer-one", "customer")
+    .firestore();
+  const provider = authenticated(testEnv, "provider-owner", "provider")
+    .firestore();
+  const admin = authenticated(testEnv, "admin-one", "admin").firestore();
+
+  for (const actorDb of [customer, provider, admin]) {
+    const existing = doc(actorDb, cancellationPath);
+    await assertFails(getDoc(existing));
+    await assertFails(updateDoc(existing, {status: "approved"}));
+    await assertFails(deleteDoc(existing));
+    await assertFails(setDoc(
+      doc(
+        actorDb,
+        "providerRequestCancellationRequests/client-created-request",
+      ),
+      cancellation,
+    ));
+  }
+});
+
 test("only verified customers create main events", async () => {
   await seedDocuments(testEnv, {
     "users/unverified-customer": userData("unverified-customer", "customer"),
@@ -690,7 +1158,7 @@ test("only verified customers create main events", async () => {
   }));
 });
 
-test("canonical payments are readable by participants and never client-written", async () => {
+test("canonical payments are server-readable only and never client-written", async () => {
   await seedDocuments(testEnv, {
     "users/customer-one": userData("customer-one", "customer"),
     "users/customer-other": userData("customer-other", "customer"),
@@ -709,6 +1177,16 @@ test("canonical payments are readable by participants and never client-written",
       status: "pending",
       amount: 1000,
     },
+    "payments/payment-one/refunds/refund-one": {
+      schemaVersion: 1,
+      status: "reserved",
+      amountInCentavos: 1000,
+    },
+    "payments/payment-one/events/payment-event-one": {
+      eventId: "payment-event-one",
+      status: "processed",
+      gatewayResourceId: "pay_sensitive_gateway_id",
+    },
     "paymentWebhookEvents/event-one": {
       eventId: "event-one",
       paymentId: "payment-one",
@@ -723,9 +1201,10 @@ test("canonical payments are readable by participants and never client-written",
     .firestore();
   const admin = authenticated(testEnv, "admin-one", "admin").firestore();
 
-  await assertSucceeds(getDoc(doc(customer, "payments/payment-one")));
-  await assertSucceeds(getDoc(doc(provider, "payments/payment-one")));
+  await assertFails(getDoc(doc(customer, "payments/payment-one")));
+  await assertFails(getDoc(doc(provider, "payments/payment-one")));
   await assertFails(getDoc(doc(unrelated, "payments/payment-one")));
+  await assertSucceeds(getDoc(doc(admin, "payments/payment-one")));
   await assertFails(setDoc(doc(customer, "payments/client-payment"), {
     customerId: "customer-one",
     status: "paid",
@@ -746,8 +1225,37 @@ test("canonical payments are readable by participants and never client-written",
     doc(admin, "payments/payment-one"),
     {status: "refunded", refundedAt: new Date()},
   ));
+  for (const client of [customer, provider, admin]) {
+    await assertFails(getDoc(doc(
+      client,
+      "payments/payment-one/refunds/refund-one",
+    )));
+    await assertFails(setDoc(doc(
+      client,
+      "payments/payment-one/refunds/client-refund",
+    ), {
+      status: "completed",
+      amountInCentavos: 1,
+    }));
+    await assertFails(updateDoc(doc(
+      client,
+      "payments/payment-one/refunds/refund-one",
+    ), {status: "completed"}));
+  }
   await assertFails(getDoc(doc(customer, "paymentWebhookEvents/event-one")));
   await assertSucceeds(getDoc(doc(admin, "paymentWebhookEvents/event-one")));
+  await assertFails(getDoc(doc(
+    customer,
+    "payments/payment-one/events/payment-event-one",
+  )));
+  await assertFails(getDoc(doc(
+    provider,
+    "payments/payment-one/events/payment-event-one",
+  )));
+  await assertSucceeds(getDoc(doc(
+    admin,
+    "payments/payment-one/events/payment-event-one",
+  )));
   await assertFails(setDoc(doc(admin, "paymentWebhookEvents/forged"), {
     eventId: "forged",
     status: "processed",
@@ -984,15 +1492,24 @@ test("complaints are creator-owned and administratively resolvable", async () =>
   ));
 });
 
-test("chat participants are immutable and message senders cannot be forged", async () => {
+test("chat reads stay participant-scoped and all client mutations are denied", async () => {
   await seedDocuments(testEnv, {
     "users/customer-one": userData("customer-one", "customer"),
     "users/customer-other": userData("customer-other", "customer"),
     "users/provider-owner": userData("provider-owner", "provider", {
       providerId: "provider-one",
     }),
+    "users/provider-other": userData("provider-other", "provider", {
+      providerId: "provider-two",
+    }),
     "providers/provider-one": {
       ownerId: "provider-owner",
+      verificationStatus: "approved",
+      isActive: true,
+      isSuspended: false,
+    },
+    "providers/provider-two": {
+      ownerId: "provider-other",
       verificationStatus: "approved",
       isActive: true,
       isSuspended: false,
@@ -1005,17 +1522,65 @@ test("chat participants are immutable and message senders cannot be forged", asy
       isActive: true,
       createdAt: new Date(),
     },
+    "chatRooms/room-one/messages/message-one": {
+      chatRoomId: "room-one",
+      senderId: "customer-one",
+      senderRole: "customer",
+      message: "Hello provider",
+      messageType: "text",
+      isRead: false,
+      createdAt: new Date(),
+    },
   });
   const customer = authenticated(testEnv, "customer-one", "customer")
     .firestore();
   const unrelated = authenticated(testEnv, "customer-other", "customer")
     .firestore();
+  const provider = authenticated(testEnv, "provider-owner", "provider")
+    .firestore();
+  const otherProvider = authenticated(testEnv, "provider-other", "provider")
+    .firestore();
 
   await assertSucceeds(getDoc(doc(customer, "chatRooms/room-one")));
+  await assertSucceeds(getDoc(doc(provider, "chatRooms/room-one")));
   await assertFails(getDoc(doc(unrelated, "chatRooms/room-one")));
+  await assertFails(getDoc(doc(otherProvider, "chatRooms/room-one")));
+  await assertSucceeds(getDocs(query(
+    collection(customer, "chatRooms"),
+    where("customerId", "==", "customer-one"),
+  )));
+  await assertFails(getDocs(query(
+    collection(unrelated, "chatRooms"),
+    where("customerId", "==", "customer-one"),
+  )));
+  await assertSucceeds(getDocs(query(
+    collection(provider, "chatRooms"),
+    where("providerId", "==", "provider-one"),
+  )));
+  await assertFails(getDocs(query(
+    collection(otherProvider, "chatRooms"),
+    where("providerId", "==", "provider-one"),
+  )));
+  const messagePath = "chatRooms/room-one/messages/message-one";
+  await assertSucceeds(getDoc(doc(customer, messagePath)));
+  await assertSucceeds(getDoc(doc(provider, messagePath)));
+  await assertFails(getDoc(doc(unrelated, messagePath)));
+  await assertFails(getDoc(doc(otherProvider, messagePath)));
+  await assertFails(setDoc(doc(customer, "chatRooms/client-created"), {
+    bookingId: "event-one",
+    customerId: "customer-one",
+    providerId: "provider-one",
+    isActive: true,
+    createdAt: serverTimestamp(),
+  }));
   await assertFails(updateDoc(doc(customer, "chatRooms/room-one"), {
     providerOwnerId: "customer-other",
   }));
+  await assertFails(updateDoc(doc(customer, "chatRooms/room-one"), {
+    unreadCountCustomer: 0,
+  }));
+  await assertFails(deleteDoc(doc(customer, "chatRooms/room-one")));
+  await assertFails(deleteDoc(doc(customer, messagePath)));
   await assertFails(setDoc(
     doc(customer, "chatRooms/room-one/messages/forged"),
     {
@@ -1028,7 +1593,7 @@ test("chat participants are immutable and message senders cannot be forged", asy
       createdAt: serverTimestamp(),
     },
   ));
-  await assertSucceeds(setDoc(
+  await assertFails(setDoc(
     doc(customer, "chatRooms/room-one/messages/valid"),
     {
       chatRoomId: "room-one",
@@ -1040,9 +1605,23 @@ test("chat participants are immutable and message senders cannot be forged", asy
       createdAt: serverTimestamp(),
     },
   ));
+  await assertFails(setDoc(
+    doc(customer, "notifications/client-chat-notification"),
+    {
+      userId: "provider-owner",
+      title: "Forged message notification",
+      message: "Forged",
+      type: "new_message",
+      relatedId: "room-one",
+      relatedCollection: "chatRooms",
+      isRead: false,
+      readAt: null,
+      createdAt: serverTimestamp(),
+    },
+  ));
 });
 
-test("review content and moderation fields stay within role boundaries", async () => {
+test("legacy review reads and replies require a valid event relationship", async () => {
   await seedDocuments(testEnv, {
     "users/customer-one": userData("customer-one", "customer"),
     "users/provider-owner": userData("provider-owner", "provider", {
@@ -1055,7 +1634,13 @@ test("review content and moderation fields stay within role boundaries", async (
       isActive: true,
       isSuspended: false,
     },
+    "mainEvents/event-one": {
+      customerId: "customer-one",
+      providerId: "provider-one",
+      status: "completed",
+    },
     "reviews/review-one": {
+      bookingId: "event-one",
       customerId: "customer-one",
       providerId: "provider-one",
       rating: 5,
@@ -1071,10 +1656,21 @@ test("review content and moderation fields stay within role boundaries", async (
   const provider = authenticated(testEnv, "provider-owner", "provider")
     .firestore();
   const admin = authenticated(testEnv, "admin-one", "admin").firestore();
+  const publicDb = testEnv.unauthenticatedContext().firestore();
+
+  await assertSucceeds(getDoc(doc(publicDb, "reviews/review-one")));
 
   await assertFails(updateDoc(doc(customer, "reviews/review-one"), {
     rating: 1,
     comment: "Changed",
+  }));
+  await assertFails(updateDoc(doc(customer, "reviews/review-one"), {
+    isDeleted: true,
+    isVisible: false,
+    deletedAt: serverTimestamp(),
+    deletedBy: "customer-one",
+    deletionReason: "No longer wanted",
+    updatedAt: serverTimestamp(),
   }));
   await assertSucceeds(updateDoc(doc(provider, "reviews/review-one"), {
     providerReply: "Thank you",
@@ -1084,11 +1680,137 @@ test("review content and moderation fields stay within role boundaries", async (
   await assertFails(updateDoc(doc(provider, "reviews/review-one"), {
     isVisible: false,
   }));
-  await assertSucceeds(updateDoc(doc(admin, "reviews/review-one"), {
+  await assertFails(updateDoc(doc(admin, "reviews/review-one"), {
     moderationStatus: "hidden",
     isVisible: false,
     updatedAt: new Date(),
   }));
+});
+
+test("canonical multi-provider reviews isolate private provider access", async () => {
+  const providerRequestIds = ["request-a", "request-b"];
+  await seedDocuments(testEnv, {
+    "users/customer-one": userData("customer-one", "customer"),
+    "users/provider-owner-a": userData("provider-owner-a", "provider", {
+      providerId: "provider-a",
+    }),
+    "users/provider-owner-b": userData("provider-owner-b", "provider", {
+      providerId: "provider-b",
+    }),
+    "users/admin-one": userData("admin-one", "admin"),
+    "providers/provider-a": {
+      ownerId: "provider-owner-a",
+      verificationStatus: "approved",
+      isActive: true,
+      isSuspended: false,
+    },
+    "providers/provider-b": {
+      ownerId: "provider-owner-b",
+      verificationStatus: "approved",
+      isActive: true,
+      isSuspended: false,
+    },
+    "mainEvents/event-x": {
+      customerId: "customer-one",
+      providerRequestIds,
+      status: "completed",
+    },
+    "providerRequests/request-a": {
+      providerRequestId: "request-a",
+      mainEventId: "event-x",
+      customerId: "customer-one",
+      providerId: "provider-a",
+      status: "completed",
+    },
+    "providerRequests/request-b": {
+      providerRequestId: "request-b",
+      mainEventId: "event-x",
+      customerId: "customer-one",
+      providerId: "provider-b",
+      status: "completed",
+    },
+    "reviews/review-a": {
+      schemaVersion: 2,
+      relationshipVersion: "provider_request_v1",
+      providerRequestId: "request-a",
+      mainEventId: "event-x",
+      customerId: "customer-one",
+      providerId: "provider-a",
+      rating: 5,
+      comment: "Excellent provider A",
+      moderationStatus: "hidden",
+      isVisible: false,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "reviews/review-b": {
+      schemaVersion: 2,
+      relationshipVersion: "provider_request_v1",
+      providerRequestId: "request-b",
+      mainEventId: "event-x",
+      customerId: "customer-one",
+      providerId: "provider-b",
+      rating: 4,
+      comment: "Excellent provider B",
+      moderationStatus: "hidden",
+      isVisible: false,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "reviews/malformed-review": {
+      schemaVersion: 2,
+      relationshipVersion: "provider_request_v1",
+      providerRequestId: "request-b",
+      mainEventId: "event-x",
+      customerId: "customer-one",
+      providerId: "provider-a",
+      rating: 1,
+      comment: "Forged relationship",
+      moderationStatus: "published",
+      isVisible: true,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    "reviews/inconsistent-visibility": {
+      schemaVersion: 2,
+      relationshipVersion: "provider_request_v1",
+      providerRequestId: "request-a",
+      mainEventId: "event-x",
+      customerId: "customer-one",
+      providerId: "provider-a",
+      rating: 3,
+      comment: "Inconsistent moderation projection",
+      moderationStatus: "hidden",
+      isVisible: true,
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+  });
+  const providerA = authenticated(
+    testEnv,
+    "provider-owner-a",
+    "provider",
+  ).firestore();
+  const providerB = authenticated(
+    testEnv,
+    "provider-owner-b",
+    "provider",
+  ).firestore();
+  const customer = authenticated(testEnv, "customer-one", "customer")
+    .firestore();
+  const admin = authenticated(testEnv, "admin-one", "admin").firestore();
+  const publicDb = testEnv.unauthenticatedContext().firestore();
+
+  await assertSucceeds(getDoc(doc(providerA, "reviews/review-a")));
+  await assertFails(getDoc(doc(providerA, "reviews/review-b")));
+  await assertSucceeds(getDoc(doc(providerB, "reviews/review-b")));
+  await assertFails(getDoc(doc(providerB, "reviews/review-a")));
+  await assertSucceeds(getDoc(doc(customer, "reviews/review-a")));
+  await assertSucceeds(getDoc(doc(customer, "reviews/review-b")));
+  await assertFails(getDoc(doc(publicDb, "reviews/malformed-review")));
+  await assertFails(getDoc(doc(admin, "reviews/malformed-review")));
+  await assertFails(getDoc(doc(publicDb, "reviews/inconsistent-visibility")));
+  await assertSucceeds(getDoc(doc(admin, "reviews/inconsistent-visibility")));
 });
 
 test("app settings distinguish public reads from active admin writes", async () => {
@@ -1097,6 +1819,17 @@ test("app settings distinguish public reads from active admin writes", async () 
     "users/admin-one": userData("admin-one", "admin"),
     "appSettings/public": {isPublic: true, value: "public"},
     "appSettings/private": {isPublic: false, value: "private"},
+    "appSettings/refundPolicyBookingAgreement": {
+      schemaVersion: 1,
+      isPublic: false,
+      enforcementMode: "off",
+    },
+    "appSettings/cancellationRefundRollout": {
+      schemaVersion: 1,
+      isPublic: false,
+      customerCancellationMode: "off",
+      automaticPolicyRefundApprovalMode: "off",
+    },
   });
   const publicDb = testEnv.unauthenticatedContext().firestore();
   const customer = authenticated(testEnv, "customer-one", "customer")
@@ -1112,6 +1845,14 @@ test("app settings distinguish public reads from active admin writes", async () 
   await assertSucceeds(updateDoc(doc(admin, "appSettings/private"), {
     value: "updated",
   }));
+  await assertFails(updateDoc(doc(
+    admin,
+    "appSettings/refundPolicyBookingAgreement",
+  ), {enforcementMode: "required"}));
+  await assertFails(updateDoc(doc(
+    admin,
+    "appSettings/cancellationRefundRollout",
+  ), {customerCancellationMode: "enabled"}));
 });
 
 test("provider onboarding drafts remain callable and server only", async () => {

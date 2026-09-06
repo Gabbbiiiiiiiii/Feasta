@@ -1,127 +1,209 @@
-"use client";
-
-import {FormEvent, useRef, useState} from "react";
+import Image from "next/image";
 import Link from "next/link";
-import {useRouter} from "next/navigation";
-
-import {AuthCard} from "@/components/auth/auth-card";
-import {AuthStatus} from "@/components/auth/auth-status";
-import {FormField} from "@/components/forms/form-field";
-import {PasswordInput} from "@/components/forms/password-input";
-import {Button} from "@/components/ui/button";
-import {Input} from "@/components/ui/input";
-import {customerAuthenticationError} from "@/lib/auth/error-messages";
 import {
-  registerProviderIdentity,
-  UNVERSIONED_POLICY_VERSION,
-} from "@/lib/auth/provider-client";
+  BriefcaseBusiness,
+  CalendarCheck2,
+  UsersRound,
+} from "lucide-react";
 
-type ProviderRegistrationErrors = Partial<Record<
-  "firstName" | "lastName" | "phoneNumber" | "email" | "password" | "confirmation" | "agreements",
-  string
->>;
+import {ProviderPhoneRegistrationForm} from "./provider-phone-registration-form";
+
+const providerBenefits = [
+  {
+    title: "Reach more customers",
+    description:
+      "Showcase your catering or event services to customers planning celebrations in Ormoc City.",
+    icon: UsersRound,
+  },
+  {
+    title: "Manage your services",
+    description:
+      "Maintain your business profile, packages, availability, and provider information from one workspace.",
+    icon: BriefcaseBusiness,
+  },
+  {
+    title: "Receive booking opportunities",
+    description:
+      "Review customer booking requests and manage upcoming confirmed events through FEASTA.",
+    icon: CalendarCheck2,
+  },
+] as const;
+
+const providerJourney = [
+  "Verify mobile number",
+  "Add account details and link email",
+  "Verify email",
+  "Complete business profile",
+  "Submit required verification information",
+  "FEASTA reviews the provider application",
+  "Approved provider becomes available for appropriate platform use",
+] as const;
 
 export default function ProviderRegistrationPage() {
-  const router = useRouter();
-  const submitting = useRef(false);
-  const [values, setValues] = useState({
-    firstName: "", lastName: "", phoneNumber: "", email: "",
-    password: "", confirmation: "",
-  });
-  const [accepted, setAccepted] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<ProviderRegistrationErrors>({});
-  const [serverError, setServerError] = useState<string | null>(null);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (submitting.current) return;
-    const validationErrors = validateProviderRegistration(values, accepted);
-    setErrors(validationErrors);
-    setServerError(null);
-    if (Object.keys(validationErrors).length > 0) {
-      setServerError("Review the highlighted fields before creating your provider account.");
-      return;
-    }
-    submitting.current = true;
-    setLoading(true);
-    setServerError(null);
-    try {
-      const result = await registerProviderIdentity({
-        firstName: values.firstName,
-        lastName: values.lastName,
-        phoneNumber: values.phoneNumber,
-        email: values.email,
-        password: values.password,
-        acceptedTerms: accepted,
-        acceptedPrivacy: accepted,
-        termsPolicyVersion: UNVERSIONED_POLICY_VERSION,
-        privacyPolicyVersion: UNVERSIONED_POLICY_VERSION,
-      });
-      router.replace(
-        `/provider-verify-email?delivery=${result.verificationEmailSent ? "sent" : "retry"}`,
-      );
-    } catch (caught) {
-      setServerError(customerAuthenticationError(caught));
-    } finally {
-      submitting.current = false;
-      setLoading(false);
-    }
-  }
-
-  const update = (key: keyof typeof values, value: string) => {
-    setValues((current) => ({...current, [key]: value}));
-  };
-
   return (
-    <AuthCard portal="provider" title="Register a provider account" description="Create the owner identity first. Business activation remains controlled by FEASTA verification." footer={<Link className="font-bold text-primary-strong underline" href="/provider-login">Already registered? Provider sign in</Link>}>
-      <form className="grid min-w-0 gap-4" onSubmit={submit} noValidate aria-describedby={serverError ? "provider-registration-error" : undefined}>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <FormField label="Owner first name" required disabled={loading} error={errors.firstName}><Input autoComplete="given-name" value={values.firstName} onChange={(event) => update("firstName", event.target.value)} /></FormField>
-          <FormField label="Owner last name" required disabled={loading} error={errors.lastName}><Input autoComplete="family-name" value={values.lastName} onChange={(event) => update("lastName", event.target.value)} /></FormField>
-        </div>
-        <FormField label="Phone number" required disabled={loading} error={errors.phoneNumber}><Input type="tel" inputMode="tel" autoComplete="tel" value={values.phoneNumber} onChange={(event) => update("phoneNumber", event.target.value)} /></FormField>
-        <FormField label="Email address" required disabled={loading} error={errors.email}><Input type="email" inputMode="email" autoComplete="email" value={values.email} onChange={(event) => update("email", event.target.value)} /></FormField>
-        <FormField label="Password" description="Use at least 8 characters." required disabled={loading} error={errors.password}><PasswordInput autoComplete="new-password" value={values.password} onChange={(event) => update("password", event.target.value)} /></FormField>
-        <FormField label="Confirm password" required disabled={loading} error={errors.confirmation}><PasswordInput autoComplete="new-password" value={values.confirmation} onChange={(event) => update("confirmation", event.target.value)} /></FormField>
-        <label className="flex min-h-12 items-start gap-3 rounded-lg p-2 focus-within:ring-2 focus-within:ring-ring">
-          <input className="mt-1 size-5 shrink-0 accent-primary" type="checkbox" checked={accepted} disabled={loading} aria-invalid={Boolean(errors.agreements) || undefined} aria-describedby={errors.agreements ? "provider-agreements-error" : undefined} onChange={(event) => setAccepted(event.target.checked)} />
-          <span>I accept the FEASTA <Link className="font-semibold text-primary-strong underline" href="/terms">Terms</Link> and <Link className="font-semibold text-primary-strong underline" href="/privacy">Privacy Policy</Link>.</span>
-        </label>
-        {errors.agreements ? <p id="provider-agreements-error" className="text-sm font-semibold text-destructive" role="alert">{errors.agreements}</p> : null}
-        {serverError ? <AuthStatus id="provider-registration-error" message={serverError} tone="error" /> : null}
-        <Button type="submit" fullWidth loading={loading} loadingLabel="Creating provider account">Create provider account</Button>
-      </form>
-    </AuthCard>
-  );
-}
+    <main className="min-h-screen bg-background text-foreground">
+      <header className="relative z-30 border-b border-border/70 bg-card">
+  <div className="mx-auto flex h-[64px] w-full max-w-[1360px] items-center px-5 sm:px-7 lg:px-10 xl:px-12">
+    <Link
+      href="/provider-register"
+      aria-label="FEASTA home"
+      className={[
+        "inline-flex items-center rounded-lg",
+        "focus-visible:outline-none focus-visible:ring-2",
+        "focus-visible:ring-ring focus-visible:ring-offset-2",
+      ].join(" ")}
+    >
+      <Image
+        src="/images/feasta_logo.svg"
+        alt="FEASTA"
+        width={586}
+        height={202}
+        priority
+        className="h-7 w-auto object-contain sm:h-8"
+      />
+    </Link>
+  </div>
+</header>
 
-function validateProviderRegistration(
-  values: {
-    firstName: string;
-    lastName: string;
-    phoneNumber: string;
-    email: string;
-    password: string;
-    confirmation: string;
-  },
-  accepted: boolean,
-): ProviderRegistrationErrors {
-  const errors: ProviderRegistrationErrors = {};
-  if (!values.firstName.trim()) errors.firstName = "Enter the account owner's first name.";
-  if (!values.lastName.trim()) errors.lastName = "Enter the account owner's last name.";
-  if (values.phoneNumber.trim().length < 7) errors.phoneNumber = "Enter a valid phone number.";
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(values.email.trim())) {
-    errors.email = "Enter a valid email address.";
-  }
-  if (values.password.length < 8) {
-    errors["password"] = "Use at least 8 characters.";
-  }
-  if (!values.confirmation) {
-    errors.confirmation = "Confirm your password.";
-  } else if (values.password !== values.confirmation) {
-    errors.confirmation = "Passwords do not match.";
-  }
-  if (!accepted) errors.agreements = "Accept the Terms and Privacy Policy to continue.";
-  return errors;
+      <section className="relative isolate overflow-hidden bg-foreground">
+        <Image
+          src="/images/landing/providers-banner.jpg"
+          alt="Event setup prepared by professional event service providers"
+          fill
+          priority
+          sizes="100vw"
+          className="object-cover object-center"
+        />
+        <div aria-hidden="true" className="absolute inset-0 bg-black/50" />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/55 to-black/35 lg:from-black/45 lg:via-black/55 lg:to-black/75"
+        />
+
+        <div className="relative z-10 mx-auto grid w-full max-w-[1360px] gap-8 px-5 py-10 sm:px-7 lg:min-h-[620px] lg:grid-cols-[minmax(0,520px)_minmax(0,1fr)] lg:items-center lg:gap-16 lg:px-10 lg:py-12 xl:px-12 xl:gap-20">
+          <section
+            aria-label="Provider mobile registration"
+            className="order-2 w-full rounded-[20px] border border-white/20 bg-card p-5 shadow-[0_20px_60px_rgb(0_0_0/0.18)] sm:p-7 lg:order-1"
+          >
+            <ProviderPhoneRegistrationForm />
+            <p className="mt-5 text-center text-sm text-muted-foreground">
+              Already have a provider account?{" "}
+              <Link
+                href="/provider-login"
+                className="font-bold text-primary-strong underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Log in
+              </Link>
+            </p>
+          </section>
+
+          <div className="order-1 max-w-xl text-white lg:order-2">
+            <p className="text-sm font-black uppercase tracking-[0.2em] text-primary">
+              Become a FEASTA provider
+            </p>
+
+            <h1 className="mt-4 text-4xl font-black leading-[1.02] tracking-[-0.04em] sm:text-5xl lg:text-[52px]">
+              Grow your event business with FEASTA.
+            </h1>
+
+            <p className="mt-5 max-w-xl text-base leading-7 text-white/90 sm:text-lg sm:leading-8">
+              Connect with customers looking for trusted catering and event
+              services in Ormoc City.
+            </p>
+
+            <p className="mt-3 max-w-xl text-sm leading-6 text-white/70 sm:text-base">
+              Secure your provider account by verifying your mobile number
+              before adding account and business details.
+            </p>
+
+            <div className="mt-7 grid gap-3">
+              {[
+                "Reach customers planning events in Ormoc City",
+                "Manage your services and business profile",
+                "Receive and review booking opportunities",
+              ].map((item) => (
+                <div
+                  key={item}
+                  className="flex items-center gap-3 text-sm font-semibold text-white/90"
+                >
+                  <span
+                    aria-hidden="true"
+                    className="grid size-6 shrink-0 place-items-center rounded-full bg-primary text-xs font-black text-primary-foreground"
+                  >
+                    ✓
+                  </span>
+
+                  <span>{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-card px-4 py-16 sm:px-8 sm:py-20 lg:px-10">
+        <div className="mx-auto w-full max-w-[1200px]">
+          <div className="mx-auto max-w-2xl text-center">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-primary-strong">
+              Provider benefits
+            </p>
+            <h2 className="mt-3 text-3xl font-black tracking-[-0.03em] sm:text-4xl">
+              Grow your event business with FEASTA
+            </h2>
+          </div>
+          <div className="mt-10 grid gap-5 md:grid-cols-3">
+            {providerBenefits.map((benefit) => {
+              const Icon = benefit.icon;
+              return (
+                <article
+                  key={benefit.title}
+                  className="rounded-[14px] border border-border bg-background p-6 shadow-card"
+                >
+                  <span className="flex size-12 items-center justify-center rounded-[10px] bg-secondary text-primary-strong">
+                    <Icon aria-hidden="true" className="size-6" />
+                  </span>
+                  <h3 className="mt-5 text-base font-black uppercase tracking-[0.08em]">
+                    {benefit.title}
+                  </h3>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                    {benefit.description}
+                  </p>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      <section className="border-t border-border bg-secondary px-4 py-16 sm:px-8 sm:py-20 lg:px-10">
+        <div className="mx-auto w-full max-w-[1200px]">
+          <div className="max-w-3xl">
+            <p className="text-xs font-black uppercase tracking-[0.2em] text-primary-strong">
+              Provider journey
+            </p>
+            <h2 className="mt-3 text-3xl font-black tracking-[-0.03em] sm:text-4xl">
+              From mobile verification to FEASTA review
+            </h2>
+            <p className="mt-4 leading-7 text-muted-foreground">
+              Provider approval is not automatic. Each business completes
+              onboarding and submits the required information for FEASTA review.
+            </p>
+          </div>
+          <ol className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {providerJourney.map((step, index) => (
+              <li
+                key={step}
+                className="flex min-w-0 items-start gap-4 rounded-[14px] border border-border bg-card p-5 shadow-card"
+              >
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-primary text-sm font-black text-primary-foreground">
+                  {index + 1}
+                </span>
+                <p className="pt-1 text-sm font-bold leading-6">{step}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+    </main>
+  );
 }

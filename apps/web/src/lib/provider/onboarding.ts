@@ -38,9 +38,12 @@ export function firstIncompleteSetupStep(
   completedSteps: readonly number[],
 ): ProviderOnboardingStep {
   const completed = new Set(completedSteps);
+  // A profile is created only after step 6 is saved. If that transaction is
+  // interrupted, resume the final setup step so registerProvider can retry;
+  // verification documents are valid only after the profile exists.
   return PROVIDER_ONBOARDING_STEPS.find(
     (step) => step.number <= 6 && !completed.has(step.number),
-  ) ?? PROVIDER_ONBOARDING_STEPS[6];
+  ) ?? PROVIDER_ONBOARDING_STEPS[5];
 }
 
 export function providerOnboardingPath(
@@ -63,4 +66,3 @@ export function onboardingStepState(
     ? "completed"
     : "incomplete";
 }
-

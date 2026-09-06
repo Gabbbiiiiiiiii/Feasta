@@ -150,9 +150,18 @@ class FirebasePhoneVerificationService implements PhoneVerificationGateway {
         'session-expired' => PhoneVerificationFailureKind.expiredCode,
         'too-many-requests' ||
         'quota-exceeded' => PhoneVerificationFailureKind.tooManyRequests,
-        'credential-already-in-use' || 'phone-number-already-exists' =>
+        'credential-already-in-use' ||
+        'phone-number-already-exists' ||
+        'account-exists-with-different-credential' =>
           PhoneVerificationFailureKind.phoneAlreadyInUse,
+<<<<<<< HEAD
         'no-current-user' ||
+=======
+        'provider-already-linked' ||
+        'user-mismatch' ||
+        'requires-recent-login' => PhoneVerificationFailureKind.sessionExpired,
+        'user-disabled' => PhoneVerificationFailureKind.blocked,
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
         'user-token-expired' ||
         'invalid-user-token' ||
         'id-token-revoked' => PhoneVerificationFailureKind.sessionExpired,

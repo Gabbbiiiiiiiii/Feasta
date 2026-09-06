@@ -25,6 +25,8 @@ test("web authentication preflight is persistent, origin checked, and CSRF prote
   for (const action of [
     "customer_registration",
     "provider_registration",
+    "provider_phone_registration",
+    "provider_phone_classification",
     "password_reset",
     "email_verification_resend",
     "email_update",
@@ -51,7 +53,11 @@ test("all browser Firebase Auth mutation flows invoke the protected preflight", 
   ]) {
     assert.ok(customer.includes(`"${action}"`), `customer flow missing ${action}`);
   }
-  for (const action of ["provider_registration", "email_verification_resend"]) {
+  for (const action of [
+    "provider_registration",
+    "provider_phone_registration",
+    "email_verification_resend",
+  ]) {
     assert.ok(provider.includes(`"${action}"`), `provider flow missing ${action}`);
   }
   for (const action of ["email_update", "password_change", "logout_all"]) {
@@ -59,6 +65,19 @@ test("all browser Firebase Auth mutation flows invoke the protected preflight", 
   }
   assert.match(customer, /x-feasta-csrf/u);
   assert.match(customer, /credentials: "same-origin"/u);
+});
+
+test("provider phone preflight is normalized, generic, and does not classify accounts", async () => {
+  const route = await web("app/api/auth/attempt/route.ts");
+  assert.match(route, /normalizePhilippineMobile\(value\)/u);
+  assert.match(route, /`phone:\$\{phoneNumber\}`/u);
+  assert.match(route, /PublicIdentifierError/u);
+  assert.match(route, /invalid_identifier/u);
+  const publicNormalization = route.slice(
+    route.indexOf("function normalizePublicIdentifier"),
+    route.indexOf("async function authenticatedSubject"),
+  );
+  assert.doesNotMatch(publicNormalization, /adminAuth|adminDb|users|customers|providers/u);
 });
 
 test("registration and verification fields remain server owned", async () => {
@@ -87,23 +106,31 @@ test("registration and verification fields remain server owned", async () => {
   assert.match(customerFunction, /isPhoneVerified: false/u);
   assert.match(providerIdentity, /role: USER_ROLES\.provider/u);
   assert.match(providerIdentity, /isEmailVerified: authUser\.emailVerified/u);
-  assert.match(providerIdentity, /isPhoneVerified: false/u);
+  assert.match(providerIdentity, /isAuthoritativeAuthPhone\(authUser, phoneNumber\)/u);
+  assert.match(providerIdentity, /isPhoneVerified: phoneVerified/u);
   assert.match(providerRegistration, /verificationStatus: "draft"/u);
   assert.match(providerRegistration, /isActive: false/u);
   assert.match(providerRegistration, /isFeatured: false/u);
 });
 
 test("stale, cross-role, expired, tampered, and revoked sessions fail closed", async () => {
-  const [session, policy, customerLayout, providerLayout, adminLayout] =
+  const [session, securityPolicy, accountPolicy, customerLayout, providerLayout,
+    adminLayout] =
     await Promise.all([
       web("lib/auth/session.ts"),
+      web("lib/security/policy.ts"),
       web("lib/auth/account-policy.ts"),
       web("app/customer/layout.tsx"),
       web("app/provider/layout.tsx"),
       web("app/admin/layout.tsx"),
     ]);
   assert.match(session, /adminAuth\.getUser\(uid\)/u);
-  assert.match(session, /verifySessionCookie\(value, checkRevoked\)/u);
+  assert.match(session, /verifyRevocationAwareSession\(/u);
+  assert.match(
+    session,
+    /adminAuth\.verifySessionCookie\(\s*value,\s*shouldCheckRevocation/u,
+  );
+  assert.match(securityPolicy, /return verifier\(cookie, checkRevoked\)/u);
   assert.match(session, /options\.checkRevoked \?\? true/u);
   for (const state of [
     "disabled_auth_account",
@@ -112,7 +139,10 @@ test("stale, cross-role, expired, tampered, and revoked sessions fail closed", a
     "missing_user_profile",
     "missing_customer_profile",
   ]) {
-    assert.ok(policy.includes(state), `missing stale-session denial: ${state}`);
+    assert.ok(
+      accountPolicy.includes(state),
+      `missing stale-session denial: ${state}`,
+    );
   }
   assert.match(customerLayout, /requireCustomer/u);
   assert.match(providerLayout, /requireProvider/u);

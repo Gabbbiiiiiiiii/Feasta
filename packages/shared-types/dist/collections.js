@@ -8,6 +8,7 @@ export const FIRESTORE_COLLECTIONS = {
     addons: "addons",
     mainEvents: "mainEvents",
     providerRequests: "providerRequests",
+    providerRequestCancellationRequests: "providerRequestCancellationRequests",
     payments: "payments",
     chatRooms: "chatRooms",
     reviews: "reviews",
@@ -23,6 +24,7 @@ export const FIRESTORE_COLLECTIONS = {
 export const FIRESTORE_SUBCOLLECTIONS = {
     timeline: "timeline",
     messages: "messages",
+    refunds: "refunds",
     documents: "documents",
     activity: "activity",
 };

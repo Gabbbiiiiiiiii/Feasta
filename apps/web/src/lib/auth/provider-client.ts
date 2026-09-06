@@ -1,27 +1,38 @@
 "use client";
 
 import {
-  createUserWithEmailAndPassword,
-  deleteUser,
   browserSessionPersistence,
+  EmailAuthProvider,
+  linkWithCredential,
+  PhoneAuthProvider,
+  RecaptchaVerifier,
   reload,
   sendEmailVerification,
   setPersistence,
+  signInWithPhoneNumber,
   signInWithEmailAndPassword,
   signOut,
+  updatePhoneNumber,
+  type ApplicationVerifier,
+  type ConfirmationResult,
 } from "firebase/auth";
 import {httpsCallable} from "firebase/functions";
 import {ref, uploadBytesResumable} from "firebase/storage";
 import {
   UNVERSIONED_POLICY_VERSION,
+  normalizePhilippineMobile,
+  validateProviderOwnerIdentityInput,
   type ProviderOnboardingInput,
   type ProviderOwnerIdentityInput,
+  type ProviderAccountClassification,
+  type ProviderRegistrationResolution,
   type VerificationDocumentType,
 } from "@feasta/shared-types";
 
 import {
   authorizeWebAuthenticationAttempt,
   exchangeCurrentUserForSession,
+  getCsrfToken,
   type WebSessionResult,
   WebAuthenticationError,
 } from "@/lib/auth/client-session";
@@ -37,41 +48,298 @@ export type ProviderIdentityInput = Omit<
 
 export type ProviderBusinessInput = ProviderOnboardingInput;
 
+export interface ProviderPhoneVerificationSession {
+  verificationId: string;
+  phoneNumber: string;
+  uid: string;
+}
+
+export interface ProviderPhoneRegistrationResult {
+  classification: ProviderAccountClassification;
+  resolution: ProviderRegistrationResolution;
+  phoneNumber: string;
+}
+
 export {UNVERSIONED_POLICY_VERSION};
 export type {VerificationDocumentType};
 
-export async function registerProviderIdentity(
-  input: ProviderIdentityInput,
-): Promise<{verificationEmailSent: boolean}> {
+export async function requestProviderRegistrationPhoneCode(
+  phoneNumber: string,
+  createVerifier: () => ApplicationVerifier,
+): Promise<{confirmation: ConfirmationResult; phoneNumber: string}> {
+  const normalizedPhone = normalizePhilippineMobile(phoneNumber);
+  if (!normalizedPhone) {
+    throw new WebAuthenticationError(
+      "Enter a valid Philippine mobile number.",
+      "validation",
+    );
+  }
   await authorizeWebAuthenticationAttempt(
-    "provider_registration",
-    input.email,
+    "provider_phone_registration",
+    normalizedPhone,
   );
   await setPersistence(auth, browserSessionPersistence);
-  const credential = await createUserWithEmailAndPassword(
+  const verifier = createVerifier();
+  const confirmation = await signInWithPhoneNumber(
     auth,
-    input.email.trim().toLowerCase(),
-    input.password,
+    normalizedPhone,
+    verifier,
   );
-  try {
-    await call("ensureProviderIdentity", {
-      firstName: input.firstName.trim(),
-      lastName: input.lastName.trim(),
-      phoneNumber: input.phoneNumber.trim(),
-      acceptedTerms: input.acceptedTerms,
-      acceptedPrivacy: input.acceptedPrivacy,
-      termsPolicyVersion: input.termsPolicyVersion,
-      privacyPolicyVersion: input.privacyPolicyVersion,
-    });
-  } catch (error) {
-    await deleteUser(credential.user).catch(() => undefined);
-    throw error;
+  return {confirmation, phoneNumber: normalizedPhone};
+}
+
+export async function confirmProviderRegistrationPhoneCode(
+  confirmation: ConfirmationResult,
+  code: string,
+  expectedPhoneNumber: string,
+): Promise<ProviderPhoneRegistrationResult> {
+  if (!/^\d{6}$/u.test(code)) {
+    throw new WebAuthenticationError(
+      "Enter the 6-digit verification code.",
+      "validation",
+    );
+  }
+  const credential = await confirmation.confirm(code);
+  const authenticatedUid = credential.user.uid;
+  if (auth.currentUser?.uid !== authenticatedUid) {
+    throw new WebAuthenticationError(
+      "Your authentication session changed. Start again.",
+      "session_expired",
+    );
+  }
+  return classifyCurrentProviderPhoneUser(
+    expectedPhoneNumber,
+    authenticatedUid,
+  );
+}
+
+export async function resumeProviderPhoneRegistration(): Promise<
+  ProviderPhoneRegistrationResult | null
+> {
+  await auth.authStateReady();
+  const user = auth.currentUser;
+  if (!user) return null;
+  const token = await user.getIdTokenResult();
+  if (
+    token.signInProvider !== PhoneAuthProvider.PROVIDER_ID ||
+    !user.providerData.some(
+      (provider) => provider.providerId === PhoneAuthProvider.PROVIDER_ID,
+    )
+  ) {
+    return null;
+  }
+  const phoneNumber = normalizePhilippineMobile(user.phoneNumber);
+  if (!phoneNumber) {
+    throw new WebAuthenticationError(
+      "The authenticated mobile number is unavailable.",
+      "session_expired",
+    );
+  }
+  return classifyCurrentProviderPhoneUser(phoneNumber, user.uid);
+}
+
+export async function resumeExistingProviderAfterPhoneAuth(): Promise<
+  WebSessionResult
+> {
+  await call("syncPhoneVerification", {});
+  return exchangeCurrentUserForSession("provider", "/provider");
+}
+
+export async function establishProviderIdentitySession(): Promise<
+  WebSessionResult
+> {
+  const user = requireProviderAuthUser();
+  await reload(user);
+  await user.getIdToken(true);
+  return exchangeCurrentUserForSession("provider", "/provider");
+}
+
+export async function abandonProviderPhoneRegistration(): Promise<void> {
+  await signOut(auth);
+}
+
+async function classifyCurrentProviderPhoneUser(
+  expectedPhoneNumber: string,
+  authenticatedUid: string,
+): Promise<ProviderPhoneRegistrationResult> {
+  const user = requireProviderAuthUser();
+  const normalizedExpected = normalizePhilippineMobile(expectedPhoneNumber);
+  const normalizedAuthPhone = normalizePhilippineMobile(user.phoneNumber);
+  if (
+    user.uid !== authenticatedUid ||
+    !normalizedExpected ||
+    normalizedAuthPhone !== normalizedExpected ||
+    !user.providerData.some(
+      (provider) => provider.providerId === PhoneAuthProvider.PROVIDER_ID,
+    )
+  ) {
+    throw new WebAuthenticationError(
+      "The authenticated mobile number could not be confirmed.",
+      "session_expired",
+    );
+  }
+  const idToken = await user.getIdToken(true);
+  const csrf = await getCsrfToken();
+  const response = await fetch("/api/auth/provider-registration/classify", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "x-feasta-csrf": csrf,
+    },
+    body: JSON.stringify({
+      idToken,
+      phoneNumber: normalizedExpected,
+    }),
+  });
+  const body = await response.json() as Partial<ProviderPhoneRegistrationResult> & {
+    error?: string;
+  };
+  if (!response.ok || !body.classification || !body.resolution) {
+    throw new WebAuthenticationError(
+      response.status === 429
+        ? "Too many requests. Please wait before trying again."
+        : "The provider registration request could not be completed.",
+      response.status === 429 ? "rate_limited" : "request_denied",
+    );
+  }
+  return {
+    classification: body.classification,
+    resolution: body.resolution,
+    phoneNumber: normalizedExpected,
+  };
+}
+
+export async function registerProviderIdentity(
+  input: ProviderIdentityInput,
+): Promise<{
+  verificationEmailSent: boolean;
+  emailVerified: boolean;
+  credentialLinked: boolean;
+}> {
+  const validation = validateProviderOwnerIdentityInput({
+    firstName: input.firstName,
+    lastName: input.lastName,
+    email: input.email,
+    phone: input.phoneNumber,
+    acceptedTerms: input.acceptedTerms,
+    acceptedPrivacy: input.acceptedPrivacy,
+    termsPolicyVersion: input.termsPolicyVersion,
+    privacyPolicyVersion: input.privacyPolicyVersion,
+  });
+  if (!validation.success) {
+    const invalidPhone = validation.issues.some(
+      (issue) => issue.field === "phone",
+    );
+    throw new WebAuthenticationError(
+      invalidPhone
+        ? "Enter a valid Philippine mobile number."
+        : "Review the provider account details and try again.",
+      "validation",
+    );
+  }
+  const identity = validation.value;
+  await authorizeWebAuthenticationAttempt(
+    "provider_registration",
+    identity.email,
+  );
+  await setPersistence(auth, browserSessionPersistence);
+  await auth.authStateReady();
+  const user = requireProviderAuthUser();
+  const originalUid = user.uid;
+  const authPhone = normalizePhilippineMobile(user.phoneNumber);
+  const hasPhoneProvider = user.providerData.some(
+    (provider) => provider.providerId === PhoneAuthProvider.PROVIDER_ID,
+  );
+  if (!hasPhoneProvider || authPhone !== identity.phone) {
+    throw new WebAuthenticationError(
+      "Your verified mobile session changed. Verify your number again.",
+      "session_expired",
+    );
+  }
+
+  const unsupportedProvider = user.providerData.some(
+    (provider) =>
+      provider.providerId !== PhoneAuthProvider.PROVIDER_ID &&
+      provider.providerId !== EmailAuthProvider.PROVIDER_ID,
+  );
+  if (unsupportedProvider) {
+    throw new WebAuthenticationError(
+      "This authentication relationship cannot continue provider registration.",
+      "account_inconsistent",
+    );
+  }
+
+  let credentialLinked = false;
+  if (hasPasswordProvider(user)) {
+    assertLinkedProviderAccount(user, originalUid, identity.email);
+  } else {
+    const emailCredential = EmailAuthProvider.credential(
+      identity.email,
+      input.password,
+    );
+    try {
+      const linkResult = await linkWithCredential(user, emailCredential);
+      if (
+        linkResult.user.uid !== originalUid ||
+        auth.currentUser?.uid !== originalUid
+      ) {
+        throw new WebAuthenticationError(
+          "Your authentication session changed. Start again safely.",
+          "uid_mismatch",
+        );
+      }
+      credentialLinked = true;
+    } catch (error) {
+      if (!firebaseCode(error).includes("provider-already-linked")) {
+        throw error;
+      }
+      await reload(user);
+    }
+    assertLinkedProviderAccount(requireProviderAuthUser(), originalUid, identity.email);
+  }
+
+  await reload(user);
+  assertLinkedProviderAccount(requireProviderAuthUser(), originalUid, identity.email);
+  if (normalizePhilippineMobile(user.phoneNumber) !== identity.phone) {
+    throw new WebAuthenticationError(
+      "Your verified mobile session changed. Verify your number again.",
+      "session_expired",
+    );
+  }
+  await user.getIdToken(true);
+  await call("ensureProviderIdentity", {
+    firstName: identity.firstName,
+    lastName: identity.lastName,
+    email: identity.email,
+    phoneNumber: identity.phone,
+    acceptedTerms: identity.acceptedTerms,
+    acceptedPrivacy: identity.acceptedPrivacy,
+    termsPolicyVersion: identity.termsPolicyVersion,
+    privacyPolicyVersion: identity.privacyPolicyVersion,
+  });
+  assertLinkedProviderAccount(requireProviderAuthUser(), originalUid, identity.email);
+
+  if (user.emailVerified) {
+    return {
+      verificationEmailSent: false,
+      emailVerified: true,
+      credentialLinked,
+    };
   }
   try {
-    await sendEmailVerification(credential.user);
-    return {verificationEmailSent: true};
+    await sendEmailVerification(user);
+    return {
+      verificationEmailSent: true,
+      emailVerified: false,
+      credentialLinked,
+    };
   } catch {
-    return {verificationEmailSent: false};
+    return {
+      verificationEmailSent: false,
+      emailVerified: false,
+      credentialLinked,
+    };
   }
 }
 
@@ -108,6 +376,101 @@ export async function refreshProviderVerification(): Promise<{
 export async function resendProviderVerification(): Promise<void> {
   await authorizeWebAuthenticationAttempt("email_verification_resend");
   await sendEmailVerification(requireProviderAuthUser());
+}
+
+export function createProviderPhoneRecaptcha(
+  container: string | HTMLElement,
+): RecaptchaVerifier {
+  return new RecaptchaVerifier(auth, container, {
+    size: "invisible",
+  });
+}
+
+export async function requestProviderPhoneVerification(
+  verifier: ApplicationVerifier,
+  replacementPhoneNumber?: string,
+): Promise<ProviderPhoneVerificationSession> {
+  await auth.authStateReady();
+  const user = requireProviderAuthUser();
+  if (!user.emailVerified) {
+    throw new WebAuthenticationError(
+      "Verify your email before verifying your mobile number.",
+      "validation",
+    );
+  }
+  const replacement = replacementPhoneNumber === undefined
+    ? undefined
+    : normalizePhilippineMobile(replacementPhoneNumber);
+  if (replacementPhoneNumber !== undefined && !replacement) {
+    throw new WebAuthenticationError(
+      "Enter a valid Philippine mobile number.",
+      "validation",
+    );
+  }
+  const prepared = await call<{phoneNumber: string}>(
+    "prepareProviderPhoneVerification",
+    replacement ? {phoneNumber: replacement} : {},
+  );
+  const phoneNumber = normalizePhilippineMobile(prepared.phoneNumber);
+  if (!phoneNumber) {
+    throw new WebAuthenticationError(
+      "Your registered mobile number is unavailable. Use another number.",
+      "validation",
+    );
+  }
+  const verificationId = await new PhoneAuthProvider(auth).verifyPhoneNumber(
+    phoneNumber,
+    verifier,
+  );
+  return {verificationId, phoneNumber, uid: user.uid};
+}
+
+export async function confirmProviderPhoneVerification(
+  session: ProviderPhoneVerificationSession,
+  code: string,
+): Promise<WebSessionResult> {
+  await auth.authStateReady();
+  const user = requireProviderAuthUser();
+  if (user.uid !== session.uid) {
+    throw new WebAuthenticationError(
+      "Your session changed. Please sign in again.",
+      "session_expired",
+    );
+  }
+  const credential = PhoneAuthProvider.credential(
+    session.verificationId,
+    code,
+  );
+  const alreadyLinked = user.providerData.some(
+    (provider) => provider.providerId === PhoneAuthProvider.PROVIDER_ID,
+  );
+  if (alreadyLinked) {
+    await updatePhoneNumber(user, credential);
+  } else {
+    const result = await linkWithCredential(user, credential);
+    if (result.user.uid !== session.uid) {
+      throw new WebAuthenticationError(
+        "Phone verification could not be linked to this account.",
+        "session_expired",
+      );
+    }
+  }
+  if (auth.currentUser?.uid !== session.uid) {
+    throw new WebAuthenticationError(
+      "Your session changed. Please sign in again.",
+      "session_expired",
+    );
+  }
+  await reload(user);
+  if (user.phoneNumber !== session.phoneNumber) {
+    throw new WebAuthenticationError(
+      "The verified number did not match your registered number.",
+      "validation",
+    );
+  }
+  await user.getIdToken(true);
+  await call("syncPhoneVerification", {});
+  return exchangeCurrentUserForSession("provider", "/provider");
 }
 
 export async function registerProviderBusiness(
@@ -251,6 +614,51 @@ function requireProviderAuthUser() {
     );
   }
   return auth.currentUser;
+}
+
+function hasPasswordProvider(user: {providerData: readonly {providerId: string}[]}): boolean {
+  return user.providerData.some(
+    (provider) => provider.providerId === EmailAuthProvider.PROVIDER_ID,
+  );
+}
+
+function assertLinkedProviderAccount(
+  user: ReturnType<typeof requireProviderAuthUser>,
+  originalUid: string,
+  normalizedEmail: string,
+): void {
+  if (user.uid !== originalUid || auth.currentUser?.uid !== originalUid) {
+    throw new WebAuthenticationError(
+      "Your authentication session changed. Start again safely.",
+      "uid_mismatch",
+    );
+  }
+  if (!hasPasswordProvider(user)) {
+    throw new WebAuthenticationError(
+      "The email sign-in method was not linked. Try again.",
+      "credential_not_linked",
+    );
+  }
+  if (!user.providerData.some(
+    (provider) => provider.providerId === PhoneAuthProvider.PROVIDER_ID,
+  )) {
+    throw new WebAuthenticationError(
+      "The verified mobile sign-in method is unavailable. Start again safely.",
+      "account_inconsistent",
+    );
+  }
+  if (user.email?.trim().toLowerCase() !== normalizedEmail) {
+    throw new WebAuthenticationError(
+      "This phone account already has a different email. Sign in to the correct account or contact support.",
+      "account_inconsistent",
+    );
+  }
+}
+
+function firebaseCode(error: unknown): string {
+  return typeof error === "object" && error !== null && "code" in error
+    ? String(error.code)
+    : "";
 }
 
 async function call<T>(name: string, data: Record<string, unknown>): Promise<T> {

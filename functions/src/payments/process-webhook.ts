@@ -27,14 +27,33 @@ import {
 } from "../provider-requests/recalculate-main-event-status.js";
 import {
   parsePayMongoPaymentEvent,
+  parsePayMongoWebhookEvent,
   statusForPayMongoEvent,
   validateTrustedPaymentUpdate,
 } from "./payment-security.js";
+import {
+  reconcileGatewayRefund,
+} from "../refunds/refund-execution.js";
+import {
+  classifyProviderRequestRefundPolicyEvidence,
+  requireRefundEligibilityState,
+} from "../bookings/booking-refund-policy.js";
+import {
+  assertCancellationStatusTransition,
+  legacyActiveCancellationRequestId,
+  parseProviderRequestCancellationStatus,
+} from "../cancellations/refund-cancellation-domain.js";
+import {
+  canonicalPaymentLinkageReason,
+  providerOperationalReason,
+  webhookLifecycleConflictReason,
+} from "./payment-lifecycle.js";
 
 type WebhookResult = {
   duplicate: boolean;
   applied: boolean;
   reason?: string;
+  conflict?: boolean;
 };
 
 type ProviderRequestPaymentUpdate = {
@@ -45,8 +64,57 @@ type ProviderRequestPaymentUpdate = {
 export async function processPayMongoWebhook(
   rawBody: Buffer,
 ): Promise<WebhookResult> {
-  const event =
-    parsePayMongoPaymentEvent(rawBody);
+  const parsedEvent = parsePayMongoWebhookEvent(rawBody);
+
+  if (parsedEvent.kind === "refund") {
+    if (
+      parsedEvent.eventType !== "refund.succeeded" &&
+      parsedEvent.eventType !== "payment.refund.updated"
+    ) {
+      logSecurityEvent({
+        action: "payment_webhook",
+        outcome: "denied",
+        actorUid: "paymongo",
+        targetId: parsedEvent.paymentId,
+        correlationId: parsedEvent.eventId,
+        reasonCode: "unsupported_refund_event",
+        metadata: {eventType: parsedEvent.eventType},
+      });
+      return {
+        duplicate: false,
+        applied: false,
+        reason: "unsupported_event",
+      };
+    }
+    const result = await reconcileGatewayRefund({
+      paymentId: parsedEvent.paymentId,
+      refundOperationId: parsedEvent.refundOperationId,
+      refund: parsedEvent.refund,
+      actorId: "paymongo",
+      source: "paymongo_webhook",
+      webhookEventId: parsedEvent.eventId,
+      webhookEventType: parsedEvent.eventType,
+    });
+    const webhookResult = {
+      duplicate: result.replayed,
+      applied: !result.replayed,
+      ...(result.status === "failed" ? {reason: "gateway_refund_failed"} : {}),
+    };
+    logSecurityEvent({
+      action: "payment_webhook",
+      outcome: result.replayed ? "replayed" : result.status === "failed"
+        ? "denied"
+        : "succeeded",
+      actorUid: "paymongo",
+      targetId: parsedEvent.paymentId,
+      correlationId: parsedEvent.eventId,
+      reasonCode: result.status,
+      metadata: {eventType: parsedEvent.eventType},
+    });
+    return webhookResult;
+  }
+
+  const event = parsedEvent;
 
   const nextStatus =
     statusForPayMongoEvent(event.eventType);
@@ -169,24 +237,6 @@ export async function processPayMongoWebhook(
         providerReference,
       );
 
-      /*
-       * This query is required because the main-event status depends on
-       * all provider requests belonging to the event.
-       *
-       * It is executed before any transaction writes, which satisfies
-       * Firestore transaction requirements.
-       */
-      const providerRequestsSnapshot =
-        await transaction.get(
-          db
-            .collection("providerRequests")
-            .where(
-              "mainEventId",
-              "==",
-              bookingId,
-            ),
-        );
-
       const providerRequest =
         providerRequestSnapshot.data() ?? {};
 
@@ -200,17 +250,9 @@ export async function processPayMongoWebhook(
         !providerRequestSnapshot.exists ||
         !bookingSnapshot.exists ||
         !providerSnapshot.exists ||
-        providerRequest.mainEventId !==
-          bookingId ||
-        providerRequest.customerId !==
-          customerId ||
-        providerRequest.providerId !==
-          providerId ||
-        booking.customerId !==
-          customerId ||
         typeof provider.ownerId !==
           "string" ||
-        provider.ownerId.length === 0
+        provider.ownerId.trim().length === 0
       ) {
         transaction.set(
           eventReference,
@@ -225,6 +267,74 @@ export async function processPayMongoWebhook(
           duplicate: false,
           applied: false,
           reason: "ownership_mismatch",
+        };
+      }
+
+      const providerOwnerSnapshot =
+        await transaction.get(
+          db.collection("users")
+            .doc(provider.ownerId.trim()),
+        );
+
+      /*
+       * The aggregate query and provider-owner read occur before all
+       * transaction writes. The status override below keeps the parent
+       * counters consistent with the request update in the same commit.
+       */
+      const providerRequestsSnapshot =
+        await transaction.get(
+          db
+            .collection("providerRequests")
+            .where(
+              "mainEventId",
+              "==",
+              bookingId,
+            ),
+        );
+
+      const policyEvidence = classifyProviderRequestRefundPolicyEvidence(
+        providerRequest,
+      );
+      const activeCancellationRequestId = policyEvidence.status === "policy_backed"
+        ? requireRefundEligibilityState(providerRequest)
+          .activeCancellationRequestId
+        : policyEvidence.status === "legacy"
+          ? legacyActiveCancellationRequestId(providerRequest)
+          : null;
+      const activeCancellationReference = activeCancellationRequestId
+        ? db.collection("providerRequestCancellationRequests")
+          .doc(activeCancellationRequestId)
+        : null;
+      const activeCancellationSnapshot = activeCancellationReference
+        ? await transaction.get(activeCancellationReference)
+        : null;
+
+      const paymentLinkageReason =
+        canonicalPaymentLinkageReason({
+          paymentId: event.paymentId,
+          providerRequestId,
+          mainEventId: bookingId,
+          customerId,
+          providerId,
+          payment,
+          providerRequest,
+          mainEvent: booking,
+        });
+
+      if (paymentLinkageReason) {
+        transaction.set(
+          eventReference,
+          webhookRecord(
+            event,
+            "rejected",
+            paymentLinkageReason,
+          ),
+        );
+
+        return {
+          duplicate: false,
+          applied: false,
+          reason: paymentLinkageReason,
         };
       }
 
@@ -254,6 +364,40 @@ export async function processPayMongoWebhook(
         };
       }
 
+      if (
+        nextStatus === "refunded" &&
+        (
+          payment.refundAccountingSchemaVersion !== undefined ||
+          payment.refundedAmountInCentavos !== undefined ||
+          payment.refundReservedAmountInCentavos !== undefined
+        )
+      ) {
+        transaction.set(
+          eventReference,
+          webhookRecord(event, "rejected", "refund_operation_required"),
+        );
+        return {
+          duplicate: false,
+          applied: false,
+          reason: "refund_operation_required",
+        };
+      }
+
+      if (
+        nextStatus === "refunded" &&
+        !validLegacyRefundExecutionLock(payment)
+      ) {
+        transaction.set(
+          eventReference,
+          webhookRecord(event, "rejected", "refund_authority_missing"),
+        );
+        return {
+          duplicate: false,
+          applied: false,
+          reason: "refund_authority_missing",
+        };
+      }
+
       const validationReason =
         validateTrustedPaymentUpdate({
           currentStatus: payment.status,
@@ -270,6 +414,9 @@ export async function processPayMongoWebhook(
 
           actualCurrency:
             event.currency,
+
+          allowFailedToPaidRecovery:
+            nextStatus === "paid",
         });
 
       if (validationReason) {
@@ -301,6 +448,32 @@ export async function processPayMongoWebhook(
       const timestamp =
         serverTimestamp();
 
+      if (
+        activeCancellationReference &&
+        activeCancellationSnapshot?.exists &&
+        (
+          nextStatus === "paid" ||
+          nextStatus === "failed" ||
+          nextStatus === "expired"
+        )
+      ) {
+        const activeCancellation = activeCancellationSnapshot.data() ?? {};
+        const cancellationStatus = parseProviderRequestCancellationStatus(
+          activeCancellation.status,
+        );
+        if (cancellationStatus === "awaiting_payment_resolution") {
+          const resolvedStatus = policyEvidence.status === "policy_backed"
+            ? "submitted"
+            : "under_review";
+          assertCancellationStatusTransition(cancellationStatus, resolvedStatus);
+          transaction.update(activeCancellationReference, {
+            status: resolvedStatus,
+            paymentResolutionStatus: nextStatus,
+            updatedAt: timestamp,
+          });
+        }
+      }
+
       transaction.update(
         paymentReference,
         createPaymentUpdate(
@@ -308,8 +481,127 @@ export async function processPayMongoWebhook(
           event.gatewayResourceId,
           event.eventId,
           timestamp,
+          payment,
         ),
       );
+
+      const lifecycleConflict =
+        webhookLifecycleConflictReason({
+          providerRequestStatus:
+            providerRequest.status,
+          mainEventStatus: booking.status,
+          nextPaymentStatus: nextStatus,
+        });
+
+      const operationalConflict =
+        nextStatus === "paid" &&
+        (
+          !providerOwnerSnapshot.exists ||
+          providerOperationalReason(
+            providerId,
+            provider,
+            providerOwnerSnapshot.data() ?? {},
+          )
+        )
+          ? "provider_unavailable"
+          : null;
+
+      const conflictReason =
+        lifecycleConflict ??
+        operationalConflict;
+
+      if (conflictReason) {
+        transaction.update(
+          bookingReference,
+          {
+            lastPaymentId:
+              event.paymentId,
+            lastPaymentStatus:
+              nextStatus,
+            lastPaymentUpdatedAt:
+              timestamp,
+            updatedAt: timestamp,
+          },
+        );
+
+        transaction.set(
+          bookingReference
+            .collection("timeline")
+            .doc(),
+          {
+            type:
+              "payment_lifecycle_conflict",
+            message:
+              "Gateway payment state was recorded " +
+              "without changing the incompatible " +
+              "provider request.",
+            mainEventId: bookingId,
+            providerRequestId,
+            providerId,
+            paymentId: event.paymentId,
+            paymentStatus: nextStatus,
+            reason: conflictReason,
+            source: "paymongo_webhook",
+            createdAt: timestamp,
+          },
+        );
+
+        transaction.set(
+          eventReference,
+          webhookRecord(
+            event,
+            "processed_with_conflict",
+            conflictReason,
+            {
+              mainEventId: bookingId,
+              providerRequestId,
+              providerId,
+            },
+          ),
+        );
+
+        writeAuditLogInTransaction(
+          transaction,
+          {
+            actorId: "paymongo",
+            actorRole: "system",
+            action:
+              "payment.lifecycle_conflict",
+            targetCollection: "payments",
+            targetId: event.paymentId,
+            source: "paymongo_webhook",
+            before: {
+              status: payment.status,
+              providerRequestStatus:
+                providerRequest.status,
+              mainEventStatus:
+                booking.status,
+            },
+            after: {
+              status: nextStatus,
+              providerRequestStatus:
+                providerRequest.status,
+              mainEventStatus:
+                booking.status,
+            },
+            reason: conflictReason,
+            metadata: {
+              eventId: event.eventId,
+              eventType: event.eventType,
+              mainEventId: bookingId,
+              providerRequestId,
+              providerId,
+            },
+          },
+        );
+
+        return {
+          duplicate: false,
+          applied: true,
+          conflict: true,
+          reason: conflictReason,
+        };
+      }
 
       const requestPaymentUpdate =
         createProviderRequestPaymentUpdate(
@@ -495,6 +787,8 @@ export async function processPayMongoWebhook(
 
     outcome: result.duplicate
       ? "replayed"
+      : result.conflict
+        ? "denied"
       : result.applied
         ? "succeeded"
         : "denied",
@@ -531,6 +825,7 @@ function createPaymentUpdate(
   timestamp: ReturnType<
     typeof serverTimestamp
   >,
+  currentPayment: Record<string, unknown>,
 ): Record<string, unknown> {
   const update: Record<string, unknown> = {
     status,
@@ -561,9 +856,41 @@ function createPaymentUpdate(
 
     update.refundCompletedAt =
       timestamp;
+
+    if (validLegacyRefundExecutionLock(currentPayment)) {
+      update.refundAccountingSchemaVersion = 1;
+      update.refundedAmountInCentavos = currentPayment.amountInCentavos;
+      update.refundReservedAmountInCentavos = 0;
+      update.refundExecutionLock = {
+        ...(currentPayment.refundExecutionLock as Record<string, unknown>),
+        state: "completed",
+        updatedAt: timestamp,
+      };
+    }
   }
 
   return update;
+}
+
+function validLegacyRefundExecutionLock(
+  payment: Record<string, unknown>,
+): boolean {
+  const lock = payment.refundExecutionLock;
+  return Boolean(
+    lock &&
+    typeof lock === "object" &&
+    !Array.isArray(lock) &&
+    (lock as Record<string, unknown>).kind === "legacy_admin_full_refund" &&
+    (
+      (lock as Record<string, unknown>).state === "reserved" ||
+      (
+        (lock as Record<string, unknown>).state === "gateway_accepted" &&
+        typeof payment.refundId === "string" &&
+        payment.refundId.length >= 3 &&
+        payment.refundStatus === "requested"
+      )
+    ),
+  );
 }
 
 function createProviderRequestPaymentUpdate(

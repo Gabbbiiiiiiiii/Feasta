@@ -30,9 +30,35 @@ const actionSource = source(
   "src/app/admin/settings/actions.ts",
 );
 
+const clientSource = source(
+  "src/components/admin/settings/admin-settings-client.tsx",
+);
+
 describe(
   "Admin platform settings service contract",
   () => {
+    it(
+      "captures input values before deferred state updaters",
+      () => {
+        const synchronousValueCaptures =
+          clientSource.match(
+            /const value\s*=\s*event\.currentTarget\.value;/gu,
+          ) ?? [];
+
+        expect(
+          synchronousValueCaptures,
+        ).toHaveLength(5);
+
+        expect(clientSource).not.toMatch(
+          /(?:platformName|operatingCity|supportEmail|serviceAreaDescription):\s*event\.currentTarget\.value/u,
+        );
+
+        expect(clientSource).not.toMatch(
+          /setInternalReason\(\s*event\.currentTarget\.value/u,
+        );
+      },
+    );
+
     it(
       "requires administrator authorization",
       () => {

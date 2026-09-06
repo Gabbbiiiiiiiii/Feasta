@@ -10,6 +10,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
+import {useRouter} from "next/navigation";
 import {
   type ReactNode,
   useEffect,
@@ -21,6 +22,7 @@ import {
   roleActions,
   type ShellRole,
 } from "@/components/layout/navigation";
+import {resolveCustomerNotificationDestination} from "@/lib/customer/notifications/customer-notification-destination";
 import {
   markNotificationRead,
   markRecentNotificationsRead,
@@ -49,6 +51,7 @@ export function NotificationMenu({
 }: {
   role: ShellRole;
 }) {
+  const router = useRouter();
   const container = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -216,17 +219,7 @@ export function NotificationMenu({
   ) => {
     if (notification.isRead) return;
 
-    try {
-      if (role === "admin") {
-        await markAdminNotificationReadAction(
-          notification.id,
-        );
-      } else {
-        await markNotificationRead(
-          notification.id,
-        );
-      }
-
+    const updateLocalReadState = () => {
       setSnapshot((current) => ({
         ...current,
         notifications:
@@ -246,6 +239,26 @@ export function NotificationMenu({
         ),
         unreadCountCapped: false,
       }));
+    };
+
+    if (role === "customer") {
+      updateLocalReadState();
+    }
+
+    try {
+      if (role === "admin") {
+        await markAdminNotificationReadAction(
+          notification.id,
+        );
+      } else {
+        await markNotificationRead(
+          notification.id,
+        );
+      }
+
+      if (role !== "customer") {
+        updateLocalReadState();
+      }
     } catch {
       setError(
         "The notification could not be updated.",
@@ -317,7 +330,12 @@ export function NotificationMenu({
                   <NotificationItem
                     key={notification.id}
                     notification={notification}
+                    role={role}
                     onMarkRead={markOneRead}
+                    onNavigate={(destination) => {
+                      setOpen(false);
+                      router.push(destination);
+                    }}
                   />
                 ))}
               </ul>
@@ -341,13 +359,21 @@ export function NotificationMenu({
 
 function NotificationItem({
   notification,
+  role,
   onMarkRead,
+  onNavigate,
 }: {
   notification: FeastaNotification;
+  role: ShellRole;
   onMarkRead: (
     notification: FeastaNotification,
   ) => void | Promise<void>;
+  onNavigate: (destination: string) => void;
 }) {
+  const destination = role === "customer"
+    ? resolveCustomerNotificationDestination(notification)
+    : null;
+
   return (
     <li>
       <button
@@ -355,6 +381,7 @@ function NotificationItem({
         className="grid w-full grid-cols-[2.5rem_minmax(0,1fr)] gap-3 px-4 py-3 text-left hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         onClick={() => {
           void onMarkRead(notification);
+          if (destination) onNavigate(destination);
         }}
       >
         <span className="inline-flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">

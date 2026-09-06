@@ -41,6 +41,7 @@ import {
 } from "@/lib/security/policy";
 import {CSRF_COOKIE_NAME} from "@/lib/security/request";
 import type {ProviderOnboardingDraft} from "@/lib/provider/onboarding";
+import {requireServerPhoneIdentityOwnership} from "@/lib/auth/phone-identity-server";
 
 export const SESSION_COOKIE_NAME = "feasta_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 5;
@@ -274,12 +275,38 @@ export async function requireProvider(): Promise<SessionUser> {
 }
 
 /**
- * Allows a linked provider to manage private draft catalog records regardless
- * of verification state. Publication and live operations remain guarded by
- * requireApprovedProvider and backend authorization.
+ * Identity-level provider access trusts the server-resolved provider role and
+ * requires the authoritative phone-verification field. Email verification is
+ * deliberately not required here; callers must not use this guard for
+ * onboarding, catalog, verification submission, or provider operations.
+ */
+export function requireProviderIdentityAccess(
+  account: SessionUser,
+): SessionUser {
+  if (!account.isPhoneVerified) {
+    redirect(
+      account.emailVerified
+        ? "/provider-verify-phone"
+        : "/provider-verify-email",
+    );
+  }
+  return account;
+}
+
+export async function requireOnboardingReadyProvider(): Promise<SessionUser> {
+  return requireVerifiedProviderIdentity(
+    await requireProvider(),
+  );
+}
+
+/**
+ * Allows an onboarding-ready linked provider to manage private draft catalog
+ * records regardless of provider-review status. Publication and live
+ * operations remain guarded by requireApprovedProvider and backend
+ * authorization.
  */
 export async function requireProviderCatalogAccess(): Promise<SessionUser> {
-  const account = await requireProvider();
+  const account = await requireOnboardingReadyProvider();
   if (!account.provider || account.provider.id !== account.providerId) {
     redirect("/provider/onboarding");
   }
@@ -287,7 +314,7 @@ export async function requireProviderCatalogAccess(): Promise<SessionUser> {
 }
 
 export async function requireApprovedProvider(): Promise<SessionUser> {
-  const account = await requireProvider();
+  const account = await requireOnboardingReadyProvider();
   if (
     account.provider?.verificationStatus !== "approved" ||
     account.provider.isActive !== true ||
@@ -311,6 +338,14 @@ export function requireVerifiedEmail(
   verificationPath = "/verify-email",
 ): SessionUser {
   if (!account.emailVerified) redirect(verificationPath);
+  return account;
+}
+
+export function requireVerifiedProviderIdentity(
+  account: SessionUser,
+): SessionUser {
+  requireVerifiedEmail(account, "/provider-verify-email");
+  if (!account.isPhoneVerified) redirect("/provider-verify-phone");
   return account;
 }
 
@@ -605,9 +640,7 @@ export async function loadTrustedAccountContext(
     authUser,
     userSnapshot,
   ] = await Promise.all([
-    verifiedAuthState
-      ? Promise.resolve(null)
-      : adminAuth.getUser(uid),
+    adminAuth.getUser(uid),
 
     adminDb
       .collection("users")
@@ -615,22 +648,14 @@ export async function loadTrustedAccountContext(
       .get(),
   ]);
 
-  const resolvedAuthState =
-    verifiedAuthState ??
-    (
-      authUser
-        ? {
-            disabled:
-              authUser.disabled,
-
-            email:
-              authUser.email ?? null,
-
-            emailVerified:
-              authUser.emailVerified,
-          }
-        : null
-    );
+  const resolvedAuthState = verifiedAuthState ? {
+    ...verifiedAuthState,
+    disabled: authUser.disabled,
+  } : {
+    disabled: authUser.disabled,
+    email: authUser.email ?? null,
+    emailVerified: authUser.emailVerified,
+  };
 
   if (!resolvedAuthState) {
     throw new AccountAccessError(
@@ -673,6 +698,39 @@ export async function loadTrustedAccountContext(
           .doc(uid)
           .get()
       : null;
+
+  if (userProfile?.isPhoneVerified === true) {
+    try {
+      const phoneNumber = await requireServerPhoneIdentityOwnership(
+        authUser,
+        typeof userProfile.phoneNumber === "string" ?
+          userProfile.phoneNumber :
+          undefined,
+      );
+      if (
+        userProfile.role === "customer" &&
+        customerSnapshot?.data()?.phoneNumber !== phoneNumber
+      ) {
+        throw new Error("The customer phone projection is inconsistent.");
+      }
+      if (
+        userProfile.role === "provider" &&
+        providerProfile &&
+        providerSnapshot?.data()?.ownerPhone !== phoneNumber
+      ) {
+        throw new Error("The provider phone projection is inconsistent.");
+      }
+    } catch {
+      logWebSecurityEvent({
+        action: "account_access_denied",
+        outcome: "denied",
+        actorUid: uid,
+        targetId: uid,
+        reasonCode: "invalid_phone_identity",
+      });
+      throw new AccountAccessError("invalid_phone_identity");
+    }
+  }
 
   const resolution =
     resolveTrustedAccountContext({

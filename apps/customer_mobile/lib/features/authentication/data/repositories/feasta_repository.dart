@@ -1987,6 +1987,7 @@ class FeastaRepository {
     required BookingModel booking,
     String? providerLogoUrl,
   }) async {
+<<<<<<< HEAD
     final chatRoomId = booking.id.trim();
 
     if (chatRoomId.isEmpty) {
@@ -2050,17 +2051,32 @@ class FeastaRepository {
       'createdAt': now,
       'updatedAt': now,
     });
+=======
+    try {
+      final providerRequestId = await _providerRequestIdForChat(booking);
+      final response = await _functions
+          .httpsCallable('openProviderRequestChat')
+          .call<Map<String, dynamic>>({'providerRequestId': providerRequestId});
+      final chatRoomId = response.data['chatRoomId'];
 
-    return chatRoomId;
+      if (chatRoomId is! String || chatRoomId.trim().isEmpty) {
+        throw Exception('The conversation could not be opened.');
+      }
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
+
+      return chatRoomId.trim();
+    } on FirebaseFunctionsException catch (error) {
+      throw Exception(
+        _chatErrorMessage(error, 'The conversation could not be opened.'),
+      );
+    }
   }
 
   Future<void> sendMessage({
     required String chatRoomId,
-    required String senderRole,
     required String message,
-    String messageType = 'text',
-    String? attachmentUrl,
   }) async {
+<<<<<<< HEAD
     final normalizedChatRoomId = chatRoomId.trim();
     final normalizedMessage = message.trim();
 
@@ -2156,6 +2172,18 @@ class FeastaRepository {
     // Chat notifications should later be created by a trusted Cloud Function.
 
     await batch.commit();
+=======
+    try {
+      await _functions.httpsCallable('sendChatMessage').call<void>({
+        'chatRoomId': chatRoomId,
+        'message': message,
+      });
+    } on FirebaseFunctionsException catch (error) {
+      throw Exception(
+        _chatErrorMessage(error, 'The message could not be sent.'),
+      );
+    }
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
   }
 
   Future<bool> hasReviewedBooking(String bookingId) async {
@@ -2199,11 +2227,17 @@ class FeastaRepository {
     required String comment,
   }) async {
     try {
+<<<<<<< HEAD
       final result = await _functions.httpsCallable('submitReview').call({
         'bookingId': booking.id,
+=======
+      final providerRequestId = await _providerRequestIdForReview(booking);
+      await _functions.httpsCallable('submitReview').call({
+        'providerRequestId': providerRequestId,
+>>>>>>> 9ea90a7510b12cc5f9c14e9116104adf39c02701
         'rating': rating,
         'comment': comment.trim(),
-        'idempotencyKey': '${booking.id}_$currentUid',
+        'idempotencyKey': '${providerRequestId}_$currentUid',
       });
 
       final data = result.data;
@@ -2215,6 +2249,21 @@ class FeastaRepository {
       return true;
     } on FirebaseFunctionsException catch (error) {
       throw Exception(error.message ?? 'The review could not be submitted.');
+    }
+  }
+
+  Future<void> deleteReview({
+    required String reviewId,
+    String reason = 'Deleted by customer',
+  }) async {
+    try {
+      await _functions.httpsCallable('deleteReview').call({
+        'reviewId': reviewId,
+        'reason': reason.trim(),
+        'idempotencyKey': '${reviewId}_delete_$currentUid',
+      });
+    } on FirebaseFunctionsException catch (error) {
+      throw Exception(error.message ?? 'The review could not be deleted.');
     }
   }
 
@@ -2579,24 +2628,80 @@ class FeastaRepository {
         .snapshots();
   }
 
-  Future<void> markChatAsRead({
-    required String chatRoomId,
-    required String currentRole,
-  }) async {
-    final chatRoomRef = _db
-        .collection(FirestoreCollections.chatRooms)
-        .doc(chatRoomId);
+  Future<void> markChatAsRead({required String chatRoomId}) async {
+    try {
+      await _functions.httpsCallable('markChatRoomRead').call<void>({
+        'chatRoomId': chatRoomId,
+      });
+    } on FirebaseFunctionsException catch (error) {
+      throw Exception(
+        _chatErrorMessage(
+          error,
+          'The conversation could not be marked as read.',
+        ),
+      );
+    }
+  }
 
-    if (currentRole == UserRoles.customer) {
-      await chatRoomRef.update({
-        'unreadCountCustomer': 0,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } else if (currentRole == UserRoles.provider) {
-      await chatRoomRef.update({
-        'unreadCountProvider': 0,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+  Future<String> _providerRequestIdForChat(BookingModel booking) async {
+    for (final providerRequestId in booking.providerRequestIds) {
+      final snapshot = await _db
+          .collection(FirestoreCollections.providerRequests)
+          .doc(providerRequestId)
+          .get();
+      final data = snapshot.data();
+
+      if (snapshot.exists &&
+          data?['providerId'] == booking.providerId &&
+          data?['customerId'] == booking.customerId &&
+          (data?['mainEventId'] ?? data?['bookingId']) == booking.id) {
+        return providerRequestId;
+      }
+    }
+
+    // Existing pre-providerRequest rooms used the main-event/booking ID.
+    // The backend accepts this value only when it resolves an already-existing,
+    // relationship-valid legacy room; it never creates a new legacy room.
+    return booking.id;
+  }
+
+  Future<String> _providerRequestIdForReview(BookingModel booking) async {
+    for (final providerRequestId in booking.providerRequestIds) {
+      final snapshot = await _db
+          .collection(FirestoreCollections.providerRequests)
+          .doc(providerRequestId)
+          .get();
+      final data = snapshot.data();
+
+      if (snapshot.exists &&
+          data?['providerId'] == booking.providerId &&
+          data?['customerId'] == booking.customerId &&
+          (data?['mainEventId'] ?? data?['bookingId']) == booking.id) {
+        return providerRequestId;
+      }
+    }
+
+    throw Exception(
+      'This booking does not have a reviewable provider request.',
+    );
+  }
+
+  String _chatErrorMessage(FirebaseFunctionsException error, String fallback) {
+    switch (error.code) {
+      case 'unauthenticated':
+        return 'Please log in to use messaging.';
+      case 'permission-denied':
+        return 'You cannot access this conversation.';
+      case 'not-found':
+        return 'The conversation could not be found.';
+      case 'failed-precondition':
+        return 'Messaging is unavailable for this booking.';
+      case 'invalid-argument':
+        return 'Check the message and try again.';
+      case 'resource-exhausted':
+        return 'Too many messaging requests. Please wait and try again.';
+      default:
+        return fallback;
     }
   }
 

@@ -1,51 +1,45 @@
-"use client";
+import {ProviderDirectoryShell} from "@/components/customer/providers/provider-directory-shell";
+import {ProviderPagination} from "@/components/customer/providers/provider-pagination";
+import {ProviderResults} from "@/components/customer/providers/provider-results";
+import {ProviderEventContextPanel} from "@/components/customer/providers/provider-event-context-panel";
+import {getOptionalAccountContext} from "@/lib/auth/session";
+import {getCustomerFavoriteProviderIds} from "@/lib/customer/favorites/customer-favorite-service";
+import {getPublicProviderPage} from "@/lib/customer/providers/provider-discovery-service";
+import {parseProviderDiscoveryFilters} from "@/lib/customer/providers/provider-query";
 
-import {useState} from "react";
+type CustomerProvidersPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
-import {FilterToolbar} from "@/components/data";
-import {ApplicationEmptyState} from "@/components/feedback/application-states";
-import {PageHeading} from "@/components/layout/page-heading";
-import {Select} from "@/components/ui/select";
-
-export default function CustomerProvidersPage() {
-  const [search, setSearch] = useState("");
-  const [submittedSearch, setSubmittedSearch] = useState("");
-  const [serviceType, setServiceType] = useState("");
-  const activeFilters = [
-    submittedSearch && `Search: ${submittedSearch}`,
-    serviceType && `Service: ${serviceType}`,
-  ].filter(Boolean) as string[];
+export default async function CustomerProvidersPage({
+  searchParams,
+}: CustomerProvidersPageProps) {
+  const filters = parseProviderDiscoveryFilters(await searchParams);
+  const [page, account] = await Promise.all([
+    getPublicProviderPage(filters),
+    getOptionalAccountContext(),
+  ]);
+  const authenticatedCustomer = account?.role === "customer" &&
+    account.emailVerified;
+  const favoriteProviderIds = authenticatedCustomer
+    ? await getCustomerFavoriteProviderIds(
+      account.uid,
+      page.providers.map((provider) => provider.id),
+    )
+    : new Set<string>();
 
   return (
-    <div className="grid gap-6">
-      <PageHeading
-        eyebrow="Discovery"
-        title="Find event providers"
-        description="Search the full approved-provider catalogue using bounded server queries."
-      />
-      <FilterToolbar
-        searchValue={search}
-        onSearchChange={setSearch}
-        onSearchSubmit={setSubmittedSearch}
-        searchPlaceholder="Search providers"
-        activeFilters={activeFilters}
-        onClearFilters={() => {
-          setSearch("");
-          setSubmittedSearch("");
-          setServiceType("");
-        }}
-        filterControls={
-          <Select aria-label="Provider service type" value={serviceType} onChange={(event) => setServiceType(event.currentTarget.value)}>
-            <option value="">All services</option>
-            <option value="catering">Catering</option>
-            <option value="venue">Venue</option>
-            <option value="photography">Photography</option>
-          </Select>
-        }
-      />
-      <section className="rounded-card border border-border bg-card shadow-card" aria-label="Provider results">
-        <ApplicationEmptyState kind={activeFilters.length ? "search" : "providers"} />
-      </section>
-    </div>
+    <ProviderDirectoryShell>
+      <ProviderEventContextPanel filters={filters} />
+      <div className="grid min-w-0 gap-5">
+        <ProviderResults
+          page={page}
+          filters={filters}
+          favoriteProviderIds={favoriteProviderIds}
+          authenticatedCustomer={authenticatedCustomer}
+        />
+        <ProviderPagination page={page} filters={filters} />
+      </div>
+    </ProviderDirectoryShell>
   );
 }

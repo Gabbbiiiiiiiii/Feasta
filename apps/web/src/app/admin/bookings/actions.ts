@@ -4,6 +4,8 @@ import {
   getAdminBookingDetails,
   getAdminBookingPage,
 } from "@/lib/admin/bookings/admin-booking-service";
+import {getAdminCancellationQueue} from "@/lib/admin/cancellations/admin-cancellation-service";
+import type {AdminCancellationQueue} from "@/lib/admin/cancellations/admin-cancellation-types";
 import type {
   AdminBookingDetailsResult,
   AdminBookingFilters,
@@ -25,4 +27,9 @@ export async function loadAdminBookingDetailsAction(
   await requireAdmin();
 
   return getAdminBookingDetails(bookingId);
+}
+
+export async function loadAdminCancellationQueueAction(): Promise<AdminCancellationQueue> {
+  await requireAdmin();
+  return getAdminCancellationQueue();
 }

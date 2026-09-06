@@ -36,10 +36,7 @@ class _ChatScreenState extends State<ChatScreen> {
   Future<void> _prepareChatRoom() async {
     final id = await repository.createChatRoom(booking: widget.booking);
 
-    await repository.markChatAsRead(
-      chatRoomId: id,
-      currentRole: widget.currentRole,
-    );
+    await repository.markChatAsRead(chatRoomId: id);
 
     if (!mounted) return;
 
@@ -56,11 +53,7 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => isSending = true);
 
     try {
-      await repository.sendMessage(
-        chatRoomId: chatRoomId!,
-        senderRole: widget.currentRole,
-        message: message,
-      );
+      await repository.sendMessage(chatRoomId: chatRoomId!, message: message);
 
       messageController.clear();
     } catch (e) {
@@ -89,10 +82,7 @@ class _ChatScreenState extends State<ChatScreen> {
     messageController.dispose();
 
     if (chatRoomId != null) {
-      repository.markChatAsRead(
-        chatRoomId: chatRoomId!,
-        currentRole: widget.currentRole,
-      );
+      repository.markChatAsRead(chatRoomId: chatRoomId!);
     }
 
     super.dispose();

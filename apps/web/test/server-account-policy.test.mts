@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  providerAccountDestination,
   providerAccessDestination,
   resolveTrustedAccountContext,
   safeReturnPathForAccount,
@@ -55,6 +56,12 @@ test("valid customer, provider, and admin contexts use trusted records", () => {
       verificationStatus: "approved",
       isActive: true,
       isSuspended: false,
+      providerServiceType: "catering",
+      serviceCategories: [
+        "catering_service",
+        "food_trays_packed_meals",
+        "invalid_category",
+      ],
     },
   });
   assert.equal(provider.ok && provider.account.role, "provider");
@@ -63,8 +70,95 @@ test("valid customer, provider, and admin contexts use trusted records", () => {
     "approved",
   );
 
+  assert.deepEqual(
+    provider.ok
+      ? provider.account.provider?.serviceCategories
+      : null,
+    [
+      "catering_service",
+      "food_trays_packed_meals",
+    ],
+  );
+
   const admin = resolve({profile: {...baseProfile, role: "admin"}});
   assert.equal(admin.ok && admin.account.role, "admin");
+});
+
+test("provider destinations enforce email then phone before onboarding", () => {
+  const provider = {
+    id: "provider-1",
+    verificationStatus: "approved" as const,
+    isActive: true,
+    isSuspended: false,
+    isDeleted: false,
+    providerServiceType: "catering" as const,
+    serviceCategories: [
+      "catering_service",
+    ] as const,
+    eventTypesSupported: [
+      "birthday",
+      "wedding",
+    ],
+    minGuestsPerEvent: 20,
+    maxGuestsPerEvent: 300,
+  };
+  assert.equal(providerAccountDestination({
+    emailVerified: false,
+    isPhoneVerified: false,
+    provider,
+  }), "/provider-verify-email");
+  assert.equal(providerAccountDestination({
+    emailVerified: false,
+    isPhoneVerified: true,
+    provider,
+  }), "/provider");
+  assert.equal(providerAccountDestination({
+    emailVerified: true,
+    isPhoneVerified: false,
+    provider,
+  }), "/provider-verify-phone");
+  assert.equal(providerAccountDestination({
+    emailVerified: true,
+    isPhoneVerified: true,
+    provider: null,
+  }), "/provider/onboarding");
+  assert.equal(safeReturnPathForAccount("/provider/onboarding", {
+    role: "provider",
+    emailVerified: true,
+    isPhoneVerified: false,
+    provider: null,
+  }), "/provider-verify-phone");
+
+  const limitedIdentity = {
+    role: "provider" as const,
+    emailVerified: false,
+    isPhoneVerified: true,
+    provider: null,
+  };
+  assert.equal(
+    safeReturnPathForAccount("/provider", limitedIdentity),
+    "/provider",
+  );
+  assert.equal(
+    safeReturnPathForAccount("/provider/account", limitedIdentity),
+    "/provider/account",
+  );
+  for (const denied of [
+    "/provider/onboarding",
+    "/provider/bookings",
+    "/provider/requests",
+    "/provider/calendar",
+    "/provider/availability",
+    "/provider/payments",
+    "/provider/messages",
+    "/provider/reviews",
+    "/provider/business-profile",
+    "/provider/packages",
+    "/provider/services",
+    "/provider/verification",
+  ]) {
+    assert.equal(safeReturnPathForAccount(denied, limitedIdentity), "/provider");
+  }
 });
 
 test("disabled, missing, blocked, and deactivated accounts fail closed", () => {
@@ -136,12 +230,22 @@ test("safe return paths are role-scoped and external redirects are denied", () =
 
 test("provider onboarding destinations fail closed for every verification state", () => {
   assert.equal(providerAccessDestination({provider: null}), "/provider/onboarding");
-  const provider = {
+    const provider = {
     id: "provider-one",
     verificationStatus: "draft" as const,
     isActive: false,
     isSuspended: false,
     isDeleted: false,
+    providerServiceType: "catering" as const,
+    serviceCategories: [
+      "catering_service",
+    ] as const,
+    eventTypesSupported: [
+      "birthday",
+      "wedding",
+    ],
+    minGuestsPerEvent: 20,
+    maxGuestsPerEvent: 300,
   };
   assert.equal(providerAccessDestination({provider}), "/provider/verification");
   assert.equal(providerAccessDestination({
