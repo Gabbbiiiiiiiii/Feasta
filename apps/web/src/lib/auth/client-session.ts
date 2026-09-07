@@ -21,6 +21,7 @@ import {httpsCallable} from "firebase/functions";
 import type {UserRole} from "@feasta/shared-types";
 
 import {auth, functions} from "@/lib/firebase/client";
+import {authDiagnostic} from "./auth-diagnostics";
 
 export type WebUserRole = UserRole;
 export type WebAuthenticationAttemptAction =
@@ -47,6 +48,11 @@ export type CustomerRegistrationInput = {
   acceptedPrivacy: true;
 };
 
+export type CustomerConsentInput = {
+  acceptedTerms: true;
+  acceptedPrivacy: true;
+};
+
 export class WebAuthenticationError extends Error {
   constructor(
     message: string,
@@ -62,43 +68,117 @@ export async function signInWithEmail(
   password: string,
   returnTo?: string,
 ): Promise<WebSessionResult> {
-  await setPersistence(auth, browserLocalPersistence);
-  const credential = await signInWithEmailAndPassword(
-    auth,
-    email.trim().toLowerCase(),
-    password,
-  );
+  let credentialObtained = false;
+  let stage: Parameters<typeof authDiagnostic>[1] = "persistence";
   try {
+    await setPersistence(auth, browserLocalPersistence);
+    stage = "credential";
+    authDiagnostic("email", stage, "started");
+    const credential = await signInWithEmailAndPassword(
+      auth, email.trim().toLowerCase(), password,
+    );
+    credentialObtained = true;
+    authDiagnostic("email", stage, "succeeded", undefined, true, !!auth.currentUser);
     // Repair customer records without manufacturing consent during sign-in.
     // New profiles still require explicit terms and privacy acceptance.
+    stage = "profile";
     await ensureCustomerProfile({});
-    return await exchangeCredentialForSession(
+    stage = "session_exchange";
+    const result = await exchangeCredentialForSession(
       await credential.user.getIdToken(true),
       returnTo,
       "customer",
     );
+    authDiagnostic("email", stage, "succeeded", undefined, true, !!auth.currentUser);
+    return result;
   } catch (error) {
-    await signOut(auth);
+    authDiagnostic("email", stage, "failed", error, credentialObtained, !!auth.currentUser);
+    if (credentialObtained) await signOut(auth);
     throw error;
   }
 }
 
 export async function signInWithGoogle(
   returnTo?: string,
+  signal?: AbortSignal,
+  consent?: CustomerConsentInput,
 ): Promise<WebSessionResult> {
-  await setPersistence(auth, browserLocalPersistence);
-  const credential = await signInWithPopup(auth, new GoogleAuthProvider());
+  const previousUser = auth.currentUser;
+  let user: User | undefined;
+  let stage: Parameters<typeof authDiagnostic>[1] = "persistence";
   try {
-    await ensureCustomerProfile({});
-    return await exchangeCredentialForSession(
-      await credential.user.getIdToken(true),
-      returnTo,
-      "customer",
+    signal?.throwIfAborted();
+    authDiagnostic("google", stage, "started");
+    await googleStep(setPersistence(auth, browserLocalPersistence), signal);
+    signal?.throwIfAborted();
+    stage = "popup";
+    authDiagnostic("google", stage, "started");
+    // Only this popup's credential may establish the FEASTA session.
+    user = (await googleStep(signInWithPopup(auth, new GoogleAuthProvider()), signal, 90_000)).user;
+    authDiagnostic("google", "credential", "succeeded", undefined, true, !!auth.currentUser);
+    signal?.throwIfAborted();
+    stage = "profile";
+    await googleStep(
+      ensureCustomerProfile(
+        consent
+          ? {
+              acceptedTerms: consent.acceptedTerms,
+              acceptedPrivacy: consent.acceptedPrivacy,
+            }
+          : {},
+      ),
+      signal,
     );
+    stage = "credential";
+    const token = await googleStep(user.getIdToken(true), signal);
+    signal?.throwIfAborted();
+    stage = "session_exchange";
+    authDiagnostic("google", stage, "started", undefined, true, !!auth.currentUser);
+    const session = new AbortController();
+    const abort = () => session.abort(signal?.reason);
+    signal?.addEventListener("abort", abort, {once: true});
+    const timeout = setTimeout(() => session.abort(new DOMException("Session timed out", "TimeoutError")), 30_000);
+    try {
+      const result = await exchangeCredentialForSession(token, returnTo, "customer", session.signal);
+      authDiagnostic("google", stage, "succeeded", undefined, true, !!auth.currentUser);
+      return result;
+    } finally {
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", abort);
+    }
   } catch (error) {
-    await signOut(auth);
+    authDiagnostic("google", stage, "failed", error, !!user, !!auth.currentUser);
+    // Roll back only a newly established user still owned by this attempt.
+    // Never sign out a pre-existing account or a replacement from another flow.
+    if (user && auth.currentUser === user && previousUser?.uid !== user.uid) {
+      await googleStep(signOut(auth)).catch((rollbackError) => {
+        authDiagnostic("google", "rollback", "failed", rollbackError, true, !!auth.currentUser);
+      });
+    }
+    if (signal?.aborted) throw error;
+    if (error instanceof TypeError && stage === "session_exchange") {
+      throw new WebAuthenticationError("Session connection failed.", "google_unavailable");
+    }
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new WebAuthenticationError("Google sign-in could not establish a session. Try again or use email sign-in.", "google_timeout");
+    }
     throw error;
   }
+}
+
+async function googleStep<T>(operation: Promise<T>, signal?: AbortSignal, milliseconds = 30_000): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let abort = () => {};
+  try {
+    return await Promise.race([operation, new Promise<never>((_, reject) => {
+      abort = () => reject(signal?.reason ?? new DOMException("Sign-in cancelled", "AbortError"));
+      if (signal?.aborted) { abort(); return; }
+      signal?.addEventListener("abort", abort, {once: true});
+      timer = setTimeout(() => reject(new WebAuthenticationError(
+        "Google sign-in could not complete. Check your connection and try again, or use email sign-in.", "google_timeout",
+      )), milliseconds);
+    })]);
+  } finally { clearTimeout(timer); signal?.removeEventListener("abort", abort); }
 }
 
 export async function registerCustomer(
@@ -239,9 +319,11 @@ async function exchangeCredentialForSession(
   idToken: string,
   returnTo?: string,
   expectedRole?: WebUserRole,
+  signal?: AbortSignal,
 ): Promise<WebSessionResult> {
-  const csrf = await getCsrfToken();
+  const csrf = await getCsrfToken(signal);
   const response = await fetch("/api/auth/session", {
+    signal,
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -257,17 +339,19 @@ async function exchangeCredentialForSession(
     reason?: string;
   };
   if (!response.ok || !body.role || !body.destination) {
-    await signOut(auth);
+    // Google owns its conditional rollback; other callers retain their behavior.
+    if (!signal) await signOut(auth);
     throw new WebAuthenticationError(
       body.error ?? "Unable to create a secure session.",
-      body.reason,
+      signal && response.status >= 500 ? "google_unavailable" : body.reason,
     );
   }
   return {role: body.role, destination: body.destination};
 }
 
-export async function getCsrfToken(): Promise<string> {
+export async function getCsrfToken(signal?: AbortSignal): Promise<string> {
   const response = await fetch("/api/auth/csrf", {
+    signal,
     method: "GET",
     credentials: "same-origin",
     cache: "no-store",

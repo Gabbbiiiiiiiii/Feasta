@@ -10,10 +10,11 @@ import Image from "next/image";
 import {
   type FormEvent,
   useRef,
+  useEffect,
   useState,
 } from "react";
 import {useRouter} from "next/navigation";
-import {authenticationGatePresentation} from "@feasta/shared-types";
+
 
 
 import {AuthStatus} from "@/components/auth/auth-status";
@@ -25,84 +26,13 @@ import {
   signInWithEmail,
   signInWithGoogle,
   type WebSessionResult,
-  WebAuthenticationError,
 } from "@/lib/auth/client-session";
+
+import {accessibleSignInError, type SignInMethod} from "@/lib/auth/sign-in-error";
+import {authDiagnostic} from "@/lib/auth/auth-diagnostics";
 
 type LoginMode = "gateway" | "email";
 
-function accessibleSignInError(caught: unknown) {
-  if (caught instanceof WebAuthenticationError) {
-    if (caught.reason === "blocked") {
-      return authenticationGatePresentation("blocked").message;
-    }
-
-    if (caught.reason === "deactivated") {
-      return authenticationGatePresentation("deactivated").message;
-    }
-
-    if (caught.reason === "disabled") {
-      return authenticationGatePresentation("disabledAccount").message;
-    }
-
-    if (caught.reason === "missing_profile") {
-      return authenticationGatePresentation("missingUserProfile").message;
-    }
-  }
-
-  const code =
-    typeof caught === "object" &&
-    caught !== null &&
-    "code" in caught
-      ? String(caught.code)
-      : "";
-
-  const message =
-    caught instanceof Error
-      ? caught.message.toLowerCase()
-      : "";
-
-  if (
-    code.includes("invalid-credential") ||
-    code.includes("wrong-password") ||
-    code.includes("user-not-found")
-  ) {
-    return "The email address or password is incorrect.";
-  }
-
-  if (code.includes("too-many-requests")) {
-    return "Too many sign-in attempts. Please wait before trying again.";
-  }
-
-  if (code.includes("user-disabled")) {
-    return authenticationGatePresentation("disabledAuthAccount").message;
-  }
-
-  if (code.includes("network-request-failed")) {
-    return "Check your internet connection and try again.";
-  }
-
-  if (code.includes("popup-closed")) {
-    return "Google sign-in was closed before it finished.";
-  }
-
-  if (message.includes("blocked")) {
-    return authenticationGatePresentation("blocked").message;
-  }
-
-  if (message.includes("disabled")) {
-    return authenticationGatePresentation("disabledAccount").message;
-  }
-
-  if (message.includes("profile")) {
-    return authenticationGatePresentation("missingUserProfile").message;
-  }
-
-  if (message.includes("role")) {
-    return authenticationGatePresentation("forbiddenRole").message;
-  }
-
-  return "We could not sign you in. Check your details and try again.";
-}
 
 export function LoginForm({
   returnTo,
@@ -131,8 +61,15 @@ export function LoginForm({
     useState(false);
 
   const submitting = useRef(false);
+  const mounted = useRef(true);
+  const googleAttempt = useRef<AbortController | null>(null);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; googleAttempt.current?.abort(); };
+  }, []);
 
   async function completeSignIn(
+    method: SignInMethod,
     action: () => Promise<WebSessionResult>,
   ) {
     if (submitting.current) return;
@@ -143,14 +80,17 @@ export function LoginForm({
 
     try {
       const result = await action();
+      if (!mounted.current) return;
 
+      authDiagnostic(method, "ui_refresh", "started");
       router.replace(result.destination);
       router.refresh();
     } catch (caught) {
-      setError(accessibleSignInError(caught));
+      if (mounted.current) setError(accessibleSignInError(caught, method));
     } finally {
+      googleAttempt.current = null;
       submitting.current = false;
-      setLoading(false);
+      if (mounted.current) setLoading(false);
     }
   }
 
@@ -159,7 +99,7 @@ export function LoginForm({
   ) {
     event.preventDefault();
 
-    void completeSignIn(() =>
+    void completeSignIn("email", () =>
       signInWithEmail(
         email,
         password,
@@ -217,9 +157,18 @@ export function LoginForm({
                 error={error}
                 returnTo={returnTo}
                 onGoogle={() =>
-                  void completeSignIn(() =>
-                    signInWithGoogle(returnTo),
-                  )
+                  void completeSignIn("google", () => {
+                    googleAttempt.current?.abort();
+                    googleAttempt.current = new AbortController();
+                    return signInWithGoogle(
+                      returnTo,
+                      googleAttempt.current.signal,
+                      {
+                        acceptedTerms: true,
+                        acceptedPrivacy: true,
+                      },
+                    );
+                  })
                 }
                 onEmail={showEmailLogin}
               />
