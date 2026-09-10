@@ -31,6 +31,10 @@ import type {
   CustomerPaymentReturnLookup,
   CustomerPaymentStatistics,
 } from "@/lib/customer/payments/customer-payment-types";
+import {
+  isCanonicalOwnedProviderRequest,
+  normalizeCanonicalProviderRequestIds,
+} from "@/lib/customer/bookings/customer-booking-membership";
 import {requireCustomer} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
 
@@ -61,6 +65,10 @@ type PaymentRelations = {
   bookings: ReadonlyMap<string, DocumentSnapshot<DocumentData>>;
   providerRequests: ReadonlyMap<string, DocumentSnapshot<DocumentData>>;
   providers: ReadonlyMap<string, DocumentSnapshot<DocumentData>>;
+  bookingProviderRequests: ReadonlyMap<
+    string,
+    readonly DocumentSnapshot<DocumentData>[]
+  >;
 };
 
 export class CustomerPaymentReturnUnavailableError extends Error {
@@ -148,6 +156,31 @@ export async function getCustomerPaymentReturnDetails(
     throw new CustomerPaymentReturnUnavailableError();
   }
 
+  const canonicalProviderRequestIds =
+    normalizeCanonicalProviderRequestIds(
+      mainEvent.providerRequestIds,
+    );
+
+  const assignedProviderRequestSnapshots =
+    canonicalProviderRequestIds.length > 0
+      ? await adminDb.getAll(
+          ...canonicalProviderRequestIds.map(
+            (assignedProviderRequestId) =>
+              adminDb
+                .collection(COLLECTIONS.providerRequests)
+                .doc(assignedProviderRequestId),
+          ),
+        )
+      : [];
+
+  const allAssignedProvidersAccepted =
+    areAllAssignedProvidersAcceptedForCheckout({
+      bookingId: mainEventId,
+      customerId: customer.uid,
+      bookingData: mainEvent,
+      providerRequests: assignedProviderRequestSnapshots,
+    });
+
   const paymentStatus = strictPaymentStatus(payment.status);
   const providerRequestStatus = strictProviderRequestStatus(
     providerRequest.status,
@@ -203,12 +236,14 @@ export async function getCustomerPaymentReturnDetails(
     ),
     paymentStatus,
     providerRequestStatus,
-    canStartCheckout: canRetryReturnedCheckout({
-      paymentStatus,
-      providerRequestStatus,
-      providerRequestPaymentStatus: providerRequest.paymentStatus,
-      mainEventStatus,
-    }),
+    canStartCheckout:
+      allAssignedProvidersAccepted &&
+      canRetryReturnedCheckout({
+        paymentStatus,
+        providerRequestStatus,
+        providerRequestPaymentStatus: providerRequest.paymentStatus,
+        mainEventStatus,
+      }),
     bookingLabel: boundedText(
       mainEvent.bookingCode,
       "Booking details",
@@ -451,13 +486,60 @@ async function loadPaymentRelations(
       stringValue(document.data()?.providerId),
     ),
   );
+
   const [bookings, providerRequests, providers] = await Promise.all([
     loadDocuments(COLLECTIONS.mainEvents, bookingIds),
     loadDocuments(COLLECTIONS.providerRequests, providerRequestIds),
     loadDocuments(COLLECTIONS.providers, providerIds),
   ]);
 
-  return {bookings, providerRequests, providers};
+  const bookingProviderRequests =
+    await loadBookingProviderRequests(bookings);
+
+  return {
+    bookings,
+    providerRequests,
+    providers,
+    bookingProviderRequests,
+  };
+}
+
+async function loadBookingProviderRequests(
+  bookings: ReadonlyMap<string, DocumentSnapshot<DocumentData>>,
+): Promise<
+  Map<string, readonly DocumentSnapshot<DocumentData>[]>
+> {
+  const result = new Map<
+    string,
+    readonly DocumentSnapshot<DocumentData>[]
+  >();
+
+  await Promise.all(
+    [...bookings.entries()].map(async ([bookingId, bookingSnapshot]) => {
+      const bookingData = bookingSnapshot.data() ?? {};
+      const providerRequestIds =
+        normalizeCanonicalProviderRequestIds(
+          bookingData.providerRequestIds,
+        );
+
+      if (providerRequestIds.length === 0) {
+        result.set(bookingId, []);
+        return;
+      }
+
+      const snapshots = await adminDb.getAll(
+        ...providerRequestIds.map((providerRequestId) =>
+          adminDb
+            .collection(COLLECTIONS.providerRequests)
+            .doc(providerRequestId),
+        ),
+      );
+
+      result.set(bookingId, snapshots);
+    }),
+  );
+
+  return result;
 }
 
 async function loadDocuments(
@@ -478,6 +560,77 @@ async function loadDocuments(
   }
 
   return result;
+}
+
+function areAllAssignedProvidersAcceptedForCheckout(input: {
+  bookingId: string;
+  customerId: string;
+  bookingData: DocumentData;
+  providerRequests: readonly DocumentSnapshot<DocumentData>[];
+}): boolean {
+  const rawProviderRequestIds =
+    input.bookingData.providerRequestIds;
+
+  if (!Array.isArray(rawProviderRequestIds)) {
+    return false;
+  }
+
+  const providerRequestIds =
+    normalizeCanonicalProviderRequestIds(
+      rawProviderRequestIds,
+    );
+
+  if (
+    providerRequestIds.length === 0 ||
+    providerRequestIds.length !== rawProviderRequestIds.length ||
+    input.providerRequests.length !== providerRequestIds.length
+  ) {
+    return false;
+  }
+
+  const canonicalProviderRequestIds =
+    new Set(providerRequestIds);
+
+  const acceptedOrLaterStatuses =
+    new Set<ProviderRequestStatus>([
+      "accepted",
+      "waiting_for_down_payment",
+      "payment_processing",
+      "confirmed",
+      "in_progress",
+      "completed",
+    ]);
+
+  return input.providerRequests.every((snapshot) => {
+    if (!snapshot.exists) return false;
+
+    const data = snapshot.data() ?? {};
+
+    if (
+      !isCanonicalOwnedProviderRequest(
+        {
+          documentId: snapshot.id,
+          storedProviderRequestId: data.providerRequestId,
+          mainEventId: data.mainEventId,
+          customerId: data.customerId,
+        },
+        {
+          mainEventId: input.bookingId,
+          customerId: input.customerId,
+          canonicalProviderRequestIds,
+        },
+      )
+    ) {
+      return false;
+    }
+
+    const status = strictProviderRequestStatus(data.status);
+
+    return (
+      status !== null &&
+      acceptedOrLaterStatuses.has(status)
+    );
+  });
 }
 
 function mapPaymentDocument(
@@ -503,6 +656,15 @@ function mapPaymentDocument(
   const requestStatus = stringValue(providerRequestData.status);
   const ownsRequest = providerRequestData.customerId === customerId;
 
+  const allAssignedProvidersAccepted =
+    areAllAssignedProvidersAcceptedForCheckout({
+      bookingId,
+      customerId,
+      bookingData,
+      providerRequests:
+        relations.bookingProviderRequests.get(bookingId) ?? [],
+    });
+
   return {
     id: document.id,
     paymentId: stringValue(data.paymentId) || document.id,
@@ -523,6 +685,7 @@ function mapPaymentDocument(
     status,
     canStartCheckout:
       ownsRequest &&
+      allAssignedProvidersAccepted &&
       ["pending", "failed", "expired"].includes(status) &&
       ["waiting_for_down_payment", "payment_processing"].includes(
         requestStatus,

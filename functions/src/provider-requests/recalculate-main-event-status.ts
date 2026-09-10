@@ -173,6 +173,34 @@ export function calculateMainEventRequestSummary(
   };
 }
 
+export function areAllAssignedProvidersAccepted(
+  summary: MainEventRequestSummary,
+): boolean {
+  if (summary.providerRequestCount <= 0) {
+    return false;
+  }
+
+  if (
+    summary.pendingProviderRequestCount > 0 ||
+    summary.rejectedProviderRequestCount > 0 ||
+    summary.cancelledProviderRequestCount > 0 ||
+    summary.expiredProviderRequestCount > 0
+  ) {
+    return false;
+  }
+
+  const acceptedOrLaterCount =
+    summary.acceptedProviderRequestCount +
+    summary.waitingPaymentProviderRequestCount +
+    summary.paymentProcessingProviderRequestCount +
+    summary.confirmedProviderRequestCount +
+    summary.inProgressProviderRequestCount +
+    summary.completedProviderRequestCount;
+
+  return acceptedOrLaterCount ===
+    summary.providerRequestCount;
+}
+
 function deriveMainEventStatus(
   currentStatus: MainEventStatus,
   total: number,

@@ -7,6 +7,7 @@ import {
 } from "firebase-functions/params";
 
 import {
+  areAllAssignedProvidersAccepted,
   calculateMainEventRequestSummary,
 } from "../provider-requests/recalculate-main-event-status.js";
 import {
@@ -293,6 +294,12 @@ export async function createPaymentSessionForCustomer(
       const booking =
         bookingSnapshot.data() ?? {};
 
+      const providerRequestsSnapshot =
+        await transaction.get(
+          db.collection("providerRequests")
+            .where("mainEventId", "==", bookingId),
+        );
+
       const provider =
         providerSnapshot.data() ?? {};
 
@@ -351,6 +358,68 @@ export async function createPaymentSessionForCustomer(
           "This provider request is not awaiting payment.",
         );
       }
+
+      const canonicalProviderRequestIds =
+        Array.isArray(booking.providerRequestIds)
+          ? booking.providerRequestIds.filter(
+              (value): value is string =>
+                typeof value === "string" &&
+                value.trim().length > 0,
+            )
+          : [];
+
+      const queriedProviderRequestIds =
+        providerRequestsSnapshot.docs.map(
+          (document) => document.id,
+        );
+
+      const canonicalRequestSet =
+        new Set(canonicalProviderRequestIds);
+
+      if (
+        canonicalProviderRequestIds.length === 0 ||
+        canonicalRequestSet.size !==
+          canonicalProviderRequestIds.length ||
+        canonicalProviderRequestIds.length !==
+          queriedProviderRequestIds.length ||
+        queriedProviderRequestIds.some(
+          (id) => !canonicalRequestSet.has(id),
+        )
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "The event provider-request relationships are invalid.",
+        );
+      }
+
+      const currentMainEventStatus =
+        parseMainEventStatus(booking.status);
+
+      if (!currentMainEventStatus) {
+        throw new HttpsError(
+          "failed-precondition",
+          "The main-event status is invalid.",
+        );
+      }
+
+      const providerRequestSummary =
+        calculateMainEventRequestSummary(
+          providerRequestsSnapshot.docs,
+          currentMainEventStatus,
+        );
+
+      if (
+        !areAllAssignedProvidersAccepted(
+          providerRequestSummary,
+        )
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Down payment is unavailable until every " +
+          "assigned provider has accepted the booking request.",
+        );
+      }
+
 
       const amountInCentavos =
         authoritativeAmountInCentavos(
@@ -737,6 +806,56 @@ async function persistCheckout(
         throw new HttpsError(
           "failed-precondition",
           "The main-event status is invalid.",
+        );
+      }
+
+      const canonicalProviderRequestIds =
+        Array.isArray(booking.providerRequestIds)
+          ? booking.providerRequestIds.filter(
+              (value): value is string =>
+                typeof value === "string" &&
+                value.trim().length > 0,
+            )
+          : [];
+
+      const queriedProviderRequestIds =
+        providerRequestsSnapshot.docs.map(
+          (document) => document.id,
+        );
+
+      const canonicalRequestSet =
+        new Set(canonicalProviderRequestIds);
+
+      if (
+        canonicalProviderRequestIds.length === 0 ||
+        canonicalRequestSet.size !==
+          canonicalProviderRequestIds.length ||
+        canonicalProviderRequestIds.length !==
+          queriedProviderRequestIds.length ||
+        queriedProviderRequestIds.some(
+          (id) => !canonicalRequestSet.has(id),
+        )
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Payment eligibility changed while checkout was created.",
+        );
+      }
+
+      const providerRequestSummary =
+        calculateMainEventRequestSummary(
+          providerRequestsSnapshot.docs,
+          currentMainEventStatus,
+        );
+
+      if (
+        !areAllAssignedProvidersAccepted(
+          providerRequestSummary,
+        )
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Payment eligibility changed while checkout was created.",
         );
       }
 

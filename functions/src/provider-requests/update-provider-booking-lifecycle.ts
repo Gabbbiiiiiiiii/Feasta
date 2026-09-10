@@ -49,6 +49,7 @@ import {
   authorizeProviderRequest,
 } from "./provider-request-authorization.js";
 import {
+  areAllAssignedProvidersAccepted,
   calculateMainEventRequestSummary,
 } from "./recalculate-main-event-status.js";
 import {
@@ -342,6 +343,25 @@ async function updateProviderBookingLifecycle(
             eligibilityState,
           );
         }
+
+        if (targetStatus === "in_progress") {
+  const currentSummary =
+    calculateMainEventRequestSummary(
+      allRequestsSnapshot.docs,
+      currentMainEventStatus,
+    );
+
+  if (
+    !areAllAssignedProvidersAccepted(
+      currentSummary,
+    )
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The event cannot start until every assigned provider has accepted the booking request.",
+    );
+  }
+}
 
         assertLifecycleTransition(
           authorized.status,

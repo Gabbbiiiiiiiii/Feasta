@@ -19,6 +19,7 @@ const {
   "../lib/provider-requests/provider-request-authorization.js",
 );
 const {
+  areAllAssignedProvidersAccepted,
   calculateMainEventRequestSummary,
 } = require(
   "../lib/provider-requests/recalculate-main-event-status.js",
@@ -152,6 +153,81 @@ test("all completed requests complete the main event", () => {
   assert.equal(summary.completedProviderRequestCount, 2);
 });
 
+test("payment readiness requires every assigned Provider to accept", () => {
+  const blockedStatuses = [
+    "pending",
+    "rejected",
+    "cancelled",
+    "expired",
+  ];
+
+  for (const blockedStatus of blockedStatuses) {
+    const summary = calculateMainEventRequestSummary([
+      queryDocument(
+        "request_one",
+        "waiting_for_down_payment",
+      ),
+      queryDocument(
+        "request_two",
+        blockedStatus,
+      ),
+    ], "waiting_for_down_payment");
+
+    assert.equal(
+      areAllAssignedProvidersAccepted(summary),
+      false,
+      blockedStatus,
+    );
+  }
+});
+
+test("payment readiness accepts all post-acceptance lifecycle states", () => {
+  const summary = calculateMainEventRequestSummary([
+    queryDocument(
+      "request_accepted",
+      "accepted",
+    ),
+    queryDocument(
+      "request_waiting",
+      "waiting_for_down_payment",
+    ),
+    queryDocument(
+      "request_processing",
+      "payment_processing",
+    ),
+    queryDocument(
+      "request_confirmed",
+      "confirmed",
+    ),
+    queryDocument(
+      "request_progress",
+      "in_progress",
+    ),
+    queryDocument(
+      "request_completed",
+      "completed",
+    ),
+  ], "waiting_for_down_payment");
+
+  assert.equal(
+    areAllAssignedProvidersAccepted(summary),
+    true,
+  );
+});
+
+test("payment readiness rejects an event without assigned Providers", () => {
+  const summary =
+    calculateMainEventRequestSummary(
+      [],
+      "pending_provider_approval",
+    );
+
+  assert.equal(
+    areAllAssignedProvidersAccepted(summary),
+    false,
+  );
+});
+
 test("Customer cancellation is isolated from active sibling Providers", () => {
   const active = calculateMainEventRequestSummary([
     queryDocument("request_a", "cancelled"),
@@ -198,6 +274,10 @@ test("lifecycle callables preserve atomic side effects", () => {
   assert.match(source, /service_started/u);
   assert.match(source, /refund_eligibility\.stage_advanced/u);
   assert.match(source, /providerRequestIds/u);
+    assert.match(
+    source,
+    /areAllAssignedProvidersAccepted/u,
+  );
   assert.doesNotMatch(source, /collection\("bookings"\)/u);
 });
 
