@@ -1,11 +1,191 @@
-import {initializeApp} from "firebase-admin/app";
+import {createHash} from "node:crypto";
+import "./shared/firebase-admin.js";
+import {Timestamp} from "firebase-admin/firestore";
+import {
+  getMessaging,
+  type Message,
+} from "firebase-admin/messaging";
 import * as logger from "firebase-functions/logger";
 import {defineSecret} from "firebase-functions/params";
+import {onDocumentWritten} from "firebase-functions/v2/firestore";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
-import * as functions from 'firebase-functions';
-import {getMessaging} from 'firebase-admin/messaging';
+import {
+  enforceCallableRateLimit,
+  enforceRateLimit,
+} from "./shared/rate-limit.js";
+import {
+  createIdempotencyKey,
+  executeIdempotently,
+} from "./shared/idempotency.js";
+import {appCheckCallableOptions} from "./shared/function-options.js";
+import {requireAuth} from "./shared/auth.js";
+import {requireActiveUser} from "./shared/authorization.js";
+import {logError} from "./shared/logger.js";
+import {db} from "./shared/firestore.js";
+import {serverTimestamp} from "./shared/timestamps.js";
+import {logSecurityEvent} from "./shared/security-events.js";
+export {
+  ensureUserProfile,
+} from "./auth/ensure-user-profile.js";
 
-initializeApp();
+export {
+  syncUserAuthState,
+} from "./auth/sync-user-auth-state.js";
+
+export {
+  syncPhoneVerification,
+} from "./auth/sync-phone-verification.js";
+
+export {
+  prepareProviderPhoneVerification,
+} from "./auth/prepare-provider-phone-verification.js";
+export {
+  prepareCustomerPhoneVerification,
+} from "./auth/prepare-customer-phone-verification.js";
+
+export {deactivateCustomerAccount} from "./auth/manage-customer-account.js";
+export {revokeAllCustomerSessions} from "./auth/manage-customer-account.js";
+export {updateCustomerPreferences} from "./auth/manage-customer-account.js";
+export {updateCustomerProfile} from "./auth/manage-customer-account.js";
+export {deactivateProviderAccount} from "./auth/manage-role-account.js";
+export {revokeAllAccountSessions} from "./auth/manage-role-account.js";
+export {updateAccountPreferences} from "./auth/manage-role-account.js";
+export {updateRoleAccountProfile} from "./auth/manage-role-account.js";
+
+export {
+  onUserSecurityStateChanged,
+} from "./auth/audit-account-security-state.js";
+
+export {
+  ensureProviderIdentity,
+} from "./auth/ensure-provider-identity.js";
+
+export {
+  healthCheck,
+} from "./system/health-check.js";
+
+export {
+  registerProvider,
+} from "./providers/register-provider.js";
+export {
+  saveProviderOnboardingDraft,
+} from "./providers/save-provider-onboarding-draft.js";
+export {
+  updateProviderAvailability,
+} from "./providers/update-provider-availability.js";
+export {
+  updateProviderAvailabilitySettings,
+} from "./providers/update-provider-availability.js";
+export {
+  updateProviderBusinessProfile,
+} from "./providers/update-provider-business-profile.js";
+export {
+  archiveProviderService,
+  createProviderService,
+  publishProviderService,
+  updateProviderService,
+} from "./providers/provider-service-management.js";
+export {
+  createProviderPackage,
+} from "./packages/create-provider-package.js";
+export {
+  updateProviderPackage,
+} from "./packages/update-provider-package.js";
+export {
+  publishProviderPackage,
+} from "./packages/publish-provider-package.js";
+export {
+  archiveProviderPackage,
+} from "./packages/archive-provider-package.js";
+export {
+  publishProviderRefundPolicy,
+} from "./refund-policies/refund-policy-authoring.js";
+export {
+  setPackageRefundPolicyOverride,
+} from "./refund-policies/refund-policy-authoring.js";
+export {
+  createProviderMediaUploadSignature,
+  createProviderServiceImageUploadSignature,
+  deleteProviderOnboardingMedia,
+  deleteProviderServiceImage,
+} from "./providers/provider-media.js";
+export {
+  submitProviderVerification,
+} from "./verification/submit-provider-verification.js";
+
+export {
+  reviewProviderVerification,
+} from "./verification/review-provider-verification.js";
+
+export {
+  registerVerificationDocument,
+} from "./verification/register-verification-document.js";
+export {
+  removeVerificationDocument,
+} from "./verification/remove-verification-document.js";
+export {
+  acceptProviderRequest,
+} from "./provider-requests/accept-provider-request.js";
+export {
+  rejectProviderRequest,
+} from "./provider-requests/reject-provider-request.js";
+export {
+  completeProviderBooking,
+} from "./provider-requests/update-provider-booking-lifecycle.js";
+export {
+  markProviderBookingInProgress,
+} from "./provider-requests/update-provider-booking-lifecycle.js";
+export {
+  advanceProviderRequestRefundEligibilityStage,
+} from "./cancellations/advance-refund-eligibility-stage.js";
+export {
+  submitProviderRequestCancellation,
+} from "./cancellations/submit-provider-request-cancellation.js";
+export {
+  getProviderRequestCancellationOptions,
+} from "./cancellations/get-provider-request-cancellation.js";
+export {
+  getProviderRequestCancellationStatus,
+} from "./cancellations/get-provider-request-cancellation.js";
+export {
+  markChatRoomRead,
+} from "./messaging/provider-request-chat.js";
+export {
+  openProviderRequestChat,
+} from "./messaging/provider-request-chat.js";
+export {
+  sendChatMessage,
+} from "./messaging/provider-request-chat.js";
+
+export {submitReview} from "./content/submit-review.js";
+export {deleteReview} from "./content/delete-review.js";
+export {
+  moderateReview,
+} from "./content/moderate-review.js";
+export {createComplaint} from "./content/create-complaint.js";
+export {submitBookingRequest} from "./bookings/submit-booking-request.js";
+export {
+  getBookingRefundPolicyDisclosures,
+} from "./bookings/get-booking-refund-policy-disclosures.js";
+export {
+  checkCustomerProviderAvailability,
+} from "./provider-availability/check-customer-provider-availability.js";
+export {
+  checkMarketplaceProviderAvailability,
+} from "./provider-availability/check-marketplace-provider-availability.js";
+export {createPaymentSession} from "./payments/create-payment-session.js";
+export {payMongoWebhook} from "./payments/paymongo-webhook.js";
+export {requestPaymentRefund} from "./payments/request-refund.js";
+export {approveProviderRequestCancellationRefund} from
+  "./refunds/refund-execution.js";
+export {executeProviderRequestRefund} from
+  "./refunds/refund-execution.js";
+export {rejectProviderRequestCancellation} from
+  "./refunds/refund-execution.js";
+export {inspectProviderRequestRefundReconciliation} from
+  "./refunds/inspect-refund-reconciliation.js";
+
+
 
 // Use a server-side Google Maps web-services key here, not the Android Maps SDK key.
 const googleMapsApiKey = defineSecret("GOOGLE_MAPS_API_KEY");
@@ -94,7 +274,7 @@ type StructuredAddress = {
 };
 
 const callableOptions = {
-  region: functionRegion,
+  ...appCheckCallableOptions,
   secrets: [googleMapsApiKey],
   timeoutSeconds: 20,
   memory: "256MiB" as const,
@@ -102,10 +282,17 @@ const callableOptions = {
 
 export const searchPlaces = onCall(callableOptions, async (request) => {
   try {
+    const user = requireAuth(request);
+    await requireActiveUser(user.uid);
+    await enforceCallableRateLimit(request, {
+      scope: "maps.searchPlaces",
+      limit: 30,
+      windowSeconds: 60,
+    });
     const data = asRecord(request.data);
     const query = requireString(data, "query", 2, 120);
     const apiKey = getGoogleMapsApiKey();
-    const response = await fetchGoogleJson<PlacesAutocompleteResponse>(
+    const response = await fetchCachedGoogleJson<PlacesAutocompleteResponse>(
       "https://places.googleapis.com/v1/places:autocomplete",
       {
         method: "POST",
@@ -131,6 +318,7 @@ export const searchPlaces = onCall(callableOptions, async (request) => {
           },
         }),
       },
+      5 * 60,
     );
 
     return (response.suggestions ?? [])
@@ -166,16 +354,28 @@ export const searchPlaces = onCall(callableOptions, async (request) => {
 
 export const reverseGeocode = onCall(callableOptions, async (request) => {
   try {
+    const user = requireAuth(request);
+    await requireActiveUser(user.uid);
+    await enforceCallableRateLimit(request, {
+      scope: "maps.reverseGeocode",
+      limit: 30,
+      windowSeconds: 60,
+    });
     const data = asRecord(request.data);
     const latitude = requireCoordinate(data, "latitude", -90, 90);
     const longitude = requireCoordinate(data, "longitude", -180, 180);
+    requirePhilippinesLocation(latitude, longitude);
     const apiKey = getGoogleMapsApiKey();
     const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
     url.searchParams.set("latlng", `${latitude},${longitude}`);
     url.searchParams.set("key", apiKey);
     url.searchParams.set("region", "ph");
 
-    const response = await fetchGoogleJson<GeocodingResponse>(url.toString());
+    const response = await fetchCachedGoogleJson<GeocodingResponse>(
+      url.toString(),
+      {},
+      24 * 60 * 60,
+    );
 
     if (response.status === "ZERO_RESULTS") {
       throw new HttpsError(
@@ -219,14 +419,24 @@ export const reverseGeocode = onCall(callableOptions, async (request) => {
 
 export const getPlaceDetails = onCall(callableOptions, async (request) => {
   try {
+    const user = requireAuth(request);
+    await requireActiveUser(user.uid);
+    await enforceCallableRateLimit(request, {
+      scope: "maps.getPlaceDetails",
+      limit: 30,
+      windowSeconds: 60,
+    });
     const data = asRecord(request.data);
     const placeId = requireString(data, "placeId", 4, 220);
+    if (!/^(?:places\/)?[A-Za-z0-9_-]{4,200}$/u.test(placeId)) {
+      throw new HttpsError("invalid-argument", "placeId is invalid.");
+    }
     const apiKey = getGoogleMapsApiKey();
     const placeResource = placeId.startsWith("places/")
       ? placeId
       : `places/${encodeURIComponent(placeId)}`;
 
-    const response = await fetchGoogleJson<PlaceDetailsResponse>(
+    const response = await fetchCachedGoogleJson<PlaceDetailsResponse>(
       `https://places.googleapis.com/v1/${placeResource}`,
       {
         headers: {
@@ -238,6 +448,7 @@ export const getPlaceDetails = onCall(callableOptions, async (request) => {
           ].join(","),
         },
       },
+      24 * 60 * 60,
     );
 
     const latitude = response.location?.latitude;
@@ -263,11 +474,20 @@ export const getPlaceDetails = onCall(callableOptions, async (request) => {
 
 export const getDirections = onCall(callableOptions, async (request) => {
   try {
+    const user = requireAuth(request);
+    await requireActiveUser(user.uid);
+    await enforceCallableRateLimit(request, {
+      scope: "maps.getDirections",
+      limit: 20,
+      windowSeconds: 60,
+    });
     const data = asRecord(request.data);
     const originLat = requireCoordinate(data, "originLat", -90, 90);
     const originLng = requireCoordinate(data, "originLng", -180, 180);
     const destinationLat = requireCoordinate(data, "destinationLat", -90, 90);
     const destinationLng = requireCoordinate(data, "destinationLng", -180, 180);
+    requirePhilippinesLocation(originLat, originLng);
+    requirePhilippinesLocation(destinationLat, destinationLng);
     const apiKey = getGoogleMapsApiKey();
     const url = new URL("https://maps.googleapis.com/maps/api/directions/json");
     url.searchParams.set("origin", `${originLat},${originLng}`);
@@ -276,7 +496,11 @@ export const getDirections = onCall(callableOptions, async (request) => {
     url.searchParams.set("region", "ph");
     url.searchParams.set("key", apiKey);
 
-    const response = await fetchGoogleJson<DirectionsResponse>(url.toString());
+    const response = await fetchCachedGoogleJson<DirectionsResponse>(
+      url.toString(),
+      {},
+      10 * 60,
+    );
 
     if (response.status === "ZERO_RESULTS") {
       throw new HttpsError("not-found", "No route was found for this trip.");
@@ -315,6 +539,12 @@ export const getDirections = onCall(callableOptions, async (request) => {
 function getGoogleMapsApiKey(): string {
   const apiKey = googleMapsApiKey.value();
   if (!apiKey) {
+    logSecurityEvent({
+      action: "configuration_failure",
+      outcome: "failed",
+      targetId: "googleMaps",
+      reasonCode: "api_key_missing",
+    });
     throw new HttpsError(
       "failed-precondition",
       "Google Maps API key is not configured on Firebase Functions.",
@@ -372,6 +602,15 @@ function requireCoordinate(
   return coordinate;
 }
 
+function requirePhilippinesLocation(latitude: number, longitude: number): void {
+  if (latitude < 4 || latitude > 22 || longitude < 116 || longitude > 127) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Map coordinates must be within the supported Philippines region.",
+    );
+  }
+}
+
 async function fetchGoogleJson<T>(
   url: string,
   init: RequestInit = {},
@@ -386,10 +625,8 @@ async function fetchGoogleJson<T>(
     });
 
     if (!response.ok) {
-      const body = await response.text();
       logger.warn("Google Maps API HTTP error", {
         status: response.status,
-        body,
       });
       throw new HttpsError(
         "unavailable",
@@ -410,6 +647,39 @@ async function fetchGoogleJson<T>(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchCachedGoogleJson<T>(
+  url: string,
+  init: RequestInit,
+  ttlSeconds: number,
+): Promise<T> {
+  const cacheUrl = new URL(url);
+  cacheUrl.searchParams.delete("key");
+  const cacheKey = createHash("sha256").update(JSON.stringify({
+    url: cacheUrl.toString(),
+    method: init.method ?? "GET",
+    body: typeof init.body === "string" ? init.body : null,
+  })).digest("hex");
+  const reference = db.collection("internalMapsCache").doc(cacheKey);
+  const snapshot = await reference.get();
+  const cached = snapshot.data();
+  if (cached?.expiresAt instanceof Timestamp &&
+      cached.expiresAt.toMillis() > Date.now() &&
+      cached.response && typeof cached.response === "object") {
+    return cached.response as T;
+  }
+
+  const response = await fetchGoogleJson<T>(url, init);
+  const serialized = JSON.stringify(response);
+  if (Buffer.byteLength(serialized, "utf8") <= 256 * 1024) {
+    await reference.set({
+      response,
+      expiresAt: Timestamp.fromMillis(Date.now() + ttlSeconds * 1000),
+      updatedAt: serverTimestamp(),
+    });
+  }
+  return response;
 }
 
 function buildStructuredAddress(params: {
@@ -481,7 +751,7 @@ function componentValue(
 function toHttpsError(error: unknown, fallbackMessage: string): HttpsError {
   if (error instanceof HttpsError) return error;
 
-  logger.error(fallbackMessage, error);
+  logError(fallbackMessage, error);
 
   if (isAbortError(error)) {
     return new HttpsError("deadline-exceeded", "The request timed out.");
@@ -501,65 +771,250 @@ function isAbortError(error: unknown): boolean {
 
 // --- Promotion notifications (FCM) ---
 
-async function sendTopicNotification(topic: string, title: string, body: string, data?: Record<string, string>) {
+type PromotionData = {
+  isActive?: boolean;
+  promotionType?: string;
+  providerId?: string;
+  title?: string;
+  subtitle?: string;
+  description?: string;
+};
+
+async function sendTopicNotification(
+  topic: string,
+  title: string,
+  body: string,
+  data: Record<string, string> = {},
+): Promise<string> {
   try {
-    const message: any = {
+    const message: Message = {
       topic,
-      notification: {title, body},
-      data: data ?? {},
+      notification: {
+        title,
+        body,
+      },
+      data,
     };
 
-    const res = await getMessaging().send(message);
-    logger.log('FCM message sent', {topic, messageId: res});
-    return res;
-  } catch (err) {
-    logger.error('FCM send failed', err);
-    throw err;
+    const messageId = await getMessaging().send(message);
+
+    logger.info("FCM topic notification sent", {
+      topic,
+      messageId,
+    });
+
+    return messageId;
+  } catch (error) {
+    logError("FCM topic notification failed", error, {topic});
+
+    throw error;
   }
 }
 
-const promotionsCollection = 'promotions';
+async function sendIdempotentTopicNotification(input: {
+  eventId: string;
+  promoId: string;
+  topic: string;
+  title: string;
+  body: string;
+  data: Record<string, string>;
+}): Promise<void> {
+  const operation = `promotionNotification:${input.data.notificationType}`;
+  const key = createIdempotencyKey({
+    operation,
+    actorId: "system",
+    clientKey: input.eventId,
+  });
 
-export const onPromotionWrite = functions.region(functionRegion).firestore.document(`${promotionsCollection}/{promoId}`).onWrite(async (change, context) => {
-  try {
-    const before = change.before.exists ? change.before.data() : null;
-    const after = change.after.exists ? change.after.data() : null;
-    if (!after) return;
+  await executeIdempotently({
+    key,
+    operation,
+    actorId: "system",
+    handler: async () => {
+      await enforceRateLimit({
+        scope: "notifications.promotionFanout",
+        subject: `promotion:${input.promoId}`,
+        limit: 6,
+        windowSeconds: 60 * 60,
+      });
+      const messageId = await sendTopicNotification(
+        input.topic,
+        input.title,
+        input.body,
+        input.data,
+      );
+      return {messageId};
+    },
+  });
+}
 
-    const afterActive = !!after['isActive'];
-    const beforeActive = !!(before && before['isActive']);
+const promotionsCollection = "promotions";
 
-    const now = Date.now();
+export const onPromotionWrite = onDocumentWritten(
+  {
+    document: `${promotionsCollection}/{promoId}`,
+    region: functionRegion,
+  },
+  async (event): Promise<void> => {
+    try {
+      const beforeSnapshot = event.data?.before;
+      const afterSnapshot = event.data?.after;
+      const promoId = event.params.promoId;
 
-    // 1) Promotion became active
-    if (!beforeActive && afterActive) {
-      const title = after['title'] ?? 'New Promotion';
-      const body = after['subtitle'] ?? after['description'] ?? 'A new promotion is now active.';
-      await sendTopicNotification('promotions', title.toString(), body.toString(), {promotionId: context.params.promoId});
-    }
-
-    // 2) Featured provider changed
-    const beforeType = before ? (before['promotionType'] ?? '') : '';
-    const afterType = after['promotionType'] ?? '';
-    const beforeProvider = before ? (before['providerId'] ?? '') : '';
-    const afterProvider = after['providerId'] ?? '';
-
-    if (afterActive && afterType === 'featured_provider' && (beforeType !== afterType || beforeProvider !== afterProvider)) {
-      const title = 'Featured Provider Updated';
-      const body = after['subtitle'] ?? after['description'] ?? 'A featured provider promotion has been updated.';
-      await sendTopicNotification('featured_provider', title, body, {promotionId: context.params.promoId, providerId: afterProvider?.toString() ?? ''});
-    }
-
-    // 3) Birthday promotion started
-    if (afterActive && afterType === 'birthday') {
-      // If it wasn't birthday before or activation changed, notify
-      if (beforeType !== 'birthday' || (!beforeActive && afterActive)) {
-        const title = after['title'] ?? 'Birthday Promotion Started';
-        const body = after['subtitle'] ?? after['description'] ?? 'A birthday promotion is now live.';
-        await sendTopicNotification('birthday_promotions', title.toString(), body.toString(), {promotionId: context.params.promoId});
+      if (!beforeSnapshot || !afterSnapshot) {
+        logger.warn("Promotion event has no snapshot data", {
+          promoId,
+        });
+        return;
       }
+
+      // Do not send notifications when a promotion is deleted.
+      if (!afterSnapshot.exists) {
+        logger.info("Promotion deleted; no notification sent", {
+          promoId,
+        });
+        return;
+      }
+
+      const before = beforeSnapshot.exists
+        ? beforeSnapshot.data() as PromotionData
+        : null;
+
+      const after = afterSnapshot.data() as PromotionData;
+
+      const beforeActive = before?.isActive === true;
+      const afterActive = after.isActive === true;
+
+      const beforeType = before?.promotionType?.trim() ?? "";
+      const afterType = after.promotionType?.trim() ?? "";
+
+      const beforeProviderId = before?.providerId?.trim() ?? "";
+      const afterProviderId = after.providerId?.trim() ?? "";
+
+      /*
+       * 1. Promotion became active.
+       *
+       * This runs when:
+       * - a newly created promotion is active; or
+       * - an existing promotion changes from inactive to active.
+       */
+      if (!beforeActive && afterActive) {
+        const title = normalizeNotificationText(
+          after.title,
+          "New Promotion",
+        );
+
+        const body = normalizeNotificationText(
+          after.subtitle ?? after.description,
+          "A new promotion is now active.",
+        );
+
+        await sendIdempotentTopicNotification({
+          eventId: event.id,
+          promoId,
+          topic: "promotions",
+          title,
+          body,
+          data: {
+            promotionId: promoId,
+            notificationType: "promotion_activated",
+          },
+        });
+      }
+
+      /*
+       * 2. Featured provider changed.
+       *
+       * Send only when the promotion is active and:
+       * - it changed into a featured-provider promotion; or
+       * - its featured provider changed.
+       */
+      const featuredProviderChanged =
+        afterActive &&
+        afterType === "featured_provider" &&
+        (
+          beforeType !== afterType ||
+          beforeProviderId !== afterProviderId
+        );
+
+      if (featuredProviderChanged) {
+        const body = normalizeNotificationText(
+          after.subtitle ?? after.description,
+          "A featured provider promotion has been updated.",
+        );
+
+        await sendIdempotentTopicNotification({
+          eventId: event.id,
+          promoId,
+          topic: "featured_provider",
+          title: "Featured Provider Updated",
+          body,
+          data: {
+            promotionId: promoId,
+            providerId: afterProviderId,
+            notificationType: "featured_provider_updated",
+          },
+        });
+      }
+
+      /*
+       * 3. Birthday promotion became active.
+       *
+       * Avoid sending repeatedly for unrelated updates to an already active
+       * birthday promotion.
+       */
+      const birthdayPromotionStarted =
+        afterActive &&
+        afterType === "birthday" &&
+        (
+          beforeType !== "birthday" ||
+          !beforeActive
+        );
+
+      if (birthdayPromotionStarted) {
+        const title = normalizeNotificationText(
+          after.title,
+          "Birthday Promotion Started",
+        );
+
+        const body = normalizeNotificationText(
+          after.subtitle ?? after.description,
+          "A birthday promotion is now live.",
+        );
+
+        await sendIdempotentTopicNotification({
+          eventId: event.id,
+          promoId,
+          topic: "birthday_promotions",
+          title,
+          body,
+          data: {
+            promotionId: promoId,
+            notificationType: "birthday_promotion_started",
+          },
+        });
+      }
+    } catch (error) {
+      logError("onPromotionWrite handler failed", error, {
+        promoId: event.params.promoId,
+      });
+
+      throw error;
     }
-  } catch (err) {
-    logger.error('onPromotionWrite handler failed', err);
+  },
+);
+
+function normalizeNotificationText(
+  value: unknown,
+  fallback: string,
+): string {
+  if (typeof value !== "string") {
+    return fallback;
   }
-});
+
+  const normalized = value.trim();
+
+  return normalized.length > 0
+    ? normalized
+    : fallback;
+}

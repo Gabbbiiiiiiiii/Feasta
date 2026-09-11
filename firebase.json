@@ -1,20 +1,44 @@
 {
   "functions": [
-    {
-      "source": "functions",
-      "codebase": "default",
-      "ignore": [
-        "node_modules",
-        ".git",
-        "firebase-debug.log",
-        "firebase-debug.*.log",
-        "*.local"
-      ]
-    }
-  ],
+  {
+    "source": "functions",
+    "codebase": "default",
+    "ignore": [
+      "node_modules",
+      ".git",
+      "firebase-debug.log",
+      "firebase-debug.*.log",
+      "*.local"
+    ],
+    "predeploy": [
+      "pnpm --dir \"$RESOURCE_DIR\" run build"
+    ]
+  }
+],
   "firestore": {
-    "rules": "firestore.rules",
-    "indexes": "firestore.indexes.json"
+    "rules": "firebase/firestore.rules",
+    "indexes": "firebase/firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "firebase/storage.rules"
+  },
+  "hosting": {
+    "public": "firebase/hosting",
+    "cleanUrls": true,
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/health",
+        "function": {
+          "functionId": "healthCheck",
+          "region": "asia-southeast1"
+        }
+      }
+    ]
   },
   "flutter": {
     "platforms": {
@@ -22,11 +46,11 @@
         "default": {
           "projectId": "feasta-catering-system",
           "appId": "1:668846874331:android:93bf5327f1fefb127d36fe",
-          "fileOutput": "android/app/google-services.json"
+          "fileOutput": "apps/customer_mobile/android/app/google-services.json"
         }
       },
       "dart": {
-        "lib/firebase_options.dart": {
+        "apps/customer_mobile/lib/firebase_options.dart": {
           "projectId": "feasta-catering-system",
           "configurations": {
             "android": "1:668846874331:android:93bf5327f1fefb127d36fe",
@@ -38,5 +62,33 @@
         }
       }
     }
+  },
+  "emulators": {
+    "auth": {
+      "host": "0.0.0.0",
+      "port": 9099
+    },
+    "firestore": {
+      "host": "0.0.0.0",
+      "port": 8080
+    },
+    "functions": {
+      "host": "0.0.0.0",
+      "port": 5001
+    },
+    "storage": {
+      "host": "0.0.0.0",
+      "port": 9199
+    },
+    "hosting": {
+      "host": "127.0.0.1",
+      "port": 5000
+    },
+    "ui": {
+      "enabled": true,
+      "host": "127.0.0.1",
+      "port": 4000
+    },
+    "singleProjectMode": true
   }
 }
