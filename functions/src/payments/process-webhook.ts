@@ -61,6 +61,41 @@ type ProviderRequestPaymentUpdate = {
   statusOverride?: ProviderRequestStatus;
 };
 
+function providerRequestSetIntegrityReason(
+  mainEvent: Record<string, unknown>,
+  providerRequestIds: readonly string[],
+): string | null {
+  const canonicalIds =
+    mainEvent.providerRequestIds;
+
+  if (
+    !Array.isArray(canonicalIds) ||
+    canonicalIds.length === 0 ||
+    canonicalIds.some(
+      (value) =>
+        typeof value !== "string" ||
+        value.trim().length === 0,
+    )
+  ) {
+    return "provider_request_set_mismatch";
+  }
+
+  const canonicalSet =
+    new Set(canonicalIds);
+
+  if (
+    canonicalSet.size !== canonicalIds.length ||
+    canonicalIds.length !== providerRequestIds.length ||
+    providerRequestIds.some(
+      (id) => !canonicalSet.has(id),
+    )
+  ) {
+    return "provider_request_set_mismatch";
+  }
+
+  return null;
+}
+
 export async function processPayMongoWebhook(
   rawBody: Buffer,
 ): Promise<WebhookResult> {
@@ -292,6 +327,14 @@ export async function processPayMongoWebhook(
             ),
         );
 
+      const providerRequestSetReason =
+      providerRequestSetIntegrityReason(
+        booking,
+        providerRequestsSnapshot.docs.map(
+          (document) => document.id,
+        ),
+      );
+
       const policyEvidence = classifyProviderRequestRefundPolicyEvidence(
         providerRequest,
       );
@@ -507,6 +550,7 @@ export async function processPayMongoWebhook(
           : null;
 
       const conflictReason =
+        providerRequestSetReason ??
         lifecycleConflict ??
         operationalConflict;
 

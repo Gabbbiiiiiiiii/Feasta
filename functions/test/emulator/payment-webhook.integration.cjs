@@ -47,6 +47,10 @@ const libRoot = process.env.FEASTA_FUNCTIONS_LIB_DIR ??
       processPayMongoWebhook,
       paymentIdForProviderRequest,
     });
+    await providerRequestSetIntegrityTests({
+      processPayMongoWebhook,
+      paymentIdForProviderRequest,
+    });
     await awaitingCancellationSettlementTest({
       processPayMongoWebhook,
       paymentIdForProviderRequest,
@@ -332,6 +336,145 @@ async function lifecycleConflictTests(input) {
       .collection("timeline")
       .get()
   ).size, conflictTimelineBeforeReplay);
+}
+
+async function providerRequestSetIntegrityTests(input) {
+  const missingAssignment = await seed(
+    input.paymentIdForProviderRequest,
+    "missing-provider-request",
+  );
+
+  const missingProviderRequestId =
+    "request-missing-provider-request-extra";
+
+  await db.doc(
+    `mainEvents/${missingAssignment.mainEventId}`,
+  ).update({
+    providerRequestIds: [
+      missingAssignment.providerRequestId,
+      missingProviderRequestId,
+    ],
+  });
+
+  const missingResult =
+    await input.processPayMongoWebhook(eventBody({
+      eventId:
+        "evt_missing_provider_request",
+      paymentId:
+        missingAssignment.paymentId,
+    }));
+
+  assert.deepEqual(
+    missingResult,
+    {
+      duplicate: false,
+      applied: true,
+      conflict: true,
+      reason:
+        "provider_request_set_mismatch",
+    },
+  );
+
+  assert.equal((
+    await db.doc(
+      `payments/${missingAssignment.paymentId}`,
+    ).get()
+  ).data().status, "paid");
+
+  assert.equal((
+    await db.doc(
+      `providerRequests/${missingAssignment.providerRequestId}`,
+    ).get()
+  ).data().status, "payment_processing");
+
+  assert.equal((
+    await db.doc(
+      `mainEvents/${missingAssignment.mainEventId}`,
+    ).get()
+  ).data().status, "waiting_for_down_payment");
+
+  const missingTimeline = await db
+    .collection("mainEvents")
+    .doc(missingAssignment.mainEventId)
+    .collection("timeline")
+    .get();
+
+  assert.equal(missingTimeline.size, 1);
+  assert.equal(
+    missingTimeline.docs[0].data().type,
+    "payment_lifecycle_conflict",
+  );
+  assert.equal(
+    missingTimeline.docs[0].data().reason,
+    "provider_request_set_mismatch",
+  );
+
+  const duplicateAssignment = await seed(
+    input.paymentIdForProviderRequest,
+    "duplicate-provider-request",
+  );
+
+  await db.doc(
+    `mainEvents/${duplicateAssignment.mainEventId}`,
+  ).update({
+    providerRequestIds: [
+      duplicateAssignment.providerRequestId,
+      duplicateAssignment.providerRequestId,
+    ],
+  });
+
+  const duplicateResult =
+    await input.processPayMongoWebhook(eventBody({
+      eventId:
+        "evt_duplicate_provider_request",
+      paymentId:
+        duplicateAssignment.paymentId,
+    }));
+
+  assert.deepEqual(
+    duplicateResult,
+    {
+      duplicate: false,
+      applied: true,
+      conflict: true,
+      reason:
+        "provider_request_set_mismatch",
+    },
+  );
+
+  assert.equal((
+    await db.doc(
+      `payments/${duplicateAssignment.paymentId}`,
+    ).get()
+  ).data().status, "paid");
+
+  assert.equal((
+    await db.doc(
+      `providerRequests/${duplicateAssignment.providerRequestId}`,
+    ).get()
+  ).data().status, "payment_processing");
+
+  assert.equal((
+    await db.doc(
+      `mainEvents/${duplicateAssignment.mainEventId}`,
+    ).get()
+  ).data().status, "waiting_for_down_payment");
+
+  const duplicateTimeline = await db
+    .collection("mainEvents")
+    .doc(duplicateAssignment.mainEventId)
+    .collection("timeline")
+    .get();
+
+  assert.equal(duplicateTimeline.size, 1);
+  assert.equal(
+    duplicateTimeline.docs[0].data().type,
+    "payment_lifecycle_conflict",
+  );
+  assert.equal(
+    duplicateTimeline.docs[0].data().reason,
+    "provider_request_set_mismatch",
+  );
 }
 
 async function awaitingCancellationSettlementTest(input) {
