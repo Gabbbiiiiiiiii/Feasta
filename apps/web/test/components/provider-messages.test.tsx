@@ -195,6 +195,30 @@ describe("provider messages route and security contract", () => {
 });
 
 describe("provider messages workspace", () => {
+  it("switches to the server-selected room and replaces the old messages and subscription", async () => {
+    const roomA = room();
+    const roomB = room({id: "room_B", context: {...roomA.context, customerDisplayName: "Ben Cruz"}});
+    const common = {initialFilters: {pageSize: 10, cursor: null}, initialPage: roomPage([roomA, roomB]), initialSelectionError: false};
+    const view = render(<ProviderMessagesClient {...common} initialRoom={roomA} initialMessages={messagePage([message({text: "Only room A"})])} />);
+    expect(screen.getByText("Only room A")).toBeVisible();
+    await waitFor(() => expect(mocks.subscribe).toHaveBeenCalled());
+    view.rerender(<ProviderMessagesClient {...common} initialRoom={roomB} initialMessages={messagePage([message({id: "message_B", text: "Only room B"})], null, roomB.id)} />);
+    expect(screen.queryByText("Only room A")).not.toBeInTheDocument();
+    expect(screen.getByText("Only room B")).toBeVisible();
+    await waitFor(() => expect(mocks.unsubscribe).toHaveBeenCalled());
+    expect(mocks.subscribe).toHaveBeenLastCalledWith(roomB.id, expect.any(Function), expect.any(Function));
+    fireEvent.change(screen.getByRole("textbox"), {target: {value: "Reply to B"}});
+    fireEvent.submit(screen.getByRole("textbox").closest("form")!);
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith(roomB.id, "Reply to B"));
+  });
+
+  it("clears the old room when a deep link is rejected by the server", () => {
+    const common = {initialFilters: {pageSize: 10, cursor: null}, initialPage: roomPage()};
+    const view = render(<ProviderMessagesClient {...common} initialRoom={room()} initialMessages={messagePage([message({text: "Private room A"})])} initialSelectionError={false} />);
+    view.rerender(<ProviderMessagesClient {...common} initialRoom={null} initialMessages={null} initialSelectionError />);
+    expect(screen.queryByText("Private room A")).not.toBeInTheDocument();
+    expect(screen.getByText(/unavailable or no longer belongs/)).toBeVisible();
+  });
   it("renders one heading, safe context, preview, timestamp, unread count, and empty states", () => {
     renderWorkspace();
     expect(screen.getAllByRole("heading", {level: 1})).toHaveLength(1);

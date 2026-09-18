@@ -57,7 +57,15 @@ type ProviderMessagesClientProps = {
 
 const FIRST_PAGE_CURSOR = "__first_provider_chat_page__";
 
-export function ProviderMessagesClient({
+export function ProviderMessagesClient(props: ProviderMessagesClientProps) {
+  // A server-validated deep link starts a fresh conversation session, including
+  // its subscription, pagination, draft and pending async UI callbacks.
+  // Refreshes of the same room preserve the current local session.
+  const selectionKey = props.initialRoom?.id ?? (props.initialSelectionError ? "unavailable" : "unselected");
+  return <ProviderMessagesWorkspace key={selectionKey} {...props} />;
+}
+
+function ProviderMessagesWorkspace({
   initialFilters,
   initialPage,
   initialRoom,
