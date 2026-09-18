@@ -5,8 +5,8 @@ import {
   Phone,
   RefreshCw,
   ShieldCheck,
+  ArrowLeft,
 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import {
   useRouter,
@@ -947,29 +947,15 @@ export default function CustomerPhoneVerificationForm({
     <main className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border bg-card">
         <div className="mx-auto flex h-[76px] w-full max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-10">
-          <Link
-            href="/customer"
-            aria-label="FEASTA marketplace"
-            className="inline-flex items-center gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <Image
-              src="/images/feasta_logo.svg"
-              alt=""
-              width={586}
-              height={202}
-              priority
-              className="h-10 w-auto object-contain"
-            />
-
-            <span className="text-[22px] font-bold tracking-[-0.03em] text-primary sm:text-2xl">
-              <span className="text-foreground">Marketplace</span>
-            </span>
-          </Link>
 
           <Link
             href={returnTo}
             className="inline-flex min-h-11 items-center justify-center rounded-[10px] bg-secondary px-4 text-sm font-bold text-primary-strong transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
+            <ArrowLeft
+              aria-hidden="true"
+              className="size-4"
+            />
             Back to booking
           </Link>
         </div>
@@ -1433,7 +1419,7 @@ function maskPhone(
   return `+63 ${local.slice(
     0,
     3,
-  )} ••• ••${local.slice(
+  )} â€¢â€¢â€¢ â€¢â€¢${local.slice(
     -2,
   )}`;
 }

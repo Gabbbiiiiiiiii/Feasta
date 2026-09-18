@@ -1,4 +1,4 @@
-import {fireEvent, render, screen, waitFor, within} from "@testing-library/react";
+import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import {readFileSync} from "node:fs";
@@ -41,8 +41,71 @@ function fillRegistration() {
 describe("marketplace hybrid customer authentication", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.google.mockReset();
     pathname = "/customer/providers";
     query = new URLSearchParams();
+  });
+
+  it("aborts Google on modal unmount and ignores late completion", async () => {
+    let finish!: (value: unknown) => void;
+    let signal!: AbortSignal;
+    mocks.google.mockImplementation((_destination: string, attemptSignal: AbortSignal) => {
+      signal = attemptSignal;
+      return new Promise((resolve) => { finish = resolve; });
+    });
+    const user = userEvent.setup();
+    render(marketplace());
+    await user.click(screen.getByRole("button", {name: "Log in"}));
+    await user.click(await screen.findByRole("button", {name: /Google/}));
+    await user.click(screen.getByRole("button", {name: "Close customer authentication"}));
+    await waitFor(() => expect(signal.aborted).toBe(true));
+    await act(async () => finish({role: "customer", destination: "/customer/packages"}));
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["auth/popup-closed-by-user", "Google sign-in was cancelled."],
+    ["auth/popup-blocked", "Your browser blocked the Google sign-in window. Allow pop-ups and try again."],
+    ["auth/unauthorized-domain", "Google sign-in is not configured for this website. Use email sign-in or contact FEASTA support."],
+  ])("returns Google login to an actionable state for %s", async (code, message) => {
+    mocks.google.mockRejectedValueOnce(Object.assign(new Error("Firebase error"), {code}));
+    const user = userEvent.setup();
+    render(marketplace());
+    await user.click(screen.getByRole("button", {name: "Log in"}));
+    await user.click(await screen.findByRole("button", {name: /Google/}));
+    expect(await screen.findByText(message)).toBeVisible();
+    expect(screen.getByRole("button", {name: /Google/})).toBeEnabled();
+    expect(screen.queryByText("Connecting to Google")).not.toBeInTheDocument();
+  });
+
+
+  it("owns errors by method and starts a clean retry without duplicate popups", async () => {
+    mocks.email.mockRejectedValueOnce({code: "auth/invalid-credential"});
+    mocks.google.mockRejectedValueOnce({code: "auth/invalid-credential"});
+    const user = userEvent.setup();
+    render(marketplace());
+    await user.click(screen.getByRole("button", {name: "Log in"}));
+    await user.click(screen.getByRole("button", {name: /Log in with email/i}));
+    fireEvent.change(screen.getByLabelText(/Email address/), {target: {value: "customer@example.test"}});
+    fireEvent.change(screen.getByLabelText(/^Password/), {target: {value: "incorrect"}});
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", {name: "Log in"}));
+    expect(await screen.findByText("The email address or password is incorrect.")).toBeVisible();
+    await user.click(screen.getByRole("button", {name: /Back/i}));
+    await user.click(screen.getByRole("button", {name: /Google/}));
+    expect(await screen.findByText("Unable to sign in with Google. Please try again.")).toBeVisible();
+    expect(screen.queryByText("The email address or password is incorrect.")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", {name: /Log in with email/i}));
+    expect(screen.queryByText("Unable to sign in with Google. Please try again.")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", {name: /Back/i}));
+    let finish!: (value: unknown) => void;
+    mocks.google.mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+    const google = screen.getByRole("button", {name: /Google/});
+    fireEvent.click(google); fireEvent.click(google);
+    expect(mocks.google).toHaveBeenCalledTimes(2);
+    await act(async () => finish({role: "customer", destination: "/customer/packages/pkg/plan"}));
+    expect(mocks.replace).toHaveBeenCalledWith("/customer/packages/pkg/plan");
   });
 
   it("opens header login and switches modes within a single accessible dialog", async () => {
@@ -171,7 +234,14 @@ describe("marketplace hybrid customer authentication", () => {
     await user.click(screen.getByRole("link", {name: /Add Ana Events to favorites/}));
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
     await user.click(screen.getByRole("button", {name: "Continue with Google"}));
-    await waitFor(() => expect(mocks.google).toHaveBeenCalledWith(destination));
+    await waitFor(() => expect(mocks.google).toHaveBeenCalledWith(
+      destination,
+      expect.any(AbortSignal),
+      {
+        acceptedTerms: true,
+        acceptedPrivacy: true,
+      },
+    ));
     expect(mocks.replace).toHaveBeenCalledWith(destination);
     expect(mocks.favorite).not.toHaveBeenCalled();
   });

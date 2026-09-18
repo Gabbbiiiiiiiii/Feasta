@@ -19,6 +19,15 @@ vi.mock("@/lib/auth/client-session", () => ({
 import {LoginForm} from "@/app/login/login-form";
 
 describe("login accessibility", () => {
+  it("keeps Google invalid credentials distinct on the standalone login page", async () => {
+    const user = userEvent.setup();
+    auth.signInWithGoogle.mockRejectedValueOnce({code: "auth/invalid-credential"});
+    render(<LoginForm returnTo="/customer/packages/pkg/plan" />);
+    await user.click(screen.getByRole("button", {name: /Google/}));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to sign in with Google. Please try again.");
+    expect(screen.queryByText("The email address or password is incorrect.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /Google/})).toBeEnabled();
+  });
   it("uses visible labels, autocomplete, logical controls, and a linked safe error", async () => {
     const user = userEvent.setup();
     auth.signInWithEmail.mockRejectedValueOnce(Object.assign(new Error("Firebase internal detail"), {code: "auth/invalid-credential"}));

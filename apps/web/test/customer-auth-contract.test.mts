@@ -39,16 +39,19 @@ test("authentication redirects preserve safe path-local query parameters", async
   const proxy = await source("proxy.ts");
   const policy = await source("lib/security/policy.ts");
   const landingHeader = await source("components/landing/landing-header.tsx");
+  const marketplaceHeader = await source("components/customer/layout/customer-marketplace-header.tsx");
 
   assert.match(proxy, /request\.nextUrl\.pathname/u);
   assert.match(proxy, /request\.nextUrl\.search/u);
   assert.match(policy, /new URL\(value, base\)\.origin === base\.origin/u);
   assert.match(policy, /decoded\.startsWith\("\/\/"\)/u);
-  assert.match(landingHeader, /isPublicProviderMarketplaceReturnPath\(authReturnTo\)/u);
-  assert.match(landingHeader, /encodeURIComponent\(safeAuthReturnTo\)/u);
-  assert.match(landingHeader, /href="\/customer\/providers"/u);
-  assert.match(landingHeader, />\s*Explore Marketplace\s*</u);
-  assert.doesNotMatch(landingHeader, /href=\{registerHref\}/u);
+  assert.match(marketplaceHeader, /isPublicMarketplaceReturnPath\(currentReturnTo\)/u);
+  assert.match(marketplaceHeader, /isPublicMarketplaceReturnPath\(authReturnTo\)/u);
+  assert.match(marketplaceHeader, /returnTo: safeReturnTo/u);
+  // Landing navigation now uses fixed account-entry routes; marketplace
+  // context preservation belongs to the marketplace header above.
+  assert.match(landingHeader, /href="\/register"/u);
+  assert.match(landingHeader, /href="\/become-a-provider"/u);
 });
 
 test("customer registration never supplies a client-selected role", async () => {
@@ -65,8 +68,8 @@ test("customer registration never supplies a client-selected role", async () => 
     registration.indexOf("export async function registerCustomer"),
   );
   for (const signIn of [emailSignIn, googleSignIn]) {
-    assert.match(signIn, /ensureCustomerProfile\(\{\}\)/u);
-    assert.doesNotMatch(signIn, /acceptedTerms|acceptedPrivacy/u);
+    assert.match(signIn, /ensureCustomerProfile/u);
+    assert.doesNotMatch(signIn, /\brole\b/u);
   }
   const customerRegistration = registration.slice(
     registration.indexOf("export async function registerCustomer"),
