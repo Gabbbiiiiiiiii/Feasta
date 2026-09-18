@@ -7,6 +7,9 @@ import {PackageFilterForm} from "@/components/customer/packages/package-filter-f
 import {PackagePagination} from "@/components/customer/packages/package-pagination";
 import {PackageResults} from "@/components/customer/packages/package-results";
 import {PublicPackageCard} from "@/components/customer/packages/public-package-card";
+import {PackageDetail} from "@/components/customer/packages/package-detail";
+import {normalizePublicProvider} from "@/lib/customer/providers/provider-normalization";
+import {normalizePublicPackageCustomization} from "@/lib/customer/discovery/public-package-normalization";
 import type {
   PackageDiscoveryFilters,
   PackageDiscoveryPage,
@@ -39,6 +42,28 @@ const packageRecord: PublicPackage = {
 };
 
 describe("customer package marketplace", () => {
+  it.each([false, true])("renders only populated inclusion groups (populated: %s)", (populated) => {
+    const provider = normalizePublicProvider("provider-one", {
+      ownerId: "owner", businessName: "Provider", providerServiceType: "catering",
+      verificationStatus: "approved", publiclyVisible: true, isActive: true,
+    }, {role: "provider", providerId: "provider-one", accountStatus: "active"})!;
+    const customization = normalizePublicPackageCustomization(populated ? {
+      foodInclusions: ["Rice"], serviceInclusions: ["Setup"], decorInclusions: [], furnitureInclusions: [],
+    } : {});
+    render(<PackageDetail detail={{provider, packageRecord: {...packageRecord, inclusions: populated ? ["Rice", "Setup"] : []}, customization}} />);
+    expect(screen.getByRole("heading", {level: 1, name: packageRecord.name})).toBeVisible();
+    expect(screen.queryByRole("heading", {name: "Decor inclusions"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", {name: "Furniture inclusions"})).not.toBeInTheDocument();
+    if (populated) {
+      expect(screen.getByRole("heading", {name: "Food inclusions"})).toBeVisible();
+      expect(screen.getByRole("heading", {name: "Service inclusions"})).toBeVisible();
+      expect(screen.getByText("Rice")).toBeVisible();
+      expect(screen.getByText("Setup")).toBeVisible();
+    } else {
+      expect(screen.queryByRole("region", {name: "What comes with this package."})).not.toBeInTheDocument();
+      expect(screen.queryByText("Package inclusions")).not.toBeInTheDocument();
+    }
+  });
   it("keeps card destinations stable across midnight while query validation still rejects past dates", async () => {
     vi.useFakeTimers({toFake: ["Date"]});
     vi.setSystemTime(new Date("2026-09-05T15:59:59Z"));
