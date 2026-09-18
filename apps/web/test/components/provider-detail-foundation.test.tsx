@@ -56,6 +56,36 @@ const detail: PublicProviderDetail = {
 };
 
 describe("public provider profile presentation", () => {
+  it("renders public service offerings without fabricating descriptions", () => {
+    const services = [
+      {id: "coordination", name: "Event coordination", description: "On-site event coordination."},
+      {id: "styling", name: "Venue styling", description: null},
+      {id: "lighting", name: "Event lighting", description: ""},
+    ];
+    render(<ProviderProfile detail={{...detail, services}} />);
+
+    const section = within(screen.getByRole("region", {name: "Service offerings"}));
+    expect(section.getByRole("heading", {level: 2, name: "Service offerings"})).toBeVisible();
+    const cards = section.getAllByRole("article");
+    expect(cards).toHaveLength(services.length);
+    services.forEach((service, index) => {
+      const card = cards[index]!;
+      expect(within(card).getByRole("heading", {level: 3, name: service.name})).toBeVisible();
+      if (service.description) {
+        expect(within(card).getByText(service.description)).toBeVisible();
+      } else {
+        expect(card.textContent).toBe(service.name);
+        expect(card.querySelector("p")).toBeNull();
+      }
+    });
+  });
+
+  it.each(["empty", "absent"] as const)("omits the Service offerings section when services is %s", (state) => {
+    render(<ProviderProfile detail={state === "empty" ? {...detail, services: []} : detail} />);
+    expect(screen.queryByRole("region", {name: "Service offerings"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", {name: "Service offerings"})).not.toBeInTheDocument();
+  });
+
   it("renders only real public provider and package information", () => {
     render(<ProviderProfile detail={detail} />);
 
@@ -366,6 +396,37 @@ describe("public provider detail security contracts", () => {
     expect(page).toContain("if (!detail) notFound()");
     expect(page).toContain("parseMarketplaceReturnHref");
     expect(page).toContain("backHref={backHref}");
+  });
+
+  it("bounds addon offerings and rejects every non-public candidate before returning services", () => {
+    const service = readFileSync(join(
+      process.cwd(),
+      "src/lib/customer/providers/provider-detail-service.ts",
+    ), "utf8");
+    const offeringsBlock = service.match(
+      /if \(provider\.serviceType === "addon" \|\| provider\.serviceType === "both"\) \{([\s\S]*?)\n {2}\}/u,
+    );
+    expect(offeringsBlock).not.toBeNull();
+    const offerings = offeringsBlock?.[1] ?? "";
+    expect(offerings).toMatch(
+      /adminDb\.collection\(FIRESTORE_COLLECTIONS\.addons\)\s*\.where\("providerId", "==", provider\.id\)\.limit\(20\)\.get\(\)/u,
+    );
+    expect(offerings).toContain("for (const document of offerings.docs)");
+    expect(offerings).toContain("const data = document.data()");
+    const rejection = offerings.match(/if \(([\s\S]*?)\) continue;/u);
+    expect(rejection?.[1]?.replace(/\s+/gu, " ").split(" || ")).toEqual([
+      "data.providerId !== provider.id",
+      "data.ownerId !== ownerId",
+      'data.status !== "published"',
+      "data.isPublished !== true",
+      "data.isActive !== true",
+      "data.isAvailable !== true",
+      "data.isDeleted === true",
+      'typeof data.name !== "string"',
+      "!data.name.trim()",
+    ]);
+    expect(offerings).toMatch(/continue;\s*services\.push\(/u);
+    expect(service).toContain("return {provider, packages, menuImages, services}");
   });
 
   it("uses FEASTA breakpoints without viewport-breaking profile dimensions", () => {

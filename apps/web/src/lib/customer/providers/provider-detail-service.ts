@@ -65,7 +65,20 @@ export async function getPublicProviderDetail(
     ? await providerSnapshot.ref.collection("catalog").doc("menu").get()
     : null;
   const menuImages = publicMenuImages(menuSnapshot?.data()?.images, ownerId);
-  return {provider, packages, menuImages};
+  const services = [] as {id: string; name: string; description: string | null}[];
+  if (provider.serviceType === "addon" || provider.serviceType === "both") {
+    const offerings = await adminDb.collection(FIRESTORE_COLLECTIONS.addons)
+      .where("providerId", "==", provider.id).limit(20).get();
+    for (const document of offerings.docs) {
+      const data = document.data();
+      if (data.providerId !== provider.id || data.ownerId !== ownerId || data.status !== "published" ||
+        data.isPublished !== true || data.isActive !== true || data.isAvailable !== true || data.isDeleted === true ||
+        typeof data.name !== "string" || !data.name.trim()) continue;
+      services.push({id: document.id, name: data.name.trim().slice(0, 160),
+        description: typeof data.description === "string" ? data.description.trim().slice(0, 600) : null});
+    }
+  }
+  return {provider, packages, menuImages, services};
 }
 
 function safeDocumentId(value: unknown): string | null {

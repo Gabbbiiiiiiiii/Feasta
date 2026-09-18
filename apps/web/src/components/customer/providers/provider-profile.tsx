@@ -534,6 +534,16 @@ export function ProviderProfile({
         marketplaceHref={safeBackHref}
       />
 
+      {detail.services && detail.services.length > 0 ? <section aria-labelledby="provider-offerings" className="rounded-[24px] border border-feasta-border-soft bg-card p-5 sm:p-6">
+        <h2 id="provider-offerings" className="text-2xl font-extrabold text-foreground">Service offerings</h2>
+        <div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-4">
+          {detail.services.map((service) => <article key={service.id} className="min-w-0 rounded-xl border border-feasta-border-soft p-4">
+            <h3 className="break-words text-base font-bold">{service.name}</h3>
+            {service.description ? <p className="mt-2 break-words text-sm text-feasta-text-secondary">{service.description}</p> : null}
+          </article>)}
+        </div>
+      </section> : null}
+
       {capabilities.catering && detail.menuImages && detail.menuImages.length > 0 ? <section aria-labelledby="provider-menu" className="rounded-[24px] border border-feasta-border-soft bg-card p-5 sm:p-6">
         <h2 id="provider-menu" className="text-2xl font-extrabold text-foreground">Menu & catalog</h2>
         <p className="mb-4 mt-2 text-sm text-feasta-text-secondary">Browse menu posters and food photos. Open an image to read the details.</p>
