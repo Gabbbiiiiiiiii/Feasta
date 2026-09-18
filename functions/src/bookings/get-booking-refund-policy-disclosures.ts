@@ -389,6 +389,7 @@ function selectionUnavailable(): HttpsError {
   return new HttpsError(
     "failed-precondition",
     "A selected booking service is unavailable.",
+    {reason: "BOOKING_SELECTION_UNAVAILABLE"},
   );
 }
 

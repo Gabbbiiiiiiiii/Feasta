@@ -1,6 +1,7 @@
 import {fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {beforeEach, describe, expect, it, vi} from "vitest";
+import {FirebaseError} from "firebase/app";
 
 import type {
   CustomerRefundPolicyDisclosure,
@@ -31,7 +32,10 @@ vi.mock("@/lib/customer/bookings/customer-booking-submission-client", () => ({
     Boolean((error as {refreshRefundPolicies?: boolean})?.refreshRefundPolicies),
 }));
 
-vi.mock("@/lib/customer/bookings/customer-refund-policy-client", () => ({
+vi.mock("@/lib/firebase/client", () => ({auth: {}, functions: {}, initializeBrowserAppCheck: vi.fn()}));
+
+vi.mock("@/lib/customer/bookings/customer-refund-policy-client", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/customer/bookings/customer-refund-policy-client")>(),
   getCustomerBookingRefundPolicyDisclosures: mocks.loadDisclosures,
   buildRefundPolicyAcknowledgements: (
     policies: readonly CustomerRefundPolicyDisclosure[],
@@ -42,12 +46,14 @@ vi.mock("@/lib/customer/bookings/customer-refund-policy-client", () => ({
 }));
 
 import {EventCustomizationExperience} from "@/components/customer/bookings/event-customization-experience";
+import {normalizeDisclosureError} from "@/lib/customer/bookings/customer-refund-policy-client";
 
 const PRIMARY_PROVIDER_ID = "provider_primary_private_123";
 const ADDON_PROVIDER_ID = "provider_addon_private_456";
 
 describe("Customer booking refund policy disclosure and agreement", () => {
   beforeEach(() => {
+    localStorage.clear();
     vi.clearAllMocks();
     vi.setSystemTime(new Date("2026-09-01T02:00:00.000Z"));
     mocks.checkAvailability.mockResolvedValue([
@@ -106,6 +112,31 @@ describe("Customer booking refund policy disclosure and agreement", () => {
       .not.toMatch(/rules|terms|refundBasisPoints|policyVersion/u);
   });
 
+  it("keeps a guest plan through sign-in and restores only current selectable services", async () => {
+    const guest = render(<EventCustomizationExperience planningOnly detail={detailFixture()} eventServices={serviceFixtures()} />);
+    await screen.findByText("Changes save automatically");
+    fireEvent.change(screen.getByLabelText("Event date"), {target: {value: "2026-09-20"}});
+    fireEvent.change(screen.getByLabelText("Start time"), {target: {value: "18:00"}});
+    fireEvent.change(screen.getByLabelText("End time"), {target: {value: "22:00"}});
+    fireEvent.change(screen.getByLabelText(/^Number of guests/iu), {target: {value: "100"}});
+    fireEvent.change(screen.getByLabelText(/^Complete event address/iu), {target: {value: "Guest venue"}});
+    fireEvent.click(screen.getByRole("button", {name: "Continue"}));
+    fireEvent.click(screen.getByRole("button", {name: "Continue"}));
+    const card = screen.getByText("Event photography").closest("label")!;
+    fireEvent.click(within(card).getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", {name: "Review booking"}));
+    expect(screen.getByRole("link", {name: "Sign in to continue"})).toHaveAttribute("href", expect.stringContaining("/book"));
+    expect(mocks.loadDisclosures).not.toHaveBeenCalled();
+    expect(mocks.checkAvailability).not.toHaveBeenCalled();
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+    guest.unmount();
+    render(<EventCustomizationExperience draftOwner="signed-in-customer" detail={detailFixture()} eventServices={[]} />);
+    await waitFor(() => expect(screen.getByLabelText(/^Complete event address/iu)).toHaveValue("Guest venue"));
+    expect(screen.getByText(/Draft restored/)).toBeVisible();
+    await waitFor(() => expect(mocks.checkAvailability).toHaveBeenCalled());
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+  });
+
   it("requires every policy in a multi-Provider booking and submits one acknowledgement per Provider", async () => {
     const user = userEvent.setup();
     mocks.loadDisclosures.mockResolvedValue(disclosureResult([
@@ -155,6 +186,56 @@ describe("Customer booking refund policy disclosure and agreement", () => {
     expect(await screen.findByRole("checkbox", {
       name: /I have reviewed Maria's Catering's refund policy/iu,
     })).not.toBeChecked();
+  });
+
+  it.each([
+    ["REFUND_POLICY_REQUIRED", "Provider refund policy not configured", "has not published"],
+    ["REFUND_POLICY_INVALID", "Provider refund policy needs correction", "could not be verified"],
+  ])("identifies the affected add-on provider for %s without retry or acknowledgement", async (reason, title, message) => {
+    const error = Object.assign(new FirebaseError("functions/failed-precondition", "private backend error"), {
+      details: {reason, providerName: "ABC Photography"},
+    });
+    mocks.loadDisclosures.mockRejectedValue(error);
+    renderExperience();
+    await reachReview({selectAddon: true});
+    const section = await screen.findByRole("region", {name: "Refund Policy"});
+    await waitFor(() => expect(within(section).getByRole("alert")).toHaveTextContent(title));
+    expect(section).toHaveTextContent("ABC Photography");
+    expect(section).toHaveTextContent(message);
+    expect(section).not.toHaveTextContent("private backend error");
+    expect(within(section).queryByRole("button", {name: "Try again"})).not.toBeInTheDocument();
+    expect(within(section).queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "Submit booking request"})).toBeDisabled();
+  });
+
+  it.each([
+    ["failed-precondition", "BOOKING_SELECTION_UNAVAILABLE", false, "Selected booking services unavailable"],
+    ["failed-precondition", "REFUND_POLICY_INVALID", false, "Refund policy configuration needs correction"],
+    ["failed-precondition", undefined, false, "Selected booking services need review"],
+    ["unavailable", undefined, true, "Refund policies are temporarily unavailable."],
+    ["deadline-exceeded", undefined, true, "Refund policies are temporarily unavailable."],
+    ["permission-denied", undefined, false, "Refund policy access unavailable"],
+    ["unauthenticated", undefined, false, "Sign in to review refund policies"],
+    ["invalid-argument", undefined, false, "Selected booking services need review"],
+  ])("safely maps %s / %s", (code, reason, retryable, title) => {
+    const error = Object.assign(new FirebaseError(`functions/${code}`, "private backend error"), {details: {reason}});
+    const mapped = normalizeDisclosureError(error);
+    expect(mapped.title).toBe(title);
+    expect(mapped.retryable).toBe(retryable);
+    expect(mapped.message).not.toContain("private backend error");
+  });
+
+  it("does not offer retry for an unavailable selected service", async () => {
+    mocks.loadDisclosures.mockRejectedValue(Object.assign(
+      new FirebaseError("functions/failed-precondition", "private service record"),
+      {details: {reason: "BOOKING_SELECTION_UNAVAILABLE"}},
+    ));
+    renderExperience();
+    await reachReview();
+    const section = await screen.findByRole("region", {name: "Refund Policy"});
+    await waitFor(() => expect(section).toHaveTextContent("Selected booking services unavailable"));
+    expect(within(section).queryByRole("button", {name: "Try again"})).not.toBeInTheDocument();
+    expect(section).not.toHaveTextContent("private service record");
   });
 
   it("refreshes a changed policy, clears agreement, and requires acknowledgement again", async () => {

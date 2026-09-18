@@ -60,7 +60,8 @@ export async function getCustomerBookingRefundPolicyDisclosures(
   try {
     await auth.authStateReady();
     if (!auth.currentUser) {
-      throw new Error("Your session has expired. Sign in again to review refund policies.");
+      throw new RefundPolicyDisclosureError("Sign in to review refund policies",
+        "Your session has expired. Sign in again to review refund policies.", false);
     }
 
     initializeBrowserAppCheck();
@@ -209,25 +210,73 @@ function boundedString(value: unknown, maximum: number): string {
   return value.trim();
 }
 
-function invalidDisclosureResponse(): Error {
-  return new Error("FEASTA received invalid refund policy details. Please refresh and try again.");
+export class RefundPolicyDisclosureError extends Error {
+  constructor(
+    readonly title: string,
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+  }
 }
 
-function normalizeDisclosureError(error: unknown): Error {
-  if (!(error instanceof FirebaseError)) {
-    return error instanceof Error
-      ? error
-      : new Error("Refund policy details could not be loaded. Please try again.");
-  }
-  const code = error.code.replace("functions/", "");
-  if (code === "unauthenticated") {
-    return new Error("Your session has expired. Sign in again to review refund policies.");
-  }
+function invalidDisclosureResponse(): Error {
+  return new RefundPolicyDisclosureError(
+    "Refund policy details could not be verified",
+    "FEASTA could not verify the policy details. Contact FEASTA support before booking.",
+    false,
+  );
+}
+
+export function normalizeDisclosureError(error: unknown): RefundPolicyDisclosureError {
+  if (error instanceof RefundPolicyDisclosureError) return error;
+  const code = error instanceof FirebaseError ? error.code.replace("functions/", "") : "unknown";
+  const details = error instanceof FirebaseError && "details" in error
+    ? error.details : null;
+  const record = details && typeof details === "object"
+    ? details as Record<string, unknown> : {};
+  const provider = typeof record.providerName === "string" && record.providerName.trim()
+    ? record.providerName.trim().slice(0, 160) : "A selected provider";
   if (code === "failed-precondition") {
-    return new Error("A selected Provider's refund policy is unavailable. Review your selected services or try again later.");
+    if (record.reason === "REFUND_POLICY_REQUIRED") {
+      return new RefundPolicyDisclosureError("Provider refund policy not configured",
+        `${provider} has not published a refund policy. Ask the provider to configure it before booking, or choose another service.`, false);
+    }
+    if (record.reason === "REFUND_POLICY_INVALID") {
+      if (typeof record.providerName !== "string" || !record.providerName.trim()) {
+        return new RefundPolicyDisclosureError("Refund policy configuration needs correction",
+          "FEASTA could not verify the refund policy configuration for this booking. Contact FEASTA support before continuing.", false);
+      }
+      return new RefundPolicyDisclosureError("Provider refund policy needs correction",
+        `${provider}'s refund policy could not be verified. Ask the provider or FEASTA support to correct it before booking.`, false);
+    }
+    if (record.reason === "BOOKING_SELECTION_UNAVAILABLE") {
+      return new RefundPolicyDisclosureError("Selected booking services unavailable",
+        "A selected service or provider is no longer available for booking. Review your package and selected services before continuing.", false);
+    }
+    if (record.reason === "REFUND_POLICY_CHANGED" || record.reason === "REFUND_POLICY_ACKNOWLEDGEMENT_REQUIRED") {
+      return new RefundPolicyDisclosureError("Review the current refund policies",
+        "Load the current policies and acknowledge each provider's terms before submitting.", true);
+    }
+    return new RefundPolicyDisclosureError("Selected booking services need review",
+      "A selected service or provider is unavailable, or a booking requirement is not met. Review your selection or contact FEASTA support.", false);
+  }
+  if (code === "unauthenticated") {
+    return new RefundPolicyDisclosureError("Sign in to review refund policies",
+      "Your session has expired. Sign in again to review refund policies.", false);
+  }
+  if (code === "permission-denied") {
+    return new RefundPolicyDisclosureError("Refund policy access unavailable",
+      "Your account cannot access these booking details. Check your account or contact FEASTA support.", false);
+  }
+  if (code === "invalid-argument" || code === "not-found") {
+    return new RefundPolicyDisclosureError("Selected booking services need review",
+      "Review your selected package and services before continuing. Contact FEASTA support if the problem persists.", false);
   }
   if (code === "resource-exhausted") {
-    return new Error("Too many refund policy requests were made. Wait a moment and try again.");
+    return new RefundPolicyDisclosureError("Refund policies are temporarily unavailable.",
+      "Too many refund policy requests were made. Wait a moment and try again.", true);
   }
-  return new Error("Refund policy details could not be loaded. Please try again.");
+  return new RefundPolicyDisclosureError("Refund policies are temporarily unavailable.",
+    "Refund policy details could not be loaded. Please try again.", true);
 }

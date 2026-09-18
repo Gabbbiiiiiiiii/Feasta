@@ -326,6 +326,8 @@ export function resolveBookingRefundPolicies(
       throw refundPolicyError(
         REFUND_POLICY_ERROR_REASONS.invalid,
         "A Provider refund policy is invalid.",
+        "failed-precondition",
+        providerName,
       );
     }
 
@@ -333,6 +335,8 @@ export function resolveBookingRefundPolicies(
       throw refundPolicyError(
         REFUND_POLICY_ERROR_REASONS.required,
         "A selected Provider has not published a refund policy.",
+        "failed-precondition",
+        providerName,
       );
     }
 
@@ -709,12 +713,14 @@ function refundPolicyError(
     "invalid-argument" |
     "failed-precondition" =
       "failed-precondition",
+  providerName?: string,
 ): HttpsError {
   return new HttpsError(
     code,
     message,
     {
       reason,
+      ...(providerName ? {providerName} : {}),
       refreshRefundPolicies:
         reason ===
           REFUND_POLICY_ERROR_REASONS.changed ||

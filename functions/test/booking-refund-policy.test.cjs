@@ -179,6 +179,23 @@ test("missing and malformed Provider policies fail with stable safe reasons", ()
   );
 });
 
+test("a failing add-on policy identifies only its safe business name", () => {
+  for (const [value, reason] of [
+    [undefined, "REFUND_POLICY_REQUIRED"],
+    [{policyVersion: 1}, "REFUND_POLICY_INVALID"],
+  ]) {
+    assert.throws(() => domain.resolveBookingRefundPolicies([
+      relationship("primary", policy(1, [10000, 5000, 0])),
+      {...relationship("addon", value), providerName: "ABC Photography"},
+    ]), (error) => {
+      assert.equal(error.details.reason, reason);
+      assert.equal(error.details.providerName, "ABC Photography");
+      assert.doesNotMatch(JSON.stringify(error.details), /owner_|privateBankAccount/);
+      return true;
+    });
+  }
+});
+
 test("acknowledgements are bounded, exact, unordered, and unique by Provider", () => {
   const parsed = domain.parseRefundPolicyAcknowledgements([
     {
@@ -356,6 +373,19 @@ test("server evidence copies the complete policy and initializes eligibility", (
     enteredAt: timestamp,
     activeCancellationRequestId: null,
   });
+});
+
+test("later current policy changes cannot mutate captured booking terms", () => {
+  const resolved = domain.resolveBookingRefundPolicies([
+    relationship("provider", policy(1, [10000, 5000, 0], "Original terms")),
+  ]).get("provider");
+  const evidence = domain.buildProviderRequestRefundPolicyEvidence(resolved, Timestamp.now());
+  resolved.effective.policy.rules[0].refundBasisPoints = 0;
+  resolved.effective.policy.terms = "Changed terms";
+  resolved.effective.source.policyVersion = 2;
+  assert.equal(evidence.refundPolicySnapshot.rules[0].refundBasisPoints, 10000);
+  assert.equal(evidence.refundPolicySnapshot.terms, "Original terms");
+  assert.equal(evidence.refundPolicySnapshot.source.policyVersion, 1);
 });
 
 test("legacy evidence classification is explicit and partial or tampered evidence fails closed", () => {
