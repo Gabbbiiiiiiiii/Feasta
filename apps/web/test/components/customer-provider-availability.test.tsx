@@ -64,6 +64,7 @@ describe("customer provider availability planning", () => {
     }
   });
   beforeEach(() => {
+    localStorage.clear();
     vi.clearAllMocks();
     vi.useRealTimers();
     vi.setSystemTime(new Date("2026-08-27T04:00:00.000Z"));

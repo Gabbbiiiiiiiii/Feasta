@@ -37,7 +37,10 @@ export function isPublicMarketplacePath(pathname: string): boolean {
 export function isPublicPackageMarketplacePath(pathname: string): boolean {
   if (pathname === PUBLIC_PACKAGE_MARKETPLACE_PATH) return true;
   const prefix = `${PUBLIC_PACKAGE_MARKETPLACE_PATH}/`;
-  // Only the public detail page is guest-accessible; /book and other descendants
+  if (pathname.startsWith(prefix) && pathname.endsWith("/plan")) {
+    return isPublicProviderId(pathname.slice(prefix.length, -"/plan".length));
+  }
+  // Detail and the read-only /plan route are guest-accessible; /book and other descendants
   // still pass through the existing protected-route authentication boundary.
   return pathname.startsWith(prefix) && isPublicProviderId(pathname.slice(prefix.length));
 }

@@ -113,6 +113,8 @@ export default async function CustomerPackageBookingPage({
 
   return (
     <EventCustomizationExperience
+      key={`${account.uid}:${packageId}:${eventContextQuery}`}
+      draftOwner={`customer:${account.uid}`}
       detail={detail}
       eventServices={
         eventServices.services

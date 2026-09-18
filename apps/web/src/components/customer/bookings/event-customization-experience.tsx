@@ -17,8 +17,10 @@ import {
   UsersRound,
   Armchair,
 } from "lucide-react";
-import Link from "next/link";
+
 import {useRouter} from "next/navigation";
+import {useCustomizationDraft} from "@/lib/customer/bookings/use-customization-draft";
+import {CustomerAuthLink} from "@/components/customer/layout/customer-auth-provider";
 import {
   useCallback,
   useEffect,
@@ -59,6 +61,8 @@ import {
 import type {CustomerEventContext} from "@/lib/customer/planning/event-planning-context";
 
 type EventCustomizationExperienceProps = {
+  draftOwner?: string;
+  planningOnly?: boolean;
   detail: PublicPackageDetail;
   eventServices: readonly PublicEventService[];
   initialEventContext?: CustomerEventContext | null;
@@ -119,6 +123,8 @@ export function EventCustomizationExperience({
   detail,
   eventServices,
   initialEventContext = null,
+  draftOwner = "guest",
+  planningOnly = false,
 }: EventCustomizationExperienceProps) {
   const {
     packageRecord,
@@ -129,6 +135,12 @@ export function EventCustomizationExperience({
   const [step, setStep] = useState(1);
 
   const router = useRouter();
+
+  const [leaveDialogOpen, setLeaveDialogOpen] =
+  useState(false);
+
+  const [pendingLeaveHref, setPendingLeaveHref] =
+    useState<string | null>(null);
 
   const [draft, setDraft] =
     useState<EventDetailsDraft>({
@@ -178,6 +190,42 @@ const submissionIdentityRef =
     setSelectedEventServiceIds,
   ] = useState<string[]>([]);
 
+  const [willArrangeOwnAddOns, setWillArrangeOwnAddOns] = useState(false);
+  const [customerArrangedAddOnsNote, setCustomerArrangedAddOnsNote] = useState("");
+
+  const savedDraft = useCustomizationDraft({
+    owner: draftOwner, providerId: provider.id, packageId: packageRecord.id,
+    context: JSON.stringify(initialEventContext),
+    value: {event: draft, customization: customizationDraft, addonIds: selectedEventServiceIds,
+      ownAddons: willArrangeOwnAddOns, ownAddonsNote: customerArrangedAddOnsNote},
+    restore: (saved) => {
+      setDraft(saved.event);
+      setWillArrangeOwnAddOns(saved.ownAddons ?? false);
+      setCustomerArrangedAddOnsNote(saved.ownAddonsNote ?? "");
+      setCustomizationDraft({
+        selectedFoods: saved.customization.selectedFoods.filter((item) => customization.foods.includes(item)),
+        selectedDecorations: saved.customization.selectedDecorations.filter((item) => customization.decorations.includes(item)),
+        selectedFurniture: saved.customization.selectedFurniture.filter((item) => customization.furniture.includes(item)),
+      });
+      setSelectedEventServiceIds(saved.addonIds.filter((id) => eventServices.some((service) => service.id === id)));
+    },
+  });
+
+  const currentCustomizationSignature = JSON.stringify({
+    event: draft,
+    customization: customizationDraft,
+    addonIds: selectedEventServiceIds,
+    ownAddons: willArrangeOwnAddOns,
+    ownAddonsNote: customerArrangedAddOnsNote,
+  });
+
+  const [initialCustomizationSignature] =
+    useState(currentCustomizationSignature);
+
+  const hasMeaningfulChanges =
+    currentCustomizationSignature !==
+    initialCustomizationSignature;
+
   const [refundPolicyStatus, setRefundPolicyStatus] =
     useState<RefundPolicyStatus>("idle");
   const [refundPolicyResult, setRefundPolicyResult] =
@@ -222,7 +270,7 @@ const submissionIdentityRef =
   }, [packageRecord.id, provider.id, selectedEventServiceIds]);
 
   useEffect(() => {
-    if (step !== 4) return undefined;
+    if (planningOnly || step !== 4) return undefined;
     const timeoutId = window.setTimeout(() => {
       void loadRefundPolicyDisclosures();
     }, 0);
@@ -230,17 +278,8 @@ const submissionIdentityRef =
       window.clearTimeout(timeoutId);
       refundPolicyGenerationRef.current += 1;
     };
-  }, [loadRefundPolicyDisclosures, step]);
+  }, [loadRefundPolicyDisclosures, step, planningOnly]);
 
-  const [
-    willArrangeOwnAddOns,
-    setWillArrangeOwnAddOns,
-  ] = useState(false);
-
-  const [
-    customerArrangedAddOnsNote,
-    setCustomerArrangedAddOnsNote,
-  ] = useState("");
 
   const [errors, setErrors] =
     useState<EventDetailsErrors>({});
@@ -307,7 +346,7 @@ const submissionIdentityRef =
     const generation = availabilityGenerationRef.current + 1;
     availabilityGenerationRef.current = generation;
 
-    if (!availabilityParameters || !availabilityKey) {
+    if (planningOnly || !availabilityParameters || !availabilityKey) {
       return undefined;
     }
 
@@ -344,6 +383,7 @@ const submissionIdentityRef =
       }
     };
   }, [
+    planningOnly,
     availabilityKey,
     availabilityParameters,
     availabilityRetryNonce,
@@ -474,7 +514,7 @@ function toggleEventService(
   if (!service) return;
 
   if (
-    !selectedEventServiceIds.includes(serviceId) &&
+    !planningOnly && !selectedEventServiceIds.includes(serviceId) &&
     (
       !availabilityIsCurrent ||
       availabilityResults.get(service.providerId)?.available !== true
@@ -511,6 +551,7 @@ function toggleEventService(
 }
 
 function continueFromEventServices() {
+  if (planningOnly) { setStep(4); return; }
   if (!availabilityIsCurrent) {
     setSelectionAvailabilityError(
       "Provider availability must be checked again before you continue.",
@@ -706,6 +747,7 @@ function navigateToSubmittedBooking(
 }
 
 async function handleSubmitBooking() {
+  if (planningOnly) return;
   if (
     isSubmitting ||
     submissionResult
@@ -768,9 +810,7 @@ async function handleSubmitBooking() {
       currentSubmissionDraftKey();
 
     const clientRequestId =
-      getSubmissionClientRequestId(
-        draftKey,
-      );
+      await savedDraft.submissionId(draftKey, () => getSubmissionClientRequestId(draftKey));
 
     const input =
       buildSubmissionInput(
@@ -822,6 +862,7 @@ async function handleSubmitBooking() {
       );
 
     setSubmissionResult(result);
+    savedDraft.clear();
 
     navigateToSubmittedBooking(result);
   } catch (error) {
@@ -863,7 +904,7 @@ async function handleSubmitBooking() {
       return;
     }
 
-    if (!availabilityIsCurrent) {
+    if (!planningOnly && !availabilityIsCurrent) {
       setAvailabilityError(
         availabilityStatus === "loading"
           ? "Wait for the provider availability check to finish."
@@ -872,7 +913,7 @@ async function handleSubmitBooking() {
       return;
     }
 
-    if (primaryProviderAvailability?.available !== true) {
+    if (!planningOnly && primaryProviderAvailability?.available !== true) {
       setAvailabilityError(
         primaryProviderAvailability?.message ??
           "The selected package provider is unavailable for this event.",
@@ -897,14 +938,117 @@ async function handleSubmitBooking() {
     setStep(3);
   }
 
+  function requestLeave(href: string) {
+  if (
+    isSubmitting ||
+    submissionResult
+  ) {
+    router.push(href);
+    return;
+  }
+
+  /*
+   * State C:
+   * nothing meaningful changed from the
+   * original customization state.
+   */
+  if (
+    !savedDraft.isReady ||
+    !hasMeaningfulChanges
+  ) {
+    router.push(href);
+    return;
+  }
+
+  /*
+   * State A or B:
+   * meaningful customization exists.
+   */
+  if (leaveDialogOpen) {
+    return;
+  }
+
+  setPendingLeaveHref(href);
+  setLeaveDialogOpen(true);
+}
+
+function cancelLeave() {
+  setLeaveDialogOpen(false);
+  setPendingLeaveHref(null);
+}
+
+function leaveWithSavedDraft() {
+  const href = pendingLeaveHref;
+
+  if (!href) {
+    cancelLeave();
+    return;
+  }
+
+  /*
+   * If the newest edits have not yet reached
+   * the 400 ms autosave, persist them now.
+   */
+  if (
+    savedDraft.isDirty &&
+    !savedDraft.saveNow()
+  ) {
+    return;
+  }
+
+  setLeaveDialogOpen(false);
+  setPendingLeaveHref(null);
+
+  router.push(href);
+}
+
+function discardAndLeave() {
+  const href = pendingLeaveHref;
+
+  if (!href) {
+    cancelLeave();
+    return;
+  }
+
+  if (!savedDraft.discard()) {
+    return;
+  }
+
+  setLeaveDialogOpen(false);
+  setPendingLeaveHref(null);
+
+  router.push(href);
+}
+
   return (
     <div className="mx-auto grid w-full max-w-[1240px] min-w-0 gap-6">
+      <div
+        role="status"
+        aria-live="polite"
+        className="inline-flex min-h-9 items-center gap-2 rounded-full border border-primary/15 bg-primary/[0.06] px-3.5 py-2 text-sm font-semibold text-primary-strong"
+      >
+        <span
+          aria-hidden="true"
+          className="size-2 rounded-full bg-primary"
+        />
+
+        {savedDraft.status}
+      </div>
+      {savedDraft.choices.length ? <div className="flex flex-wrap gap-2" aria-label="Saved event plans">
+        {savedDraft.choices.map((choice) => <Button key={choice.key} variant="secondary" onClick={() => savedDraft.resume(choice)}>
+          Continue draft{choice.value.event.eventDate ? ` for ${choice.value.event.eventDate}` : " without a date"}
+        </Button>)}
+      </div> : null}
+      {planningOnly ? <p className="text-sm text-muted-foreground">Plan your event here. Sign in to check availability, review refund policies, and submit a booking. Nothing is reserved yet.</p> : null}
       {/* ============================================================
           BACK
          ============================================================ */}
 
-      <Link
-        href={packageHref}
+      <button
+        type="button"
+        onClick={() =>
+          requestLeave(packageHref)
+        }
         className={[
           "group inline-flex min-h-11 w-fit items-center gap-2",
           "rounded-full px-1 text-sm font-bold",
@@ -920,7 +1064,7 @@ async function handleSubmitBooking() {
         />
 
         Back to package
-      </Link>
+      </button>
 
       {/* ============================================================
           PAGE INTRO
@@ -1743,7 +1887,7 @@ async function handleSubmitBooking() {
                   <Button
                     type="button"
                     disabled={
-                      !availabilityIsCurrent ||
+                      (!planningOnly && !availabilityIsCurrent) ||
                       unavailableSelectedServices.length > 0
                     }
                     onClick={
@@ -1816,7 +1960,15 @@ async function handleSubmitBooking() {
               STEP 4 — REVIEW PLACEHOLDER
             ======================================================== */}
 
-          {step === 4 ? (
+          {step === 4 && planningOnly ? (
+            <div className="rounded-xl border bg-card p-5">
+              <h2 className="text-xl font-bold">Continue your saved plan</h2>
+              <p className="my-3 text-muted-foreground">Sign in and complete account verification to review current availability and each provider&apos;s refund policy. Your selections will be restored.</p>
+              <CustomerAuthLink href={`${packageHref}/book${initialEventContext ? `?${new URLSearchParams(Object.entries(initialEventContext).map(([key, value]) => [key, String(value)]))}` : ""}`}
+                returnTo={`${packageHref}/plan${initialEventContext ? `?${new URLSearchParams(Object.entries(initialEventContext).map(([key, value]) => [key, String(value)]))}` : ""}`} className="font-semibold text-primary underline">Sign in to continue</CustomerAuthLink>
+            </div>
+          ) : null}
+          {step === 4 && !planningOnly ? (
             <BookingReview
               packageRecord={packageRecord}
               providerName={provider.businessName}
@@ -2092,8 +2244,107 @@ async function handleSubmitBooking() {
             ) : null}
             </div>
           </section>
-        </aside>
+                </aside>
       </div>
+
+      {leaveDialogOpen ? (
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (
+              event.target ===
+              event.currentTarget
+            ) {
+              cancelLeave();
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="leave-customization-title"
+            aria-describedby="leave-customization-description"
+            className="w-full max-w-md rounded-[24px] border border-feasta-border-soft bg-white p-6 shadow-2xl"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                cancelLeave();
+              }
+            }}
+          >
+            <h2
+              id="leave-customization-title"
+              className="text-xl font-extrabold tracking-[-0.03em] text-foreground"
+            >
+              {savedDraft.isDirty
+                ? "Save your event plan before leaving?"
+                : "Leave this customization?"}
+            </h2>
+
+            <p
+              id="leave-customization-description"
+              className="mt-3 text-sm leading-6 text-feasta-text-secondary"
+            >
+              {savedDraft.isDirty
+                ? "You’ve made changes to this customization. Save them as a draft so you can continue planning later without starting over."
+                : "Your latest changes have been saved as a draft. You can continue where you left off when you return."}
+            </p>
+
+            <div className="mt-6 grid gap-3">
+              {savedDraft.isDirty ? (
+                <>
+                  <Button
+                    type="button"
+                    className="min-h-11 rounded-full"
+                    onClick={leaveWithSavedDraft}
+                  >
+                    Save draft & leave
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="min-h-11 rounded-full"
+                    onClick={discardAndLeave}
+                  >
+                    Discard changes
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    className="min-h-11 rounded-full"
+                    onClick={leaveWithSavedDraft}
+                  >
+                    Leave customization
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    className="min-h-11 rounded-full"
+                    onClick={discardAndLeave}
+                  >
+                    Discard saved draft
+                  </Button>
+                </>
+              )}
+
+              <Button
+                type="button"
+                variant="ghost"
+                className="min-h-11 rounded-full"
+                onClick={cancelLeave}
+              >
+                Continue editing
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
     </div>
   );
 }
