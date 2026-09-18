@@ -55,6 +55,9 @@ const libRoot = process.env.FEASTA_FUNCTIONS_LIB_DIR ??
       processPayMongoWebhook,
       paymentIdForProviderRequest,
     });
+    await attemptEvidenceTests({processPayMongoWebhook, paymentIdForProviderRequest});
+    await checkoutExpirationTests({processPayMongoWebhook, paymentIdForProviderRequest});
+    await attemptRulesTest();
 
     console.log(
       "Payment webhook emulator integration passed.",
@@ -84,6 +87,8 @@ async function paidAndReplayTest(input) {
     await db.doc(`payments/${seeded.paymentId}`).get()
   ).data();
   assert.equal(payment.status, "paid");
+  assert.equal((await db.doc(`payments/${seeded.paymentId}/gatewayPayments/pay_evt_paid_replay`)
+    .get()).data().gatewayPaidAt, undefined, "missing paid_at is never fabricated");
   assert.ok(
     payment.paidAt instanceof Timestamp,
     "paidAt must be backend-generated",
@@ -652,4 +657,155 @@ function eventBody({
       },
     },
   }));
+}
+
+async function attemptEvidenceTests(input) {
+  const seeded = await seed(input.paymentIdForProviderRequest, "attempt-history");
+  const ref = db.doc(`payments/${seeded.paymentId}`);
+  await ref.update({attemptSchemaVersion: 1, attemptCount: 2, currentCheckoutAttemptId: "new"});
+  for (const id of ["old", "new"]) {
+    await ref.collection("checkoutAttempts").doc(id).set({attemptId: id,
+      paymentId: seeded.paymentId, paymongoCheckoutId: `cs_${id}`,
+      resolution: id === "old" ? "expired" : "outstanding",
+      paymongoPaymentIds: [], paymongoPaymentIntentIds: []});
+  }
+  const raw = JSON.parse(eventBody({eventId: "evt_attempt_old", paymentId: seeded.paymentId}));
+  const attrs = raw.data.attributes.data.attributes;
+  attrs.metadata.feasta_checkout_attempt_id = "old";
+  attrs.payment_intent_id = "pi_old";
+  attrs.paid_at = 1700000010;
+  const historicalFailure = structuredClone(raw);
+  historicalFailure.data.id = "evt_historical_failed";
+  historicalFailure.data.attributes.type = "payment.failed";
+  assert.equal((await input.processPayMongoWebhook(Buffer.from(JSON.stringify(historicalFailure))))
+    .reason, "historical_attempt_notification");
+  assert.equal((await ref.get()).data().status, "processing");
+  assert.equal((await input.processPayMongoWebhook(Buffer.from(JSON.stringify(raw)))).applied, true);
+  const paid = (await ref.get()).data();
+  assert.equal(paid.status, "paid");
+  assert.equal(paid.paymongoResourceId, "pay_evt_attempt_old");
+  const evidenceRef = ref.collection("gatewayPayments").doc("pay_evt_attempt_old");
+  const evidence = (await evidenceRef.get()).data();
+  assert.equal(evidence.gatewayPaidAt.toMillis(), 1700000010000);
+  assert.ok(evidence.processedAt.toMillis() > evidence.gatewayPaidAt.toMillis());
+  assert.equal(evidence.checkoutAttemptId, "old");
+  assert.equal((await ref.collection("checkoutAttempts").doc("old").get()).data().resolution, "success");
+  assert.equal((await ref.collection("checkoutAttempts").doc("new").get()).data().resolution, "outstanding");
+  raw.data.id = "evt_attempt_same_payment";
+  assert.equal((await input.processPayMongoWebhook(Buffer.from(JSON.stringify(raw)))).duplicate, true);
+  assert.equal((await ref.collection("gatewayPayments").get()).size, 1);
+  assert.equal((await ref.get()).data().paidAt.toMillis(), paid.paidAt.toMillis());
+  raw.data.id = "evt_attempt_distinct_charge";
+  raw.data.attributes.data.id = "pay_distinct_charge";
+  attrs.metadata.feasta_checkout_attempt_id = "new";
+  attrs.payment_intent_id = "pi_new";
+  const conflict = await input.processPayMongoWebhook(Buffer.from(JSON.stringify(raw)));
+  assert.equal(conflict.reason, "distinct_gateway_payment_success");
+  assert.equal(conflict.duplicate, false);
+  assert.equal((await ref.collection("gatewayPayments").get()).size, 2);
+  assert.equal((await ref.get()).data().paymongoResourceId, paid.paymongoResourceId);
+  assert.equal((await ref.get()).data().reconciliationRequired, true);
+  assert.equal((await ref.get()).data().paidAt.toMillis(), paid.paidAt.toMillis());
+
+  const {reconcileCheckoutAttempts, readCheckoutAttemptResolution} = require(path.join(
+    libRoot, "payments/checkout-attempt-reconciliation.js"));
+  assert.equal((await readCheckoutAttemptResolution(seeded.paymentId)).resolution, "success");
+  const retrievalSeed = await seed(input.paymentIdForProviderRequest, "attempt-retrieval");
+  const retrieveRef = db.doc(`payments/${retrievalSeed.paymentId}`);
+  await retrieveRef.update({attemptSchemaVersion: 1, attemptCount: 1, currentCheckoutAttemptId: "only"});
+  await retrieveRef.collection("checkoutAttempts").doc("only").set({attemptId: "only",
+    paymentId: retrievalSeed.paymentId, paymongoCheckoutId: "cs_retrieved", resolution: "outstanding"});
+  const response = {data: {id: "cs_retrieved", type: "checkout_session", attributes: {
+    status: "active", metadata: {payment_id: retrievalSeed.paymentId,
+      feasta_checkout_attempt_id: "only", customer_id: "customer-webhook-test",
+      provider_request_id: retrievalSeed.providerRequestId, booking_id: retrievalSeed.mainEventId},
+    payment_intent: {id: "pi_latest"}, payments: [
+      {id: "pay_failed_attempt", type: "payment", attributes: {status: "failed", payment_intent_id: "pi_earlier"}},
+      {id: "pay_retrieved", type: "payment", attributes: {status: "paid", amount: 1350000,
+        currency: "PHP", payment_intent_id: "pi_latest", paid_at: 1700000001}},
+    ],
+  }}};
+  const resolved = await reconcileCheckoutAttempts({paymentId: retrievalSeed.paymentId,
+    secretKey: "stub-secret", retrieve: async () => response});
+  assert.equal(resolved.resolution, "success");
+  assert.equal(resolved.attempts.length, 1);
+  assert.deepEqual(new Set(resolved.attempts[0].paymongoPaymentIntentIds), new Set(["pi_earlier", "pi_latest"]));
+  assert.deepEqual(new Set(resolved.attempts[0].paymongoPaymentIds), new Set(["pay_failed_attempt", "pay_retrieved"]));
+  assert.equal(resolved.successfulPayments[0].gatewayPaidAt.toMillis(), 1700000001000);
+  assert.equal((await retrieveRef.get()).data().paidAt, null, "retrieval does not redefine paidAt");
+  assert.equal((await retrieveRef.get()).data().reconciliationRequired, true);
+  assert.equal((await db.doc(`providerRequests/${retrievalSeed.providerRequestId}`).get()).data().status,
+    "payment_processing", "retrieval alone cannot revive or confirm bookings");
+  response.data.attributes.status = "expired";
+  response.data.attributes.payments = [];
+  const stale = await reconcileCheckoutAttempts({paymentId: retrievalSeed.paymentId,
+    secretKey: "stub-secret", retrieve: async () => response});
+  assert.equal(stale.resolution, "success", "stale retrieval cannot erase known financial truth");
+
+  const unknownSeed = await seed(input.paymentIdForProviderRequest, "attempt-unknown");
+  const unknownRef = db.doc(`payments/${unknownSeed.paymentId}`);
+  await unknownRef.update({attemptSchemaVersion: 1, attemptCount: 0, currentCheckoutAttemptId: null});
+  const unknown = JSON.parse(eventBody({eventId: "evt_unknown_attempt", paymentId: unknownSeed.paymentId}));
+  unknown.data.attributes.data.attributes.metadata.feasta_checkout_attempt_id = "forged";
+  const denied = await input.processPayMongoWebhook(Buffer.from(JSON.stringify(unknown)));
+  assert.equal(denied.reason, "checkout_attempt_correlation_conflict");
+  assert.equal((await unknownRef.get()).data().status, "processing");
+  assert.equal((await unknownRef.collection("gatewayPayments").get()).size, 1,
+    "unapplied financial evidence remains available for reconciliation");
+}
+
+async function checkoutExpirationTests(input) {
+  const {readCheckoutAttemptResolution} = require(path.join(
+    libRoot, "payments/checkout-attempt-reconciliation.js"));
+  const {isAuthoritativelyTerminalUnsuccessful} = require(path.join(
+    libRoot, "payments/checkout-attempt-domain.js"));
+  const intents = [undefined, null, {id: "pi_expiration"}, "pi_expiration"];
+  for (const [index, intent] of intents.entries()) {
+    const seeded = await seed(input.paymentIdForProviderRequest, `checkout-expiration-${index}`);
+    const ref = db.doc(`payments/${seeded.paymentId}`);
+    const checkoutId = `cs_expiration_${index}`;
+    await ref.update({attemptSchemaVersion: 1, attemptCount: 1,
+      currentCheckoutAttemptId: "expiration", paymongoCheckoutId: checkoutId});
+    const attemptRef = ref.collection("checkoutAttempts").doc("expiration");
+    await attemptRef.set({attemptId: "expiration", paymentId: seeded.paymentId,
+      paymongoCheckoutId: checkoutId, resolution: "outstanding",
+      paymongoPaymentIds: [], paymongoPaymentIntentIds: []});
+    const raw = Buffer.from(JSON.stringify({data: {id: `evt_checkout_expiration_${index}`,
+      type: "event", attributes: {type: "checkout_session.expired",
+        data: {id: checkoutId, type: "checkout_session", attributes: {
+          amount: 1350000, currency: "PHP", payment_intent: intent,
+          metadata: {payment_id: seeded.paymentId, feasta_checkout_attempt_id: "expiration"},
+        }}}}}));
+    assert.equal((await input.processPayMongoWebhook(raw)).applied, true);
+    const payment = (await ref.get()).data();
+    assert.equal(payment.status, "expired");
+    assert.equal(payment.paidAt, null);
+    assert.equal(payment.gatewayPaidAt, undefined);
+    assert.equal((await ref.collection("gatewayPayments").get()).size, 0);
+    const attempt = (await attemptRef.get()).data();
+    assert.equal(attempt.resolution, "outstanding");
+    assert.equal(attempt.terminalEvidence, undefined);
+    assert.equal(isAuthoritativelyTerminalUnsuccessful(attempt), false);
+    assert.equal((await readCheckoutAttemptResolution(seeded.paymentId)).resolution, "unresolved");
+    assert.equal((await db.doc(`providerRequests/${seeded.providerRequestId}`).get()).data().status,
+      "waiting_for_down_payment");
+    assert.notEqual((await db.doc(`mainEvents/${seeded.mainEventId}`).get()).data().status, "confirmed");
+    assert.equal((await input.processPayMongoWebhook(raw)).duplicate, true);
+  }
+}
+
+async function attemptRulesTest() {
+  const {initializeTestEnvironment, assertFails} = require("@firebase/rules-unit-testing");
+  const {doc, setDoc} = require("firebase/firestore");
+  const [host, port] = process.env.FIRESTORE_EMULATOR_HOST.split(":");
+  const environment = await initializeTestEnvironment({projectId, firestore: {host, port: Number(port)}});
+  try {
+    for (const context of [environment.unauthenticatedContext(),
+      environment.authenticatedContext("customer-webhook-test")]) {
+      for (const collection of ["checkoutAttempts", "gatewayPayments"]) {
+        await assertFails(setDoc(doc(context.firestore(), `payments/forged/${collection}/forged`),
+          {gatewayPaidAt: new Date(), resolution: "success", idempotencyKey: "forged"}));
+      }
+    }
+  } finally {await environment.cleanup();}
 }

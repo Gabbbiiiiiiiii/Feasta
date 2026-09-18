@@ -48,6 +48,7 @@ import {
   providerOperationalReason,
   webhookLifecycleConflictReason,
 } from "./payment-lifecycle.js";
+import {recordAttemptEvidence} from "./payment-attempt-evidence.js";
 
 type WebhookResult = {
   duplicate: boolean;
@@ -351,6 +352,10 @@ export async function processPayMongoWebhook(
       const activeCancellationSnapshot = activeCancellationReference
         ? await transaction.get(activeCancellationReference)
         : null;
+      const [attemptsSnapshot, successesSnapshot] = await Promise.all([
+        transaction.get(paymentReference.collection("checkoutAttempts")),
+        transaction.get(paymentReference.collection("gatewayPayments")),
+      ]);
 
       const paymentLinkageReason =
         canonicalPaymentLinkageReason({
@@ -462,6 +467,21 @@ export async function processPayMongoWebhook(
             nextStatus === "paid",
         });
 
+      // Validate money even for an already-applied/terminal logical payment.
+      // Delivery deduplication must not hide a second distinct financial charge.
+      let evidenceConflict: string | null = null;
+      if (nextStatus !== "refunded" && payment.amountInCentavos === event.amountInCentavos &&
+        payment.currency === "PHP" && event.currency === "PHP") {
+        evidenceConflict = recordAttemptEvidence({transaction, paymentRef: paymentReference,
+          payment, attempts: attemptsSnapshot, successes: successesSnapshot, event,
+          source: "webhook"});
+      }
+      if (evidenceConflict) {
+        transaction.set(eventReference, webhookRecord(event,
+          "processed_with_conflict", evidenceConflict));
+        return {duplicate: false, applied: false, conflict: true, reason: evidenceConflict};
+      }
+
       if (validationReason) {
         const webhookStatus =
           validationReason ===
@@ -486,6 +506,23 @@ export async function processPayMongoWebhook(
           applied: false,
           reason: validationReason,
         };
+      }
+
+      if (payment.attemptSchemaVersion === 1 &&
+        (nextStatus === "failed" || nextStatus === "expired")) {
+        const current = attemptsSnapshot.docs.find(
+          (item) => item.id === payment.currentCheckoutAttemptId);
+        const data = current?.data();
+        const targetsCurrent = current && (event.checkoutAttemptId === current.id ||
+          (event.checkoutId && event.checkoutId === data?.paymongoCheckoutId) ||
+          (event.paymentIntentId &&
+            data?.paymongoPaymentIntentIds?.includes(event.paymentIntentId)) ||
+          data?.paymongoPaymentIds?.includes(event.gatewayResourceId));
+        if (!targetsCurrent) {
+          const reason = "historical_attempt_notification";
+          transaction.set(eventReference, webhookRecord(event, "ignored", reason));
+          return {duplicate: false, applied: false, reason};
+        }
       }
 
       const timestamp =

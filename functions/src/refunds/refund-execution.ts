@@ -1,4 +1,5 @@
 import {Timestamp} from "firebase-admin/firestore";
+import {PAYMONGO_SAFE_RETRY_WINDOW_MS} from "../payments/checkout-attempt-domain.js";
 import {defineSecret} from "firebase-functions/params";
 import {
   HttpsError,
@@ -1626,7 +1627,7 @@ function assertGatewayRetryWindow(
   }
 
   const requestedAt = operation.gatewayRequestedAt;
-  const conservativeWindowMs = 23 * 60 * 60 * 1_000;
+  const conservativeWindowMs = PAYMONGO_SAFE_RETRY_WINDOW_MS;
   if (
     !(requestedAt instanceof Timestamp) ||
     Timestamp.now().toMillis() - requestedAt.toMillis() >=

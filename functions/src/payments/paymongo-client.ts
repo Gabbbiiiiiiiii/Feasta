@@ -5,6 +5,8 @@ import {
 type CheckoutSession = {
   id: string;
   checkoutUrl: string;
+  paymentIntentIds?: string[];
+  paymentIds?: string[];
 };
 
 export type PayMongoFailureCertainty =
@@ -54,6 +56,7 @@ export async function createPayMongoCheckout(
     secretKey: string;
     idempotencyKey: string;
     paymentId: string;
+    checkoutAttemptId?: string;
     bookingId: string;
     providerRequestId: string;
     customerId: string;
@@ -107,6 +110,9 @@ export async function createPayMongoCheckout(
                 input.description,
 
               metadata: {
+                ...(input.checkoutAttemptId ? {
+                  feasta_checkout_attempt_id: input.checkoutAttemptId,
+                } : {}),
                 payment_id:
                   input.paymentId,
                 booking_id:
@@ -143,9 +149,24 @@ export async function createPayMongoCheckout(
       "PayMongo checkout URL",
     );
 
+    const paymentIds = new Set<string>();
+    const paymentIntentIds = new Set<string>();
+    if (attributes.payment_intent) {
+      paymentIntentIds.add(requireString(asRecord(attributes.payment_intent).id, "intent ID"));
+    }
+    if (Array.isArray(attributes.payments)) {
+      for (const value of attributes.payments) {
+        const payment = asRecord(value);
+        paymentIds.add(requireString(payment.id, "payment ID"));
+        const intentId = asRecord(payment.attributes).payment_intent_id;
+        if (intentId) paymentIntentIds.add(requireString(intentId, "intent ID"));
+      }
+    }
     return {
       id,
       checkoutUrl,
+      paymentIds: [...paymentIds],
+      paymentIntentIds: [...paymentIntentIds],
     };
   } catch (error) {
     if (error instanceof PayMongoRequestError) {
@@ -162,6 +183,16 @@ export async function createPayMongoCheckout(
       "ambiguous",
     );
   }
+}
+
+/** Server-only retrieval of known sessions; no credentials/payloads are logged. */
+export async function retrievePayMongoCheckout(
+  secretKey: string, checkoutId: string,
+): Promise<unknown> {
+  if (!/^cs_[A-Za-z0-9_]+$/u.test(checkoutId)) {
+    throw new PayMongoRequestError("PayMongo checkout ID is invalid.", "not_sent");
+  }
+  return payMongoRequest(secretKey, `/v1/checkout_sessions/${checkoutId}`, {method: "GET"});
 }
 
 export async function createPayMongoRefund(

@@ -5,6 +5,7 @@ import {
 import {
   defineSecret,
 } from "firebase-functions/params";
+import {createDurableCheckout} from "./checkout-attempts.js";
 
 import {
   areAllAssignedProvidersAccepted,
@@ -435,6 +436,12 @@ export async function createPaymentSessionForCustomer(
       }
 
       if (existing) {
+        if (existing.reconciliationRequired) {
+          throw new HttpsError("failed-precondition", "Payment requires reconciliation.");
+        }
+        if (existing.status === "processing" && providerRequest.paymentId !== paymentId) {
+          throw invalidLinkage();
+        }
         if (
           canonicalPaymentLinkageReason({
             paymentId,
@@ -453,7 +460,7 @@ export async function createPaymentSessionForCustomer(
           );
         }
 
-        if (existing.status === "processing") {
+        if (existing.status === "processing" && existing.attemptSchemaVersion !== 1) {
           if (
             providerRequest.paymentId !==
               paymentId ||
@@ -477,6 +484,10 @@ export async function createPaymentSessionForCustomer(
           };
         }
 
+        if (existing.attemptSchemaVersion !== 1) {
+          throw new HttpsError("failed-precondition",
+            "Legacy checkout history requires reconciliation before another dispatch.");
+        }
         return {
           created: false,
           bookingId,
@@ -506,6 +517,9 @@ export async function createPaymentSessionForCustomer(
           status: "pending",
           checkoutCreationStatus:
             "pending",
+          attemptSchemaVersion: 1,
+          attemptCount: 0,
+          currentCheckoutAttemptId: null,
           clientRequestHash:
             requestHash,
           paidAt: null,
@@ -566,7 +580,7 @@ export async function createPaymentSessionForCustomer(
     Awaited<ReturnType<CheckoutCreator>>;
 
   try {
-    checkout = await createCheckout({
+    checkout = await createDurableCheckout({
       secretKey: input.secretKey,
       idempotencyKey: paymentId,
       paymentId,
@@ -581,8 +595,9 @@ export async function createPaymentSessionForCustomer(
         "FEASTA provider down payment",
       successUrl: input.successUrl,
       cancelUrl: input.cancelUrl,
-    });
+    }, createCheckout);
   } catch (error) {
+    if (error instanceof HttpsError && error.code === "failed-precondition") throw error;
     const recoveredCheckoutUrl =
       await recordCheckoutFailure({
         customerId,
@@ -717,6 +732,19 @@ async function persistCheckout(
         bookingSnapshot.data() ?? {};
       const provider =
         providerSnapshot.data() ?? {};
+
+      if (payment.attemptSchemaVersion === 1) {
+        if (payment.reconciliationRequired ||
+          typeof payment.currentCheckoutAttemptId !== "string") {
+          throw new HttpsError("failed-precondition", "Payment requires reconciliation.");
+        }
+        const attempt = (await transaction.get(paymentReference.collection("checkoutAttempts")
+          .doc(payment.currentCheckoutAttemptId))).data();
+        if (!attempt || attempt.paymongoCheckoutId !== input.checkout.id ||
+          attempt.resolution !== "outstanding") {
+          throw new HttpsError("failed-precondition", "Checkout attempt is no longer current.");
+        }
+      }
 
       const providerOwnerId =
         stringValue(provider.ownerId);
@@ -996,6 +1024,7 @@ async function recordCheckoutFailure(
 
       if (
         payment.status === "processing" &&
+        payment.attemptSchemaVersion !== 1 &&
         !validStoredCheckoutReason(payment)
       ) {
         return payment.checkoutUrl as string;

@@ -6,6 +6,7 @@ const {
 } = require("firebase-admin/app");
 const {
   getFirestore,
+  Timestamp,
 } = require("firebase-admin/firestore");
 
 const projectId = process.env.GCLOUD_PROJECT ??
@@ -63,6 +64,8 @@ const libRoot = process.env.FEASTA_FUNCTIONS_LIB_DIR ??
     await ownershipTest({
       createPaymentSessionForCustomer,
     });
+    await durableAttemptTests({createPaymentSessionForCustomer, paymentIdForProviderRequest,
+      PayMongoRequestError});
 
     console.log(
       "Payment checkout emulator integration passed.",
@@ -142,6 +145,10 @@ async function concurrentCheckoutTest(input) {
     await db.doc(`providerRequests/${requestId}`).get()
   ).data();
   assert.equal(payment.status, "processing");
+  const attempts = await db.collection(`payments/${paymentId}/checkoutAttempts`).get();
+  assert.equal(attempts.size, 1, "concurrent calls share one durable attempt");
+  assert.equal(attempts.docs[0].data().paymongoCheckoutId, "cs_concurrent_checkout");
+  assert.equal(new Set(gatewayInputs.map(value => value.checkoutAttemptId)).size, 1);
   assert.equal(payment.checkoutCreationStatus, "created");
   assert.equal(payment.checkoutUrl,
     "https://checkout.paymongo.com/concurrent-checkout");
@@ -405,6 +412,111 @@ async function ownershipTest(input) {
     }),
     (error) => error.code === "permission-denied",
   );
+}
+
+async function durableAttemptTests(input) {
+  const requestId = "request-durable-attempts";
+  await seedEvent({eventId: "event-durable-attempts",
+    requests: [{requestId, providerId: "provider-durable-attempts"}]});
+  const paymentId = input.paymentIdForProviderRequest(requestId);
+  const paymentRef = db.doc(`payments/${paymentId}`);
+  const attemptsRef = paymentRef.collection("checkoutAttempts");
+  const calls = [];
+  const ambiguous = async value => {
+    calls.push(value);
+    const saved = await attemptsRef.doc(value.checkoutAttemptId).get();
+    assert.equal(saved.exists, true, "attempt must exist before dispatch");
+    assert.ok(saved.data().firstDispatchAt instanceof Timestamp);
+    assert.equal(saved.data().resolution, "unresolved");
+    throw new input.PayMongoRequestError("ambiguous", "ambiguous");
+  };
+  for (let i = 0; i < 2; i++) {
+    await assert.rejects(createSession(input.createPaymentSessionForCustomer,
+      {requestId, clientKey: `durable-${i}`, createCheckout: ambiguous}),
+    error => error.code === "unavailable");
+  }
+  assert.equal(calls[0].idempotencyKey, calls[1].idempotencyKey);
+  assert.equal(calls[0].checkoutAttemptId, calls[1].checkoutAttemptId);
+  assert.equal((await attemptsRef.get()).size, 1);
+  const oldRef = attemptsRef.doc(calls[0].checkoutAttemptId);
+  const firstDispatch = (await oldRef.get()).data().firstDispatchAt;
+  await oldRef.update({idempotencyKey: "corrupted-key"});
+  await assert.rejects(createSession(input.createPaymentSessionForCustomer,
+    {requestId, clientKey: "durable-corrupt-key", createCheckout: unexpectedGateway}),
+  error => error.code === "failed-precondition");
+  await oldRef.update({idempotencyKey: calls[0].idempotencyKey});
+  await oldRef.update({firstDispatchAt: Timestamp.fromMillis(Date.now() - 24 * 3600000)});
+  await assert.rejects(createSession(input.createPaymentSessionForCustomer,
+    {requestId, clientKey: "durable-too-old", createCheckout: unexpectedGateway}),
+  error => error.code === "failed-precondition");
+  assert.equal((await oldRef.get()).data().resolution, "unresolved");
+  assert.equal((await attemptsRef.get()).size, 1);
+  const {readCheckoutAttemptResolution, reconcileCheckoutAttempts} = require(path.join(
+    libRoot, "payments/checkout-attempt-reconciliation.js"));
+  for (const resolution of ["failed", "expired"]) {
+    await oldRef.update({resolution});
+    await assert.rejects(createSession(input.createPaymentSessionForCustomer,
+      {requestId, clientKey: `durable-unproven-${resolution}`, createCheckout: unexpectedGateway}),
+    error => error.code === "failed-precondition");
+    assert.equal((await readCheckoutAttemptResolution(paymentId)).resolution, "unresolved");
+    assert.equal((await attemptsRef.get()).size, 1);
+  }
+  // Synthetic trusted issuer fixture. No production adapter currently issues proof.
+  const terminalEvidence = {schemaVersion: 1, authority: "paymongo",
+    outcome: "terminal_unsuccessful", irreversible: true, exhaustive: true,
+    evidenceReference: "test-authoritative-settlement", paymentId,
+    attemptId: oldRef.id, checkoutId: "cs_terminal_fixture", paymentIntentIds: [], paymentIds: []};
+  await oldRef.update({paymongoCheckoutId: "cs_terminal_fixture"});
+  for (const malformed of ["test-authoritative-settlement", {},
+    {...terminalEvidence, attemptId: "another-attempt"},
+    {...terminalEvidence, exhaustive: false}]) {
+    await oldRef.update({terminalEvidence: malformed});
+    await assert.rejects(createSession(input.createPaymentSessionForCustomer,
+      {requestId, clientKey: "durable-malformed-proof", createCheckout: unexpectedGateway}),
+    error => error.code === "failed-precondition");
+    assert.equal((await readCheckoutAttemptResolution(paymentId)).resolution, "unresolved");
+    assert.equal((await attemptsRef.get()).size, 1);
+  }
+  await oldRef.update({terminalEvidence});
+  assert.equal((await readCheckoutAttemptResolution(paymentId)).resolution, "definitely_unpaid");
+  let newInput;
+  await createSession(input.createPaymentSessionForCustomer, {requestId, clientKey: "durable-new",
+    createCheckout: async value => {
+      newInput = value;
+      return {id: "cs_durable_new", checkoutUrl: "https://checkout.paymongo.com/durable-new"};
+    }});
+  assert.notEqual(newInput.checkoutAttemptId, calls[0].checkoutAttemptId);
+  assert.notEqual(newInput.idempotencyKey, calls[0].idempotencyKey);
+  assert.equal((await attemptsRef.get()).size, 2);
+  assert.ok((await attemptsRef.doc(newInput.checkoutAttemptId).get()).data()
+    .firstDispatchAt.toMillis() >= firstDispatch.toMillis());
+  assert.equal((await oldRef.get()).exists, true);
+  assert.equal((await readCheckoutAttemptResolution(paymentId)).resolution, "unresolved");
+  for (const resolution of ["failed", "expired"]) {
+    await oldRef.update({resolution, terminalEvidence: {}});
+    await assert.rejects(createSession(input.createPaymentSessionForCustomer,
+      {requestId, clientKey: `durable-older-unproven-${resolution}`, createCheckout: unexpectedGateway}),
+    error => error.code === "failed-precondition");
+    assert.equal((await attemptsRef.get()).size, 2);
+  }
+  await oldRef.update({resolution: "unresolved"});
+  await assert.rejects(createSession(input.createPaymentSessionForCustomer,
+    {requestId, clientKey: "durable-older-unknown", createCheckout: unexpectedGateway}),
+  error => error.code === "failed-precondition");
+  const resolution = await reconcileCheckoutAttempts({paymentId, secretKey: "test-secret",
+    retrieve: async () => {throw new Error("network down");}});
+  assert.equal(resolution.resolution, "unresolved");
+  assert.equal(resolution.attempts.length, 2);
+
+  // Legacy records have no invented attempts or gateway completion timestamp.
+  const legacyId = "legacy-checkout-resolution";
+  await db.doc(`payments/${legacyId}`).set({status: "expired", paidAt: Timestamp.now(),
+    paymongoCheckoutId: "cs_legacy"});
+  const legacy = await readCheckoutAttemptResolution(legacyId);
+  assert.equal(legacy.historyComplete, false);
+  assert.equal(legacy.resolution, "unresolved");
+  assert.equal(legacy.attempts.length, 0);
+  assert.equal(legacy.successfulPayments.length, 0);
 }
 
 async function createSession(createPaymentSessionForCustomer, input) {

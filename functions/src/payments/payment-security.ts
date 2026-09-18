@@ -14,7 +14,15 @@ import {
   type PayMongoRefundResource,
 } from "./paymongo-client.js";
 
+import {gatewayPaidAtMillis} from "./checkout-attempt-domain.js";
+
 const MAX_WEBHOOK_AGE_SECONDS = 5 * 60;
+
+export type GatewayPaymentEvidence = {
+  id: string;
+  paymentIntentId: string | null;
+  gatewayPaidAtMs: number | null;
+};
 
 export type PayMongoPaymentEvent = {
   kind: "payment";
@@ -24,6 +32,12 @@ export type PayMongoPaymentEvent = {
   gatewayResourceId: string;
   amountInCentavos: number;
   currency: string;
+  checkoutAttemptId: string | null;
+  checkoutId: string | null;
+  paymentIntentId: string | null;
+  paymentIds: string[];
+  paymentIntentIds: string[];
+  successfulPayments: GatewayPaymentEvidence[];
 };
 
 export type PayMongoRefundEvent = {
@@ -146,6 +160,10 @@ export function parsePayMongoWebhookEvent(
   const resourceType = requireString(resource.type, "resource type");
   const eventId = requireString(event.id, "event id");
   const eventType = requireString(eventAttributes.type, "event type");
+  if ((eventType === "payment.paid" && resourceType !== "payment") ||
+    (eventType === "checkout_session.payment.paid" && resourceType !== "checkout_session")) {
+    throw new Error("Gateway event resource type mismatch.");
+  }
 
   if (resourceType === "refund") {
     const refund = parsePayMongoRefundResource({data: resource});
@@ -175,18 +193,70 @@ export function parsePayMongoWebhookEvent(
     "payment metadata id",
   );
 
-  const gatewayResourceId = requireString(
+  let gatewayResourceId = requireString(
     resource.id,
     "gateway resource id",
   );
 
-  const amountInCentavos =
+  let amountInCentavos =
     attributes.amount;
 
-  const currency = requireString(
-    attributes.currency,
-    "currency",
-  ).toUpperCase();
+  let currencyValue = attributes.currency;
+  const successfulPayments: GatewayPaymentEvidence[] = [];
+  const paymentIds = new Set<string>();
+  const paymentIntentIds = new Set<string>();
+  if (resourceType === "payment") paymentIds.add(gatewayResourceId);
+  const checkoutId = resourceType === "checkout_session" ? gatewayResourceId : null;
+  let paymentIntentId = resourceType === "payment_intent" ? gatewayResourceId :
+    optionalGatewayId(attributes.payment_intent_id);
+  if (resourceType === "checkout_session") {
+    const intent = attributes.payment_intent && typeof attributes.payment_intent === "object" ?
+      attributes.payment_intent as Record<string, unknown> : {};
+    paymentIntentId = typeof attributes.payment_intent === "string" ?
+      optionalGatewayId(attributes.payment_intent) : optionalGatewayId(intent.id);
+    const payments = Array.isArray(attributes.payments) ? attributes.payments : [];
+    for (const value of payments) {
+      const item = requireRecord(value, "checkout payment");
+      const attrs = requireRecord(item.attributes, "payment attributes");
+      const id = optionalGatewayId(item.id);
+      if (item.type !== "payment" || !id?.startsWith("pay_")) {
+        throw new Error("Invalid checkout payment identity.");
+      }
+      paymentIds.add(id);
+      const intentId = optionalGatewayId(attrs.payment_intent_id);
+      if (intentId) paymentIntentIds.add(intentId);
+    }
+    const paid = payments.map((value) => requireRecord(value, "checkout payment"))
+      .filter((value) => requireRecord(value.attributes, "payment attributes").status === "paid");
+    if (eventType === "checkout_session.payment.paid") {
+      if (paid.length === 0) throw new Error("Checkout payment evidence missing.");
+      const first = requireRecord(paid[0].attributes, "payment attributes");
+      amountInCentavos = first.amount;
+      currencyValue = first.currency;
+      gatewayResourceId = requireString(paid[0].id, "payment id");
+      for (const value of paid) {
+        const data = requireRecord(value.attributes, "payment attributes");
+        if (value.type !== "payment" || data.amount !== amountInCentavos ||
+          data.currency !== currencyValue) {
+          throw new Error("Checkout payment relationship is invalid.");
+        }
+        successfulPayments.push(paymentEvidence(value.id, data));
+      }
+    } else if (amountInCentavos === undefined && currencyValue === undefined &&
+      intent.attributes !== undefined) {
+      // Preserve resource-level amount/currency for non-success notifications.
+      // An expanded intent is an optional fallback, never a settlement proof.
+      const intentAttributes = requireRecord(intent.attributes, "payment intent attributes");
+      amountInCentavos = intentAttributes.amount;
+      currencyValue = intentAttributes.currency;
+    }
+  } else if (resourceType === "payment" && eventType === "payment.paid") {
+    if (attributes.status !== undefined && attributes.status !== "paid") {
+      throw new Error("Payment success status is invalid.");
+    }
+    successfulPayments.push(paymentEvidence(resource.id, attributes));
+  }
+  const currency = requireString(currencyValue, "currency").toUpperCase();
 
   if (
     typeof amountInCentavos !== "number" ||
@@ -200,6 +270,7 @@ export function parsePayMongoWebhookEvent(
     );
   }
 
+  if (paymentIntentId) paymentIntentIds.add(paymentIntentId);
   return {
     kind: "payment",
     eventId,
@@ -208,7 +279,27 @@ export function parsePayMongoWebhookEvent(
     gatewayResourceId,
     amountInCentavos,
     currency,
+    checkoutAttemptId: optionalGatewayId(metadata.feasta_checkout_attempt_id),
+    checkoutId,
+    paymentIntentId,
+    paymentIds: [...paymentIds],
+    paymentIntentIds: [...paymentIntentIds],
+    successfulPayments,
   };
+}
+
+function optionalGatewayId(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const id = requireString(value, "gateway relationship id");
+  if (!/^[A-Za-z0-9_-]{1,160}$/u.test(id)) throw new Error("Invalid gateway relationship id.");
+  return id;
+}
+
+function paymentEvidence(id: unknown, data: Record<string, unknown>): GatewayPaymentEvidence {
+  const paymentId = optionalGatewayId(id);
+  if (!paymentId?.startsWith("pay_")) throw new Error("Invalid gateway payment id.");
+  return {id: paymentId, paymentIntentId: optionalGatewayId(data.payment_intent_id),
+    gatewayPaidAtMs: gatewayPaidAtMillis(data.paid_at)};
 }
 
 export function statusForPayMongoEvent(
@@ -245,6 +336,9 @@ export function validateTrustedPaymentUpdate(
     allowFailedToPaidRecovery?: boolean;
   },
 ): string | null {
+  if (input.expectedAmountInCentavos !== input.actualAmountInCentavos) return "amount_mismatch";
+  if (input.expectedCurrency !== PAYMENT_CURRENCY ||
+    input.actualCurrency !== PAYMENT_CURRENCY) return "currency_mismatch";
   if (
     !PAYMENT_STATUSES.includes(
       input.currentStatus as PaymentStatus,
@@ -271,22 +365,6 @@ export function validateTrustedPaymentUpdate(
     return currentStatus === input.nextStatus
       ? "already_applied"
       : "invalid_transition";
-  }
-
-  if (
-    input.expectedAmountInCentavos !==
-    input.actualAmountInCentavos
-  ) {
-    return "amount_mismatch";
-  }
-
-  if (
-    input.expectedCurrency !==
-      PAYMENT_CURRENCY ||
-    input.actualCurrency !==
-      PAYMENT_CURRENCY
-  ) {
-    return "currency_mismatch";
   }
 
   return null;
