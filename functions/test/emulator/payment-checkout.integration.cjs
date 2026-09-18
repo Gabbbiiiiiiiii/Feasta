@@ -52,6 +52,9 @@ const libRoot = process.env.FEASTA_FUNCTIONS_LIB_DIR ??
       createPaymentSessionForCustomer,
       cancellationRequestIdForAttempt,
     });
+    await allAssignedProvidersAcceptedTest({
+      createPaymentSessionForCustomer,
+    });
     await ambiguousFailureTest({
       createPaymentSessionForCustomer,
       paymentIdForProviderRequest,
@@ -250,6 +253,116 @@ async function cachedCheckoutGuardTests(input) {
       createCheckout: unexpectedGateway,
     }),
     (error) => error.code === "failed-precondition",
+  );
+}
+
+async function allAssignedProvidersAcceptedTest(input) {
+  const blockedStatuses = [
+    "pending",
+    "rejected",
+    "cancelled",
+    "expired",
+  ];
+
+  for (const blockedStatus of blockedStatuses) {
+    const eventId =
+      `event-all-provider-gate-${blockedStatus}`;
+    const readyRequestId =
+      `request-ready-${blockedStatus}`;
+    const blockedRequestId =
+      `request-blocked-${blockedStatus}`;
+
+    await seedEvent({
+      eventId,
+      requests: [
+        {
+          requestId: readyRequestId,
+          providerId:
+            `provider-ready-${blockedStatus}`,
+        },
+        {
+          requestId: blockedRequestId,
+          providerId:
+            `provider-blocked-${blockedStatus}`,
+        },
+      ],
+    });
+
+    await db.doc(
+      `providerRequests/${blockedRequestId}`,
+    ).update({
+      status: blockedStatus,
+    });
+
+    await assert.rejects(
+      createSession(
+        input.createPaymentSessionForCustomer,
+        {
+          requestId: readyRequestId,
+          clientKey:
+            `all-provider-gate-${blockedStatus}`,
+          createCheckout: unexpectedGateway,
+        },
+      ),
+      (error) =>
+        error.code === "failed-precondition",
+      blockedStatus,
+    );
+
+    const readyRequest = (
+      await db.doc(
+        `providerRequests/${readyRequestId}`,
+      ).get()
+    ).data();
+
+    assert.equal(
+      readyRequest.status,
+      "waiting_for_down_payment",
+    );
+    assert.equal(
+      readyRequest.paymentStatus,
+      "unpaid",
+    );
+  }
+
+  const allowedEventId =
+    "event-all-providers-accepted";
+  const allowedRequests = [
+    {
+      requestId: "request-accepted-one",
+      providerId: "provider-accepted-one",
+    },
+    {
+      requestId: "request-accepted-two",
+      providerId: "provider-accepted-two",
+    },
+  ];
+
+  await seedEvent({
+    eventId: allowedEventId,
+    requests: allowedRequests,
+  });
+
+  const result = await createSession(
+    input.createPaymentSessionForCustomer,
+    {
+      requestId: allowedRequests[0].requestId,
+      clientKey: "all-providers-accepted",
+      checkoutId: "cs_all_providers_accepted",
+    },
+  );
+
+  assert.equal(result.created, true);
+
+  const processedRequest = (
+    await db.doc(
+      `providerRequests/${allowedRequests[0].requestId}`,
+    ).get()
+  ).data();
+
+  assert.equal(
+    processedRequest.status,
+    "payment_processing",
   );
 }
 

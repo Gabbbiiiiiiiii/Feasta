@@ -55,6 +55,7 @@ async function run() {
 
     await assertDeniedActors(fixture);
     await assertInvalidTransitions(fixture);
+    await assertAllProvidersAcceptedBeforeStart(fixture);
     await assertStartAndCompletion(fixture);
 
     console.log(
@@ -144,6 +145,7 @@ async function createFixture() {
     owner,
     otherOwner,
     providerId,
+    otherProviderId,
     mainEventId,
     providerRequestId,
     customerId,
@@ -245,6 +247,117 @@ async function assertInvalidTransitions(fixture) {
     ),
     /FAILED_PRECONDITION/u,
   );
+}
+
+async function assertAllProvidersAcceptedBeforeStart(
+  fixture,
+) {
+  const blockedStatuses = [
+    "pending",
+    "rejected",
+    "cancelled",
+    "expired",
+  ];
+
+  for (const blockedStatus of blockedStatuses) {
+    const mainEventId =
+      `main_event_start_gate_${blockedStatus}`;
+    const readyRequestId =
+      `request_start_ready_${blockedStatus}`;
+    const blockedRequestId =
+      `request_start_blocked_${blockedStatus}`;
+
+    await Promise.all([
+      db.collection("mainEvents")
+        .doc(mainEventId)
+        .set({
+          bookingId: mainEventId,
+          mainEventId,
+          customerId: fixture.customerId,
+          status: "confirmed",
+          providerRequestIds: [
+            readyRequestId,
+            blockedRequestId,
+          ],
+          eventDate: fixture.eventDate,
+          createdAt: Timestamp.now(),
+          updatedAt: Timestamp.now(),
+        }),
+
+      db.collection("providerRequests")
+        .doc(readyRequestId)
+        .set({
+          providerRequestId: readyRequestId,
+          bookingId: mainEventId,
+          mainEventId,
+          customerId: fixture.customerId,
+          providerId: fixture.providerId,
+          type: "catering",
+          status: "confirmed",
+          amount: 15_000,
+          downPaymentAmount: 3_000,
+          refundPolicySnapshot:
+            policySnapshot(fixture.providerId),
+          refundPolicyAgreement:
+            policyAgreement(fixture.providerId),
+          refundEligibilityState:
+            initialEligibilityState(),
+          eventDate: fixture.eventDate,
+          eventTime: "10:00",
+          eventEndTime: "14:00",
+          guestCount: 80,
+          createdAt: Timestamp.now(),
+          updatedAt: Timestamp.now(),
+        }),
+
+      db.collection("providerRequests")
+        .doc(blockedRequestId)
+        .set({
+          providerRequestId: blockedRequestId,
+          bookingId: mainEventId,
+          mainEventId,
+          customerId: fixture.customerId,
+          providerId: fixture.otherProviderId,
+          type: "addon",
+          status: blockedStatus,
+          amount: 2_000,
+          downPaymentAmount: 0,
+          eventDate: fixture.eventDate,
+          eventTime: "10:00",
+          eventEndTime: "14:00",
+          guestCount: 80,
+          createdAt: Timestamp.now(),
+          updatedAt: Timestamp.now(),
+        }),
+    ]);
+
+    await assert.rejects(
+      () => callFunction(
+        "markProviderBookingInProgress",
+        fixture.owner,
+        {
+          providerRequestId: readyRequestId,
+        },
+      ),
+      /FAILED_PRECONDITION/u,
+      blockedStatus,
+    );
+
+    const readyRequest = (
+      await db.collection("providerRequests")
+        .doc(readyRequestId)
+        .get()
+    ).data();
+
+    assert.equal(
+      readyRequest?.status,
+      "confirmed",
+    );
+    assert.equal(
+      readyRequest?.startedAt,
+      undefined,
+    );
+  }
 }
 
 async function assertStartAndCompletion(fixture) {
