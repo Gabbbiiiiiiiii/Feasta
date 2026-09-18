@@ -107,6 +107,16 @@ export function providerPhoneVerificationError(error: unknown): string {
   if (code.includes("network-request-failed")) {
     return "Check your internet connection and try again.";
   }
+  if (
+    code.includes("internal-error") ||
+    code.includes("backend-error")
+  ) {
+    return (
+      "We couldn't send a verification code to this number right now. " +
+      "Please wait a few minutes and try again. If the problem continues, " +
+      "try another mobile number."
+    );
+  }
   return customerAuthenticationError(error);
 }
 
