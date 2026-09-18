@@ -237,9 +237,51 @@ export async function refreshCurrentUserVerification(
   return {verified: true, destination: session.destination};
 }
 
-export async function requestPasswordReset(email: string): Promise<void> {
-  await authorizeWebAuthenticationAttempt("password_reset", email);
-  await sendPasswordResetEmail(auth, email.trim().toLowerCase());
+export async function requestPasswordReset(
+  email: string,
+  expectedRole: "customer" | "provider",
+): Promise<boolean> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const csrf = await getCsrfToken();
+
+  const response = await fetch("/api/auth/password-reset", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      "x-feasta-csrf": csrf,
+    },
+    body: JSON.stringify({
+      email: normalizedEmail,
+      expectedRole,
+    }),
+  });
+
+  if (response.status === 429) {
+    throw new WebAuthenticationError(
+      "Too many requests. Please wait before trying again.",
+      "rate_limited",
+    );
+  }
+
+  if (!response.ok) {
+    throw new WebAuthenticationError(
+      "The password reset request could not be completed.",
+      "request_denied",
+    );
+  }
+
+  const result = await response.json() as {
+    accepted?: boolean;
+    eligible?: boolean;
+  };
+
+  if (result.eligible !== true) {
+    return false;
+  }
+
+  await sendPasswordResetEmail(auth, normalizedEmail);
+  return true;
 }
 
 export async function inspectPasswordResetCode(code: string): Promise<string> {

@@ -2,6 +2,7 @@
 
 import {FormEvent, useState} from "react";
 import Link from "next/link";
+import {useSearchParams} from "next/navigation";
 
 import {AuthCard} from "@/components/auth/auth-card";
 import {AuthStatus} from "@/components/auth/auth-status";
@@ -11,30 +12,68 @@ import {Input} from "@/components/ui/input";
 import {requestPasswordReset} from "@/lib/auth/client-session";
 import {customerAuthenticationError} from "@/lib/auth/error-messages";
 
+type ResetState = "form" | "sent" | "ineligible";
+
 export default function ForgotPasswordPage() {
+  const searchParams = useSearchParams();
+
+  const expectedRole: "customer" | "provider" =
+    searchParams.get("role") === "provider"
+      ? "provider"
+      : "customer";
+
+  const isProvider = expectedRole === "provider";
+
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [sent, setSent] = useState(false);
+  const [resetState, setResetState] = useState<ResetState>("form");
   const [loading, setLoading] = useState(false);
+
+  const returnToSignIn = isProvider
+    ? "/provider-login"
+    : "/customer/providers?auth=email";
+
+  const accountLabel = isProvider
+    ? "Provider"
+    : "Customer";
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
     if (loading) return;
+
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email.trim())) {
       setError("Enter a valid email address.");
       return;
     }
+
     setLoading(true);
     setError(null);
+
     try {
-      await requestPasswordReset(email);
-      setSent(true);
+      const eligible = await requestPasswordReset(
+        email,
+        expectedRole,
+      );
+
+      setResetState(
+        eligible
+          ? "sent"
+          : "ineligible",
+      );
     } catch (caught) {
-      const code = typeof caught === "object" && caught !== null && "code" in caught
-        ? String(caught.code)
-        : "";
-      if (code.includes("user-not-found") || code.includes("invalid-credential")) {
-        setSent(true);
+      const code =
+        typeof caught === "object" &&
+        caught !== null &&
+        "code" in caught
+          ? String(caught.code)
+          : "";
+
+      if (
+        code.includes("user-not-found") ||
+        code.includes("invalid-credential")
+      ) {
+        setResetState("ineligible");
       } else {
         setError(customerAuthenticationError(caught));
       }
@@ -43,22 +82,85 @@ export default function ForgotPasswordPage() {
     }
   }
 
+  function tryAnotherEmail() {
+    setResetState("form");
+    setError(null);
+  }
+
   return (
-    <AuthCard title="Reset your password" description="Enter your account email. If it matches a FEASTA account, we will send reset instructions." footer={<Link className="font-bold text-primary-strong underline-offset-4 hover:underline" href="/customer/providers?auth=email">Return to sign in</Link>}>
-      {sent ? (
+    <AuthCard
+      portal={expectedRole}
+      title="Reset your password"
+      description={`Enter the email associated with your ${accountLabel} account to receive password reset instructions.`}
+      footer={
+        <Link
+          className="font-bold text-primary-strong underline-offset-4 hover:underline"
+          href={returnToSignIn}
+        >
+          Return to sign in
+        </Link>
+      }
+    >
+      {resetState === "sent" ? (
         <div className="grid gap-5">
           <AuthStatus
-            message="If an account matches that email, password reset instructions are on the way."
+            message="Password reset instructions have been sent. Check your email and follow the link to reset your password."
             tone="success"
           />
-          <Button variant="secondary" onClick={() => setSent(false)}>Try another email</Button>
+
+          <Button
+            variant="secondary"
+            onClick={tryAnotherEmail}
+          >
+            Try another email
+          </Button>
+        </div>
+      ) : resetState === "ineligible" ? (
+        <div className="grid gap-5">
+          <AuthStatus
+            message={`We couldn't send password reset instructions for this account from the ${accountLabel} sign-in page. Please check that you entered the email associated with your ${accountLabel} account.`}
+            tone="warning"
+            focusOnChange
+          />
+
+          <Button
+            variant="secondary"
+            onClick={tryAnotherEmail}
+          >
+            Try another email
+          </Button>
         </div>
       ) : (
-        <form className="grid gap-5" onSubmit={submit} noValidate>
-          <FormField label="Email address" required error={error ?? undefined} disabled={loading}>
-            <Input type="email" inputMode="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} />
+        <form
+          className="grid gap-5"
+          onSubmit={submit}
+          noValidate
+        >
+          <FormField
+            label="Email address"
+            required
+            error={error ?? undefined}
+            disabled={loading}
+          >
+            <Input
+              type="email"
+              inputMode="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) =>
+                setEmail(event.target.value)
+              }
+            />
           </FormField>
-          <Button type="submit" fullWidth loading={loading} loadingLabel="Sending instructions">Send reset instructions</Button>
+
+          <Button
+            type="submit"
+            fullWidth
+            loading={loading}
+            loadingLabel="Sending instructions"
+          >
+            Send reset instructions
+          </Button>
         </form>
       )}
     </AuthCard>

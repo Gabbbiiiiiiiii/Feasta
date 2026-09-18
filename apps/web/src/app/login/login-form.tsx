@@ -442,7 +442,7 @@ function EmailLoginForm({
         <div className="flex justify-end">
           <Link
             className="rounded-sm text-sm font-semibold text-primary-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            href="/forgot-password"
+            href="/forgot-password?role=customer"
           >
             Forgot password?
           </Link>

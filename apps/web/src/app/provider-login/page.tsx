@@ -266,7 +266,7 @@ export default function ProviderLoginPage() {
 
               <div className="-mt-2 flex justify-end">
                 <Link
-                  href="/forgot-password"
+                  href="/forgot-password?role=provider"
                   className="
                     inline-flex min-h-11 items-center
                     rounded-[10px]
