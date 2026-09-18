@@ -1,3 +1,4 @@
+import {cloudinarySecrets} from "../shared/cloudinary.js";
 import {
   HttpsError,
   onCall,
@@ -25,6 +26,7 @@ import {
   assertPackageMatchesProviderCapabilities,
   authorizeProviderForPackageManagement,
   parsePackageInput,
+  verifyPackageImages,
 } from "./package-domain.js";
 
 const ALLOWED_FIELDS = [
@@ -36,6 +38,7 @@ const ALLOWED_FIELDS = [
   "minimumGuests",
   "maximumGuests",
   "imageUrl",
+  "imageUrls",
   "foodInclusions",
   "decorInclusions",
   "furnitureInclusions",
@@ -45,7 +48,8 @@ const ALLOWED_FIELDS = [
 export const createProviderPackage = onCall(
   {
     ...appCheckCallableOptions,
-    timeoutSeconds: 30,
+    timeoutSeconds: 60,
+    secrets: cloudinarySecrets,
   },
   async (request) => {
     const actor = requireAuth(request);
@@ -136,6 +140,8 @@ export const createProviderPackage = onCall(
           validated,
         );
 
+        await verifyPackageImages(validated, actor.uid);
+
         const packageReference = db
           .collection("packages")
           .doc();
@@ -168,6 +174,7 @@ export const createProviderPackage = onCall(
 
             imageUrl:
               validated.imageUrl,
+            ...(validated.imageUrls !== undefined ? {imageUrls: validated.imageUrls} : {}),
 
             foodInclusions:
               validated.foodInclusions,

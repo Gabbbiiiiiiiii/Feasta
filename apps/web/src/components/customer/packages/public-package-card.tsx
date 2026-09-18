@@ -37,6 +37,7 @@ export function PublicPackageCard({
   const packageHref = eventContextQuery
     ? `${packagePath}?${eventContextQuery}`
     : packagePath;
+  const primaryImage = packageRecord.imageUrls?.[0] ?? packageRecord.imageUrl;
   const Heading = headingLevel;
   const guestRange = packageGuestRange(packageRecord);
   const inclusionLimit = compactPreview ? 2 : 3;
@@ -57,11 +58,11 @@ export function PublicPackageCard({
       {/* Package image */}
 
       <div className={`relative grid ${compactPreview ? "aspect-[2/1]" : "aspect-[16/9]"} place-items-center overflow-hidden bg-feasta-surface-muted`}>
-        {packageRecord.imageUrl ? (
+        {primaryImage ? (
           // Package image URLs are HTTPS-only values from the public package boundary.
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={packageRecord.imageUrl}
+            src={primaryImage}
             alt={`${packageRecord.name} package from ${packageRecord.providerName}`}
             loading="lazy"
             decoding="async"
@@ -82,7 +83,7 @@ export function PublicPackageCard({
           </div>
         )}
 
-        {packageRecord.imageUrl ? (
+        {primaryImage ? (
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/15 via-transparent to-transparent"

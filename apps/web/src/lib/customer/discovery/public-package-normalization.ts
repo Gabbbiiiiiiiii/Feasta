@@ -61,6 +61,12 @@ export function normalizePublicPackage(
     value.serviceInclusions,
   ], 8, 120);
 
+  const imageUrls = Array.isArray(value.imageUrls)
+    ? value.imageUrls.slice(0, 8).flatMap((entry) => { const url = safeHttpsUrl(entry); return url ? [url] : []; })
+    : [];
+  const legacyImage = safeHttpsUrl(value.imageUrl);
+  if (imageUrls.length === 0 && legacyImage) imageUrls.push(legacyImage);
+
   return {
     id,
     providerId,
@@ -69,7 +75,8 @@ export function normalizePublicPackage(
     description: safeText(value.description, 600),
     eventType: safeText(value.eventType, 80),
     price: safeMoney(value.price),
-    imageUrl: safeHttpsUrl(value.imageUrl),
+    imageUrl: imageUrls[0] ?? null,
+    imageUrls,
     minimumGuests: validGuestRange ? minimumGuests : null,
     maximumGuests: validGuestRange ? maximumGuests : null,
     inclusions,

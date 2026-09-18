@@ -37,6 +37,7 @@ export type ProviderPackageInput = {
   maximumGuests: number;
 
   imageUrl: string;
+  imageUrls?: string[];
 
   foodInclusions: string[];
   decorInclusions: string[];
@@ -59,6 +60,7 @@ export type ProviderPackage = {
   maximumGuests: number;
 
   imageUrl: string;
+  imageUrls?: string[];
 
   foodInclusions: string[];
   decorInclusions: string[];
@@ -206,7 +208,8 @@ function normalizePackageInput(
       input.maximumGuests,
 
     imageUrl:
-      input.imageUrl.trim(),
+      input.imageUrls?.[0] ?? input.imageUrl.trim(),
+    ...(input.imageUrls !== undefined ? {imageUrls: input.imageUrls} : {}),
 
     foodInclusions:
       normalizeStringArray(
@@ -296,6 +299,8 @@ function parseProviderPackage(
       optionalString(
         data.imageUrl,
       ),
+
+    imageUrls: Array.isArray(data.imageUrls) ? stringArray(data.imageUrls).slice(0, 8) : undefined,
 
     foodInclusions:
       stringArray(

@@ -12,6 +12,7 @@ export type PublicPackage = {
   eventType: string | null;
   price: number | null;
   imageUrl: string | null;
+  imageUrls?: readonly string[];
   minimumGuests: number | null;
   maximumGuests: number | null;
   inclusions: readonly string[];

@@ -4,6 +4,8 @@ import {FIRESTORE_COLLECTIONS} from "@feasta/shared-types";
 
 import {normalizePublicPackage} from "@/lib/customer/discovery/public-package-normalization";
 import {adminDb} from "@/lib/firebase/admin";
+import {providerContentCapabilities} from "@/lib/provider/provider-content-capabilities";
+import {publicMenuImages} from "@/lib/provider/provider-menu";
 
 import {normalizePublicProvider} from "./provider-normalization";
 import {isPublicProviderId} from "./provider-route-policy";
@@ -58,7 +60,12 @@ export async function getPublicProviderDetail(
     return packageRecord ? [packageRecord] : [];
   });
 
-  return {provider, packages};
+  const capabilities = providerContentCapabilities(provider.serviceType, provider.categories);
+  const menuSnapshot = capabilities.catering
+    ? await providerSnapshot.ref.collection("catalog").doc("menu").get()
+    : null;
+  const menuImages = publicMenuImages(menuSnapshot?.data()?.images, ownerId);
+  return {provider, packages, menuImages};
 }
 
 function safeDocumentId(value: unknown): string | null {

@@ -2,35 +2,27 @@
 
 import {
   AlertCircle,
-  Archive,
-  Edit3,
   PackageOpen,
   Plus,
   RefreshCw,
-  Send,
 } from "lucide-react";
 import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
 import {
-  DataTable,
-  FilterToolbar,
   SummaryCard,
-  type DataTableColumn,
 } from "@/components/data";
 import {
   PageHeading,
 } from "@/components/layout/page-heading";
-import {
-  PriceDisplay,
-} from "@/components/shared/price-display";
-import {
-  StatusBadge,
-} from "@/components/shared/status-badge";
+import {Input} from "@/components/ui/input";
+import {Select} from "@/components/ui/select";
+import {ProviderPackageCard} from "./provider-package-card";
 import {
   ConfirmationDialog,
 } from "@/components/shared/confirmation-dialog";
@@ -47,7 +39,11 @@ import {
   ProviderPackageForm,
 } from "./provider-package-form";
 
+import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger} from "@/components/ui/dialog";
+
 type ProviderPackagesClientProps = {
+  providerServiceType?: string;
+  serviceCategories?: readonly string[];
   providerId: string;
   eventTypesSupported: string[];
   minGuestsPerEvent: number;
@@ -55,6 +51,8 @@ type ProviderPackagesClientProps = {
 };
 
 export function ProviderPackagesClient({
+  providerServiceType = "catering",
+  serviceCategories = [],
   providerId,
   eventTypesSupported,
   minGuestsPerEvent,
@@ -80,10 +78,13 @@ export function ProviderPackagesClient({
     setSearch,
   ] = useState("");
 
-  const [
-    submittedSearch,
-    setSubmittedSearch,
-  ] = useState("");
+  const [eventFilter, setEventFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [sort, setSort] = useState("newest");
+  const filtersActive = Boolean(search || eventFilter || statusFilter || sort !== "newest");
+  function clearFilters() {
+    setSearch(""); setEventFilter(""); setStatusFilter(""); setSort("newest");
+  }
 
   const [
     createOpen,
@@ -187,33 +188,20 @@ export function ProviderPackagesClient({
     };
     }, [providerId]);
 
-  const filteredPackages =
-    useMemo(() => {
-      const term =
-        submittedSearch
-          .trim()
-          .toLowerCase();
-
-      if (!term) {
-        return packages;
-      }
-
-      return packages.filter(
-        (item) =>
-          item.name
-            .toLowerCase()
-            .includes(term) ||
-          item.eventType
-            .toLowerCase()
-            .includes(term) ||
-          item.description
-            .toLowerCase()
-            .includes(term),
-      );
-    }, [
-      packages,
-      submittedSearch,
-    ]);
+  const eventTypes = useMemo(() => [...new Set(packages.map((item) => item.eventType))].sort(), [packages]);
+  const filteredPackages = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const result = packages.filter((item) =>
+      (!eventFilter || item.eventType === eventFilter) &&
+      (!statusFilter || item.status === statusFilter) &&
+      [item.name, item.eventType, item.description].some((value) => value.toLowerCase().includes(term)));
+    // The existing query returns createdAt descending; preserve that for Newest.
+    if (sort === "oldest") result.reverse();
+    if (sort === "price-low") result.sort((a, b) => a.price - b.price);
+    if (sort === "price-high") result.sort((a, b) => b.price - a.price);
+    if (sort === "name") result.sort((a, b) => a.name.localeCompare(b.name));
+    return result;
+  }, [packages, search, eventFilter, statusFilter, sort]);
 
   const publishedCount =
     useMemo(
@@ -236,169 +224,68 @@ export function ProviderPackagesClient({
       [packages],
     );
 
-  const columns =
-    useMemo<
-      readonly DataTableColumn<ProviderPackage>[]
-    >(
-      () => [
-        {
-          id: "name",
-          header: "Package",
-          sortable: true,
-          cell: (row) => (
-            <div className="grid gap-1">
-              <span className="font-medium text-foreground">
-                {row.name}
-              </span>
-
-              <span className="text-sm text-muted-foreground">
-                {formatEventType(
-                  row.eventType,
-                )}
-              </span>
-            </div>
-          ),
-        },
-        {
-          id: "guests",
-          header: "Guests",
-          cell: (row) => (
-            <span className="whitespace-nowrap">
-              {row.minimumGuests}–
-              {row.maximumGuests}
-            </span>
-          ),
-        },
-        {
-          id: "price",
-          header: "Price",
-          sortable: true,
-          cell: (row) => (
-            <PriceDisplay
-              amount={row.price}
-            />
-          ),
-        },
-        {
-          id: "downPayment",
-          header: "Down payment",
-          cell: (row) => (
-            <span>
-              {
-                row.downPaymentPercentage
-              }
-              %
-            </span>
-          ),
-        },
-        {
-          id: "status",
-          header: "Status",
-          cell: (row) => (
-            <StatusBadge
-              status={row.status}
-            />
-          ),
-        },
-      ],
-      [],
-    );
+  const [formBusy, setFormBusy] = useState(false);
+  const packageOpener = useRef<HTMLButtonElement | null>(null);
+  const newPackageButton = useRef<HTMLButtonElement | null>(null);
 
   return (
+    <Dialog open={createOpen} onOpenChange={(open) => { if (!formBusy) setCreateOpen(open); }}>
     <div className="grid gap-6">
       <PageHeading
         eyebrow="Provider management"
         title="Packages"
-        description="Create and manage the catering packages customers can discover and book through FEASTA."
+        description="Create and manage the packages customers can discover and book through FEASTA."
         actions={
-          <Button
+          <DialogTrigger asChild><Button
+            ref={newPackageButton}
             type="button"
             disabled={loading}
-            onClick={() => {
+            onClick={(event) => {
+              packageOpener.current = event.currentTarget;
               setEditingPackage(null);
               setCreateOpen(true);
             }}
             >
             <Plus aria-hidden="true" />
             New package
-        </Button>
+        </Button></DialogTrigger>
         }
       />
 
-      {createOpen ? (
-        <div className="rounded-xl border bg-card p-6">
-            <div className="mb-6">
-            <h2 className="text-lg font-semibold">
-                Create package
-            </h2>
+      <DialogContent
+        className="flex h-[calc(100dvh-2rem)] min-h-0 min-w-0 max-w-[70rem] flex-col gap-0 overflow-hidden p-0 sm:w-[calc(100%-3rem)]"
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const opener = packageOpener.current;
+          (opener?.isConnected ? opener : document.getElementById(opener?.id ?? "") ?? newPackageButton.current)?.focus();
+        }}
+        showCloseButton={!formBusy}
+        onEscapeKeyDown={(event) => { if (formBusy) event.preventDefault(); }}
+        onPointerDownOutside={(event) => event.preventDefault()}>
+        <DialogHeader className="shrink-0 border-b border-border px-5 py-4 pr-16 sm:pl-6">
+          <DialogTitle>{editingPackage ? "Edit package" : "Create package"}</DialogTitle>
+          <DialogDescription>{editingPackage ? "Update your draft package. Changes take effect when you save." : "Save a draft to review before publishing. Cancel discards unsaved changes."}</DialogDescription>
+        </DialogHeader>
+        <ProviderPackageForm
+          key={editingPackage?.id ?? "create"}
+          initialPackage={editingPackage ?? undefined}
+          dialogLayout
+          providerServiceType={providerServiceType}
+          serviceCategories={serviceCategories}
+          eventTypesSupported={eventTypesSupported}
+          minGuestsPerEvent={minGuestsPerEvent}
+          maxGuestsPerEvent={maxGuestsPerEvent}
+          onSubmittingChange={setFormBusy}
+          onCancel={() => setCreateOpen(false)}
+          onSaved={async () => { await loadPackages(); setCreateOpen(false); }}
+        />
+      </DialogContent>
 
-            <p className="mt-1 text-sm text-muted-foreground">
-                Save the package as a draft first. You can review and publish it afterward.
-            </p>
-            </div>
-
-            <ProviderPackageForm
-              eventTypesSupported={
-                eventTypesSupported
-              }
-              minGuestsPerEvent={
-                minGuestsPerEvent
-              }
-              maxGuestsPerEvent={
-                maxGuestsPerEvent
-              }
-              onCancel={() =>
-                setCreateOpen(false)
-              }
-              onSaved={async () => {
-                setCreateOpen(false);
-                await loadPackages();
-              }}
-            />
-        </div>
-        ) : null}
-
-        {editingPackage ? (
-          <div className="rounded-xl border bg-card p-6">
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold">
-                Edit package
-              </h2>
-
-              <p className="mt-1 text-sm text-muted-foreground">
-                Update the package details and save your changes.
-              </p>
-            </div>
-
-            <ProviderPackageForm
-              key={editingPackage.id}
-              eventTypesSupported={
-                eventTypesSupported
-              }
-              minGuestsPerEvent={
-                minGuestsPerEvent
-              }
-              maxGuestsPerEvent={
-                maxGuestsPerEvent
-              }
-              initialPackage={
-                editingPackage
-              }
-              onCancel={() =>
-                setEditingPackage(null)
-              }
-              onSaved={async () => {
-                setEditingPackage(null);
-                await loadPackages();
-              }}
-            />
-          </div>
-        ) : null}
-
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <SummaryCard
           label="Total packages"
-          value={packages.length}
+          loading={loading}
+          value={error ? "?" : packages.length}
           icon={
             <PackageOpen className="size-6" />
           }
@@ -406,13 +293,16 @@ export function ProviderPackagesClient({
 
         <SummaryCard
           label="Published"
-          value={publishedCount}
+          loading={loading}
+          value={error ? "?" : publishedCount}
         />
 
         <SummaryCard
           label="Drafts"
-          value={draftCount}
+          loading={loading}
+          value={error ? "?" : draftCount}
         />
+        <SummaryCard label="Archived" loading={loading} value={error ? "?" : packages.filter((item) => item.status === "archived").length} />
       </div>
 
       {actionError ? (
@@ -474,25 +364,33 @@ export function ProviderPackagesClient({
         </div>
       ) : null}
 
-      <FilterToolbar
-        searchValue={search}
-        onSearchChange={setSearch}
-        onSearchSubmit={
-          setSubmittedSearch
-        }
-        onClearFilters={() => {
-          setSearch("");
-          setSubmittedSearch("");
-        }}
-        activeFilters={
-          submittedSearch
-            ? [
-                `Search: ${submittedSearch}`,
-              ]
-            : []
-        }
-        searchPlaceholder="Search your packages"
-      />
+      <div role="search" aria-label="Filter packages" className="grid gap-3">
+        <div className="grid items-end gap-3 sm:grid-cols-2 md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
+          <label className="grid min-w-0 gap-1 text-sm font-semibold">Search packages
+            <Input type="search" placeholder="Search packages..." value={search} onChange={(event) => setSearch(event.target.value)} />
+          </label>
+          <label className="grid min-w-0 gap-1 text-sm font-semibold">Event type
+            <Select value={eventFilter} onChange={(event) => setEventFilter(event.target.value)}>
+              <option value="">All event types</option>
+              {eventTypes.map((event) => <option key={event} value={event}>{formatEventType(event)}</option>)}
+            </Select>
+          </label>
+          <label className="grid min-w-0 gap-1 text-sm font-semibold">Status
+            <Select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
+              <option value="">All statuses</option><option value="draft">Draft</option><option value="published">Published</option><option value="archived">Archived</option>
+            </Select>
+          </label>
+          <label className="grid min-w-0 gap-1 text-sm font-semibold">Sort packages
+            <Select value={sort} onChange={(event) => setSort(event.target.value)}>
+              <option value="newest">Newest</option><option value="oldest">Oldest</option><option value="price-low">Price low to high</option><option value="price-high">Price high to low</option><option value="name">Name A?Z</option>
+            </Select>
+          </label>
+        </div>
+        {filtersActive ? <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className="min-w-0 break-words text-muted-foreground">{[search && 'Search: ' + search, eventFilter && 'Event: ' + formatEventType(eventFilter), statusFilter && 'Status: ' + formatEventType(statusFilter), sort !== "newest" && "Custom sort"].filter(Boolean).join(" ? ")}</span>
+          <Button variant="ghost" size="compact" onClick={clearFilters}>Clear filters</Button>
+        </div> : null}
+      </div>
 
       {loading ? (
         <div
@@ -508,80 +406,23 @@ export function ProviderPackagesClient({
             Loading packages…
           </div>
         </div>
-      ) : (
-        <DataTable
-          columns={columns}
-          rows={filteredPackages}
-          getRowId={(row) => row.id}
-          caption="Provider package results"
-          rowActionsLabel="Actions"
-          rowActions={(row) => (
-            <div className="flex justify-end gap-2">
-              {row.status === "draft" ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="compact"
-                    aria-label={`Edit ${row.name}`}
-                    onClick={() => {
-                      setCreateOpen(false);
-                      setEditingPackage(row);
-                    }}
-                  >
-                    <Edit3
-                      aria-hidden="true"
-                      className="size-4"
-                    />
-                    Edit
-                  </Button>
-
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="compact"
-                    aria-label={`Publish ${row.name}`}
-                    onClick={() => {
-                      setActionError(null);
-                      setPublishPackage(row);
-                    }}
-                  >
-                    <Send
-                      aria-hidden="true"
-                      className="size-4"
-                    />
-                    Publish
-                  </Button>
-                </>
-              ) : null}
-
-              {row.status !== "archived" ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="compact"
-                  aria-label={`Archive ${row.name}`}
-                  onClick={() => {
-                    setActionError(null);
-                    setArchivePackage(row);
-                  }}
-                >
-                  <Archive
-                    aria-hidden="true"
-                    className="size-4"
-                  />
-                  Archive
-                </Button>
-              ) : null}
-            </div>
-          )}
-          emptyKind={
-            submittedSearch
-              ? "search"
-              : "packages"
-          }
-        />
-      )}
+      ) : !error ? (
+        <section aria-label="Provider package results">
+          {filteredPackages.length ? <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15.5rem),1fr))] items-start gap-4">
+            {filteredPackages.map((item) => <ProviderPackageCard key={item.id} item={item}
+              onEdit={(event) => { packageOpener.current = event.currentTarget; setEditingPackage(item); setCreateOpen(true); }}
+              onPublish={() => { setActionError(null); setPublishPackage(item); }}
+              onArchive={() => { setActionError(null); setArchivePackage(item); }} />)}
+          </div> : <div className="grid justify-items-center gap-3 rounded-card border border-dashed border-border bg-card px-5 py-10 text-center">
+            <PackageOpen aria-hidden="true" className="size-8 text-primary-strong" />
+            <h2 className="text-lg font-bold">{packages.length ? "No packages match your filters." : "No packages yet"}</h2>
+            {packages.length ? <Button variant="secondary" onClick={clearFilters}>Clear filters</Button> : <>
+              <p className="max-w-md text-sm text-muted-foreground">Create your first package so customers can discover and book your services.</p>
+              <Button onClick={(event) => { packageOpener.current = event.currentTarget; setEditingPackage(null); setCreateOpen(true); }}>Create package</Button>
+            </>}
+          </div>}
+        </section>
+      ) : null}
       <ConfirmationDialog
         open={publishPackage !== null}
         onOpenChange={(open) => {
@@ -676,6 +517,7 @@ export function ProviderPackagesClient({
         }}
       />
     </div>
+    </Dialog>
   );
 }
 

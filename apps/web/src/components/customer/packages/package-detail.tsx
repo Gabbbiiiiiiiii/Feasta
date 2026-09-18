@@ -1,3 +1,4 @@
+import {ImageGallery} from "@/components/customer/discovery/image-gallery";
 import {
   ArrowLeft,
   ArrowRight,
@@ -47,6 +48,15 @@ export function PackageDetail({
   const guestRange =
     packageGuestRange(packageRecord);
 
+  const packageImages = packageRecord.imageUrls?.length ? packageRecord.imageUrls : packageRecord.imageUrl ? [packageRecord.imageUrl] : [];
+  const primaryImage = packageImages[0];
+  const inclusionGroups = [
+    {label: "Food inclusions", items: detail.customization.foods},
+    {label: "Decor inclusions", items: detail.customization.decorations},
+    {label: "Furniture inclusions", items: detail.customization.furniture},
+    {label: "Service inclusions", items: detail.customization.services},
+  ].filter((group) => group.items.length > 0);
+
   const bookingPath = `/customer/packages/${encodeURIComponent(
     packageRecord.id,
   )}/book`;
@@ -87,11 +97,11 @@ export function PackageDetail({
 
       <section className="overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white shadow-[0_14px_42px_rgb(43_33_29/0.065)]">
         <div className="relative grid aspect-[16/7] min-h-[240px] place-items-center overflow-hidden bg-feasta-surface-muted">
-          {packageRecord.imageUrl ? (
+          {primaryImage ? (
             // Public package image URLs are normalized before reaching this component.
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={packageRecord.imageUrl}
+              src={primaryImage}
               alt={`${packageRecord.name} package from ${packageRecord.providerName}`}
               className="size-full object-cover"
               loading="eager"
@@ -113,7 +123,7 @@ export function PackageDetail({
             </div>
           )}
 
-          {packageRecord.imageUrl ? (
+          {primaryImage ? (
             <div
               aria-hidden="true"
               className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/15 to-transparent"
@@ -136,6 +146,11 @@ export function PackageDetail({
             </div>
           </div>
         </div>
+
+        {packageImages.length > 0 ? <div className="border-b border-feasta-divider p-4 sm:p-6">
+          <h2 className="mb-3 text-base font-bold">Package images</h2>
+          <ImageGallery label="Package images" images={packageImages.map((url, index) => ({url, title: `${packageRecord.name} - image ${index + 1}`}))} />
+        </div> : null}
 
         <div className="grid gap-7 p-5 sm:p-7 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:p-8">
           <div className="min-w-0">
@@ -279,7 +294,7 @@ export function PackageDetail({
           INCLUSIONS
          ================================================================ */}
 
-      <section
+      {inclusionGroups.length > 0 ? <section
         aria-labelledby="package-inclusions"
         className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(43_33_29/0.035)] sm:p-6 lg:p-7"
       >
@@ -301,9 +316,10 @@ export function PackageDetail({
           </p>
         </div>
 
-        {packageRecord.inclusions.length > 0 ? (
+        {inclusionGroups.map((group) => <div key={group.label} className="mt-6">
+          <h3 className="text-base font-bold">{group.label}</h3>
           <ul className="mt-6 grid gap-3 sm:grid-cols-2">
-            {packageRecord.inclusions.map((inclusion) => (
+            {group.items.map((inclusion) => (
               <li
                 key={inclusion}
                 className="flex min-w-0 items-start gap-3 rounded-[16px] border border-feasta-border-soft bg-feasta-canvas px-4 py-4"
@@ -321,14 +337,8 @@ export function PackageDetail({
               </li>
             ))}
           </ul>
-        ) : (
-          <div className="mt-6 rounded-[18px] border border-dashed border-feasta-border-strong bg-feasta-canvas p-5">
-            <p className="text-sm leading-6 text-feasta-text-secondary">
-              No public package inclusions are currently listed.
-            </p>
-          </div>
-        )}
-      </section>
+        </div>)}
+      </section> : null}
 
       {/* ================================================================
           PROVIDER CONTEXT

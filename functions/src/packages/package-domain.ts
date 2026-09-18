@@ -1,3 +1,4 @@
+import {verifyProviderServiceImage} from "../shared/cloudinary.js";
 import type {
   DocumentData,
   DocumentSnapshot,
@@ -27,6 +28,7 @@ export type PackageInput = {
   minimumGuests: number;
   maximumGuests: number;
   imageUrl: string;
+  imageUrls?: readonly string[];
   foodInclusions: readonly string[];
   decorInclusions: readonly string[];
   furnitureInclusions: readonly string[];
@@ -302,6 +304,8 @@ export function parsePackageInput(
     MAX_IMAGE_URL_LENGTH,
   );
 
+  const imageUrls = parsePackageImageUrls(data.imageUrls);
+
   return {
     name,
     description,
@@ -310,7 +314,8 @@ export function parsePackageInput(
     downPaymentPercentage,
     minimumGuests,
     maximumGuests,
-    imageUrl,
+    imageUrl: imageUrls ? imageUrls[0] ?? "" : imageUrl,
+    ...(imageUrls !== undefined ? {imageUrls} : {}),
 
     foodInclusions: inclusionArray(
       data.foodInclusions,
@@ -339,23 +344,8 @@ export function assertPackagePublishable(
 ): void {
   parsePackageInput(packageData);
 
-  const hasAtLeastOneInclusion = [
-    packageData.foodInclusions,
-    packageData.decorInclusions,
-    packageData.furnitureInclusions,
-    packageData.serviceInclusions,
-  ].some(
-    (value) =>
-      Array.isArray(value) &&
-      value.length > 0,
-  );
+  // Structured inclusions are optional, including for image-based menus.
 
-  if (!hasAtLeastOneInclusion) {
-    throw new HttpsError(
-      "failed-precondition",
-      "Add at least one package inclusion before publishing.",
-    );
-  }
 }
 
 export function parsePackageStatus(
@@ -631,4 +621,50 @@ function stringValue(
   return typeof value === "string" ?
     value.trim() :
     "";
+}
+export function parsePackageImageUrls(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > 8) {
+    throw new HttpsError("invalid-argument", "Choose at most 8 package images.");
+  }
+  return value.map((entry) => {
+    if (typeof entry !== "string" || entry.length > MAX_IMAGE_URL_LENGTH) {
+      throw new HttpsError("invalid-argument", "Invalid package image.");
+    }
+    try {
+      const url = new URL(entry);
+      if (url.protocol !== "https:" || url.username || url.password ||
+        url.port || url.search || url.hash) {
+        throw new Error();
+      }
+      return url.toString();
+    } catch { throw new HttpsError("invalid-argument", "Invalid package image URL."); }
+  });
+}
+
+export async function verifyPackageImages(
+  input: PackageInput,
+  ownerId: string,
+  previous: Readonly<Record<string, unknown>> = {},
+): Promise<void> {
+  const retained = new Set([
+    ...(Array.isArray(previous.imageUrls) ? previous.imageUrls : []),
+    previous.imageUrl,
+  ]);
+  const images = input.imageUrls ?? (input.imageUrl ? [input.imageUrl] : []);
+  await Promise.all(images.map(async (url) => {
+    if (retained.has(url)) return;
+    // Legacy callers must pass the same checks for newly supplied assets.
+    parsePackageImageUrls([url]);
+    const pathname = new URL(url).pathname;
+    const match = pathname.match(
+      /\/feasta\/providers\/([^/]+)\/services\/([^/]+)\/image(?:\.[a-z]+)?$/u,
+    );
+    if (new URL(url).hostname !== "res.cloudinary.com" || !match || match[1] !== ownerId) {
+      throw new HttpsError("permission-denied", "Package images must belong to this provider.");
+    }
+    await verifyProviderServiceImage({ownerId, serviceId: match[2]!, url,
+      publicId: "feasta/providers/" + ownerId + "/services/" + match[2] + "/image",
+      maximumBytes: 5 * 1024 * 1024});
+  }));
 }

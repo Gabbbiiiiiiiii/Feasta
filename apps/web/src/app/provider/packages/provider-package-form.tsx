@@ -21,6 +21,14 @@ import {
   type ProviderPackageInput,
 } from "@/lib/provider/provider-package-client";
 
+import {CatalogImageUploader, uploadCatalogImages} from "@/components/provider/catalog-image-uploader";
+import {packageImageDrafts} from "@/lib/provider/catalog-media";
+
+import {providerContentCapabilities} from "@/lib/provider/provider-content-capabilities";
+
+import {Textarea} from "@/components/ui/textarea";
+import {Select} from "@/components/ui/select";
+
 const EVENT_TYPES = [
   "birthday",
   "wedding",
@@ -33,6 +41,9 @@ const EVENT_TYPES = [
 ] as const;
 
 type ProviderPackageFormProps = {
+  dialogLayout?: boolean;
+  providerServiceType?: string;
+  serviceCategories?: readonly string[];
   eventTypesSupported: string[];
   minGuestsPerEvent: number;
   maxGuestsPerEvent: number;
@@ -41,16 +52,22 @@ type ProviderPackageFormProps = {
 
   onSaved: () => void | Promise<void>;
   onCancel: () => void;
+  onSubmittingChange?: (busy: boolean) => void;
 };
 
 export function ProviderPackageForm({
+  dialogLayout = false,
+  providerServiceType = "catering",
+  serviceCategories = [],
   eventTypesSupported,
   minGuestsPerEvent,
   maxGuestsPerEvent,
   initialPackage,
   onSaved,
   onCancel,
+  onSubmittingChange,
 }: ProviderPackageFormProps) {
+  const capabilities = providerContentCapabilities(providerServiceType, serviceCategories);
   const editing =
     initialPackage !== undefined;
   const availableEventTypes =
@@ -160,6 +177,8 @@ export function ProviderPackageForm({
     ) ?? "",
   );
 
+  const [images, setImages] = useState(() => packageImageDrafts(initialPackage?.imageUrls, initialPackage?.imageUrl));
+
   const [submitting, setSubmitting] =
     useState(false);
 
@@ -180,14 +199,14 @@ export function ProviderPackageForm({
         name.trim().length < 2 ||
         name.trim().length > 120
       ) {
-        return "Package name must be between 2 and 120 characters.";
+        return {field: "name", message: "Package name must be between 2 and 120 characters."};
       }
 
       if (
         description.trim().length < 10 ||
         description.trim().length > 2000
       ) {
-        return "Description must be between 10 and 2000 characters.";
+        return {field: "description", message: "Description must be between 10 and 2000 characters."};
       }
 
       if (
@@ -196,7 +215,7 @@ export function ProviderPackageForm({
             typeof EVENT_TYPES[number],
         )
         ) {
-        return "Choose an event type supported by your business.";
+        return {field: "eventType", message: "Choose an event type supported by your business."};
         }
 
       if (
@@ -204,7 +223,7 @@ export function ProviderPackageForm({
         parsedPrice < 0 ||
         parsedPrice > 10_000_000
       ) {
-        return "Enter a valid package price.";
+        return {field: "price", message: "Enter a valid package price."};
       }
 
       if (
@@ -214,7 +233,7 @@ export function ProviderPackageForm({
         parsedDownPayment < 0 ||
         parsedDownPayment > 100
       ) {
-        return "Down payment must be between 0 and 100%.";
+        return {field: "downPayment", message: "Down payment must be between 0 and 100%."};
       }
 
       if (
@@ -226,7 +245,7 @@ export function ProviderPackageForm({
         parsedMinimumGuests >
             maxGuestsPerEvent
         ) {
-        return `Minimum guests must be between ${minGuestsPerEvent} and ${maxGuestsPerEvent}.`;
+        return {field: "minimumGuests", message: `Minimum guests must be between ${minGuestsPerEvent} and ${maxGuestsPerEvent}.`};
         }
 
       if (
@@ -238,7 +257,7 @@ export function ProviderPackageForm({
         parsedMaximumGuests >
             maxGuestsPerEvent
         ) {
-        return `Maximum guests must be between the selected minimum and ${maxGuestsPerEvent}.`;
+        return {field: "maximumGuests", message: `Maximum guests must be between the selected minimum and ${maxGuestsPerEvent}.`};
         }
 
       return null;
@@ -268,9 +287,11 @@ export function ProviderPackageForm({
     }
 
     setSubmitting(true);
+    onSubmittingChange?.(true);
     setError(null);
 
     try {
+      const uploaded = await uploadCatalogImages(images, (saved) => setImages((current) => current.map((image) => image.id === saved.id ? saved : image)));
       const input: ProviderPackageInput = {
         name: name.trim(),
         description:
@@ -283,7 +304,8 @@ export function ProviderPackageForm({
           parsedMinimumGuests,
         maximumGuests:
           parsedMaximumGuests,
-        imageUrl: "",
+        imageUrl: uploaded[0]?.url ?? "",
+        imageUrls: uploaded.map((image) => image.url),
         foodInclusions:
           parseInclusions(
             foodInclusionsText,
@@ -329,6 +351,7 @@ export function ProviderPackageForm({
       );
     } finally {
       setSubmitting(false);
+      onSubmittingChange?.(false);
     }
   }
 
@@ -364,11 +387,27 @@ export function ProviderPackageForm({
   return (
     <form
       onSubmit={handleSubmit}
-      className="grid gap-6"
+      className={dialogLayout ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" : "min-w-0"}
     >
-      <div className="grid gap-4 md:grid-cols-2">
+      <fieldset
+        disabled={submitting}
+        className={
+          dialogLayout
+            ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+            : "grid min-w-0 gap-5"
+        }
+      >
+      <div role={dialogLayout ? "region" : undefined} aria-label={dialogLayout ? "Package details" : undefined} tabIndex={dialogLayout ? 0 : undefined}
+        className={
+        dialogLayout
+          ? "mx-2 grid min-h-0 flex-1 content-start gap-5 overflow-y-auto overscroll-contain px-3 py-5 [scrollbar-gutter:stable] [scrollbar-width:thin] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:mx-3"
+          : "grid min-w-0 gap-5"
+      }>
+      <h3 className="text-sm font-bold uppercase text-primary-strong">Basic details</h3>
+      <div className="grid gap-4 sm:grid-cols-2">
         <FormField
           label="Package name"
+          error={validationError?.field === "name" ? validationError.message : undefined}
           required
         >
           <Input
@@ -383,9 +422,10 @@ export function ProviderPackageForm({
 
         <FormField
           label="Event type"
+          error={validationError?.field === "eventType" ? validationError.message : undefined}
           required
         >
-          <select
+          <Select
             value={eventType}
             onChange={(event) =>
               setEventType(
@@ -406,15 +446,16 @@ export function ProviderPackageForm({
                 </option>
               ),
             )}
-          </select>
+          </Select>
         </FormField>
       </div>
 
       <FormField
         label="Description"
+        error={validationError?.field === "description" ? validationError.message : undefined}
         required
       >
-        <textarea
+        <Textarea
           value={description}
           onChange={(event) =>
             setDescription(
@@ -422,14 +463,16 @@ export function ProviderPackageForm({
             )
           }
           maxLength={2000}
-          rows={5}
+          rows={3}
           className="w-full rounded-md border bg-background px-3 py-2 text-sm"
         />
       </FormField>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <h3 className="text-sm font-bold uppercase text-primary-strong">Pricing &amp; capacity</h3>
+      <div className="grid gap-4 sm:grid-cols-2">
         <FormField
           label="Package price"
+          error={validationError?.field === "price" ? validationError.message : undefined}
           required
         >
           <Input
@@ -448,6 +491,7 @@ export function ProviderPackageForm({
 
         <FormField
           label="Down payment (%)"
+          error={validationError?.field === "downPayment" ? validationError.message : undefined}
           required
         >
           <Input
@@ -467,9 +511,10 @@ export function ProviderPackageForm({
         </FormField>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2">
         <FormField
           label="Minimum guests"
+          error={validationError?.field === "minimumGuests" ? validationError.message : undefined}
           required
         >
           <Input
@@ -488,6 +533,7 @@ export function ProviderPackageForm({
 
         <FormField
           label="Maximum guests"
+          error={validationError?.field === "maximumGuests" ? validationError.message : undefined}
           required
         >
           <Input
@@ -519,23 +565,30 @@ export function ProviderPackageForm({
         per event.
         </p>
 
-      <InclusionTextarea
+      <section aria-label="Images" className="grid gap-3"><h3 className="text-sm font-bold uppercase text-primary-strong">Images</h3>
+        <CatalogImageUploader images={images} onChange={setImages} disabled={submitting} />
+      </section>
+
+      <section aria-label="Optional inclusions" className="grid gap-4 sm:grid-cols-2">
+      <div className="sm:col-span-2"><h3 className="text-sm font-bold uppercase text-primary-strong">Optional inclusions</h3>
+      <p className="mt-1 text-sm text-muted-foreground">Optional — add inclusions to help customers understand what this package covers. Every inclusion field is optional.</p></div>
+      {capabilities.catering ? <InclusionTextarea
         label="Food inclusions"
         value={foodInclusionsText}
         onChange={
           setFoodInclusionsText
         }
-      />
+      /> : null}
 
-      <InclusionTextarea
+      {capabilities.decorations ? <InclusionTextarea
         label="Decoration inclusions"
         value={decorInclusionsText}
         onChange={
           setDecorInclusionsText
         }
-      />
+      /> : null}
 
-      <InclusionTextarea
+      {capabilities.furniture ? <InclusionTextarea
         label="Furniture inclusions"
         value={
           furnitureInclusionsText
@@ -543,7 +596,7 @@ export function ProviderPackageForm({
         onChange={
           setFurnitureInclusionsText
         }
-      />
+      /> : null}
 
       <InclusionTextarea
         label="Service inclusions"
@@ -552,13 +605,10 @@ export function ProviderPackageForm({
           setServiceInclusionsText
         }
       />
+      </section>
 
-      {validationError ? (
-        <p className="text-sm text-destructive">
-          {validationError}
-        </p>
-      ) : null}
-
+      </div>
+      <div className={dialogLayout ? "grid shrink-0 gap-3 border-t border-border bg-card px-5 py-4 sm:px-6" : "grid gap-3"}>
       {error ? (
         <p
           role="alert"
@@ -568,7 +618,7 @@ export function ProviderPackageForm({
         </p>
       ) : null}
 
-      <div className="flex flex-wrap justify-end gap-3">
+      <div className="flex flex-wrap justify-end gap-3 [&>button]:flex-1 sm:[&>button]:flex-none">
         <Button
           type="button"
           variant="secondary"
@@ -598,6 +648,8 @@ export function ProviderPackageForm({
           : "Create draft package"}
         </Button>
       </div>
+      </div>
+      </fieldset>
     </form>
   );
 }
@@ -619,15 +671,15 @@ function InclusionTextarea({
   return (
     <div className="grid gap-2">
         <FormField label={label}>
-        <textarea
+        <Textarea
             value={value}
             onChange={(event) =>
             onChange(
                 event.target.value,
             )
             }
-            rows={4}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            rows={3}
+            className="min-h-24 w-full rounded-md border bg-background px-3 py-2 text-sm"
             placeholder="Enter one inclusion per line"
         />
         </FormField>
