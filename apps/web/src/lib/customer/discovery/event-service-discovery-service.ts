@@ -40,7 +40,8 @@ export async function getPublicEventServices(
     (document) => {
       const data = document.data();
 
-      if (data.isDeleted === true) {
+      if (data.isDeleted === true || data.status !== "published" || data.isPublished !== true ||
+          data.isActive !== true || data.isAvailable !== true) {
         return [];
       }
 
@@ -175,6 +176,8 @@ export async function getPublicEventServices(
         if (!provider) {
           return [];
         }
+        const providerRecord = providerSnapshots.find((snapshot) => snapshot.id === candidate.providerId)?.data();
+        if (!providerRecord || candidate.data.ownerId !== providerRecord.ownerId) return [];
 
         const name =
           safeText(
