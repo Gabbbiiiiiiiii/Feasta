@@ -11,6 +11,8 @@ import {
   useRef,
 } from "react";
 
+import {ProviderMessageIndicator} from "@/components/layout/provider-message-indicator";
+
 import {LogoutButton} from "@/components/auth/logout-button";
 import {NotificationMenu} from "@/components/layout/notification-menu";
 import {
@@ -97,7 +99,13 @@ function ApplicationHeader({
           <div className="flex-1" />
         )}
 
-        {showNotifications ? <NotificationMenu role={role} /> : null}
+        {role === "provider" && showNotifications ? (
+          <ProviderMessageIndicator />
+        ) : null}
+
+        {showNotifications ? (
+          <NotificationMenu role={role} />
+        ) : null}
 
         <details
           ref={accountDetails}

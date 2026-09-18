@@ -58,6 +58,25 @@ type RoomRelationship = {
   isLegacy: boolean;
 };
 
+export async function getProviderUnreadMessageCount(): Promise<number> {
+  const account = await requireApprovedProvider();
+  const providerId = requireDocumentId(account.providerId);
+
+  const snapshot = await adminDb
+    .collection("chatRooms")
+    .where("providerId", "==", providerId)
+    .where("isActive", "==", true)
+    .get();
+
+  return snapshot.docs.reduce((total, document) => {
+    const unreadCount = nonNegativeInteger(
+      document.data().unreadCountProvider,
+    );
+
+    return total + (unreadCount ?? 0);
+  }, 0);
+}
+
 export async function getProviderChatRoomPage(
   input: Partial<ProviderChatRoomFilters> = {},
 ): Promise<ProviderChatRoomPage> {

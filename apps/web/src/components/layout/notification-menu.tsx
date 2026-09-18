@@ -22,7 +22,7 @@ import {
   roleActions,
   type ShellRole,
 } from "@/components/layout/navigation";
-import {resolveCustomerNotificationDestination} from "@/lib/customer/notifications/customer-notification-destination";
+import {resolveNotificationDestination} from "@/lib/notifications/notification-destination";
 import {
   markNotificationRead,
   markRecentNotificationsRead,
@@ -370,9 +370,7 @@ function NotificationItem({
   ) => void | Promise<void>;
   onNavigate: (destination: string) => void;
 }) {
-  const destination = role === "customer"
-    ? resolveCustomerNotificationDestination(notification)
-    : null;
+  const destination = resolveNotificationDestination(role, notification);
 
   return (
     <li>

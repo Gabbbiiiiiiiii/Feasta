@@ -4,6 +4,7 @@ import {
   getProviderChatMessages,
   getProviderChatRoom,
   getProviderChatRoomPage,
+  getProviderUnreadMessageCount,
 } from "@/lib/provider/messages/provider-chat-service";
 import type {
   ProviderChatMessageFilters,
@@ -30,4 +31,8 @@ export async function loadProviderChatMessagesAction(
   filters: ProviderChatMessageFilters,
 ): Promise<ProviderChatMessagePage> {
   return await getProviderChatMessages(chatRoomId, filters);
+}
+
+export async function loadProviderUnreadMessageCountAction(): Promise<number> {
+  return await getProviderUnreadMessageCount();
 }

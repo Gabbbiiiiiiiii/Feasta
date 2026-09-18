@@ -136,22 +136,7 @@ const providerServiceNavigation: NavigationLinkItem = {
   icon: Store,
 };
 
-const providerCommunicationNavigation: readonly NavigationItem[] = [
-  {
-    kind: "link",
-    section: "COMMUNICATION",
-    label: "Messages",
-    href: "/provider/messages",
-    icon: MessageSquareText,
-  },
-  {
-    kind: "link",
-    section: "COMMUNICATION",
-    label: "Notifications",
-    href: "/provider/notifications",
-    icon: Bell,
-  },
-];
+
 
 const providerBusinessNavigation: readonly NavigationItem[] = [
   {
@@ -209,7 +194,6 @@ const providerAccountNavigation: NavigationLinkItem = {
 };
 
 const providerRestrictedNavigation: readonly NavigationItem[] = [
-  providerCommunicationNavigation[1],
   providerVerificationNavigation,
   providerAccountNavigation,
 ];
@@ -260,7 +244,6 @@ export function getRoleNavigation(
   ) {
     return [
       ...catalogNavigation,
-      providerCommunicationNavigation[1],
       providerVerificationNavigation,
       providerAccountNavigation,
     ];
@@ -274,7 +257,6 @@ export function getRoleNavigation(
 
   if (!operational) {
     return [
-      providerCommunicationNavigation[1],
       providerVerificationNavigation,
       providerAccountNavigation,
     ];
@@ -284,7 +266,6 @@ export function getRoleNavigation(
     providerDashboardNavigation,
     ...providerBookingNavigation,
     ...catalogNavigation,
-    ...providerCommunicationNavigation,
     ...providerBusinessNavigation,
     providerVerificationNavigation,
     providerAccountNavigation,

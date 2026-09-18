@@ -55,6 +55,7 @@ vi.mock("@/lib/notifications/notification-client", () => ({
 import {NotificationMenu} from "@/components/layout/notification-menu";
 import {NotificationsPageClient} from "@/components/notifications/notifications-page-client";
 import {resolveCustomerNotificationDestination} from "@/lib/customer/notifications/customer-notification-destination";
+import {resolveNotificationDestination} from "@/lib/notifications/notification-destination";
 
 describe("notifications page", () => {
   beforeEach(() => {
@@ -106,6 +107,39 @@ describe("notifications page", () => {
       onValue([]);
       return {unsubscribe: mocks.unsubscribe};
     });
+  });
+
+  it("uses the same provider message destination in the dropdown and full page", async () => {
+    const notification = notificationFixture({title: "New Message", type: "new_message", relatedCollection: "chatRooms", relatedId: "room_B-123"});
+    mocks.subscribeMenu.mockImplementationOnce(async (onValue) => {
+      onValue({notifications: [notification], unreadCount: 1, unreadCountCapped: false});
+      return {unsubscribe: mocks.unsubscribe};
+    });
+    mocks.subscribePage.mockImplementationOnce(async (_limit, onValue) => {
+      onValue([notification]);
+      return {unsubscribe: mocks.unsubscribe};
+    });
+    const user = userEvent.setup();
+    const view = render(<NotificationMenu role="provider" />);
+    await user.click(await screen.findByRole("button", {name: "1 unread notifications"}));
+    await user.click(screen.getByRole("button", {name: /New Message/}));
+    expect(navigationMocks.push).toHaveBeenCalledWith("/provider/messages?room=room_B-123");
+    expect(screen.queryByRole("dialog", {name: "Notifications"})).not.toBeInTheDocument();
+    view.unmount();
+    render(<NotificationsPageClient role="provider" />);
+    expect(await screen.findByRole("link", {name: /New Message/})).toHaveAttribute("href", navigationMocks.push.mock.calls[0]![0]);
+  });
+
+  it.each(["customer", "provider"] as const)("rejects unsupported dropdown collections for %s", async (role) => {
+    mocks.subscribeMenu.mockImplementationOnce(async (onValue) => {
+      onValue({notifications: [notificationFixture({title: "Unsupported message", type: "new_message", relatedCollection: "unknownRooms", relatedId: "room_B"})], unreadCount: 1, unreadCountCapped: false});
+      return {unsubscribe: mocks.unsubscribe};
+    });
+    const user = userEvent.setup();
+    render(<NotificationMenu role={role} />);
+    await user.click(await screen.findByRole("button", {name: "1 unread notifications"}));
+    await user.click(screen.getByRole("button", {name: /Unsupported message/}));
+    expect(navigationMocks.push).not.toHaveBeenCalled();
   });
 
   it("renders an honest empty state from the bounded admin action", async () => {
@@ -381,7 +415,7 @@ describe("notifications page", () => {
       .toBeVisible();
   });
 
-  it("does not navigate the dropdown for malformed message metadata", async () => {
+  it.each(["customer", "provider"] as const)("does not navigate the %s dropdown for malformed message metadata", async (role) => {
     mocks.subscribeMenu.mockImplementationOnce(async (
       onValue: (snapshot: {
         notifications: readonly FeastaNotification[];
@@ -404,7 +438,7 @@ describe("notifications page", () => {
     });
 
     const user = userEvent.setup();
-    render(<NotificationMenu role="customer" />);
+    render(<NotificationMenu role={role} />);
     await user.click(await screen.findByRole("button", {
       name: "1 unread notifications",
     }));
@@ -438,7 +472,105 @@ describe("notifications page", () => {
   });
 });
 
-describe("customer notification destination resolver", () => {
+describe("notification destination resolver", () => {
+  it("preserves customer destinations and existing provider/admin fallbacks", () => {
+    for (const [type, relatedCollection, relatedId] of [
+      ["new_message", "chatRooms", "room_1"], ["booking", "mainEvents", "event_1"],
+      ["payment", "payments", "payment_1"], ["review", "reviews", "review_1"],
+      ["account", "users", "user_1"], ["system", null, null],
+      ["new_message", "chatRooms", "../unsafe"],
+    ]) {
+      const notification = notificationFixture({type: type!, relatedCollection, relatedId});
+      expect(resolveNotificationDestination("customer", notification)).toBe(resolveCustomerNotificationDestination(notification));
+    }
+    expect(resolveNotificationDestination("provider", notificationFixture({type: "verification", relatedCollection: "providerVerifications"}))).toBe("/provider/verification");
+    expect(resolveNotificationDestination("admin", notificationFixture({type: "payment", relatedCollection: "payments"}))).toBe("/admin/payments");
+    expect(resolveNotificationDestination("admin", notificationFixture({relatedCollection: "unknown"}))).toBe("/admin/notifications");
+  });
+  it.each([
+  [
+    "new booking request",
+    {
+      type: "new_booking_request",
+      relatedCollection: "providerRequests",
+      relatedId: "request_123",
+    },
+    "/provider/requests",
+  ],
+  [
+    "provider request",
+    {
+      type: "booking_request",
+      relatedCollection: "bookingProviderRequests",
+      relatedId: "request_456",
+    },
+    "/provider/requests",
+  ],
+  [
+    "booking",
+    {
+      type: "booking_confirmed",
+      relatedCollection: "mainEvents",
+      relatedId: "booking_123",
+    },
+    "/provider/bookings",
+  ],
+  [
+    "payment",
+    {
+      type: "payment_confirmed",
+      relatedCollection: "payments",
+      relatedId: "payment_123",
+    },
+    "/provider/payments",
+  ],
+  [
+    "refund",
+    {
+      type: "refund_completed",
+      relatedCollection: "payments",
+      relatedId: "payment_456",
+    },
+    "/provider/payments",
+  ],
+  [
+    "review",
+    {
+      type: "review",
+      relatedCollection: "reviews",
+      relatedId: "review_123",
+    },
+    "/provider/reviews",
+  ],
+  [
+    "verification",
+    {
+      type: "verification_updated",
+      relatedCollection: "providerVerifications",
+      relatedId: "verification_123",
+    },
+    "/provider/verification",
+  ],
+  [
+    "message",
+    {
+      type: "new_message",
+      relatedCollection: "chatRooms",
+      relatedId: "room_123",
+    },
+    "/provider/messages?room=room_123",
+  ],
+] as const)(
+  "routes provider %s notifications to the correct workspace",
+  (_label, input, expected) => {
+    expect(
+      resolveNotificationDestination(
+        "provider",
+        notificationFixture(input),
+      ),
+    ).toBe(expected);
+  },
+);
   it("allowlists implemented Customer routes from matching type and collection metadata", () => {
     expect(resolveCustomerNotificationDestination(notificationFixture({
       type: "new_message",
