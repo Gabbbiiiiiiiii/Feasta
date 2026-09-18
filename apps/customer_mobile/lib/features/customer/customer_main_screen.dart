@@ -15,7 +15,7 @@ import 'customer_account_screen.dart';
 import 'customer_bookings_screen.dart';
 import 'customer_favorites_screen.dart';
 import 'customer_home_screen.dart';
-import 'customer_messages_screen.dart';
+import 'customer_messages_screen.dart' as customer_messages;
 import 'customer_plan_screen.dart';
 
 enum _MainDestination { home, messages, bookings, account }
@@ -333,7 +333,7 @@ class _CustomerMainScreenState extends State<CustomerMainScreen>
 
   Widget _buildScreen() {
     return switch (_destination) {
-      _MainDestination.messages => CustomerMessagesScreen(
+      _MainDestination.messages => customer_messages.CustomerMessagesScreen(
         isGuest: !_isAuthenticated,
         onLogin: _openMessagesLogin,
       ),

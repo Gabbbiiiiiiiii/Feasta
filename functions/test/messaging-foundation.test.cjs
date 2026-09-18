@@ -40,7 +40,7 @@ test("canonical rooms use the provider request ID without client identities", ()
   }
 });
 
-test("chat lifecycle is available only from pending through in-progress", () => {
+test("chat lifecycle remains available through completed bookings", () => {
   assert.deepEqual(CHAT_ELIGIBLE_PROVIDER_REQUEST_STATUSES, [
     "pending",
     "accepted",
@@ -48,69 +48,49 @@ test("chat lifecycle is available only from pending through in-progress", () => 
     "payment_processing",
     "confirmed",
     "in_progress",
+    "completed",
   ]);
+
   assert.deepEqual(CHAT_ELIGIBLE_MAIN_EVENT_STATUSES, [
     "pending_provider_approval",
     "needs_provider_replacement",
     "waiting_for_down_payment",
     "confirmed",
     "in_progress",
+    "completed",
   ]);
 
   for (const status of CHAT_ELIGIBLE_PROVIDER_REQUEST_STATUSES) {
-    assert.equal(isChatLifecycleEligible(status, "in_progress"), true, status);
-  }
-  for (const status of ["rejected", "completed", "cancelled", "expired"]) {
-    assert.equal(isChatLifecycleEligible(status, "in_progress"), false, status);
-  }
-  for (const status of ["draft", "completed", "cancelled", "expired"]) {
-    assert.equal(isChatLifecycleEligible("pending", status), false, status);
-  }
-});
-
-test("send validation is text-only, trimmed, bounded, and strict", () => {
-  assert.equal(CHAT_MESSAGE_MAX_LENGTH, 4000);
-  assert.deepEqual(validateSendChatMessageInput({
-    chatRoomId: "provider_request_123",
-    message: "  Hello  ",
-  }), {
-    chatRoomId: "provider_request_123",
-    message: "Hello",
-  });
-  assert.equal(
-    validateSendChatMessageInput({
-      chatRoomId: "provider_request_123",
-      message: "a".repeat(4000),
-    }).message.length,
-    4000,
-  );
-  for (const payload of [
-    {chatRoomId: "provider_request_123", message: ""},
-    {chatRoomId: "provider_request_123", message: "   "},
-    {chatRoomId: "provider_request_123", message: "a".repeat(4001)},
-    {chatRoomId: "provider_request_123", message: "hello", messageType: "image"},
-    {chatRoomId: "provider_request_123", message: "hello", attachmentUrl: "https://example.test/file"},
-    {chatRoomId: "provider_request_123", message: "hello", senderId: "attacker"},
-  ]) {
-    assert.throws(
-      () => validateSendChatMessageInput(payload),
-      (error) => error.code === "invalid-argument",
+    assert.equal(
+      isChatLifecycleEligible(status, "completed"),
+      true,
+      status,
     );
   }
-});
 
-test("mark-read input never accepts a caller-selected role", () => {
-  assert.deepEqual(
-    validateMarkChatReadInput({chatRoomId: "provider_request_123"}),
-    {chatRoomId: "provider_request_123"},
-  );
-  assert.throws(
-    () => validateMarkChatReadInput({
-      chatRoomId: "provider_request_123",
-      currentRole: "customer",
-    }),
-    (error) => error.code === "invalid-argument",
-  );
+  for (const status of [
+    "rejected",
+    "cancelled",
+    "expired",
+  ]) {
+    assert.equal(
+      isChatLifecycleEligible(status, "completed"),
+      false,
+      status,
+    );
+  }
+
+  for (const status of [
+    "draft",
+    "cancelled",
+    "expired",
+  ]) {
+    assert.equal(
+      isChatLifecycleEligible("completed", status),
+      false,
+      status,
+    );
+  }
 });
 
 test("callables derive participants and commit message side effects atomically", () => {

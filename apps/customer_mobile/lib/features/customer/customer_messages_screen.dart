@@ -596,58 +596,42 @@ class _ConversationCard extends StatelessWidget {
     required String bookingId,
     required String chatRoomId,
   }) async {
-    final normalizedBookingId = bookingId.trim();
-
     final normalizedChatRoomId = chatRoomId.trim();
 
-    if (normalizedBookingId.isEmpty || normalizedChatRoomId.isEmpty) {
-      _showError(
-        context,
-        'This conversation is missing required booking information.',
-      );
-
+    if (normalizedChatRoomId.isEmpty) {
+      _showError(context, 'This conversation is unavailable.');
       return;
     }
 
+    debugPrint(
+      'FEASTA MESSAGES: opening existing '
+      'chatRoom=$normalizedChatRoomId '
+      'booking=${bookingId.trim()}',
+    );
+
     try {
-      final booking = await repository.bookingById(normalizedBookingId).first;
-
-      if (!context.mounted) {
-        return;
-      }
-
-      if (booking == null) {
-        _showError(
-          context,
-          'This conversation is no longer associated '
-          'with an available booking.',
-        );
-
-        return;
-      }
-
       await Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) =>
-              ChatScreen(booking: booking, currentRole: UserRoles.customer),
+          builder: (_) => ChatScreen(
+            currentRole: UserRoles.customer,
+            existingChatRoomId: normalizedChatRoomId,
+          ),
         ),
       );
-    } catch (error) {
-      if (!context.mounted) {
-        return;
-      }
-
+    } catch (error, stackTrace) {
       debugPrint(
-        'FEASTA MESSAGES: failed to open '
+        'FEASTA MESSAGES: navigation failed '
         'chatRoom=$normalizedChatRoomId '
-        'booking=$normalizedBookingId '
         'error=$error',
       );
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!context.mounted) return;
 
       _showError(
         context,
-        'We couldn\'t open this conversation. '
-        'Please try again.',
+        'We couldn'
+        't open this conversation. Please try again.',
       );
     }
   }
