@@ -282,8 +282,6 @@ const callableOptions = {
 
 export const searchPlaces = onCall(callableOptions, async (request) => {
   try {
-    const user = requireAuth(request);
-    await requireActiveUser(user.uid);
     await enforceCallableRateLimit(request, {
       scope: "maps.searchPlaces",
       limit: 30,
@@ -419,8 +417,6 @@ export const reverseGeocode = onCall(callableOptions, async (request) => {
 
 export const getPlaceDetails = onCall(callableOptions, async (request) => {
   try {
-    const user = requireAuth(request);
-    await requireActiveUser(user.uid);
     await enforceCallableRateLimit(request, {
       scope: "maps.getPlaceDetails",
       limit: 30,

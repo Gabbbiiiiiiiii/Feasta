@@ -372,7 +372,7 @@ test("refund adjudication and execution never accept browser money authority", (
   assert.equal(execution.includes("request.data.paymentId"), false);
 });
 
-for (const name of ["searchPlaces", "reverseGeocode", "getPlaceDetails", "getDirections"]) {
+for (const name of ["reverseGeocode", "getDirections"]) {
   test(`${name} is an authenticated, active and rate-limited Maps callable`, () => {
     const index = source("index.ts");
     const start = index.indexOf(`export const ${name} = onCall`);
@@ -382,6 +382,21 @@ for (const name of ["searchPlaces", "reverseGeocode", "getPlaceDetails", "getDir
     for (const control of ["requireAuth(request)", "requireActiveUser", "enforceCallableRateLimit"]) {
       assert.ok(block.includes(control), `${name} is missing ${control}`);
     }
+  });
+}
+
+for (const name of ["searchPlaces", "getPlaceDetails"]) {
+  test(`${name} is a public, App Check protected and rate-limited Maps callable`, () => {
+    const index = source("index.ts");
+    const start = index.indexOf(`export const ${name} = onCall`);
+    assert.notEqual(start, -1);
+    const next = index.indexOf("export const ", start + 20);
+    const block = index.slice(start, next === -1 ? undefined : next);
+    assert.ok(block.includes("enforceCallableRateLimit"), `${name} is missing rate limiting`);
+    assert.equal(block.includes("requireAuth(request)"), false);
+    assert.equal(block.includes("requireActiveUser"), false);
+    assert.ok(index.includes("const callableOptions = {"));
+    assert.ok(index.includes("...appCheckCallableOptions"));
   });
 }
 
