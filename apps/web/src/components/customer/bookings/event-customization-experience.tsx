@@ -43,6 +43,8 @@ import {
 import {
   buildRefundPolicyAcknowledgements,
   getCustomerBookingRefundPolicyDisclosures,
+  normalizeDisclosureError,
+  type RefundPolicyDisclosureError,
   type CustomerRefundPolicyDisclosure,
   type CustomerRefundPolicyDisclosureResult,
 } from "@/lib/customer/bookings/customer-refund-policy-client";
@@ -231,7 +233,7 @@ const submissionIdentityRef =
   const [refundPolicyResult, setRefundPolicyResult] =
     useState<CustomerRefundPolicyDisclosureResult | null>(null);
   const [refundPolicyError, setRefundPolicyError] =
-    useState<string | null>(null);
+    useState<RefundPolicyDisclosureError | null>(null);
   const [refundPolicyNotice, setRefundPolicyNotice] =
     useState<string | null>(null);
   const [acknowledgedPolicyKeys, setAcknowledgedPolicyKeys] =
@@ -261,11 +263,7 @@ const submissionIdentityRef =
     } catch (error) {
       if (refundPolicyGenerationRef.current !== generation) return;
       setRefundPolicyStatus("error");
-      setRefundPolicyError(
-        error instanceof Error && error.message.trim()
-          ? error.message
-          : "Refund policy details could not be loaded. Please try again.",
-      );
+      setRefundPolicyError(normalizeDisclosureError(error));
     }
   }, [packageRecord.id, provider.id, selectedEventServiceIds]);
 
@@ -2794,7 +2792,7 @@ function BookingReview({
 
   refundPolicyResult: CustomerRefundPolicyDisclosureResult | null;
 
-  refundPolicyError: string | null;
+  refundPolicyError: RefundPolicyDisclosureError | null;
 
   refundPolicyNotice: string | null;
 
@@ -3448,7 +3446,7 @@ function RefundPolicyReview({
 }: {
   status: RefundPolicyStatus;
   result: CustomerRefundPolicyDisclosureResult | null;
-  error: string | null;
+  error: RefundPolicyDisclosureError | null;
   notice: string | null;
   acknowledgedPolicyKeys: Readonly<Record<string, string>>;
   onAcknowledgementChange: (
@@ -3497,13 +3495,13 @@ function RefundPolicyReview({
 
         {status === "error" ? (
           <div role="alert" className="rounded-[16px] border border-destructive/20 bg-destructive-subtle p-4">
-            <p className="font-bold text-destructive">Refund policies unavailable</p>
+            <p className="font-bold text-destructive">{error?.title ?? "Refund policies are temporarily unavailable."}</p>
             <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
-              {error ?? "Refund policy details could not be loaded."}
+              {error?.message ?? "Refund policy details could not be loaded."}
             </p>
-            <Button type="button" variant="secondary" size="compact" className="mt-3" onClick={onRetry}>
+            {error?.retryable !== false ? <Button type="button" variant="secondary" size="compact" className="mt-3" onClick={onRetry}>
               Try again
-            </Button>
+            </Button> : null}
           </div>
         ) : null}
 
