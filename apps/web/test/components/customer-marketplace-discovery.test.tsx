@@ -267,7 +267,7 @@ describe("customer marketplace search presentation", () => {
     expect(screen.getByRole("button", {name: "Find Services"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Ana Events"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Ana Events"}))
-      .not.toHaveClass("line-clamp-2");
+      .toHaveClass("line-clamp-2");
     expect(screen.getByText("Approved")).toBeVisible();
     expect(screen.getByText("Ormoc City, Leyte").tagName).toBe("SPAN");
     expect(screen.getByText("50–200 guests")).toBeVisible();
@@ -402,7 +402,7 @@ describe("customer marketplace server query contracts", () => {
     const loading = readFileSync(join(webRoot, "src/app/customer/providers/loading.tsx"), "utf8");
     const globalStyles = readFileSync(join(webRoot, "src/app/globals.css"), "utf8");
     expect(providerResults).toContain(
-      "grid-cols-[repeat(auto-fill,minmax(min(100%,17.5rem),1fr))]",
+      "grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))]",
     );
     expect(globalStyles).toContain("--breakpoint-sm: 37.5rem");
     expect(globalStyles).toContain("--breakpoint-md: 64rem");
@@ -410,7 +410,7 @@ describe("customer marketplace server query contracts", () => {
     expect(globalStyles).toContain("--breakpoint-xl: 96rem");
     expect(providerPage).not.toContain("ProviderFilterForm");
     expect(providerPage).not.toContain("md:grid-cols-[17rem_minmax(0,1fr)]");
-    expect(loading).toContain("grid-cols-[repeat(auto-fill,minmax(min(100%,17.5rem),1fr))]");
+    expect(loading).toContain("grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))]");
     expect(directoryShell).toContain("sm:-mx-6");
     expect(directoryShell).toContain("lg:-mx-8");
     expect(directoryShell).not.toContain("lg:-mx-10");

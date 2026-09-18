@@ -148,8 +148,8 @@ describe("customer package marketplace", () => {
       `${packageRecord.name} package from ${packageRecord.providerName}`,
     )).toBeInTheDocument();
     expect(screen.getByText("50–150 guests")).toBeVisible();
-    expect(screen.getByText("Buffet menu")).toBeVisible();
-    expect(screen.queryByText(packageRecord.description!)).not.toBeInTheDocument();
+    expect(screen.queryByText("Buffet menu")).not.toBeInTheDocument();
+    expect(screen.getByText(packageRecord.description!)).toBeVisible();
     expect(screen.getAllByText("Wedding")).toHaveLength(1);
     expect(screen.queryByText(/rating|available near you|best seller|discount/iu))
       .not.toBeInTheDocument();
@@ -177,39 +177,38 @@ describe("customer package marketplace", () => {
       .toBeVisible();
   });
 
-  it("keeps inclusion summaries, event details, price, and navigation within a compact card", () => {
+  it("keeps discovery details and navigation while omitting inclusion lists", () => {
     render(<PackageResults filters={filters} page={{packages: [{...packageRecord, imageUrl: null, inclusions: [...packageRecord.inclusions, "Venue setup"]}], previousCursor: null, nextCursor: null, pageSize: 12}} />);
     expect(screen.getByRole("article")).toHaveClass("relative");
     expect(screen.getByText("Package image")).toBeVisible();
     // One event badge on the card; the results header also shows the active filter.
     expect(screen.getByRole("article")).not.toHaveTextContent("EventWedding");
-    expect(screen.getByRole("article").parentElement).toHaveClass("grid-cols-[repeat(auto-fill,minmax(min(100%,17.5rem),1fr))]");
+    expect(screen.getByRole("article").parentElement).toHaveClass("grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))]");
     expect(screen.getByText("50–150 guests")).toBeVisible();
-    expect(screen.getByText("Buffet menu")).toBeVisible();
-    expect(screen.getAllByRole("listitem")).toHaveLength(2);
-    expect(screen.getByText("Event styling")).toBeVisible();
-    expect(screen.getByText("+2 more")).toBeVisible();
+    expect(screen.queryByText("Buffet menu")).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    expect(screen.queryByText("Event styling")).not.toBeInTheDocument();
+    expect(screen.queryByText("+2 more")).not.toBeInTheDocument();
     expect(screen.queryByText("Service staff")).not.toBeInTheDocument();
     expect(screen.queryByText("Venue setup")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Price: ₱45,000")).toBeVisible();
     expect(screen.getByRole("link", {name: `View ${packageRecord.name} package details`})).toHaveAttribute("href", "/customer/packages/package-one");
     expect(screen.getByText("View package")).toBeVisible();
-    expect(screen.queryByText(packageRecord.description!)).not.toBeInTheDocument();
+    expect(screen.getByText(packageRecord.description!)).toBeVisible();
   });
 
-  it("keeps the existing provider-profile card presentation", () => {
+  it("keeps expanded cards available to existing callers", () => {
     render(<PublicPackageCard packageRecord={packageRecord} marketplaceHref="/customer/providers" showProvider={false} headingLevel="h3" />);
     expect(screen.getByText(packageRecord.description!)).toBeVisible();
     expect(screen.getAllByText("Wedding")).toHaveLength(2);
     expect(screen.getAllByRole("listitem")).toHaveLength(3);
   });
 
-  it.each([0, 1, 2, 5])("summarizes %s inclusions without inventing a remainder", (count) => {
+  it.each([0, 1, 2, 5])("omits %s inclusions from compact discovery cards", (count) => {
     const inclusions = ["Buffet menu", "Event styling", "Service staff", "Venue setup", "Lighting"].slice(0, count);
     render(<PublicPackageCard compactPreview packageRecord={{...packageRecord, inclusions}} marketplaceHref="/customer/packages" />);
-    expect(screen.queryAllByRole("listitem")).toHaveLength(Math.min(count, 2));
-    if (count > 2) expect(screen.getByText(`+${count - 2} more`)).toBeVisible();
-    else expect(screen.queryByText(/\+\d+ more/)).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    expect(screen.queryByText(/\+\d+ more/)).not.toBeInTheDocument();
   });
 
   it("preserves filters in previous and next pagination links", () => {

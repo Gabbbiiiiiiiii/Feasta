@@ -22,12 +22,14 @@ export function PublicPackageCard({
   headingLevel = "h2",
   showProvider = true,
   compactPreview = false,
+  layout = "marketplace",
 }: {
   packageRecord: PublicPackage;
   marketplaceHref: string;
   headingLevel?: "h2" | "h3";
   showProvider?: boolean;
   compactPreview?: boolean;
+  layout?: "marketplace" | "provider-profile";
 }) {
   const eventContextQuery = customerEventContextQuery(
     // Preserve supplied context across hydration; destination queries validate dates.
@@ -40,7 +42,8 @@ export function PublicPackageCard({
   const primaryImage = packageRecord.imageUrls?.[0] ?? packageRecord.imageUrl;
   const Heading = headingLevel;
   const guestRange = packageGuestRange(packageRecord);
-  const inclusionLimit = compactPreview ? 2 : 3;
+  const compact = compactPreview || layout === "provider-profile";
+  const inclusionLimit = 3;
 
   return (
     <article
@@ -57,7 +60,7 @@ export function PublicPackageCard({
     >
       {/* Package image */}
 
-      <div className={`relative grid ${compactPreview ? "aspect-[2/1]" : "aspect-[16/9]"} place-items-center overflow-hidden bg-feasta-surface-muted`}>
+      <div className={`relative grid shrink-0 ${compact ? "aspect-[2/1]" : "aspect-[16/9]"} place-items-center overflow-hidden bg-feasta-surface-muted`}>
         {primaryImage ? (
           // Package image URLs are HTTPS-only values from the public package boundary.
           // eslint-disable-next-line @next/next/no-img-element
@@ -66,7 +69,7 @@ export function PublicPackageCard({
             alt={`${packageRecord.name} package from ${packageRecord.providerName}`}
             loading="lazy"
             decoding="async"
-            className="size-full object-cover transition-transform duration-slow group-hover:scale-[1.035] motion-reduce:transform-none"
+            className="absolute inset-0 size-full object-cover transition-transform duration-slow group-hover:scale-[1.035] motion-reduce:transform-none"
           />
         ) : (
           <div className="grid justify-items-center gap-2 text-feasta-text-tertiary">
@@ -91,7 +94,7 @@ export function PublicPackageCard({
         ) : null}
 
         {packageRecord.eventType ? (
-          <span className="absolute left-3 top-3 rounded-full border border-white/70 bg-white/95 px-3 py-1.5 text-[11px] font-extrabold text-primary-strong shadow-sm backdrop-blur">
+          <span className="absolute left-3 right-3 top-3 w-fit max-w-[calc(100%-1.5rem)] break-words rounded-full border border-white/70 bg-white/95 px-3 py-1.5 text-[11px] font-extrabold text-primary-strong shadow-sm backdrop-blur">
             {humanizeProviderValue(packageRecord.eventType)}
           </span>
         ) : null}
@@ -102,7 +105,7 @@ export function PublicPackageCard({
       <div className="flex min-w-0 flex-1 flex-col p-4">
         <div className="min-w-0">
           <div className="flex items-start justify-between gap-4">
-            <Heading aria-label={packageRecord.name} className="min-w-0 break-words text-lg font-extrabold leading-tight tracking-[-0.025em] text-foreground transition-colors group-hover:text-primary-strong">
+            <Heading aria-label={packageRecord.name} className={`${compact ? "line-clamp-2 min-h-10 text-base" : "text-lg"} min-w-0 break-words font-extrabold leading-tight tracking-[-0.025em] text-foreground transition-colors group-hover:text-primary-strong`}>
               <Link
                 href={packageHref}
                 aria-label={`View ${packageRecord.name} package details`}
@@ -126,7 +129,7 @@ export function PublicPackageCard({
           </div>
 
           {showProvider ? (
-            <p className="mt-2 text-sm text-feasta-text-secondary">
+            <p className="mt-2 line-clamp-1 text-sm text-feasta-text-secondary">
               By{" "}
               <Link
                 href={providerProfileHref(
@@ -141,17 +144,17 @@ export function PublicPackageCard({
           ) : null}
         </div>
 
-        {!compactPreview && packageRecord.description ? (
-          <p className="mt-3 line-clamp-3 break-words text-sm leading-5 text-feasta-text-secondary">
+        {packageRecord.description ? (
+          <p className={`${compact ? "mt-2 line-clamp-2" : "mt-3 line-clamp-3"} break-words text-sm leading-5 text-feasta-text-secondary`}>
             {packageRecord.description}
           </p>
         ) : null}
 
         {/* Planning information */}
 
-        {(!compactPreview && packageRecord.eventType) || guestRange ? (
-          <dl className={`mt-3 grid min-w-0 gap-3 border-t border-feasta-divider pt-3 ${compactPreview ? "" : "sm:grid-cols-2"}`}>
-            {!compactPreview && packageRecord.eventType ? (
+        {(!compact && packageRecord.eventType) || guestRange ? (
+          <dl className={`mt-3 grid min-w-0 gap-3 ${compact ? "" : "border-t border-feasta-divider pt-3 sm:grid-cols-2"}`}>
+            {!compact && packageRecord.eventType ? (
               <div className="flex min-w-0 items-start gap-2">
                 <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-primary-strong">
                   <CalendarDays
@@ -176,7 +179,7 @@ export function PublicPackageCard({
 
             {guestRange ? (
               <div className="flex min-w-0 items-start gap-2">
-                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-primary-strong">
+                <span className={compact ? "mt-0.5 shrink-0 text-primary-strong" : "grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-primary-strong"}>
                   <UsersRound
                     aria-hidden="true"
                     className="size-4"
@@ -184,7 +187,7 @@ export function PublicPackageCard({
                 </span>
 
                 <div className="min-w-0">
-                  <dt className="text-[11px] font-bold uppercase tracking-[0.07em] text-feasta-text-tertiary">
+                  <dt className={compact ? "sr-only" : "text-[11px] font-bold uppercase tracking-[0.07em] text-feasta-text-tertiary"}>
                     Guests
                   </dt>
 
@@ -199,13 +202,13 @@ export function PublicPackageCard({
 
         {/* Inclusion highlights */}
 
-        {packageRecord.inclusions.length > 0 ? (
+        {!compact && packageRecord.inclusions.length > 0 ? (
           <div className="mt-3 border-t border-feasta-divider pt-3">
             <p className="text-[11px] font-extrabold uppercase tracking-[0.09em] text-feasta-text-tertiary">
               What&apos;s included
             </p>
 
-            <ul className={`mt-2 grid min-w-0 gap-1.5 text-sm ${compactPreview ? "grid-cols-2" : ""}`}>
+            <ul className="mt-2 grid min-w-0 gap-1.5 text-sm">
               {packageRecord.inclusions
                 .slice(0, inclusionLimit)
                 .map((inclusion) => (
@@ -220,7 +223,7 @@ export function PublicPackageCard({
                       />
                     </span>
 
-                    <span className={`min-w-0 break-words leading-5 text-feasta-text-secondary ${compactPreview ? "line-clamp-2" : ""}`}>
+                    <span className="min-w-0 break-words leading-5 text-feasta-text-secondary">
                       {inclusion}
                     </span>
                   </li>
@@ -230,7 +233,7 @@ export function PublicPackageCard({
             {packageRecord.inclusions.length > inclusionLimit ? (
               <p className="mt-2 pl-7 text-xs font-semibold text-feasta-text-tertiary">
                 +{packageRecord.inclusions.length - inclusionLimit} more
-                {compactPreview ? <span className="sr-only"> inclusions</span> : packageRecord.inclusions.length - inclusionLimit === 1 ? " inclusion" : " inclusions"}
+                {packageRecord.inclusions.length - inclusionLimit === 1 ? " inclusion" : " inclusions"}
               </p>
             ) : null}
           </div>
@@ -239,7 +242,7 @@ export function PublicPackageCard({
         {/* Price */}
 
         <div className="mt-auto pt-3">
-          <div className="flex items-end justify-between gap-4 border-t border-feasta-divider pt-3">
+          <div className="flex flex-wrap items-end justify-between gap-3 border-t border-feasta-divider pt-3">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
                 Package price
@@ -253,7 +256,7 @@ export function PublicPackageCard({
 
             <span
               aria-hidden="true"
-              className="inline-flex items-center gap-1 text-xs font-extrabold text-primary-strong"
+              className="inline-flex min-h-11 items-center gap-1 text-xs font-extrabold text-primary-strong"
             >
               View package
 

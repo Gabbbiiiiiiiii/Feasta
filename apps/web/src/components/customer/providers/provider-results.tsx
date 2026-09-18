@@ -210,7 +210,7 @@ export function ProviderResults({
 
   function providerGrid(providers: readonly PublicProvider[]) {
     return (
-      <div className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(min(100%,17.5rem),1fr))] gap-4">
+      <div className="grid min-w-0 auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-4">
         {providers.map((provider) => (
           <ProviderCard
             key={provider.id}

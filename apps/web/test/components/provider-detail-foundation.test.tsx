@@ -63,39 +63,64 @@ describe("public provider profile presentation", () => {
       level: 1,
       name: provider.businessName,
     })).toBeVisible();
-    expect(screen.getByRole("link", {
+    expect(screen.getAllByRole("link", {
       name: "Back to providers",
-    })).toHaveAttribute("href", "/customer/providers");
+    })[0]).toHaveAttribute("href", "/customer/providers");
     expect(screen.getByText("Approved provider")).toBeVisible();
     expect(screen.getAllByText(provider.description)[0]).toBeVisible();
-    const packageCard = screen.getByRole("article", {
-      name: "Wedding Coordination published package",
-    });
+    const packageCard = within(screen.getByRole("region", {
+      name: "Ready-made starting points for your event.",
+    })).getByRole("article");
     expect(within(packageCard).getByRole("heading", {
       level: 3,
       name: "Wedding Coordination",
     })).toBeVisible();
-    expect(within(packageCard).getByText("For Wedding events")).toBeVisible();
+    expect(within(packageCard).getByText("Wedding")).toBeVisible();
     expect(within(packageCard).getByText(detail.packages[0]!.description!))
       .not.toHaveClass("line-clamp-4");
     expect(within(packageCard).getByLabelText(/25,000/u)).toBeVisible();
-    expect(within(packageCard).queryByRole("link")).not.toBeInTheDocument();
+    expect(within(packageCard).getByRole("link", {
+      name: "View Wedding Coordination package details",
+    })).toHaveAttribute("href", "/customer/packages/package-one");
+    expect(within(packageCard).getByText("50–150 guests")).toBeVisible();
+    expect(within(packageCard).queryByText("Coordination team")).not.toBeInTheDocument();
+    expect(within(packageCard).getByText("View package")).toBeVisible();
     expect(within(packageCard).queryByRole("button")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", {
       level: 2,
-      name: "Review now, request later",
+      name: "Found something that fits your celebration?",
     })).toBeVisible();
-    expect(screen.getByText(/Booking and provider-request functionality/iu)).toBeVisible();
+    expect(screen.queryByText(/Booking and provider-request actions/iu)).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(screen.queryByText(/ownerId|private email|phone|verification remarks/iu))
       .not.toBeInTheDocument();
+  });
+
+  it.each([1, 3])("preserves all %i package destinations and the published count", (count) => {
+    const packages = Array.from({length: count}, (_, index) => ({
+      ...detail.packages[0]!,
+      id: `package-${index}`,
+      name: `Published package ${index}`,
+    }));
+    render(<ProviderProfile detail={{provider, packages}} />);
+    const section = within(screen.getByRole("region", {
+      name: "Ready-made starting points for your event.",
+    }));
+    expect(section.getAllByRole("article")).toHaveLength(count);
+    expect(section.getByText(/^published packages?$/u))
+      .toHaveTextContent(new RegExp(`^${count} published packages?$`, "u"));
+    for (const packageRecord of packages) {
+      expect(section.getByRole("link", {
+        name: `View ${packageRecord.name} package details`,
+      })).toHaveAttribute("href", `/customer/packages/${packageRecord.id}`);
+    }
   });
 
   it("shows an explicit package empty state without fabricating offers", () => {
     render(<ProviderProfile detail={{provider, packages: []}} />);
     expect(screen.getByRole("heading", {
       level: 3,
-      name: "No public packages currently listed",
+      name: "No public packages currently listed.",
     })).toBeVisible();
     expect(screen.queryByText(/\brating\b|\breviews\b|starting at|available today/iu))
       .not.toBeInTheDocument();
@@ -105,8 +130,9 @@ describe("public provider profile presentation", () => {
     const backHref =
       "/customer/providers?q=coordination&service=addon&cursor=safe_cursor-1";
     render(<ProviderProfile detail={detail} backHref={backHref} />);
-    expect(screen.getByRole("link", {name: "Back to providers"}))
-      .toHaveAttribute("href", backHref);
+    for (const link of screen.getAllByRole("link", {name: "Back to providers"})) {
+      expect(link).toHaveAttribute("href", backHref);
+    }
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
@@ -115,11 +141,12 @@ describe("public provider profile presentation", () => {
       detail={detail}
       backHref="https://evil.test/customer/providers"
     />);
-    expect(screen.getByRole("link", {name: "Back to providers"}))
-      .toHaveAttribute("href", "/customer/providers");
+    for (const link of screen.getAllByRole("link", {name: "Back to providers"})) {
+      expect(link).toHaveAttribute("href", "/customer/providers");
+    }
   });
 
-  it("keeps unusually long package content readable without truncation", () => {
+  it("wraps long package names and event types with a short description preview", () => {
     const packageName =
       "Destination Wedding Coordination and Celebration Management Package";
     const packageDescription =
@@ -137,7 +164,7 @@ describe("public provider profile presentation", () => {
     expect(screen.getByRole("heading", {level: 3, name: packageName}))
       .toHaveClass("break-words");
     expect(screen.getByText(packageDescription))
-      .not.toHaveClass("line-clamp-4");
+      .toHaveClass("line-clamp-2");
     expect(screen.getAllByText(
       "Multi Day Destination Wedding Celebration",
     )[0]).toHaveClass("break-words");
@@ -179,12 +206,12 @@ describe("public provider profile presentation", () => {
     expect(screen.getByText(
       "This provider has not added public planning information yet.",
     )).toBeVisible();
-    expect(screen.getByText(
+    expect(screen.queryByText(
       "No public package description is available.",
-    )).toBeVisible();
+    )).not.toBeInTheDocument();
     expect(screen.getByText("Price unavailable")).toBeVisible();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
-    expect(screen.queryByText(/0 guests|available now|starting at/iu))
+    expect(screen.queryByText(/\b0 guests|available now|starting at/iu))
       .not.toBeInTheDocument();
   });
 
@@ -352,11 +379,13 @@ describe("public provider detail security contracts", () => {
       "src/app/customer/providers/[providerId]/loading.tsx",
     ), "utf8");
 
-    expect(profile).toContain("h-[clamp(11.5rem,28vw,20rem)]");
+    expect(profile).toContain("h-[clamp(13rem,30vw,22rem)]");
     expect(profile).toContain("sm:flex-row");
     expect(profile).toContain(
-      "grid-cols-[repeat(auto-fit,minmax(min(100%,17rem),1fr))]",
+      "sm:grid-cols-[auto_minmax(0,1fr)]",
     );
+    expect(profile).not.toMatch(/-mt-10|-mt-12/u);
+    expect(profile).toContain('layout="provider-profile"');
     expect(profile).toContain(
       "md:grid-cols-[minmax(0,1fr)_18rem]",
     );

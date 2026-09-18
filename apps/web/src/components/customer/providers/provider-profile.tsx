@@ -99,26 +99,11 @@ export function ProviderProfile({
             aria-hidden="true"
             className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent"
           />
-
-          <div className="absolute inset-x-0 bottom-0 px-5 pb-5 sm:px-7 sm:pb-6">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge
-                tone="success"
-                className="border border-white/70 bg-white/95 text-success shadow-sm backdrop-blur"
-              >
-                {provider.approvalLabel} provider
-              </Badge>
-
-              <span className="rounded-full border border-white/20 bg-black/20 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">
-                {providerServiceTypeLabel(provider.serviceType)}
-              </span>
-            </div>
-          </div>
         </div>
 
         {/* Identity */}
-        <div className="relative px-5 pb-6 sm:px-7 sm:pb-8 lg:px-9 lg:pb-9">
-          <div className="-mt-10 flex flex-col gap-5 sm:-mt-12 sm:flex-row sm:items-end">
+        <div className="p-5 sm:p-7 lg:p-9">
+          <div className="grid min-w-0 items-start gap-5 sm:grid-cols-[auto_minmax(0,1fr)] lg:grid-cols-[auto_minmax(0,1fr)_auto]">
             <div className="grid size-24 shrink-0 place-items-center overflow-hidden rounded-[22px] border-4 border-white bg-feasta-canvas shadow-[0_10px_28px_rgb(43_33_29/0.16)] sm:size-28">
               {provider.logoUrl ? (
                 // Provider media is restricted by the canonical public provider normalizer.
@@ -137,10 +122,17 @@ export function ProviderProfile({
               )}
             </div>
 
-            <div className="min-w-0 flex-1 sm:pb-1">
+            <div className="min-w-0">
               <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-primary-strong">
                 Provider profile
               </p>
+
+              <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2">
+                <Badge tone="success">{provider.approvalLabel} provider</Badge>
+                <span className="max-w-full break-words rounded-full bg-secondary px-3 py-1.5 text-xs font-bold text-primary-strong">
+                  {providerServiceTypeLabel(provider.serviceType)}
+                </span>
+              </div>
 
               <h1 className="mt-2 break-words text-3xl font-extrabold leading-[1.02] tracking-[-0.045em] text-foreground sm:text-4xl lg:text-[48px]">
                 {provider.businessName}
@@ -161,7 +153,7 @@ export function ProviderProfile({
             </div>
 
             {favoriteState ? (
-              <div className="sm:pb-1">
+              <div className="sm:col-start-2 lg:col-start-3 lg:row-start-1">
                 <ProviderFavoriteControl
                   providerId={provider.id}
                   providerName={provider.businessName}
@@ -169,7 +161,7 @@ export function ProviderProfile({
                   authenticated={favoriteState.authenticated}
                   loginReturnTo={favoriteState.loginReturnTo}
                   showLabel
-                  className="w-fit"
+                  className="w-fit whitespace-nowrap"
                 />
               </div>
             ) : null}
@@ -590,14 +582,6 @@ export function ProviderProfile({
               packages. Continue exploring FEASTA to compare the options that
               work best for your event.
             </p>
-
-            <div className="mt-5 rounded-[16px] border border-feasta-border-soft bg-feasta-canvas px-4 py-3.5">
-              <p className="text-xs leading-5 text-feasta-text-secondary">
-                Booking and provider-request actions are not currently available
-                from this public provider profile. FEASTA will only present those
-                actions through supported booking flows.
-              </p>
-            </div>
           </div>
 
           <div className="flex flex-col gap-2.5 sm:flex-row lg:flex-col lg:items-stretch">
@@ -691,7 +675,7 @@ function PackageSection({
 
             <p className="mt-3 max-w-2xl text-sm leading-6 text-feasta-text-secondary sm:text-base sm:leading-7">
               Review published packages from {providerName}, including
-              event type, guest capacity, inclusions, and package price.
+              event type, guest capacity, and package price.
             </p>
           </div>
 
@@ -714,7 +698,7 @@ function PackageSection({
            ================================================================ */}
 
         {packages.length > 0 ? (
-          <div className="mt-6 grid min-w-0 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="mt-5 grid min-w-0 auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-4">
             {packages.map((packageRecord) => (
               <PublicPackageCard
                 key={packageRecord.id}
@@ -722,11 +706,12 @@ function PackageSection({
                 marketplaceHref={marketplaceHref}
                 headingLevel="h3"
                 showProvider={false}
+                layout="provider-profile"
               />
             ))}
           </div>
         ) : (
-          <div className="mt-6 grid min-h-[250px] place-items-center rounded-[20px] border border-dashed border-feasta-border-strong bg-feasta-canvas px-5 py-8 text-center">
+          <div className="mt-5 grid place-items-center rounded-[20px] border border-dashed border-feasta-border-strong bg-feasta-canvas px-5 py-8 text-center">
             <div className="max-w-md">
               <span className="mx-auto grid size-12 place-items-center rounded-[14px] bg-secondary text-primary-strong">
                 <Sparkles

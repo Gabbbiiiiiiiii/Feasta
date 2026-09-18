@@ -91,7 +91,7 @@ export function ProviderCard({
           PROVIDER MEDIA
          ================================================================ */}
 
-      <div className="relative grid aspect-[16/9] place-items-center overflow-hidden bg-feasta-surface-muted">
+      <div className="relative grid shrink-0 aspect-[2/1] place-items-center overflow-hidden bg-feasta-surface-muted">
         {imageUrl ? (
           // Media URLs are restricted to verified FEASTA Cloudinary public IDs.
           // eslint-disable-next-line @next/next/no-img-element
@@ -103,7 +103,7 @@ export function ProviderCard({
             loading="lazy"
             decoding="async"
             className={cn(
-              "size-full transition-transform duration-slow motion-reduce:transform-none",
+              "absolute inset-0 size-full transition-transform duration-slow motion-reduce:transform-none",
               isLogoOnly
                 ? "bg-feasta-canvas object-contain p-6"
                 : "object-cover group-hover:scale-[1.035]",
@@ -140,7 +140,7 @@ export function ProviderCard({
             initialFavorited={favoriteState.favorited}
             authenticated={favoriteState.authenticated}
             loginReturnTo={profileHref}
-            className="absolute left-3 top-3 z-20 size-10 border border-white/70 bg-white/95 p-0 shadow-sm backdrop-blur"
+            className="absolute left-3 top-3 z-20 size-11 border border-white/70 bg-white/95 p-0 shadow-sm backdrop-blur"
           />
         ) : null}
 
@@ -157,16 +157,16 @@ export function ProviderCard({
           PROVIDER INFORMATION
          ================================================================ */}
 
-      <div className="flex flex-1 flex-col p-4">
+      <div className="flex min-w-0 flex-1 flex-col p-4">
         {availabilityLoading ? (
-          <div className="mb-4 flex items-start gap-2 rounded-xl border border-feasta-border-soft bg-feasta-canvas px-3 py-2.5 text-xs font-bold text-feasta-text-secondary" role="status">
+          <div className="mb-3 flex items-start gap-2 rounded-xl border border-feasta-border-soft bg-feasta-canvas px-3 py-2.5 text-xs font-bold text-feasta-text-secondary" role="status">
             <LoaderCircle aria-hidden="true" className="mt-0.5 size-4 shrink-0 animate-spin motion-reduce:animate-none" />
             Checking availability…
           </div>
         ) : availability ? (
           <div
             className={cn(
-              "mb-4 flex items-start gap-2 rounded-xl border px-3 py-2.5 text-xs font-bold",
+              "mb-3 flex items-start gap-2 rounded-xl border px-3 py-2.5 text-xs font-bold",
               availability.available
                 ? "border-success/20 bg-success/5 text-success"
                 : "border-warning/25 bg-warning/5 text-foreground",
@@ -189,7 +189,7 @@ export function ProviderCard({
         <div className="min-w-0">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-[11px] font-extrabold uppercase tracking-[0.11em] text-primary-strong">
+              <p className="line-clamp-2 break-words text-xs font-extrabold uppercase tracking-[0.08em] text-primary-strong">
                 {category
                   ? providerCategoryLabel(category)
                   : providerServiceTypeLabel(
@@ -199,7 +199,7 @@ export function ProviderCard({
 
               <h3
                 aria-label={provider.businessName}
-                className="mt-1.5 break-words text-lg font-extrabold tracking-[-0.025em] text-foreground transition-colors group-hover:text-primary-strong"
+                className="mt-1.5 min-h-10 line-clamp-2 break-words text-base font-extrabold leading-tight tracking-[-0.025em] text-foreground transition-colors group-hover:text-primary-strong"
               >
                 <Link
                   href={profileHref}
@@ -234,7 +234,7 @@ export function ProviderCard({
                 className="mt-0.5 size-4 shrink-0 text-primary"
               />
 
-              <span className="min-w-0 break-words">
+              <span className="min-w-0 line-clamp-2 break-words">
                 {provider.location}
               </span>
             </p>
@@ -246,10 +246,10 @@ export function ProviderCard({
            ============================================================== */}
 
         {guestRange || hasLeadTime ? (
-          <dl className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(min(100%,7.5rem),1fr))] gap-3 border-t border-feasta-divider pt-3">
+          <dl className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
             {guestRange ? (
               <div className="flex min-w-0 items-start gap-2">
-                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-primary-strong">
+                <span className="mt-0.5 shrink-0 text-primary-strong">
                   <UsersRound
                     aria-hidden="true"
                     className="size-4"
@@ -257,7 +257,7 @@ export function ProviderCard({
                 </span>
 
                 <div className="min-w-0">
-                  <dt className="text-[11px] font-bold uppercase tracking-[0.07em] text-feasta-text-tertiary">
+                  <dt className="sr-only">
                     Capacity
                   </dt>
 
@@ -270,7 +270,7 @@ export function ProviderCard({
 
             {hasLeadTime ? (
               <div className="flex min-w-0 items-start gap-2">
-                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-primary-strong">
+                <span className="mt-0.5 shrink-0 text-primary-strong">
                   <CalendarClock
                     aria-hidden="true"
                     className="size-4"
@@ -278,7 +278,7 @@ export function ProviderCard({
                 </span>
 
                 <div className="min-w-0">
-                  <dt className="text-[11px] font-bold uppercase tracking-[0.07em] text-feasta-text-tertiary">
+                  <dt className="sr-only">
                     Lead time
                   </dt>
 
@@ -299,12 +299,12 @@ export function ProviderCard({
            ============================================================== */}
 
         <div className="mt-auto pt-3">
-          <div className="flex items-center justify-between gap-3 border-t border-feasta-divider pt-3">
-            <span className="text-xs font-semibold text-feasta-text-tertiary">
-              {availability?.available === false
-                ? "Browsing only for this event"
-                : "View services and details"}
-            </span>
+          <div className="flex min-h-11 flex-wrap items-center justify-end gap-x-3 border-t border-feasta-divider">
+            {availability?.available === false ? (
+              <span className="mr-auto text-xs font-semibold text-feasta-text-tertiary">
+                Browsing only for this event
+              </span>
+            ) : null}
 
             <span className="inline-flex items-center gap-1 text-xs font-extrabold text-primary-strong">
               View provider
