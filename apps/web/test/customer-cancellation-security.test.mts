@@ -55,7 +55,7 @@ test("Customer refund status UI has no browser financial authority or raw docume
   );
 });
 
-test("submission payload contains only request, reason, and idempotency authority", async () => {
+test("submission payload contains only request, reason, acknowledgement and idempotency", async () => {
   const client = await webSource(
     "lib/customer/bookings/customer-cancellation-client.ts",
   );
@@ -70,7 +70,7 @@ test("submission payload contains only request, reason, and idempotency authorit
   assert.ok(submitStart >= 0 && submitEnd > submitStart);
   assert.match(
     submit,
-    /cancellationCallable\(SUBMIT_FUNCTION\)\(\{\s*providerRequestId,\s*reason,\s*idempotencyKey,\s*\}\)/u,
+    /cancellationCallable\(SUBMIT_FUNCTION\)\(\{\s*providerRequestId,\s*reason,\s*idempotencyKey,\s*acknowledged: true,\s*\}\)/u,
   );
   assert.doesNotMatch(
     submit,
@@ -110,7 +110,7 @@ test("legacy and invalid evidence remain fail-closed without fabricated financia
   assert.match(client, /CANCELLATION_POLICY_EVIDENCE_INVALID/u);
   assert.match(dialog, /Manual review required/u);
   assert.match(dialog, /No refund percentage or estimate is available/u);
-  assert.doesNotMatch(dialog, /request\.amount\s*\*|payment\s*\*|refundAmountInCentavos\s*=/u);
+  assert.doesNotMatch(dialog, /request\.amount\s*\*|payment\s*\*|refundAmountInCentavos\s*=(?!=)/u);
   assert.doesNotMatch(dialog, /Requested refund amount|Desired refund|Partial refund amount/u);
 });
 

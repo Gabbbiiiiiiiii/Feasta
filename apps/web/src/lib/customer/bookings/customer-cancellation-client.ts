@@ -9,6 +9,8 @@ import {
   REFUND_BASIS_POINTS_MIN,
   REFUND_ELIGIBILITY_STAGES,
   REFUND_POLICY_TERMS_MAX_LENGTH,
+  PROVIDER_REQUEST_STATUSES,
+  type ProviderRequestStatus,
   type CustomerCancellationReasonCode,
   type ParticipantRefundProgressStatus,
   type ProviderRequestCancellationStatus,
@@ -32,6 +34,7 @@ const CANCELLATION_REASON_CODES = new Set<CustomerCancellationReasonCode>([
   "ROLLOUT_DISABLED",
   "ACTIVE_CANCELLATION_EXISTS",
   "PROVIDER_REQUEST_STATUS_INELIGIBLE",
+  "PAYMENT_REFUND_INELIGIBLE",
   "PAYMENT_RECONCILIATION_REQUIRED",
   "LEGACY_MANUAL_REVIEW",
 ]);
@@ -61,6 +64,8 @@ export type CustomerCancellationRefundPreview = {
   calculationStatus: "calculated" | "nothing_refundable";
   frozenStage: RefundEligibilityStage;
   refundAmountInCentavos: number;
+  paidAmountInCentavos?: number;
+  nonRefundableAmountInCentavos?: number;
   currency: "PHP";
 };
 
@@ -82,6 +87,7 @@ export type CustomerCancellationProjection = {
 
 export type CustomerCancellationOptions = {
   providerRequestId: string;
+  providerRequestStatus?: ProviderRequestStatus;
   cancellationAllowed: boolean;
   reasonCode: CustomerCancellationReasonCode;
   activeCancellation: CustomerCancellationProjection | null;
@@ -106,6 +112,7 @@ export type SubmitCustomerCancellationInput = {
   providerRequestId: string;
   reason: string;
   idempotencyKey: string;
+  acknowledged: boolean;
 };
 
 export async function getCustomerProviderRequestCancellationOptions(
@@ -146,6 +153,12 @@ export async function submitCustomerProviderRequestCancellation(
   const providerRequestId = requireProviderRequestId(input.providerRequestId);
   const reason = input.reason.trim();
   const idempotencyKey = input.idempotencyKey.trim();
+  if (input.acknowledged !== true) {
+    throw new CustomerCancellationClientError(
+      "invalid_input",
+      "Acknowledge the accepted booking refund policy before submitting.",
+    );
+  }
 
   if (reason.length < 5 || reason.length > 1_000) {
     throw new CustomerCancellationClientError(
@@ -166,6 +179,7 @@ export async function submitCustomerProviderRequestCancellation(
       providerRequestId,
       reason,
       idempotencyKey,
+      acknowledged: true,
     });
     return parseSubmission(response.data, providerRequestId);
   } catch (error: unknown) {
@@ -230,6 +244,10 @@ function parseOptions(value: unknown, expectedId: string): CustomerCancellationO
     ? null
     : parseRefundPreview(record.refundPreview);
   const reasonCode = record.reasonCode as CustomerCancellationReasonCode;
+  if (record.providerRequestStatus !== undefined &&
+    !PROVIDER_REQUEST_STATUSES.includes(record.providerRequestStatus as ProviderRequestStatus)) {
+    throw invalidResponse();
+  }
   const shouldAllow = reasonCode === "ALLOWED" ||
     reasonCode === "PAYMENT_RECONCILIATION_REQUIRED" ||
     reasonCode === "LEGACY_MANUAL_REVIEW";
@@ -247,6 +265,7 @@ function parseOptions(value: unknown, expectedId: string): CustomerCancellationO
   return {
     providerRequestId,
     cancellationAllowed: record.cancellationAllowed,
+    providerRequestStatus: record.providerRequestStatus as ProviderRequestStatus | undefined,
     reasonCode,
     activeCancellation,
     policy,
@@ -415,11 +434,20 @@ function parseRefundPreview(value: unknown): CustomerCancellationRefundPreview {
     throw invalidResponse();
   }
   if (record.currency !== "PHP") throw invalidResponse();
-
+  const refundAmountInCentavos = requireCentavos(record.refundAmountInCentavos);
+  const hasBreakdown = record.paidAmountInCentavos !== undefined ||
+    record.nonRefundableAmountInCentavos !== undefined;
+  const paidAmountInCentavos = hasBreakdown ? requireCentavos(record.paidAmountInCentavos) : undefined;
+  const nonRefundableAmountInCentavos = hasBreakdown ? requireCentavos(record.nonRefundableAmountInCentavos) : undefined;
+  if (hasBreakdown && (refundAmountInCentavos + nonRefundableAmountInCentavos! !== paidAmountInCentavos)) {
+    throw invalidResponse();
+  }
   return {
     calculationStatus: record.calculationStatus,
     frozenStage: requireStage(record.frozenStage),
-    refundAmountInCentavos: requireCentavos(record.refundAmountInCentavos),
+    refundAmountInCentavos,
+    paidAmountInCentavos,
+    nonRefundableAmountInCentavos,
     currency: "PHP",
   };
 }

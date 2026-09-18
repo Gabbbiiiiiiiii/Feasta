@@ -105,6 +105,8 @@ describe("Customer Provider-service cancellation", () => {
     });
     expect(screen.getByText("Reason: The event plan changed unexpectedly."))
       .toBeVisible();
+    expect(confirm).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox"));
     expect(confirm).toBeEnabled();
 
     fireEvent.click(confirm);
@@ -115,9 +117,11 @@ describe("Customer Provider-service cancellation", () => {
       providerRequestId: PROVIDER_REQUEST_ID,
       reason: "The event plan changed unexpectedly.",
       idempotencyKey: "customer-cancellation:request-0001:attempt-0001",
+      acknowledged: true,
     });
     const payload = mocks.submit.mock.calls[0][0];
     expect(Object.keys(payload).sort()).toEqual([
+      "acknowledged",
       "idempotencyKey",
       "providerRequestId",
       "reason",
@@ -137,6 +141,54 @@ describe("Customer Provider-service cancellation", () => {
       .toBeGreaterThan(0);
     expect(mocks.toastSuccess).toHaveBeenCalledWith("Cancellation request submitted.");
     expect(confirm).toBeDisabled();
+  });
+
+  it.each([
+    [50_000, 0, "full refund"],
+    [25_000, 25_000, "partial refund"],
+    [0, 50_000, "down payment is non-refundable"],
+  ] as const)("shows the trusted financial breakdown for %s centavos", async (refundable, retained, message) => {
+    mocks.loadOptions.mockResolvedValue(policyBackedOptions({
+      providerRequestStatus: "in_progress",
+      refundPreview: {
+        calculationStatus: refundable ? "calculated" : "nothing_refundable",
+        frozenStage: "service_started", refundAmountInCentavos: refundable,
+        paidAmountInCentavos: 50_000, nonRefundableAmountInCentavos: retained, currency: "PHP",
+      },
+    }));
+    renderDialog(providerRequest({status: "confirmed", downPaymentAmount: 999_999}));
+    expect(await screen.findByText("Down payment paid")).toBeVisible();
+    expect(screen.getByText("Refundable amount")).toBeVisible();
+    expect(screen.getByText("Non-refundable amount")).toBeVisible();
+    expect(screen.getByText(new RegExp(message, "u"))).toBeVisible();
+    expect(screen.getByLabelText("Status: In progress")).toBeVisible();
+    expect(document.body).not.toHaveTextContent("999,999");
+  });
+
+  it("retains the same attempt after a failed submission and reports no success", async () => {
+    mocks.submit.mockRejectedValueOnce(new Error("Payment must be reconciled."));
+    renderDialog();
+    fireEvent.change(await screen.findByRole("textbox", {name: /Cancellation reason/iu}), {
+      target: {value: "Our schedule has changed."},
+    });
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", {name: "Submit cancellation request"}));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Payment must be reconciled.");
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", {name: "Submit cancellation request"}));
+    await waitFor(() => expect(mocks.submit).toHaveBeenCalledTimes(2));
+    expect(mocks.createKey).toHaveBeenCalledTimes(1);
+    expect(mocks.submit.mock.calls[0][0]).toEqual(mocks.submit.mock.calls[1][0]);
+  });
+
+  it("explains rollout unavailability without claiming a policy rejection", async () => {
+    mocks.loadOptions.mockResolvedValue(policyBackedOptions({
+      cancellationAllowed: false, reasonCode: "ROLLOUT_DISABLED", refundPreview: null,
+    }));
+    renderDialog();
+    expect(await screen.findByText(/currently disabled by FEASTA/u)).toBeVisible();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "Submit cancellation request"})).toBeDisabled();
   });
 
   it("shows a trusted zero-refund preview without claiming a guaranteed refund", async () => {
@@ -185,6 +237,7 @@ describe("Customer Provider-service cancellation", () => {
     fireEvent.change(screen.getByRole("textbox", {name: /Cancellation reason/iu}), {
       target: {value: "The event was postponed indefinitely."},
     });
+    fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", {name: "Submit cancellation request"}));
     expect(await screen.findByText("Under review")).toBeVisible();
     expect(screen.getByText(/Manual review is required before any refund decision/u))
@@ -264,6 +317,7 @@ describe("Customer Provider-service cancellation", () => {
       fireEvent.change(await screen.findByRole("textbox", {name: /Cancellation reason/iu}), {
         target: {value: "The event schedule is no longer available."},
       });
+      fireEvent.click(screen.getByRole("checkbox"));
       fireEvent.click(screen.getByRole("button", {name: "Submit cancellation request"}));
 
       expect(await screen.findByText(label)).toBeVisible();

@@ -59,6 +59,7 @@ function CustomerBookingCancellationDialog({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [reasonTouched, setReasonTouched] = useState(false);
+  const [acknowledged, setAcknowledged] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const mountedRef = useRef(true);
@@ -82,6 +83,7 @@ function CustomerBookingCancellationDialog({
     options?.cancellationAllowed &&
     !options.activeCancellation &&
     !submissionComplete &&
+    !loading && !loadError && acknowledged &&
     normalizedReason.length >= 5 &&
     normalizedReason.length <= 1_000,
   );
@@ -149,7 +151,7 @@ function CustomerBookingCancellationDialog({
     setReasonTouched(true);
     setSubmissionError(null);
     const validationError = cancellationReasonError(normalizedReason);
-    if (validationError || !options?.cancellationAllowed || options.activeCancellation) {
+    if (validationError || !canSubmit) {
       return;
     }
 
@@ -171,6 +173,7 @@ function CustomerBookingCancellationDialog({
         providerRequestId: request.providerRequestId,
         reason: normalizedReason,
         idempotencyKey: attempt.idempotencyKey,
+        acknowledged,
       });
       if (!mountedRef.current) return;
       setSubmissionResult(submitted);
@@ -225,6 +228,11 @@ function CustomerBookingCancellationDialog({
     >
       <div className="grid gap-5">
         <ProviderContext providerName={providerName} serviceName={serviceName} />
+        {options?.providerRequestStatus ? (
+          <p className="text-sm font-semibold">
+            Current status: <StatusBadge status={options.providerRequestStatus} />
+          </p>
+        ) : null}
 
         {loading ? (
           <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 p-4" role="status">
@@ -315,6 +323,16 @@ function CustomerBookingCancellationDialog({
                     Reason: {normalizedReason || "Enter your reason above."}
                   </p>
                 </div>
+                <label className="flex items-start gap-3 text-sm leading-6">
+                  <input
+                    type="checkbox"
+                    checked={acknowledged}
+                    disabled={submitting}
+                    onChange={(event) => setAcknowledged(event.currentTarget.checked)}
+                    className="mt-1 size-4 shrink-0 accent-primary"
+                  />
+                  I understand that this cancellation is subject to the refund policy I accepted for this booking.
+                </label>
               </>
             ) : null}
           </>
@@ -357,6 +375,9 @@ function CancellationPolicyPanel({
           <FileText aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-primary" />
           <div>
             <h3 id="customer-cancellation-policy-heading" className="font-black">Agreed refund policy</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Based on the refund policy you accepted when booking this service.
+            </p>
             <p className="mt-1 text-xs font-semibold text-muted-foreground">
               {policy.sourceKind === "package_override" ? "Package-specific policy" : "Provider default policy"} · Version {policy.policyVersion}
             </p>
@@ -389,6 +410,24 @@ function CancellationPolicyPanel({
           <p className="mt-1 text-2xl font-black tabular-nums">
             {formatCentavos(preview.refundAmountInCentavos)}
           </p>
+          {preview.paidAmountInCentavos !== undefined && preview.nonRefundableAmountInCentavos !== undefined ? (
+            <>
+              <dl className="mt-3 grid gap-2 text-sm">
+                <div className="flex justify-between gap-3"><dt>Down payment paid</dt><dd>{formatCentavos(preview.paidAmountInCentavos)}</dd></div>
+                <div className="flex justify-between gap-3"><dt>Refundable amount</dt><dd>{formatCentavos(preview.refundAmountInCentavos)}</dd></div>
+                <div className="flex justify-between gap-3"><dt>Non-refundable amount</dt><dd>{formatCentavos(preview.nonRefundableAmountInCentavos)}</dd></div>
+              </dl>
+              <p className="mt-3 text-sm font-semibold">
+                {preview.paidAmountInCentavos === 0
+                  ? "No settled down payment is recorded for this service."
+                  : preview.refundAmountInCentavos === 0
+                    ? "You may request cancellation of this service, but the down payment is non-refundable under the policy you accepted."
+                    : preview.nonRefundableAmountInCentavos === 0
+                      ? "Your cancellation is eligible for a full refund, subject to review."
+                      : "Your cancellation is eligible for a partial refund, subject to review."}
+              </p>
+            </>
+          ) : null}
           <p className="mt-1 text-sm font-semibold text-foreground">
             Recorded stage: {refundStageLabel(preview.frozenStage)}
           </p>
@@ -431,10 +470,12 @@ function NoticePanel({title, description}: {title: string; description: string})
 
 function UnavailablePanel({reasonCode}: {reasonCode: CustomerCancellationOptions["reasonCode"]}) {
   const description = reasonCode === "ROLLOUT_DISABLED"
-    ? "Customer cancellation requests are not available right now. Your Provider services remain unchanged."
+    ? "Customer cancellation requests are currently disabled by FEASTA. Contact FEASTA support to request cancellation of this service."
     : reasonCode === "ACTIVE_CANCELLATION_EXISTS"
       ? "Another cancellation request cannot be submitted while the current request is active."
-      : "The trusted cancellation check says this Provider service is not eligible for an ordinary Customer cancellation request.";
+      : reasonCode === "PAYMENT_REFUND_INELIGIBLE"
+        ? "A refund is already recorded or being processed for this service. Another cancellation request cannot be submitted."
+        : "The trusted cancellation check says this service can no longer be cancelled under its current lifecycle.";
 
   return (
     <div className="flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-4" role="status">
