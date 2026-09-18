@@ -323,9 +323,10 @@ describe("availability-aware marketplace", () => {
       eventContext={context}
     />);
     expect(screen.getByText("A complete event package.")).toBeVisible();
-    for (const inclusion of ["Buffet", "Styling", "Service staff"]) {
-      expect(screen.getByText(inclusion)).toBeVisible();
-    }
+    // The structured groups are empty in this fixture; legacy aggregate text
+    // does not manufacture customer-visible inclusion groups.
+    expect(screen.queryByText("Food inclusions")).not.toBeInTheDocument();
+    expect(screen.queryByText("Buffet")).not.toBeInTheDocument();
     for (const link of screen.getAllByRole("link", {name: "Customize & request"})) {
       expect(link).toHaveAttribute("href", expect.stringContaining("/book?eventDate=2026-09-10"));
       expect(link).toHaveAttribute("href", expect.stringContaining("eventEndTime=22%3A00"));
