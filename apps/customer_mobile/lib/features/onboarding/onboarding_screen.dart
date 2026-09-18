@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
-import '../../core/theme/app_radius.dart';
-import '../../core/theme/app_spacing.dart';
-import '../../core/theme/app_typography.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({required this.onFinished, super.key});
@@ -19,50 +16,35 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final PageController _pageController = PageController();
 
-  int _currentIndex = 0;
+  int currentIndex = 0;
   bool _isFinishing = false;
 
-  static const List<_OnboardingPageData> _pages = [
+  final List<_OnboardingPageData> pages = const [
     _OnboardingPageData(
       icon: Icons.search_rounded,
-      title: 'Browse Verified Catering Services',
+      title: 'Browse Verified Providers',
       description:
-          'Discover verified catering providers in Ormoc City and compare '
-          'packages, prices, ratings, availability, and service inclusions.',
-      semanticsLabel: 'Search verified catering providers',
+          'Discover trusted catering and event service providers in Ormoc City '
+          'with packages, ratings, and real reviews.',
     ),
     _OnboardingPageData(
       icon: Icons.auto_awesome_rounded,
       title: 'Customize Your Event',
       description:
-          'Personalize your event with catering packages and optional add-on '
-          'services based on your needs, preferences, and budget.',
-      semanticsLabel: 'Customize your event',
+          'Personalize packages, menus, decorations, chairs, tables, and '
+          'add-ons based on your event needs.',
     ),
     _OnboardingPageData(
-      icon: Icons.check_circle_outline_rounded,
-      title: 'Book, Track & Pay Securely',
+      icon: Icons.verified_user_outlined,
+      title: 'Book, Track, and Pay Securely',
       description:
-          'Submit booking requests, track provider updates, communicate with '
-          'selected providers, and complete required down payments through '
-          'PayMongo.',
-      semanticsLabel: 'Track bookings and payments securely',
+          'Submit booking requests, track your status, chat after booking, '
+          'and pay your down payment securely.',
     ),
   ];
 
-  bool get _isLastPage => _currentIndex == _pages.length - 1;
-
-  Future<void> _handlePrimaryAction() async {
+  Future<void> _finishOnboarding() async {
     if (_isFinishing) return;
-
-    if (!_isLastPage) {
-      await _pageController.nextPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOutCubic,
-      );
-
-      return;
-    }
 
     setState(() {
       _isFinishing = true;
@@ -79,6 +61,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
   }
 
+  void _nextPage() {
+    if (currentIndex == pages.length - 1) {
+      _finishOnboarding();
+      return;
+    }
+
+    _pageController.nextPage(
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOut,
+    );
+  }
+
   @override
   void dispose() {
     _pageController.dispose();
@@ -87,157 +81,141 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isLastPage = currentIndex == pages.length - 1;
+
     return Scaffold(
       backgroundColor: AppColors.background,
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.lg,
-                AppSpacing.md,
-                AppSpacing.lg,
-                AppSpacing.md,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 14, 24, 24),
+          child: Column(
+            children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: _isFinishing ? null : _finishOnboarding,
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.secondaryTextAccessible,
+                    disabledForegroundColor: AppColors.disabledForeground,
+                  ),
+                  child: const Text(
+                    'Skip',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
               ),
-              child: Column(
-                children: [
-                  Expanded(
-                    child: PageView.builder(
-                      controller: _pageController,
-                      physics: const BouncingScrollPhysics(),
-                      itemCount: _pages.length,
-                      onPageChanged: (index) {
-                        setState(() {
-                          _currentIndex = index;
-                        });
-                      },
-                      itemBuilder: (context, index) {
-                        return _OnboardingPage(data: _pages[index]);
-                      },
-                    ),
-                  ),
-                  _PageIndicator(
-                    currentIndex: _currentIndex,
-                    pageCount: _pages.length,
-                  ),
-                  const SizedBox(height: AppSpacing.huge),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 60,
-                    child: FilledButton(
-                      onPressed: _isFinishing ? null : _handlePrimaryAction,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.white,
-                        disabledBackgroundColor: AppColors.disabled,
-                        disabledForegroundColor: AppColors.disabledForeground,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(AppRadius.large),
+              Expanded(
+                child: PageView.builder(
+                  controller: _pageController,
+                  itemCount: pages.length,
+                  onPageChanged: (index) {
+                    setState(() {
+                      currentIndex = index;
+                    });
+                  },
+                  itemBuilder: (context, index) {
+                    final page = pages[index];
+
+                    return Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 118,
+                          height: 118,
+                          decoration: const BoxDecoration(
+                            color: AppColors.primarySubtle,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            page.icon,
+                            color: AppColors.primary,
+                            size: 62,
+                          ),
                         ),
-                      ),
-                      child: _isFinishing
-                          ? const SizedBox(
-                              width: 22,
-                              height: 22,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Text(
-                              _isLastPage ? 'Get Started' : 'Next',
-                              style: AppTypography.button.copyWith(
-                                color: Colors.white,
-                              ),
+                        const SizedBox(height: 44),
+                        Text(
+                          page.title,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: AppColors.mainText,
+                            fontSize: 28,
+                            fontWeight: FontWeight.w900,
+                            height: 1.15,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Text(
+                            page.description,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: AppColors.secondaryTextAccessible,
+                              fontSize: 17,
+                              height: 1.55,
+                              fontWeight: FontWeight.w600,
                             ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(pages.length, (index) {
+                  final isActive = currentIndex == index;
+
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 220),
+                    margin: const EdgeInsets.symmetric(horizontal: 5),
+                    width: isActive ? 34 : 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: isActive ? AppColors.primary : AppColors.disabled,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  );
+                }),
+              ),
+              const SizedBox(height: 36),
+              SizedBox(
+                width: double.infinity,
+                height: 58,
+                child: ElevatedButton(
+                  onPressed: _isFinishing ? null : _nextPage,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: AppColors.primaryForeground,
+                    disabledBackgroundColor: AppColors.disabled,
+                    disabledForegroundColor: AppColors.disabledForeground,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
                     ),
                   ),
-                ],
+                  child: _isFinishing
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.4,
+                            color: AppColors.primaryForeground,
+                          ),
+                        )
+                      : Text(
+                          isLastPage ? 'Get Started' : 'Next',
+                          style: const TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                ),
               ),
-            );
-          },
+            ],
+          ),
         ),
-      ),
-    );
-  }
-}
-
-class _OnboardingPage extends StatelessWidget {
-  const _OnboardingPage({required this.data});
-
-  final _OnboardingPageData data;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      container: true,
-      label: data.semanticsLabel,
-      child: Column(
-        children: [
-          const Spacer(flex: 4),
-          Icon(
-            data.icon,
-            size: 88,
-            color: AppColors.primary,
-            semanticLabel: data.semanticsLabel,
-          ),
-          const SizedBox(height: AppSpacing.huge),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-            child: Text(
-              data.title,
-              textAlign: TextAlign.center,
-              style: AppTypography.textTheme.headlineMedium?.copyWith(
-                color: AppColors.mainText,
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-            child: Text(
-              data.description,
-              textAlign: TextAlign.center,
-              style: AppTypography.body.copyWith(
-                color: AppColors.secondaryTextAccessible,
-              ),
-            ),
-          ),
-          const Spacer(flex: 5),
-        ],
-      ),
-    );
-  }
-}
-
-class _PageIndicator extends StatelessWidget {
-  const _PageIndicator({required this.currentIndex, required this.pageCount});
-
-  final int currentIndex;
-  final int pageCount;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      label: 'Onboarding page ${currentIndex + 1} of $pageCount',
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: List.generate(pageCount, (index) {
-          final isActive = index == currentIndex;
-
-          return AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOut,
-            width: isActive ? 40 : 10,
-            height: 10,
-            margin: const EdgeInsets.symmetric(horizontal: AppSpacing.xxs),
-            decoration: BoxDecoration(
-              color: isActive ? AppColors.primary : AppColors.disabled,
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-            ),
-          );
-        }),
       ),
     );
   }
@@ -248,11 +226,9 @@ class _OnboardingPageData {
     required this.icon,
     required this.title,
     required this.description,
-    required this.semanticsLabel,
   });
 
   final IconData icon;
   final String title;
   final String description;
-  final String semanticsLabel;
 }

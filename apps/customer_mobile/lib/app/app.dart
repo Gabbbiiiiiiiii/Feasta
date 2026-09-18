@@ -59,7 +59,7 @@ class _FeastaAppState extends State<FeastaApp> {
       theme: AppTheme.light,
       home: OnboardingGate(
         onFirstOnboardingCompleted: () {
-          _controller.requestIntendedLocation(CustomerAppLocations.login);
+          _controller.requestIntendedLocation(CustomerAppLocations.browse);
         },
         child: CustomerAuthenticationScope(
           controller: _controller,
