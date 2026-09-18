@@ -424,6 +424,7 @@ export async function approveCancellation(input: {
         requestedAmount;
       transaction.create(operationReference, {
         schemaVersion: REFUND_OPERATION_SCHEMA_VERSION,
+        paymentId,
         providerRequestId: ids.providerRequestId,
         mainEventId: ids.mainEventId,
         cancellationRequestId: input.cancellationRequestId,

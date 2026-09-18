@@ -355,6 +355,7 @@ export async function reserveCancellationRefund(input: {
 
     transaction.create(operationReference, {
       schemaVersion: REFUND_OPERATION_SCHEMA_VERSION,
+      paymentId,
       providerRequestId,
       mainEventId,
       cancellationRequestId,
