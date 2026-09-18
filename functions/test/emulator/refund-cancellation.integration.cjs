@@ -47,13 +47,14 @@ async function run() {
   try {
     const fixture = await createFixture();
 
-    await assertRolloutFailsClosed(fixture);
-    await assertAuthorizationAndPreparationReadiness(fixture);
-    await assertPolicyBackedCancellationAndIsolation(fixture);
-    await assertLegacyAndInvalidEvidence(fixture);
-    await assertPaymentProcessingRouting(fixture);
-    await assertTransactionalRace(fixture);
-    await assertAuditAndNotification(fixture);
+    for (const scenario of [assertRolloutFailsClosed,
+      assertAuthorizationAndPreparationReadiness,
+      assertPolicyBackedCancellationAndIsolation, assertLegacyAndInvalidEvidence,
+      assertPaymentProcessingRouting, assertTransactionalRace, assertAuditAndNotification]) {
+      await resetFixtureRateLimits(fixture);
+      await scenario(fixture);
+    }
+    await assertPaidCancellationOutcomes(fixture);
 
     console.log("Refund cancellation B4 integration passed.");
   } finally {
@@ -966,9 +967,141 @@ function stageInput(providerRequestId, idempotencyKey) {
   };
 }
 
+async function assertPaidCancellationOutcomes(fixture) {
+  // Real callable preflight/submission/approval; gateway execution is covered by B6.
+  for (const [stage, expected] of [
+    ["preparation_not_started", 50_000],
+    ["preparation_started", 25_000],
+    ["service_started", 0],
+  ]) {
+    await resetFixtureRateLimits(fixture);
+    const eventId = `event_paid_${stage}`;
+    const requestId = `request_sb_${stage}`;
+    const siblingId = `request_jacky_${stage}`;
+    await seedMainEvent({eventId, customerId: fixture.customer.uid,
+      status: "confirmed", providerRequestIds: [requestId, siblingId]});
+    for (const [id, providerId, name] of [
+      [requestId, fixture.providerA, "SB Catering"],
+      [siblingId, fixture.providerB, "Jacky's Photo"],
+    ]) {
+      await seedProviderRequest({requestId: id, eventId,
+        customerId: fixture.customer.uid, providerId, status: "confirmed",
+        downPaymentAmount: 500, paymentStatus: "paid", paidAt: Timestamp.now()});
+      await db.doc(`providerRequests/${id}`).update({providerName: name});
+      await seedPayment({requestId: id, eventId, customerId: fixture.customer.uid,
+        providerId, amount: 500, status: "paid"});
+      await db.doc(`payments/${paymentIdForProviderRequest(id)}`).update({
+        paidAt: Timestamp.now(), paymongoResourceId: `pay_${id}`,
+      });
+    }
+    const requestRef = db.doc(`providerRequests/${requestId}`);
+    await requestRef.update({
+      status: stage === "service_started" ? "in_progress" : "confirmed",
+      "refundEligibilityState.currentStage": stage,
+      "refundEligibilityState.stageSequence": stage === "preparation_not_started" ? 0 : 1,
+    });
+    // Later authoring changes must never replace the accepted v1 snapshot.
+    await db.doc(`providers/${fixture.providerA}`).update({
+      refundPolicy: {schemaVersion: 1, policyVersion: 2, effectiveAt: Timestamp.now(), rules: [
+        {stage: "preparation_not_started", refundBasisPoints: 0},
+        {stage: "preparation_started", refundBasisPoints: 0},
+        {stage: "service_started", refundBasisPoints: 0},
+      ], terms: "New policy after booking"},
+    });
+    const siblingBefore = (await db.doc(`providerRequests/${siblingId}`).get()).data();
+    const siblingPaymentRef = db.doc(`payments/${paymentIdForProviderRequest(siblingId)}`);
+    const siblingPaymentBefore = (await siblingPaymentRef.get()).data();
+    const paymentRef = db.doc(`payments/${paymentIdForProviderRequest(requestId)}`);
+    const paymentBefore = (await paymentRef.get()).data();
+    const requestBefore = (await requestRef.get()).data();
+    const options = await callFunction("getProviderRequestCancellationOptions",
+      fixture.customer, {providerRequestId: requestId});
+    assert.equal(options.policy.policyVersion, 1);
+    assert.equal(options.refundPreview.refundAmountInCentavos, expected);
+    assert.equal(options.refundPreview.paidAmountInCentavos, 50_000);
+    assert.equal(options.refundPreview.nonRefundableAmountInCentavos, 50_000 - expected);
+    assert.equal(options.providerRequestStatus, requestBefore.status);
+    const input = cancellationInput(requestId, `paid-${stage}`);
+    for (const invalid of [
+      {...input, acknowledged: false},
+      {...input, acknowledged: undefined},
+      {...input, refundAmount: 999999},
+      {...input, refundPercentage: 100},
+    ]) {
+      await assert.rejects(() => callFunction("submitProviderRequestCancellation",
+        fixture.customer, invalid), hasStatus("INVALID_ARGUMENT"));
+    }
+    assert.deepEqual((await requestRef.get()).data(), requestBefore);
+    assert.deepEqual((await paymentRef.get()).data(), paymentBefore);
+    const submitted = await callFunction("submitProviderRequestCancellation", fixture.customer, input);
+    await assert.rejects(() => callFunction("submitProviderRequestCancellation", fixture.customer,
+      {...input, providerRequestId: siblingId}), hasReason("CANCELLATION_NOT_ALLOWED"));
+    const stored = (await db.doc(`providerRequestCancellationRequests/${submitted.cancellationRequestId}`).get()).data();
+    assert.equal(stored.acknowledgement.policyKey, requestBefore.refundPolicyAgreement.policyKey);
+    assert.ok(stored.acknowledgement.acknowledgedAt instanceof Timestamp);
+    assert.deepEqual((await paymentRef.get()).data(), paymentBefore);
+    await assert.rejects(() => callFunction("submitProviderRequestCancellation", fixture.customer,
+      {...input, idempotencyKey: `duplicate-${stage}`}), hasReason("CANCELLATION_ALREADY_ACTIVE"));
+    const approvalInput = {cancellationRequestId: submitted.cancellationRequestId,
+      idempotencyKey: `approve-${stage}`};
+    await callFunction("approveProviderRequestCancellationRefund", fixture.admin, approvalInput);
+    await callFunction("approveProviderRequestCancellationRefund", fixture.admin, approvalInput);
+    assert.equal((await requestRef.get()).data().status, "cancelled");
+    assert.deepEqual((await requestRef.get()).data().refundPolicySnapshot, requestBefore.refundPolicySnapshot);
+    assert.deepEqual((await db.doc(`providerRequests/${siblingId}`).get()).data(), siblingBefore);
+    assert.deepEqual((await siblingPaymentRef.get()).data(), siblingPaymentBefore);
+    assert.notEqual((await db.doc(`mainEvents/${eventId}`).get()).data().status, "cancelled");
+    const paymentAfter = (await paymentRef.get()).data();
+    for (const field of ["amount", "amountInCentavos", "paidAt", "paymongoResourceId", "providerRequestId"]) {
+      assert.deepEqual(paymentAfter[field], paymentBefore[field]);
+    }
+    assert.equal((await paymentRef.collection("refunds").get()).size, expected > 0 ? 1 : 0);
+    const status = await callFunction("getProviderRequestCancellationStatus", fixture.customer,
+      {providerRequestId: requestId});
+    assert.equal(status.cancellation.status, expected > 0 ? "approved" : "cancelled_no_refund");
+    if (expected > 0) {
+      const operations = await paymentRef.collection("refunds").get();
+      assert.equal(operations.docs[0].data().paymentId, paymentRef.id);
+      await operations.docs[0].ref.update({status: "processing"});
+      await db.doc(`providerRequestCancellationRequests/${submitted.cancellationRequestId}`)
+        .update({status: "refund_processing"});
+      const processing = await callFunction("getProviderRequestCancellationStatus", fixture.customer,
+        {providerRequestId: requestId});
+      assert.equal(processing.cancellation.refund.status, "processing");
+      assert.equal(processing.cancellation.refund.amountInCentavos, expected);
+    }
+    assert.equal((await db.doc(`mainEvents/${eventId}`).collection("timeline")
+      .where("type", "==", "cancellation_requested").get()).size, 1);
+  }
+  await resetFixtureRateLimits(fixture);
+  for (const status of ["completed", "cancelled", "expired", "rejected"]) {
+    const item = await createStandaloneRequest(fixture, {suffix: `terminal_${status}`, status,
+      downPaymentAmount: 0});
+    const options = await callFunction("getProviderRequestCancellationOptions", fixture.customer,
+      {providerRequestId: item.requestId});
+    assert.equal(options.reasonCode, "PROVIDER_REQUEST_STATUS_INELIGIBLE");
+    await assert.rejects(() => callFunction("submitProviderRequestCancellation", fixture.customer,
+      cancellationInput(item.requestId, `terminal-${status}`)), hasReason("CANCELLATION_NOT_ALLOWED"));
+  }
+}
+
+async function resetFixtureRateLimits(fixture) {
+  // Independent scenarios reuse the fixture accounts, not a real 10-minute user session.
+  assert.match(requiredEnv("FIRESTORE_EMULATOR_HOST"), /^(127\.0\.0\.1|localhost):\d+$/u);
+  const {createHash} = require("node:crypto");
+  for (const user of [fixture.customer, fixture.ownerA, fixture.admin]) {
+    const hash = createHash("sha256").update(`user:${user.uid}`).digest("hex");
+    const records = await db.collection("rateLimits").where("subjectHash", "==", hash).get();
+    const batch = db.batch();
+    records.docs.forEach((record) => batch.delete(record.ref));
+    await batch.commit();
+  }
+}
+
 function cancellationInput(providerRequestId, idempotencyKey) {
   return {
     providerRequestId,
+    acknowledged: true,
     reason: "The event plan changed and this service is no longer needed.",
     idempotencyKey,
   };

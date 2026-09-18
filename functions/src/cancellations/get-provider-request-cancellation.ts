@@ -1,4 +1,5 @@
 import {Timestamp} from "firebase-admin/firestore";
+import {cancellationPaymentState} from "./cancellation-payment-state.js";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 
 import {
@@ -29,6 +30,7 @@ import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {requireObject, requireString} from "../shared/validation.js";
 import {
   CANCELLATION_ELIGIBLE_PROVIDER_REQUEST_STATUSES,
+  assertEligibilityLifecycleInvariant,
   isCancellationWorkflowActive,
   parseProviderRequestCancellationStatus,
   type ProviderRequestCancellationStatus,
@@ -186,6 +188,9 @@ async function cancellationOptions(
     });
     const status = parseProviderRequestStatus(providerRequest.status);
     if (!status) throw policyInvalid();
+    const result = (...args: Parameters<typeof optionsResult>) => ({
+      ...optionsResult(...args), providerRequestStatus: status,
+    });
     const activeCancellation = safeCancellation &&
       isCancellationWorkflowActive(safeCancellation.status)
       ? safeCancellation
@@ -195,32 +200,36 @@ async function cancellationOptions(
       : null;
 
     if (rollout.customerCancellationMode === "off") {
-      return optionsResult(providerRequestId, false, "ROLLOUT_DISABLED",
+      return result(providerRequestId, false, "ROLLOUT_DISABLED",
         activeCancellation, policy, null);
     }
     if (activeCancellation) {
-      return optionsResult(providerRequestId, false,
+      return result(providerRequestId, false,
         "ACTIVE_CANCELLATION_EXISTS", activeCancellation, policy, null);
     }
     if (!CANCELLATION_ELIGIBLE_PROVIDER_REQUEST_STATUSES.includes(
       status as typeof CANCELLATION_ELIGIBLE_PROVIDER_REQUEST_STATUSES[number],
     )) {
-      return optionsResult(providerRequestId, false,
+      return result(providerRequestId, false,
         "PROVIDER_REQUEST_STATUS_INELIGIBLE", null, policy, null);
     }
+    const paymentState = cancellationPaymentState(providerRequest, payment);
+    if (paymentState === "refund_ineligible") {
+      return result(providerRequestId, false, "PAYMENT_REFUND_INELIGIBLE",
+        null, policy, null);
+    }
     if (evidence.status === "legacy") {
-      return optionsResult(providerRequestId, true, "LEGACY_MANUAL_REVIEW",
+      return result(providerRequestId, true, "LEGACY_MANUAL_REVIEW",
         null, null, null);
     }
     if (
-      status === "payment_processing" ||
-      payment?.status === "processing" ||
-      payment?.status === "pending"
+      paymentState === "awaiting_payment_resolution"
     ) {
-      return optionsResult(providerRequestId, true,
+      return result(providerRequestId, true,
         "PAYMENT_RECONCILIATION_REQUIRED", null, policy, null);
     }
     const eligibility = requireRefundEligibilityState(providerRequest);
+    assertEligibilityLifecycleInvariant({providerRequestStatus: status, state: eligibility});
     const calculation = calculateCancellationRefund({
       providerRequest,
       cancellationRequest: {
@@ -236,10 +245,13 @@ async function cancellationOptions(
     if (calculation.calculationStatus === "manual_review_required") {
       throw policyInvalid();
     }
-    return optionsResult(providerRequestId, true, "ALLOWED", null, policy, {
+    return result(providerRequestId, true, "ALLOWED", null, policy, {
       calculationStatus: calculation.calculationStatus,
       frozenStage: calculation.frozenStage,
       refundAmountInCentavos: calculation.eligibleRefundAmountInCentavos,
+      paidAmountInCentavos: calculation.originalPaidAmountInCentavos,
+      nonRefundableAmountInCentavos: calculation.originalPaidAmountInCentavos -
+        calculation.targetTotalRefundAmountInCentavos,
       currency: calculation.currency,
     });
   });

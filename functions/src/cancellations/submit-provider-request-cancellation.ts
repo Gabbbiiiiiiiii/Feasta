@@ -1,4 +1,8 @@
+import {Timestamp} from "firebase-admin/firestore";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
+
+import {calculateCancellationRefund} from "../refunds/refund-accounting-domain.js";
+import {cancellationPaymentState} from "./cancellation-payment-state.js";
 
 import {
   classifyProviderRequestRefundPolicyEvidence,
@@ -29,10 +33,8 @@ import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
 import {
-  PAYMENT_STATUSES,
   USER_ROLES,
   parseProviderRequestStatus,
-  type PaymentStatus,
 } from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
@@ -55,6 +57,7 @@ const INPUT_FIELDS = new Set([
   "providerRequestId",
   "reason",
   "idempotencyKey",
+  "acknowledged",
 ]);
 
 type CancellationResult = {
@@ -85,6 +88,10 @@ export const submitProviderRequestCancellation = onCall(
     });
 
     const input = exactInput(request.data);
+    if (input.acknowledged !== true) {
+      throw new HttpsError("invalid-argument",
+        "Acknowledge the accepted booking refund policy before submitting.");
+    }
     const providerRequestId = requireString(
       input.providerRequestId,
       "providerRequestId",
@@ -117,6 +124,10 @@ export const submitProviderRequestCancellation = onCall(
         operationKey,
       }),
     });
+    // The shared idempotency key is actor-scoped. Never replay another service's result.
+    if (execution.result.providerRequestId !== providerRequestId) {
+      throw cancellationNotAllowed();
+    }
 
     logSecurityEvent({
       action: "provider_request_cancellation_submission",
@@ -311,26 +322,23 @@ async function submitCancellation(input: {
       throw cancellationNotAllowed();
     }
 
-    const paymentResolutionPending =
-      providerRequestStatus === "payment_processing" ||
-      payment?.status === "processing" ||
-      (
-        payment?.status === "pending" &&
-        payment.checkoutCreationStatus === "pending"
-      );
-
-    if (
-      providerRequestStatus === "payment_processing" &&
-      (
-        !payment ||
-        paymentStatus(payment.status) !== "processing"
-      )
-    ) {
-      throw cancellationError(
-        "failed-precondition",
-        REFUND_CANCELLATION_ERROR_REASONS.paymentResolutionRequired,
-        "Payment state must be reconciled before cancellation can continue.",
-      );
+    const paymentState = cancellationPaymentState(providerRequest, payment);
+    if (paymentState === "refund_ineligible") throw cancellationNotAllowed();
+    const paymentResolutionPending = paymentState === "awaiting_payment_resolution";
+    // Recompute from accepted evidence inside this transaction, never the preview.
+    if (eligibilityState && !paymentResolutionPending) {
+      calculateCancellationRefund({
+        providerRequest,
+        cancellationRequest: {
+          policyEvidenceStatus,
+          frozenEligibility: {
+            stage: eligibilityState.currentStage,
+            stageSequence: eligibilityState.stageSequence,
+            frozenAt: Timestamp.now(),
+          },
+        },
+        payment,
+      });
     }
 
     const status = cancellationInitialStatus({
@@ -356,6 +364,12 @@ async function submitCancellation(input: {
       providerId,
       status,
       reason: input.reason,
+      acknowledgement: {
+        acknowledgedAt: timestamp,
+        policyKey: policyEvidenceStatus === "policy_backed"
+          ? (providerRequest.refundPolicyAgreement as Record<string, unknown>).policyKey
+          : null,
+      },
       policyEvidenceStatus,
       frozenEligibility,
       submittedAt: timestamp,
@@ -536,12 +550,6 @@ function storedFrozenEligibility(
     currentStage,
     stageSequence: stageSequence as number,
   };
-}
-
-function paymentStatus(value: unknown): PaymentStatus | null {
-  return PAYMENT_STATUSES.includes(value as PaymentStatus)
-    ? value as PaymentStatus
-    : null;
 }
 
 function cancellationNotAllowed(): HttpsError {

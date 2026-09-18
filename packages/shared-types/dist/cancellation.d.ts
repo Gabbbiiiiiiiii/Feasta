@@ -1,4 +1,5 @@
 import type { RefundEligibilityStage, RefundPolicyRule, RefundPolicySource, ProviderRequestCancellationStatus } from "./refund-policy.js";
+import type { ProviderRequestStatus } from "./enums.js";
 /** Browser-safe cancellation/refund presentation types. */
 export type ParticipantRefundProgressStatus = "none" | "manual_review" | "approved" | "processing" | "failed_retry_pending" | "failed_reconciliation_required" | "partial_completed" | "full_completed";
 export type ParticipantRefundProjection = {
@@ -30,11 +31,14 @@ export type CancellationRefundPreview = {
     calculationStatus: "calculated" | "nothing_refundable";
     frozenStage: RefundEligibilityStage;
     refundAmountInCentavos: number;
+    paidAmountInCentavos?: number;
+    nonRefundableAmountInCentavos?: number;
     currency: "PHP";
 };
-export type CustomerCancellationReasonCode = "ALLOWED" | "ROLLOUT_DISABLED" | "ACTIVE_CANCELLATION_EXISTS" | "PROVIDER_REQUEST_STATUS_INELIGIBLE" | "PAYMENT_RECONCILIATION_REQUIRED" | "LEGACY_MANUAL_REVIEW";
+export type CustomerCancellationReasonCode = "ALLOWED" | "ROLLOUT_DISABLED" | "ACTIVE_CANCELLATION_EXISTS" | "PROVIDER_REQUEST_STATUS_INELIGIBLE" | "PAYMENT_REFUND_INELIGIBLE" | "PAYMENT_RECONCILIATION_REQUIRED" | "LEGACY_MANUAL_REVIEW";
 export type CustomerCancellationOptions = {
     providerRequestId: string;
+    providerRequestStatus?: ProviderRequestStatus;
     cancellationAllowed: boolean;
     reasonCode: CustomerCancellationReasonCode;
     activeCancellation: ParticipantCancellationProjection | null;
