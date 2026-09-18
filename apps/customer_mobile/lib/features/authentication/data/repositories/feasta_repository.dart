@@ -1569,12 +1569,22 @@ class FeastaRepository {
   Stream<QuerySnapshot<Map<String, dynamic>>> bookingTimelines(
     String bookingId,
   ) {
+    final normalizedBookingId = bookingId.trim();
+
+    if (normalizedBookingId.isEmpty) {
+      throw ArgumentError.value(
+        bookingId,
+        'bookingId',
+        'Booking ID cannot be empty.',
+      );
+    }
+
     return _db
-        .collection(FirestoreCollections.bookingTimelines)
-        .where('bookingId', isEqualTo: bookingId)
+        .collection(FirestoreCollections.mainEvents)
+        .doc(normalizedBookingId)
+        .collection('timeline')
         .orderBy('createdAt', descending: true)
-        .orderBy(FieldPath.documentId, descending: true)
-        .limit(20)
+        .limit(50)
         .snapshots();
   }
 
@@ -2411,6 +2421,17 @@ class FeastaRepository {
 
           return offers;
         });
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> myChatRooms() {
+    return _db
+        .collection(FirestoreCollections.chatRooms)
+        .where('customerId', isEqualTo: currentUid)
+        .where('isActive', isEqualTo: true)
+        .orderBy('lastMessageAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(50)
+        .snapshots();
   }
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> chatRoomStream(

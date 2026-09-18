@@ -2,9 +2,12 @@ import 'package:flutter/foundation.dart';
 
 import '../domain/customer_login.dart';
 
+enum CustomerLoginMethod { email, google }
+
 class CustomerLoginState {
   const CustomerLoginState({
     this.isSubmitting = false,
+    this.submittingMethod,
     this.emailError,
     this.passwordError,
     this.generalError,
@@ -12,28 +15,53 @@ class CustomerLoginState {
   });
 
   final bool isSubmitting;
+  final CustomerLoginMethod? submittingMethod;
   final String? emailError;
   final String? passwordError;
   final String? generalError;
   final String? notice;
+
+  bool get isEmailSubmitting =>
+      isSubmitting && submittingMethod == CustomerLoginMethod.email;
+
+  bool get isGoogleSubmitting =>
+      isSubmitting && submittingMethod == CustomerLoginMethod.google;
 }
 
 class CustomerLoginController extends ChangeNotifier {
   CustomerLoginController({required this.gateway});
 
   final CustomerLoginGateway gateway;
+
   CustomerLoginState _state = const CustomerLoginState();
   CustomerLoginState get state => _state;
+
+  bool _disposed = false;
+  bool get isDisposed => _disposed;
+
+  @override
+  void dispose() {
+    if (_disposed) {
+      return;
+    }
+
+    _disposed = true;
+    super.dispose();
+  }
 
   Future<CustomerLoginResult?> signInWithEmail({
     required String email,
     required String password,
   }) async {
-    if (_state.isSubmitting) return null;
+    if (_disposed || _state.isSubmitting) {
+      return null;
+    }
+
     final normalizedEmail = email.trim().toLowerCase();
     final validEmail = RegExp(
       r'^[^\s@]+@[^\s@]+\.[^\s@]+$',
     ).hasMatch(normalizedEmail);
+
     if (normalizedEmail.isEmpty || !validEmail || password.isEmpty) {
       _setState(
         CustomerLoginState(
@@ -45,25 +73,51 @@ class CustomerLoginController extends ChangeNotifier {
       );
       return null;
     }
+
     return _run(
-      () => gateway.signInWithEmail(email: normalizedEmail, password: password),
+      method: CustomerLoginMethod.email,
+      operation: () =>
+          gateway.signInWithEmail(email: normalizedEmail, password: password),
     );
   }
 
   Future<CustomerLoginResult?> signInWithGoogle() {
-    if (_state.isSubmitting) return Future.value();
-    return _run(gateway.signInWithGoogle);
+    if (_disposed || _state.isSubmitting) {
+      return Future<CustomerLoginResult?>.value(null);
+    }
+
+    return _run(
+      method: CustomerLoginMethod.google,
+      operation: gateway.signInWithGoogle,
+    );
   }
 
-  Future<CustomerLoginResult?> _run(
-    Future<CustomerLoginResult> Function() operation,
-  ) async {
-    _setState(const CustomerLoginState(isSubmitting: true));
+  Future<CustomerLoginResult?> _run({
+    required CustomerLoginMethod method,
+    required Future<CustomerLoginResult> Function() operation,
+  }) async {
+    if (_disposed) {
+      return null;
+    }
+
+    _setState(CustomerLoginState(isSubmitting: true, submittingMethod: method));
+
     try {
       final result = await operation();
+
+      // Authentication can immediately rebuild the authentication gate and
+      // dispose this controller before this await resumes.
+      if (_disposed) {
+        return result;
+      }
+
       _setState(const CustomerLoginState());
       return result;
     } on CustomerLoginException catch (error) {
+      if (_disposed) {
+        return null;
+      }
+
       if (error.kind == CustomerLoginFailureKind.cancelled) {
         _setState(
           const CustomerLoginState(notice: 'Google sign-in was cancelled.'),
@@ -78,8 +132,13 @@ class CustomerLoginController extends ChangeNotifier {
       } else {
         _setState(CustomerLoginState(generalError: messageFor(error.kind)));
       }
+
       return null;
     } catch (_) {
+      if (_disposed) {
+        return null;
+      }
+
       _setState(
         const CustomerLoginState(
           generalError: 'Sign-in could not be completed. Please try again.',
@@ -113,6 +172,10 @@ class CustomerLoginController extends ChangeNotifier {
   };
 
   void _setState(CustomerLoginState value) {
+    if (_disposed) {
+      return;
+    }
+
     _state = value;
     notifyListeners();
   }

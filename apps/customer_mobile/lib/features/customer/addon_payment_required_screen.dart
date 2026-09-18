@@ -33,9 +33,7 @@ class _AddonPaymentRequiredScreenState
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceAll('Exception: ', '')),
-        ),
+        SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
       );
     } finally {
       if (mounted) {
@@ -46,7 +44,7 @@ class _AddonPaymentRequiredScreenState
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFFF6333);
+    const primary = Color(0xFFB02F00);
 
     return Scaffold(
       appBar: AppBar(
@@ -70,10 +68,7 @@ class _AddonPaymentRequiredScreenState
               children: [
                 const Text(
                   'External Add-on Payment',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w900,
-                  ),
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
                 ),
                 const SizedBox(height: 16),
                 _RowItem(
@@ -90,17 +85,14 @@ class _AddonPaymentRequiredScreenState
                 ),
                 _RowItem(
                   label: 'Amount',
-                  value: '₱${widget.addonRequest.price.toStringAsFixed(0)}',
+                  value: 'â‚±${widget.addonRequest.price.toStringAsFixed(0)}',
                   isBold: true,
                   valueColor: primary,
                 ),
                 const Divider(height: 28),
                 const Text(
                   'This payment is separate from your catering down payment.',
-                  style: TextStyle(
-                    color: Colors.grey,
-                    height: 1.4,
-                  ),
+                  style: TextStyle(color: Colors.grey, height: 1.4),
                 ),
               ],
             ),
@@ -115,18 +107,10 @@ class _AddonPaymentRequiredScreenState
             ),
             child: DropdownButtonFormField<String>(
               initialValue: selectedPaymentMethod,
-              decoration: const InputDecoration(
-                labelText: 'Payment Method',
-              ),
+              decoration: const InputDecoration(labelText: 'Payment Method'),
               items: const [
-                DropdownMenuItem(
-                  value: 'gcash',
-                  child: Text('GCash'),
-                ),
-                DropdownMenuItem(
-                  value: 'maya',
-                  child: Text('Maya'),
-                ),
+                DropdownMenuItem(value: 'gcash', child: Text('GCash')),
+                DropdownMenuItem(value: 'maya', child: Text('Maya')),
                 DropdownMenuItem(
                   value: 'cash',
                   child: Text('Cash / Manual Confirmation'),
@@ -144,9 +128,7 @@ class _AddonPaymentRequiredScreenState
         padding: const EdgeInsets.all(18),
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE5E7EB)),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
         ),
         child: SafeArea(
           child: SizedBox(
@@ -192,10 +174,7 @@ class _RowItem extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: const TextStyle(color: Colors.grey),
-          ),
+          Text(label, style: const TextStyle(color: Colors.grey)),
           const SizedBox(width: 12),
           Expanded(
             child: Text(

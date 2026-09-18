@@ -17,6 +17,7 @@ export const CHAT_ELIGIBLE_PROVIDER_REQUEST_STATUSES = [
   "payment_processing",
   "confirmed",
   "in_progress",
+  "completed",
 ] as const satisfies readonly ProviderRequestStatus[];
 
 export const CHAT_ELIGIBLE_MAIN_EVENT_STATUSES = [
@@ -25,6 +26,7 @@ export const CHAT_ELIGIBLE_MAIN_EVENT_STATUSES = [
   "waiting_for_down_payment",
   "confirmed",
   "in_progress",
+  "completed",
 ] as const satisfies readonly MainEventStatus[];
 
 const SAFE_DOCUMENT_ID =

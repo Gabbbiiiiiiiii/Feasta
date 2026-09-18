@@ -1,7 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../../features/presentation/screens/login_screen.dart';
+import '../../app/router/customer_route_guard.dart';
+import '../../features/presentation/widgets/customer_login_modal.dart';
 
 bool get isGuestUser {
   return FirebaseAuth.instance.currentUser == null;
@@ -9,58 +10,17 @@ bool get isGuestUser {
 
 Future<bool> requireLogin(
   BuildContext context, {
-  String message = 'Please log in or create an account to continue.',
+  String message = 'Log in or create a Feasta account to continue.',
   Widget? redirectAfterLogin,
+  String intendedLocation = CustomerAppLocations.login,
 }) async {
-  final user = FirebaseAuth.instance.currentUser;
-
-  if (user != null) {
+  if (FirebaseAuth.instance.currentUser != null) {
     return true;
   }
 
-  final shouldLogin = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) {
-      return AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-        ),
-        title: const Text(
-          'Login required',
-          style: TextStyle(fontWeight: FontWeight.w900),
-        ),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Continue browsing'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Log in / Sign up'),
-          ),
-        ],
-      );
-    },
-  );
-
-  if (shouldLogin != true) {
-    return false;
-  }
-
-  if (!context.mounted) {
-    return false;
-  }
-
-  await Navigator.push(
+  return showCustomerLoginModal(
     context,
-    MaterialPageRoute(
-      builder: (_) => LoginScreen(
-        canSkip: false,
-        redirectAfterLogin: redirectAfterLogin,
-      ),
-    ),
+    intendedLocation: intendedLocation,
+    contextMessage: message,
   );
-
-  return FirebaseAuth.instance.currentUser != null;
 }

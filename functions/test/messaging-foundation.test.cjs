@@ -40,7 +40,7 @@ test("canonical rooms use the provider request ID without client identities", ()
   }
 });
 
-test("chat lifecycle is available only from pending through in-progress", () => {
+test("chat lifecycle remains available through completed bookings", () => {
   assert.deepEqual(CHAT_ELIGIBLE_PROVIDER_REQUEST_STATUSES, [
     "pending",
     "accepted",
@@ -48,26 +48,50 @@ test("chat lifecycle is available only from pending through in-progress", () => 
     "payment_processing",
     "confirmed",
     "in_progress",
+    "completed",
   ]);
+
   assert.deepEqual(CHAT_ELIGIBLE_MAIN_EVENT_STATUSES, [
     "pending_provider_approval",
     "needs_provider_replacement",
     "waiting_for_down_payment",
     "confirmed",
     "in_progress",
+    "completed",
   ]);
 
   for (const status of CHAT_ELIGIBLE_PROVIDER_REQUEST_STATUSES) {
-    assert.equal(isChatLifecycleEligible(status, "in_progress"), true, status);
+    assert.equal(
+      isChatLifecycleEligible(status, "completed"),
+      true,
+      status,
+    );
   }
-  for (const status of ["rejected", "completed", "cancelled", "expired"]) {
-    assert.equal(isChatLifecycleEligible(status, "in_progress"), false, status);
+
+  for (const status of [
+    "rejected",
+    "cancelled",
+    "expired",
+  ]) {
+    assert.equal(
+      isChatLifecycleEligible(status, "completed"),
+      false,
+      status,
+    );
   }
-  for (const status of ["draft", "completed", "cancelled", "expired"]) {
-    assert.equal(isChatLifecycleEligible("pending", status), false, status);
+
+  for (const status of [
+    "draft",
+    "cancelled",
+    "expired",
+  ]) {
+    assert.equal(
+      isChatLifecycleEligible("completed", status),
+      false,
+      status,
+    );
   }
 });
-
 test("send validation is text-only, trimmed, bounded, and strict", () => {
   assert.equal(CHAT_MESSAGE_MAX_LENGTH, 4000);
   assert.deepEqual(validateSendChatMessageInput({

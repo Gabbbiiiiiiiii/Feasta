@@ -73,35 +73,19 @@ Future<void> bootstrap() async {
 Future<bool> _connectFirebaseEmulators() async {
   final host = _firebaseEmulatorHost;
 
-  secureDebugLog(
-    'Connecting to Firebase emulators at $host...',
-  );
+  secureDebugLog('Connecting to Firebase emulators at $host...');
 
-  await FirebaseAuth.instance.useAuthEmulator(
-    host,
-    9099,
-  );
+  await FirebaseAuth.instance.useAuthEmulator(host, 9099);
 
-  FirebaseFirestore.instance.useFirestoreEmulator(
-    host,
-    8080,
-  );
+  FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
 
   FirebaseFunctions.instanceFor(
     region: 'asia-southeast1',
-  ).useFunctionsEmulator(
-    host,
-    5001,
-  );
+  ).useFunctionsEmulator(host, 5001);
 
-  FirebaseStorage.instance.useStorageEmulator(
-    host,
-    9199,
-  );
+  FirebaseStorage.instance.useStorageEmulator(host, 9199);
 
-  secureDebugLog(
-    'Connected to Firebase emulators at $host',
-  );
+  secureDebugLog('Connected to Firebase emulators at $host');
 
   return true;
 }

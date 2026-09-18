@@ -10,12 +10,11 @@ const _spacedTestCredential = ' secret ';
 void main() {
   test('correct email login is normalized without changing password', () async {
     final gateway = FakeLoginGateway();
-    final result = await CustomerLoginController(
-      gateway: gateway,
-    ).signInWithEmail(
-      email: ' CUSTOMER@FEASTA.TEST ',
-      password: _spacedTestCredential,
-    );
+    final result = await CustomerLoginController(gateway: gateway)
+        .signInWithEmail(
+          email: ' CUSTOMER@FEASTA.TEST ',
+          password: _spacedTestCredential,
+        );
     expect(result?.uid, 'customer-one');
     expect(gateway.email, 'customer@feasta.test');
     expect(gateway.password, _spacedTestCredential);
