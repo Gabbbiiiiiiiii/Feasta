@@ -1,6 +1,6 @@
 "use client";
 
-import {FormEvent, useState} from "react";
+import {FormEvent, Suspense, useState} from "react";
 import Link from "next/link";
 import {useSearchParams} from "next/navigation";
 
@@ -15,6 +15,29 @@ import {customerAuthenticationError} from "@/lib/auth/error-messages";
 type ResetState = "form" | "sent" | "ineligible";
 
 export default function ForgotPasswordPage() {
+  return (
+    <Suspense fallback={<ForgotPasswordFallback />}>
+      <ForgotPasswordContent />
+    </Suspense>
+  );
+}
+
+function ForgotPasswordFallback() {
+  return (
+    <AuthCard
+      portal="customer"
+      title="Reset your password"
+      description="Loading password reset..."
+    >
+      <div
+        className="min-h-32"
+        aria-hidden="true"
+      />
+    </AuthCard>
+  );
+}
+
+function ForgotPasswordContent() {
   const searchParams = useSearchParams();
 
   const expectedRole: "customer" | "provider" =
