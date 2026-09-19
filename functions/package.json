@@ -3,18 +3,33 @@
   "private": true,
   "main": "lib/index.js",
   "engines": {
-    "node": "20"
+    "node": "22",
+    "pnpm": "11.13.0"
   },
   "scripts": {
     "build": "tsc",
-    "serve": "npm run build && firebase emulators:start --only functions",
+    "lint": "eslint \"src/**/*.ts\"",
+    "lint:fix": "eslint \"src/**/*.ts\" --fix",
+    "test": "pnpm build && node --test test/*.test.cjs",
+    "test:rules": "firebase emulators:exec --config ../firebase.test.json --project demo-feasta-phase3 --only firestore,storage \"node --test --test-concurrency=1 test/rules/*.test.cjs\"",
+    "migrate:query-policy": "pnpm build && node lib/scripts/backfill-query-policy.js",
+    "serve": "pnpm build && firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions"
   },
   "dependencies": {
+    "@google-cloud/functions-framework": "5.0.2",
+    "cloudinary": "^2.10.0",
     "firebase-admin": "^13.6.0",
     "firebase-functions": "^7.2.5"
   },
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.39.5",
+    "firebase": "12.16.0",
+    "firebase-tools": "^15.24.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.64.0"
   }
 }
