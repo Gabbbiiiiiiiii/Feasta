@@ -7,3 +7,4 @@ export * from "./provider.js";
 export * from "./provider-service-area.js";
 export * from "./provider-registration.js";
 export * from "./refund-policy.js";
+export * from "./service-category.js";

@@ -18,15 +18,16 @@ import {
 } from "../shared/cloudinary.js";
 import {
   isApprovedProviderForOperations,
-  PROVIDER_SERVICE_CATEGORIES,
   USER_ROLES,
-  serviceCategoryMatchesProviderType,
-  type ProviderServiceCategory,
   type ProviderServiceType,
 } from "../shared/constants.js";
 import {
   db,
 } from "../shared/firestore.js";
+import {
+  isServiceCategoryCode,
+  requireActiveServiceCategoryInTransaction,
+} from "../shared/service-category-policy.js";
 import {
   appCheckCallableOptions,
 } from "../shared/function-options.js";
@@ -56,7 +57,7 @@ type AddonPricingType =
 type ServiceInput = {
   name: string;
   description: string;
-  category: ProviderServiceCategory;
+  category: string;
   pricingType: AddonPricingType;
   price: number | null;
   imageUrl: string | null;
@@ -68,7 +69,7 @@ type OwnedProvider = {
   ownerId: string;
   data: Record<string, unknown>;
   providerServiceType: ProviderServiceType;
-  serviceCategories: readonly ProviderServiceCategory[];
+  serviceCategories: readonly string[];
 };
 
 const CREATE_FIELDS = [
@@ -141,7 +142,7 @@ export const createProviderService = onCall(
     const input =
       parseServiceInput(rawInput);
 
-    assertServiceCategoryAllowed(
+    assertServiceCategoryEnabledForProvider(
       provider,
       input.category,
     );
@@ -169,6 +170,13 @@ export const createProviderService = onCall(
 
     await db.runTransaction(
       async (transaction) => {
+        await requireActiveServiceCategoryInTransaction(
+          transaction,
+          input.category,
+          provider.providerServiceType,
+          "category",
+        );
+
         const serviceData = {
           providerId:
             provider.id,
@@ -330,11 +338,6 @@ export const updateProviderService = onCall(
     const input =
       parseServiceInput(rawInput);
 
-    assertServiceCategoryAllowed(
-      provider,
-      input.category,
-    );
-
     await verifyProviderServiceImage({
   ownerId:
     actor.uid,
@@ -394,6 +397,25 @@ export const updateProviderService = onCall(
           throw new HttpsError(
             "failed-precondition",
             "Only draft event services can be edited.",
+          );
+        }
+
+        const currentCategory =
+          parseServiceCategory(
+            current.category,
+          );
+
+        if (input.category !== currentCategory) {
+          assertServiceCategoryEnabledForProvider(
+            provider,
+            input.category,
+          );
+
+          await requireActiveServiceCategoryInTransaction(
+            transaction,
+            input.category,
+            provider.providerServiceType,
+            "category",
           );
         }
 
@@ -601,9 +623,16 @@ export const publishProviderService = onCall(
             current.category,
           );
 
-        assertServiceCategoryAllowed(
+        assertServiceCategoryEnabledForProvider(
           provider,
           category,
+        );
+
+        await requireActiveServiceCategoryInTransaction(
+          transaction,
+          category,
+          provider.providerServiceType,
+          "category",
         );
 
         validatePublishableService(
@@ -987,22 +1016,10 @@ function assertOwnedService(
 /* CATEGORY POLICY                                                            */
 /* ========================================================================== */
 
-function assertServiceCategoryAllowed(
+function assertServiceCategoryEnabledForProvider(
   provider: OwnedProvider,
-  category: ProviderServiceCategory,
+  category: string,
 ): void {
-  if (
-    !serviceCategoryMatchesProviderType(
-      category,
-      provider.providerServiceType,
-    )
-  ) {
-    throw new HttpsError(
-      "invalid-argument",
-      "This service category is not supported by your provider type.",
-    );
-  }
-
   if (
     !provider.serviceCategories.includes(
       category,
@@ -1017,7 +1034,7 @@ function assertServiceCategoryAllowed(
 
 function parseProviderServiceCategories(
   value: unknown,
-): ProviderServiceCategory[] {
+): string[] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -1042,7 +1059,7 @@ function parseProviderServiceCategories(
 
 function parseServiceCategory(
   value: unknown,
-): ProviderServiceCategory {
+): string {
   const category =
     parseServiceCategoryOrNull(
       value,
@@ -1060,14 +1077,9 @@ function parseServiceCategory(
 
 function parseServiceCategoryOrNull(
   value: unknown,
-): ProviderServiceCategory | null {
-  return (
-    typeof value === "string" &&
-    PROVIDER_SERVICE_CATEGORIES.includes(
-      value as ProviderServiceCategory,
-    )
-  )
-    ? value as ProviderServiceCategory
+): string | null {
+  return isServiceCategoryCode(value)
+    ? value
     : null;
 }
 

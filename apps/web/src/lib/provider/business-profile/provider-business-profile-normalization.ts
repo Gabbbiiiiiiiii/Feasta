@@ -1,10 +1,10 @@
 import {
   PROVIDER_EVENT_TYPES,
-  PROVIDER_SERVICE_CATEGORIES,
   PROVIDER_SERVICE_TYPES,
+  isServiceCategoryCode,
   normalizePhilippinePhone,
   normalizeProviderEmail,
-  serviceCategoryMatchesProviderType,
+  type ServiceCategoryCode,
 } from "@feasta/shared-types";
 
 import type {
@@ -26,13 +26,11 @@ export function normalizeProviderBusinessProfile(input: {
     data.providerServiceType,
     PROVIDER_SERVICE_TYPES,
   );
-  const primaryServiceCategory = allowedValue(
+  const primaryServiceCategory = serviceCategoryValue(
     data.providerCategory,
-    PROVIDER_SERVICE_CATEGORIES,
   );
-  const serviceCategories = allowedList(
+  const serviceCategories = serviceCategoryList(
     data.serviceCategories,
-    PROVIDER_SERVICE_CATEGORIES,
     50,
   );
 
@@ -48,15 +46,8 @@ export function normalizeProviderBusinessProfile(input: {
     !primaryServiceCategory ||
     !serviceCategories ||
     serviceCategories.length === 0 ||
-    !serviceCategoryMatchesProviderType(
+    !serviceCategories.includes(
       primaryServiceCategory,
-      providerServiceType,
-    ) ||
-    serviceCategories.some(
-      (category) => !serviceCategoryMatchesProviderType(
-        category,
-        providerServiceType,
-      ),
     )
   ) {
     return null;
@@ -207,6 +198,42 @@ function allowedList<TValue extends string>(
   return [...new Set(value as TValue[])];
 }
 
+function serviceCategoryValue(
+  value: unknown,
+): ServiceCategoryCode | null {
+  return typeof value === "string" &&
+    isServiceCategoryCode(value)
+    ? value
+    : null;
+}
+
+function serviceCategoryList(
+  value: unknown,
+  maximumItems: number,
+): readonly ServiceCategoryCode[] | null {
+  if (
+    !Array.isArray(value) ||
+    value.length > maximumItems
+  ) {
+    return null;
+  }
+
+  const categories =
+    new Set<ServiceCategoryCode>();
+
+  for (const item of value) {
+    if (
+      typeof item !== "string" ||
+      !isServiceCategoryCode(item)
+    ) {
+      return null;
+    }
+
+    categories.add(item);
+  }
+
+  return [...categories];
+}
 function optionalNumber(
   value: unknown,
   minimum: number,

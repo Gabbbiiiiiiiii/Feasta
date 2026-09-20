@@ -1,14 +1,14 @@
 import type {
   ProviderCapacityCapabilities,
   ProviderOperatingDay,
-  ProviderServiceCategory,
+  ServiceCategoryCode,
   ProviderServiceType,
 } from "@feasta/shared-types";
 
 export type ProviderAvailabilitySettings = {
   providerId: string;
   providerServiceType: ProviderServiceType;
-  serviceCategories: readonly ProviderServiceCategory[];
+  serviceCategories: readonly ServiceCategoryCode[];
   operatingDays: readonly ProviderOperatingDay[];
   unavailableDates: readonly string[];
   bookingLeadTimeDays: number;

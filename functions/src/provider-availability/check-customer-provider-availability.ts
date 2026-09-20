@@ -9,11 +9,13 @@ import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
 import {
   isProviderPubliclyEligible,
-  PROVIDER_SERVICE_CATEGORIES,
   USER_ROLES,
 } from "../shared/constants.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {db} from "../shared/firestore.js";
+import {
+  isServiceCategoryCode,
+} from "../shared/service-category-code.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {
   requireNumber,
@@ -148,9 +150,7 @@ export async function checkCustomerProviderAvailabilityForInput(
     if (
       !providerId ||
       !ownerId ||
-      !PROVIDER_SERVICE_CATEGORIES.includes(
-        category as (typeof PROVIDER_SERVICE_CATEGORIES)[number],
-      ) ||
+      !isServiceCategoryCode(category) ||
       data.isActive !== true ||
       data.isAvailable !== true ||
       data.isPublished !== true ||

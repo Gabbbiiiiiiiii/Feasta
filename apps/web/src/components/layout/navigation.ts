@@ -8,6 +8,7 @@ import {
   ClipboardList,
   CreditCard,
   FileCheck2,
+  FolderCog,
   Heart,
   House,
   LayoutDashboard,
@@ -209,6 +210,7 @@ const adminNavigation: readonly NavigationItem[] = [
   {kind: "link", section: "Trust & Communications", label: "Announcements", href: "/admin/announcements", icon: Megaphone},
   {kind: "link", section: "System & Insights", label: "Reports", href: "/admin/reports", icon: ChartNoAxesCombined},
   {kind: "link", section: "System & Insights", label: "Audit Logs", href: "/admin/audit-logs", icon: ScrollText},
+  {kind: "link", section: "System & Insights", label: "File Maintenance", href: "/admin/file-maintenance", icon: FolderCog},
   {kind: "link", section: "System & Insights", label: "Settings", href: "/admin/settings", icon: Settings2},
 ];
 

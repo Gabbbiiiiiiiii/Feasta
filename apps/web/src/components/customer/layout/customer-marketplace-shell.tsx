@@ -3,6 +3,7 @@
 import type {ReactNode} from "react";
 
 import {CustomerMarketplaceHeader} from "@/components/customer/layout/customer-marketplace-header";
+import type {ServiceCategoryOption} from "@/lib/service-categories/service-category-types";
 import {MobileNavigation} from "@/components/layout/mobile-navigation";
 
 export function CustomerMarketplaceShell({
@@ -10,12 +11,14 @@ export function CustomerMarketplaceShell({
   accountFirstName = "",
   accountLastName = "",
   accountEmail = "",
+  serviceCategoryOptions = [],
   children,
 }: {
   accountLabel: string;
   accountFirstName?: string;
   accountLastName?: string;
   accountEmail?: string;
+  serviceCategoryOptions?: readonly ServiceCategoryOption[];
   children: ReactNode;
 }) {
   return (
@@ -45,6 +48,7 @@ export function CustomerMarketplaceShell({
         accountFirstName={accountFirstName}
         accountLastName={accountLastName}
         accountEmail={accountEmail}
+        serviceCategoryOptions={serviceCategoryOptions}
       />
 
       <main

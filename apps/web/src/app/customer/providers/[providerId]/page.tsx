@@ -8,6 +8,7 @@ import {
   parseMarketplaceReturnHref,
   providerProfileHref,
 } from "@/lib/customer/providers/provider-query";
+import {getServiceCategoryOptions} from "@/lib/service-categories/service-category-service";
 
 export default async function PublicProviderDetailPage({
   params,
@@ -21,7 +22,14 @@ export default async function PublicProviderDetailPage({
     searchParams,
     getOptionalAccountContext(),
   ]);
-  const detail = await getPublicProviderDetail(providerId);
+  const [
+    detail,
+    serviceCategoryOptions,
+  ] = await Promise.all([
+    getPublicProviderDetail(providerId),
+    getServiceCategoryOptions(),
+  ]);
+
   if (!detail) notFound();
   const backHref = parseMarketplaceReturnHref(query.returnTo);
   const authenticatedCustomer = account?.role === "customer" &&
@@ -34,6 +42,7 @@ export default async function PublicProviderDetailPage({
     <ProviderProfile
       detail={detail}
       backHref={backHref}
+      serviceCategoryOptions={serviceCategoryOptions}
       favoriteState={{
         authenticated: authenticatedCustomer,
         favorited: favoriteProviderIds.has(providerId),

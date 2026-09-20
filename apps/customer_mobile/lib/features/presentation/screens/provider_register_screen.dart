@@ -4,7 +4,9 @@ import '../../../core/theme/app_breakpoints.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/widgets/widgets.dart';
+import '../../../core/domain/service_category.dart';
 import '../../authentication/data/repositories/auth_repository.dart';
+import '../../authentication/data/repositories/feasta_repository.dart';
 import 'email_verification_screen.dart';
 
 class ProviderRegisterScreen extends StatefulWidget {
@@ -47,10 +49,21 @@ class _ProviderRegisterScreenState extends State<ProviderRegisterScreen> {
   bool isLoading = false;
 
   String selectedProviderServiceType = 'catering';
+  String? selectedProviderCategory;
+
+  late final FeastaRepository _feastaRepository;
+  late final Future<List<ServiceCategory>> _activeServiceCategories;
 
   Future<void> _registerProvider() async {
     FocusScope.of(context).unfocus();
     if (!(_formKey.currentState?.validate() ?? false)) return;
+
+    final providerCategory = selectedProviderCategory;
+
+    if (providerCategory == null || providerCategory.isEmpty) {
+      _showMessage('Please select a provider category.');
+      return;
+    }
 
     setState(() => isLoading = true);
 
@@ -71,7 +84,7 @@ class _ProviderRegisterScreenState extends State<ProviderRegisterScreen> {
         serviceAreas: serviceAreas,
         eventTypesSupported: eventTypesSupported,
         providerServiceType: selectedProviderServiceType,
-        providerCategory: selectedProviderCategory,
+        providerCategory: providerCategory,
       );
 
       if (!mounted) return;
@@ -95,40 +108,19 @@ class _ProviderRegisterScreenState extends State<ProviderRegisterScreen> {
     }
   }
 
-  String selectedProviderCategory = 'catering_service';
-
-  final Map<String, String> cateringCategories = {
-    'catering_service': 'Catering Service',
-    'food_trays_packed_meals': 'Food Trays / Packed Meals',
-    'catering_event_styling': 'Catering and Event Styling',
-  };
-
-  final Map<String, String> addonCategories = {
-    'photographer': 'Photographer',
-    'videographer': 'Videographer',
-    'photo_booth': 'Photo Booth',
-    'event_coordinator': 'Event Coordinator',
-    'event_host_emcee': 'Event Host / Emcee',
-    'sound_system': 'Sound System',
-    'lights_and_sounds': 'Lights and Sounds',
-    'singer_band': 'Singer / Band',
-    'dancer_performer': 'Dancer / Performer',
-    'decorator_event_stylist': 'Decorator / Event Stylist',
-    'florist': 'Florist',
-    'cake_provider': 'Cake Provider',
-    'gown_suit_rental': 'Gown / Suit Rental',
-    'car_rental': 'Car Rental',
-    'venue_provider': 'Venue Provider',
-    'tables_chairs_rental': 'Tables and Chairs Rental',
-    'other_event_service': 'Other Event Service',
-  };
-
   void _showMessage(String message) {
     FeastaSnackbars.show(
       context,
       message: message,
       tone: FeastaSnackbarTone.error,
     );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _feastaRepository = FeastaRepository();
+    _activeServiceCategories = _feastaRepository.getActiveServiceCategories();
   }
 
   @override
@@ -212,62 +204,133 @@ class _ProviderRegisterScreenState extends State<ProviderRegisterScreen> {
                   const SizedBox(height: AppSpacing.xxl),
                   Text('Business information', style: AppTypography.headline),
                   const SizedBox(height: AppSpacing.lg),
-                  DropdownButtonFormField<String>(
-                    initialValue: selectedProviderServiceType,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Provider type',
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'catering',
-                        child: Text('Catering provider'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'addon',
-                        child: Text('Add-on / event service provider'),
-                      ),
-                    ],
-                    onChanged: isLoading
-                        ? null
-                        : (value) {
-                            if (value == null) return;
-                            setState(() {
-                              selectedProviderServiceType = value;
-                              selectedProviderCategory = value == 'catering'
-                                  ? 'catering_service'
-                                  : 'photographer';
-                            });
-                          },
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  DropdownButtonFormField<String>(
-                    initialValue: selectedProviderCategory,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Provider category',
-                    ),
-                    items:
-                        (selectedProviderServiceType == 'catering'
-                                ? cateringCategories
-                                : addonCategories)
-                            .entries
-                            .map(
-                              (entry) => DropdownMenuItem<String>(
-                                value: entry.key,
-                                child: Text(
-                                  entry.value,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
+                  FutureBuilder<List<ServiceCategory>>(
+                    future: _activeServiceCategories,
+                    builder: (context, snapshot) {
+                      final categories =
+                          snapshot.data ?? const <ServiceCategory>[];
+
+                      final matchingCategories = categories
+                          .where(
+                            (category) =>
+                                category.serviceType ==
+                                selectedProviderServiceType,
+                          )
+                          .toList(growable: false);
+
+                      final selectedCategoryIsValid =
+                          selectedProviderCategory != null &&
+                          matchingCategories.any(
+                            (category) =>
+                                category.code == selectedProviderCategory,
+                          );
+
+                      return Column(
+                        children: [
+                          DropdownButtonFormField<String>(
+                            initialValue: selectedProviderServiceType,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Provider type',
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'catering',
+                                child: Text('Catering provider'),
                               ),
-                            )
-                            .toList(),
-                    onChanged: isLoading
-                        ? null
-                        : (value) {
-                            if (value == null) return;
-                            setState(() => selectedProviderCategory = value);
-                          },
+                              DropdownMenuItem(
+                                value: 'addon',
+                                child: Text('Add-on / event service provider'),
+                              ),
+                            ],
+                            onChanged: isLoading
+                                ? null
+                                : (value) {
+                                    if (value == null) return;
+
+                                    setState(() {
+                                      selectedProviderServiceType = value;
+                                      selectedProviderCategory = null;
+                                    });
+                                  },
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                          DropdownButtonFormField<String>(
+                            key: ValueKey<String>(
+                              'provider-category-$selectedProviderServiceType',
+                            ),
+                            initialValue: selectedCategoryIsValid
+                                ? selectedProviderCategory
+                                : null,
+                            isExpanded: true,
+                            decoration: InputDecoration(
+                              labelText: 'Provider category',
+                              helperText:
+                                  snapshot.connectionState ==
+                                      ConnectionState.waiting
+                                  ? 'Loading service categories...'
+                                  : null,
+                            ),
+                            items: matchingCategories
+                                .map(
+                                  (category) => DropdownMenuItem<String>(
+                                    value: category.code,
+                                    child: Text(
+                                      category.name,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(growable: false),
+                            validator: (value) {
+                              if (snapshot.hasError) {
+                                return 'Service categories are unavailable.';
+                              }
+
+                              if (value == null || value.isEmpty) {
+                                return 'Select a provider category.';
+                              }
+
+                              return null;
+                            },
+                            onChanged:
+                                isLoading ||
+                                    snapshot.connectionState ==
+                                        ConnectionState.waiting ||
+                                    snapshot.hasError ||
+                                    matchingCategories.isEmpty
+                                ? null
+                                : (value) {
+                                    if (value == null) return;
+                                    setState(
+                                      () => selectedProviderCategory = value,
+                                    );
+                                  },
+                          ),
+                          if (snapshot.hasError) ...[
+                            const SizedBox(height: AppSpacing.sm),
+                            const Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'Unable to load service categories. '
+                                'Please check your connection and try again.',
+                              ),
+                            ),
+                          ] else if (snapshot.connectionState !=
+                                  ConnectionState.waiting &&
+                              matchingCategories.isEmpty) ...[
+                            const SizedBox(height: AppSpacing.sm),
+                            const Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'No active categories are currently '
+                                'available for this provider type.',
+                              ),
+                            ),
+                          ],
+                        ],
+                      );
+                    },
                   ),
                   const SizedBox(height: AppSpacing.md),
                   _field(

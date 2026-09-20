@@ -8,35 +8,6 @@ const requiredProviderVerificationDocumentTypes = {
   VerificationDocumentType.validId,
 };
 
-const providerServiceCategories = {
-  'catering_service',
-  'food_trays_packed_meals',
-  'catering_event_styling',
-  'photographer',
-  'videographer',
-  'photo_booth',
-  'event_coordinator',
-  'event_host_emcee',
-  'sound_system',
-  'lights_and_sounds',
-  'singer_band',
-  'dancer_performer',
-  'decorator_event_stylist',
-  'florist',
-  'cake_provider',
-  'gown_suit_rental',
-  'car_rental',
-  'venue_provider',
-  'tables_chairs_rental',
-  'other_event_service',
-};
-
-const cateringServiceCategories = {
-  'catering_service',
-  'food_trays_packed_meals',
-  'catering_event_styling',
-};
-
 const providerEventTypes = {
   'birthday',
   'wedding',
@@ -412,18 +383,11 @@ ProviderOnboardingValidationResult validateProviderOnboardingInput(
     'serviceAreas',
     issues,
   );
-  final serviceCategories = _enumList(
+  final serviceCategories = _serviceCategoryCodeList(
     input['serviceCategories'],
     'serviceCategories',
-    providerServiceCategories,
     issues,
   );
-  if (serviceType != null &&
-      serviceCategories.any(
-        (category) => !_serviceCategoryMatches(category, serviceType),
-      )) {
-    issues.add(const ProviderValidationIssue('serviceCategories', 'invalid'));
-  }
   final maxServiceDistanceKm = _optionalNumber(
     input['maxServiceDistanceKm'],
     'maxServiceDistanceKm',
@@ -599,6 +563,42 @@ List<String> _stringList(
   return value.cast<String>().map((item) => item.trim()).toSet().toList();
 }
 
+List<String> _serviceCategoryCodeList(
+  Object? value,
+  String field,
+  List<ProviderValidationIssue> issues,
+) {
+  if (value == null) return [];
+
+  if (value is! List || value.length > 50) {
+    issues.add(ProviderValidationIssue(field, 'invalid'));
+    return [];
+  }
+
+  final codePattern = RegExp(r'^[a-z0-9]+(?:_[a-z0-9]+)*$');
+  final values = <String>[];
+
+  for (final item in value) {
+    if (item is! String) {
+      issues.add(ProviderValidationIssue(field, 'invalid'));
+      return [];
+    }
+
+    final code = item.trim();
+
+    if (code.length < 2 || code.length > 100 || !codePattern.hasMatch(code)) {
+      issues.add(ProviderValidationIssue(field, 'invalid'));
+      return [];
+    }
+
+    if (!values.contains(code)) {
+      values.add(code);
+    }
+  }
+
+  return values;
+}
+
 List<String> _enumList(
   Object? value,
   String field,
@@ -627,12 +627,6 @@ List<String> _legacyEventTypes(
     return [];
   }
   return values;
-}
-
-bool _serviceCategoryMatches(String category, ProviderServiceType serviceType) {
-  final isCatering = cateringServiceCategories.contains(category);
-  return serviceType == ProviderServiceType.both ||
-      (serviceType == ProviderServiceType.catering ? isCatering : !isCatering);
 }
 
 double? _optionalNumber(

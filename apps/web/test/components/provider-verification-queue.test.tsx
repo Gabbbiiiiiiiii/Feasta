@@ -128,6 +128,8 @@ const selected: ProviderVerificationReviewDetail = {
   }],
 };
 
+import {TEST_SERVICE_CATEGORY_OPTIONS} from "../fixtures/service-category-options";
+
 describe("provider verification queue", () => {
   beforeEach(() => {
     push.mockReset();
@@ -143,6 +145,7 @@ describe("provider verification queue", () => {
         filters={filters}
         summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 1}}
         selected={null}
+      serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
       />,
     );
     expect(screen.getByRole("heading", {
@@ -174,6 +177,7 @@ describe("provider verification queue", () => {
         filters={filters}
         summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 1}}
         selected={null}
+      serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
       />,
     );
     fireEvent.change(screen.getByRole("combobox", {
@@ -210,6 +214,7 @@ describe("provider verification queue", () => {
         filters={filters}
         summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 1}}
         selected={selected}
+      serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
       />,
     );
     const mobileView = screen.getByLabelText(
@@ -240,6 +245,7 @@ describe("provider verification queue", () => {
         filters={{...filters, search: "missing"}}
         summary={{submitted: 0, underReview: 0, approvedToday: 0, needsResubmission: 0}}
         selected={null}
+      serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
       />,
     );
     expect(screen.getByText("No verification applications")).toBeInTheDocument();
@@ -261,6 +267,7 @@ describe("provider verification queue", () => {
         filters={filters}
         summary={{submitted: 1, underReview: 0, approvedToday: 0, needsResubmission: 0}}
         selected={selected}
+      serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
       />,
     );
     fireEvent.click(screen.getByRole("button", {name: "Start review"}));
@@ -289,6 +296,7 @@ describe("provider verification queue", () => {
         filters={filters}
         summary={{submitted: 0, underReview: 1, approvedToday: 0, needsResubmission: 0}}
         selected={{...selected, status: "under_review"}}
+      serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
       />,
     );
     fireEvent.change(screen.getByLabelText("Admin remarks"), {
@@ -322,6 +330,7 @@ describe.each([360, 390, 768, 1024, 1440])(
           filters={filters}
           summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 1}}
           selected={null}
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
         />,
       );
       const table = screen.getByRole("table", {

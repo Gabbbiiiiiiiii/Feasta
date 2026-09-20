@@ -1,6 +1,10 @@
 import type {
   AdminReportResult,
 } from "@/lib/admin/reports/admin-report-types";
+import {
+  serviceCategoryName,
+  type ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-types";
 
 const MANILA_TIME_ZONE = "Asia/Manila";
 
@@ -12,6 +16,7 @@ export type AdminReportCsvExport = {
 
 export function createAdminReportCsv(
   report: AdminReportResult,
+  serviceCategoryOptions: readonly ServiceCategoryOption[] = [],
 ): AdminReportCsvExport {
   const rows: string[][] = [];
 
@@ -177,7 +182,7 @@ export function createAdminReportCsv(
       provider.providerId,
       provider.providerName,
       titleCase(provider.serviceType),
-      provider.providerCategory ? titleCase(provider.providerCategory) : "Not specified",
+      provider.providerCategory ? serviceCategoryName(provider.providerCategory, serviceCategoryOptions) : "Not specified",
       String(provider.requestsReceived),
       String(provider.acceptedRequests),
       String(provider.rejectedRequests),

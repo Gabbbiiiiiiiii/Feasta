@@ -13,13 +13,19 @@ import type {
   AdminProviderPerformance as AdminProviderPerformanceData,
   AdminProviderPerformanceRow,
 } from "@/lib/admin/reports/admin-report-types";
+import {
+  serviceCategoryName,
+  type ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-types";
 
 type AdminProviderPerformanceProps = {
   report: AdminProviderPerformanceData;
+  serviceCategoryOptions: readonly ServiceCategoryOption[];
 };
 
 export function AdminProviderPerformance({
   report,
+  serviceCategoryOptions,
 }: AdminProviderPerformanceProps) {
   const providers = report.providers;
   const totals = summarizeProviders(providers);
@@ -80,6 +86,7 @@ export function AdminProviderPerformance({
           <ProviderPerformanceTable
             providers={providers}
             minimumReviews={report.minimumReviewsForRatingRanking}
+            serviceCategoryOptions={serviceCategoryOptions}
           />
         </>
       )}
@@ -212,9 +219,11 @@ function ProviderActivitySummary({
 function ProviderPerformanceTable({
   providers,
   minimumReviews,
+  serviceCategoryOptions,
 }: {
   providers: AdminProviderPerformanceRow[];
   minimumReviews: number;
+  serviceCategoryOptions: readonly ServiceCategoryOption[];
 }) {
   return (
     <article className="min-w-0 rounded-card border border-border bg-card shadow-card">
@@ -254,7 +263,7 @@ function ProviderPerformanceTable({
                   <p className="font-bold">{provider.providerName}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {serviceTypeLabel(provider.serviceType)}
-                    {provider.providerCategory ? ` · ${titleCase(provider.providerCategory)}` : ""}
+                    {provider.providerCategory ? ` · ${serviceCategoryName(provider.providerCategory, serviceCategoryOptions)}` : ""}
                   </p>
                 </td>
                 <td className="px-4 py-4 font-semibold">{formatCount(provider.requestsReceived)}</td>
@@ -423,8 +432,4 @@ function serviceTypeLabel(value: AdminProviderPerformanceRow["serviceType"]): st
   if (value === "catering") return "Catering";
   if (value === "addon") return "Add-on services";
   return "Catering and add-ons";
-}
-
-function titleCase(value: string): string {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

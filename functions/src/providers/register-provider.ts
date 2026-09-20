@@ -13,14 +13,15 @@ import {
 import {
   PROVIDER_EVENT_TYPES,
   PROVIDER_OPERATING_DAYS,
-  PROVIDER_SERVICE_CATEGORIES,
   PROVIDER_SERVICE_TYPES,
   USER_ROLES,
   providerCapacityCapabilities,
-  serviceCategoryMatchesProviderType,
-  type ProviderServiceCategory,
 } from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
+import {
+  requireActiveServiceCategories,
+  requireActiveServiceCategoriesInTransaction,
+} from "../shared/service-category-policy.js";
 import {
   beginIdempotentOperation,
   completeIdempotentOperation,
@@ -233,30 +234,24 @@ export const registerProvider = onCall(
       "providerCategory",
       {minLength: 2, maxLength: 100},
     );
-    const serviceCategories = optionalEnumList(
+    const serviceCategories = await requireActiveServiceCategories(
       input.serviceCategories,
-      "serviceCategories",
-      PROVIDER_SERVICE_CATEGORIES,
+      providerServiceType,
+      {
+        field: "serviceCategories",
+      },
     );
     if (
-      serviceCategories.some((category) =>
-        !serviceCategoryMatchesProviderType(
-          category as ProviderServiceCategory,
-          providerServiceType,
-        )
-      ) ||
-      (serviceCategories.length > 0 &&
-        serviceCategories[0] !== providerCategory)
+      serviceCategories.length > 0 &&
+      serviceCategories[0] !== providerCategory
     ) {
       throw new HttpsError(
         "invalid-argument",
-        "Service categories must match the provider service type and primary category.",
+        "providerCategory must match the primary service category.",
       );
     }
     const capacityCapabilities =
-    providerCapacityCapabilities(
-      serviceCategories as ProviderServiceCategory[],
-    );
+      providerCapacityCapabilities(serviceCategories);
     const serviceAreas = optionalStringList(input.serviceAreas, "serviceAreas");
     const eventTypesSupported = input.serviceCategories === undefined
       ? optionalStringList(input.eventTypesSupported, "eventTypesSupported")
@@ -665,6 +660,13 @@ export const registerProvider = onCall(
               created: false,
             };
           }
+
+          await requireActiveServiceCategoriesInTransaction(
+            transaction,
+            serviceCategories,
+            providerServiceType,
+            "serviceCategories",
+          );
 
           const ownerPhone = requirePhilippineMobile(
             identity.phoneNumber,

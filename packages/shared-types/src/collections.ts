@@ -3,6 +3,7 @@ export const FIRESTORE_COLLECTIONS = {
   customers: "customers",
   providers: "providers",
   providerVerifications: "providerVerifications",
+  serviceCategories: "serviceCategories",
 
   packages: "packages",
   menuItems: "menuItems",

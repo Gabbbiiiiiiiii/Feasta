@@ -4,6 +4,7 @@ import {notFound} from "next/navigation";
 import {PackageDetail} from "@/components/customer/packages/package-detail";
 import {getPublicPackageDetail} from "@/lib/customer/discovery/package-detail-service";
 import {parseCustomerEventContext} from "@/lib/customer/planning/event-planning-context";
+import {getServiceCategoryOptions} from "@/lib/service-categories/service-category-service";
 
 type CustomerPackageDetailPageProps = {
   params: Promise<{
@@ -43,7 +44,13 @@ export default async function CustomerPackageDetailPage({
     searchParams ?? Promise.resolve({}),
   ]);
 
-  const detail = await getPublicPackageDetail(packageId);
+  const [
+    detail,
+    serviceCategoryOptions,
+  ] = await Promise.all([
+    getPublicPackageDetail(packageId),
+    getServiceCategoryOptions(),
+  ]);
 
   if (!detail) {
     notFound();
@@ -53,6 +60,7 @@ export default async function CustomerPackageDetailPage({
     <PackageDetail
       detail={detail}
       eventContext={parseCustomerEventContext(query)}
+      serviceCategoryOptions={serviceCategoryOptions}
     />
   );
 }

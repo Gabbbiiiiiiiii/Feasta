@@ -29,6 +29,7 @@ import type {
   ProviderDiscoveryPage,
   PublicProvider,
 } from "@/lib/customer/providers/provider-types";
+import {TEST_SERVICE_CATEGORY_OPTIONS} from "../fixtures/service-category-options";
 
 vi.mock("@/app/customer/favorites/actions", () => ({
   setProviderFavoriteAction: vi.fn(),
@@ -37,6 +38,9 @@ vi.mock("@/app/customer/favorites/actions", () => ({
 vi.mock("@/lib/customer/providers/provider-discovery-service", () => ({getPublicProviderPage: vi.fn()}));
 vi.mock("@/lib/auth/session", () => ({getOptionalAccountContext: vi.fn()}));
 vi.mock("@/lib/customer/favorites/customer-favorite-service", () => ({getCustomerFavoriteProviderIds: vi.fn()}));
+vi.mock("@/lib/service-categories/service-category-service", () => ({
+  getServiceCategoryOptions: vi.fn().mockResolvedValue([]),
+}));
 
 vi.mock("next/navigation", () => ({useRouter: () => ({push: vi.fn()})}));
 vi.mock("@/lib/customer/planning/event-venue-client", () => ({searchEventVenues: vi.fn(), getEventVenueDetails: vi.fn()}));
@@ -139,7 +143,7 @@ describe("customer marketplace provider policy", () => {
       businessName: "Ana Events",
       description: null,
       location: null,
-      categories: ["event_coordinator"],
+      categories: ["event_coordinator", "unknown"],
       bookingLeadTimeDays: null,
     });
     expect(normalized).not.toHaveProperty("ownerId");
@@ -183,7 +187,16 @@ describe("customer marketplace search presentation", () => {
       category: "photographer",
       cursor: "safe_cursor-1",
     });
-    expect(parseProviderDiscoveryFilters({service: "admin", category: "secret", cursor: "../bad"})).toEqual(emptyFilters);
+    expect(
+      parseProviderDiscoveryFilters({
+        service: "admin",
+        category: "secret",
+        cursor: "../bad",
+      }),
+    ).toEqual({
+      ...emptyFilters,
+      category: "secret",
+    });
     expect(parseProviderDiscoveryFilters({q: "x"})).toEqual(emptyFilters);
   });
 
@@ -226,7 +239,12 @@ describe("customer marketplace search presentation", () => {
 
   it("remounts URL-driven controls when canonical filter state changes", () => {
     const {rerender} = render(
-      <EventFinder key="all" query="q=initial" onFind={() => {}} />,
+      <EventFinder
+        key="all"
+        query="q=initial"
+        onFind={() => {}}
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+      />,
     );
     fireEvent.change(
       screen.getByRole("searchbox", {name: "Search approved providers"}),
@@ -239,7 +257,14 @@ describe("customer marketplace search presentation", () => {
       category: "venue_provider",
       cursor: null,
     };
-    rerender(<EventFinder key="venue-addon" query={providerDiscoveryHref(nextFilters).split("?")[1]} onFind={() => {}} />);
+    rerender(
+      <EventFinder
+        key="venue-addon"
+        query={providerDiscoveryHref(nextFilters).split("?")[1]}
+        onFind={() => {}}
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+      />,
+    );
 
     expect(screen.getByRole("searchbox", {name: "Search approved providers"})).toHaveValue("venue");
     expect(screen.getByRole("combobox", {name: "Provider Type"})).toHaveValue("addon");
@@ -252,7 +277,11 @@ describe("customer marketplace search presentation", () => {
   it("renders accessible canonical filters and provider facts without fake metrics", () => {
     render(
       <>
-        <EventFinder query="" onFind={() => {}} />
+        <EventFinder
+          query=""
+          onFind={() => {}}
+          serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+        />
         <ProviderResults page={pageWith([provider])} filters={emptyFilters} />
       </>,
     );

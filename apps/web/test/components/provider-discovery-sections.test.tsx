@@ -6,6 +6,7 @@ import {providerDiscoverySections} from "@/lib/customer/providers/provider-disco
 import {normalizePublicProvider} from "@/lib/customer/providers/provider-normalization";
 import {parseProviderDiscoveryFilters, providerDiscoveryHref} from "@/lib/customer/providers/provider-query";
 import type {ProviderDiscoveryFilters, ProviderDiscoveryPage, PublicProvider} from "@/lib/customer/providers/provider-types";
+import {TEST_SERVICE_CATEGORY_OPTIONS} from "../fixtures/service-category-options";
 
 vi.mock("@/app/customer/favorites/actions", () => ({setProviderFavoriteAction: vi.fn()}));
 vi.mock("next/navigation", () => ({useRouter: () => ({refresh: vi.fn()})}));
@@ -84,7 +85,15 @@ describe("provider discovery groups within the complete marketplace listing", ()
     const records = providers(12).map((provider, index) => ({...provider,
       primaryCategory: categories[Math.floor(index / 4)], categories: ["photographer" as const],
     }));
-    render(<ProviderResults page={page(records)} filters={filters} authenticatedCustomer favoriteProviderIds={new Set(["provider-0"])} />);
+    render(
+      <ProviderResults
+        page={page(records)}
+        filters={filters}
+        authenticatedCustomer
+        favoriteProviderIds={new Set(["provider-0"])}
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+      />,
+    );
     const completeListing = screen.getByRole("region", {name: "Marketplace providers"});
     expect(within(completeListing).getAllByRole("article")).toHaveLength(12);
     for (const provider of records) {
@@ -97,11 +106,48 @@ describe("provider discovery groups within the complete marketplace listing", ()
     expect(screen.getByRole("heading", {name: "More providers"})).toBeVisible();
     const categoryLinks = screen.getAllByRole("link", {name: /See all .* providers/});
     expect(categoryLinks).toHaveLength(2);
-    const photography = screen.getByRole("region", {name: "Photographer"});
+    const photography = screen.getByRole("region", {name: "Photography"});
     expect(within(photography).getAllByRole("article")).toHaveLength(4);
     expect(within(photography).queryByRole("article", {name: /^Provider 0,/})).not.toBeInTheDocument();
-    expect(within(photography).getByRole("link", {name: "See all Photographer providers"}))
+    expect(within(photography).getByRole("link", {name: "See all Photography providers"}))
       .toHaveAttribute("href", "/customer/providers?category=photographer");
+  });
+
+  it("does not create new discovery sections for discontinued categories", () => {
+    const records = providers(8).map((provider, index) => ({
+      ...provider,
+      primaryCategory:
+        index < 4
+          ? "photographer"
+          : "venue_provider",
+    }));
+
+    const categoryOptions = TEST_SERVICE_CATEGORY_OPTIONS.map(
+      (category) =>
+        category.code === "photographer"
+          ? {...category, status: "discontinued" as const}
+          : category,
+    );
+
+    const result = providerDiscoverySections(
+      page(records),
+      filters,
+      categoryOptions,
+    );
+
+    expect(
+      result.sections.some(
+        (section) =>
+          section.id === "category-photographer",
+      ),
+    ).toBe(false);
+
+    expect(
+      result.sections.some(
+        (section) =>
+          section.id === "category-venue_provider",
+      ),
+    ).toBe(true);
   });
 
   it("carries planning context through canonical category links and resets pagination", () => {
@@ -109,7 +155,11 @@ describe("provider discovery groups within the complete marketplace listing", ()
     const records = providers(8).map((provider, index) => ({...provider,
       primaryCategory: index < 4 ? "photographer" as const : "venue_provider" as const,
     }));
-    const result = providerDiscoverySections(page(records), context);
+    const result = providerDiscoverySections(
+      page(records),
+      context,
+      TEST_SERVICE_CATEGORY_OPTIONS,
+    );
     expect(result.sections[0].href).toBe(providerDiscoveryHref({...context, category: "photographer", cursor: null}));
     expect(result.sections[0].href).toContain("eventDate=2099-09-10");
     expect(result.sections[0].href).not.toContain("cursor=");

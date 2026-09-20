@@ -32,11 +32,14 @@ import type {
   ProviderVerificationReviewDetail,
 } from "@/lib/admin/provider-verification/provider-verification-types";
 
+import type {ServiceCategoryOption} from "@/lib/service-categories/service-category-types";
+
 type ProviderVerificationQueueProps = {
   page: ProviderVerificationQueuePage;
   filters: ProviderVerificationQueueFilters;
   summary: ProviderVerificationQueueSummary;
   selected: ProviderVerificationReviewDetail | null;
+  serviceCategoryOptions: readonly ServiceCategoryOption[];
 };
 
 const columns: readonly DataTableColumn<ProviderVerificationQueueItem>[] = [
@@ -81,6 +84,7 @@ function ProviderVerificationQueue({
   filters,
   summary,
   selected,
+  serviceCategoryOptions,
 }: ProviderVerificationQueueProps) {
   const router = useRouter();
   const pathname = usePathname();
@@ -341,7 +345,10 @@ function ProviderVerificationQueue({
         description="Secure provider application review"
       >
         {selected ? (
-          <ProviderVerificationReviewPanel application={selected} />
+          <ProviderVerificationReviewPanel
+            application={selected}
+            serviceCategoryOptions={serviceCategoryOptions}
+          />
         ) : null}
       </DetailDrawer>
     </div>

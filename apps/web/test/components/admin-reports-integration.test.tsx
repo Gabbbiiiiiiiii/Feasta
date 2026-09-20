@@ -8,6 +8,7 @@ import type {
   AdminReportRateMetric,
   AdminReportResult,
 } from "@/lib/admin/reports/admin-report-types";
+import {TEST_SERVICE_CATEGORY_OPTIONS} from "../fixtures/service-category-options";
 
 const mocks = vi.hoisted(() => ({
   createExcel: vi.fn(),
@@ -79,7 +80,7 @@ describe("admin reports integration", () => {
   });
 
   it("renders every report phase and accurate financial terminology", () => {
-    render(<AdminReportsExecutiveClient initialReport={reportFixture()} />);
+    render(<AdminReportsExecutiveClient initialReport={reportFixture()} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
 
     expect(screen.getByRole("heading", {name: "Reports and Insights"})).toBeInTheDocument();
     expect(screen.getByText("Booking performance test section")).toBeInTheDocument();
@@ -108,6 +109,7 @@ describe("admin reports integration", () => {
       render(
         <AdminReportsExecutiveClient
           initialReport={report}
+          serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
         />,
       );
 
@@ -120,7 +122,10 @@ describe("admin reports integration", () => {
       await waitFor(() => {
         expect(
           mocks.createExcel,
-        ).toHaveBeenCalledWith(report);
+        ).toHaveBeenCalledWith(
+          report,
+          TEST_SERVICE_CATEGORY_OPTIONS,
+        );
       });
 
       expect(
@@ -155,7 +160,7 @@ describe("admin reports integration", () => {
   it("prints through the browser print action", async () => {
     const user = userEvent.setup();
     const print = vi.spyOn(window, "print").mockImplementation(() => undefined);
-    render(<AdminReportsExecutiveClient initialReport={reportFixture()} />);
+    render(<AdminReportsExecutiveClient initialReport={reportFixture()} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
 
     await user.click(screen.getByRole("button", {name: "Print"}));
 
@@ -167,7 +172,7 @@ describe("admin reports integration", () => {
     const user = userEvent.setup();
     const nextReport = reportFixture({periodLabel: "Jul 26, 2026 – Aug 1, 2026"});
     mocks.loadReport.mockResolvedValueOnce(nextReport);
-    render(<AdminReportsExecutiveClient initialReport={reportFixture()} />);
+    render(<AdminReportsExecutiveClient initialReport={reportFixture()} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
 
     await user.selectOptions(screen.getByLabelText("Date range"), "last_7_days");
     await user.click(screen.getByRole("button", {name: "Generate report"}));

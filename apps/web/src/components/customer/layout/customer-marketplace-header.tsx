@@ -28,6 +28,7 @@ import {
   PUBLIC_PROVIDER_MARKETPLACE_PATH,
   isPublicMarketplaceReturnPath,
 } from "@/lib/customer/providers/provider-route-policy";
+import type {ServiceCategoryOption} from "@/lib/service-categories/service-category-types";
 import {cn} from "@/lib/utils";
 
 import {useCustomerAuth} from "./customer-auth-provider";
@@ -45,12 +46,14 @@ export function CustomerMarketplaceHeader({
   accountLastName = "",
   accountEmail = "",
   authReturnTo = PUBLIC_PROVIDER_MARKETPLACE_PATH,
+  serviceCategoryOptions = [],
 }: {
   accountLabel?: string | null;
   accountFirstName?: string;
   accountLastName?: string;
   accountEmail?: string;
   authReturnTo?: string;
+  serviceCategoryOptions?: readonly ServiceCategoryOption[];
 }) {
   const pathname = usePathname();
   const searchParameters = useSearchParams();
@@ -121,7 +124,10 @@ export function CustomerMarketplaceHeader({
                 onRegister={() => openAuth("register")}
               />
             )}
-            <MarketplaceSectionNavigation pathname={pathname} />
+            <MarketplaceSectionNavigation
+  pathname={pathname}
+  serviceCategoryOptions={serviceCategoryOptions}
+/>
           </div>
         </div>
       </header>
@@ -156,14 +162,36 @@ function MarketplaceBrand({pathname}: {pathname: string}) {
   );
 }
 
-function MarketplaceSectionNavigation({pathname}: {pathname: string}) {
+function MarketplaceSectionNavigation({
+  pathname,
+  serviceCategoryOptions,
+}: {
+  pathname: string;
+  serviceCategoryOptions: readonly ServiceCategoryOption[];
+}) {
   const parameters = useSearchParams();
   const query = parameters.toString();
+
   // URL changes reset the disclosure and form defaults together.
-  return <MarketplaceNavigationContent key={pathname + "?" + query} pathname={pathname} query={query} />;
+  return (
+    <MarketplaceNavigationContent
+      key={pathname + "?" + query}
+      pathname={pathname}
+      query={query}
+      serviceCategoryOptions={serviceCategoryOptions}
+    />
+  );
 }
 
-function MarketplaceNavigationContent({pathname, query}: {pathname: string; query: string}) {
+function MarketplaceNavigationContent({
+  pathname,
+  query,
+  serviceCategoryOptions,
+}: {
+  pathname: string;
+  query: string;
+  serviceCategoryOptions: readonly ServiceCategoryOption[];
+}) {
   const [open, setOpen] = useState(false);
   const searchButton = useRef<HTMLButtonElement>(null);
   const items = [
@@ -225,7 +253,11 @@ function MarketplaceNavigationContent({pathname, query}: {pathname: string; quer
       >
         <div className={cn("min-h-0 overflow-hidden", open && "sm:overflow-visible")}>
           <div className="mx-auto max-h-[calc(100dvh-9rem)] max-w-6xl overflow-y-auto px-1 pb-4 pt-2 sm:overflow-visible sm:pb-3">
-            <EventFinder query={query} onFind={close} />
+            <EventFinder
+              query={query}
+              onFind={close}
+              serviceCategoryOptions={serviceCategoryOptions}
+            />
           </div>
         </div>
       </div>

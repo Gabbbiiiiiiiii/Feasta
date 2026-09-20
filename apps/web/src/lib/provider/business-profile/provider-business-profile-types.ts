@@ -1,7 +1,7 @@
 import type {
   ProviderEventType,
-  ProviderServiceCategory,
   ProviderServiceType,
+  ServiceCategoryCode,
 } from "@feasta/shared-types";
 
 export type ProviderBusinessMedia = {
@@ -19,8 +19,8 @@ export type ProviderBusinessProfile = {
   city: string;
   province: string;
   providerServiceType: ProviderServiceType;
-  primaryServiceCategory: ProviderServiceCategory | null;
-  serviceCategories: readonly ProviderServiceCategory[];
+  primaryServiceCategory: ServiceCategoryCode | null;
+  serviceCategories: readonly ServiceCategoryCode[];
   serviceAreas: readonly string[];
   eventTypesSupported: readonly ProviderEventType[];
   maxServiceDistanceKm: number | null;

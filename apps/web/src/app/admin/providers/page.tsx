@@ -9,6 +9,7 @@ import {
   getProviderVerificationReview,
 } from "@/lib/admin/provider-verification/provider-verification-service";
 import {requireAdmin} from "@/lib/auth/session";
+import {getServiceCategoryOptions} from "@/lib/service-categories/service-category-service";
 
 type AdminProvidersPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -21,12 +22,13 @@ export default async function AdminProvidersPage({
   const values = await searchParams;
   const filters = parseProviderVerificationQueueFilters(values);
   const selectedId = selectedVerificationId(values);
-  const [page, summary, selected] = await Promise.all([
+  const [page, summary, selected, serviceCategoryOptions] = await Promise.all([
     getProviderVerificationQueue(filters),
     getProviderVerificationQueueSummary(),
     selectedId
       ? getProviderVerificationReview(selectedId)
       : Promise.resolve(null),
+    getServiceCategoryOptions(),
   ]);
 
   return (
@@ -35,6 +37,7 @@ export default async function AdminProvidersPage({
       summary={summary}
       filters={filters}
       selected={selected}
+      serviceCategoryOptions={serviceCategoryOptions}
     />
   );
 }

@@ -19,18 +19,23 @@ import {Badge} from "@/components/ui/badge";
 import type {PublicPackage} from "@/lib/customer/discovery/marketplace-types";
 import {
   humanizeProviderValue,
-  providerCategoryLabel,
   providerServiceTypeLabel,
 } from "@/lib/customer/providers/provider-catalog";
 import type {PublicProviderDetail} from "@/lib/customer/providers/provider-detail-types";
 import {parseMarketplaceReturnHref} from "@/lib/customer/providers/provider-query";
 import {PUBLIC_PACKAGE_MARKETPLACE_PATH} from "@/lib/customer/providers/provider-route-policy";
+import {
+  serviceCategoryName,
+  type ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-types";
 
 export function ProviderProfile({
+  serviceCategoryOptions = [],
   detail,
   backHref = "/customer/providers",
   favoriteState,
 }: {
+  serviceCategoryOptions?: readonly ServiceCategoryOption[];
   detail: PublicProviderDetail;
   backHref?: string;
   favoriteState?: {
@@ -176,7 +181,7 @@ export function ProviderProfile({
               {provider.categories.map((category) => (
                 <li key={category}>
                   <span className="inline-flex rounded-full border border-primary/10 bg-secondary px-3 py-1.5 text-xs font-bold text-primary-strong">
-                    {providerCategoryLabel(category)}
+                    {serviceCategoryName(category, serviceCategoryOptions)}
                   </span>
                 </li>
               ))}
@@ -268,7 +273,7 @@ export function ProviderProfile({
                       {provider.categories.map((category) => (
                         <li key={category}>
                           <span className="inline-flex rounded-full border border-primary/10 bg-secondary px-3.5 py-2 text-sm font-bold text-primary-strong">
-                            {providerCategoryLabel(category)}
+                            {serviceCategoryName(category, serviceCategoryOptions)}
                           </span>
                         </li>
                       ))}

@@ -1,10 +1,11 @@
 import {
   PROVIDER_EVENT_TYPES,
   PROVIDER_OPERATING_DAYS,
-  PROVIDER_SERVICE_CATEGORIES,
   PROVIDER_SERVICE_TYPES,
+  isServiceCategoryCode,
   type ProviderEventType,
   type ProviderOperatingDay,
+  type ServiceCategoryCode,
 } from "@feasta/shared-types";
 
 import type {PublicProvider} from "./provider-types";
@@ -49,14 +50,12 @@ export function normalizePublicProvider(
   const city = safeText(provider.city, 100);
   const province = safeText(provider.province, 100);
   const address = safeText(provider.address, 250);
-  const primaryCategory = allowedValue(
+  const primaryCategory = serviceCategoryValue(
     provider.providerCategory,
-    PROVIDER_SERVICE_CATEGORIES,
   );
-  const categories = allowedList(
+  const categories = serviceCategoryList(
     provider.serviceCategories,
-    PROVIDER_SERVICE_CATEGORIES,
-    20,
+    50,
   );
 
   return {
@@ -153,6 +152,39 @@ function safeTextList(
   return [...values];
 }
 
+function serviceCategoryValue(
+  value: unknown,
+): ServiceCategoryCode | null {
+  return typeof value === "string" &&
+    isServiceCategoryCode(value)
+    ? value
+    : null;
+}
+
+function serviceCategoryList(
+  value: unknown,
+  maximumItems: number,
+): readonly ServiceCategoryCode[] {
+  if (!Array.isArray(value)) return [];
+
+  const categories =
+    new Set<ServiceCategoryCode>();
+
+  for (const item of value) {
+    if (
+      typeof item === "string" &&
+      isServiceCategoryCode(item)
+    ) {
+      categories.add(item);
+    }
+
+    if (categories.size === maximumItems) {
+      break;
+    }
+  }
+
+  return [...categories];
+}
 function safeInteger(
   value: unknown,
   minimum: number,

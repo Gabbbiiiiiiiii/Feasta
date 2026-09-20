@@ -2,11 +2,11 @@ import "server-only";
 
 import {
   PROVIDER_OPERATING_DAYS,
-  PROVIDER_SERVICE_CATEGORIES,
+  isServiceCategoryCode,
   PROVIDER_SERVICE_TYPES,
   providerCapacityCapabilities,
   type ProviderOperatingDay,
-  type ProviderServiceCategory,
+  type ServiceCategoryCode,
   type ProviderServiceType,
 } from "@feasta/shared-types";
 
@@ -99,16 +99,20 @@ function providerType(value: unknown): ProviderServiceType | null {
 function providerCategories(
   value: unknown,
   fallback: unknown,
-): ProviderServiceCategory[] {
-  const values = Array.isArray(value) ? value : [fallback];
+): ServiceCategoryCode[] {
+  const values =
+    Array.isArray(value)
+      ? value
+      : [fallback];
 
-  return [...new Set(values.filter(
-    (category): category is ProviderServiceCategory =>
-      typeof category === "string" &&
-      PROVIDER_SERVICE_CATEGORIES.includes(
-        category as ProviderServiceCategory,
+  return [
+    ...new Set(
+      values.filter(
+        (category): category is ServiceCategoryCode =>
+          isServiceCategoryCode(category),
       ),
-  ))];
+    ),
+  ];
 }
 
 function operatingDays(value: unknown): ProviderOperatingDay[] {

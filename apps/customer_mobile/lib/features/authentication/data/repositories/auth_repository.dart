@@ -202,6 +202,7 @@ class AuthRepository
         'eventTypesSupported': eventTypesSupported,
         'providerServiceType': providerServiceType,
         'providerCategory': providerCategory,
+        'serviceCategories': <String>[providerCategory],
       });
 
       await createdUser.sendEmailVerification();

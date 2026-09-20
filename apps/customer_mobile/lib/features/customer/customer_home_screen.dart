@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import '../../core/domain/service_category.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:custom_refresh_indicator/custom_refresh_indicator.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -31,6 +33,8 @@ class CustomerHomeScreen extends StatefulWidget {
 
 class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   final FeastaRepository _repository = FeastaRepository();
+  late final Future<List<ServiceCategory>> _activeServiceCategories;
+
   final CustomerAddressStorageService _addressStorage =
       CustomerAddressStorageService();
 
@@ -41,16 +45,6 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   bool rating4PlusOnly = false;
   bool budgetFriendlyOnly = false;
 
-  final List<_HomeCategoryItem> categories = const [
-    _HomeCategoryItem('Catering', Icons.restaurant_menu_outlined),
-    _HomeCategoryItem('Photography', Icons.camera_alt_outlined),
-    _HomeCategoryItem('Videography', Icons.videocam_outlined),
-    _HomeCategoryItem('Event Styling', Icons.auto_awesome_rounded),
-    _HomeCategoryItem('Makeup Artists', Icons.brush_outlined),
-    _HomeCategoryItem('Entertainment', Icons.music_note_outlined),
-    _HomeCategoryItem('Sound Systems', Icons.speaker_outlined),
-    _HomeCategoryItem('Hosts & MCs', Icons.mic_outlined),
-  ];
 
   final List<_HomeFilterItem> filters = const [
     _HomeFilterItem('All', Icons.tune),
@@ -61,6 +55,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   @override
   void initState() {
     super.initState();
+    _activeServiceCategories = _repository.getActiveServiceCategories();
     _selectedAddressFuture = _addressStorage.getSelectedOrDefault();
   }
 
@@ -181,7 +176,27 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               SliverToBoxAdapter(child: const SizedBox(height: 16)),
 
               SliverToBoxAdapter(
-                child: _BrowseCategoriesSection(categories: categories),
+                child: FutureBuilder<List<ServiceCategory>>(
+                  future: _activeServiceCategories,
+                  builder: (context, snapshot) {
+                    final categories =
+                        snapshot.data ?? const <ServiceCategory>[];
+
+                    return _BrowseCategoriesSection(
+                      categories: categories
+                          .map(
+                            (category) => _HomeCategoryItem(
+                              code: category.code,
+                              label: category.name,
+                              icon: _serviceCategoryIcon(
+                                category.serviceType,
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                    );
+                  },
+                ),
               ),
 
               SliverToBoxAdapter(child: const SizedBox(height: 16)),
@@ -1223,7 +1238,16 @@ class _CategoryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       borderRadius: BorderRadius.circular(18),
-      onTap: () {},
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CustomerSearchScreen(
+              initialCategoryCode: category.code,
+            ),
+          ),
+        );
+      },
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
@@ -1531,7 +1555,7 @@ class _HorizontalProviderCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 5),
                   Text(
-                    '₱${provider.minPrice.toStringAsFixed(0)} - ₱${provider.maxPrice.toStringAsFixed(0)}',
+                    'Γé▒${provider.minPrice.toStringAsFixed(0)} - Γé▒${provider.maxPrice.toStringAsFixed(0)}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -1573,10 +1597,21 @@ class _HorizontalProviderCard extends StatelessWidget {
 }
 
 class _HomeCategoryItem {
+  final String code;
   final String label;
   final IconData icon;
 
-  const _HomeCategoryItem(this.label, this.icon);
+  const _HomeCategoryItem({
+    required this.code,
+    required this.label,
+    required this.icon,
+  });
+}
+
+IconData _serviceCategoryIcon(String serviceType) {
+  return serviceType == 'catering'
+      ? Icons.restaurant_menu_outlined
+      : Icons.celebration_outlined;
 }
 
 class _HomeFilterItem {

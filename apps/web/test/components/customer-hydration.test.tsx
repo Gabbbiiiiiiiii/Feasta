@@ -7,7 +7,15 @@ import {FirebaseBrowserInitializer} from "@/components/providers/firebase-browse
 import {assertHydration} from "../helpers/assert-hydration";
 
 const mocks = vi.hoisted(() => ({initialize: vi.fn()}));
-vi.mock("next/navigation", () => ({useRouter: () => ({push: vi.fn()})}));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/customer/providers",
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+  }),
+  useSearchParams: () => new URLSearchParams(),
+}));
 vi.mock("@/lib/firebase/client", () => ({initializeBrowserFirebase: mocks.initialize}));
 vi.mock("@/lib/customer/planning/event-venue-client", () => ({
   searchEventVenues: vi.fn(), getEventVenueDetails: vi.fn(),

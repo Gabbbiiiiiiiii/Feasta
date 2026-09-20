@@ -1,4 +1,4 @@
-import {redirect} from "next/navigation";
+﻿import {redirect} from "next/navigation";
 
 import {ProviderOnboardingShell} from "@/components/provider/onboarding-shell";
 import {providerAccessDestination} from "@/lib/auth/account-policy";
@@ -12,6 +12,10 @@ import {
   onboardingStepBySlug,
   providerOnboardingPath,
 } from "@/lib/provider/onboarding";
+
+import {
+  getActiveServiceCategoryOptions,
+} from "@/lib/service-categories/service-category-service";
 
 import {ProviderOnboardingStepForm} from "./provider-onboarding-step-form";
 
@@ -28,6 +32,11 @@ export default async function ProviderOnboardingStepPage({
 
   const requestedStep = onboardingStepBySlug((await params).step);
   const draft = await loadProviderOnboardingDraft(account);
+
+  const serviceCategories =
+    requestedStep?.number === 3
+      ? await getActiveServiceCategoryOptions()
+      : [];
   const firstIncomplete = firstIncompleteSetupStep(draft.completedSteps);
 
   if (
@@ -43,7 +52,11 @@ export default async function ProviderOnboardingStepPage({
       currentStep={requestedStep}
       completedSteps={draft.completedSteps}
     >
-      <ProviderOnboardingStepForm step={requestedStep} draft={draft} />
+      <ProviderOnboardingStepForm
+        step={requestedStep}
+        draft={draft}
+        serviceCategories={serviceCategories}
+      />
     </ProviderOnboardingShell>
   );
 }

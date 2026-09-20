@@ -10,13 +10,13 @@ import {
 import {
   PROVIDER_EVENT_TYPES,
   PROVIDER_OPERATING_DAYS,
-  PROVIDER_SERVICE_CATEGORIES,
+  isServiceCategoryCode,
   parseProviderServiceType,
   providerVerificationDocumentPolicy,
   verificationDocumentsSatisfyPolicy,
   type ProviderEventType,
   type ProviderOperatingDay,
-  type ProviderServiceCategory,
+  type ServiceCategoryCode,
   type UserRole,
 } from "@feasta/shared-types";
 import {cookies} from "next/headers";
@@ -547,11 +547,15 @@ export async function loadProviderOnboardingDraft(
     )
       ? draft.providerServiceType as "catering" | "addon" | "both"
       : "catering",
-    providerCategory: text(draft.providerCategory, "catering_service"),
-    serviceCategories: enumList(
+    providerCategory: isServiceCategoryCode(draft.providerCategory)
+      ? draft.providerCategory
+      : "",
+    serviceCategories: stringList(
       draft.serviceCategories,
-      PROVIDER_SERVICE_CATEGORIES,
-    ) as ProviderServiceCategory[],
+    ).filter(
+      (category): category is ServiceCategoryCode =>
+        isServiceCategoryCode(category),
+    ),
     address: text(draft.address),
     city: text(draft.city, "Ormoc City"),
     province: text(draft.province, "Leyte"),

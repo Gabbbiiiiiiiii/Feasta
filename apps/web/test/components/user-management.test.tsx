@@ -36,7 +36,76 @@ vi.mock(
 import {
   UserManagementClient,
 } from "@/components/admin/users/user-management-client";
+import {
+  UserDetailsContent,
+} from "@/components/admin/users/user-details-content";
+import type {
+  ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-types";
+import { TEST_SERVICE_CATEGORY_OPTIONS } from "../fixtures/service-category-options";
 
+describe(
+  "admin user provider category display",
+  () => {
+    it(
+      "renders the File Maintenance master name for a provider category",
+      () => {
+        const providerUser: AdminUser = {
+          ...adminUser(),
+          id: "provider-user-1",
+          firstName: "Test",
+          lastName: "Provider",
+          fullName: "Test Provider",
+          initials: "TP",
+          role: "provider",
+          providerId: "provider-1",
+          businessName: "Test Catering",
+          providerServiceType: "catering",
+          providerCategory:
+            "catering_service",
+        };
+
+        const renamedCategories:
+          readonly ServiceCategoryOption[] =
+          TEST_SERVICE_CATEGORY_OPTIONS.map(
+            (category) =>
+              category.code ===
+              "catering_service"
+                ? {
+                    ...category,
+                    name:
+                      "Full-Service Catering",
+                  }
+                : category,
+          );
+
+        render(
+          <UserDetailsContent
+            user={providerUser}
+            serviceCategoryOptions={
+              renamedCategories
+            }
+          />,
+        );
+
+        expect(
+          screen.getByText(
+            "Full-Service Catering",
+          ),
+        ).toBeInTheDocument();
+
+        expect(
+          screen.queryByText(
+            "catering service",
+            {
+              exact: false,
+            },
+          ),
+        ).not.toBeInTheDocument();
+      },
+    );
+  },
+);
 describe(
   "admin user access management",
   () => {
@@ -60,6 +129,7 @@ describe(
         render(
           <UserManagementClient
             initialPage={adminUserPage()}
+            serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
           />,
         );
 
@@ -104,6 +174,7 @@ describe(
         render(
           <UserManagementClient
             initialPage={adminUserPage()}
+            serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
           />,
         );
 
@@ -204,6 +275,7 @@ describe(
             initialPage={adminUserPage(
               blockedUser,
             )}
+            serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
           />,
         );
 

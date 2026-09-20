@@ -11,7 +11,6 @@ import Link from "next/link";
 import {useEffect, useMemo, useRef, useState} from "react";
 
 import {
-  providerCategoryLabel,
   providerServiceTypeLabel,
 } from "@/lib/customer/providers/provider-catalog";
 import {providerDiscoveryHref} from "@/lib/customer/providers/provider-query";
@@ -22,6 +21,10 @@ import type {
   PublicProvider,
 } from "@/lib/customer/providers/provider-types";
 import type {CustomerProviderAvailability} from "@/lib/customer/bookings/customer-provider-availability-client";
+import {
+  serviceCategoryName,
+  type ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-types";
 
 import {ProviderCard} from "./provider-card";
 
@@ -30,11 +33,13 @@ export function ProviderResults({
   filters,
   favoriteProviderIds = new Set<string>(),
   authenticatedCustomer = false,
+  serviceCategoryOptions = [],
 }: {
   page: ProviderDiscoveryPage;
   filters: ProviderDiscoveryFilters;
   favoriteProviderIds?: ReadonlySet<string>;
   authenticatedCustomer?: boolean;
+  serviceCategoryOptions?: readonly ServiceCategoryOption[];
 }) {
   const providerIds = useMemo(
     () => page.providers.map((provider) => provider.id),
@@ -113,7 +118,10 @@ export function ProviderResults({
       ? providerServiceTypeLabel(filters.serviceType)
       : null,
     filters.category !== "all"
-      ? providerCategoryLabel(filters.category)
+      ? serviceCategoryName(
+          filters.category,
+          serviceCategoryOptions,
+        )
       : null,
   ].filter((value): value is string => value !== null);
 
@@ -206,7 +214,11 @@ export function ProviderResults({
     filters,
     filters.cursor,
   );
-  const {sections, remaining} = providerDiscoverySections(page, filters);
+  const {sections, remaining} = providerDiscoverySections(
+    page,
+    filters,
+    serviceCategoryOptions,
+  );
 
   function providerGrid(providers: readonly PublicProvider[]) {
     return (
@@ -216,6 +228,7 @@ export function ProviderResults({
             key={provider.id}
             provider={provider}
             marketplaceHref={marketplaceHref}
+            serviceCategoryOptions={serviceCategoryOptions}
             favoriteState={{
               authenticated: authenticatedCustomer,
               favorited: favoriteProviderIds.has(provider.id),

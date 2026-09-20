@@ -5,10 +5,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../core/constants/firestore_collections.dart';
 import '../../../../core/constants/status_constants.dart';
 import '../../../../core/firestore/query_builder.dart';
+import '../../../../core/domain/service_category.dart';
 import '../../../../shared/models/feasta_models.dart';
 import '../../../../core/helpers/provider_category_helper.dart';
 
 class FeastaRepository {
+  List<ServiceCategory>? _serviceCategoryCache;
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
@@ -2124,6 +2126,67 @@ class FeastaRepository {
       if (snapshot.docs.length < QueryBuilder.maximumPageSize) return;
     }
   }
+  Future<List<ServiceCategory>> getServiceCategories({
+    bool activeOnly = false,
+    bool forceRefresh = false,
+  }) async {
+    List<ServiceCategory> categories;
+
+    if (!forceRefresh && _serviceCategoryCache != null) {
+      categories = _serviceCategoryCache!;
+    } else {
+      final snapshot = await _db
+          .collection(FirestoreCollections.serviceCategories)
+          .get();
+
+      final loadedCategories = <ServiceCategory>[];
+
+      for (final document in snapshot.docs) {
+        try {
+          loadedCategories.add(
+            ServiceCategory.fromMap(document.id, document.data()),
+          );
+        } on FormatException {
+          // Ignore malformed master-data documents rather than breaking
+          // customer-facing screens because of one invalid record.
+        }
+      }
+
+      loadedCategories.sort(
+        (left, right) =>
+            left.name.toLowerCase().compareTo(right.name.toLowerCase()),
+      );
+
+      _serviceCategoryCache = List<ServiceCategory>.unmodifiable(
+        loadedCategories,
+      );
+
+      categories = _serviceCategoryCache!;
+    }
+
+    if (!activeOnly) {
+      return categories;
+    }
+
+    return List<ServiceCategory>.unmodifiable(
+      categories.where((category) => category.isActive),
+    );
+  }
+
+  Future<List<ServiceCategory>> getActiveServiceCategories({
+    bool forceRefresh = false,
+  }) {
+    return getServiceCategories(activeOnly: true, forceRefresh: forceRefresh);
+  }
+
+  Future<Map<String, String>> getServiceCategoryNameMap({
+    bool forceRefresh = false,
+  }) async {
+    final categories = await getServiceCategories(forceRefresh: forceRefresh);
+
+    return Map<String, String>.unmodifiable(serviceCategoryNameMap(categories));
+  }
+
 
   Future<ProviderModel?> getMyProviderProfile() async {
     final snapshot = await _db
@@ -2257,7 +2320,7 @@ class FeastaRepository {
             'userId': addonProviderOwnerId,
             'title': 'Event Request Under Recovery',
             'message':
-                'The main catering request connected to ${booking.customerFirstName} ${booking.customerLastName}’s event was rejected. Your add-on request is on hold while the customer reviews other caterers.',
+                'The main catering request connected to ${booking.customerFirstName} ${booking.customerLastName}╬ô├ç├ûs event was rejected. Your add-on request is on hold while the customer reviews other caterers.',
             'type': NotificationType.booking,
             'relatedId': doc.id,
             'relatedCollection': FirestoreCollections.addonRequests,
@@ -2628,15 +2691,24 @@ class FeastaRepository {
   }
 
   Stream<List<ProviderModel>> searchAllVerifiedProviders({
+    String? categoryCode,
     required String keyword,
     required String eventType,
     required String location,
     required double? minBudget,
     required double? maxBudget,
   }) {
-    final normalizedTerm = keyword.trim().isNotEmpty
-        ? keyword.trim().toLowerCase().split(RegExp(r'[^a-z0-9]+')).first
-        : location.trim().toLowerCase().split(RegExp(r'[^a-z0-9]+')).first;
+    final normalizedCategoryCode = categoryCode?.trim().toLowerCase() ?? '';
+
+    final normalizedTerm = normalizedCategoryCode.isEmpty
+        ? (keyword.trim().isNotEmpty
+              ? keyword.trim().toLowerCase().split(RegExp(r'[^a-z0-9]+')).first
+              : location
+                    .trim()
+                    .toLowerCase()
+                    .split(RegExp(r'[^a-z0-9]+'))
+                    .first)
+        : '';
 
     Query<Map<String, dynamic>> providerQuery = _db
         .collection(FirestoreCollections.providers)
@@ -2649,7 +2721,12 @@ class FeastaRepository {
         .where('isSuspended', isEqualTo: false)
         .where('isDeleted', isEqualTo: false);
 
-    if (normalizedTerm.isNotEmpty) {
+    if (normalizedCategoryCode.isNotEmpty) {
+      providerQuery = providerQuery.where(
+        'providerCategory',
+        isEqualTo: normalizedCategoryCode,
+      );
+    } else if (normalizedTerm.isNotEmpty) {
       providerQuery = providerQuery.where(
         'searchTokens',
         arrayContains: normalizedTerm,
@@ -2663,7 +2740,9 @@ class FeastaRepository {
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
         .map((snapshot) {
-          final query = keyword.trim().toLowerCase();
+          final query = normalizedCategoryCode.isEmpty
+              ? keyword.trim().toLowerCase()
+              : '';
           final selectedEventType = eventType.trim().toLowerCase();
           final selectedLocation = location.trim().toLowerCase();
 

@@ -10,14 +10,15 @@ import {
 import {
   PROVIDER_EVENT_TYPES,
   PROVIDER_OPERATING_DAYS,
-  PROVIDER_SERVICE_CATEGORIES,
   PROVIDER_SERVICE_TYPES,
   USER_ROLES,
   providerCapacityCapabilities,
-  serviceCategoryMatchesProviderType,
-  type ProviderServiceCategory,
 } from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
+import {
+  requireActiveServiceCategories,
+  requireActiveServiceCategoriesInTransaction,
+} from "../shared/service-category-policy.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {requireTrustedProviderIdentity} from "../shared/provider-identity-prerequisites.js";
@@ -58,6 +59,52 @@ export const saveProviderOnboardingDraft = onCall(
     }
     const data = requireObject(input.data, "data");
     let validated = validateStep(step, data, actor.uid);
+
+    if (step === 3) {
+      const providerServiceType =
+        validated.providerServiceType;
+
+      if (
+        providerServiceType !== "catering" &&
+        providerServiceType !== "addon" &&
+        providerServiceType !== "both"
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "providerServiceType is invalid.",
+        );
+      }
+
+      const serviceCategories =
+        await requireActiveServiceCategories(
+          validated.serviceCategories,
+          providerServiceType,
+          {
+            required: true,
+            field: "serviceCategories",
+          },
+        );
+
+      const providerCategory =
+        validated.providerCategory;
+
+      if (
+        typeof providerCategory !== "string" ||
+        providerCategory !== serviceCategories[0]
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "providerCategory must match the primary service category.",
+        );
+      }
+
+      validated = {
+        ...validated,
+        providerCategory,
+        serviceCategories,
+      };
+    }
+
     if (step === 2) {
       await Promise.all([
         verifyProviderMedia({
@@ -115,6 +162,55 @@ export const saveProviderOnboardingDraft = onCall(
       }
 
       const existing = draftSnapshot.data() ?? {};
+
+      if (step === 3) {
+        const providerServiceType =
+          validated.providerServiceType;
+
+        if (
+          providerServiceType !== "catering" &&
+          providerServiceType !== "addon" &&
+          providerServiceType !== "both"
+        ) {
+          throw new HttpsError(
+            "invalid-argument",
+            "providerServiceType is invalid.",
+          );
+        }
+
+        const serviceCategories =
+          await requireActiveServiceCategoriesInTransaction(
+            transaction,
+            Array.isArray(validated.serviceCategories)
+              ? validated.serviceCategories.filter(
+                  (value): value is string =>
+                    typeof value === "string",
+                )
+              : [],
+            providerServiceType,
+            "serviceCategories",
+          );
+
+        const providerCategory =
+          validated.providerCategory;
+
+        if (
+          typeof providerCategory !== "string" ||
+          providerCategory !== serviceCategories[0]
+        ) {
+          throw new HttpsError(
+            "invalid-argument",
+            "providerCategory must match the primary service category.",
+          );
+        }
+
+        validated = {
+          ...validated,
+          providerCategory,
+          serviceCategories,
+        };
+      }
+
       if (step === 5) {
         validated =
           normalizeStepFiveCapacity(
@@ -277,22 +373,10 @@ function validateStep(
         "providerServiceType",
         PROVIDER_SERVICE_TYPES,
       );
-      const serviceCategories = requiredEnumList(
+      const serviceCategories = requiredStringList(
         data.serviceCategories,
         "serviceCategories",
-        PROVIDER_SERVICE_CATEGORIES,
       );
-      if (serviceCategories.some((category) =>
-        !serviceCategoryMatchesProviderType(
-          category as ProviderServiceCategory,
-          providerServiceType,
-        )
-      )) {
-        throw new HttpsError(
-          "invalid-argument",
-          "Every service category must match the selected provider service type.",
-        );
-      }
       const providerCategory = data.providerCategory === undefined
         ? serviceCategories[0]
         : requireString(data.providerCategory, "providerCategory", {
@@ -468,13 +552,8 @@ function normalizeStepFiveCapacity(
       existingDraft.serviceCategories,
     )
       ? existingDraft.serviceCategories.filter(
-          (
-            value,
-          ): value is ProviderServiceCategory =>
-            typeof value === "string" &&
-            PROVIDER_SERVICE_CATEGORIES.includes(
-              value as ProviderServiceCategory,
-            ),
+          (value): value is string =>
+            typeof value === "string",
         )
       : [];
 

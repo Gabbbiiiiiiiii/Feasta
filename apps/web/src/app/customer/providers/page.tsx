@@ -6,6 +6,7 @@ import {getOptionalAccountContext} from "@/lib/auth/session";
 import {getCustomerFavoriteProviderIds} from "@/lib/customer/favorites/customer-favorite-service";
 import {getPublicProviderPage} from "@/lib/customer/providers/provider-discovery-service";
 import {parseProviderDiscoveryFilters} from "@/lib/customer/providers/provider-query";
+import {getServiceCategoryOptions} from "@/lib/service-categories/service-category-service";
 
 type CustomerProvidersPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -15,9 +16,14 @@ export default async function CustomerProvidersPage({
   searchParams,
 }: CustomerProvidersPageProps) {
   const filters = parseProviderDiscoveryFilters(await searchParams);
-  const [page, account] = await Promise.all([
+  const [
+    page,
+    account,
+    serviceCategoryOptions,
+  ] = await Promise.all([
     getPublicProviderPage(filters),
     getOptionalAccountContext(),
+    getServiceCategoryOptions(),
   ]);
   const authenticatedCustomer = account?.role === "customer" &&
     account.emailVerified;
@@ -37,6 +43,7 @@ export default async function CustomerProvidersPage({
           filters={filters}
           favoriteProviderIds={favoriteProviderIds}
           authenticatedCustomer={authenticatedCustomer}
+          serviceCategoryOptions={serviceCategoryOptions}
         />
         <ProviderPagination page={page} filters={filters} />
       </div>

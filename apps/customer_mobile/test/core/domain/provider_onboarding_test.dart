@@ -67,7 +67,7 @@ void main() {
     expect(result.value!.operatingDays, ['monday', 'saturday']);
   });
 
-  test('rejects impossible capacity and service type mismatches', () {
+  test('rejects impossible capacity and availability values', () {
     final input = validInput()
       ..['providerServiceType'] = 'catering'
       ..['serviceCategories'] = ['photographer']
@@ -80,12 +80,39 @@ void main() {
     expect(
       result.issues.map((issue) => issue.field),
       containsAll([
-        'serviceCategories',
         'minGuestsPerEvent',
         'maxServiceDistanceKm',
         'operatingDays',
       ]),
     );
+    expect(
+      result.issues.map((issue) => issue.field),
+      isNot(contains('serviceCategories')),
+    );
+  });
+
+  test('rejects malformed service category codes', () {
+    final malformedValues = <Object?>[
+      ['Photography Service'],
+      ['Photography'],
+      ['photographer-service'],
+      ['_photographer'],
+      ['photographer_'],
+      ['a'],
+      [123],
+    ];
+
+    for (final serviceCategories in malformedValues) {
+      final input = validInput()..['serviceCategories'] = serviceCategories;
+
+      final result = validateProviderOnboardingInput(input);
+
+      expect(
+        result.issues.map((issue) => issue.field),
+        contains('serviceCategories'),
+        reason: 'Expected $serviceCategories to be rejected.',
+      );
+    }
   });
 
   test('legacy capacity remains compatible', () {

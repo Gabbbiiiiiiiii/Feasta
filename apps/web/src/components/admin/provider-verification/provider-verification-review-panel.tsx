@@ -25,6 +25,10 @@ import {
 import type {
   ProviderVerificationReviewDetail,
 } from "@/lib/admin/provider-verification/provider-verification-types";
+import {
+  serviceCategoryName,
+  type ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-types";
 
 type PendingDecision = {
   action: ProviderReviewAction;
@@ -36,8 +40,10 @@ type PendingDecision = {
 
 function ProviderVerificationReviewPanel({
   application,
+  serviceCategoryOptions,
 }: {
   application: ProviderVerificationReviewDetail;
+  serviceCategoryOptions: readonly ServiceCategoryOption[];
 }) {
   const router = useRouter();
   const [remarks, setRemarks] = useState("");
@@ -197,7 +203,16 @@ function ProviderVerificationReviewPanel({
         <dl className="mt-4 grid gap-3 sm:grid-cols-2">
           <Detail
             label="Service categories"
-            value={listLabel(application.operations.serviceCategories)}
+            value={application.operations.serviceCategories.length > 0
+              ? application.operations.serviceCategories
+                  .map((code) =>
+                    serviceCategoryName(
+                      code,
+                      serviceCategoryOptions,
+                    ),
+                  )
+                  .join(", ")
+              : "Not configured"}
           />
           <Detail
             label="Event types"

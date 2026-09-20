@@ -13,6 +13,11 @@ import {
   normalizeProviderServiceArea,
 } from "./provider-service-area.js";
 
+import {
+  isServiceCategoryCode,
+  type ServiceCategoryCode,
+} from "./service-category.js";
+
 export const REQUIRED_VERIFICATION_DOCUMENT_TYPES = [
   "business_permit",
   "dti_registration",
@@ -25,7 +30,7 @@ export const FOOD_SERVICE_CATEGORIES = [
   "food_trays_packed_meals",
   "catering_event_styling",
   "cake_provider",
-] as const satisfies readonly ProviderServiceCategory[];
+] as const satisfies readonly ServiceCategoryCode[];
 
 export const FOOD_PERMIT_ALTERNATIVES = [
   "sanitary_permit",
@@ -39,31 +44,6 @@ export interface ProviderVerificationDocumentPolicy {
 
 export const UNVERSIONED_POLICY_VERSION = "unversioned" as const;
 
-export const PROVIDER_SERVICE_CATEGORIES = [
-  "catering_service",
-  "food_trays_packed_meals",
-  "catering_event_styling",
-  "photographer",
-  "videographer",
-  "photo_booth",
-  "event_coordinator",
-  "event_host_emcee",
-  "sound_system",
-  "lights_and_sounds",
-  "singer_band",
-  "dancer_performer",
-  "decorator_event_stylist",
-  "florist",
-  "cake_provider",
-  "gown_suit_rental",
-  "car_rental",
-  "venue_provider",
-  "tables_chairs_rental",
-  "other_event_service",
-] as const;
-
-export type ProviderServiceCategory =
-  (typeof PROVIDER_SERVICE_CATEGORIES)[number];
 
 export interface ProviderCapacityCapabilities {
   requiresGuestCapacity: boolean;
@@ -75,7 +55,7 @@ const GUEST_CAPACITY_SERVICE_CATEGORIES = [
   "catering_service",
   "food_trays_packed_meals",
   "venue_provider",
-] as const satisfies readonly ProviderServiceCategory[];
+] as const satisfies readonly ServiceCategoryCode[];
 
 const STAFF_CAPACITY_SERVICE_CATEGORIES = [
   "catering_service",
@@ -97,7 +77,7 @@ const STAFF_CAPACITY_SERVICE_CATEGORIES = [
   "venue_provider",
   "tables_chairs_rental",
   "other_event_service",
-] as const satisfies readonly ProviderServiceCategory[];
+] as const satisfies readonly ServiceCategoryCode[];
 
 const EQUIPMENT_CAPACITY_SERVICE_CATEGORIES = [
   "catering_service",
@@ -112,10 +92,10 @@ const EQUIPMENT_CAPACITY_SERVICE_CATEGORIES = [
   "venue_provider",
   "tables_chairs_rental",
   "other_event_service",
-] as const satisfies readonly ProviderServiceCategory[];
+] as const satisfies readonly ServiceCategoryCode[];
 
 export function providerCapacityCapabilities(
-  serviceCategories: readonly ProviderServiceCategory[],
+  serviceCategories: readonly string[],
 ): ProviderCapacityCapabilities {
   return {
     requiresGuestCapacity: serviceCategories.some((category) =>
@@ -138,16 +118,6 @@ export function providerCapacityCapabilities(
   };
 }
 
-export const CATERING_SERVICE_CATEGORIES = [
-  "catering_service",
-  "food_trays_packed_meals",
-  "catering_event_styling",
-] as const satisfies readonly ProviderServiceCategory[];
-
-export const ADDON_SERVICE_CATEGORIES = PROVIDER_SERVICE_CATEGORIES.filter(
-  (category) =>
-    !(CATERING_SERVICE_CATEGORIES as readonly string[]).includes(category),
-) as readonly ProviderServiceCategory[];
 
 export const PROVIDER_EVENT_TYPES = [
   "birthday",
@@ -312,7 +282,7 @@ export interface ProviderOnboardingInput {
   description: string;
   providerServiceType: ProviderServiceType;
   providerCategory: string;
-  serviceCategories: readonly ProviderServiceCategory[];
+  serviceCategories: readonly ServiceCategoryCode[];
   address: string;
   city: string;
   province: string;
@@ -858,15 +828,6 @@ export function validateProviderOnboardingInput(
   };
 }
 
-export function serviceCategoryMatchesProviderType(
-  category: ProviderServiceCategory,
-  providerServiceType: ProviderServiceType,
-): boolean {
-  const isCatering = (CATERING_SERVICE_CATEGORIES as readonly string[])
-    .includes(category);
-  return providerServiceType === "both" ||
-    (providerServiceType === "catering" ? isCatering : !isCatering);
-}
 
 function normalize(
   value: unknown,
@@ -955,33 +916,79 @@ function compatibilityEventTypeList(
   return [...new Set(values)] as ProviderEventType[];
 }
 
+function serviceAreaList(
+  value: unknown,
+  issues: ProviderValidationIssue[],
+): readonly string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > PROVIDER_SERVICE_AREAS.length) {
+    issues.push({field: "serviceAreas", code: "invalid"});
+    return [];
+  }
+
+  const normalized = value.map((item) =>
+    normalizeProviderServiceArea(item)
+  );
+
+  if (normalized.some((area) => area === null)) {
+    issues.push({field: "serviceAreas", code: "invalid"});
+    return [];
+  }
+
+  return [
+    ...new Set(
+      normalized.map((area) => area!.label),
+    ),
+  ];
+}
 function serviceCategoryList(
   value: unknown,
   legacyCategory: string,
-  providerServiceType: ProviderServiceType | null,
+  _providerServiceType: ProviderServiceType | null,
   issues: ProviderValidationIssue[],
-): readonly ProviderServiceCategory[] {
-  // Legacy records used one open-text category. Preserve them while requiring
-  // canonical values whenever the new plural field is supplied.
+): readonly ServiceCategoryCode[] {
+  // Legacy records used one open-text category. Preserve them while
+  // structurally validating category codes whenever the plural field
+  // is supplied. Existence, active status, and provider-type
+  // compatibility are authoritative server-side checks.
   if (value === undefined) return [];
-  const categories = enumList(
-    value,
-    "serviceCategories",
-    PROVIDER_SERVICE_CATEGORIES,
-    issues,
-  ) as readonly ProviderServiceCategory[];
-  if (categories.length === 0 && legacyCategory.length > 0) {
-    return categories;
-  }
+
   if (
-    providerServiceType &&
-    categories.some((category) =>
-      !serviceCategoryMatchesProviderType(category, providerServiceType)
-    )
+    !Array.isArray(value) ||
+    value.length > 50
   ) {
-    issues.push({field: "serviceCategories", code: "invalid"});
+    issues.push({
+      field: "serviceCategories",
+      code: "invalid",
+    });
+    return [];
   }
-  return categories;
+
+  const categories = value.filter(
+    (category): category is ServiceCategoryCode =>
+      isServiceCategoryCode(category),
+  );
+
+  if (categories.length !== value.length) {
+    issues.push({
+      field: "serviceCategories",
+      code: "invalid",
+    });
+    return [];
+  }
+
+  const uniqueCategories = [
+    ...new Set(categories),
+  ];
+
+  if (
+    uniqueCategories.length === 0 &&
+    legacyCategory.length > 0
+  ) {
+    return uniqueCategories;
+  }
+
+  return uniqueCategories;
 }
 
 function optionalNumber(

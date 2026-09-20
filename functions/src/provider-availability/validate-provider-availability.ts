@@ -4,11 +4,13 @@ import {
   parseProviderServiceType,
   providerCapacityCapabilities,
   PROVIDER_OPERATING_DAYS,
-  PROVIDER_SERVICE_CATEGORIES,
   type ProviderRequestStatus,
   type ProviderRequestType,
-  type ProviderServiceCategory,
 } from "../shared/constants.js";
+import {
+  isServiceCategoryCode,
+  type ServiceCategoryCode,
+} from "../shared/service-category-code.js";
 
 export const AVAILABILITY_COUNTED_REQUEST_STATUSES = [
   "accepted",
@@ -294,7 +296,7 @@ function requestMatchesProviderCapabilities(
   requestType: ProviderRequestType,
   services: unknown,
   provider: Readonly<Record<string, unknown>>,
-  providerCategories: readonly ProviderServiceCategory[],
+  providerCategories: readonly ServiceCategoryCode[],
 ): boolean {
   const providerType = parseProviderServiceType(provider.providerServiceType);
 
@@ -349,37 +351,46 @@ function validateResourceConfiguration(
   }
 }
 
-function requestServiceCategories(value: unknown): ProviderServiceCategory[] {
+function requestServiceCategories(value: unknown): ServiceCategoryCode[] {
   if (!Array.isArray(value)) return [];
 
-  return [...new Set(value.flatMap((service) => {
-    if (!service || typeof service !== "object" || Array.isArray(service)) {
-      return [];
-    }
+  return [
+    ...new Set(
+      value.flatMap((service) => {
+        if (
+          !service ||
+          typeof service !== "object" ||
+          Array.isArray(service)
+        ) {
+          return [];
+        }
 
-    const category = (service as Record<string, unknown>).category;
+        const category =
+          (service as Record<string, unknown>).category;
 
-    return typeof category === "string" &&
-      PROVIDER_SERVICE_CATEGORIES.includes(
-        category as ProviderServiceCategory,
-      )
-      ? [category as ProviderServiceCategory]
-      : [];
-  }))];
+        return isServiceCategoryCode(category)
+          ? [category]
+          : [];
+      }),
+    ),
+  ];
 }
 
 function providerServiceCategories(
   provider: Readonly<Record<string, unknown>>,
-): ProviderServiceCategory[] {
+): ServiceCategoryCode[] {
   const values = Array.isArray(provider.serviceCategories)
     ? provider.serviceCategories
     : [provider.providerCategory];
 
-  return [...new Set(values.filter(
-    (value): value is ProviderServiceCategory =>
-      typeof value === "string" &&
-      PROVIDER_SERVICE_CATEGORIES.includes(value as ProviderServiceCategory),
-  ))];
+  return [
+    ...new Set(
+      values.filter(
+        (value): value is ServiceCategoryCode =>
+          isServiceCategoryCode(value),
+      ),
+    ),
+  ];
 }
 
 function providerOperatingDays(value: unknown): string[] {

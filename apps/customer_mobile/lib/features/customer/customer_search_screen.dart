@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/domain/service_category.dart';
+
 import '../../core/helpers/provider_category_helper.dart';
 import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
@@ -17,6 +19,7 @@ const Color kPrimary = AppColors.primary;
 const Color kChipBg = AppColors.primarySubtle;
 
 class CustomerSearchScreen extends StatefulWidget {
+  final String? initialCategoryCode;
   final String initialEventType;
   final String initialLocation;
   final double? initialMinBudget;
@@ -25,6 +28,7 @@ class CustomerSearchScreen extends StatefulWidget {
 
   const CustomerSearchScreen({
     super.key,
+    this.initialCategoryCode,
     this.initialEventType = 'All',
     this.initialLocation = '',
     this.initialMinBudget,
@@ -38,6 +42,8 @@ class CustomerSearchScreen extends StatefulWidget {
 
 class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
   final FeastaRepository repository = FeastaRepository();
+  late final Future<List<ServiceCategory>> activeServiceCategories;
+  late final Future<Map<String, String>> serviceCategoryNames;
 
   final TextEditingController searchController = TextEditingController();
   final TextEditingController locationController = TextEditingController();
@@ -48,17 +54,6 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
 
   final List<String> recentSearches = [];
 
-  final List<String> popularSearches = const [
-    'Catering Service',
-    'Photographer',
-    'Event Coordinator',
-    'Singer / Band',
-    'Lights and Sounds',
-    'Photo Booth',
-    'Cake Provider',
-    'Venue Provider',
-    'Car Rental',
-  ];
 
   String selectedEventType = 'All';
   bool showFilters = false;
@@ -76,7 +71,8 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
   ];
 
   bool get hasActiveSearch {
-    return searchController.text.trim().isNotEmpty ||
+    return (widget.initialCategoryCode?.trim().isNotEmpty ?? false) ||
+        searchController.text.trim().isNotEmpty ||
         selectedEventType != 'All' ||
         locationController.text.trim().isNotEmpty ||
         minBudgetController.text.trim().isNotEmpty ||
@@ -98,6 +94,9 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
   @override
   void initState() {
     super.initState();
+
+    activeServiceCategories = repository.getActiveServiceCategories();
+    serviceCategoryNames = repository.getServiceCategoryNameMap();
 
     if (eventTypes.contains(widget.initialEventType)) {
       selectedEventType = widget.initialEventType;
@@ -210,18 +209,28 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
               ),
             Expanded(
               child: hasActiveSearch
-                  ? _SearchResultsList(
-                      repository: repository,
-                      searchController: searchController,
-                      selectedEventType: selectedEventType,
-                      locationController: locationController,
-                      minBudget: minBudget,
-                      maxBudget: maxBudget,
+                  ? FutureBuilder<Map<String, String>>(
+                      future: serviceCategoryNames,
+                      builder: (context, categorySnapshot) {
+                        return _SearchResultsList(
+                          repository: repository,
+                          searchController: searchController,
+                          categoryCode: widget.initialCategoryCode,
+                          selectedEventType: selectedEventType,
+                          locationController: locationController,
+                          minBudget: minBudget,
+                          maxBudget: maxBudget,
+                          categoryNames:
+                              categorySnapshot.data ??
+                              const <String, String>{},
+                        );
+                      },
                     )
                   : _SearchLandingContent(
                       repository: repository,
                       recentSearches: recentSearches,
-                      popularSearches: popularSearches,
+                      activeServiceCategories: activeServiceCategories,
+                      serviceCategoryNames: serviceCategoryNames,
                       onSearchTap: (value) {
                         setState(() {
                           searchController.text = value;
@@ -583,18 +592,22 @@ class _CollapsedSearchBar extends StatelessWidget {
 class _SearchResultsList extends StatelessWidget {
   final FeastaRepository repository;
   final TextEditingController searchController;
+  final String? categoryCode;
   final String selectedEventType;
   final TextEditingController locationController;
   final double? minBudget;
   final double? maxBudget;
+  final Map<String, String> categoryNames;
 
   const _SearchResultsList({
     required this.repository,
     required this.searchController,
+    required this.categoryCode,
     required this.selectedEventType,
     required this.locationController,
     required this.minBudget,
     required this.maxBudget,
+    required this.categoryNames,
   });
 
   @override
@@ -602,6 +615,7 @@ class _SearchResultsList extends StatelessWidget {
     return StreamBuilder<List<ProviderModel>>(
       stream: repository.searchAllVerifiedProviders(
         keyword: searchController.text,
+        categoryCode: categoryCode,
         eventType: selectedEventType,
         location: locationController.text,
         minBudget: minBudget,
@@ -655,7 +669,10 @@ class _SearchResultsList extends StatelessWidget {
 
             final provider = providers[index - 1];
 
-            return SearchProviderCard(provider: provider);
+            return SearchProviderCard(
+              provider: provider,
+              categoryNames: categoryNames,
+            );
           },
         );
       },
@@ -666,13 +683,15 @@ class _SearchResultsList extends StatelessWidget {
 class _SearchLandingContent extends StatelessWidget {
   final FeastaRepository repository;
   final List<String> recentSearches;
-  final List<String> popularSearches;
+  final Future<List<ServiceCategory>> activeServiceCategories;
+  final Future<Map<String, String>> serviceCategoryNames;
   final ValueChanged<String> onSearchTap;
 
   const _SearchLandingContent({
     required this.repository,
     required this.recentSearches,
-    required this.popularSearches,
+    required this.activeServiceCategories,
+    required this.serviceCategoryNames,
     required this.onSearchTap,
   });
 
@@ -681,9 +700,36 @@ class _SearchLandingContent extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
       children: [
-        const _SearchSectionTitle(title: 'Popular services'),
+        const _SearchSectionTitle(title: 'Event services'),
         const SizedBox(height: 12),
-        _PopularServiceRail(onSearchTap: onSearchTap),
+        FutureBuilder<List<ServiceCategory>>(
+          future: activeServiceCategories,
+          builder: (context, snapshot) {
+            final categories =
+                snapshot.data ?? const <ServiceCategory>[];
+
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const FeastaSkeletonHorizontalCards();
+            }
+
+            if (categories.isEmpty) {
+              return const SizedBox.shrink();
+            }
+
+            return Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: categories
+                  .map(
+                    (category) => _SoftSearchChip(
+                      label: category.name,
+                      onTap: () => onSearchTap(category.name),
+                    ),
+                  )
+                  .toList(growable: false),
+            );
+          },
+        ),
 
         if (recentSearches.isNotEmpty) ...[
           const SizedBox(height: 28),
@@ -697,24 +743,6 @@ class _SearchLandingContent extends StatelessWidget {
           ),
         ],
 
-        const SizedBox(height: 28),
-
-        const _SearchSectionTitle(
-          title: 'Popular searches',
-          subtitle: 'Quickly browse common event services',
-        ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: popularSearches.map((search) {
-            return _SoftSearchChip(
-              label: search,
-              onTap: () => onSearchTap(search),
-            );
-          }).toList(),
-        ),
-
         const SizedBox(height: 30),
 
         const _SearchSectionTitle(
@@ -725,6 +753,7 @@ class _SearchLandingContent extends StatelessWidget {
         _ProviderMiniSlider(
           stream: repository.verifiedProviders(),
           emptyText: 'No recommended caterers available yet.',
+          serviceCategoryNames: serviceCategoryNames,
         ),
 
         const SizedBox(height: 28),
@@ -737,110 +766,23 @@ class _SearchLandingContent extends StatelessWidget {
         _ProviderMiniSlider(
           stream: repository.verifiedAddonProviders(),
           emptyText: 'No event service providers available yet.',
+          serviceCategoryNames: serviceCategoryNames,
         ),
       ],
     );
   }
 }
 
-class _PopularServiceRail extends StatelessWidget {
-  final ValueChanged<String> onSearchTap;
-
-  const _PopularServiceRail({required this.onSearchTap});
-
-  static const List<_PopularServiceShortcut> items = [
-    _PopularServiceShortcut(
-      label: 'Catering',
-      icon: Icons.restaurant_menu_rounded,
-    ),
-    _PopularServiceShortcut(
-      label: 'Photo',
-      searchValue: 'Photographer',
-      icon: Icons.photo_camera_rounded,
-    ),
-    _PopularServiceShortcut(
-      label: 'Cake',
-      searchValue: 'Cake Provider',
-      icon: Icons.cake_rounded,
-    ),
-    _PopularServiceShortcut(
-      label: 'Venue',
-      searchValue: 'Venue Provider',
-      icon: Icons.location_city_rounded,
-    ),
-    _PopularServiceShortcut(
-      label: 'Music',
-      searchValue: 'Singer / Band',
-      icon: Icons.music_note_rounded,
-    ),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 118,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: items.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 12),
-        itemBuilder: (context, index) {
-          final item = items[index];
-
-          return SizedBox(
-            width: 92,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(22),
-              onTap: () => onSearchTap(item.searchValue ?? item.label),
-              child: Column(
-                children: [
-                  Container(
-                    height: 76,
-                    width: 92,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF3F1F0),
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    child: Icon(item.icon, color: kPrimary, size: 34),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    item.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: kTextPrimary,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _PopularServiceShortcut {
-  final String label;
-  final String? searchValue;
-  final IconData icon;
-
-  const _PopularServiceShortcut({
-    required this.label,
-    this.searchValue,
-    required this.icon,
-  });
-}
-
 class _ProviderMiniSlider extends StatelessWidget {
   final Stream<List<ProviderModel>> stream;
   final String emptyText;
+  final Future<Map<String, String>> serviceCategoryNames;
 
-  const _ProviderMiniSlider({required this.stream, required this.emptyText});
+  const _ProviderMiniSlider({
+    required this.stream,
+    required this.emptyText,
+    required this.serviceCategoryNames,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -874,7 +816,17 @@ class _ProviderMiniSlider extends StatelessWidget {
             itemCount: providers.length,
             separatorBuilder: (_, _) => const SizedBox(width: 12),
             itemBuilder: (context, index) {
-              return _MiniProviderCard(provider: providers[index]);
+              return FutureBuilder<Map<String, String>>(
+                future: serviceCategoryNames,
+                builder: (context, categorySnapshot) {
+                  return _MiniProviderCard(
+                    provider: providers[index],
+                    categoryNames:
+                        categorySnapshot.data ??
+                        const <String, String>{},
+                  );
+                },
+              );
             },
           );
         },
@@ -1001,8 +953,12 @@ class _SoftSearchChip extends StatelessWidget {
 
 class _MiniProviderCard extends StatelessWidget {
   final ProviderModel provider;
+  final Map<String, String> categoryNames;
 
-  const _MiniProviderCard({required this.provider});
+  const _MiniProviderCard({
+    required this.provider,
+    required this.categoryNames,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1070,7 +1026,10 @@ class _MiniProviderCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    providerCategoryLabel(provider.providerCategory),
+                    providerCategoryLabel(
+                      provider.providerCategory,
+                      categoryNames: categoryNames,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
@@ -1119,8 +1078,13 @@ class _MiniProviderCard extends StatelessWidget {
 
 class SearchProviderCard extends StatelessWidget {
   final ProviderModel provider;
+  final Map<String, String> categoryNames;
 
-  const SearchProviderCard({super.key, required this.provider});
+  const SearchProviderCard({
+    super.key,
+    required this.provider,
+    required this.categoryNames,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1191,7 +1155,10 @@ class SearchProviderCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
-                        providerCategoryLabel(provider.providerCategory),
+                        providerCategoryLabel(
+                      provider.providerCategory,
+                      categoryNames: categoryNames,
+                    ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(

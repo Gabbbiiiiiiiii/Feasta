@@ -1,4 +1,6 @@
 import { PROVIDER_SERVICE_TYPES, PROVIDER_VERIFICATION_STATUSES, VERIFICATION_DOCUMENT_STATUSES, VERIFICATION_DOCUMENT_TYPES, } from "./enums.js";
+import { PROVIDER_SERVICE_AREAS, normalizeProviderServiceArea, } from "./provider-service-area.js";
+import { isServiceCategoryCode, } from "./service-category.js";
 export const REQUIRED_VERIFICATION_DOCUMENT_TYPES = [
     "business_permit",
     "dti_registration",
@@ -16,28 +18,6 @@ export const FOOD_PERMIT_ALTERNATIVES = [
     "mayors_permit",
 ];
 export const UNVERSIONED_POLICY_VERSION = "unversioned";
-export const PROVIDER_SERVICE_CATEGORIES = [
-    "catering_service",
-    "food_trays_packed_meals",
-    "catering_event_styling",
-    "photographer",
-    "videographer",
-    "photo_booth",
-    "event_coordinator",
-    "event_host_emcee",
-    "sound_system",
-    "lights_and_sounds",
-    "singer_band",
-    "dancer_performer",
-    "decorator_event_stylist",
-    "florist",
-    "cake_provider",
-    "gown_suit_rental",
-    "car_rental",
-    "venue_provider",
-    "tables_chairs_rental",
-    "other_event_service",
-];
 const GUEST_CAPACITY_SERVICE_CATEGORIES = [
     "catering_service",
     "food_trays_packed_meals",
@@ -85,12 +65,6 @@ export function providerCapacityCapabilities(serviceCategories) {
         usesEquipmentCapacity: serviceCategories.some((category) => EQUIPMENT_CAPACITY_SERVICE_CATEGORIES.includes(category)),
     };
 }
-export const CATERING_SERVICE_CATEGORIES = [
-    "catering_service",
-    "food_trays_packed_meals",
-    "catering_event_styling",
-];
-export const ADDON_SERVICE_CATEGORIES = PROVIDER_SERVICE_CATEGORIES.filter((category) => !CATERING_SERVICE_CATEGORIES.includes(category));
 export const PROVIDER_EVENT_TYPES = [
     "birthday",
     "wedding",
@@ -378,7 +352,7 @@ export function validateProviderOnboardingInput(input) {
         issues.push({ field: "providerServiceType", code: "invalid" });
     }
     const locationCoordinates = optionalCoordinates(input.locationCoordinates, issues);
-    const serviceAreas = stringList(input.serviceAreas, "serviceAreas", issues);
+    const serviceAreas = serviceAreaList(input.serviceAreas, issues);
     const serviceCategories = serviceCategoryList(input.serviceCategories, providerCategory, providerServiceType, issues);
     const maxServiceDistanceKm = optionalNumber(input.maxServiceDistanceKm, "maxServiceDistanceKm", 1, 1000, issues);
     const eventTypesSupported = (input.serviceCategories === undefined
@@ -461,12 +435,6 @@ export function validateProviderOnboardingInput(input) {
         },
     };
 }
-export function serviceCategoryMatchesProviderType(category, providerServiceType) {
-    const isCatering = CATERING_SERVICE_CATEGORIES
-        .includes(category);
-    return providerServiceType === "both" ||
-        (providerServiceType === "catering" ? isCatering : !isCatering);
-}
 function normalize(value, aliases = {}) {
     if (typeof value !== "string")
         return "";
@@ -521,20 +489,53 @@ function compatibilityEventTypeList(value, field, issues) {
     }
     return [...new Set(values)];
 }
-function serviceCategoryList(value, legacyCategory, providerServiceType, issues) {
-    // Legacy records used one open-text category. Preserve them while requiring
-    // canonical values whenever the new plural field is supplied.
+function serviceAreaList(value, issues) {
     if (value === undefined)
         return [];
-    const categories = enumList(value, "serviceCategories", PROVIDER_SERVICE_CATEGORIES, issues);
-    if (categories.length === 0 && legacyCategory.length > 0) {
-        return categories;
+    if (!Array.isArray(value) || value.length > PROVIDER_SERVICE_AREAS.length) {
+        issues.push({ field: "serviceAreas", code: "invalid" });
+        return [];
     }
-    if (providerServiceType &&
-        categories.some((category) => !serviceCategoryMatchesProviderType(category, providerServiceType))) {
-        issues.push({ field: "serviceCategories", code: "invalid" });
+    const normalized = value.map((item) => normalizeProviderServiceArea(item));
+    if (normalized.some((area) => area === null)) {
+        issues.push({ field: "serviceAreas", code: "invalid" });
+        return [];
     }
-    return categories;
+    return [
+        ...new Set(normalized.map((area) => area.label)),
+    ];
+}
+function serviceCategoryList(value, legacyCategory, _providerServiceType, issues) {
+    // Legacy records used one open-text category. Preserve them while
+    // structurally validating category codes whenever the plural field
+    // is supplied. Existence, active status, and provider-type
+    // compatibility are authoritative server-side checks.
+    if (value === undefined)
+        return [];
+    if (!Array.isArray(value) ||
+        value.length > 50) {
+        issues.push({
+            field: "serviceCategories",
+            code: "invalid",
+        });
+        return [];
+    }
+    const categories = value.filter((category) => isServiceCategoryCode(category));
+    if (categories.length !== value.length) {
+        issues.push({
+            field: "serviceCategories",
+            code: "invalid",
+        });
+        return [];
+    }
+    const uniqueCategories = [
+        ...new Set(categories),
+    ];
+    if (uniqueCategories.length === 0 &&
+        legacyCategory.length > 0) {
+        return uniqueCategories;
+    }
+    return uniqueCategories;
 }
 function optionalNumber(value, field, minimum, maximum, issues) {
     if (value === undefined || value === null)

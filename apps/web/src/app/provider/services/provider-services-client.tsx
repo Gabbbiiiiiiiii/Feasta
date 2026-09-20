@@ -1,8 +1,12 @@
-"use client";
+﻿"use client";
 
 import type {
-  ProviderServiceCategory,
+  ServiceCategoryCode,
 } from "@feasta/shared-types";
+
+import type {
+  ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-service";
 import {
   AlertCircle,
   Archive,
@@ -54,17 +58,48 @@ import {
 type ProviderServicesClientProps = {
   providerId: string;
   serviceCategories:
-    readonly ProviderServiceCategory[];
+  readonly ServiceCategoryCode[];
+  serviceCategoryOptions:
+    readonly ServiceCategoryOption[];
 };
 
 export function ProviderServicesClient({
   providerId,
   serviceCategories,
+  serviceCategoryOptions,
 }: ProviderServicesClientProps) {
   const [
     services,
     setServices,
   ] = useState<ProviderService[]>([]);
+
+  const serviceCategoryNames =
+    useMemo(
+      () =>
+        new Map(
+          serviceCategoryOptions.map(
+            (category) => [
+              category.code,
+              category.name,
+            ] as const,
+          ),
+        ),
+      [serviceCategoryOptions],
+    );
+
+  const serviceCategoryName =
+    useCallback(
+      (category: ServiceCategoryCode) =>
+        serviceCategoryNames.get(category) ??
+        category
+          .replaceAll("_", " ")
+          .replace(
+            /\b\w/gu,
+            (character) =>
+              character.toUpperCase(),
+          ),
+      [serviceCategoryNames],
+    );
 
   const [
     loading,
@@ -206,9 +241,7 @@ export function ProviderServicesClient({
           service.description
             .toLowerCase()
             .includes(term) ||
-          formatServiceCategory(
-            service.category,
-          )
+          serviceCategoryName(service.category)
             .toLowerCase()
             .includes(term) ||
           formatPricingType(
@@ -218,6 +251,7 @@ export function ProviderServicesClient({
             .includes(term),
       );
     }, [
+      serviceCategoryName,
       services,
       submittedSearch,
     ]);
@@ -260,9 +294,7 @@ export function ProviderServicesClient({
               </span>
 
               <span className="text-sm text-muted-foreground">
-                {formatServiceCategory(
-                  row.category,
-                )}
+                {serviceCategoryName(row.category)}
               </span>
             </div>
           ),
@@ -311,7 +343,7 @@ export function ProviderServicesClient({
           ),
         },
       ],
-      [],
+      [serviceCategoryName],
     );
 
   return (
@@ -378,6 +410,9 @@ export function ProviderServicesClient({
             serviceCategories={
               serviceCategories
             }
+            serviceCategoryOptions={
+              serviceCategoryOptions
+            }
             onCancel={() =>
               setCreateOpen(false)
             }
@@ -406,6 +441,9 @@ export function ProviderServicesClient({
             key={editingService.id}
             serviceCategories={
               serviceCategories
+            }
+            serviceCategoryOptions={
+              serviceCategoryOptions
             }
             initialService={
               editingService
@@ -706,18 +744,6 @@ export function ProviderServicesClient({
       />
     </div>
   );
-}
-
-function formatServiceCategory(
-  value: ProviderServiceCategory,
-): string {
-  return value
-    .replaceAll("_", " ")
-    .replace(
-      /\b\w/gu,
-      (character) =>
-        character.toUpperCase(),
-    );
 }
 
 function formatPricingType(

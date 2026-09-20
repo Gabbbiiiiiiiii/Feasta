@@ -27,10 +27,15 @@ import type {
   AdminUserDetails,
   AdminUserVerificationDocument,
 } from "@/lib/admin/users/admin-user-types";
+import {
+  serviceCategoryName,
+  type ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-types";
 import { cn } from "@/lib/utils";
 
 type UserDetailsContentProps = {
   user: AdminUser;
+  serviceCategoryOptions: readonly ServiceCategoryOption[];
   details?: AdminUserDetails | null;
   loading?: boolean;
   error?: string | null;
@@ -504,6 +509,7 @@ function DocumentDetailsTab({
 
 function UserDetailsContent({
   user,
+  serviceCategoryOptions,
   details = null,
   loading = false,
   error = null,
@@ -750,8 +756,11 @@ function UserDetailsContent({
 
                 <DetailRow label="Category">
                   {user.providerCategory
-                    ?.replaceAll("_", " ") ??
-                    "Not available"}
+                    ? serviceCategoryName(
+                        user.providerCategory,
+                        serviceCategoryOptions,
+                      )
+                    : "Not available"}
                 </DetailRow>
 
                 <DetailRow label="Verification">

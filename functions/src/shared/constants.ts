@@ -1,3 +1,8 @@
+import {
+  isServiceCategoryCode,
+  type ServiceCategoryCode,
+} from "./service-category-code.js";
+
 export const FUNCTION_REGION =
   "asia-southeast1" as const;
 
@@ -196,31 +201,6 @@ export const PROVIDER_SERVICE_TYPES = [
 export type ProviderServiceType =
   (typeof PROVIDER_SERVICE_TYPES)[number];
 
-export const PROVIDER_SERVICE_CATEGORIES = [
-  "catering_service",
-  "food_trays_packed_meals",
-  "catering_event_styling",
-  "photographer",
-  "videographer",
-  "photo_booth",
-  "event_coordinator",
-  "event_host_emcee",
-  "sound_system",
-  "lights_and_sounds",
-  "singer_band",
-  "dancer_performer",
-  "decorator_event_stylist",
-  "florist",
-  "cake_provider",
-  "gown_suit_rental",
-  "car_rental",
-  "venue_provider",
-  "tables_chairs_rental",
-  "other_event_service",
-] as const;
-
-export type ProviderServiceCategory =
-  (typeof PROVIDER_SERVICE_CATEGORIES)[number];
 
 export interface ProviderCapacityCapabilities {
   requiresGuestCapacity: boolean;
@@ -232,7 +212,7 @@ const GUEST_CAPACITY_SERVICE_CATEGORIES = [
   "catering_service",
   "food_trays_packed_meals",
   "venue_provider",
-] as const satisfies readonly ProviderServiceCategory[];
+] as const;
 
 const STAFF_CAPACITY_SERVICE_CATEGORIES = [
   "catering_service",
@@ -254,7 +234,7 @@ const STAFF_CAPACITY_SERVICE_CATEGORIES = [
   "venue_provider",
   "tables_chairs_rental",
   "other_event_service",
-] as const satisfies readonly ProviderServiceCategory[];
+] as const;
 
 const EQUIPMENT_CAPACITY_SERVICE_CATEGORIES = [
   "catering_service",
@@ -269,11 +249,11 @@ const EQUIPMENT_CAPACITY_SERVICE_CATEGORIES = [
   "venue_provider",
   "tables_chairs_rental",
   "other_event_service",
-] as const satisfies readonly ProviderServiceCategory[];
+] as const;
 
 export function providerCapacityCapabilities(
   serviceCategories:
-    readonly ProviderServiceCategory[],
+    readonly string[],
 ): ProviderCapacityCapabilities {
   return {
     requiresGuestCapacity:
@@ -305,11 +285,6 @@ export function providerCapacityCapabilities(
   };
 }
 
-export const CATERING_SERVICE_CATEGORIES = [
-  "catering_service",
-  "food_trays_packed_meals",
-  "catering_event_styling",
-] as const satisfies readonly ProviderServiceCategory[];
 
 export const PROVIDER_EVENT_TYPES = [
   "birthday",
@@ -332,15 +307,6 @@ export const PROVIDER_OPERATING_DAYS = [
   "sunday",
 ] as const;
 
-export function serviceCategoryMatchesProviderType(
-  category: ProviderServiceCategory,
-  providerServiceType: ProviderServiceType,
-): boolean {
-  const catering = (CATERING_SERVICE_CATEGORIES as readonly string[])
-    .includes(category);
-  return providerServiceType === "both" ||
-    (providerServiceType === "catering" ? catering : !catering);
-}
 
 export function parseProviderServiceType(
   value: unknown,
@@ -437,6 +403,22 @@ export function verificationDocumentsSatisfyPolicy(
  * provider may submit verification. This intentionally ignores activation,
  * approval, audit, and review fields, which are controlled separately.
  */
+function serviceCategoryCodeList(
+  value: unknown,
+): ServiceCategoryCode[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      value.filter(
+        (category): category is ServiceCategoryCode =>
+          isServiceCategoryCode(category),
+      ),
+    ),
+  ];
+}
 export function providerSubmissionProfileIssues(
   provider: Readonly<Record<string, unknown>>,
 ): readonly string[] {
@@ -485,16 +467,12 @@ export function providerSubmissionProfileIssues(
 
   const serviceType = parseProviderServiceType(provider.providerServiceType);
   if (!serviceType) issues.add("providerServiceType");
-  const serviceCategories = validStringArray(
-    provider.serviceCategories,
-    PROVIDER_SERVICE_CATEGORIES,
-  );
-  if (
-    serviceCategories.length === 0 ||
-    (serviceType && serviceCategories.some((category) =>
-      !serviceCategoryMatchesProviderType(category, serviceType)
-    ))
-  ) {
+  const serviceCategories =
+    serviceCategoryCodeList(
+      provider.serviceCategories,
+    );
+
+  if (serviceCategories.length === 0) {
     issues.add("serviceCategories");
   }
   if (

@@ -7,6 +7,10 @@ import type {
 import type {
   AdminReportResult,
 } from "@/lib/admin/reports/admin-report-types";
+import {
+  serviceCategoryName,
+  type ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-types";
 
 const EXCEL_MIME_TYPE =
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
@@ -23,6 +27,7 @@ export type AdminReportExcelExport = {
 
 export async function createAdminReportExcel(
   report: AdminReportResult,
+  serviceCategoryOptions: readonly ServiceCategoryOption[] = [],
 ): Promise<AdminReportExcelExport> {
   const ExcelJS = await import("exceljs");
   const workbook = new ExcelJS.Workbook();
@@ -35,7 +40,11 @@ export async function createAdminReportExcel(
   buildSummarySheet(workbook.addWorksheet("Executive Summary"), report);
   buildBookingSheet(workbook.addWorksheet("Booking Performance"), report);
   buildPaymentSheet(workbook.addWorksheet("Payment Performance"), report);
-  buildProviderSheet(workbook.addWorksheet("Provider Performance"), report);
+  buildProviderSheet(
+    workbook.addWorksheet("Provider Performance"),
+    report,
+    serviceCategoryOptions,
+  );
   buildDefinitionsSheet(workbook.addWorksheet("Metric Definitions"), report);
 
   const buffer = await workbook.xlsx.writeBuffer();
@@ -188,7 +197,11 @@ function buildPaymentSheet(sheet: Worksheet, report: AdminReportResult): void {
   finishSheet(sheet);
 }
 
-function buildProviderSheet(sheet: Worksheet, report: AdminReportResult): void {
+function buildProviderSheet(
+  sheet: Worksheet,
+  report: AdminReportResult,
+  serviceCategoryOptions: readonly ServiceCategoryOption[],
+): void {
   configureSheet(sheet, [24, 28, 20, 24, 12, 12, 12, 14, 14, 14, 18, 16, 18, 16, 14, 16, 18]);
   title(sheet, "PROVIDER PERFORMANCE", 17);
   subtitle(sheet, report.filters.period.label, 17);
@@ -204,7 +217,7 @@ function buildProviderSheet(sheet: Worksheet, report: AdminReportResult): void {
       safeText(provider.providerId),
       safeText(provider.providerName),
       titleCase(provider.serviceType),
-      provider.providerCategory ? titleCase(provider.providerCategory) : "Not specified",
+      provider.providerCategory ? serviceCategoryName(provider.providerCategory, serviceCategoryOptions) : "Not specified",
       provider.requestsReceived,
       provider.acceptedRequests,
       provider.rejectedRequests,

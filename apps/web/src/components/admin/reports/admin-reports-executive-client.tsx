@@ -42,13 +42,18 @@ import type {
   AdminReportMetric,
   AdminReportResult,
 } from "@/lib/admin/reports/admin-report-types";
+import type {
+  ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-types";
 
 type AdminReportsExecutiveClientProps = {
   initialReport: AdminReportResult;
+  serviceCategoryOptions: readonly ServiceCategoryOption[];
 };
 
 export function AdminReportsExecutiveClient({
   initialReport,
+  serviceCategoryOptions,
 }: AdminReportsExecutiveClientProps) {
   const [report, setReport] = useState(initialReport);
   const [filters, setFilters] = useState<AdminReportFilters>(() =>
@@ -87,7 +92,10 @@ export function AdminReportsExecutiveClient({
 
   try {
     const exported =
-      await createAdminReportExcel(report);
+      await createAdminReportExcel(
+        report,
+        serviceCategoryOptions,
+      );
 
     const downloadUrl =
       URL.createObjectURL(exported.blob);
@@ -433,6 +441,7 @@ export function AdminReportsExecutiveClient({
         />
         <AdminProviderPerformance
             report={report.providers}
+          serviceCategoryOptions={serviceCategoryOptions}
         />
 
       <section className="grid gap-4 lg:grid-cols-2" aria-label="Financial interpretation">

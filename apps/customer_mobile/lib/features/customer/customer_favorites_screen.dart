@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/domain/service_category.dart';
+import '../../core/helpers/provider_category_helper.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../../core/theme/app_colors.dart';
@@ -17,6 +19,18 @@ class CustomerFavoritesScreen extends StatefulWidget {
 class _CustomerFavoritesScreenState extends State<CustomerFavoritesScreen> {
   final FeastaRepository repository = FeastaRepository();
 
+  late final Future<List<ServiceCategory>> _activeServiceCategories;
+  late final Future<Map<String, String>> _serviceCategoryNames;
+
+  String? _selectedCategoryCode;
+
+  @override
+  void initState() {
+    super.initState();
+    _activeServiceCategories = repository.getActiveServiceCategories();
+    _serviceCategoryNames = repository.getServiceCategoryNameMap();
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -28,51 +42,116 @@ class _CustomerFavoritesScreenState extends State<CustomerFavoritesScreen> {
           ),
           automaticallyImplyLeading: false,
         ),
-        body: StreamBuilder<List<ProviderModel>>(
-          stream: repository.favoriteProviders(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const FeastaListSkeleton(
-                itemCount: 4,
-                padding: EdgeInsets.all(20),
-                showImage: true,
-              );
-            }
+        body: FutureBuilder<List<ServiceCategory>>(
+          future: _activeServiceCategories,
+          builder: (context, activeCategorySnapshot) {
+            final activeCategories =
+                activeCategorySnapshot.data ?? const <ServiceCategory>[];
 
-            if (snapshot.hasError) {
-              return Center(
-                child: FeastaApplicationErrorState(
-                  kind: FeastaErrorKind.load,
-                  message:
-                      'We could not load your favorites. Please try again.',
-                  onRetry: () => setState(() {}),
-                ),
-              );
-            }
+            final activeCodes = activeCategories
+                .map((category) => category.code)
+                .toSet();
 
-            final providers = snapshot.data ?? [];
+            final selectedCategoryCode =
+                activeCodes.contains(_selectedCategoryCode)
+                ? _selectedCategoryCode
+                : null;
 
-            if (providers.isEmpty) {
-              return const Center(
-                child: FeastaEmptyState(
-                  title: 'No favorites yet',
-                  message:
-                      'Save providers you like so you can find them easily later.',
-                  icon: Icons.favorite_border,
-                ),
-              );
-            }
+            return FutureBuilder<Map<String, String>>(
+              future: _serviceCategoryNames,
+              builder: (context, categorySnapshot) {
+                final categoryNames =
+                    categorySnapshot.data ?? const <String, String>{};
 
-            return ListView.separated(
-              padding: const EdgeInsets.all(20),
-              itemCount: providers.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 16),
-              itemBuilder: (context, index) {
-                final provider = providers[index];
+                return StreamBuilder<List<ProviderModel>>(
+                  stream: repository.favoriteProviders(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const FeastaListSkeleton(
+                        itemCount: 4,
+                        padding: EdgeInsets.all(20),
+                        showImage: true,
+                      );
+                    }
 
-                return FavoriteProviderCard(
-                  provider: provider,
-                  repository: repository,
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: FeastaApplicationErrorState(
+                          kind: FeastaErrorKind.load,
+                          message:
+                              'We could not load your favorites. Please try again.',
+                          onRetry: () => setState(() {}),
+                        ),
+                      );
+                    }
+
+                    final providers =
+                        snapshot.data ?? const <ProviderModel>[];
+
+                    if (providers.isEmpty) {
+                      return const Center(
+                        child: FeastaEmptyState(
+                          title: 'No favorites yet',
+                          message:
+                              'Save providers you like so you can find them easily later.',
+                          icon: Icons.favorite_border,
+                        ),
+                      );
+                    }
+
+                    final visibleProviders = providers
+                        .where(
+                          (provider) => _matchesFavoriteCategory(
+                            provider,
+                            selectedCategoryCode,
+                          ),
+                        )
+                        .toList(growable: false);
+
+                    return Column(
+                      children: [
+                        _FavoriteCategoryFilter(
+                          categories: activeCategories,
+                          selectedCategoryCode: selectedCategoryCode,
+                          onSelected: (categoryCode) {
+                            if (selectedCategoryCode == categoryCode) {
+                              return;
+                            }
+
+                            setState(() {
+                              _selectedCategoryCode = categoryCode;
+                            });
+                          },
+                        ),
+                        Expanded(
+                          child: visibleProviders.isEmpty
+                              ? const Center(
+                                  child: FeastaEmptyState(
+                                    title: 'No favorites in this category',
+                                    message:
+                                        'Try another service category or select All.',
+                                    icon: Icons.favorite_border,
+                                  ),
+                                )
+                              : ListView.separated(
+                                  padding: const EdgeInsets.all(20),
+                                  itemCount: visibleProviders.length,
+                                  separatorBuilder: (_, _) =>
+                                      const SizedBox(height: 16),
+                                  itemBuilder: (context, index) {
+                                    final provider = visibleProviders[index];
+
+                                    return FavoriteProviderCard(
+                                      provider: provider,
+                                      repository: repository,
+                                      categoryNames: categoryNames,
+                                    );
+                                  },
+                                ),
+                        ),
+                      ],
+                    );
+                  },
                 );
               },
             );
@@ -86,11 +165,13 @@ class _CustomerFavoritesScreenState extends State<CustomerFavoritesScreen> {
 class FavoriteProviderCard extends StatefulWidget {
   final ProviderModel provider;
   final FeastaRepository repository;
+  final Map<String, String> categoryNames;
 
   const FavoriteProviderCard({
     super.key,
     required this.provider,
     required this.repository,
+    required this.categoryNames,
   });
 
   @override
@@ -101,6 +182,11 @@ class _FavoriteProviderCardState extends State<FavoriteProviderCard> {
   bool _isRemoving = false;
 
   ProviderModel get provider => widget.provider;
+
+  String get categoryLabel => providerCategoryLabel(
+    provider.providerCategory,
+    categoryNames: widget.categoryNames,
+  );
 
   Future<void> _removeFavorite(BuildContext context) async {
     if (_isRemoving) return;
@@ -156,7 +242,7 @@ class _FavoriteProviderCardState extends State<FavoriteProviderCard> {
       container: true,
       explicitChildNodes: true,
       label:
-          '${provider.businessName}. Rating '
+          '${provider.businessName}. $categoryLabel. Rating '
           '${provider.ratingAverage.toStringAsFixed(1)} from '
           '${provider.reviewCount} reviews. ${provider.location}.',
       child: InkWell(
@@ -211,6 +297,15 @@ class _FavoriteProviderCardState extends State<FavoriteProviderCard> {
                           icon: const Icon(Icons.favorite, color: primary),
                         ),
                       ],
+                    ),
+                    Text(
+                      categoryLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.grey,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Wrap(
@@ -292,4 +387,50 @@ class _FavoriteProviderCardState extends State<FavoriteProviderCard> {
       ),
     );
   }
+}
+class _FavoriteCategoryFilter extends StatelessWidget {
+  const _FavoriteCategoryFilter({
+    required this.categories,
+    required this.selectedCategoryCode,
+    required this.onSelected,
+  });
+
+  final List<ServiceCategory> categories;
+  final String? selectedCategoryCode;
+  final ValueChanged<String?> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+        itemCount: categories.length + 1,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final isAll = index == 0;
+          final category = isAll ? null : categories[index - 1];
+          final categoryCode = category?.code;
+
+          return ChoiceChip(
+            label: Text(isAll ? 'All' : category!.name),
+            selected: selectedCategoryCode == categoryCode,
+            onSelected: (_) => onSelected(categoryCode),
+          );
+        },
+      ),
+    );
+  }
+}
+
+bool _matchesFavoriteCategory(
+  ProviderModel provider,
+  String? selectedCategoryCode,
+) {
+  if (selectedCategoryCode == null) {
+    return true;
+  }
+
+  return provider.providerCategory.trim() == selectedCategoryCode;
 }

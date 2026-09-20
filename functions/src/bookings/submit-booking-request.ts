@@ -21,9 +21,11 @@ import {
   isApprovedProviderForOperations,
   isProviderPubliclyEligible,
   PROVIDER_EVENT_TYPES,
-  PROVIDER_SERVICE_CATEGORIES,
 } from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
+import {
+  isServiceCategoryCode,
+} from "../shared/service-category-code.js";
 import {
   appCheckCallableOptions,
 } from "../shared/function-options.js";
@@ -788,11 +790,7 @@ export const submitBookingRequest = onCall(
               !expectedOwnerId ||
               addon.ownerId !==
                 expectedOwnerId ||
-              !PROVIDER_SERVICE_CATEGORIES
-                .includes(
-                  addon.category as
-                    (typeof PROVIDER_SERVICE_CATEGORIES)[number],
-                )
+              !isServiceCategoryCode(addon.category)
             ) {
               throw new HttpsError(
                 "failed-precondition",

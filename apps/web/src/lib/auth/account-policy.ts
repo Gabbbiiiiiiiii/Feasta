@@ -1,11 +1,11 @@
 import {
-  PROVIDER_SERVICE_CATEGORIES,
+  isServiceCategoryCode,
   parseAccountStatus,
   parseProviderServiceType,
   parseProviderVerificationStatus,
   parseUserRole,
   type AccountStatus,
-  type ProviderServiceCategory,
+  type ServiceCategoryCode,
   type ProviderServiceType,
   type ProviderVerificationStatus,
   type UserRole,
@@ -21,7 +21,7 @@ export interface ServerProviderContext {
   isDeleted: boolean;
 
   providerServiceType: ProviderServiceType;
-  serviceCategories: readonly ProviderServiceCategory[];
+  serviceCategories: readonly ServiceCategoryCode[];
 
   eventTypesSupported: string[];
   minGuestsPerEvent: number;
@@ -135,19 +135,12 @@ export function resolveTrustedAccountContext(
       };
     }
     const serviceCategories =
-  Array.isArray(
-    providerProfile.serviceCategories,
-  )
-    ? providerProfile.serviceCategories.filter(
-        (
-          value,
-        ): value is ProviderServiceCategory =>
-          typeof value === "string" &&
-          PROVIDER_SERVICE_CATEGORIES.includes(
-            value as ProviderServiceCategory,
-          ),
-      )
-    : [];
+    Array.isArray(providerProfile.serviceCategories)
+      ? providerProfile.serviceCategories.filter(
+          (value): value is ServiceCategoryCode =>
+            isServiceCategoryCode(value),
+        )
+      : [];
     provider = {
     id: providerId,
     verificationStatus,

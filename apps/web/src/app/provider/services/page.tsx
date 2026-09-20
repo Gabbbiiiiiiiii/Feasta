@@ -1,6 +1,9 @@
-import {
+﻿import {
   requireProviderCatalogAccess,
 } from "@/lib/auth/session";
+import {
+  getServiceCategoryOptions,
+} from "@/lib/service-categories/service-category-service";
 
 import {
   ProviderServicesClient,
@@ -18,11 +21,27 @@ export default async function ProviderServicesPage() {
     return null;
   }
 
+  const provider = account.provider;
+
+  const serviceCategoryOptions =
+    await getServiceCategoryOptions();
+
+  const assignedServiceCategoryOptions =
+    serviceCategoryOptions.filter(
+      (category) =>
+        provider.serviceCategories.includes(
+          category.code,
+        ),
+    );
+
   return (
     <ProviderServicesClient
       providerId={account.provider.id}
       serviceCategories={
         account.provider.serviceCategories
+      }
+      serviceCategoryOptions={
+        assignedServiceCategoryOptions
       }
     />
   );

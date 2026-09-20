@@ -13,9 +13,9 @@ import {
 
 import {
   ADDON_PRICING_TYPES,
-  PROVIDER_SERVICE_CATEGORIES,
+  isServiceCategoryCode,
   type AddonPricingType,
-  type ProviderServiceCategory,
+  type ServiceCategoryCode,
 } from "@feasta/shared-types";
 
 import {
@@ -35,7 +35,7 @@ export type ProviderServiceStatus =
 export type ProviderServiceInput = {
   name: string;
   description: string;
-  category: ProviderServiceCategory;
+  category: ServiceCategoryCode;
   pricingType: AddonPricingType;
   price: number | null;
   imageUrl: string;
@@ -49,7 +49,7 @@ export type ProviderService = {
   name: string;
   description: string;
 
-  category: ProviderServiceCategory;
+  category: ServiceCategoryCode;
   pricingType: AddonPricingType;
   price: number | null;
 
@@ -358,14 +358,9 @@ async function requireProviderAuthUser() {
 
 function requireServiceCategory(
   value: unknown,
-): ProviderServiceCategory {
-  if (
-    typeof value === "string" &&
-    PROVIDER_SERVICE_CATEGORIES.includes(
-      value as ProviderServiceCategory,
-    )
-  ) {
-    return value as ProviderServiceCategory;
+): ServiceCategoryCode {
+  if (isServiceCategoryCode(value)) {
+    return value;
   }
 
   throw new WebAuthenticationError(

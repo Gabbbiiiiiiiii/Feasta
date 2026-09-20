@@ -5,6 +5,7 @@ import {beforeEach, describe, expect, it, vi} from "vitest";
 
 import type {CustomerProviderAvailability} from "@/lib/customer/bookings/customer-provider-availability-client";
 import type {ProviderDiscoveryFilters, ProviderDiscoveryPage, PublicProvider} from "@/lib/customer/providers/provider-types";
+import {TEST_SERVICE_CATEGORY_OPTIONS} from "../fixtures/service-category-options";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
@@ -268,7 +269,13 @@ describe("availability-aware marketplace", () => {
     expect(href).toContain("cursor=next_cursor");
     expect(href).toContain("eventDate=2026-09-10");
     expect(href).toContain("guestCount=100");
-    render(<EventFinder query={href.split("?")[1]} onFind={() => {}} />);
+    render(
+      <EventFinder
+        query={href.split("?")[1]}
+        onFind={() => {}}
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+      />,
+    );
     expect(screen.getByLabelText("Event Date")).toHaveValue("2026-09-10");
     fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
     const submittedUrl = new URL(mocks.push.mock.calls.at(-1)?.[0], "https://feasta.test");

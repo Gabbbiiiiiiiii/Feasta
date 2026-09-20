@@ -1,18 +1,14 @@
-"use client";
+﻿"use client";
 
 import {
-  ADDON_SERVICE_CATEGORIES,
-  CATERING_SERVICE_CATEGORIES,
   PROVIDER_EVENT_TYPES,
   PROVIDER_OPERATING_DAYS,
-  PROVIDER_SERVICE_CATEGORIES,
+  isServiceCategoryCode,
   normalizePhilippineMobile,
   normalizePhilippinePhone,
   normalizeProviderEmail,
   providerCapacityCapabilities,
-  serviceCategoryMatchesProviderType,
   type ProviderOnboardingInput,
-  type ProviderServiceCategory,
 } from "@feasta/shared-types";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
@@ -46,6 +42,9 @@ import {
   type ProviderOnboardingDraft,
   type ProviderOnboardingStep,
 } from "@/lib/provider/onboarding";
+import type {
+  ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-service";
 
 type FormValues = ProviderOnboardingInput & {
   ownerPhone: string;
@@ -59,9 +58,11 @@ type FormValues = ProviderOnboardingInput & {
 export function ProviderOnboardingStepForm({
   step,
   draft,
+  serviceCategories = [],
 }: {
   step: ProviderOnboardingStep;
   draft: ProviderOnboardingDraft;
+  serviceCategories?: readonly ServiceCategoryOption[];
 }) {
   const router = useRouter();
   const busy = useRef(false);
@@ -214,6 +215,7 @@ export function ProviderOnboardingStepForm({
       <StepFields
         step={step.number}
         values={values}
+        serviceCategories={serviceCategories}
         loading={loading}
         fieldErrors={fieldErrors}
         selectedImages={selectedImages}
@@ -300,6 +302,7 @@ export function ProviderOnboardingStepForm({
 function StepFields({
   step,
   values,
+  serviceCategories,
   loading,
   fieldErrors,
   selectedImages,
@@ -309,6 +312,7 @@ function StepFields({
 }: {
   step: number;
   values: FormValues;
+  serviceCategories: readonly ServiceCategoryOption[];
   loading: boolean;
   fieldErrors: Record<string, string>;
   selectedImages: {logo: File | null; cover: File | null};
@@ -399,19 +403,51 @@ function StepFields({
   }
 
   if (step === 3) {
-    const availableCategories = values.providerServiceType === "catering"
-      ? CATERING_SERVICE_CATEGORIES
-      : values.providerServiceType === "addon"
-        ? ADDON_SERVICE_CATEGORIES
-        : PROVIDER_SERVICE_CATEGORIES;
+    const availableServiceCategories =
+      serviceCategories.filter(
+        (category) =>
+          values.providerServiceType === "both" ||
+          category.serviceType ===
+            values.providerServiceType,
+      );
+
+    const availableCategoryCodes =
+      availableServiceCategories.map(
+        (category) => category.code,
+      );
+
+    const categoryNames = new Map(
+      serviceCategories.map(
+        (category) => [
+          category.code,
+          category.name,
+        ] as const,
+      ),
+    );
     return (
       <div className="grid gap-4">
         <FormField label="Service type" required disabled={loading} error={fieldErrors.providerServiceType}>
           <Select value={values.providerServiceType} onChange={(event) => {
             const nextType = event.target.value as FormValues["providerServiceType"];
-            const categories = values.serviceCategories.filter((category) =>
-              serviceCategoryMatchesProviderType(category, nextType)
-            );
+            const categories =
+              values.serviceCategories.filter(
+                (category) => {
+                  const definition =
+                    serviceCategories.find(
+                      (candidate) =>
+                        candidate.code === category,
+                    );
+
+                  return Boolean(
+                    definition &&
+                    (
+                      nextType === "both" ||
+                      definition.serviceType ===
+                        nextType
+                    ),
+                  );
+                },
+              );
             update("providerServiceType", nextType);
             update("serviceCategories", categories);
             update("providerCategory", categories[0] ?? "");
@@ -424,11 +460,14 @@ function StepFields({
         <CheckboxGroup
           legend="Supported service categories"
           description="Choose every category this business can deliver."
-          values={availableCategories}
+          values={availableCategoryCodes}
           selected={values.serviceCategories}
           disabled={loading}
           error={fieldErrors.serviceCategories}
-          label={serviceCategoryLabel}
+          label={(category) =>
+            categoryNames.get(category) ??
+            titleFromValue(category)
+          }
           onToggle={(category) => {
             const next = toggleList(values.serviceCategories, category);
             update("serviceCategories", next);
@@ -779,18 +818,18 @@ function initialValues(draft: ProviderOnboardingDraft): FormValues {
     businessPhone: draft.businessPhone ?? "",
     description: draft.description ?? "",
     providerServiceType: draft.providerServiceType ?? "catering",
-    providerCategory: PROVIDER_SERVICE_CATEGORIES.includes(
-      draft.providerCategory as ProviderServiceCategory,
-    )
-      ? draft.providerCategory as ProviderServiceCategory
-      : "catering_service",
-    serviceCategories: draft.serviceCategories?.length
-      ? draft.serviceCategories
-      : PROVIDER_SERVICE_CATEGORIES.includes(
-          draft.providerCategory as ProviderServiceCategory,
-        )
-        ? [draft.providerCategory as ProviderServiceCategory]
-        : ["catering_service"],
+    providerCategory:
+      isServiceCategoryCode(draft.providerCategory)
+        ? draft.providerCategory
+        : "",
+    serviceCategories:
+      draft.serviceCategories?.length
+        ? draft.serviceCategories
+        : isServiceCategoryCode(
+              draft.providerCategory,
+            )
+          ? [draft.providerCategory]
+          : [],
     address: draft.address ?? "",
     city: draft.city ?? "Ormoc City",
     province: draft.province ?? "Leyte",
@@ -1026,31 +1065,6 @@ function titleFromValue(value: string): string {
   ).join(" ");
 }
 
-function serviceCategoryLabel(value: ProviderServiceCategory): string {
-  const labels: Record<ProviderServiceCategory, string> = {
-    catering_service: "Catering service",
-    food_trays_packed_meals: "Food trays / packed meals",
-    catering_event_styling: "Catering and event styling",
-    photographer: "Photographer",
-    videographer: "Videographer",
-    photo_booth: "Photo booth",
-    event_coordinator: "Event coordinator",
-    event_host_emcee: "Event host / emcee",
-    sound_system: "Sound system",
-    lights_and_sounds: "Lights and sounds",
-    singer_band: "Singer / band",
-    dancer_performer: "Dancer / performer",
-    decorator_event_stylist: "Decorator / event stylist",
-    florist: "Florist",
-    cake_provider: "Cake provider",
-    gown_suit_rental: "Gown / suit rental",
-    car_rental: "Car rental",
-    venue_provider: "Venue provider",
-    tables_chairs_rental: "Tables and chairs rental",
-    other_event_service: "Other event service",
-  };
-  return labels[value];
-}
 
 function validateImageFile(
   mediaType: "logo" | "cover",

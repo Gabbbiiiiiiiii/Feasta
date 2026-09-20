@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   BadgeCheck,
@@ -25,9 +25,11 @@ import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {Textarea} from "@/components/ui/textarea";
 import {
-  providerCategoryLabel,
   providerServiceTypeLabel,
 } from "@/lib/customer/providers/provider-catalog";
+import type {
+  ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-service";
 import {
   updateProviderBusinessProfile,
 } from "@/lib/provider/business-profile/provider-business-profile-client";
@@ -61,8 +63,11 @@ const emptyMediaDraft: MediaDraft = {file: null, remove: false};
 
 export function ProviderBusinessProfileClient({
   initialProfile,
+  serviceCategoryOptions = [],
 }: {
   initialProfile: ProviderBusinessProfile;
+  serviceCategoryOptions?:
+    readonly ServiceCategoryOption[];
 }) {
   const router = useRouter();
   const initialForm = useMemo(
@@ -203,6 +208,28 @@ export function ProviderBusinessProfileClient({
       ? [initialProfile.primaryServiceCategory]
       : [];
 
+  const serviceCategoryNames =
+    new Map(
+      serviceCategoryOptions.map(
+        (category) => [
+          category.code,
+          category.name,
+        ] as const,
+      ),
+    );
+
+  const serviceCategoryName = (
+    category: string,
+  ) =>
+    serviceCategoryNames.get(category) ??
+    category
+      .replaceAll("_", " ")
+      .replace(
+        /\b\w/gu,
+        (character) =>
+          character.toUpperCase(),
+      );
+
   return (
     <div className="grid min-w-0 gap-6">
       <PageHeading
@@ -267,7 +294,7 @@ export function ProviderBusinessProfileClient({
           <div className="flex flex-wrap gap-2" aria-label="Service categories">
             {categories.map((category) => (
               <span key={category} className="rounded-pill border border-border bg-muted px-3 py-1 text-sm font-semibold">
-                {providerCategoryLabel(category)}
+                {serviceCategoryName(category)}
               </span>
             ))}
           </div>
@@ -299,7 +326,7 @@ export function ProviderBusinessProfileClient({
           <ReadOnlyDetail
             icon={BadgeCheck}
             label="Service categories"
-            value={categories.map(providerCategoryLabel).join(", ") || "Not available"}
+            value={categories.map(serviceCategoryName).join(", ") || "Not available"}
           />
         </dl>
       </section>

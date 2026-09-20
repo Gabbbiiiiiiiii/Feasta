@@ -14,6 +14,9 @@ import {
   PUBLIC_PROVIDER_MARKETPLACE_RETURN_HEADER,
   PUBLIC_PROVIDER_MARKETPLACE_PATH,
 } from "@/lib/customer/providers/provider-route-policy";
+import {
+  getActiveServiceCategoryOptions,
+} from "@/lib/service-categories/service-category-service";
 
 export const metadata: Metadata = {
   title: {
@@ -29,7 +32,13 @@ export default async function CustomerLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const requestHeaders = await headers();
+  const [
+    requestHeaders,
+    serviceCategoryOptions,
+  ] = await Promise.all([
+    headers(),
+    getActiveServiceCategoryOptions(),
+  ]);
 
   const publicMarketplaceRequest =
     requestHeaders.get(PUBLIC_PROVIDER_MARKETPLACE_REQUEST_HEADER) === "1";
@@ -46,6 +55,7 @@ export default async function CustomerLayout({
       return (
         <CustomerMarketplaceShell
           accountLabel={account.email ?? account.uid}
+          serviceCategoryOptions={serviceCategoryOptions}
           {...identity}
         >
           {children}
@@ -56,6 +66,7 @@ export default async function CustomerLayout({
     return (
       <PublicProviderMarketplaceShell
         authReturnTo={marketplaceReturnTo}
+        serviceCategoryOptions={serviceCategoryOptions}
       >
         {children}
       </PublicProviderMarketplaceShell>
@@ -70,6 +81,7 @@ export default async function CustomerLayout({
   return (
     <CustomerMarketplaceShell
       accountLabel={user.email ?? user.uid}
+      serviceCategoryOptions={serviceCategoryOptions}
       {...identity}
     >
       {children}

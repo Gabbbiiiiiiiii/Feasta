@@ -9,7 +9,7 @@ import {beforeEach, describe, expect, it, vi} from "vitest";
 import {CustomerMarketplaceShell} from "@/components/customer/layout/customer-marketplace-shell";
 import {CustomerMarketplaceHeader} from "@/components/customer/layout/customer-marketplace-header";
 import {PublicProviderMarketplaceShell} from "@/components/customer/layout/public-provider-marketplace-shell";
-import {PROVIDER_CATEGORY_OPTIONS} from "@/lib/customer/providers/provider-catalog";
+import {TEST_SERVICE_CATEGORY_OPTIONS} from "../fixtures/service-category-options";
 
 const mocks = vi.hoisted(() => ({push: vi.fn(), searchEventVenues: vi.fn(), getEventVenueDetails: vi.fn()}));
 
@@ -53,7 +53,7 @@ describe("customer marketplace header", () => {
 
   it("centers marketplace links beside an accessible search icon and preserves guest actions", () => {
     query = new URLSearchParams("service=catering");
-    render(<CustomerMarketplaceHeader authReturnTo="/customer/providers?service=catering" />);
+    render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} authReturnTo="/customer/providers?service=catering" />);
     expect(screen.getByRole("link", {name: "FEASTA home"})).toHaveAttribute("href", "/customer/providers");
     expect(screen.queryByLabelText("Event location: Ormoc City, Leyte")).not.toBeInTheDocument();
     expect(screen.getByRole("img", {name: "Feasta"})).toHaveAttribute("src", expect.stringContaining("feasta_logo.svg"));
@@ -84,7 +84,7 @@ describe("customer marketplace header", () => {
 
   it("opens with the keyboard, exposes labeled fields, and closes on Escape with focus returned", async () => {
     const user = userEvent.setup();
-    render(<CustomerMarketplaceHeader />);
+    render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     const trigger = screen.getByRole("button", {name: "Open Event Finder"});
     trigger.focus();
     await user.keyboard("{Enter}");
@@ -108,8 +108,8 @@ describe("customer marketplace header", () => {
   it.each(["guest", "customer"] as const)("hydrates deterministic %s header markup without attribute warnings", async (account) => {
     query = new URLSearchParams("category=photographer&eventDate=2099-09-10");
     const tree = account === "guest"
-      ? <PublicProviderMarketplaceShell authReturnTo="/customer/providers"><p>Marketplace</p></PublicProviderMarketplaceShell>
-      : <CustomerMarketplaceHeader accountLabel="customer-account" accountFirstName="Gabriel" accountLastName="Santos" />;
+      ? <PublicProviderMarketplaceShell authReturnTo="/customer/providers" serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}><p>Marketplace</p></PublicProviderMarketplaceShell>
+      : <CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} accountLabel="customer-account" accountFirstName="Gabriel" accountLastName="Santos" />;
     const markup = renderToString(tree);
     expect(renderToString(tree)).toBe(markup);
     const container = document.createElement("div");
@@ -144,11 +144,11 @@ describe("customer marketplace header", () => {
 
   it("uses the real category catalog and preserves drafts when toggled closed", () => {
     query = new URLSearchParams("category=photographer");
-    render(<CustomerMarketplaceHeader />);
+    render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
     const selector = screen.getByRole("combobox", {name: "Service Category"});
     expect(within(selector).getAllByRole("option").map((option) => option.getAttribute("value")))
-      .toEqual(["all", ...PROVIDER_CATEGORY_OPTIONS.map((option) => option.value)]);
+      .toEqual(["all", ...TEST_SERVICE_CATEGORY_OPTIONS.map((option) => option.code)]);
     expect(selector).toHaveValue("photographer");
     expect(screen.getByRole("link", {name: "Event Services"})).toHaveAttribute("aria-current", "page");
     fireEvent.change(selector, {target: {value: "venue_provider"}});
@@ -160,7 +160,7 @@ describe("customer marketplace header", () => {
 
   it("submits canonical category and date state, preserves existing filters, and resets pagination", () => {
     query = new URLSearchParams("q=flowers&service=addon&cursor=old_page&eventType=wedding&guestCount=50");
-    render(<CustomerMarketplaceHeader />);
+    render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
     fireEvent.change(screen.getByLabelText("Event Date"), {target: {value: "2099-09-10"}});
     fireEvent.change(screen.getByRole("combobox", {name: "Service Category"}), {target: {value: "photographer"}});
@@ -179,7 +179,7 @@ describe("customer marketplace header", () => {
       placeId: "ChIJ_superdome1234", mainText: "Ormoc City Superdome", secondaryText: "Ormoc City, Leyte", fullAddress: "Superdome, Ormoc City, Leyte",
     }]);
     mocks.getEventVenueDetails.mockResolvedValue({address: "Superdome, Ormoc City, Leyte", city: "Ormoc City", province: "Leyte", latitude: 11.005, longitude: 124.608});
-    const view = render(<CustomerMarketplaceHeader />);
+    const view = render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
     fireEvent.change(screen.getByRole("combobox", {name: "Location"}), {target: {value: "Superdome"}});
     fireEvent.click(await screen.findByRole("option", {name: /Ormoc City Superdome/}));
@@ -189,7 +189,7 @@ describe("customer marketplace header", () => {
     expect(query.get("eventVenuePlaceId")).toBe("ChIJ_superdome1234");
     expect(query.get("eventVenueLat")).toBe("11.005");
     expect(query.get("eventVenueLng")).toBe("124.608");
-    view.rerender(<CustomerMarketplaceHeader />);
+    view.rerender(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
     expect(screen.getByRole("combobox", {name: "Location"})).toHaveValue("Superdome, Ormoc City, Leyte");
     fireEvent.click(screen.getByRole("button", {name: "Clear event venue"}));
@@ -199,7 +199,7 @@ describe("customer marketplace header", () => {
 
   it("preserves an existing complete availability context when the date changes", () => {
     query = new URLSearchParams("eventDate=2099-09-10&eventTime=18%3A00&eventEndTime=22%3A00&guestCount=100&category=photographer");
-    render(<CustomerMarketplaceHeader />);
+    render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
     expect(screen.getByLabelText("Event Date")).toHaveValue("2099-09-10");
     fireEvent.change(screen.getByLabelText("Event Date"), {target: {value: "2099-09-11"}});
@@ -209,7 +209,7 @@ describe("customer marketplace header", () => {
   });
 
   it("keeps keyword and provider-service filtering available in More filters", () => {
-    render(<CustomerMarketplaceHeader />);
+    render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
     const more = screen.getByText("More filters");
     expect(more.closest("details")).not.toHaveAttribute("open");
@@ -225,7 +225,7 @@ describe("customer marketplace header", () => {
 
   it("clears discovery filters and pagination while preserving event planning context", () => {
     query = new URLSearchParams("q=garden&service=addon&category=venue_provider&cursor=old&eventDate=2099-09-10&eventTime=18%3A00&eventEndTime=22%3A00&guestCount=100");
-    render(<CustomerMarketplaceHeader />);
+    render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
     expect(screen.getByText("More filters").closest("details")).toHaveAttribute("open");
     fireEvent.click(screen.getByRole("button", {name: "Clear filters"}));
@@ -234,17 +234,17 @@ describe("customer marketplace header", () => {
   });
 
   it("resets disclosure and defaults after route or URL navigation", () => {
-    const view = render(<CustomerMarketplaceHeader />);
+    const view = render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
     query = new URLSearchParams("category=venue_provider&eventDate=2099-09-12");
-    view.rerender(<CustomerMarketplaceHeader />);
+    view.rerender(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     expect(screen.queryByRole("search", {name: "Event Finder"})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
     expect(screen.getByRole("combobox", {name: "Service Category"})).toHaveValue("venue_provider");
     expect(screen.getByLabelText("Event Date")).toHaveValue("2099-09-12");
     pathname = "/customer/packages";
     query = new URLSearchParams();
-    view.rerender(<CustomerMarketplaceHeader />);
+    view.rerender(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     expect(screen.getByRole("link", {name: "Packages"})).toHaveAttribute("aria-current", "page");
     expect(screen.queryByRole("search", {name: "Event Finder"})).not.toBeInTheDocument();
   });

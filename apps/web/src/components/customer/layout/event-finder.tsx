@@ -12,7 +12,8 @@ import {
   manilaDateValue,
   parseCustomerPlanningContext,
 } from "@/lib/customer/planning/event-planning-context";
-import {PROVIDER_CATEGORY_OPTIONS, PROVIDER_SERVICE_TYPE_OPTIONS} from "@/lib/customer/providers/provider-catalog";
+import {PROVIDER_SERVICE_TYPE_OPTIONS} from "@/lib/customer/providers/provider-catalog";
+import type {ServiceCategoryOption} from "@/lib/service-categories/service-category-types";
 import {
   parseProviderDiscoveryFilters,
   providerDiscoveryHref,
@@ -20,7 +21,15 @@ import {
 
 const controlClass = "h-12 min-h-12 min-w-0 rounded-xl border-feasta-border-soft bg-feasta-canvas py-2 text-sm font-semibold";
 
-export function EventFinder({query, onFind}: {query: string; onFind: () => void}) {
+export function EventFinder({
+  query,
+  onFind,
+  serviceCategoryOptions = [],
+}: {
+  query: string;
+  onFind: () => void;
+  serviceCategoryOptions?: readonly ServiceCategoryOption[];
+}) {
   const router = useRouter();
   const parameters = new URLSearchParams(query);
   // A fixed lower bound keeps URL-derived defaults identical during SSR and hydration.
@@ -106,12 +115,20 @@ export function EventFinder({query, onFind}: {query: string; onFind: () => void}
           <Select
             id="event-finder-service"
             name="category"
-            defaultValue={PROVIDER_CATEGORY_OPTIONS.some((option) => option.value === category) ? category ?? "all" : "all"}
+            defaultValue={
+              serviceCategoryOptions.some(
+                (option) => option.code === category,
+              )
+                ? category ?? "all"
+                : "all"
+            }
             className={controlClass}
           >
             <option value="all">What service do you need?</option>
-            {PROVIDER_CATEGORY_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
+            {serviceCategoryOptions.map((option) => (
+              <option key={option.code} value={option.code}>
+                {option.name}
+              </option>
             ))}
           </Select>
         </div>

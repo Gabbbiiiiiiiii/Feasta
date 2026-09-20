@@ -1,8 +1,8 @@
 import {
-  PROVIDER_SERVICE_CATEGORIES,
   PROVIDER_SERVICE_TYPES,
-  type ProviderServiceCategory,
+  isServiceCategoryCode,
   type ProviderServiceType,
+  type ServiceCategoryCode,
 } from "@feasta/shared-types";
 
 import {
@@ -41,10 +41,8 @@ export function parseProviderDiscoveryFilters(
   return {
     search: search.length >= 2 ? search : "",
     serviceType,
-    category: enumValue(
+    category: serviceCategoryValue(
       first(parameters.category),
-      PROVIDER_SERVICE_CATEGORIES,
-      "all",
     ),
     cursor: providerCursorValue(first(parameters.cursor)),
     ...(eventContext ? {eventContext} : {}),
@@ -170,9 +168,7 @@ function boundedText(value: string, maximum: number): string {
   return value.trim().replace(/\s+/gu, " ").slice(0, maximum);
 }
 
-function enumValue<
-  TValue extends ProviderServiceType | ProviderServiceCategory,
->(
+function enumValue<TValue extends ProviderServiceType>(
   value: string,
   allowed: readonly TValue[],
   fallback: "all",
@@ -180,6 +176,14 @@ function enumValue<
   return (allowed as readonly string[]).includes(value)
     ? value as TValue
     : fallback;
+}
+
+function serviceCategoryValue(
+  value: string,
+): ServiceCategoryCode | "all" {
+  return isServiceCategoryCode(value)
+    ? value
+    : "all";
 }
 
 function providerCursorValue(value: string): string | null {

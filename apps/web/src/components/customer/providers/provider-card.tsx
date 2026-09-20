@@ -13,12 +13,15 @@ import Link from "next/link";
 import {ProviderFavoriteControl} from "@/components/customer/favorites/provider-favorite-control";
 import {Badge} from "@/components/ui/badge";
 import {
-  providerCategoryLabel,
   providerServiceTypeLabel,
 } from "@/lib/customer/providers/provider-catalog";
 import {providerProfileHref} from "@/lib/customer/providers/provider-query";
 import type {PublicProvider} from "@/lib/customer/providers/provider-types";
 import type {CustomerProviderAvailability} from "@/lib/customer/bookings/customer-provider-availability-client";
+import {
+  serviceCategoryName,
+  type ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-types";
 import {cn} from "@/lib/utils";
 
 export function ProviderCard({
@@ -27,9 +30,11 @@ export function ProviderCard({
   favoriteState,
   availability = null,
   availabilityLoading = false,
+  serviceCategoryOptions = [],
 }: {
   provider: PublicProvider;
   marketplaceHref?: string;
+  serviceCategoryOptions?: readonly ServiceCategoryOption[];
   favoriteState?: {
     authenticated: boolean;
     favorited: boolean;
@@ -191,7 +196,10 @@ export function ProviderCard({
             <div className="min-w-0">
               <p className="line-clamp-2 break-words text-xs font-extrabold uppercase tracking-[0.08em] text-primary-strong">
                 {category
-                  ? providerCategoryLabel(category)
+                  ? serviceCategoryName(
+                      category,
+                      serviceCategoryOptions,
+                    )
                   : providerServiceTypeLabel(
                       provider.serviceType,
                     )}

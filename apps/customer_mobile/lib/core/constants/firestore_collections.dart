@@ -2,6 +2,7 @@ abstract final class FirestoreCollections {
   static const String users = 'users';
   static const String customers = 'customers';
   static const String providers = 'providers';
+  static const String serviceCategories = 'serviceCategories';
   static const String providerVerifications =
       'providerVerifications';
 

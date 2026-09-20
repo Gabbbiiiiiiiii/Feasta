@@ -1,6 +1,6 @@
-import type {
-  ProviderServiceCategory,
+﻿import type {
   ProviderServiceType,
+  ServiceCategoryCode,
 } from "@feasta/shared-types";
 import type {
   CustomerEventContext,
@@ -10,7 +10,7 @@ import type {
 export type ProviderDiscoveryFilters = {
   search: string;
   serviceType: ProviderServiceType | "all";
-  category: ProviderServiceCategory | "all";
+  category: ServiceCategoryCode | "all";
   cursor: string | null;
   eventContext?: CustomerEventContext | null;
   planningContext?: CustomerPlanningContext | null;
@@ -21,8 +21,8 @@ export type PublicProvider = {
   businessName: string;
   description: string | null;
   serviceType: ProviderServiceType;
-  primaryCategory: ProviderServiceCategory | null;
-  categories: readonly ProviderServiceCategory[];
+  primaryCategory: ServiceCategoryCode | null;
+  categories: readonly ServiceCategoryCode[];
   location: string | null;
   serviceAreas: readonly string[];
   eventTypes: readonly string[];

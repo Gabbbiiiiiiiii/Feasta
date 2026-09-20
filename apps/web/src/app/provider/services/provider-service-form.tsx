@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   useEffect,
@@ -9,7 +9,7 @@ import {
 import {
   ADDON_PRICING_TYPES,
   type AddonPricingType,
-  type ProviderServiceCategory,
+  type ServiceCategoryCode,
 } from "@feasta/shared-types";
 
 import {
@@ -35,10 +35,15 @@ import {
   uploadProviderServiceImage,
   type ProviderServiceImage,
 } from "@/lib/provider/provider-media-client";
+import type {
+  ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-service";
 
 type ProviderServiceFormProps = {
   serviceCategories:
-    readonly ProviderServiceCategory[];
+  readonly ServiceCategoryCode[];
+  serviceCategoryOptions:
+    readonly ServiceCategoryOption[];
 
   initialService?: ProviderService;
 
@@ -48,12 +53,52 @@ type ProviderServiceFormProps = {
 
 export function ProviderServiceForm({
   serviceCategories,
+  serviceCategoryOptions,
   initialService,
   onSaved,
   onCancel,
 }: ProviderServiceFormProps) {
   const editing =
     initialService !== undefined;
+
+  const selectableServiceCategories =
+    useMemo(
+      () =>
+        serviceCategoryOptions
+          .filter(
+            (item) =>
+              item.status === "active" ||
+              (
+                editing &&
+                item.code ===
+                  initialService?.category
+              ),
+          )
+          .sort((left, right) =>
+            left.name.localeCompare(
+              right.name,
+              undefined,
+              {sensitivity: "base"},
+            ),
+          ),
+      [
+        editing,
+        initialService?.category,
+        serviceCategoryOptions,
+      ],
+    );
+
+  const activeServiceCategoryCodes =
+    useMemo(
+      () =>
+        serviceCategoryOptions
+          .filter(
+            (item) =>
+              item.status === "active",
+          )
+          .map((item) => item.code),
+      [serviceCategoryOptions],
+    );
 
   const [name, setName] =
     useState(
@@ -66,11 +111,11 @@ export function ProviderServiceForm({
     );
 
   const [category, setCategory] =
-    useState<ProviderServiceCategory>(
-      initialService?.category ??
-        serviceCategories[0] ??
-        "other_event_service",
-    );
+  useState<ServiceCategoryCode>(
+    initialService?.category ??
+      activeServiceCategoryCodes[0] ??
+      "",
+  );
 
   const [pricingType, setPricingType] =
     useState<AddonPricingType>(
@@ -174,6 +219,22 @@ export function ProviderServiceForm({
         return "Select a service category that belongs to your provider profile.";
       }
 
+      const categoryIsActive =
+        activeServiceCategoryCodes.includes(
+          category,
+        );
+
+      const keepingExistingCategory =
+        editing &&
+        category === initialService?.category;
+
+      if (
+        !categoryIsActive &&
+        !keepingExistingCategory
+      ) {
+        return "Select an active service category.";
+      }
+
       if (
         !ADDON_PRICING_TYPES.includes(
           pricingType,
@@ -202,6 +263,9 @@ export function ProviderServiceForm({
       parsedPrice,
       pricingType,
       serviceCategories,
+      activeServiceCategoryCodes,
+      editing,
+      initialService?.category,
     ]);
 
   function handleImageChange(
@@ -394,21 +458,21 @@ export function ProviderServiceForm({
             value={category}
             onChange={(event) =>
               setCategory(
-                event.target.value as
-                  ProviderServiceCategory,
+                event.target.value,
               )
             }
             className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
           >
-            {serviceCategories.map(
+            {selectableServiceCategories.map(
               (item) => (
                 <option
-                  key={item}
-                  value={item}
+                  key={item.code}
+                  value={item.code}
                 >
-                  {formatServiceCategory(
-                    item,
-                  )}
+                  {item.name}
+                  {item.status === "discontinued"
+                    ? " (Discontinued)"
+                    : ""}
                 </option>
               ),
             )}
@@ -621,17 +685,6 @@ export function ProviderServiceForm({
   );
 }
 
-function formatServiceCategory(
-  value: ProviderServiceCategory,
-): string {
-  return value
-    .replaceAll("_", " ")
-    .replace(
-      /\b\w/gu,
-      (character) =>
-        character.toUpperCase(),
-    );
-}
 
 function formatPricingType(
   value: AddonPricingType,

@@ -13,6 +13,7 @@
     "test": "pnpm build && node --test test/*.test.cjs",
     "test:rules": "firebase emulators:exec --config ../firebase.test.json --project demo-feasta-phase3 --only firestore,storage \"node --test --test-concurrency=1 test/rules/*.test.cjs\"",
     "migrate:query-policy": "pnpm build && node lib/scripts/backfill-query-policy.js",
+    "seed:service-categories": "pnpm build && node lib/scripts/seed-service-categories.js",
     "serve": "pnpm build && firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions"
   },

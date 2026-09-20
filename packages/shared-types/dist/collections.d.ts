@@ -3,6 +3,7 @@ export declare const FIRESTORE_COLLECTIONS: {
     readonly customers: "customers";
     readonly providers: "providers";
     readonly providerVerifications: "providerVerifications";
+    readonly serviceCategories: "serviceCategories";
     readonly packages: "packages";
     readonly menuItems: "menuItems";
     readonly addons: "addons";

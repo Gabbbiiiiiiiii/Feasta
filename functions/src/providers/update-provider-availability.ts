@@ -16,13 +16,15 @@ import {
   isApprovedProviderForOperations,
   providerCapacityCapabilities,
   PROVIDER_OPERATING_DAYS,
-  PROVIDER_SERVICE_CATEGORIES,
-  type ProviderServiceCategory,
   USER_ROLES,
 } from "../shared/constants.js";
 import {
   appCheckCallableOptions,
 } from "../shared/function-options.js";
+import {
+  isServiceCategoryCode,
+  type ServiceCategoryCode,
+} from "../shared/service-category-code.js";
 import {
   db,
 } from "../shared/firestore.js";
@@ -534,7 +536,7 @@ function validateSubmittedCapacity(
 function providerServiceCategories(
   provider:
     Readonly<Record<string, unknown>>,
-): ProviderServiceCategory[] {
+): ServiceCategoryCode[] {
   const values =
     Array.isArray(
       provider.serviceCategories,
@@ -547,13 +549,8 @@ function providerServiceCategories(
       values.filter(
         (
           value,
-        ): value is ProviderServiceCategory =>
-          typeof value === "string" &&
-          PROVIDER_SERVICE_CATEGORIES
-            .includes(
-              value as
-                ProviderServiceCategory,
-            ),
+        ): value is ServiceCategoryCode =>
+          isServiceCategoryCode(value),
       ),
     ),
   ];

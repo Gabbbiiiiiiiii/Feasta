@@ -6,13 +6,15 @@ import {requireRole} from "../shared/authorization.js";
 import {
   isProviderPubliclyEligible,
   parseProviderServiceType,
-  PROVIDER_SERVICE_CATEGORIES,
   PROVIDER_SERVICE_TYPES,
   USER_ROLES,
-  type ProviderServiceCategory,
 } from "../shared/constants.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {db} from "../shared/firestore.js";
+import {
+  isServiceCategoryCode,
+  type ServiceCategoryCode,
+} from "../shared/service-category-code.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {
   requireNumber,
@@ -242,15 +244,19 @@ function documentIdList(value: unknown): string[] {
 
 function authoritativeCategories(
   providerData: Readonly<Record<string, unknown>>,
-): ProviderServiceCategory[] {
+): ServiceCategoryCode[] {
   const values = Array.isArray(providerData.serviceCategories)
     ? providerData.serviceCategories
     : [providerData.providerCategory];
-  return [...new Set(values.filter(
-    (category): category is ProviderServiceCategory =>
-      typeof category === "string" &&
-      PROVIDER_SERVICE_CATEGORIES.includes(category as ProviderServiceCategory),
-  ))];
+
+  return [
+    ...new Set(
+      values.filter(
+        (category): category is ServiceCategoryCode =>
+          isServiceCategoryCode(category),
+      ),
+    ),
+  ];
 }
 
 function rejectUnknownFields(input: Record<string, unknown>): void {

@@ -1,15 +1,12 @@
 import type {Metadata} from "next";
 import Image from "next/image";
 import Link from "next/link";
+import {getActiveServiceCategoryOptions} from "@/lib/service-categories/service-category-service";
 import {
   ArrowRight,
   CalendarCheck,
-  Camera,
   Check,
-  MapPinned,
-  Mic2,
   Search,
-  Utensils,
 } from "lucide-react";
 
 import {LandingFooter} from "@/components/landing/landing-footer";
@@ -24,36 +21,6 @@ export const metadata: Metadata = {
 
 export const revalidate = 300;
 
-const serviceCategories = [
-  {
-    title: "Catering",
-    description:
-      "Explore catering providers and packages for different event needs.",
-    href: "/customer/providers?service=catering",
-    icon: Utensils,
-  },
-  {
-    title: "Venues",
-    description:
-      "Discover spaces suited for intimate gatherings and larger celebrations.",
-    href: "/customer/providers?category=venue_provider",
-    icon: MapPinned,
-  },
-  {
-    title: "Photography",
-    description:
-      "Find professionals who can document the moments that matter.",
-    href: "/customer/providers?category=photographer",
-    icon: Camera,
-  },
-  {
-    title: "Entertainment",
-    description:
-      "Explore music and entertainment options that help bring events to life.",
-    href: "/customer/providers",
-    icon: Mic2,
-  },
-] as const;
 
 const comparisonFactors = [
   {
@@ -100,7 +67,9 @@ const serviceValues = [
   },
 ] as const;
 
-export default function ServicesPage() {
+export default async function ServicesPage() {
+  const serviceCategories =
+    await getActiveServiceCategoryOptions();
   return (
     <>
       <LandingHeader />
@@ -154,23 +123,21 @@ export default function ServicesPage() {
 
             <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:mt-12 lg:grid-cols-4">
               {serviceCategories.map((category) => {
-                const Icon = category.icon;
-
                 return (
                   <Link
-                    key={category.title}
-                    href={category.href}
+                    key={category.code}
+                    href={`/customer/providers?category=${encodeURIComponent(category.code)}`}
                     className="group flex min-h-64 flex-col rounded-card border border-border bg-card p-6 shadow-card transition-all hover:-translate-y-1 hover:border-primary/40 hover:shadow-floating focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                   >
                     <span className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary-strong transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
-                      <Icon aria-hidden="true" className="size-5" />
+                      <Search aria-hidden="true" className="size-5" />
                     </span>
-                    <h3 className="mt-7 text-xl font-bold">{category.title}</h3>
+                    <h3 className="mt-7 text-xl font-bold">{category.name}</h3>
                     <p className="mt-3 flex-1 text-sm leading-6 text-muted-foreground">
-                      {category.description}
+                      Browse providers offering this service category.
                     </p>
                     <span className="mt-6 inline-flex items-center gap-2 text-sm font-bold text-primary-strong">
-                      Explore {category.title}
+                      Explore {category.name}
                       <ArrowRight
                         aria-hidden="true"
                         className="size-4 transition-transform group-hover:translate-x-1"

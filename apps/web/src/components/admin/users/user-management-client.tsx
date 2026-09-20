@@ -42,6 +42,7 @@ import type {
   AdminUserPage,
   AdminVerificationStatus,
 } from "@/lib/admin/users/admin-user-types";
+import type { ServiceCategoryOption } from "@/lib/service-categories/service-category-types";
 import { PageHeading } from "@/components/layout/page-heading";
 import { AdminUserAvatar } from "@/components/admin/users/admin-user-avatar";
 import { UserDetailsContent } from "@/components/admin/users/user-details-content";
@@ -49,6 +50,7 @@ import { cn } from "@/lib/utils";
 
 type UserManagementClientProps = {
   initialPage: AdminUserPage;
+  serviceCategoryOptions: readonly ServiceCategoryOption[];
 };
 
 type PendingAccountAction = {
@@ -129,6 +131,7 @@ function accountStatusBadgeClass(
 
 function UserManagementClient({
   initialPage,
+  serviceCategoryOptions,
 }: UserManagementClientProps) {
   const [page, setPage] =
     useState<AdminUserPage>(initialPage);
@@ -1027,6 +1030,8 @@ const confirmAccountAction =
         {selectedUser ? (
         <UserDetailsContent
           user={selectedUser}
+
+          serviceCategoryOptions={serviceCategoryOptions}
           details={selectedUserDetails}
           loading={userDetailsLoading}
           error={userDetailsError}

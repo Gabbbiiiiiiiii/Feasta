@@ -1,4 +1,5 @@
 import { type ProviderServiceType, type ProviderVerificationStatus, type VerificationDocumentStatus, type VerificationDocumentType } from "./enums.js";
+import { type ServiceCategoryCode } from "./service-category.js";
 export declare const REQUIRED_VERIFICATION_DOCUMENT_TYPES: readonly ["business_permit", "dti_registration", "bir_registration", "valid_id"];
 export declare const FOOD_SERVICE_CATEGORIES: readonly ["catering_service", "food_trays_packed_meals", "catering_event_styling", "cake_provider"];
 export declare const FOOD_PERMIT_ALTERNATIVES: readonly ["sanitary_permit", "mayors_permit"];
@@ -7,16 +8,12 @@ export interface ProviderVerificationDocumentPolicy {
     requiredOneOf: readonly (readonly VerificationDocumentType[])[];
 }
 export declare const UNVERSIONED_POLICY_VERSION: "unversioned";
-export declare const PROVIDER_SERVICE_CATEGORIES: readonly ["catering_service", "food_trays_packed_meals", "catering_event_styling", "photographer", "videographer", "photo_booth", "event_coordinator", "event_host_emcee", "sound_system", "lights_and_sounds", "singer_band", "dancer_performer", "decorator_event_stylist", "florist", "cake_provider", "gown_suit_rental", "car_rental", "venue_provider", "tables_chairs_rental", "other_event_service"];
-export type ProviderServiceCategory = (typeof PROVIDER_SERVICE_CATEGORIES)[number];
 export interface ProviderCapacityCapabilities {
     requiresGuestCapacity: boolean;
     usesStaffCapacity: boolean;
     usesEquipmentCapacity: boolean;
 }
-export declare function providerCapacityCapabilities(serviceCategories: readonly ProviderServiceCategory[]): ProviderCapacityCapabilities;
-export declare const CATERING_SERVICE_CATEGORIES: readonly ["catering_service", "food_trays_packed_meals", "catering_event_styling"];
-export declare const ADDON_SERVICE_CATEGORIES: readonly ProviderServiceCategory[];
+export declare function providerCapacityCapabilities(serviceCategories: readonly string[]): ProviderCapacityCapabilities;
 export declare const PROVIDER_EVENT_TYPES: readonly ["birthday", "wedding", "anniversary", "reunion", "corporate", "baptism", "graduation", "other"];
 export type ProviderEventType = (typeof PROVIDER_EVENT_TYPES)[number];
 export declare const PROVIDER_OPERATING_DAYS: readonly ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
@@ -92,7 +89,7 @@ export interface ProviderOnboardingInput {
     description: string;
     providerServiceType: ProviderServiceType;
     providerCategory: string;
-    serviceCategories: readonly ProviderServiceCategory[];
+    serviceCategories: readonly ServiceCategoryCode[];
     address: string;
     city: string;
     province: string;
@@ -226,5 +223,4 @@ export declare function parseProviderVerificationStatusStrict(value: unknown): P
  * provider-registration defaults.
  */
 export declare function validateProviderOnboardingInput(input: unknown): ProviderOnboardingValidationResult;
-export declare function serviceCategoryMatchesProviderType(category: ProviderServiceCategory, providerServiceType: ProviderServiceType): boolean;
 //# sourceMappingURL=provider.d.ts.map

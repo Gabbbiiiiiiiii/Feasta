@@ -1,13 +1,16 @@
 import type {ReactNode} from "react";
 
 import {CustomerMarketplaceHeader} from "@/components/customer/layout/customer-marketplace-header";
+import type {ServiceCategoryOption} from "@/lib/service-categories/service-category-types";
 import {CustomerAuthProvider} from "./customer-auth-provider";
 
 export function PublicProviderMarketplaceShell({
   authReturnTo,
+  serviceCategoryOptions = [],
   children,
 }: {
   authReturnTo: string;
+  serviceCategoryOptions?: readonly ServiceCategoryOption[];
   children: ReactNode;
 }) {
   return (
@@ -23,7 +26,10 @@ export function PublicProviderMarketplaceShell({
         Skip to main content
       </a>
 
-      <CustomerMarketplaceHeader authReturnTo={authReturnTo} />
+      <CustomerMarketplaceHeader
+        authReturnTo={authReturnTo}
+        serviceCategoryOptions={serviceCategoryOptions}
+      />
 
       <main
         id="main-content"

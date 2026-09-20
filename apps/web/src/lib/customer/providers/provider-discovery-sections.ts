@@ -1,4 +1,5 @@
-import {PROVIDER_CATEGORY_OPTIONS} from "./provider-catalog";
+import type {ServiceCategoryOption} from "@/lib/service-categories/service-category-types";
+
 import {providerDiscoveryHref} from "./provider-query";
 import type {ProviderDiscoveryFilters, ProviderDiscoveryPage, PublicProvider} from "./provider-types";
 
@@ -11,7 +12,11 @@ type ProviderDiscoverySection = {
 };
 
 /** Partition the already-authorized page, retaining every provider exactly once. */
-export function providerDiscoverySections(page: ProviderDiscoveryPage, filters: ProviderDiscoveryFilters) {
+export function providerDiscoverySections(
+  page: ProviderDiscoveryPage,
+  filters: ProviderDiscoveryFilters,
+  serviceCategoryOptions: readonly ServiceCategoryOption[] = [],
+) {
   const sections: ProviderDiscoverySection[] = [];
   let remaining = page.providers;
 
@@ -50,19 +55,38 @@ export function providerDiscoverySections(page: ProviderDiscoveryPage, filters: 
     Number.isSafeInteger(provider.favoriteCount) && (provider.favoriteCount ?? 0) > 0,
   ));
 
-  const categories = PROVIDER_CATEGORY_OPTIONS.map((category) => ({
-    ...category,
-    // The canonical category query uses providerCategory, not serviceCategories.
-    providers: remaining.filter((provider) => provider.primaryCategory === category.value),
-  })).filter((category) => category.providers.length >= 2 && category.providers.length < remaining.length)
-    .sort((left, right) => right.providers.length - left.providers.length);
+  const categories = serviceCategoryOptions
+    .filter((category) => category.status === "active")
+    .map((category) => ({
+      ...category,
+      // Keep canonical discovery grouping aligned with the existing
+      // providerCategory query until the query architecture is migrated.
+      providers: remaining.filter(
+        (provider) =>
+          provider.primaryCategory === category.code,
+      ),
+    }))
+    .filter(
+      (category) =>
+        category.providers.length >= 2 &&
+        category.providers.length < remaining.length,
+    )
+    .sort(
+      (left, right) =>
+        right.providers.length -
+        left.providers.length,
+    );
 
   for (const category of categories) {
     addSection({
-      id: `category-${category.value}`,
-      title: category.label,
+      id: `category-${category.code}`,
+      title: category.name,
       description: "Explore providers on this page in this service category.",
-      href: providerDiscoveryHref({...filters, category: category.value, cursor: null}),
+      href: providerDiscoveryHref({
+        ...filters,
+        category: category.code,
+        cursor: null,
+      }),
     }, category.providers);
   }
 

@@ -21,7 +21,6 @@ import type {
 } from "@/lib/customer/discovery/marketplace-types";
 import {
   humanizeProviderValue,
-  providerCategoryLabel,
   providerServiceTypeLabel,
 } from "@/lib/customer/providers/provider-catalog";
 import {providerProfileHref} from "@/lib/customer/providers/provider-query";
@@ -32,13 +31,19 @@ import {
   customerEventContextQuery,
   type CustomerEventContext,
 } from "@/lib/customer/planning/event-planning-context";
+import {
+  serviceCategoryName,
+  type ServiceCategoryOption,
+} from "@/lib/service-categories/service-category-types";
 
 export function PackageDetail({
   detail,
   eventContext = null,
+  serviceCategoryOptions = [],
 }: {
   detail: PublicPackageDetail;
   eventContext?: CustomerEventContext | null;
+  serviceCategoryOptions?: readonly ServiceCategoryOption[];
 }) {
   const {
     packageRecord,
@@ -383,7 +388,7 @@ export function PackageDetail({
                 {provider.categories.map((category) => (
                   <li key={category}>
                     <span className="inline-flex rounded-full border border-primary/10 bg-secondary px-3 py-1.5 text-xs font-bold text-primary-strong">
-                      {providerCategoryLabel(category)}
+                      {serviceCategoryName(category, serviceCategoryOptions)}
                     </span>
                   </li>
                 ))}

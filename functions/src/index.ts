@@ -162,6 +162,13 @@ export {deleteReview} from "./content/delete-review.js";
 export {
   moderateReview,
 } from "./content/moderate-review.js";
+export {
+  createServiceCategory,
+  deleteServiceCategory,
+  discontinueServiceCategory,
+  reactivateServiceCategory,
+  updateServiceCategory,
+} from "./admin/service-category-management.js";
 export {createComplaint} from "./content/create-complaint.js";
 export {submitBookingRequest} from "./bookings/submit-booking-request.js";
 export {

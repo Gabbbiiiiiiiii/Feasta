@@ -318,7 +318,9 @@ class ProviderModel {
           : parsedServiceType == null
           ? ''
           : domain.providerServiceTypeToJson(parsedServiceType),
-      providerCategory: data['providerCategory'] ?? 'catering_service',
+      providerCategory: data['providerCategory'] is String
+          ? (data['providerCategory'] as String).trim()
+          : '',
       businessPermitUrl: data['businessPermitUrl'],
       validIdUrl: data['validIdUrl'],
       birDocumentUrl: data['birDocumentUrl'],
