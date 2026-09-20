@@ -44,7 +44,8 @@ test("registration validates canonical optional capacity and location fields", (
 
 test("operations drafts validate service alignment and scheduling limits", () => {
   for (const contract of [
-    "serviceCategoryMatchesProviderType",
+    "requireActiveServiceCategories",
+    "requireActiveServiceCategoriesInTransaction",
     "Minimum guests cannot exceed maximum guests.",
     "maxServiceDistanceKm",
     "PROVIDER_OPERATING_DAYS",

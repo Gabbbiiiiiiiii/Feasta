@@ -770,6 +770,21 @@ service cloud.firestore {
     }
 
     // ============================================================
+    // Service category master data
+    // ============================================================
+
+    match /serviceCategories/{categoryCode} {
+      // Customers and providers need the server-owned category catalog for
+      // discovery, onboarding, profiles, and service selection.
+      allow read: if isActiveSignedInUser();
+
+      // File Maintenance mutations are trusted callable-only operations.
+      // Firebase Admin-backed Functions bypass these rules after enforcing
+      // admin authorization, validation, usage, lifecycle, and audit policy.
+      allow create, update, delete: if false;
+    }
+
+    // ============================================================
     // Provider-owned catalog
     // ============================================================
 
@@ -875,6 +890,9 @@ service cloud.firestore {
             'clientRequestId',
             'submissionFingerprint',
             'providerRequestIds',
+            'providerRequestRelationshipVersion',
+            'activeProviderRequestIds',
+            'replacesProviderRequestId',
             'providerRequestCount',
             'pendingProviderRequestCount',
             'acceptedProviderRequestCount',
@@ -941,6 +959,8 @@ service cloud.firestore {
             'confirmedRequiredProviderRequestCount',
             'completedRequiredProviderRequestCount', 'needsProviderReplacement',
             'providerRequestIds', 'providerRequestCount',
+            'providerRequestRelationshipVersion', 'activeProviderRequestIds',
+            'replacesProviderRequestId',
             'pendingProviderRequestCount', 'acceptedProviderRequestCount',
             'waitingPaymentProviderRequestCount',
             'paymentProcessingProviderRequestCount',
@@ -976,6 +996,8 @@ service cloud.firestore {
             'confirmedRequiredProviderRequestCount',
             'completedRequiredProviderRequestCount', 'needsProviderReplacement',
             'providerRequestIds', 'providerRequestCount',
+            'providerRequestRelationshipVersion', 'activeProviderRequestIds',
+            'replacesProviderRequestId',
             'pendingProviderRequestCount', 'acceptedProviderRequestCount',
             'waitingPaymentProviderRequestCount',
             'paymentProcessingProviderRequestCount',
