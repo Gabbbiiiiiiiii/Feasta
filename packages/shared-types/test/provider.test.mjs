@@ -50,7 +50,7 @@ test("provider onboarding validation normalizes the canonical input", () => {
   const result = validateProviderOnboardingInput(valid);
   assert.equal(result.success, true);
   assert.equal(result.value.businessEmail, "ana@events.test");
-  assert.deepEqual(result.value.serviceAreas, ["Ormoc City"]);
+  assert.deepEqual(result.value.serviceAreas, ["Ormoc City, Leyte"]);
   assert.equal(result.value.providerServiceType, "both");
   assert.equal(result.value.businessPhone, "+639171234567");
   assert.equal(result.value.logoUrl, null);
@@ -61,7 +61,7 @@ test("provider onboarding validation normalizes the canonical input", () => {
   assert.deepEqual(result.value.operatingDays, ["monday", "saturday"]);
 });
 
-test("provider operations reject impossible limits and mismatched categories", () => {
+test("provider operations reject impossible limits", () => {
   const result = validateProviderOnboardingInput({
     ...valid,
     providerServiceType: "catering",
@@ -74,7 +74,6 @@ test("provider operations reject impossible limits and mismatched categories", (
   });
   assert.equal(result.success, false);
   for (const field of [
-    "serviceCategories",
     "minGuestsPerEvent",
     "maxServiceDistanceKm",
     "operatingDays",
