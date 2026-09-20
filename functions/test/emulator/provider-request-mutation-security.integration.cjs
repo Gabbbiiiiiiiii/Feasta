@@ -51,6 +51,12 @@ async function run() {
     await assertParentStatusGuards(actors);
     await assertReplacementParentAllowsResponse(actors);
     await assertEventStartGuard(actors);
+    const acceptanceActors = await createActors("_acceptance");
+    await assertAllProvidersFirst(acceptanceActors);
+    await assertFailedSiblingPreserved(acceptanceActors);
+    await assertConcurrentAcceptance(acceptanceActors);
+    await assertCanonicalSetBeforeAcceptance(acceptanceActors);
+    await assertNearEventPaymentDeadline(acceptanceActors);
 
     console.log("Provider request mutation security integration passed.");
   } finally {
@@ -60,31 +66,31 @@ async function run() {
   }
 }
 
-async function createActors() {
+async function createActors(suffix = "") {
   const owner = (await createUserWithEmailAndPassword(
     auth,
-    "request.security.owner@feasta.test",
+    `request.security.owner${suffix}@feasta.test`,
     password,
   )).user;
   const otherOwner = (await createUserWithEmailAndPassword(
     auth,
-    "request.security.other@feasta.test",
+    `request.security.other${suffix}@feasta.test`,
     password,
   )).user;
   const customer = (await createUserWithEmailAndPassword(
     auth,
-    "request.security.customer@feasta.test",
+    `request.security.customer${suffix}@feasta.test`,
     password,
   )).user;
-  const providerId = "provider_photography_security";
-  const otherProviderId = "provider_styling_security";
+  const providerId = `provider_photography_security${suffix}`;
+  const otherProviderId = `provider_styling_security${suffix}`;
 
   await Promise.all([
     seedUser(owner.uid, "provider", providerId),
     seedUser(otherOwner.uid, "provider", otherProviderId),
     seedUser(customer.uid, "customer", null),
     seedProvider(owner.uid, providerId, "photographer"),
-    seedProvider(otherOwner.uid, otherProviderId, "event_stylist"),
+    seedProvider(otherOwner.uid, otherProviderId, "decorator_event_stylist"),
   ]);
 
   return {
@@ -92,6 +98,7 @@ async function createActors() {
     otherOwner,
     customer,
     providerId,
+    otherProviderId,
     customerId: customer.uid,
   };
 }
@@ -313,6 +320,129 @@ async function assertEventStartGuard(actors) {
     }),
     /FAILED_PRECONDITION/u,
   );
+}
+
+let lineupSequence = 40;
+
+async function seedLineup(actors, suffix, siblingStatus = "pending", freeSibling = false) {
+  const eventDate = futureEventDate(lineupSequence++);
+  const fixture = await seedIndependentRequest(actors, suffix, {
+    event: {eventDate}, request: {eventDate},
+  });
+  const event = (await fixture.eventReference.get()).data();
+  const first = (await fixture.requestReference.get()).data();
+  const siblingId = `${fixture.requestId}_sibling`;
+  const serviceId = `styling_${suffix}`;
+  const siblingReference = db.collection("providerRequests").doc(siblingId);
+  const percentage = freeSibling ? 0 : 25;
+  await siblingReference.set({
+    ...first, providerRequestId: siblingId, providerId: actors.otherProviderId,
+    status: siblingStatus, downPaymentPercentage: percentage,
+    downPaymentAmount: freeSibling ? 0 : 3000, remainingBalance: freeSibling ? 12000 : 9000,
+    services: [{serviceId, name: "Event Styling", category: "decorator_event_stylist",
+      price: 12000, downPaymentPercentage: percentage, downPaymentAmount: freeSibling ? 0 : 3000}],
+    expiresAt: null,
+  });
+  await fixture.eventReference.update({
+    providerRequestIds: [fixture.requestId, siblingId],
+    selectedAddOns: [...event.selectedAddOns, {
+      addonId: serviceId, providerId: actors.otherProviderId, ownerId: actors.otherOwner.uid,
+      name: "Event Styling", category: "decorator_event_stylist", price: 12000,
+      downPaymentPercentage: percentage, source: "marketplace",
+    }],
+  });
+  return {...fixture, siblingId, siblingReference};
+}
+
+async function assertAllProvidersFirst(actors) {
+  // A zero-deposit final responder must also release the held paid service.
+  const fixture = await seedLineup(actors, "held_acceptance", "pending", true);
+  const first = await callFunction("acceptProviderRequest", actors.owner, {
+    providerRequestId: fixture.requestId,
+  });
+  assert.equal(first.status, "accepted");
+  const held = (await fixture.requestReference.get()).data();
+  assert.equal(held.expiresAt, null);
+  assert.equal(held.confirmedAt, null);
+  assert.equal((await fixture.eventReference.get()).data().status, "pending_provider_approval");
+  const effects = await sideEffectCounts(fixture);
+  const replay = await callFunction("acceptProviderRequest", actors.owner, {
+    providerRequestId: fixture.requestId,
+  });
+  assert.equal(replay.accepted, false);
+  assert.deepEqual(await sideEffectCounts(fixture), effects);
+  const before = Date.now();
+  await callFunction("acceptProviderRequest", actors.otherOwner, {
+    providerRequestId: fixture.siblingId,
+  });
+  const [paid, free, event] = await Promise.all([
+    fixture.requestReference.get(), fixture.siblingReference.get(), fixture.eventReference.get(),
+  ]);
+  assert.equal(paid.data().status, "waiting_for_down_payment");
+  assert.equal(free.data().status, "confirmed");
+  assert.equal(free.data().expiresAt, null);
+  assert.equal(event.data().status, "waiting_for_down_payment");
+  assert.deepEqual(event.data().providerRequestIds, [fixture.requestId, fixture.siblingId]);
+  assert.equal(paid.data().acceptedAt.toMillis(), held.acceptedAt.toMillis());
+  const notices = await db.collection("notifications")
+    .where("relatedId", "==", fixture.siblingId).get();
+  assert.ok(notices.docs.some((notice) => notice.data().message.includes("down payments")));
+  assert.ok(paid.data().expiresAt.toMillis() >= before + 24 * 60 * 60 * 1000);
+  assert.ok(paid.data().expiresAt.toMillis() <= Date.now() + 24 * 60 * 60 * 1000);
+}
+
+async function assertFailedSiblingPreserved(actors) {
+  for (const status of ["rejected", "expired"]) {
+    const fixture = await seedLineup(actors, `held_${status}`, status);
+    await fixture.eventReference.update({status: "needs_provider_replacement", recoveryStatus: "required"});
+    const failedBefore = (await fixture.siblingReference.get()).data();
+    const result = await callFunction("acceptProviderRequest", actors.owner, {
+      providerRequestId: fixture.requestId,
+    });
+    assert.equal(result.status, "accepted");
+    assert.deepEqual((await fixture.siblingReference.get()).data(), failedBefore);
+    assert.equal((await fixture.requestReference.get()).data().expiresAt, null);
+    const event = (await fixture.eventReference.get()).data();
+    assert.equal(event.status, "needs_provider_replacement");
+    assert.deepEqual(event.providerRequestIds, [fixture.requestId, fixture.siblingId]);
+  }
+}
+
+async function assertConcurrentAcceptance(actors) {
+  const fixture = await seedLineup(actors, "concurrent_acceptance");
+  await Promise.all([
+    callFunction("acceptProviderRequest", actors.owner, {providerRequestId: fixture.requestId}),
+    callFunction("acceptProviderRequest", actors.otherOwner, {providerRequestId: fixture.siblingId}),
+  ]);
+  const first = (await fixture.requestReference.get()).data();
+  const second = (await fixture.siblingReference.get()).data();
+  assert.equal(first.status, "waiting_for_down_payment");
+  assert.equal(second.status, "waiting_for_down_payment");
+  assert.equal(first.expiresAt.toMillis(), second.expiresAt.toMillis());
+  assert.equal((await fixture.eventReference.get()).data().acceptedProviderRequestCount, 0);
+}
+
+async function assertCanonicalSetBeforeAcceptance(actors) {
+  const fixture = await seedLineup(actors, "invalid_acceptance_set");
+  await fixture.eventReference.update({providerRequestIds: [fixture.requestId]});
+  const before = await sideEffectCounts(fixture);
+  await assert.rejects(() => callFunction("acceptProviderRequest", actors.owner, {
+    providerRequestId: fixture.requestId,
+  }), /FAILED_PRECONDITION/u);
+  assert.equal((await fixture.requestReference.get()).data().status, "pending");
+  assert.deepEqual(await sideEffectCounts(fixture), before);
+}
+
+async function assertNearEventPaymentDeadline(actors) {
+  const date = futureEventDate(1);
+  const fixture = await seedIndependentRequest(actors, "near_event_deadline", {
+    event: {eventDate: date, eventTime: "00:00", eventEndTime: "01:00"},
+    request: {eventDate: date, eventTime: "00:00", eventEndTime: "01:00"},
+  });
+  await callFunction("acceptProviderRequest", actors.owner, {providerRequestId: fixture.requestId});
+  // The fixture date is noon in Manila; the event starts at midnight that day.
+  assert.equal((await fixture.requestReference.get()).data().expiresAt.toMillis(),
+    date.toMillis() - 12 * 60 * 60 * 1000);
 }
 
 async function seedIndependentRequest(actors, suffix, overrides = {}) {

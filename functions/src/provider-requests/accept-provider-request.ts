@@ -52,11 +52,10 @@ import {
   requireProviderResponseParentStatus,
   validateAcceptanceProviderRequest,
 } from "./provider-request-integrity.js";
-import {
-  calculateMainEventRequestSummary,
-} from "./recalculate-main-event-status.js";
+import {providerAcceptancePlan} from "./provider-acceptance-plan.js";
 import {
   AVAILABILITY_COUNTED_REQUEST_STATUSES,
+  manilaDateKey,
   manilaDateRange,
   validateProviderAvailability,
 } from "../provider-availability/validate-provider-availability.js";
@@ -136,14 +135,6 @@ export const acceptProviderRequest = onCall(
         .collection("mainEvents")
         .doc(mainEventId);
 
-      const paymentDeadline =
-        Timestamp.fromMillis(
-          Date.now() +
-            PAYMENT_WINDOW_HOURS *
-              60 *
-              60 *
-              1_000,
-        );
       const result = await db.runTransaction(
         async (transaction) => {
           const requestSnapshot =
@@ -279,6 +270,7 @@ export const acceptProviderRequest = onCall(
             });
 
           if (
+            authorized.status === "accepted" ||
             authorized.status ===
               "waiting_for_down_payment" ||
             authorized.status ===
@@ -362,23 +354,36 @@ export const acceptProviderRequest = onCall(
             );
           }
 
-          const nextStatus =
-            acceptanceSnapshot
-              .downPaymentAmount > 0
-              ? "waiting_for_down_payment"
-              : "confirmed";
+          const {nextStatus, summary, overrides} = providerAcceptancePlan({
+            mainEventId,
+            mainEvent: core.mainEventData,
+            mainEventStatus: core.mainEventStatus,
+            providerRequestId,
+            requests: allRequestsSnapshot.docs,
+          });
+          // Reuse the existing payment expiry field, starting only when the
+          // entire lineup is ready and never extending beyond event start.
+          const eventStart = new Date(
+            `${manilaDateKey(acceptanceSnapshot.eventDate.toDate())}` +
+            `T${acceptanceSnapshot.eventTime}:00+08:00`,
+          );
+          const paymentDeadline = Timestamp.fromMillis(Math.min(
+            acceptanceTime.getTime() + PAYMENT_WINDOW_HOURS * 60 * 60 * 1_000,
+            eventStart.getTime(),
+          ));
 
-          const summary =
-            calculateMainEventRequestSummary(
-              allRequestsSnapshot.docs,
-              core.mainEventStatus,
-              [
-                {
-                  providerRequestId,
-                  status: nextStatus,
-                },
-              ],
+          for (const override of overrides) {
+            if (override.providerRequestId === providerRequestId) continue;
+            transaction.update(
+              db.collection("providerRequests").doc(override.providerRequestId),
+              {
+                status: override.status,
+                expiresAt: override.status === "waiting_for_down_payment" ? paymentDeadline : null,
+                confirmedAt: override.status === "confirmed" ? serverTimestamp() : null,
+                updatedAt: serverTimestamp(),
+              },
             );
+          }
 
           transaction.update(
             providerRequestReference,
@@ -426,10 +431,12 @@ export const acceptProviderRequest = onCall(
                 "Provider Request Accepted",
 
               description:
-                nextStatus ===
+                nextStatus === "accepted"
+                  ? "A provider accepted the request. Waiting for the remaining required providers."
+                  : summary.status ===
                   "waiting_for_down_payment"
-                  ? "A provider accepted the request. Down payment is required."
-                  : "A provider accepted and confirmed the request.",
+                  ? "All required providers accepted. Down payment is now available."
+                  : "All required providers accepted and the booking is confirmed.",
 
               providerRequestId,
               providerId,
@@ -451,10 +458,13 @@ export const acceptProviderRequest = onCall(
                 "Provider Request Accepted",
 
               message:
-                nextStatus ===
+                nextStatus === "accepted"
+                  ? "A provider accepted your request. " +
+                    "Payment stays locked until all required providers are ready."
+                  : summary.status ===
                   "waiting_for_down_payment"
-                  ? "A provider accepted your request. Complete the required down payment."
-                  : "A provider accepted and confirmed your request.",
+                  ? "All required providers accepted. Complete the required down payments."
+                  : "All required providers accepted and your booking is confirmed.",
 
               type: "booking",
 

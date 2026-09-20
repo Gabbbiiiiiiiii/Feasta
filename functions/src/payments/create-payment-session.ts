@@ -5,6 +5,8 @@ import {
 import {
   defineSecret,
 } from "firebase-functions/params";
+import {requireActiveProviderRequest, requireProviderRequestDocuments}
+  from "../provider-requests/provider-request-relationship-integrity.js";
 import {createDurableCheckout} from "./checkout-attempts.js";
 
 import {
@@ -304,6 +306,11 @@ export async function createPaymentSessionForCustomer(
       const provider =
         providerSnapshot.data() ?? {};
 
+      const relationships = requireProviderRequestDocuments({
+        mainEventId: bookingId, mainEvent: booking, requests: providerRequestsSnapshot.docs,
+      });
+      requireActiveProviderRequest(relationships, providerRequestId);
+
       if (
         canonicalRequestLinkageReason({
           providerRequestId,
@@ -360,39 +367,6 @@ export async function createPaymentSessionForCustomer(
         );
       }
 
-      const canonicalProviderRequestIds =
-        Array.isArray(booking.providerRequestIds)
-          ? booking.providerRequestIds.filter(
-              (value): value is string =>
-                typeof value === "string" &&
-                value.trim().length > 0,
-            )
-          : [];
-
-      const queriedProviderRequestIds =
-        providerRequestsSnapshot.docs.map(
-          (document) => document.id,
-        );
-
-      const canonicalRequestSet =
-        new Set(canonicalProviderRequestIds);
-
-      if (
-        canonicalProviderRequestIds.length === 0 ||
-        canonicalRequestSet.size !==
-          canonicalProviderRequestIds.length ||
-        canonicalProviderRequestIds.length !==
-          queriedProviderRequestIds.length ||
-        queriedProviderRequestIds.some(
-          (id) => !canonicalRequestSet.has(id),
-        )
-      ) {
-        throw new HttpsError(
-          "failed-precondition",
-          "The event provider-request relationships are invalid.",
-        );
-      }
-
       const currentMainEventStatus =
         parseMainEventStatus(booking.status);
 
@@ -405,7 +379,7 @@ export async function createPaymentSessionForCustomer(
 
       const providerRequestSummary =
         calculateMainEventRequestSummary(
-          providerRequestsSnapshot.docs,
+          relationships.activeRequests,
           currentMainEventStatus,
         );
 
@@ -769,6 +743,11 @@ async function persistCheckout(
             ),
         );
 
+      const relationships = requireProviderRequestDocuments({
+        mainEventId: input.bookingId, mainEvent: booking, requests: providerRequestsSnapshot.docs,
+      });
+      requireActiveProviderRequest(relationships, input.providerRequestId);
+
       if (
         canonicalPaymentLinkageReason({
           paymentId: input.paymentId,
@@ -837,42 +816,9 @@ async function persistCheckout(
         );
       }
 
-      const canonicalProviderRequestIds =
-        Array.isArray(booking.providerRequestIds)
-          ? booking.providerRequestIds.filter(
-              (value): value is string =>
-                typeof value === "string" &&
-                value.trim().length > 0,
-            )
-          : [];
-
-      const queriedProviderRequestIds =
-        providerRequestsSnapshot.docs.map(
-          (document) => document.id,
-        );
-
-      const canonicalRequestSet =
-        new Set(canonicalProviderRequestIds);
-
-      if (
-        canonicalProviderRequestIds.length === 0 ||
-        canonicalRequestSet.size !==
-          canonicalProviderRequestIds.length ||
-        canonicalProviderRequestIds.length !==
-          queriedProviderRequestIds.length ||
-        queriedProviderRequestIds.some(
-          (id) => !canonicalRequestSet.has(id),
-        )
-      ) {
-        throw new HttpsError(
-          "failed-precondition",
-          "Payment eligibility changed while checkout was created.",
-        );
-      }
-
       const providerRequestSummary =
         calculateMainEventRequestSummary(
-          providerRequestsSnapshot.docs,
+          relationships.activeRequests,
           currentMainEventStatus,
         );
 
@@ -889,7 +835,7 @@ async function persistCheckout(
 
       const summary =
         calculateMainEventRequestSummary(
-          providerRequestsSnapshot.docs,
+          relationships.activeRequests,
           currentMainEventStatus,
           [{
             providerRequestId:
