@@ -53,6 +53,9 @@ describe("admin authentication", () => {
     ));
     expect(mocks.replace).toHaveBeenCalledWith("/admin");
     expect(screen.queryByText(/register|create.*admin/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", {name: /forgot password/i}),
+    ).not.toBeInTheDocument();
   });
 
   it("prevents duplicate submissions while authentication is pending", async () => {

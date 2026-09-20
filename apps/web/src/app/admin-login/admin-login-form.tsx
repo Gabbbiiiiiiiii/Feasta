@@ -11,7 +11,6 @@ import {
   LockKeyhole,
   Mail,
 } from "lucide-react";
-import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {FirebaseError} from "firebase/app";
 
@@ -347,19 +346,6 @@ export function AdminLoginForm({
                   {passwordError}
                 </p>
               ) : null}
-            </div>
-
-            <div className="flex justify-end">
-              <Link
-                href="/admin/forgot-password"
-                className={cn(
-                  "rounded-sm text-sm font-semibold text-primary",
-                  "underline-offset-4 hover:underline",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-                )}
-              >
-                Forgot password?
-              </Link>
             </div>
 
             <Button
