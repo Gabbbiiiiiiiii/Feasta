@@ -96,7 +96,8 @@ function ForgotPasswordContent() {
         code.includes("user-not-found") ||
         code.includes("invalid-credential")
       ) {
-        setResetState("ineligible");
+        // Do not reveal whether an account exists for the submitted email.
+        setResetState("sent");
       } else {
         setError(customerAuthenticationError(caught));
       }
@@ -127,7 +128,7 @@ function ForgotPasswordContent() {
       {resetState === "sent" ? (
         <div className="grid gap-5">
           <AuthStatus
-            message="Password reset instructions have been sent. Check your email and follow the link to reset your password."
+            message="If an account matches that email, password reset instructions will be sent. Check your email and follow the link if it arrives."
             tone="success"
           />
 

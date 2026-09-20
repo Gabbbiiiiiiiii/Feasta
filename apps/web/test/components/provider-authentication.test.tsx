@@ -932,7 +932,7 @@ describe("provider authentication and onboarding", () => {
     );
     expect(screen.getByRole("link", {name: /forgot password/i})).toHaveAttribute(
       "href",
-      "/forgot-password",
+      "/forgot-password?role=provider",
     );
     expect(screen.getByRole("link", {name: /become a provider/i})).toHaveAttribute(
       "href",
@@ -946,8 +946,12 @@ describe("provider authentication and onboarding", () => {
     render(<ProviderRegistrationPage />);
     const loginLink = screen.getByRole("link", {name: "Log in"});
     expect(loginLink).toHaveAttribute("href", "/provider-login");
-    expect(loginLink).toHaveClass("rounded-[10px]", "bg-primary", "min-h-11");
-    expect(loginLink).not.toHaveClass("rounded-pill");
+    expect(loginLink).toHaveClass(
+      "font-bold",
+      "text-primary-strong",
+      "underline",
+    );
+    expect(loginLink).not.toHaveClass("bg-primary", "rounded-pill");
     expect(loginLink.querySelector("svg")).toBeNull();
   });
 

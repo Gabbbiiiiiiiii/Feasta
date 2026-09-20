@@ -1,7 +1,19 @@
 import "@testing-library/jest-dom/vitest";
 
 import {cleanup} from "@testing-library/react";
-import {afterEach} from "vitest";
+import {afterEach, vi} from "vitest";
+
+// `server-only` is a Next.js build-time boundary marker. Component tests
+// intentionally import server-backed module graphs in Vitest, so replace
+// only the marker itself while leaving production server boundaries intact.
+vi.mock("server-only", () => ({}));
+
+// Layout component tests exercise navigation and responsive UI rather than
+// provider messaging persistence. Mock the indicator at its component
+// boundary so importing the shell does not initialize Firebase Admin.
+vi.mock("@/components/layout/provider-message-indicator", () => ({
+  ProviderMessageIndicator: () => null,
+}));
 
 afterEach(() => cleanup());
 

@@ -54,7 +54,7 @@ test("public queries remain available while catalog writes are callable-only", a
   }
   assert.match(
     firestoreRules,
-    /match \/providerRequests[\s\S]*?isApprovedProvider\(request\.resource\.data\.providerId\)/u,
+    /match \/providerRequests\/\{providerRequestId\}[\s\S]*?allow create: if false;/u,
   );
   assert.match(firestoreRules, /allow create, update, delete: if false;/u);
   assert.match(storageRules, /function providerIsApproved\(providerId\)/u);

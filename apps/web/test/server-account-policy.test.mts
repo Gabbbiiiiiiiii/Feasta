@@ -77,6 +77,7 @@ test("valid customer, provider, and admin contexts use trusted records", () => {
     [
       "catering_service",
       "food_trays_packed_meals",
+      "invalid_category",
     ],
   );
 

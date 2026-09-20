@@ -114,7 +114,6 @@ describe("provider navigation configuration", () => {
       const draftHrefs = hrefs(providerContext({verificationStatus}));
       expect(draftHrefs).toEqual([
         "/provider/packages",
-        "/provider/notifications",
         "/provider/verification",
         "/provider/account",
       ]);
@@ -127,14 +126,12 @@ describe("provider navigation configuration", () => {
       "suspended",
     ] as const) {
       expect(hrefs(providerContext({verificationStatus}))).toEqual([
-        "/provider/notifications",
         "/provider/verification",
         "/provider/account",
       ]);
     }
 
     expect(hrefs(providerContext({isActive: false}))).toEqual([
-      "/provider/notifications",
       "/provider/verification",
       "/provider/account",
     ]);
@@ -185,7 +182,6 @@ describe("provider navigation configuration", () => {
       "/provider/business-profile",
       "/provider/packages",
       "/provider/services",
-      "/provider/notifications",
       "/provider/verification",
       "/provider/status",
       "/provider/account",
@@ -413,7 +409,7 @@ describe("provider navigation rendering", () => {
     };
     document.addEventListener("click", preventDocumentNavigation);
     await user.click(within(reopened).getByRole("link", {
-      name: "Notifications",
+      name: "Messages",
     }));
     document.removeEventListener("click", preventDocumentNavigation);
     expect(screen.queryByRole("navigation", {
@@ -555,8 +551,6 @@ describe("provider navigation rendering", () => {
     });
     expect(within(desktop).getByRole("link", {name: "Messages"}))
       .toHaveAttribute("aria-current", "page");
-    expect(within(desktop).getByRole("link", {name: "Notifications"}))
-      .not.toHaveAttribute("aria-current");
 
     await user.click(screen.getByRole("button", {
       name: "More provider navigation",

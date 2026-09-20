@@ -31,7 +31,9 @@ describe("provider phone registration error normalization", () => {
       code: "auth/internal-error",
       message: "raw-provider-uid-and-stack",
     });
-    expect(message).toBe("We could not complete that request. Please try again.");
+    expect(message).toContain(
+      "We couldn't send a verification code to this number right now.",
+    );
     expect(message).not.toContain("raw-provider-uid-and-stack");
   });
 

@@ -19,8 +19,11 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () =>
     new URLSearchParams(),
 }));
+vi.mock("@/components/auth/use-current-user-email", () => ({
+  useCurrentUserEmail: () => mocks.email,
+}));
+
 vi.mock("@/lib/auth/client-session", () => ({
-  currentUserEmail: () => mocks.email,
   resendCurrentUserVerification: mocks.resend,
   refreshCurrentUserVerification: mocks.refreshVerification,
   logoutWebSession: mocks.logout,

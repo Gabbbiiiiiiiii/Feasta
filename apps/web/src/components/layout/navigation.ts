@@ -137,7 +137,13 @@ const providerServiceNavigation: NavigationLinkItem = {
   icon: Store,
 };
 
-
+const providerMessagesNavigation: NavigationLinkItem = {
+  kind: "link",
+  section: "COMMUNICATION",
+  label: "Messages",
+  href: "/provider/messages",
+  icon: MessageSquareText,
+};
 
 const providerBusinessNavigation: readonly NavigationItem[] = [
   {
@@ -268,6 +274,7 @@ export function getRoleNavigation(
     providerDashboardNavigation,
     ...providerBookingNavigation,
     ...catalogNavigation,
+    providerMessagesNavigation,
     ...providerBusinessNavigation,
     providerVerificationNavigation,
     providerAccountNavigation,

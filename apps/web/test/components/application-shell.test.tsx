@@ -241,11 +241,6 @@ describe("ApplicationShell", () => {
 
   it("keeps each role navigation configuration separate", () => {
     expect(roleNavigation.customer[0]).toMatchObject({
-      label: "Home",
-      href: "/customer",
-    });
-
-    expect(roleNavigation.customer[1]).toMatchObject({
       label: "Event Services",
       href: "/customer/providers",
     });
