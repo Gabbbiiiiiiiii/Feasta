@@ -425,7 +425,7 @@ function adminLoginError(caught: unknown): string {
       case "auth/invalid-login-credentials":
       case "auth/user-not-found":
       case "auth/wrong-password":
-        return "The credentials could not be verified for admin access.";
+        return "Incorrect email or password.";
 
       case "auth/user-disabled":
         return "This administrator account has been disabled.";

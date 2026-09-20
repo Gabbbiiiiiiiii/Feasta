@@ -92,7 +92,7 @@ describe("admin authentication", () => {
     await user.click(screen.getByRole("button", {name: /sign in as admin/i}));
     const generic = await screen.findByRole("alert");
     expect(generic).toHaveTextContent(
-      "The credentials could not be verified for admin access.",
+      "Incorrect email or password.",
     );
     expect(generic).not.toHaveTextContent(/user-not-found|firebase/i);
 
