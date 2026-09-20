@@ -9,6 +9,7 @@ abstract final class CustomerAppLocations {
   static const bookings = '/bookings';
   static const favorites = '/favorites';
   static const account = '/account';
+  static const messages = '/messages';
   static const booking = '/booking';
   static const unavailable = '/account-unavailable';
   static const profileRecovery = '/profile-recovery';

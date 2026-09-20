@@ -1,12 +1,13 @@
 import 'dart:typed_data';
 
+import '../../../../core/constants/promotion_firestore_schema.dart';
 import '../../../../shared/models/promotion_model.dart';
 import '../repositories/promotion_repository.dart';
-import '../../../../core/constants/promotion_firestore_schema.dart';
 import 'cloudinary_upload_helper.dart';
 
 class PromotionService {
-  PromotionService({PromotionRepository? repository}) : _repository = repository;
+  PromotionService({PromotionRepository? repository})
+    : _repository = repository;
 
   PromotionRepository? _repository;
 
@@ -44,7 +45,8 @@ class PromotionService {
 
     if (linkUrl != null && linkUrl.trim().isNotEmpty) {
       final parsed = Uri.tryParse(linkUrl);
-      if (parsed == null || (!parsed.hasScheme || !parsed.hasAuthority)) {
+
+      if (parsed == null || !parsed.hasScheme || !parsed.hasAuthority) {
         errors.add('Link URL must be a valid absolute URL.');
       }
     }
@@ -88,7 +90,7 @@ class PromotionService {
     String? category,
     double? discount,
     String? subtitle,
-    String status = PromotionStatus.active,
+    String status = 'active',
   }) async {
     final errors = validatePromotionPayload(
       title: title,
@@ -113,7 +115,8 @@ class PromotionService {
     if (imageBytes != null && imageBytes.isNotEmpty) {
       uploadedImageUrl = await CloudinaryUploadHelper.uploadFile(
         fileBytes: imageBytes,
-        fileName: '${title.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}_${DateTime.now().millisecondsSinceEpoch}.jpg',
+        fileName:
+            '${title.trim().toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_')}_${DateTime.now().millisecondsSinceEpoch}.jpg',
       );
     }
 
@@ -124,7 +127,9 @@ class PromotionService {
       description: description.trim(),
       imageUrl: uploadedImageUrl,
       linkUrl: linkUrl?.trim(),
-      buttonText: (buttonText ?? '').trim().isEmpty ? 'View More' : buttonText!.trim(),
+      buttonText: (buttonText ?? '').trim().isEmpty
+          ? 'View More'
+          : buttonText!.trim(),
       startDate: startDate,
       endDate: endDate,
       order: order,
@@ -149,20 +154,33 @@ class PromotionService {
     return _effectiveRepository.getPromotionById(id);
   }
 
-  Future<void> trackImpression({required String promotionId, String? providerId}) async {
-    await _effectiveRepository.recordImpression(promotionId, providerId: providerId);
+  Future<void> trackImpression({
+    required String promotionId,
+    String? providerId,
+  }) async {
+    await _effectiveRepository.recordImpression(
+      promotionId,
+      providerId: providerId,
+    );
   }
 
-  Future<void> trackClick({required String promotionId, String? providerId}) async {
+  Future<void> trackClick({
+    required String promotionId,
+    String? providerId,
+  }) async {
     await _effectiveRepository.recordClick(promotionId, providerId: providerId);
   }
 
-  Future<List<PromotionModel>> getPromotions({bool includeInactive = true}) async {
+  Future<List<PromotionModel>> getPromotions({
+    bool includeInactive = true,
+  }) async {
     return _effectiveRepository.getPromotions(includeInactive: includeInactive);
   }
 
   Stream<List<PromotionModel>> watchPromotions({bool includeInactive = true}) {
-    return _effectiveRepository.watchPromotions(includeInactive: includeInactive);
+    return _effectiveRepository.watchPromotions(
+      includeInactive: includeInactive,
+    );
   }
 
   Stream<List<PromotionModel>> watchActivePromotions() {
@@ -221,25 +239,81 @@ class PromotionService {
 
     final payload = <String, dynamic>{};
 
-    if (title != null) payload['title'] = title.trim();
-    if (subtitle != null) payload[PromotionFirestoreSchema.subtitleField] = subtitle.trim();
-    if (description != null) payload['description'] = description.trim();
-    if (uploadedImageUrl != null) payload['imageUrl'] = uploadedImageUrl;
-    if (linkUrl != null) payload['linkUrl'] = linkUrl.trim();
-    if (buttonText != null) payload['buttonText'] = buttonText.trim();
-    if (startDate != null) payload['startDate'] = startDate;
-    if (endDate != null) payload['endDate'] = endDate;
-    if (order != null) payload['order'] = order;
-    if (isSponsored != null) payload[PromotionFirestoreSchema.isSponsoredField] = isSponsored;
-    if (promotionType != null) payload[PromotionFirestoreSchema.promotionTypeField] = promotionType;
-    if (actionType != null) payload[PromotionFirestoreSchema.actionTypeField] = actionType;
-    if (providerId != null) payload[PromotionFirestoreSchema.providerIdField] = providerId;
-    if (packageId != null) payload[PromotionFirestoreSchema.packageIdField] = packageId;
-    if (category != null) payload[PromotionFirestoreSchema.categoryField] = category;
-    if (discount != null) payload[PromotionFirestoreSchema.discountField] = discount;
-    if (isActive != null) payload['isActive'] = isActive;
-    if (isFeatured != null) payload['isFeatured'] = isFeatured;
-    if (status != null) payload['status'] = status;
+    if (title != null) {
+      payload['title'] = title.trim();
+    }
+
+    if (subtitle != null) {
+      payload['subtitle'] = subtitle.trim();
+    }
+
+    if (description != null) {
+      payload['description'] = description.trim();
+    }
+
+    if (uploadedImageUrl != null) {
+      payload['imageUrl'] = uploadedImageUrl;
+    }
+
+    if (linkUrl != null) {
+      payload['linkUrl'] = linkUrl.trim();
+    }
+
+    if (buttonText != null) {
+      payload['buttonText'] = buttonText.trim();
+    }
+
+    if (startDate != null) {
+      payload['startDate'] = startDate;
+    }
+
+    if (endDate != null) {
+      payload['endDate'] = endDate;
+    }
+
+    if (order != null) {
+      payload['order'] = order;
+    }
+
+    if (isSponsored != null) {
+      payload['isSponsored'] = isSponsored;
+    }
+
+    if (promotionType != null) {
+      payload['promotionType'] = promotionType;
+    }
+
+    if (actionType != null) {
+      payload['actionType'] = actionType;
+    }
+
+    if (providerId != null) {
+      payload['providerId'] = providerId;
+    }
+
+    if (packageId != null) {
+      payload['packageId'] = packageId;
+    }
+
+    if (category != null) {
+      payload['category'] = category;
+    }
+
+    if (discount != null) {
+      payload['discount'] = discount;
+    }
+
+    if (isActive != null) {
+      payload['isActive'] = isActive;
+    }
+
+    if (isFeatured != null) {
+      payload['isFeatured'] = isFeatured;
+    }
+
+    if (status != null) {
+      payload['status'] = status;
+    }
 
     await _effectiveRepository.updatePromotion(id, payload);
   }

@@ -95,7 +95,13 @@ void main() {
                     initialValue: 'A long business name for responsive forms',
                   ),
                   const SizedBox(height: 16),
-                  SearchProviderCard(provider: providerFixture()),
+                  SearchProviderCard(
+                    provider: providerFixture(),
+                    categoryNames: const <String, String>{
+                      'catering': 'Catering',
+                      'photography': 'Photography',
+                    },
+                  ),
                   const SizedBox(height: 16),
                   PackageCard(
                     eventPackage: packageFixture(),
@@ -131,7 +137,13 @@ void main() {
             padding: const EdgeInsets.all(16),
             child: Column(
               children: [
-                SearchProviderCard(provider: providerFixture()),
+                SearchProviderCard(
+                  provider: providerFixture(),
+                  categoryNames: const <String, String>{
+                    'catering': 'Catering',
+                    'photography': 'Photography',
+                  },
+                ),
                 const SizedBox(height: 16),
                 PackageCard(
                   eventPackage: packageFixture(),

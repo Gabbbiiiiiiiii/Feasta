@@ -51,9 +51,25 @@ class BookingStatus {
   static const String waitingPayment = 'waiting_payment';
   static const String paymentProcessing = 'payment_processing';
   static const String confirmed = 'confirmed';
+
+  static const String inProgress = 'in_progress';
+
   static const String completed = 'completed';
   static const String cancelled = 'cancelled';
   static const String expired = 'expired';
+
+  static const List<String> values = [
+    pending,
+    accepted,
+    rejected,
+    waitingPayment,
+    paymentProcessing,
+    confirmed,
+    inProgress,
+    completed,
+    cancelled,
+    expired,
+  ];
 }
 
 class ProviderServiceTypes {

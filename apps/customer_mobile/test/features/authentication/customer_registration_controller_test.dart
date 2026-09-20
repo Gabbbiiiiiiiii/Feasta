@@ -50,6 +50,7 @@ void main() {
       );
 
       final errors = controller.state.errors;
+
       expect(errors.firstName, isNotNull);
       expect(errors.lastName, isNotNull);
       expect(errors.email, isNotNull);
@@ -57,37 +58,47 @@ void main() {
       expect(errors.confirmPassword, isNotNull);
       expect(errors.terms, isNotNull);
       expect(errors.privacy, isNotNull);
+
       expect(gateway.calls, 0);
     },
   );
 
   test('duplicate submit is ignored while registration is active', () async {
     final gateway = FakeRegistrationGateway(block: true);
+
     final controller = CustomerRegistrationController(gateway: gateway);
+
     final first = validSubmit(controller);
+
     await Future<void>.delayed(Duration.zero);
+
     final second = await validSubmit(controller);
 
     expect(second, isNull);
     expect(gateway.calls, 1);
+
     gateway.complete();
+
     expect(await first, isNotNull);
   });
 
   for (final entry in <CustomerRegistrationFailureKind, String>{
-    CustomerRegistrationFailureKind.emailAlreadyInUse: 'already registered',
+    CustomerRegistrationFailureKind.emailAlreadyInUse: 'account already exists',
     CustomerRegistrationFailureKind.weakPassword: _weakCredentialMessage,
     CustomerRegistrationFailureKind.invalidEmail: 'valid email',
     CustomerRegistrationFailureKind.network: 'internet connection',
     CustomerRegistrationFailureKind.tooManyRequests: 'Too many',
     CustomerRegistrationFailureKind.profileCreation: 'rolled back',
-    CustomerRegistrationFailureKind.blockedAccount: 'Contact FEASTA support',
-    CustomerRegistrationFailureKind.configuration: 'not configured',
+    CustomerRegistrationFailureKind.blockedAccount: 'contact Feasta support',
+    CustomerRegistrationFailureKind.configuration: 'temporarily unavailable',
   }.entries) {
     test('maps ${entry.key.name} to a friendly error', () async {
       final gateway = FakeRegistrationGateway(failure: entry.key);
+
       final controller = CustomerRegistrationController(gateway: gateway);
+
       expect(await validSubmit(controller), isNull);
+
       expect(controller.state.generalError, contains(entry.value));
     });
   }
@@ -96,10 +107,13 @@ void main() {
     'verification delivery failure preserves the completed account',
     () async {
       final gateway = FakeRegistrationGateway(verificationEmailSent: false);
+
       final controller = CustomerRegistrationController(gateway: gateway);
+
       final result = await validSubmit(controller);
 
       expect(result?.verificationEmailSent, isFalse);
+
       expect(controller.state.generalError, isNull);
     },
   );
@@ -108,9 +122,11 @@ void main() {
     'existing signed-in Auth identity can report profile recovery',
     () async {
       final gateway = FakeRegistrationGateway(recoveredExistingIdentity: true);
+
       final result = await validSubmit(
         CustomerRegistrationController(gateway: gateway),
       );
+
       expect(result?.recoveredExistingIdentity, isTrue);
     },
   );
@@ -118,15 +134,17 @@ void main() {
 
 Future<CustomerRegistrationResult?> validSubmit(
   CustomerRegistrationController controller,
-) => controller.submit(
-  firstName: 'Customer',
-  lastName: 'One',
-  email: 'customer@feasta.test',
-  password: _testCredential,
-  confirmPassword: _testCredential,
-  acceptedTerms: true,
-  acceptedPrivacy: true,
-);
+) {
+  return controller.submit(
+    firstName: 'Customer',
+    lastName: 'One',
+    email: 'customer@feasta.test',
+    password: _testCredential,
+    confirmPassword: _testCredential,
+    acceptedTerms: true,
+    acceptedPrivacy: true,
+  );
+}
 
 class FakeRegistrationGateway implements CustomerRegistrationGateway {
   FakeRegistrationGateway({
@@ -140,12 +158,17 @@ class FakeRegistrationGateway implements CustomerRegistrationGateway {
   final bool block;
   final bool verificationEmailSent;
   final bool recoveredExistingIdentity;
+
   final Completer<void> _release = Completer<void>();
+
   int calls = 0;
+
   CustomerRegistrationInput? lastInput;
 
   void complete() {
-    if (!_release.isCompleted) _release.complete();
+    if (!_release.isCompleted) {
+      _release.complete();
+    }
   }
 
   @override
@@ -154,8 +177,15 @@ class FakeRegistrationGateway implements CustomerRegistrationGateway {
   ) async {
     calls++;
     lastInput = input;
-    if (block) await _release.future;
-    if (failure != null) throw CustomerRegistrationException(failure!);
+
+    if (block) {
+      await _release.future;
+    }
+
+    if (failure != null) {
+      throw CustomerRegistrationException(failure!);
+    }
+
     return CustomerRegistrationResult(
       email: input.email,
       verificationEmailSent: verificationEmailSent,

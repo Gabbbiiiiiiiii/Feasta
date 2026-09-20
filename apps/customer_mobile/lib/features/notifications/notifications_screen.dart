@@ -6,10 +6,11 @@ import '../../core/constants/status_constants.dart';
 import '../../core/widgets/widgets.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
+import '../chat/chat_screen.dart';
+import '../customer/addon_payment_required_screen.dart';
 import '../customer/booking_details_screen.dart';
-import '../customer/chat_screen.dart';
 
-const Color _primary = Color(0xFFFF6333);
+const Color _primary = Color(0xFFB02F00);
 const Color _textPrimary = Color(0xFF2B211D);
 const Color _textSecondary = Color(0xFF8C817A);
 const Color _border = Color(0xFFE8E1DB);
@@ -164,8 +165,7 @@ class _NotificationInboxHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final subtitle = unreadCount == 0
         ? "You're all caught up"
-        : '$unreadCount unread update'
-              '${unreadCount == 1 ? '' : 's'}';
+        : '$unreadCount unread update${unreadCount == 1 ? '' : 's'}';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(6, 10, 16, 22),
@@ -173,6 +173,7 @@ class _NotificationInboxHeader extends StatelessWidget {
         children: [
           IconButton(
             onPressed: onBack,
+            tooltip: 'Back',
             icon: const Icon(
               Icons.arrow_back_rounded,
               color: Colors.white,
@@ -186,6 +187,8 @@ class _NotificationInboxHeader extends StatelessWidget {
               children: [
                 const Text(
                   'Notifications',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 28,
@@ -196,6 +199,8 @@ class _NotificationInboxHeader extends StatelessWidget {
                 const SizedBox(height: 5),
                 Text(
                   subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.82),
                     fontSize: 14,
@@ -205,6 +210,7 @@ class _NotificationInboxHeader extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(width: 8),
           TextButton.icon(
             onPressed: unreadCount == 0 || isMarkingAll ? null : onMarkAll,
             style: TextButton.styleFrom(
@@ -404,7 +410,7 @@ class _NotificationBody extends StatelessWidget {
   }
 }
 
-class NotificationCard extends StatelessWidget {
+class NotificationCard extends StatefulWidget {
   final String notificationId;
   final Map<String, dynamic> data;
   final FeastaRepository repository;
@@ -416,16 +422,23 @@ class NotificationCard extends StatelessWidget {
     required this.repository,
   });
 
-  String get title => data['title']?.toString() ?? 'Notification';
+  @override
+  State<NotificationCard> createState() => _NotificationCardState();
+}
 
-  String get message => data['message']?.toString() ?? '';
+class _NotificationCardState extends State<NotificationCard> {
+  bool _isOpening = false;
 
-  String get type => data['type']?.toString() ?? NotificationType.system;
+  String get title => widget.data['title']?.toString() ?? 'Notification';
 
-  bool get isRead => data['isRead'] == true;
+  String get message => widget.data['message']?.toString() ?? '';
+
+  String get type => widget.data['type']?.toString() ?? NotificationType.system;
+
+  bool get isRead => widget.data['isRead'] == true;
 
   Timestamp? get createdAt {
-    final value = data['createdAt'];
+    final value = widget.data['createdAt'];
 
     return value is Timestamp ? value : null;
   }
@@ -436,11 +449,44 @@ class NotificationCard extends StatelessWidget {
 
   String get typeLabel => _notificationTypeLabel(type);
 
+  String? get relatedCollection {
+    final value = widget.data['relatedCollection']?.toString().trim();
+
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+
+    return value;
+  }
+
+  String? get relatedId {
+    final value = widget.data['relatedId']?.toString().trim();
+
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+
+    return value;
+  }
+
+  bool get hasDestination {
+    final collection = relatedCollection;
+    final id = relatedId;
+
+    if (collection == null || id == null) {
+      return false;
+    }
+
+    return _isMainEventCollection(collection) ||
+        collection == FirestoreCollections.chatRooms ||
+        collection == FirestoreCollections.addonRequests;
+  }
+
   Future<void> _markAsRead(BuildContext context) async {
     if (isRead) return;
 
     try {
-      await repository.markNotificationAsRead(notificationId);
+      await widget.repository.markNotificationAsRead(widget.notificationId);
     } catch (_) {
       if (!context.mounted) return;
 
@@ -467,6 +513,12 @@ class NotificationCard extends StatelessWidget {
     required String bookingId,
     String? preferredCollection,
   }) async {
+    final normalizedBookingId = bookingId.trim();
+
+    if (normalizedBookingId.isEmpty) {
+      return null;
+    }
+
     final collectionsToTry = <String>[];
 
     if (preferredCollection != null &&
@@ -485,7 +537,7 @@ class NotificationCard extends StatelessWidget {
     for (final collectionName in collectionsToTry) {
       final bookingDoc = await FirebaseFirestore.instance
           .collection(collectionName)
-          .doc(bookingId)
+          .doc(normalizedBookingId)
           .get();
 
       if (bookingDoc.exists) {
@@ -497,9 +549,15 @@ class NotificationCard extends StatelessWidget {
   }
 
   Future<BookingModel?> _getBookingFromChatRoom(String chatRoomId) async {
+    final normalizedChatRoomId = chatRoomId.trim();
+
+    if (normalizedChatRoomId.isEmpty) {
+      return null;
+    }
+
     final chatRoomDoc = await FirebaseFirestore.instance
         .collection(FirestoreCollections.chatRooms)
-        .doc(chatRoomId)
+        .doc(normalizedChatRoomId)
         .get();
 
     if (!chatRoomDoc.exists) {
@@ -509,105 +567,265 @@ class NotificationCard extends StatelessWidget {
     final chatRoomData = chatRoomDoc.data();
 
     final bookingId =
-        chatRoomData?['mainEventId']?.toString() ??
-        chatRoomData?['bookingId']?.toString();
+        chatRoomData?['mainEventId']?.toString().trim() ??
+        chatRoomData?['bookingId']?.toString().trim();
 
     if (bookingId == null || bookingId.isEmpty) {
       return null;
     }
 
-    final relatedCollection = chatRoomData?['relatedCollection']?.toString();
+    final collection = chatRoomData?['relatedCollection']?.toString().trim();
 
     return _getBookingById(
       bookingId: bookingId,
-      preferredCollection: relatedCollection,
+      preferredCollection: collection,
     );
   }
 
-  Future<void> _openNotification(BuildContext context) async {
-    await _markAsRead(context);
+  Future<AddonRequestModel?> _getAddonRequest(String addonRequestId) async {
+    final normalizedId = addonRequestId.trim();
+
+    if (normalizedId.isEmpty) {
+      return null;
+    }
+
+    final doc = await FirebaseFirestore.instance
+        .collection(FirestoreCollections.addonRequests)
+        .doc(normalizedId)
+        .get();
+
+    if (!doc.exists) {
+      return null;
+    }
+
+    return AddonRequestModel.fromDoc(doc);
+  }
+
+  String _resolveAddonBookingId(AddonRequestModel request) {
+    final currentMainBookingId = request.currentMainBookingId.trim();
+
+    if (currentMainBookingId.isNotEmpty) {
+      return currentMainBookingId;
+    }
+
+    return request.bookingId.trim();
+  }
+
+  bool _shouldOpenAddonPayment(AddonRequestModel request) {
+    final requestStatus = request.status.trim().toLowerCase();
+    final paymentStatus = request.paymentStatus.trim().toLowerCase();
+
+    final accepted =
+        requestStatus == 'accepted' ||
+        requestStatus == 'waiting_payment' ||
+        requestStatus == 'waiting_for_payment' ||
+        requestStatus == 'waiting_for_down_payment';
+
+    final unpaid =
+        paymentStatus.isEmpty ||
+        paymentStatus == 'unpaid' ||
+        paymentStatus == 'pending' ||
+        paymentStatus == 'waiting_payment' ||
+        paymentStatus == 'waiting_for_payment' ||
+        paymentStatus == 'waiting_for_down_payment';
+
+    return request.paymentRequired && accepted && unpaid;
+  }
+
+  Future<void> _openBookingNotification(
+    BuildContext context, {
+    required String bookingId,
+    String? preferredCollection,
+  }) async {
+    final booking = await _getBookingById(
+      bookingId: bookingId,
+      preferredCollection: preferredCollection,
+    );
 
     if (!context.mounted) return;
 
-    final relatedCollection = data['relatedCollection']?.toString();
-
-    final relatedId = data['relatedId']?.toString();
-
-    if (relatedId == null || relatedId.isEmpty) {
+    if (booking == null) {
+      _showMessage(context, 'Booking details could not be found.');
       return;
     }
 
-    if (_isMainEventCollection(relatedCollection)) {
-      final booking = await _getBookingById(
-        bookingId: relatedId,
-        preferredCollection: relatedCollection,
-      );
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BookingDetailsScreen(bookingId: booking.id),
+      ),
+    );
+  }
 
-      if (!context.mounted) return;
+  Future<void> _openChatNotification(
+    BuildContext context, {
+    required String chatRoomId,
+  }) async {
+    final booking = await _getBookingFromChatRoom(chatRoomId);
 
-      if (booking == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Booking details could not be found.')),
-        );
-        return;
-      }
+    if (!context.mounted) return;
 
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => BookingDetailsScreen(bookingId: booking.id),
-        ),
-      );
-
+    if (booking == null) {
+      _showMessage(context, 'Chat booking could not be found.');
       return;
     }
 
-    if (relatedCollection == FirestoreCollections.chatRooms) {
-      final booking = await _getBookingFromChatRoom(relatedId);
-
-      if (!context.mounted) return;
-
-      if (booking == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Chat booking not found.')),
-        );
-        return;
-      }
-
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => ChatScreen(
-            booking: booking,
-            currentRole: booking.customerId == repository.currentUid
-                ? UserRoles.customer
-                : UserRoles.provider,
-          ),
-        ),
-      );
-
-      return;
-    }
-
-    if (relatedCollection == FirestoreCollections.addonRequests) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Add-on request details screen '
-            'will be connected next.',
-          ),
-        ),
-      );
-
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'This notification type is not '
-          'connected yet.',
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChatScreen(
+          booking: booking,
+          currentRole: booking.customerId == widget.repository.currentUid
+              ? UserRoles.customer
+              : UserRoles.provider,
         ),
       ),
     );
+  }
+
+  Future<void> _openAddonNotification(
+    BuildContext context, {
+    required String addonRequestId,
+  }) async {
+    final request = await _getAddonRequest(addonRequestId);
+
+    if (!context.mounted) return;
+
+    if (request == null) {
+      _showMessage(context, 'This add-on request could not be found.');
+      return;
+    }
+
+    final currentUid = widget.repository.currentUid.trim();
+
+    if (currentUid.isNotEmpty &&
+        request.customerId.trim().isNotEmpty &&
+        request.customerId.trim() != currentUid) {
+      _showMessage(
+        context,
+        'This add-on request is not available for this account.',
+      );
+      return;
+    }
+
+    final bookingId = _resolveAddonBookingId(request);
+
+    if (bookingId.isEmpty) {
+      _showMessage(
+        context,
+        'The booking connected to this add-on could not be found.',
+      );
+      return;
+    }
+
+    final booking = await _getBookingById(bookingId: bookingId);
+
+    if (!context.mounted) return;
+
+    if (booking == null) {
+      _showMessage(
+        context,
+        'The booking connected to this add-on could not be found.',
+      );
+      return;
+    }
+
+    if (_shouldOpenAddonPayment(request)) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => AddonPaymentRequiredScreen(
+            booking: booking,
+            addonRequest: request,
+          ),
+        ),
+      );
+
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BookingDetailsScreen(bookingId: booking.id),
+      ),
+    );
+  }
+
+  void _showMessage(BuildContext context, String message) {
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _openNotification(BuildContext context) async {
+    if (_isOpening) {
+      return;
+    }
+
+    setState(() {
+      _isOpening = true;
+    });
+
+    try {
+      await _markAsRead(context);
+
+      if (!context.mounted) return;
+
+      final collection = relatedCollection;
+      final id = relatedId;
+
+      if (collection == null || id == null) {
+        return;
+      }
+
+      if (_isMainEventCollection(collection)) {
+        await _openBookingNotification(
+          context,
+          bookingId: id,
+          preferredCollection: collection,
+        );
+
+        return;
+      }
+
+      if (collection == FirestoreCollections.chatRooms) {
+        await _openChatNotification(context, chatRoomId: id);
+
+        return;
+      }
+
+      if (collection == FirestoreCollections.addonRequests) {
+        await _openAddonNotification(context, addonRequestId: id);
+
+        return;
+      }
+
+      if (context.mounted) {
+        _showMessage(
+          context,
+          'This notification does not have a destination yet.',
+        );
+      }
+    } on FirebaseException {
+      if (context.mounted) {
+        _showMessage(
+          context,
+          'We could not open this update. Please try again.',
+        );
+      }
+    } catch (_) {
+      if (context.mounted) {
+        _showMessage(
+          context,
+          'We could not open this update. Please try again.',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isOpening = false;
+        });
+      }
+    }
   }
 
   @override
@@ -619,9 +837,11 @@ class NotificationCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(22),
       child: InkWell(
         borderRadius: BorderRadius.circular(22),
-        onTap: () {
-          _openNotification(context);
-        },
+        onTap: _isOpening
+            ? null
+            : () {
+                _openNotification(context);
+              },
         child: Container(
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
@@ -660,7 +880,15 @@ class NotificationCard extends StatelessWidget {
                             color: color.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(17),
                           ),
-                          child: Icon(icon, color: color, size: 25),
+                          child: _isOpening
+                              ? Padding(
+                                  padding: const EdgeInsets.all(14),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.4,
+                                    color: color,
+                                  ),
+                                )
+                              : Icon(icon, color: color, size: 25),
                         ),
                         const SizedBox(width: 13),
                         Expanded(
@@ -668,13 +896,16 @@ class NotificationCard extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  _NotificationTypeChip(
-                                    label: typeLabel,
-                                    color: color,
+                                  Flexible(
+                                    child: _NotificationTypeChip(
+                                      label: typeLabel,
+                                      color: color,
+                                    ),
                                   ),
-                                  const Spacer(),
-                                  if (timeText.isNotEmpty)
+                                  if (timeText.isNotEmpty) ...[
+                                    const SizedBox(width: 8),
                                     Text(
                                       timeText,
                                       style: const TextStyle(
@@ -683,6 +914,7 @@ class NotificationCard extends StatelessWidget {
                                         fontWeight: FontWeight.w700,
                                       ),
                                     ),
+                                  ],
                                 ],
                               ),
                               const SizedBox(height: 9),
@@ -718,29 +950,37 @@ class NotificationCard extends StatelessWidget {
                               const SizedBox(height: 12),
                               Row(
                                 children: [
-                                  Text(
-                                    isRead ? 'Opened' : 'Unread',
-                                    style: TextStyle(
-                                      color: isRead ? _textSecondary : color,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w900,
+                                  Flexible(
+                                    child: Text(
+                                      isRead ? 'Opened' : 'Unread',
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: isRead ? _textSecondary : color,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w900,
+                                      ),
                                     ),
                                   ),
-                                  const Spacer(),
-                                  Text(
-                                    'View',
-                                    style: TextStyle(
+                                  if (hasDestination) ...[
+                                    const SizedBox(width: 10),
+                                    const Spacer(),
+                                    Text(
+                                      _isOpening ? 'Opening' : 'View',
+                                      style: TextStyle(
+                                        color: color,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Icon(
+                                      _isOpening
+                                          ? Icons.hourglass_top_rounded
+                                          : Icons.chevron_right_rounded,
                                       color: color,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w900,
+                                      size: 20,
                                     ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Icon(
-                                    Icons.chevron_right_rounded,
-                                    color: color,
-                                    size: 20,
-                                  ),
+                                  ],
                                 ],
                               ),
                             ],
@@ -775,6 +1015,8 @@ class _NotificationTypeChip extends StatelessWidget {
       ),
       child: Text(
         label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
         style: TextStyle(
           color: color,
           fontSize: 11,
@@ -831,7 +1073,7 @@ String _notificationSectionLabel(DateTime date) {
     return 'Yesterday';
   }
 
-  if (dayDifference < 7) {
+  if (dayDifference >= 0 && dayDifference < 7) {
     return 'This week';
   }
 
@@ -847,7 +1089,7 @@ String _relativeNotificationTime(Timestamp? timestamp) {
   final now = DateTime.now();
   final difference = now.difference(date);
 
-  if (difference.inMinutes < 1) {
+  if (difference.isNegative || difference.inMinutes < 1) {
     return 'Now';
   }
 

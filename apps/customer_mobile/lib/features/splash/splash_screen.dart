@@ -36,7 +36,9 @@ class SplashScreen extends StatelessWidget {
                   const SizedBox(height: AppSpacing.xl),
                   Text(
                     'Feasta',
-                    style: AppTypography.display.copyWith(color: Colors.white),
+                    style: AppTypography.display.copyWith(
+                      color: Colors.white,
+                    ),
                   ),
                   const SizedBox(height: AppSpacing.xxl),
                   const FeastaLoadingIndicator(

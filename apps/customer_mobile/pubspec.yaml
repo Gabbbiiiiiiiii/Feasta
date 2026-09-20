@@ -31,6 +31,8 @@ dependencies:
   fl_chart: ^1.2.0
   firebase_storage: ^13.4.5
   firebase_app_check: ^0.4.5+2
+  image_picker: ^1.2.3
+  image_cropper: ^12.2.1
 
 dev_dependencies:
   flutter_test:
@@ -50,20 +52,18 @@ flutter_launcher_icons:
   android: true
   ios: true
   image_path: "assets/images/mobile_logo.png"
-  adaptive_icon_background: "#FF6333"
+  adaptive_icon_background: "#B02F00"
   adaptive_icon_foreground: "assets/images/mobile_logo.png"
   remove_alpha_ios: true
 
 flutter_native_splash:
-  color: "#FF6333"
+  color: "#B02F00"
   image: assets/images/mobile_logo.png
-
   android: true
   ios: true
   web: true
-
   fullscreen: true
 
   android_12:
-    color: "#FF6333"
+    color: "#B02F00"
     image: assets/images/mobile_logo.png

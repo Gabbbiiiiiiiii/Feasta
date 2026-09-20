@@ -5,8 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../core/constants/firestore_collections.dart';
 import '../../../../core/constants/status_constants.dart';
 import '../../../../core/firestore/query_builder.dart';
-import '../../../../core/domain/service_category.dart';
 import '../../../../shared/models/feasta_models.dart';
+import '../../../../core/domain/service_category.dart';
 import '../../../../core/helpers/provider_category_helper.dart';
 
 class FeastaRepository {
@@ -2126,6 +2126,7 @@ class FeastaRepository {
       if (snapshot.docs.length < QueryBuilder.maximumPageSize) return;
     }
   }
+
   Future<List<ServiceCategory>> getServiceCategories({
     bool activeOnly = false,
     bool forceRefresh = false,
@@ -2186,7 +2187,6 @@ class FeastaRepository {
 
     return Map<String, String>.unmodifiable(serviceCategoryNameMap(categories));
   }
-
 
   Future<ProviderModel?> getMyProviderProfile() async {
     final snapshot = await _db
@@ -2320,7 +2320,7 @@ class FeastaRepository {
             'userId': addonProviderOwnerId,
             'title': 'Event Request Under Recovery',
             'message':
-                'The main catering request connected to ${booking.customerFirstName} ${booking.customerLastName}╬ô├ç├ûs event was rejected. Your add-on request is on hold while the customer reviews other caterers.',
+                'The main catering request connected to ${booking.customerFirstName} ${booking.customerLastName}ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢s event was rejected. Your add-on request is on hold while the customer reviews other caterers.',
             'type': NotificationType.booking,
             'relatedId': doc.id,
             'relatedCollection': FirestoreCollections.addonRequests,
@@ -2474,6 +2474,17 @@ class FeastaRepository {
 
           return offers;
         });
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> myChatRooms() {
+    return _db
+        .collection(FirestoreCollections.chatRooms)
+        .where('customerId', isEqualTo: currentUid)
+        .where('isActive', isEqualTo: true)
+        .orderBy('lastMessageAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(50)
+        .snapshots();
   }
 
   Stream<DocumentSnapshot<Map<String, dynamic>>> chatRoomStream(
@@ -2691,8 +2702,8 @@ class FeastaRepository {
   }
 
   Stream<List<ProviderModel>> searchAllVerifiedProviders({
-    String? categoryCode,
     required String keyword,
+    String? categoryCode,
     required String eventType,
     required String location,
     required double? minBudget,

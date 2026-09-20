@@ -4,32 +4,41 @@ import 'package:feasta/features/customer/account/presentation/customer_account_m
 import 'package:feasta/shared/models/feasta_models.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  SharedPreferences.setMockInitialValues(<String, Object>{
+    'feasta_customer_profile_preferences_v1':
+        '{"streetAddress":"Main Street","barangay":"Barangay 1","city":"Ormoc","province":"Leyte","postalCode":"6541","preferredContactMethod":"in_app_message","useAsDefaultEventLocation":false}',
+  });
   testWidgets('shows editable fields without trusted account controls', (
     tester,
   ) async {
     final gateway = _AccountGateway();
     await tester.pumpWidget(_app(gateway: gateway));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
 
     expect(find.text('Account management'), findsOneWidget);
     expect(find.text('First name *'), findsOneWidget);
-    expect(find.text('Address'), findsOneWidget);
+    expect(find.text('Last name *'), findsOneWidget);
     expect(find.text('Role'), findsNothing);
     expect(find.text('Account status'), findsNothing);
     expect(find.text('Email verified'), findsNothing);
+    final accountList = find.byType(ListView);
+    expect(accountList, findsOneWidget);
 
-    await tester.scrollUntilVisible(
-      find.text('Save profile'),
-      200,
-      scrollable: find.byType(Scrollable).last,
-    );
-    final saveButton = find.ancestor(
-      of: find.text('Save profile'),
-      matching: find.byType(ElevatedButton),
-    );
-    tester.widget<ElevatedButton>(saveButton).onPressed!();
+    for (var attempt = 0; attempt < 10; attempt++) {
+      if (find.text('Save changes').evaluate().isNotEmpty) {
+        break;
+      }
+
+      await tester.drag(accountList, const Offset(0, -300));
+      await tester.pump();
+    }
+
+    expect(find.text('Save changes'), findsOneWidget);
+    await tester.tap(find.text('Save changes'));
     await tester.pumpAndSettle();
     expect(gateway.profileUpdates, 1);
   });
@@ -38,18 +47,20 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(_app(gateway: _AccountGateway(), blocked: true));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
 
     expect(find.text('Account unavailable'), findsOneWidget);
-    expect(find.text('Save profile'), findsNothing);
+    expect(find.text('Save changes'), findsNothing);
   });
 
   testWidgets('profile remains usable with large text scaling', (tester) async {
     await tester.pumpWidget(_app(gateway: _AccountGateway(), textScale: 2));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Profile'), findsOneWidget);
+    expect(find.text('Personal information'), findsOneWidget);
   });
 }
 

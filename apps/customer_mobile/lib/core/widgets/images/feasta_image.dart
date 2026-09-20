@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_colors.dart';
+import '../../theme/app_radius.dart';
 import '../../theme/app_sizes.dart';
 import '../../theme/app_spacing.dart';
 import '../../theme/app_typography.dart';
@@ -15,48 +16,76 @@ class FeastaImage extends StatelessWidget {
     this.width,
     this.height,
     this.fallbackLabel = 'Image unavailable',
+    this.borderRadius = AppRadius.image,
     super.key,
   });
 
   final String? imageUrl;
   final String? description;
+
   final double? aspectRatio;
+
   final BoxFit fit;
+
   final double? width;
   final double? height;
+
   final String fallbackLabel;
+
+  final double borderRadius;
 
   @override
   Widget build(BuildContext context) {
     final url = imageUrl?.trim();
-    final image = url == null || url.isEmpty
-        ? FeastaImagePlaceholder(label: fallbackLabel)
-        : Image.network(
-            url,
+
+    final Widget image;
+
+    if (url == null || url.isEmpty) {
+      image = FeastaImagePlaceholder(label: fallbackLabel);
+    } else {
+      image = Image.network(
+        url,
+        width: width,
+        height: height,
+        fit: fit,
+        excludeFromSemantics: true,
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) {
+            return child;
+          }
+
+          return FeastaSkeleton(
             width: width,
-            height: height,
-            fit: fit,
-            excludeFromSemantics: true,
-            loadingBuilder: (context, child, progress) => progress == null
-                ? child
-                : FeastaSkeleton(
-                    width: width,
-                    height: height ?? AppSizes.avatarLarge,
-                    semanticLabel: description == null
-                        ? 'Loading image'
-                        : 'Loading ${description!}',
-                  ),
-            errorBuilder: (context, error, stackTrace) =>
-                FeastaImagePlaceholder(label: fallbackLabel),
+            height: height ?? AppSizes.avatarLarge,
+            borderRadius: borderRadius,
+            semanticLabel: description == null
+                ? 'Loading image'
+                : 'Loading ${description!}',
           );
-    final constrained = SizedBox(width: width, height: height, child: image);
-    final content = aspectRatio == null
-        ? constrained
-        : AspectRatio(aspectRatio: aspectRatio!, child: constrained);
+        },
+        errorBuilder: (context, error, stackTrace) {
+          return FeastaImagePlaceholder(label: fallbackLabel);
+        },
+      );
+    }
+
+    final rounded = ClipRRect(
+      borderRadius: BorderRadius.circular(borderRadius),
+      child: SizedBox(width: width, height: height, child: image),
+    );
+
+    final Widget content;
+
+    if (aspectRatio == null) {
+      content = rounded;
+    } else {
+      content = AspectRatio(aspectRatio: aspectRatio!, child: rounded);
+    }
 
     if (description == null || description!.trim().isEmpty) {
       return ExcludeSemantics(child: content);
     }
+
     return Semantics(
       image: true,
       label: description,
@@ -97,12 +126,12 @@ class FeastaImagePlaceholder extends StatelessWidget {
                   const SizedBox(height: AppSpacing.xs),
                   Text(
                     label,
-                    style: AppTypography.caption.copyWith(
-                      color: AppColors.secondaryTextAccessible,
-                    ),
                     textAlign: TextAlign.center,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.secondaryTextAccessible,
+                    ),
                   ),
                 ],
               ),

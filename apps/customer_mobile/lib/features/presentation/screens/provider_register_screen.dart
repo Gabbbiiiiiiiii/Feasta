@@ -10,7 +10,9 @@ import '../../authentication/data/repositories/feasta_repository.dart';
 import 'email_verification_screen.dart';
 
 class ProviderRegisterScreen extends StatefulWidget {
-  const ProviderRegisterScreen({super.key});
+  const ProviderRegisterScreen({this.serviceCategoryLoader, super.key});
+
+  final Future<List<ServiceCategory>> Function()? serviceCategoryLoader;
 
   @override
   State<ProviderRegisterScreen> createState() => _ProviderRegisterScreenState();
@@ -119,8 +121,13 @@ class _ProviderRegisterScreenState extends State<ProviderRegisterScreen> {
   @override
   void initState() {
     super.initState();
-    _feastaRepository = FeastaRepository();
-    _activeServiceCategories = _feastaRepository.getActiveServiceCategories();
+    final serviceCategoryLoader = widget.serviceCategoryLoader;
+    if (serviceCategoryLoader != null) {
+      _activeServiceCategories = serviceCategoryLoader();
+    } else {
+      _feastaRepository = FeastaRepository();
+      _activeServiceCategories = _feastaRepository.getActiveServiceCategories();
+    }
   }
 
   @override

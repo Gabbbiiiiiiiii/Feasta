@@ -35,14 +35,19 @@ abstract class _FeastaButtonBase extends StatelessWidget {
   Widget build(BuildContext context) {
     final callback = isLoading ? null : onPressed;
     final effectiveLabel = semanticLabel ?? label;
+
     final reduceMotion =
         MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+
     final child = AnimatedSwitcher(
-      duration: reduceMotion ? Duration.zero : AppDurations.fast,
+      duration: reduceMotion ? AppDurations.reduced : AppDurations.fast,
+      switchInCurve: AppDurations.emphasizedCurve,
+      switchOutCurve: AppDurations.standardCurve,
       child: isLoading
           ? Row(
-              key: const ValueKey('loading'),
+              key: const ValueKey<String>('loading'),
               mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const SizedBox.square(
                   dimension: AppSizes.iconMedium,
@@ -50,13 +55,18 @@ abstract class _FeastaButtonBase extends StatelessWidget {
                 ),
                 const SizedBox(width: AppSpacing.xs),
                 Flexible(
-                  child: Text(loadingLabel, overflow: TextOverflow.fade),
+                  child: Text(
+                    loadingLabel,
+                    textAlign: TextAlign.center,
+                    overflow: TextOverflow.fade,
+                  ),
                 ),
               ],
             )
           : Row(
-              key: const ValueKey('content'),
+              key: const ValueKey<String>('content'),
               mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 if (icon != null) ...[
                   IconTheme.merge(
@@ -65,37 +75,44 @@ abstract class _FeastaButtonBase extends StatelessWidget {
                   ),
                   const SizedBox(width: AppSpacing.xs),
                 ],
-                Flexible(child: Text(label, textAlign: TextAlign.center)),
+                Flexible(
+                  child: Text(label, textAlign: TextAlign.center, maxLines: 2),
+                ),
               ],
             ),
     );
 
-    final control = switch (kind) {
-      _FeastaButtonKind.primary => ElevatedButton(
-        onPressed: callback,
-        child: child,
-      ),
-      _FeastaButtonKind.secondary => OutlinedButton(
-        onPressed: callback,
-        child: child,
-      ),
-      _FeastaButtonKind.text => TextButton(onPressed: callback, child: child),
-      _FeastaButtonKind.destructive => ElevatedButton(
-        onPressed: callback,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.error,
-          foregroundColor: AppColors.surface,
-          disabledBackgroundColor: AppColors.disabled,
-          disabledForegroundColor: AppColors.disabledForeground,
-        ),
-        child: child,
-      ),
-    };
+    final Widget control;
+
+    switch (kind) {
+      case _FeastaButtonKind.primary:
+        control = ElevatedButton(onPressed: callback, child: child);
+
+      case _FeastaButtonKind.secondary:
+        control = OutlinedButton(onPressed: callback, child: child);
+
+      case _FeastaButtonKind.text:
+        control = TextButton(onPressed: callback, child: child);
+
+      case _FeastaButtonKind.destructive:
+        control = ElevatedButton(
+          onPressed: callback,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.error,
+            foregroundColor: AppColors.surface,
+            disabledBackgroundColor: AppColors.disabled,
+            disabledForegroundColor: AppColors.disabledForeground,
+            elevation: 0,
+          ),
+          child: child,
+        );
+    }
+
     final button = Semantics(
       button: true,
       enabled: callback != null,
-      label: isLoading ? '$effectiveLabel, $loadingLabel' : effectiveLabel,
       liveRegion: isLoading,
+      label: isLoading ? '$effectiveLabel, $loadingLabel' : effectiveLabel,
       onTap: callback,
       excludeSemantics: true,
       child: ConstrainedBox(
@@ -107,9 +124,11 @@ abstract class _FeastaButtonBase extends StatelessWidget {
       ),
     );
 
-    return width == FeastaButtonWidth.full
-        ? SizedBox(width: double.infinity, child: button)
-        : button;
+    if (width == FeastaButtonWidth.full) {
+      return SizedBox(width: double.infinity, child: button);
+    }
+
+    return button;
   }
 }
 

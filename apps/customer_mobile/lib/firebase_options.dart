@@ -63,7 +63,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '668846874331',
     projectId: 'feasta-catering-system',
     storageBucket: 'feasta-catering-system.firebasestorage.app',
-    iosClientId: '668846874331-13r2vf1v0qgh4tpngfqf0va0sfkcuqtr.apps.googleusercontent.com',
+    iosClientId:
+        '668846874331-13r2vf1v0qgh4tpngfqf0va0sfkcuqtr.apps.googleusercontent.com',
     iosBundleId: 'com.example.feasta',
   );
 
@@ -73,7 +74,8 @@ class DefaultFirebaseOptions {
     messagingSenderId: '668846874331',
     projectId: 'feasta-catering-system',
     storageBucket: 'feasta-catering-system.firebasestorage.app',
-    iosClientId: '668846874331-13r2vf1v0qgh4tpngfqf0va0sfkcuqtr.apps.googleusercontent.com',
+    iosClientId:
+        '668846874331-13r2vf1v0qgh4tpngfqf0va0sfkcuqtr.apps.googleusercontent.com',
     iosBundleId: 'com.example.feasta',
   );
 
@@ -85,5 +87,4 @@ class DefaultFirebaseOptions {
     authDomain: 'feasta-catering-system.firebaseapp.com',
     storageBucket: 'feasta-catering-system.firebasestorage.app',
   );
-
 }

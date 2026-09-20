@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "668846874331-dskd09qfjjp60pf35iv2dr6emt0v7250.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.feasta",
+            "certificate_hash": "a7593533980512b9c51120a284a59a292d5e42e7"
+          }
+        },
+        {
           "client_id": "668846874331-qjrs5e47h3qt9d49fuvh9bj2e284jl6q.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

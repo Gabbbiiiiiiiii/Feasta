@@ -36,9 +36,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
   void _toggleAddon(AddonModel addon, bool value) {
     setState(() {
       if (value) {
-        selectedAddOns.add(
-          addon.toBookingMap(source: 'feasta_addon_provider'),
-        );
+        selectedAddOns.add(addon.toBookingMap(source: 'feasta_addon_provider'));
       } else {
         selectedAddOns.removeWhere((item) => item['addonId'] == addon.id);
       }
@@ -47,7 +45,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFFF6333);
+    const primary = Color(0xFFB02F00);
 
     return Scaffold(
       appBar: AppBar(
@@ -69,9 +67,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
           }
 
           if (snapshot.hasError) {
-            return Center(
-              child: Text('Unable to load add-on providers.'),
-            );
+            return Center(child: Text('Unable to load add-on providers.'));
           }
 
           final addons = snapshot.data ?? [];
@@ -83,11 +79,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      Icons.add_box_outlined,
-                      size: 80,
-                      color: Colors.grey,
-                    ),
+                    Icon(Icons.add_box_outlined, size: 80, color: Colors.grey),
                     SizedBox(height: 18),
                     Text(
                       'No external add-ons yet',
@@ -100,10 +92,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
                     Text(
                       'Verified add-on providers will appear here.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Colors.grey,
-                        height: 1.4,
-                      ),
+                      style: TextStyle(color: Colors.grey, height: 1.4),
                     ),
                   ],
                 ),
@@ -114,7 +103,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
           return ListView.separated(
             padding: const EdgeInsets.all(20),
             itemCount: addons.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 14),
+            separatorBuilder: (_, _) => const SizedBox(height: 14),
             itemBuilder: (context, index) {
               final addon = addons[index];
               final selected = _isSelected(addon);
@@ -175,7 +164,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
                               ),
                               const Spacer(),
                               Text(
-                                '₱${addon.price.toStringAsFixed(0)}',
+                                'â‚±${addon.price.toStringAsFixed(0)}',
                                 style: const TextStyle(
                                   color: primary,
                                   fontWeight: FontWeight.w900,
@@ -198,9 +187,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
         padding: const EdgeInsets.all(18),
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE5E7EB)),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
         ),
         child: SafeArea(
           child: SizedBox(

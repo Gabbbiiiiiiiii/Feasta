@@ -8,10 +8,7 @@ import '../../shared/widgets/loading_skeleton.dart';
 class RecoveryOffersScreen extends StatelessWidget {
   final BookingModel booking;
 
-  const RecoveryOffersScreen({
-    super.key,
-    required this.booking,
-  });
+  const RecoveryOffersScreen({super.key, required this.booking});
 
   Future<void> _selectOffer(
     BuildContext context,
@@ -60,158 +57,146 @@ class RecoveryOffersScreen extends StatelessWidget {
       if (!context.mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceAll('Exception: ', '')),
-        ),
+        SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
       );
     }
   }
 
-  void _showOfferDetails(
-  BuildContext context,
-  RecoveryOfferModel offer,
-) {
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(
-        top: Radius.circular(24),
+  void _showOfferDetails(BuildContext context, RecoveryOfferModel offer) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-    ),
-    builder: (context) {
-      const primary = Color(0xFFFF6333);
+      builder: (context) {
+        const primary = Color(0xFFB02F00);
 
-      return DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.82,
-        minChildSize: 0.40,
-        maxChildSize: 0.95,
-        builder: (context, scrollController) {
-          return FutureBuilder<ProviderModel?>(
-            future: FeastaRepository().getProviderById(
-              offer.offeringProviderId,
-            ),
-            builder: (context, providerSnapshot) {
-              final provider = providerSnapshot.data;
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.82,
+          minChildSize: 0.40,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) {
+            return FutureBuilder<ProviderModel?>(
+              future: FeastaRepository().getProviderById(
+                offer.offeringProviderId,
+              ),
+              builder: (context, providerSnapshot) {
+                final provider = providerSnapshot.data;
 
-              return ListView(
-                controller: scrollController,
-                padding: const EdgeInsets.all(20),
-                children: [
-                  const Text(
-                    'Recovery Offer Details',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w900,
+                return ListView(
+                  controller: scrollController,
+                  padding: const EdgeInsets.all(20),
+                  children: [
+                    const Text(
+                      'Recovery Offer Details',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-                  if (providerSnapshot.connectionState ==
-                      ConnectionState.waiting)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: FeastaSkeletonPulse(
-                        child: Column(
-                          children: [
-                            FeastaSkeletonBox(height: 96, radius: 18),
-                            SizedBox(height: 12),
-                            FeastaSkeletonBox(height: 54, radius: 14),
-                          ],
+                    if (providerSnapshot.connectionState ==
+                        ConnectionState.waiting)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: FeastaSkeletonPulse(
+                          child: Column(
+                            children: [
+                              FeastaSkeletonBox(height: 96, radius: 18),
+                              SizedBox(height: 12),
+                              FeastaSkeletonBox(height: 54, radius: 14),
+                            ],
+                          ),
+                        ),
+                      )
+                    else
+                      _ProviderProfileCard(
+                        provider: provider,
+                        fallbackBusinessName:
+                            offer.offeringProviderBusinessName,
+                      ),
+
+                    const SizedBox(height: 18),
+
+                    _DetailRow(
+                      label: 'Estimated Price',
+                      value: 'â‚±${offer.estimatedPrice.toStringAsFixed(0)}',
+                      valueColor: primary,
+                    ),
+                    _DetailRow(label: 'Offer Status', value: offer.status),
+
+                    const SizedBox(height: 18),
+                    const Text(
+                      'Provider Message',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      offer.message.isEmpty
+                          ? 'This caterer offered to handle your event.'
+                          : offer.message,
+                      style: const TextStyle(color: Colors.grey, height: 1.4),
+                    ),
+
+                    const SizedBox(height: 18),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: Colors.orange.withOpacity(0.35),
                         ),
                       ),
-                    )
-                  else
-                    _ProviderProfileCard(
-                      provider: provider,
-                      fallbackBusinessName:
-                          offer.offeringProviderBusinessName,
-                    ),
-
-                  const SizedBox(height: 18),
-
-                  _DetailRow(
-                    label: 'Estimated Price',
-                    value: '₱${offer.estimatedPrice.toStringAsFixed(0)}',
-                    valueColor: primary,
-                  ),
-                  _DetailRow(
-                    label: 'Offer Status',
-                    value: offer.status,
-                  ),
-
-                  const SizedBox(height: 18),
-                  const Text(
-                    'Provider Message',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    offer.message.isEmpty
-                        ? 'This caterer offered to handle your event.'
-                        : offer.message,
-                    style: const TextStyle(
-                      color: Colors.grey,
-                      height: 1.4,
-                    ),
-                  ),
-
-                  const SizedBox(height: 18),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.08),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: Colors.orange.withOpacity(0.35),
-                      ),
-                    ),
-                    child: const Text(
-                      'Important: If you select this caterer, they will become the new main catering provider for your booking. Your external marketplace add-ons will stay on hold until you complete the catering down payment.',
-                      style: TextStyle(
-                        height: 1.4,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 54,
-                    child: ElevatedButton(
-                      onPressed: booking.recoveryStatus ==
-                                  BookingRecoveryStatus.open ||
-                              booking.recoveryStatus ==
-                                  BookingRecoveryStatus.offerReceived
-                          ? () {
-                              Navigator.pop(context);
-                              _selectOffer(context, offer);
-                            }
-                          : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: primary,
-                        foregroundColor: Colors.white,
-                      ),
                       child: const Text(
-                        'Select This Caterer',
-                        style: TextStyle(fontWeight: FontWeight.w900),
+                        'Important: If you select this caterer, they will become the new main catering provider for your booking. Your external marketplace add-ons will stay on hold until you complete the catering down payment.',
+                        style: TextStyle(
+                          height: 1.4,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      );
-    },
-  );
-}
+
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 54,
+                      child: ElevatedButton(
+                        onPressed:
+                            booking.recoveryStatus ==
+                                    BookingRecoveryStatus.open ||
+                                booking.recoveryStatus ==
+                                    BookingRecoveryStatus.offerReceived
+                            ? () {
+                                Navigator.pop(context);
+                                _selectOffer(context, offer);
+                              }
+                            : null,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: primary,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text(
+                          'Select This Caterer',
+                          style: TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
 
   bool get canSelectOffer {
     return booking.recoveryStatus == BookingRecoveryStatus.open ||
@@ -221,7 +206,7 @@ class RecoveryOffersScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final repository = FeastaRepository();
-    const primary = Color(0xFFFF6333);
+    const primary = Color(0xFFB02F00);
 
     return Scaffold(
       appBar: AppBar(
@@ -241,9 +226,7 @@ class RecoveryOffersScreen extends StatelessWidget {
           }
 
           if (snapshot.hasError) {
-            return Center(
-              child: Text('Unable to load recovery offers.'),
-            );
+            return Center(child: Text('Unable to load recovery offers.'));
           }
 
           final offers = snapshot.data ?? [];
@@ -269,16 +252,11 @@ class RecoveryOffersScreen extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: primary.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: primary.withOpacity(0.25),
-                  ),
+                  border: Border.all(color: primary.withOpacity(0.25)),
                 ),
                 child: const Text(
                   'Compare the caterers who offered to handle your rejected booking request. Select only one caterer to continue, then complete the down payment to confirm.',
-                  style: TextStyle(
-                    height: 1.4,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: TextStyle(height: 1.4, fontWeight: FontWeight.w700),
                 ),
               ),
               const SizedBox(height: 16),
@@ -317,7 +295,7 @@ class RecoveryOffersScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 12),
                         Text(
-                          'Estimated Price: ₱${offer.estimatedPrice.toStringAsFixed(0)}',
+                          'Estimated Price: â‚±${offer.estimatedPrice.toStringAsFixed(0)}',
                           style: const TextStyle(
                             color: primary,
                             fontSize: 18,
@@ -376,11 +354,7 @@ class _DetailRow extends StatelessWidget {
   final String value;
   final Color? valueColor;
 
-  const _DetailRow({
-    required this.label,
-    required this.value,
-    this.valueColor,
-  });
+  const _DetailRow({required this.label, required this.value, this.valueColor});
 
   @override
   Widget build(BuildContext context) {
@@ -424,7 +398,7 @@ class _ProviderProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFFF6333);
+    const primary = Color(0xFFB02F00);
 
     final businessName = provider?.businessName ?? fallbackBusinessName;
     final description = provider?.description ?? '';
@@ -478,10 +452,7 @@ class _ProviderProfileCard extends StatelessWidget {
               CircleAvatar(
                 radius: 28,
                 backgroundColor: primary.withOpacity(0.12),
-                child: const Icon(
-                  Icons.storefront,
-                  color: primary,
-                ),
+                child: const Icon(Icons.storefront, color: primary),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -514,10 +485,7 @@ class _ProviderProfileCard extends StatelessWidget {
             const SizedBox(height: 14),
             Text(
               description,
-              style: const TextStyle(
-                color: Colors.grey,
-                height: 1.4,
-              ),
+              style: const TextStyle(color: Colors.grey, height: 1.4),
             ),
           ],
 
@@ -525,17 +493,11 @@ class _ProviderProfileCard extends StatelessWidget {
 
           Row(
             children: [
-              const Icon(
-                Icons.star,
-                color: Colors.amber,
-                size: 20,
-              ),
+              const Icon(Icons.star, color: Colors.amber, size: 20),
               const SizedBox(width: 5),
               Text(
                 '${ratingAverage.toStringAsFixed(1)} ($reviewCount reviews)',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                ),
+                style: const TextStyle(fontWeight: FontWeight.w800),
               ),
             ],
           ),
@@ -544,7 +506,7 @@ class _ProviderProfileCard extends StatelessWidget {
 
           if (minPrice > 0 || maxPrice > 0)
             Text(
-              'Price Range: ₱${minPrice.toStringAsFixed(0)} - ₱${maxPrice.toStringAsFixed(0)}',
+              'Price Range: â‚±${minPrice.toStringAsFixed(0)} - â‚±${maxPrice.toStringAsFixed(0)}',
               style: const TextStyle(
                 color: primary,
                 fontWeight: FontWeight.w900,
@@ -555,9 +517,7 @@ class _ProviderProfileCard extends StatelessWidget {
             const SizedBox(height: 14),
             const Text(
               'Supported Events',
-              style: TextStyle(
-                fontWeight: FontWeight.w900,
-              ),
+              style: TextStyle(fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 6),
             Wrap(
@@ -576,9 +536,7 @@ class _ProviderProfileCard extends StatelessWidget {
             const SizedBox(height: 14),
             const Text(
               'Service Areas',
-              style: TextStyle(
-                fontWeight: FontWeight.w900,
-              ),
+              style: TextStyle(fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 6),
             Wrap(
