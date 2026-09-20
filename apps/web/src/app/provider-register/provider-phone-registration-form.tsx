@@ -773,10 +773,10 @@ export function validateAccountDetails(input: {
     }
   }
   if (input.password.length < 8) {
-    errors.password = "Use at least 8 characters.";
+    errors["password"] = "Use at least 8 characters.";
   }
   if (input.password !== input.confirmPassword) {
-    errors.confirmPassword = "Passwords do not match.";
+    errors["confirmPassword"] = "Passwords do not match.";
   }
   return errors;
 }

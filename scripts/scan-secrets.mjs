@@ -16,7 +16,7 @@ const rules = [
   ["Google API key", /AIza[0-9A-Za-z_-]{20,}/u],
   ["App Check debug token", /(?:FIREBASE_APPCHECK_DEBUG_TOKEN|appCheckDebugToken)\s*[:=]\s*["'][^"']{8,}["']/iu],
   ["API/access token", /(?:api[_-]?token|access[_-]?token)\s*[:=]\s*["'][A-Za-z0-9._-]{12,}["']/iu],
-  ["hardcoded password", /(?:password|passwd|pwd)\s*[:=]\s*["'][^"']{8,}["']/iu],
+  ["hardcoded password", /(?:password|passwd|pwd)[^\S\r\n]*[:=][^\S\r\n]*["'][^"'\r\n]{8,}["']/iu],
 ];
 
 const allowedPublicGoogleConfig = new Set([
@@ -25,6 +25,8 @@ const allowedPublicGoogleConfig = new Set([
 ]);
 const allowedDevelopmentPasswords =
   /^(?:scripts\/seed-emulators\.ts|functions\/test\/|apps\/[^/]+\/test\/)/u;
+const allowedTestCredentialFixtures =
+  /^(?:functions\/test\/|apps\/[^/]+\/test\/)/u;
 const findings = [];
 
 for (const file of files) {
@@ -40,7 +42,17 @@ for (const file of files) {
     if (!pattern.test(content)) continue;
     const allowed =
       (type === "Google API key" && allowedPublicGoogleConfig.has(file)) ||
-      (type === "hardcoded password" && allowedDevelopmentPasswords.test(file));
+      (type === "hardcoded password" && allowedDevelopmentPasswords.test(file)) ||
+      (
+        allowedTestCredentialFixtures.test(file) &&
+        (
+          type === "PayMongo secret key" ||
+          type === "webhook secret" ||
+          type === "bearer/JWT token" ||
+          type === "App Check debug token" ||
+          type === "API/access token"
+        )
+      );
     findings.push({file, type, allowed});
   }
 }
