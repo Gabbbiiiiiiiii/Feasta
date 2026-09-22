@@ -201,7 +201,6 @@ function ProviderVerificationQueue({
                 })}
               >
                 <option value="all">All verification statuses</option>
-                <option value="draft">Draft</option>
                 <option value="submitted">Submitted</option>
                 <option value="under_review">Under review</option>
                 <option value="approved">Approved</option>

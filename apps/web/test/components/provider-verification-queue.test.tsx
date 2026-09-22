@@ -158,6 +158,9 @@ describe("provider verification queue", () => {
     expect(screen.getByRole("combobox", {
       name: "Verification status",
     })).toBeInTheDocument();
+    expect(screen.queryByRole("option", {
+      name: "Draft",
+    })).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", {
       name: "Provider service type",
     })).toBeInTheDocument();
