@@ -560,13 +560,14 @@ function ServiceCategoryManagementClient({
                 value={draft.name}
                 maxLength={100}
                 autoFocus
-                onChange={(event) =>
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+
                   setDraft((current) => ({
                     ...current,
-                    name:
-                      event.currentTarget.value,
-                  }))
-                }
+                    name: value,
+                  }));
+                }}
               />
             </FormField>
 
@@ -585,14 +586,16 @@ function ServiceCategoryManagementClient({
             >
               <Select
                 value={draft.serviceType}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const serviceType =
+                    event.currentTarget
+                      .value as AdminServiceCategoryServiceType;
+
                   setDraft((current) => ({
                     ...current,
-                    serviceType:
-                      event.currentTarget
-                        .value as AdminServiceCategoryServiceType,
-                  }))
-                }
+                    serviceType,
+                  }));
+                }}
               >
                 <option value="addon">
                   Add-on
