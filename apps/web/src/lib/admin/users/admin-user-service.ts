@@ -160,31 +160,52 @@ function normalizeVerificationStatus(
     case "verified":
       return "verified";
 
-    case "rejected":
-    case "resubmission_required":
-      return "rejected";
+    case "draft":
+    case "":
+      return "not_submitted";
 
     case "pending":
-    case "draft":
     case "submitted":
+      return "submitted";
+
     case "under_review":
-    case "":
-      return "pending";
+      return "under_review";
+
+    case "resubmission_required":
+      return "action_required";
+
+    case "rejected":
+      return "rejected";
+
+    case "suspended":
+      return "suspended";
 
     default:
-      return "pending";
+      return "not_submitted";
   }
 }
 
 function verificationPriority(value: unknown) {
   switch (normalizeVerificationStatus(value)) {
     case "verified":
+      return 7;
+
+    case "under_review":
+      return 6;
+
+    case "submitted":
+      return 5;
+
+    case "action_required":
+      return 4;
+
+    case "suspended":
       return 3;
 
-    case "pending":
+    case "rejected":
       return 2;
 
-    case "rejected":
+    case "not_submitted":
       return 1;
   }
 }
@@ -463,9 +484,13 @@ function normalizeFilters(
         : "all",
 
     verificationStatus:
+      filters.verificationStatus === "not_submitted" ||
+      filters.verificationStatus === "submitted" ||
+      filters.verificationStatus === "under_review" ||
       filters.verificationStatus === "verified" ||
-      filters.verificationStatus === "pending" ||
-      filters.verificationStatus === "rejected"
+      filters.verificationStatus === "action_required" ||
+      filters.verificationStatus === "rejected" ||
+      filters.verificationStatus === "suspended"
         ? filters.verificationStatus
         : "all",
 
@@ -823,10 +848,8 @@ async function queryAdminUserStatistics(): Promise<
         "verificationStatus",
         "in",
         [
-          "draft",
           "submitted",
           "under_review",
-          "resubmission_required",
         ],
       )
       .count()
@@ -1589,7 +1612,7 @@ function preferredProviderVerificationStatus(
     }
   }
 
-  return selectedStatus ?? "pending";
+  return selectedStatus ?? "not_submitted";
 }
 
 function normalizeAccessText(

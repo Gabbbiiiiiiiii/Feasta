@@ -34,9 +34,13 @@ export type ManageAdminAccountAccessResult = {
 };
 
 export type AdminVerificationStatus =
+  | "not_submitted"
+  | "submitted"
+  | "under_review"
   | "verified"
-  | "pending"
-  | "rejected";
+  | "action_required"
+  | "rejected"
+  | "suspended";
 
 export type AdminUser = {
   id: string;

@@ -103,14 +103,50 @@ function verificationBadgeClass(
     case "verified":
       return "bg-green-100 text-green-700";
 
-    case "rejected":
-      return "bg-red-100 text-red-700";
-
-    case "pending":
+    case "submitted":
+    case "under_review":
       return "bg-amber-100 text-amber-700";
 
+    case "action_required":
+      return "bg-orange-100 text-orange-700";
+
+    case "rejected":
+    case "suspended":
+      return "bg-red-100 text-red-700";
+
+    case "not_submitted":
     default:
       return "bg-slate-100 text-slate-600";
+  }
+}
+
+function verificationLabel(
+  status: AdminVerificationStatus | null,
+) {
+  switch (status) {
+    case "not_submitted":
+      return "Not Submitted";
+
+    case "submitted":
+      return "Submitted";
+
+    case "under_review":
+      return "Under Review";
+
+    case "verified":
+      return "Verified";
+
+    case "action_required":
+      return "Action Required";
+
+    case "rejected":
+      return "Rejected";
+
+    case "suspended":
+      return "Suspended";
+
+    default:
+      return "Not Submitted";
   }
 }
 
@@ -377,9 +413,13 @@ function UserManagementClient({
   ) => {
     const verificationStatus:
       AdminUserFilters["verificationStatus"] =
+      value === "not_submitted" ||
+      value === "submitted" ||
+      value === "under_review" ||
       value === "verified" ||
-      value === "pending" ||
-      value === "rejected"
+      value === "action_required" ||
+      value === "rejected" ||
+      value === "suspended"
         ? value
         : "all";
 
@@ -611,7 +651,9 @@ const confirmAccountAction =
             )}
           >
             {user.role === "provider"
-              ? user.verificationStatus ?? "pending"
+              ? verificationLabel(
+                  user.verificationStatus,
+                )
               : "Not applicable"}
           </span>
         ),
@@ -827,14 +869,26 @@ const confirmAccountAction =
                 <option value="all">
                   All Verification
                 </option>
+                <option value="not_submitted">
+                  Not Submitted
+                </option>
+                <option value="submitted">
+                  Submitted
+                </option>
+                <option value="under_review">
+                  Under Review
+                </option>
                 <option value="verified">
                   Verified
                 </option>
-                <option value="pending">
-                  Pending
+                <option value="action_required">
+                  Action Required
                 </option>
                 <option value="rejected">
                   Rejected
+                </option>
+                <option value="suspended">
+                  Suspended
                 </option>
               </select>
             </label>

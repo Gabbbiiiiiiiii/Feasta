@@ -26,6 +26,7 @@ import type {
   AdminUserBookingSummary,
   AdminUserDetails,
   AdminUserVerificationDocument,
+  AdminVerificationStatus,
 } from "@/lib/admin/users/admin-user-types";
 import {
   serviceCategoryName,
@@ -66,6 +67,58 @@ function formatDate(value: string | null) {
   return Number.isNaN(date.getTime())
     ? "Not available"
     : dateFormatter.format(date);
+}
+
+function providerVerificationLabel(
+  status: AdminVerificationStatus | null,
+) {
+  switch (status) {
+    case "submitted":
+      return "Submitted";
+
+    case "under_review":
+      return "Under Review";
+
+    case "verified":
+      return "Verified";
+
+    case "action_required":
+      return "Action Required";
+
+    case "rejected":
+      return "Rejected";
+
+    case "suspended":
+      return "Suspended";
+
+    case "not_submitted":
+    default:
+      return "Not Submitted";
+  }
+}
+
+function providerVerificationBadgeClass(
+  status: AdminVerificationStatus | null,
+) {
+  switch (status) {
+    case "verified":
+      return "bg-green-100 text-green-700";
+
+    case "submitted":
+    case "under_review":
+      return "bg-amber-100 text-amber-700";
+
+    case "action_required":
+      return "bg-orange-100 text-orange-700";
+
+    case "rejected":
+    case "suspended":
+      return "bg-red-100 text-red-700";
+
+    case "not_submitted":
+    default:
+      return "bg-slate-100 text-slate-600";
+  }
 }
 
 function VerificationValue({
@@ -596,13 +649,21 @@ function UserDetailsContent({
               </span>
 
               {user.role === "provider" ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold capitalize text-green-700">
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold",
+                    providerVerificationBadgeClass(
+                      user.verificationStatus,
+                    ),
+                  )}
+                >
                   <BadgeCheck
                     aria-hidden="true"
                     className="size-3.5"
                   />
-                  {user.verificationStatus ??
-                    "pending"}
+                  {providerVerificationLabel(
+                    user.verificationStatus,
+                  )}
                 </span>
               ) : null}
             </div>
@@ -764,9 +825,10 @@ function UserDetailsContent({
                 </DetailRow>
 
                 <DetailRow label="Verification">
-                  <span className="capitalize">
-                    {user.verificationStatus ??
-                      "pending"}
+                  <span>
+                    {providerVerificationLabel(
+                      user.verificationStatus,
+                    )}
                   </span>
                 </DetailRow>
               </dl>

@@ -107,6 +107,93 @@ describe(
   },
 );
 describe(
+  "admin provider verification status display",
+  () => {
+    const cases = [
+      ["not_submitted", "Not Submitted"],
+      ["submitted", "Submitted"],
+      ["under_review", "Under Review"],
+      ["verified", "Verified"],
+      ["action_required", "Action Required"],
+      ["rejected", "Rejected"],
+      ["suspended", "Suspended"],
+    ] as const;
+
+    it.each(cases)(
+      "renders %s as %s in provider details",
+      (verificationStatus, expectedLabel) => {
+        const providerUser: AdminUser = {
+          ...adminUser(),
+          id: "provider-status-user",
+          firstName: "Status",
+          lastName: "Provider",
+          fullName: "Status Provider",
+          initials: "SP",
+          role: "provider",
+          providerId: "provider-status-1",
+          businessName: "Status Provider Services",
+          providerServiceType: "addon",
+          providerCategory: "photography",
+          verificationStatus,
+        };
+
+        render(
+          <UserDetailsContent
+            user={providerUser}
+            serviceCategoryOptions={
+              TEST_SERVICE_CATEGORY_OPTIONS
+            }
+          />,
+        );
+
+        expect(
+          screen.getAllByText(expectedLabel).length,
+        ).toBeGreaterThanOrEqual(1);
+      },
+    );
+
+    it(
+      "does not describe a not-submitted provider as pending",
+      () => {
+        const providerUser: AdminUser = {
+          ...adminUser(),
+          id: "provider-not-submitted",
+          firstName: "New",
+          lastName: "Provider",
+          fullName: "New Provider",
+          initials: "NP",
+          role: "provider",
+          providerId: "provider-not-submitted-1",
+          businessName: "New Provider Services",
+          providerServiceType: "addon",
+          providerCategory: "photography",
+          verificationStatus: "not_submitted",
+        };
+
+        render(
+          <UserDetailsContent
+            user={providerUser}
+            serviceCategoryOptions={
+              TEST_SERVICE_CATEGORY_OPTIONS
+            }
+          />,
+        );
+
+        expect(
+          screen.getAllByText("Not Submitted").length,
+        ).toBeGreaterThanOrEqual(1);
+
+        expect(
+          screen.queryByText("pending", {
+            exact: false,
+          }),
+        ).not.toBeInTheDocument();
+      },
+    );
+  },
+);
+
+describe(
   "admin user access management",
   () => {
     beforeEach(() => {
