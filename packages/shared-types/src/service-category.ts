@@ -32,10 +32,17 @@ export function normalizeServiceCategoryCode(
     .replaceAll(/^_+|_+$/gu, "");
 }
 
+export interface ServiceCategoryCapacityCapabilities {
+  requiresGuestCapacity: boolean;
+  usesStaffCapacity: boolean;
+  usesEquipmentCapacity: boolean;
+}
+
 export interface ServiceCategoryDefinition {
   code: ServiceCategoryCode;
   name: string;
   serviceType: Exclude<ProviderServiceType, "both">;
+  capacityCapabilities?: ServiceCategoryCapacityCapabilities;
 }
 
 export interface ServiceCategoryRecord

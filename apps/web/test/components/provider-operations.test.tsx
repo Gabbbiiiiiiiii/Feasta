@@ -28,6 +28,8 @@ vi.mock("@/lib/provider/provider-media-client", () => ({
   deleteProviderOnboardingImage: vi.fn(),
 }));
 
+const PROVIDER_AGREEMENT_VERSION = "2026-09-23";
+
 const draft: ProviderOnboardingDraft = {
   ownerFirstName: "Ana",
   ownerLastName: "Reyes",
@@ -60,10 +62,8 @@ const draft: ProviderOnboardingDraft = {
   logoPublicId: null,
   coverImageUrl: null,
   coverPublicId: null,
-  acceptedTerms: false,
-  acceptedPrivacy: false,
-  termsPolicyVersion: "unversioned",
-  privacyPolicyVersion: "unversioned",
+  providerAgreementAccepted: false,
+  providerAgreementVersion: PROVIDER_AGREEMENT_VERSION,
   completedSteps: [1, 2, 3, 4],
 };
 
@@ -91,7 +91,9 @@ describe("provider operations onboarding", () => {
     expect(screen.getByRole("checkbox", {
       name: "Monday",
     })).toBeChecked();
-    expect(screen.getByText(/verified separately/iu)).toBeInTheDocument();
+    expect(screen.getByText(
+      /enter 0 if you accept same-day or rush bookings/iu,
+    )).toBeInTheDocument();
     expect(container.querySelector("form")).toHaveClass("min-w-0");
   });
 

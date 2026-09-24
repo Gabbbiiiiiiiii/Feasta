@@ -74,6 +74,8 @@ async function enterOtp(
   }
 }
 
+const PROVIDER_AGREEMENT_VERSION = "2026-09-23";
+
 describe("provider authentication and onboarding", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -964,10 +966,8 @@ describe("provider authentication and onboarding", () => {
           ownerLastName: "Lovelace",
           ownerPhone: "+639171234567",
           ownerEmail: "owner@example.test",
-          acceptedTerms: false,
-          acceptedPrivacy: false,
-          termsPolicyVersion: "unversioned",
-          privacyPolicyVersion: "unversioned",
+          providerAgreementAccepted: false,
+          providerAgreementVersion: PROVIDER_AGREEMENT_VERSION,
           completedSteps: [1],
         }}
       />,
@@ -991,10 +991,8 @@ describe("provider authentication and onboarding", () => {
           ownerLastName: "Lovelace",
           ownerPhone: "+639171234567",
           ownerEmail: "owner@example.test",
-          acceptedTerms: false,
-          acceptedPrivacy: false,
-          termsPolicyVersion: "unversioned",
-          privacyPolicyVersion: "unversioned",
+          providerAgreementAccepted: false,
+          providerAgreementVersion: PROVIDER_AGREEMENT_VERSION,
           completedSteps: [],
         }}
       />,
@@ -1026,10 +1024,8 @@ describe("provider authentication and onboarding", () => {
           ownerLastName: "Lovelace",
           ownerPhone: "+639171234567",
           ownerEmail: "owner@example.test",
-          acceptedTerms: false,
-          acceptedPrivacy: false,
-          termsPolicyVersion: "unversioned",
-          privacyPolicyVersion: "unversioned",
+          providerAgreementAccepted: false,
+          providerAgreementVersion: PROVIDER_AGREEMENT_VERSION,
           completedSteps: [],
         }}
       />,
@@ -1054,10 +1050,8 @@ describe("provider authentication and onboarding", () => {
           ownerLastName: " Lovelace ",
           ownerPhone: "0917 123 4567",
           ownerEmail: "owner@example.test",
-          acceptedTerms: false,
-          acceptedPrivacy: false,
-          termsPolicyVersion: "unversioned",
-          privacyPolicyVersion: "unversioned",
+          providerAgreementAccepted: false,
+          providerAgreementVersion: PROVIDER_AGREEMENT_VERSION,
           completedSteps: [],
         }}
       />,
@@ -1092,15 +1086,18 @@ describe("provider authentication and onboarding", () => {
           businessEmail: " SALES@FEASTA.TEST ",
           businessPhone: "0917-123-4567",
           description: "Complete catering services for celebrations.",
-          acceptedTerms: false,
-          acceptedPrivacy: false,
-          termsPolicyVersion: "unversioned",
-          privacyPolicyVersion: "unversioned",
+          providerAgreementAccepted: false,
+          providerAgreementVersion: PROVIDER_AGREEMENT_VERSION,
           completedSteps: [1],
         }}
       />,
     );
     const logo = new File(["logo"], "logo.png", {type: "image/png"});
+    await user.click(
+      screen.getByRole("radio", {
+        name: /registered business \/ organization/i,
+      }),
+    );
     await user.upload(
       screen.getByLabelText(/^Business logo$/i, {selector: "input"}),
       logo,
@@ -1113,6 +1110,7 @@ describe("provider authentication and onboarding", () => {
     ));
     expect(mocks.saveDraft).toHaveBeenCalledWith(2, {
       businessName: "FEASTA Catering",
+      businessRegistrationType: "registered_business",
       businessEmail: "sales@feasta.test",
       businessPhone: "+639171234567",
       description: "Complete catering services for celebrations.",
@@ -1142,10 +1140,8 @@ describe("provider authentication and onboarding", () => {
           businessEmail: "not-email",
           businessPhone: "+1 555 1234",
           description: "short",
-          acceptedTerms: false,
-          acceptedPrivacy: false,
-          termsPolicyVersion: "unversioned",
-          privacyPolicyVersion: "unversioned",
+          providerAgreementAccepted: false,
+          providerAgreementVersion: PROVIDER_AGREEMENT_VERSION,
           completedSteps: [1],
         }}
       />,
@@ -1207,7 +1203,9 @@ describe("provider authentication and onboarding", () => {
       }),
     ));
     expect(screen.getByRole("button", {name: /review application/i})).toBeDisabled();
-    expect(await screen.findByRole("status")).toHaveTextContent("registered securely");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "The document was uploaded successfully. Review your documents before submitting.",
+    );
   });
 
   it("shows document status and removes files only through the trusted callable", async () => {
@@ -1274,14 +1272,20 @@ describe("provider authentication and onboarding", () => {
       screen.getByLabelText(/choose file/i),
       new File(["id"], "id.png", {type: "image/png"}),
     );
-    fireEvent.submit(
-      screen.getByRole("button", {name: "Replace"}).closest("form")!,
+    const replacementFileInput = screen.getByLabelText(
+      /choose file/i,
+      {selector: "input"},
     );
+    const replacementForm = replacementFileInput.closest("form");
+
+    expect(replacementForm).not.toBeNull();
+
+    fireEvent.submit(replacementForm!);
     await waitFor(() => expect(mocks.uploadDocument).toHaveBeenCalled());
     expect(await screen.findByText("Uploading: 64%")).toBeInTheDocument();
     finishUpload();
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "replaced securely",
+      "The document was replaced successfully. Review it again before submitting.",
     );
   });
 

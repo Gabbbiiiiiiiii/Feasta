@@ -8,13 +8,14 @@ export interface ProviderVerificationDocumentPolicy {
     requiredOneOf: readonly (readonly VerificationDocumentType[])[];
 }
 export declare const UNVERSIONED_POLICY_VERSION: "unversioned";
+export declare const PROVIDER_AGREEMENT_VERSION: "2026-09-23";
 export interface ProviderCapacityCapabilities {
     requiresGuestCapacity: boolean;
     usesStaffCapacity: boolean;
     usesEquipmentCapacity: boolean;
 }
 export declare function providerCapacityCapabilities(serviceCategories: readonly string[]): ProviderCapacityCapabilities;
-export declare const PROVIDER_EVENT_TYPES: readonly ["birthday", "wedding", "anniversary", "reunion", "corporate", "baptism", "graduation", "other"];
+export declare const PROVIDER_EVENT_TYPES: readonly ["birthday", "wedding", "debut", "anniversary", "reunion", "corporate", "baptism", "graduation", "other"];
 export type ProviderEventType = (typeof PROVIDER_EVENT_TYPES)[number];
 export declare const PROVIDER_OPERATING_DAYS: readonly ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 export type ProviderOperatingDay = (typeof PROVIDER_OPERATING_DAYS)[number];
@@ -48,7 +49,9 @@ export declare const PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS: readonly [{
     readonly label: "Other supporting document";
     readonly required: false;
 }];
-export declare const PROVIDER_ONBOARDING_CLIENT_FIELDS: readonly ["ownerFirstName", "ownerLastName", "businessName", "businessEmail", "businessPhone", "description", "address", "city", "province", "locationCoordinates", "providerServiceType", "providerCategory", "serviceCategories", "serviceAreas", "maxServiceDistanceKm", "eventTypesSupported", "minGuestsPerEvent", "maxGuestsPerEvent", "guestCapacity", "acceptsMultipleEventsPerDay", "maxEventsPerDay", "availableStaffCount", "availableEquipmentCount", "operatingDays", "bookingLeadTimeDays", "unavailableDates", "logoUrl", "logoPublicId", "coverImageUrl", "coverPublicId", "idempotencyKey"];
+export declare const PROVIDER_BUSINESS_REGISTRATION_TYPES: readonly ["individual", "registered_business"];
+export type ProviderBusinessRegistrationType = (typeof PROVIDER_BUSINESS_REGISTRATION_TYPES)[number];
+export declare const PROVIDER_ONBOARDING_CLIENT_FIELDS: readonly ["ownerFirstName", "ownerLastName", "businessName", "businessRegistrationType", "businessEmail", "businessPhone", "description", "address", "city", "province", "locationCoordinates", "providerServiceType", "providerCategory", "serviceCategories", "serviceAreas", "maxServiceDistanceKm", "eventTypesSupported", "minGuestsPerEvent", "maxGuestsPerEvent", "guestCapacity", "acceptsMultipleEventsPerDay", "maxEventsPerDay", "availableStaffCount", "availableEquipmentCount", "operatingDays", "bookingLeadTimeDays", "unavailableDates", "logoUrl", "logoPublicId", "coverImageUrl", "coverPublicId", "idempotencyKey"];
 export declare const PROVIDER_SERVER_OWNED_FIELDS: readonly ["ownerId", "ownerEmail", "ownerPhone", "verificationStatus", "isActive", "isFeatured", "isSuspended", "suspendedAt", "suspendedBy", "approvedAt", "approvedBy", "reviewedAt", "reviewedBy", "rejectionReason", "resubmissionReason", "suspensionReason", "searchTokens", "ratingAverage", "reviewCount", "canonicalReviewCount", "canonicalRatingTotal", "canonicalRatingDistribution", "totalCompletedBookings", "totalViews", "favoriteCount", "createdAt", "updatedAt", "deletedAt", "deletedBy"];
 export type ProviderTimestamp = Date | string | number | {
     seconds: number;
@@ -84,6 +87,7 @@ export interface ProviderOnboardingInput {
     ownerFirstName: string;
     ownerLastName: string;
     businessName: string;
+    businessRegistrationType: ProviderBusinessRegistrationType;
     businessEmail: string;
     businessPhone: string;
     description: string;
@@ -139,6 +143,8 @@ export interface ProviderVerification {
     privacyPolicyVersion: string;
     termsAcceptedAt: ProviderTimestamp | null;
     privacyAcceptedAt: ProviderTimestamp | null;
+    providerAgreementVersion: string;
+    providerAgreementAcceptedAt: ProviderTimestamp | null;
     submittedAt: ProviderTimestamp | null;
     reviewedAt: ProviderTimestamp | null;
     reviewedBy: string | null;
@@ -171,6 +177,7 @@ export interface ProviderVerificationDocument {
 export declare function providerVerificationDocumentPolicy(input: {
     providerServiceType: ProviderServiceType;
     serviceCategories?: readonly string[];
+    businessRegistrationType?: ProviderBusinessRegistrationType;
 }): ProviderVerificationDocumentPolicy;
 export declare function verificationDocumentRequirement(documentType: VerificationDocumentType, policy: ProviderVerificationDocumentPolicy): "required" | "one_of" | "optional";
 export declare function verificationDocumentsSatisfyPolicy(documentTypes: ReadonlySet<string>, policy: ProviderVerificationDocumentPolicy): boolean;

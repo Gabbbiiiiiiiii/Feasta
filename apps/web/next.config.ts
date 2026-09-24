@@ -43,6 +43,8 @@ const scriptSrc = [
   "https://www.gstatic.com",
   "https://apis.google.com",
   "https://accounts.google.com",
+  "https://maps.googleapis.com",
+  "https://maps.gstatic.com",
 ];
 
 const connectSrc = [
@@ -103,7 +105,7 @@ const contentSecurityPolicy = [
 
   `script-src ${scriptSrc.join(" ")}`,
 
-  "style-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
 
   [
     "img-src",
@@ -114,10 +116,11 @@ const contentSecurityPolicy = [
     "https://res.cloudinary.com",
     "https://*.googleusercontent.com",
     "https://*.googleapis.com",
+    "https://maps.gstatic.com",
     "https://firebasestorage.googleapis.com",
   ].join(" "),
 
-  "font-src 'self' data:",
+  "font-src 'self' data: https://fonts.gstatic.com",
 
   `connect-src ${connectSrc.join(" ")}`,
 

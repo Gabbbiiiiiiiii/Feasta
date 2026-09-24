@@ -1,6 +1,8 @@
 import {HttpsError} from "firebase-functions/v2/https";
 
 import {
+  providerCapacityCapabilities,
+  type ProviderCapacityCapabilities,
   type ProviderServiceType,
 } from "./constants.js";
 import {db} from "./firestore.js";
@@ -21,9 +23,42 @@ type MasterServiceCategory = {
   code: ServiceCategoryCode;
   name: string;
   serviceType: Exclude<ProviderServiceType, "both">;
+  capacityCapabilities?: ProviderCapacityCapabilities;
   status: "active" | "discontinued";
 };
 
+
+function parseCapacityCapabilities(
+  value: unknown,
+): ProviderCapacityCapabilities | undefined {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    return undefined;
+  }
+
+  const capabilities =
+    value as Record<string, unknown>;
+
+  if (
+    typeof capabilities.requiresGuestCapacity !== "boolean" ||
+    typeof capabilities.usesStaffCapacity !== "boolean" ||
+    typeof capabilities.usesEquipmentCapacity !== "boolean"
+  ) {
+    return undefined;
+  }
+
+  return {
+    requiresGuestCapacity:
+      capabilities.requiresGuestCapacity,
+    usesStaffCapacity:
+      capabilities.usesStaffCapacity,
+    usesEquipmentCapacity:
+      capabilities.usesEquipmentCapacity,
+  };
+}
 
 function parseMasterServiceCategory(
   id: string,
@@ -47,10 +82,18 @@ function parseMasterServiceCategory(
     return null;
   }
 
+  const capacityCapabilities =
+    parseCapacityCapabilities(
+      data.capacityCapabilities,
+    );
+
   return {
     code,
     name: name.trim(),
     serviceType,
+    ...(capacityCapabilities
+      ? {capacityCapabilities}
+      : {}),
     status,
   };
 }
@@ -61,6 +104,45 @@ function categoryMatchesProviderType(
 ): boolean {
   return providerServiceType === "both" ||
     providerServiceType === categoryType;
+}
+
+function resolvedCategoryCapacityCapabilities(
+  category: MasterServiceCategory,
+): ProviderCapacityCapabilities {
+  return category.capacityCapabilities ??
+    providerCapacityCapabilities([
+      category.code,
+    ]);
+}
+
+function unionCapacityCapabilities(
+  categories: readonly MasterServiceCategory[],
+): ProviderCapacityCapabilities {
+  return categories.reduce<ProviderCapacityCapabilities>(
+    (combined, category) => {
+      const current =
+        resolvedCategoryCapacityCapabilities(
+          category,
+        );
+
+      return {
+        requiresGuestCapacity:
+          combined.requiresGuestCapacity ||
+          current.requiresGuestCapacity,
+        usesStaffCapacity:
+          combined.usesStaffCapacity ||
+          current.usesStaffCapacity,
+        usesEquipmentCapacity:
+          combined.usesEquipmentCapacity ||
+          current.usesEquipmentCapacity,
+      };
+    },
+    {
+      requiresGuestCapacity: false,
+      usesStaffCapacity: false,
+      usesEquipmentCapacity: false,
+    },
+  );
 }
 
 export async function requireActiveServiceCategories(
@@ -262,6 +344,131 @@ export async function requireActiveServiceCategoriesInTransaction(
   }
 
   return categories;
+}
+
+export async function resolveServiceCategoryCapacityCapabilities(
+  values: unknown,
+  providerServiceType: ProviderServiceType,
+  options: {
+    required?: boolean;
+    field?: string;
+  } = {},
+): Promise<ProviderCapacityCapabilities> {
+  const categories =
+    await requireActiveServiceCategories(
+      values,
+      providerServiceType,
+      options,
+    );
+
+  if (categories.length === 0) {
+    return {
+      requiresGuestCapacity: false,
+      usesStaffCapacity: false,
+      usesEquipmentCapacity: false,
+    };
+  }
+
+  const references = categories.map((code) =>
+    db.collection(
+      SERVICE_CATEGORIES_COLLECTION,
+    ).doc(code)
+  );
+
+  const snapshots = await db.getAll(
+    ...references,
+  );
+
+  const resolved = snapshots.map(
+    (snapshot, index) => {
+      const code = categories[index];
+
+      if (!code) {
+        throw new HttpsError(
+          "internal",
+          "The service category lookup returned an incomplete result.",
+        );
+      }
+
+      const category = snapshot.exists
+        ? parseMasterServiceCategory(
+            snapshot.id,
+            snapshot.data(),
+          )
+        : null;
+
+      if (!category) {
+        throw new HttpsError(
+          "internal",
+          `The validated service category "${code}" could not be resolved.`,
+        );
+      }
+
+      return category;
+    },
+  );
+
+  return unionCapacityCapabilities(
+    resolved,
+  );
+}
+
+export async function resolveServiceCategoryCapacityCapabilitiesInTransaction(
+  transaction: FirebaseFirestore.Transaction,
+  values: readonly ServiceCategoryCode[],
+  providerServiceType: ProviderServiceType,
+  field = "serviceCategories",
+): Promise<ProviderCapacityCapabilities> {
+  const categories =
+    await requireActiveServiceCategoriesInTransaction(
+      transaction,
+      values,
+      providerServiceType,
+      field,
+    );
+
+  const references = categories.map((code) =>
+    db.collection(
+      SERVICE_CATEGORIES_COLLECTION,
+    ).doc(code)
+  );
+
+  const snapshots = await transaction.getAll(
+    ...references,
+  );
+
+  const resolved = snapshots.map(
+    (snapshot, index) => {
+      const code = categories[index];
+
+      if (!code) {
+        throw new HttpsError(
+          "internal",
+          "The service category lookup returned an incomplete result.",
+        );
+      }
+
+      const category = snapshot.exists
+        ? parseMasterServiceCategory(
+            snapshot.id,
+            snapshot.data(),
+          )
+        : null;
+
+      if (!category) {
+        throw new HttpsError(
+          "internal",
+          `The validated service category "${code}" could not be resolved.`,
+        );
+      }
+
+      return category;
+    },
+  );
+
+  return unionCapacityCapabilities(
+    resolved,
+  );
 }
 
 export async function requireActiveServiceCategoryInTransaction(

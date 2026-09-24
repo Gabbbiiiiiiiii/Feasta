@@ -1,3 +1,5 @@
+import path from "node:path";
+import {readFileSync} from "node:fs";
 import {render, screen, within} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {describe, expect, it, vi} from "vitest";
@@ -60,6 +62,34 @@ const approvedCateringProvider: ProviderNavigationContext = {
 };
 
 describe("ApplicationShell", () => {
+
+  it("does not expose provider header notifications before the provider profile is approved", () => {
+    const source = readFileSync(
+      path.resolve(
+        process.cwd(),
+        "src/components/layout/application-shell.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      'providerContext?.kind === "profile"',
+    );
+    expect(source).toContain(
+      'providerContext.verificationStatus === "approved"',
+    );
+    expect(source).toContain(
+      "providerContext.isActive",
+    );
+    expect(source).toContain(
+      "!providerContext.isSuspended",
+    );
+    expect(source).toContain(
+      "!providerContext.isDeleted",
+    );
+  });
+
+
   it("builds catalog navigation from the provider service type", () => {
   const catering =
     getRoleNavigation(

@@ -1,4 +1,6 @@
-import type {ProviderOnboardingInput} from "@feasta/shared-types";
+import type {
+  ProviderOnboardingInput,
+} from "@feasta/shared-types";
 
 export const PROVIDER_ONBOARDING_STEPS = [
   {number: 1, slug: "owner", label: "Owner information"},
@@ -6,7 +8,7 @@ export const PROVIDER_ONBOARDING_STEPS = [
   {number: 3, slug: "services", label: "Services and event capabilities"},
   {number: 4, slug: "location", label: "Location and coverage"},
   {number: 5, slug: "capacity", label: "Capacity and schedule"},
-  {number: 6, slug: "consent", label: "Terms and consent"},
+  {number: 6, slug: "consent", label: "Provider agreement"},
   {number: 7, slug: "documents", label: "Verification documents"},
   {number: 8, slug: "review", label: "Review and submit"},
 ] as const;
@@ -21,10 +23,8 @@ export interface ProviderOnboardingDraft
   ownerLastName: string;
   ownerPhone: string;
   ownerEmail: string;
-  acceptedTerms: boolean;
-  acceptedPrivacy: boolean;
-  termsPolicyVersion: string;
-  privacyPolicyVersion: string;
+  providerAgreementAccepted: boolean;
+  providerAgreementVersion: string;
   completedSteps: readonly number[];
 }
 

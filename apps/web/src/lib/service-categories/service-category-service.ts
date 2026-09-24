@@ -3,6 +3,7 @@ import "server-only";
 import {
   FIRESTORE_COLLECTIONS,
   isServiceCategoryCode,
+  type ServiceCategoryCapacityCapabilities,
   type ServiceCategoryStatus,
 } from "@feasta/shared-types";
 
@@ -27,6 +28,34 @@ function isStatus(
 ): value is ServiceCategoryStatus {
   return value === "active" ||
     value === "discontinued";
+}
+
+function parseCapacityCapabilities(
+  value: unknown,
+): ServiceCategoryCapacityCapabilities | undefined {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  if (
+    typeof record.requiresGuestCapacity !== "boolean" ||
+    typeof record.usesStaffCapacity !== "boolean" ||
+    typeof record.usesEquipmentCapacity !== "boolean"
+  ) {
+    return undefined;
+  }
+
+  return {
+    requiresGuestCapacity: record.requiresGuestCapacity,
+    usesStaffCapacity: record.usesStaffCapacity,
+    usesEquipmentCapacity: record.usesEquipmentCapacity,
+  };
 }
 
 export async function getServiceCategoryOptions(): Promise<
@@ -59,6 +88,16 @@ export async function getServiceCategoryOptions(): Promise<
         code: document.id,
         name,
         serviceType: data.serviceType,
+        ...(parseCapacityCapabilities(
+          data.capacityCapabilities,
+        )
+          ? {
+              capacityCapabilities:
+                parseCapacityCapabilities(
+                  data.capacityCapabilities,
+                ),
+            }
+          : {}),
         status: data.status,
       } satisfies ServiceCategoryOption;
     })

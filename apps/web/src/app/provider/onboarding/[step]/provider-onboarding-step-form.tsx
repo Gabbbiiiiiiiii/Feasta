@@ -1,14 +1,14 @@
-﻿"use client";
+"use client";
 
 import {
+  PROVIDER_AGREEMENT_VERSION,
   PROVIDER_EVENT_TYPES,
   PROVIDER_OPERATING_DAYS,
   isServiceCategoryCode,
   normalizePhilippineMobile,
   normalizePhilippinePhone,
   normalizeProviderEmail,
-  providerCapacityCapabilities,
-  type ProviderOnboardingInput,
+  providerCapacityCapabilities,  type ProviderBusinessRegistrationType,  type ProviderOnboardingInput,
 } from "@feasta/shared-types";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
@@ -23,9 +23,9 @@ import {AuthStatus} from "@/components/auth/auth-status";
 import {FormField} from "@/components/forms/form-field";
 import {CheckboxField} from "@/components/forms/selection-controls";
 import {ProviderBusinessImageField} from "@/components/provider/provider-business-image-field";
+import {ProviderBusinessLocationField} from "@/components/provider/provider-business-location-field";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
-import {Select} from "@/components/ui/select";
 import {Textarea} from "@/components/ui/textarea";
 import {customerAuthenticationError} from "@/lib/auth/error-messages";
 import {
@@ -46,13 +46,16 @@ import type {
   ServiceCategoryOption,
 } from "@/lib/service-categories/service-category-service";
 
-type FormValues = ProviderOnboardingInput & {
+type FormValues = Omit<
+  ProviderOnboardingInput,
+  "bookingLeadTimeDays" | "businessRegistrationType"
+> & {
+  bookingLeadTimeDays: number | null;
+  businessRegistrationType: ProviderBusinessRegistrationType | null;
   ownerPhone: string;
   ownerEmail: string;
-  acceptedTerms: boolean;
-  acceptedPrivacy: boolean;
-  termsPolicyVersion: string;
-  privacyPolicyVersion: string;
+  providerAgreementAccepted: boolean;
+  providerAgreementVersion: string;
 };
 
 export function ProviderOnboardingStepForm({
@@ -69,6 +72,8 @@ export function ProviderOnboardingStepForm({
   const idempotencyKey = useRef(globalThis.crypto.randomUUID());
   const [loading, setLoading] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [hasNoServiceOffering, setHasNoServiceOffering] =
+    useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [selectedImages, setSelectedImages] = useState<{
@@ -101,7 +106,22 @@ export function ProviderOnboardingStepForm({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy.current) return;
-    const prepared = prepareStepValues(step.number, values);
+
+    if (step.number === 3 && hasNoServiceOffering) {
+      setFieldErrors((current) => ({
+        ...current,
+        providerServiceType:
+          "Choose at least one service offering.",
+      }));
+      setError("Review the highlighted service fields.");
+      return;
+    }
+
+    const prepared = prepareStepValues(
+      step.number,
+      values,
+      serviceCategories,
+    );
     const imageErrors = step.number === 2
       ? Object.fromEntries(
           (["logo", "cover"] as const).flatMap((mediaType) => {
@@ -173,8 +193,30 @@ export function ProviderOnboardingStepForm({
       setValues(submissionValues);
       setDirty(false);
       if (step.number === 6) {
+        if (submissionValues.bookingLeadTimeDays === null) {
+          throw new Error(
+            "Minimum booking notice is required before registration.",
+          );
+        }
+
+        if (submissionValues.businessRegistrationType === null) {
+
+          throw new Error(
+
+            "Business registration status is required before registration.",
+
+          );
+
+        }
+
+
         await registerProviderBusiness(
-          submissionValues,
+          {
+            ...submissionValues,
+            bookingLeadTimeDays: submissionValues.bookingLeadTimeDays,
+            businessRegistrationType:
+              submissionValues.businessRegistrationType,
+          },
           idempotencyKey.current,
         );
         router.replace("/provider/verification?stage=documents");
@@ -218,6 +260,7 @@ export function ProviderOnboardingStepForm({
         serviceCategories={serviceCategories}
         loading={loading}
         fieldErrors={fieldErrors}
+        onServiceOfferingEmptyChange={setHasNoServiceOffering}
         selectedImages={selectedImages}
         setSelectedImage={(mediaType, file) => {
           setDirty(true);
@@ -305,6 +348,7 @@ function StepFields({
   serviceCategories,
   loading,
   fieldErrors,
+  onServiceOfferingEmptyChange,
   selectedImages,
   setSelectedImage,
   removeImage,
@@ -315,6 +359,7 @@ function StepFields({
   serviceCategories: readonly ServiceCategoryOption[];
   loading: boolean;
   fieldErrors: Record<string, string>;
+  onServiceOfferingEmptyChange: (empty: boolean) => void;
   selectedImages: {logo: File | null; cover: File | null};
   setSelectedImage: (
     mediaType: "logo" | "cover",
@@ -326,8 +371,11 @@ function StepFields({
     value: FormValues[K],
   ) => void;
 }) {
-  const textList = (value: string) =>
-    [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+  const [serviceOfferingSelection, setServiceOfferingSelection] =
+    useState<"catering" | "addon" | "both" | "none">(
+      values.providerServiceType,
+    );
+
   const integer = (value: string, fallback = 0) => {
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) ? parsed : fallback;
@@ -358,23 +406,186 @@ function StepFields({
   if (step === 2) {
     return (
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField label="Business name" required disabled={loading} error={fieldErrors.businessName}>
-          <Input autoComplete="organization" value={values.businessName} onChange={(event) => update("businessName", event.target.value)} />
+        <FormField
+          label="Business name"
+          description="Enter the official or customer-facing name of your business."
+          required
+          disabled={loading}
+          error={fieldErrors.businessName}
+        >
+          <Input
+            autoComplete="organization"
+            minLength={2}
+            maxLength={120}
+            value={values.businessName}
+            onChange={(event) =>
+              update("businessName", event.target.value)
+            }
+          />
         </FormField>
-        <FormField label="Business email" required disabled={loading} error={fieldErrors.businessEmail}>
-          <Input type="email" inputMode="email" autoComplete="email" value={values.businessEmail} onChange={(event) => update("businessEmail", event.target.value)} onBlur={() => {
-            const normalized = normalizeProviderEmail(values.businessEmail);
-            if (normalized) update("businessEmail", normalized);
-          }} />
+
+        <FormField
+          className="sm:col-span-2"
+          label="Business registration status"
+          description="This helps FEASTA request only the verification documents that apply to your provider account."
+          required
+          disabled={loading}
+          error={fieldErrors.businessRegistrationType}
+
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-4">
+              <input
+                className="mt-1"
+                type="radio"
+                name="businessRegistrationType"
+                value="individual"
+                checked={values.businessRegistrationType === "individual"}
+                disabled={loading}
+                onChange={() =>
+                  update("businessRegistrationType", "individual")
+                }
+              />
+              <span>
+                <span className="block font-medium">
+                  Individual / freelance provider
+                </span>
+                <span className="mt-1 block text-sm text-muted-foreground">
+                  I provide services independently and am not registering a
+                  separate business entity with FEASTA.
+                </span>
+              </span>
+            </label>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-4">
+              <input
+                className="mt-1"
+                type="radio"
+                name="businessRegistrationType"
+                value="registered_business"
+                checked={
+                  values.businessRegistrationType === "registered_business"
+                }
+                disabled={loading}
+                onChange={() =>
+                  update("businessRegistrationType", "registered_business")
+                }
+              />
+              <span>
+                <span className="block font-medium">
+                  Registered business / organization
+                </span>
+                <span className="mt-1 block text-sm text-muted-foreground">
+                  My service operates as a registered business or organization.
+                </span>
+              </span>
+            </label>
+          </div>
+
         </FormField>
-        <FormField label="Business phone" description="Use a Philippine mobile or landline number." required disabled={loading} error={fieldErrors.businessPhone}>
-          <Input type="tel" inputMode="tel" autoComplete="tel" value={values.businessPhone} onChange={(event) => update("businessPhone", event.target.value)} onBlur={() => {
-            const normalized = normalizePhilippinePhone(values.businessPhone);
-            if (normalized) update("businessPhone", normalized);
-          }} />
+
+
+        <FormField
+          label="Business email"
+          description="Use an email address customers can use to contact your business."
+          required
+          disabled={loading}
+          error={fieldErrors.businessEmail}
+        >
+          <Input
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            maxLength={160}
+            value={values.businessEmail}
+            onChange={(event) =>
+              update("businessEmail", event.target.value)
+            }
+            onBlur={() => {
+              const normalized =
+                normalizeProviderEmail(values.businessEmail);
+
+              if (normalized) {
+                update("businessEmail", normalized);
+              }
+            }}
+          />
         </FormField>
-        <FormField className="sm:col-span-2" label="Business description" description="Describe your services in at least 20 characters." required disabled={loading} error={fieldErrors.description}>
-          <Textarea minLength={20} maxLength={2000} value={values.description} onChange={(event) => update("description", event.target.value)} />
+
+        <FormField
+          label="Business phone"
+          description="Enter the primary Philippine mobile or landline number customers can use to reach your business."
+          required
+          disabled={loading}
+          error={fieldErrors.businessPhone}
+        >
+          <div className="grid gap-3">
+            <Input
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              value={values.businessPhone}
+              onChange={(event) =>
+                update("businessPhone", event.target.value)
+              }
+              onBlur={() => {
+                const normalized =
+                  normalizePhilippinePhone(values.businessPhone);
+
+                if (normalized) {
+                  update("businessPhone", normalized);
+                }
+              }}
+            />
+
+            <CheckboxField
+              label="Use my account phone number"
+              description={
+                values.ownerPhone
+                  ? "Use the mobile number from your provider account as your business contact number."
+                  : "Add a mobile number in Owner information before using this option."
+              }
+              checked={
+                Boolean(normalizePhilippinePhone(values.ownerPhone)) &&
+                normalizePhilippinePhone(values.businessPhone) ===
+                  normalizePhilippinePhone(values.ownerPhone)
+              }
+              disabled={
+                loading ||
+                !normalizePhilippinePhone(values.ownerPhone)
+              }
+              onChange={(checked) => {
+                if (checked) {
+                  const accountPhone =
+                    normalizePhilippinePhone(values.ownerPhone);
+
+                  if (accountPhone) {
+                    update("businessPhone", accountPhone);
+                  }
+                } else {
+                  update("businessPhone", "");
+                }
+              }}
+            />
+          </div>
+        </FormField>
+
+        <FormField
+          className="sm:col-span-2"
+          label="Business description"
+          description="Describe your services, specialties, and what customers can expect. Use 20 to 2,000 characters."
+          required
+          disabled={loading}
+          error={fieldErrors.description}
+        >
+          <Textarea
+            minLength={20}
+            maxLength={2000}
+            value={values.description}
+            onChange={(event) =>
+              update("description", event.target.value)
+            }
+          />
         </FormField>
         <ProviderBusinessImageField
           mediaType="logo"
@@ -403,18 +614,21 @@ function StepFields({
   }
 
   if (step === 3) {
-    const availableServiceCategories =
-      serviceCategories.filter(
-        (category) =>
-          values.providerServiceType === "both" ||
-          category.serviceType ===
-            values.providerServiceType,
-      );
+    const cateringSelected =
+      serviceOfferingSelection === "catering" ||
+      serviceOfferingSelection === "both";
 
-    const availableCategoryCodes =
-      availableServiceCategories.map(
-        (category) => category.code,
-      );
+    const addonSelected =
+      serviceOfferingSelection === "addon" ||
+      serviceOfferingSelection === "both";
+
+    const cateringCategories = serviceCategories.filter(
+      (category) => category.serviceType === "catering",
+    );
+
+    const addonCategories = serviceCategories.filter(
+      (category) => category.serviceType === "addon",
+    );
 
     const categoryNames = new Map(
       serviceCategories.map(
@@ -424,119 +638,389 @@ function StepFields({
         ] as const,
       ),
     );
-    return (
-      <div className="grid gap-4">
-        <FormField label="Service type" required disabled={loading} error={fieldErrors.providerServiceType}>
-          <Select value={values.providerServiceType} onChange={(event) => {
-            const nextType = event.target.value as FormValues["providerServiceType"];
-            const categories =
-              values.serviceCategories.filter(
-                (category) => {
-                  const definition =
-                    serviceCategories.find(
-                      (candidate) =>
-                        candidate.code === category,
-                    );
 
-                  return Boolean(
-                    definition &&
-                    (
-                      nextType === "both" ||
-                      definition.serviceType ===
-                        nextType
-                    ),
-                  );
-                },
-              );
-            update("providerServiceType", nextType);
-            update("serviceCategories", categories);
-            update("providerCategory", categories[0] ?? "");
-          }}>
-            <option value="catering">Catering</option>
-            <option value="addon">Add-on services</option>
-            <option value="both">Catering and add-ons</option>
-          </Select>
-        </FormField>
-        <CheckboxGroup
-          legend="Supported service categories"
-          description="Choose every category this business can deliver."
-          values={availableCategoryCodes}
-          selected={values.serviceCategories}
-          disabled={loading}
-          error={fieldErrors.serviceCategories}
-          label={(category) =>
-            categoryNames.get(category) ??
-            titleFromValue(category)
+    const predefinedEventTypes = PROVIDER_EVENT_TYPES.filter(
+      (eventType) => eventType !== "other",
+    );
+
+    const allPredefinedEventsSelected =
+      predefinedEventTypes.length > 0 &&
+      predefinedEventTypes.every(
+        (eventType) =>
+          values.eventTypesSupported.includes(eventType),
+      );
+
+    const updateServiceOfferings = (
+      nextCatering: boolean,
+      nextAddon: boolean,
+    ) => {
+      if (!nextCatering && !nextAddon) {
+        setServiceOfferingSelection("none");
+        onServiceOfferingEmptyChange(true);
+        update("serviceCategories", []);
+        update("providerCategory", "");
+        return;
+      }
+
+      const nextType: FormValues["providerServiceType"] =
+        nextCatering && nextAddon
+          ? "both"
+          : nextCatering
+            ? "catering"
+            : "addon";
+
+      const allowedCategories = new Set(
+        serviceCategories
+          .filter(
+            (category) =>
+              (nextCatering &&
+                category.serviceType === "catering") ||
+              (nextAddon &&
+                category.serviceType === "addon"),
+          )
+          .map((category) => category.code),
+      );
+
+      const nextCategories =
+        values.serviceCategories.filter((category) =>
+          allowedCategories.has(category),
+        );
+
+      setServiceOfferingSelection(nextType);
+      onServiceOfferingEmptyChange(false);
+      update("providerServiceType", nextType);
+      update("serviceCategories", nextCategories);
+      update(
+        "providerCategory",
+        nextCategories.includes(values.providerCategory)
+          ? values.providerCategory
+          : nextCategories[0] ?? "",
+      );
+    };
+
+    const toggleServiceCategory = (
+      category: (typeof serviceCategories)[number]["code"],
+    ) => {
+      const next = toggleList(
+        values.serviceCategories,
+        category,
+      );
+
+      update("serviceCategories", next);
+      update("providerCategory", next[0] ?? "");
+    };
+
+    const toggleAllPredefinedEvents = () => {
+      const otherSelected =
+        values.eventTypesSupported.includes("other");
+
+      if (allPredefinedEventsSelected) {
+        update(
+          "eventTypesSupported",
+          otherSelected ? ["other"] : [],
+        );
+        return;
+      }
+
+      update("eventTypesSupported", [
+        ...predefinedEventTypes,
+        ...(otherSelected ? ["other" as const] : []),
+      ]);
+    };
+
+    return (
+      <div className="grid gap-6">
+        <fieldset
+          className="grid gap-4 rounded-lg border border-border p-4"
+          aria-invalid={
+            fieldErrors.providerServiceType ? true : undefined
           }
-          onToggle={(category) => {
-            const next = toggleList(values.serviceCategories, category);
-            update("serviceCategories", next);
-            update("providerCategory", next[0] ?? "");
-          }}
-        />
-        <CheckboxGroup
-          legend="Supported event types"
-          description="Choose the event types this business accepts."
-          values={PROVIDER_EVENT_TYPES}
-          selected={values.eventTypesSupported}
-          disabled={loading}
-          error={fieldErrors.eventTypesSupported}
-          label={titleFromValue}
-          onToggle={(eventType) =>
-            update(
-              "eventTypesSupported",
-              toggleList(values.eventTypesSupported, eventType),
+        >
+          <legend className="px-1 text-sm font-semibold">
+            Services your business provides *
+          </legend>
+
+          <p className="text-sm text-muted-foreground">
+            Choose the service groups your business provides.
+            You can select both.
+          </p>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <label
+              className={[
+                "flex cursor-pointer gap-3 rounded-lg border p-4 transition-colors",
+                cateringSelected
+                  ? "border-primary bg-primary/5"
+                  : "border-border",
+                loading
+                  ? "cursor-not-allowed opacity-60"
+                  : "hover:border-primary/60",
+              ].join(" ")}
+            >
+              <input
+                type="checkbox"
+                checked={cateringSelected}
+                disabled={loading}
+                onChange={(event) =>
+                  updateServiceOfferings(
+                    event.target.checked,
+                    addonSelected,
+                  )
+                }
+                className="mt-1 size-4 accent-primary"
+              />
+
+              <span className="grid gap-1">
+                <span className="font-semibold">
+                  Catering services
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  Food preparation, catering packages, packed
+                  meals, and catering-related services.
+                </span>
+              </span>
+            </label>
+
+            <label
+              className={[
+                "flex cursor-pointer gap-3 rounded-lg border p-4 transition-colors",
+                addonSelected
+                  ? "border-primary bg-primary/5"
+                  : "border-border",
+                loading
+                  ? "cursor-not-allowed opacity-60"
+                  : "hover:border-primary/60",
+              ].join(" ")}
+            >
+              <input
+                type="checkbox"
+                checked={addonSelected}
+                disabled={loading}
+                onChange={(event) =>
+                  updateServiceOfferings(
+                    cateringSelected,
+                    event.target.checked,
+                  )
+                }
+                className="mt-1 size-4 accent-primary"
+              />
+
+              <span className="grid gap-1">
+                <span className="font-semibold">
+                  Additional event services
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  Photography, styling, entertainment, rentals,
+                  coordination, and other event services.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          {serviceOfferingSelection === "none" ||
+          fieldErrors.providerServiceType ? (
+            <p
+              className="text-sm text-destructive"
+              role="alert"
+            >
+              {serviceOfferingSelection === "none"
+                ? "Choose at least one service offering."
+                : fieldErrors.providerServiceType}
+            </p>
+          ) : null}
+        </fieldset>
+
+        {cateringSelected ? (
+          <CheckboxGroup
+            legend="Catering services"
+            description="Select every catering service your business provides."
+            values={cateringCategories.map(
+              (category) => category.code,
             )}
-        />
+            selected={values.serviceCategories}
+            disabled={loading}
+            error={
+              !addonSelected
+                ? fieldErrors.serviceCategories
+                : undefined
+            }
+            label={(category) =>
+              categoryNames.get(category) ??
+              titleFromValue(category)
+            }
+            onToggle={toggleServiceCategory}
+          />
+        ) : null}
+
+        {cateringSelected && !addonSelected ? (
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() =>
+              updateServiceOfferings(true, true)
+            }
+            className="w-fit text-sm font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            + Add event services
+          </button>
+        ) : null}
+
+        {addonSelected ? (
+          <CheckboxGroup
+            legend="Additional event services"
+            description="Select every additional event service your business provides."
+            values={addonCategories.map(
+              (category) => category.code,
+            )}
+            selected={values.serviceCategories}
+            disabled={loading}
+            error={
+              !cateringSelected
+                ? fieldErrors.serviceCategories
+                : undefined
+            }
+            label={(category) =>
+              categoryNames.get(category) ??
+              titleFromValue(category)
+            }
+            onToggle={toggleServiceCategory}
+          />
+        ) : null}
+
+        {addonSelected && !cateringSelected ? (
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() =>
+              updateServiceOfferings(true, true)
+            }
+            className="w-fit text-sm font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            + Also provide catering
+          </button>
+        ) : null}
+
+        {cateringSelected &&
+        addonSelected &&
+        fieldErrors.serviceCategories ? (
+          <p
+            className="text-sm text-destructive"
+            role="alert"
+          >
+            {fieldErrors.serviceCategories}
+          </p>
+        ) : null}
+
+        <fieldset
+          className="grid gap-3 rounded-lg border border-border p-4"
+          aria-invalid={
+            fieldErrors.eventTypesSupported ? true : undefined
+          }
+        >
+          <legend className="text-sm font-semibold">
+            Supported event types
+          </legend>
+
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              Choose the event types this business accepts.
+            </p>
+
+            <button
+              type="button"
+              disabled={loading}
+              onClick={toggleAllPredefinedEvents}
+              className="text-sm font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {allPredefinedEventsSelected
+                ? "Clear all"
+                : "Select all"}
+            </button>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            {PROVIDER_EVENT_TYPES.map((eventType) => (
+              <CheckboxField
+                key={eventType}
+                label={titleFromValue(eventType)}
+                checked={values.eventTypesSupported.includes(
+                  eventType,
+                )}
+                disabled={loading}
+                onChange={() =>
+                  update(
+                    "eventTypesSupported",
+                    toggleList(
+                      values.eventTypesSupported,
+                      eventType,
+                    ),
+                  )
+                }
+              />
+            ))}
+          </div>
+
+          {values.eventTypesSupported.includes("other") ? (
+            <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+              Select Other when your business accepts event
+              types that are not listed above.
+            </p>
+          ) : null}
+
+          {fieldErrors.eventTypesSupported ? (
+            <p
+              className="text-sm text-destructive"
+              role="alert"
+            >
+              {fieldErrors.eventTypesSupported}
+            </p>
+          ) : null}
+        </fieldset>
       </div>
     );
   }
 
   if (step === 4) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2">
-        <FormField className="sm:col-span-2" label="Business address" required disabled={loading}>
-          <Input autoComplete="street-address" value={values.address} onChange={(event) => update("address", event.target.value)} />
-        </FormField>
-        <FormField label="City" required disabled={loading}>
-          <Input autoComplete="address-level2" value={values.city} onChange={(event) => update("city", event.target.value)} />
-        </FormField>
-        <FormField label="Province" required disabled={loading}>
-          <Input autoComplete="address-level1" value={values.province} onChange={(event) => update("province", event.target.value)} />
-        </FormField>
-        <FormField className="sm:col-span-2" label="Service coverage" description="Separate cities or areas with commas." required disabled={loading} error={fieldErrors.serviceAreas}>
-          <Input value={values.serviceAreas.join(", ")} onChange={(event) => update("serviceAreas", textList(event.target.value))} placeholder="Ormoc City, Albuera, Kananga" />
-        </FormField>
-        <NumberField
-          label="Maximum service distance (km)"
-          description="Optional planning limit; each booking is still checked by the backend."
-          value={values.maxServiceDistanceKm}
-          minimum={1}
-          maximum={1000}
-          required={false}
-          disabled={loading}
-          error={fieldErrors.maxServiceDistanceKm}
-          onChange={(value) =>
-            update(
-              "maxServiceDistanceKm",
-              value === "" ? null : Number(value),
-            )}
-        />
-        <FormField label="Latitude" description="Optional." disabled={loading}>
-          <Input type="number" step="any" value={values.locationCoordinates?.latitude ?? ""} onChange={(event) => updateCoordinate(values, update, "latitude", event.target.value)} />
-        </FormField>
-        <FormField label="Longitude" description="Optional." disabled={loading}>
-          <Input type="number" step="any" value={values.locationCoordinates?.longitude ?? ""} onChange={(event) => updateCoordinate(values, update, "longitude", event.target.value)} />
-        </FormField>
-      </div>
+      <ProviderBusinessLocationField
+        address={values.address}
+        city={values.city}
+        province={values.province}
+        coordinates={values.locationCoordinates}
+        serviceAreas={values.serviceAreas}
+        maxServiceDistanceKm={values.maxServiceDistanceKm}
+        loading={loading}
+        fieldErrors={fieldErrors}
+        onLocationChange={(location) => {
+          update("address", location.address);
+          update("city", location.city);
+          update("province", location.province);
+          update("locationCoordinates", {
+            latitude: location.latitude,
+            longitude: location.longitude,
+          });
+        }}
+        onLocationClear={() => {
+          update("address", "");
+          update("city", "");
+          update("province", "");
+          update("locationCoordinates", null);
+        }}
+        onServiceAreasChange={(areas) =>
+          update("serviceAreas", areas)
+        }
+        onMaximumDistanceChange={(distance) =>
+          update("maxServiceDistanceKm", distance)
+        }
+      />
     );
   }
 
   if (step === 5) {
-  const capabilities =
-    providerCapacityCapabilities(
-      values.serviceCategories,
-    );
+  const capabilities = resolveStepFiveCapacityCapabilities(
+    values.serviceCategories,
+    serviceCategories,
+  );
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -547,6 +1031,7 @@ function StepFields({
             description="The smallest event size your business normally accepts."
             value={values.minGuestsPerEvent}
             minimum={1}
+            maximum={100000}
             disabled={loading}
             error={fieldErrors.minGuestsPerEvent}
             onChange={(value) =>
@@ -562,6 +1047,7 @@ function StepFields({
             description="The largest event size your business can currently support."
             value={values.maxGuestsPerEvent}
             minimum={1}
+            maximum={100000}
             disabled={loading}
             error={fieldErrors.maxGuestsPerEvent}
             onChange={(value) =>
@@ -580,7 +1066,9 @@ function StepFields({
           description="People normally available to fulfill bookings."
           value={values.availableStaffCount}
           minimum={0}
+          maximum={100000}
           disabled={loading}
+          error={fieldErrors.availableStaffCount}
           onChange={(value) =>
             update(
               "availableStaffCount",
@@ -596,7 +1084,9 @@ function StepFields({
           description="Equipment, vehicles, booths, rental units, or other service resources currently available."
           value={values.availableEquipmentCount}
           minimum={0}
+          maximum={100000}
           disabled={loading}
+          error={fieldErrors.availableEquipmentCount}
           onChange={(value) =>
             update(
               "availableEquipmentCount",
@@ -605,39 +1095,6 @@ function StepFields({
           }
         />
       ) : null}
-
-      <NumberField
-        label="Maximum events per day"
-        description="Maximum bookings your business can fulfill on the same day."
-        value={values.maxEventsPerDay}
-        minimum={1}
-        disabled={
-          loading ||
-          !values.acceptsMultipleEventsPerDay
-        }
-        onChange={(value) =>
-          update(
-            "maxEventsPerDay",
-            integer(value, 1),
-          )
-        }
-      />
-
-      <NumberField
-        label="Booking lead time (days)"
-        description="Minimum number of days customers should book in advance."
-        value={values.bookingLeadTimeDays}
-        minimum={0}
-        maximum={365}
-        disabled={loading}
-        error={fieldErrors.bookingLeadTimeDays}
-        onChange={(value) =>
-          update(
-            "bookingLeadTimeDays",
-            integer(value),
-          )
-        }
-      />
 
       <div className="sm:col-span-2">
         <CheckboxField
@@ -661,52 +1118,174 @@ function StepFields({
             }
           }}
         />
-      </div>
-
-      <div className="sm:col-span-2">
-        <CheckboxGroup
-          legend="Operating days"
-          description="These are your normal operating days, not a guarantee of availability."
-          values={PROVIDER_OPERATING_DAYS}
-          selected={values.operatingDays}
+      {values.acceptsMultipleEventsPerDay ? (
+        <NumberField
+          label="Maximum events per day"
+          description="Maximum bookings your business can realistically fulfill on the same day."
+          value={values.maxEventsPerDay}
+          minimum={1}
+          maximum={100}
           disabled={loading}
-          error={fieldErrors.operatingDays}
-          label={titleFromValue}
-          onToggle={(day) =>
+          error={fieldErrors.maxEventsPerDay}
+          onChange={(value) =>
             update(
-              "operatingDays",
-              toggleList(
-                values.operatingDays,
-                day,
-              ),
+              "maxEventsPerDay",
+              integer(value, 1),
             )
           }
         />
+      ) : null}
+
+      <NumberField
+        label="Minimum booking notice (days)"
+        description="How many days in advance should customers normally book? Enter 0 if you accept same-day or rush bookings."
+        value={values.bookingLeadTimeDays}
+        minimum={0}
+        maximum={365}
+        disabled={loading}
+        error={fieldErrors.bookingLeadTimeDays}
+        onChange={(value) =>
+          update(
+            "bookingLeadTimeDays",
+            value === "" ? null : integer(value),
+          )
+        }
+      />
+
       </div>
+
+      <fieldset
+        className="sm:col-span-2 grid gap-3 rounded-lg border border-border p-4"
+        disabled={loading}
+        aria-invalid={
+          fieldErrors.operatingDays ? true : undefined
+        }
+      >
+        <legend className="text-sm font-semibold">
+          Operating days
+        </legend>
+
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            These are your normal operating days, not a guarantee of availability.
+          </p>
+
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() =>
+              update(
+                "operatingDays",
+                values.operatingDays.length ===
+                  PROVIDER_OPERATING_DAYS.length
+                  ? []
+                  : [...PROVIDER_OPERATING_DAYS],
+              )
+            }
+            className="text-sm font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {values.operatingDays.length ===
+            PROVIDER_OPERATING_DAYS.length
+              ? "Clear all"
+              : "Select all"}
+          </button>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          {PROVIDER_OPERATING_DAYS.map((day) => (
+            <CheckboxField
+              key={day}
+              label={titleFromValue(day)}
+              checked={values.operatingDays.includes(day)}
+              disabled={loading}
+              onChange={() =>
+                update(
+                  "operatingDays",
+                  toggleList(
+                    values.operatingDays,
+                    day,
+                  ),
+                )
+              }
+            />
+          ))}
+        </div>
+
+        {fieldErrors.operatingDays ? (
+          <p
+            className="text-sm text-destructive"
+            role="alert"
+          >
+            {fieldErrors.operatingDays}
+          </p>
+        ) : null}
+      </fieldset>
 
       <FormField
         className="sm:col-span-2"
         label="Unavailable dates"
-        description="Optional dates in YYYY-MM-DD format, separated by commas. Booking availability is verified separately."
+        description="Optional dates when your business cannot accept bookings."
         disabled={loading}
         error={fieldErrors.unavailableDates}
       >
-        <Textarea
-          value={
-            values.unavailableDates.join(
-              ", ",
-            )
-          }
-          placeholder="2026-12-24, 2026-12-25"
-          onChange={(event) =>
-            update(
-              "unavailableDates",
-              textList(
-                event.target.value,
-              ),
-            )
-          }
-        />
+        <div className="grid gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Input
+              type="date"
+              disabled={loading}
+              aria-label="Add unavailable date"
+              onChange={(event) => {
+                const date = event.target.value;
+
+                if (
+                  !date ||
+                  values.unavailableDates.includes(date)
+                ) {
+                  return;
+                }
+
+                update(
+                  "unavailableDates",
+                  [...values.unavailableDates, date].sort(),
+                );
+
+                event.target.value = "";
+              }}
+            />
+          </div>
+
+          {values.unavailableDates.length > 0 ? (
+            <div
+              className="flex flex-wrap gap-2"
+              aria-label="Unavailable dates"
+            >
+              {values.unavailableDates.map((date) => (
+                <button
+                  key={date}
+                  type="button"
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 rounded-full border bg-muted/40 px-3 py-1.5 text-sm transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() =>
+                    update(
+                      "unavailableDates",
+                      values.unavailableDates.filter(
+                        (item) => item !== date,
+                      ),
+                    )
+                  }
+                  aria-label={`Remove unavailable date ${date}`}
+                >
+                  <span>{date}</span>
+                  <span aria-hidden="true">?</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No unavailable dates added.
+            </p>
+          )}
+        </div>
       </FormField>
     </div>
   );
@@ -714,27 +1293,61 @@ function StepFields({
 
   return (
     <div className="grid gap-5">
-      <p className="text-sm text-muted-foreground">
-        Review the current <Link className="font-semibold text-primary underline" href="/terms">Terms</Link> and{" "}
-        <Link className="font-semibold text-primary underline" href="/privacy">Privacy Policy</Link>.
+      <p className="text-sm leading-6 text-muted-foreground">
+        Before continuing to verification, review the rules and
+        responsibilities that apply when offering services through FEASTA.
       </p>
+
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="grid gap-2">
+          <h3 className="font-semibold text-foreground">
+            FEASTA Provider Agreement
+          </h3>
+
+          <p className="text-sm leading-6 text-muted-foreground">
+            Review the responsibilities that apply when offering services
+            through FEASTA, including listings, bookings, customer
+            communication, payments, service delivery, and platform conduct.
+          </p>
+
+          <div>
+            <Link
+              href="/provider-agreement"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-semibold text-primary hover:underline"
+            >
+              Read Provider Agreement
+              <span className="ml-1" aria-hidden="true">
+                ?
+              </span>
+            </Link>
+          </div>
+        </div>
+      </div>
+
       <CheckboxField
-        label="I accept the Terms"
-        checked={values.acceptedTerms}
+        label="I have read and agree to the FEASTA Provider Agreement."
+        checked={values.providerAgreementAccepted}
         required
         disabled={loading}
-        onChange={(event) => update("acceptedTerms", event.target.checked)}
+        onChange={(event) =>
+          update(
+            "providerAgreementAccepted",
+            event.target.checked,
+          )
+        }
       />
-      <CheckboxField
-        label="I accept the Privacy Policy"
-        checked={values.acceptedPrivacy}
-        required
-        disabled={loading}
-        onChange={(event) => update("acceptedPrivacy", event.target.checked)}
-      />
+
+      {fieldErrors.providerAgreementAccepted ? (
+        <p className="text-sm text-destructive" role="alert">
+          {fieldErrors.providerAgreementAccepted}
+        </p>
+      ) : null}
+
       <AuthStatus
         tone="info"
-        message="Saving this step records server-generated consent timestamps. Your provider profile remains inactive and unapproved."
+        message="Your acceptance is recorded with the current agreement version and acceptance time when you continue. Your provider profile remains inactive until FEASTA completes verification."
       />
     </div>
   );
@@ -814,6 +1427,7 @@ function initialValues(draft: ProviderOnboardingDraft): FormValues {
     ownerPhone: draft.ownerPhone,
     ownerEmail: draft.ownerEmail,
     businessName: draft.businessName ?? "",
+    businessRegistrationType: draft.businessRegistrationType ?? null,
     businessEmail: draft.businessEmail ?? draft.ownerEmail,
     businessPhone: draft.businessPhone ?? "",
     description: draft.description ?? "",
@@ -844,16 +1458,16 @@ function initialValues(draft: ProviderOnboardingDraft): FormValues {
     availableStaffCount: draft.availableStaffCount ?? 0,
     availableEquipmentCount: draft.availableEquipmentCount ?? 0,
     operatingDays: draft.operatingDays ?? [],
-    bookingLeadTimeDays: draft.bookingLeadTimeDays ?? 0,
+    bookingLeadTimeDays: draft.bookingLeadTimeDays ?? null,
     unavailableDates: draft.unavailableDates ?? [],
     logoUrl: draft.logoUrl ?? null,
     logoPublicId: draft.logoPublicId ?? null,
     coverImageUrl: draft.coverImageUrl ?? null,
     coverPublicId: draft.coverPublicId ?? null,
-    acceptedTerms: draft.acceptedTerms,
-    acceptedPrivacy: draft.acceptedPrivacy,
-    termsPolicyVersion: draft.termsPolicyVersion,
-    privacyPolicyVersion: draft.privacyPolicyVersion,
+    providerAgreementAccepted:
+      draft.providerAgreementAccepted ?? false,
+    providerAgreementVersion:
+      draft.providerAgreementVersion || PROVIDER_AGREEMENT_VERSION,
   };
 }
 
@@ -865,6 +1479,7 @@ function stepPayload(
   if (step === 2) {
     return pick(values, [
       "businessName",
+      "businessRegistrationType",
       "businessEmail",
       "businessPhone",
       "description",
@@ -877,7 +1492,10 @@ function stepPayload(
   if (step === 3) return pick(values, ["providerServiceType", "providerCategory", "serviceCategories", "eventTypesSupported"]);
   if (step === 4) return pick(values, ["address", "city", "province", "serviceAreas", "maxServiceDistanceKm", "locationCoordinates"]);
   if (step === 5) return pick(values, ["minGuestsPerEvent", "maxGuestsPerEvent", "acceptsMultipleEventsPerDay", "maxEventsPerDay", "availableStaffCount", "availableEquipmentCount", "operatingDays", "bookingLeadTimeDays", "unavailableDates"]);
-  return pick(values, ["acceptedTerms", "acceptedPrivacy", "termsPolicyVersion", "privacyPolicyVersion"]);
+  return pick(values, [
+    "providerAgreementAccepted",
+    "providerAgreementVersion",
+  ]);
 }
 
 function pick(
@@ -887,34 +1505,44 @@ function pick(
   return Object.fromEntries(fields.map((field) => [field, values[field]]));
 }
 
-function updateCoordinate(
-  values: FormValues,
-  update: <K extends keyof FormValues>(
-    key: K,
-    value: FormValues[K],
-  ) => void,
-  key: "latitude" | "longitude",
-  raw: string,
+function resolveStepFiveCapacityCapabilities(
+  selectedCodes: readonly string[],
+  serviceCategories: readonly ServiceCategoryOption[],
 ) {
-  if (raw === "") {
-    update("locationCoordinates", null);
-    return;
-  }
-  const value = Number(raw);
-  if (!Number.isFinite(value)) return;
-  update("locationCoordinates", {
-    latitude: key === "latitude"
-      ? value
-      : values.locationCoordinates?.latitude ?? 0,
-    longitude: key === "longitude"
-      ? value
-      : values.locationCoordinates?.longitude ?? 0,
-  });
-}
+  const categoriesByCode = new Map(
+    serviceCategories.map((category) => [category.code, category]),
+  );
 
+  return selectedCodes.reduce(
+    (resolved, code) => {
+      const explicit =
+        categoriesByCode.get(code)?.capacityCapabilities;
+      const categoryCapabilities =
+        explicit ?? providerCapacityCapabilities([code]);
+
+      return {
+        requiresGuestCapacity:
+          resolved.requiresGuestCapacity ||
+          categoryCapabilities.requiresGuestCapacity,
+        usesStaffCapacity:
+          resolved.usesStaffCapacity ||
+          categoryCapabilities.usesStaffCapacity,
+        usesEquipmentCapacity:
+          resolved.usesEquipmentCapacity ||
+          categoryCapabilities.usesEquipmentCapacity,
+      };
+    },
+    {
+      requiresGuestCapacity: false,
+      usesStaffCapacity: false,
+      usesEquipmentCapacity: false,
+    },
+  );
+}
 function prepareStepValues(
   step: number,
   values: FormValues,
+  serviceCategories: readonly ServiceCategoryOption[],
 ): {values: FormValues; errors: Record<string, string>} {
   const normalized = {...values};
   const errors: Record<string, string> = {};
@@ -937,38 +1565,154 @@ function prepareStepValues(
   if (step === 2) {
     normalized.businessName = values.businessName.trim();
     normalized.description = values.description.trim();
+
+    if (
+      values.businessRegistrationType !== "individual" &&
+      values.businessRegistrationType !== "registered_business"
+    ) {
+      errors.businessRegistrationType =
+        "Choose your business registration status.";
+    }
+
     const email = normalizeProviderEmail(values.businessEmail);
     const phone = normalizePhilippinePhone(values.businessPhone);
+
     if (normalized.businessName.length < 2) {
-      errors.businessName = "Enter a business name.";
+      errors.businessName =
+        "Business name must contain at least 2 characters.";
+    } else if (normalized.businessName.length > 120) {
+      errors.businessName =
+        "Business name must not exceed 120 characters.";
     }
+
     if (!email) {
-      errors.businessEmail = "Enter a valid business email address.";
+      errors.businessEmail =
+        "Enter a valid business email address.";
+    } else if (email.length > 160) {
+      errors.businessEmail =
+        "Business email must not exceed 160 characters.";
     } else {
       normalized.businessEmail = email;
     }
+
     if (!phone) {
-      errors.businessPhone = "Enter a valid Philippine phone number.";
+      errors.businessPhone =
+        "Enter a valid Philippine mobile or landline number.";
     } else {
       normalized.businessPhone = phone;
     }
+
     if (normalized.description.length < 20) {
       errors.description =
-        "Describe the business using at least 20 characters.";
+        "Business description must contain at least 20 characters.";
+    } else if (normalized.description.length > 2000) {
+      errors.description =
+        "Business description must not exceed 2,000 characters.";
     }
   }
   if (step === 3) {
+    const allowedServiceTypes =
+      values.providerServiceType === "both"
+        ? new Set(["catering", "addon"])
+        : new Set([values.providerServiceType]);
+
+    const selectedServiceCategories = new Set(
+      values.serviceCategories,
+    );
+
+    const selectedCategoryRecords =
+      serviceCategories.filter((category) =>
+        selectedServiceCategories.has(category.code),
+      );
+
+    const hasUnknownServiceCategory =
+      selectedCategoryRecords.length !==
+      selectedServiceCategories.size;
+
+    const hasIncompatibleServiceCategory =
+      selectedCategoryRecords.some(
+        (category) =>
+          !allowedServiceTypes.has(category.serviceType),
+      );
+
     if (values.serviceCategories.length === 0) {
-      errors.serviceCategories = "Choose at least one service category.";
+      errors.serviceCategories =
+        "Choose at least one service category.";
+    } else if (
+      hasUnknownServiceCategory ||
+      hasIncompatibleServiceCategory
+    ) {
+      errors.serviceCategories =
+        "Choose service categories that match the services your business provides.";
     }
+
     if (values.eventTypesSupported.length === 0) {
-      errors.eventTypesSupported = "Choose at least one event type.";
+      errors.eventTypesSupported =
+        "Choose at least one event type.";
+    } else if (
+      values.eventTypesSupported.some(
+        (eventType) =>
+          !PROVIDER_EVENT_TYPES.includes(eventType),
+      )
+    ) {
+      errors.eventTypesSupported =
+        "Choose only supported event types.";
     }
   }
   if (step === 4) {
-    if (values.serviceAreas.length === 0) {
-      errors.serviceAreas = "Enter at least one service coverage area.";
+    normalized.address = values.address.trim();
+    normalized.city = values.city.trim();
+    normalized.province = values.province.trim();
+    normalized.serviceAreas = [
+      ...new Set(
+        values.serviceAreas
+          .map((area) => area.trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    if (
+      normalized.address.length < 3 ||
+      normalized.address.length > 250
+    ) {
+      errors.address =
+        "Choose a valid business address.";
     }
+
+    if (
+      normalized.city.length < 2 ||
+      normalized.city.length > 100
+    ) {
+      errors.city =
+        "Choose a business location with a valid city or municipality.";
+    }
+
+    if (
+      normalized.province.length < 2 ||
+      normalized.province.length > 100
+    ) {
+      errors.province =
+        "Choose a business location with a valid province.";
+    }
+
+    if (
+      !normalized.locationCoordinates ||
+      !Number.isFinite(
+        normalized.locationCoordinates.latitude,
+      ) ||
+      !Number.isFinite(
+        normalized.locationCoordinates.longitude,
+      )
+    ) {
+      errors.address =
+        "Choose your business location from the address suggestions or set it on the map.";
+    }
+
+    if (normalized.serviceAreas.length === 0) {
+      errors.serviceAreas =
+        "Add at least one city or municipality you serve.";
+    }
+
     if (
       values.maxServiceDistanceKm != null &&
       (!Number.isFinite(values.maxServiceDistanceKm) ||
@@ -976,28 +1720,34 @@ function prepareStepValues(
         values.maxServiceDistanceKm > 1000)
     ) {
       errors.maxServiceDistanceKm =
-        "Enter a distance from 1 to 1,000 km, or leave it blank.";
+        "Enter a travel distance from 1 to 1,000 km.";
     }
   }
   if (step === 5) {
-  const capabilities =
-    providerCapacityCapabilities(
-      values.serviceCategories,
-    );
+  const capabilities = resolveStepFiveCapacityCapabilities(
+    values.serviceCategories,
+    serviceCategories,
+  );
 
   if (capabilities.requiresGuestCapacity) {
     if (
+      !Number.isInteger(values.minGuestsPerEvent) ||
       values.minGuestsPerEvent < 1 ||
+      values.minGuestsPerEvent > 100000 ||
       values.minGuestsPerEvent >
         values.maxGuestsPerEvent
     ) {
       errors.minGuestsPerEvent =
-        "Minimum guests must be at least 1 and not exceed the maximum.";
+        "Minimum guests must be from 1 to 100,000 and not exceed the maximum.";
     }
 
-    if (values.maxGuestsPerEvent < 1) {
+    if (
+      !Number.isInteger(values.maxGuestsPerEvent) ||
+      values.maxGuestsPerEvent < 1 ||
+      values.maxGuestsPerEvent > 100000
+    ) {
       errors.maxGuestsPerEvent =
-        "Maximum guests must be at least 1.";
+        "Maximum guests must be from 1 to 100,000.";
     }
   } else {
     normalized.minGuestsPerEvent = 0;
@@ -1006,17 +1756,35 @@ function prepareStepValues(
 
   if (!capabilities.usesStaffCapacity) {
     normalized.availableStaffCount = 0;
+  } else if (
+    !Number.isInteger(values.availableStaffCount) ||
+    values.availableStaffCount < 0 ||
+    values.availableStaffCount > 100000
+  ) {
+    errors.availableStaffCount =
+      "Available staff must be from 0 to 100,000.";
   }
 
   if (!capabilities.usesEquipmentCapacity) {
     normalized.availableEquipmentCount = 0;
+  } else if (
+    !Number.isInteger(values.availableEquipmentCount) ||
+    values.availableEquipmentCount < 0 ||
+    values.availableEquipmentCount > 100000
+  ) {
+    errors.availableEquipmentCount =
+      "Available equipment must be from 0 to 100,000.";
   }
 
   if (!values.acceptsMultipleEventsPerDay) {
     normalized.maxEventsPerDay = 1;
-  } else if (values.maxEventsPerDay < 1) {
+  } else if (
+    !Number.isInteger(values.maxEventsPerDay) ||
+    values.maxEventsPerDay < 1 ||
+    values.maxEventsPerDay > 100
+  ) {
     errors.maxEventsPerDay =
-      "Maximum events per day must be at least 1.";
+      "Maximum events per day must be from 1 to 100.";
   }
 
   if (values.operatingDays.length === 0) {
@@ -1024,12 +1792,16 @@ function prepareStepValues(
       "Choose at least one operating day.";
   }
 
-  if (
+  if (values.bookingLeadTimeDays === null) {
+    errors.bookingLeadTimeDays =
+      "Enter your minimum booking notice.";
+  } else if (
+    !Number.isInteger(values.bookingLeadTimeDays) ||
     values.bookingLeadTimeDays < 0 ||
     values.bookingLeadTimeDays > 365
   ) {
     errors.bookingLeadTimeDays =
-      "Booking lead time must be between 0 and 365 days.";
+      "Minimum booking notice must be between 0 and 365 days.";
   }
 
   if (
@@ -1047,6 +1819,11 @@ function prepareStepValues(
       "Use valid YYYY-MM-DD dates.";
   }
 }
+  if (step === 6 && !values.providerAgreementAccepted) {
+    errors.providerAgreementAccepted =
+      "Accept the FEASTA Provider Agreement to continue.";
+  }
+
   return {values: normalized, errors};
 }
 

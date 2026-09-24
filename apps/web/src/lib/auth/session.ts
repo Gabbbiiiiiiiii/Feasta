@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import {
+  PROVIDER_AGREEMENT_VERSION,
   PROVIDER_EVENT_TYPES,
   PROVIDER_OPERATING_DAYS,
   isServiceCategoryCode,
@@ -416,9 +417,15 @@ export async function loadOwnedProviderVerification(
         (value): value is string => typeof value === "string",
       )
     : [];
+  const businessRegistrationType =
+    provider.businessRegistrationType === "individual" ||
+    provider.businessRegistrationType === "registered_business"
+      ? provider.businessRegistrationType
+      : undefined;
   const policy = providerVerificationDocumentPolicy({
     providerServiceType,
     serviceCategories,
+    businessRegistrationType,
   });
   const safeText = (value: unknown) => typeof value === "string"
     ? value.slice(0, 2000)
@@ -587,15 +594,12 @@ export async function loadProviderOnboardingDraft(
     logoPublicId: text(draft.logoPublicId) || null,
     coverImageUrl: text(draft.coverImageUrl) || null,
     coverPublicId: text(draft.coverPublicId) || null,
-    acceptedTerms: user.termsAcceptedAt != null,
-    acceptedPrivacy: user.privacyAcceptedAt != null,
-    termsPolicyVersion: text(
-      user.termsPolicyVersion,
-      text(draft.termsPolicyVersion, "unversioned"),
-    ),
-    privacyPolicyVersion: text(
-      user.privacyPolicyVersion,
-      text(draft.privacyPolicyVersion, "unversioned"),
+    providerAgreementAccepted:
+      draft.providerAgreementAccepted === true &&
+      draft.providerAgreementAcceptedAt != null,
+    providerAgreementVersion: text(
+      draft.providerAgreementVersion,
+      PROVIDER_AGREEMENT_VERSION,
     ),
     completedSteps: Array.isArray(draft.completedSteps)
       ? draft.completedSteps.filter(

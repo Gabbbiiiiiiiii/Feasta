@@ -289,6 +289,7 @@ export function providerCapacityCapabilities(
 export const PROVIDER_EVENT_TYPES = [
   "birthday",
   "wedding",
+  "debut",
   "anniversary",
   "reunion",
   "corporate",
@@ -359,6 +360,15 @@ export function providerVerificationDocumentPolicy(
     typeof provider.providerCategory === "string" ?
       [provider.providerCategory] :
       [];
+  const businessRegistrationType =
+    provider.businessRegistrationType === "individual" ||
+    provider.businessRegistrationType === "registered_business" ?
+      provider.businessRegistrationType :
+      undefined;
+  const registeredOrLegacy = businessRegistrationType !== "individual";
+  const requiredAll: VerificationDocumentType[] = registeredOrLegacy ?
+    [...REQUIRED_VERIFICATION_DOCUMENT_TYPES] :
+    ["valid_id"];
   const requiresFoodPermit =
     serviceType === "catering" ||
     serviceType === "both" ||
@@ -366,11 +376,13 @@ export function providerVerificationDocumentPolicy(
       (FOOD_SERVICE_CATEGORIES as readonly string[]).includes(category)
     );
   const requiresMayorsPermit = categories.includes("venue_provider");
+
+  if (requiresMayorsPermit) {
+    requiredAll.push("mayors_permit");
+  }
+
   return {
-    requiredAll: [
-      ...REQUIRED_VERIFICATION_DOCUMENT_TYPES,
-      ...(requiresMayorsPermit ? ["mayors_permit" as const] : []),
-    ],
+    requiredAll,
     requiredOneOf: requiresFoodPermit && !requiresMayorsPermit ?
       [FOOD_PERMIT_ALTERNATIVES] :
       [],

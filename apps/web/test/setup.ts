@@ -1,3 +1,13 @@
+// Component tests must never depend on local or production Firebase
+// credentials. firebase/client.ts validates configuration at import time,
+// so provide isolated test-only values before application modules load.
+process.env.NEXT_PUBLIC_FIREBASE_API_KEY ??= "test-api-key";
+process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ??= "test.firebaseapp.com";
+process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ??= "feasta-test";
+process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ??= "feasta-test.appspot.com";
+process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ??= "123456789";
+process.env.NEXT_PUBLIC_FIREBASE_APP_ID ??= "1:123456789:web:test";
+
 import "@testing-library/jest-dom/vitest";
 
 import {cleanup} from "@testing-library/react";

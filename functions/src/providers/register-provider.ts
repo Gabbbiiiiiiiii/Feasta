@@ -15,12 +15,12 @@ import {
   PROVIDER_OPERATING_DAYS,
   PROVIDER_SERVICE_TYPES,
   USER_ROLES,
-  providerCapacityCapabilities,
 } from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
 import {
   requireActiveServiceCategories,
   requireActiveServiceCategoriesInTransaction,
+  resolveServiceCategoryCapacityCapabilities,
 } from "../shared/service-category-policy.js";
 import {
   beginIdempotentOperation,
@@ -106,6 +106,7 @@ export const registerProvider = onCall(
     const input = requireObject(request.data);
     rejectUnknownFields(input, [
       "businessName",
+      "businessRegistrationType",
       "businessEmail",
       "businessPhone",
       "ownerFirstName",
@@ -146,6 +147,17 @@ export const registerProvider = onCall(
         maxLength: 120,
       },
     );
+
+    const businessRegistrationType = requireEnum(
+
+      input.businessRegistrationType,
+
+      "businessRegistrationType",
+
+      ["individual", "registered_business"] as const,
+
+    );
+
 
     const businessEmail = requireString(
       input.businessEmail,
@@ -251,7 +263,14 @@ export const registerProvider = onCall(
       );
     }
     const capacityCapabilities =
-      providerCapacityCapabilities(serviceCategories);
+      await resolveServiceCategoryCapacityCapabilities(
+        serviceCategories,
+        providerServiceType,
+        {
+          required: true,
+          field: "serviceCategories",
+        },
+      );
     const serviceAreas = optionalStringList(input.serviceAreas, "serviceAreas");
     const eventTypesSupported = input.serviceCategories === undefined
       ? optionalStringList(input.eventTypesSupported, "eventTypesSupported")
@@ -489,6 +508,11 @@ export const registerProvider = onCall(
           );
           requireProviderRegistrationConsent(userData);
 
+          const onboardingDraftSnapshot =
+            await transaction.get(onboardingDraftReference);
+          const onboardingDraftData =
+            onboardingDraftSnapshot.data();
+
           /*
            * First trust an existing users/{uid}.providerId link.
            */
@@ -661,6 +685,24 @@ export const registerProvider = onCall(
             };
           }
 
+          if (
+            !onboardingDraftSnapshot.exists ||
+            onboardingDraftData?.providerAgreementAccepted !== true ||
+            typeof onboardingDraftData?.providerAgreementVersion !== "string" ||
+            onboardingDraftData.providerAgreementVersion.trim() === "" ||
+            onboardingDraftData?.providerAgreementAcceptedAt == null
+          ) {
+            throw new HttpsError(
+              "failed-precondition",
+              "Accept the Provider Agreement before creating your provider profile.",
+            );
+          }
+
+          const providerAgreementVersion =
+            onboardingDraftData.providerAgreementVersion.trim();
+          const providerAgreementAcceptedAt =
+            onboardingDraftData.providerAgreementAcceptedAt;
+
           await requireActiveServiceCategoriesInTransaction(
             transaction,
             serviceCategories,
@@ -702,6 +744,7 @@ export const registerProvider = onCall(
               providerServiceType,
               providerCategory,
               serviceCategories,
+              capacityCapabilities,
               searchTokens: buildSearchTokens([
                 businessName,
                 city,
@@ -782,6 +825,7 @@ export const registerProvider = onCall(
               searchTokens: buildSearchTokens([
                 newProviderReference.id,
                 businessName,
+                businessRegistrationType,
                 businessEmail,
                 businessPhone,
                 ownerFirstName,
@@ -803,6 +847,8 @@ export const registerProvider = onCall(
                   : "unversioned",
               termsAcceptedAt: userData?.termsAcceptedAt ?? null,
               privacyAcceptedAt: userData?.privacyAcceptedAt ?? null,
+              providerAgreementVersion,
+              providerAgreementAcceptedAt,
 
               status: "draft",
               remarks: null,

@@ -5,10 +5,16 @@ export type ServiceCategoryCode = string;
 export declare const SERVICE_CATEGORY_CODE_PATTERN: RegExp;
 export declare function isServiceCategoryCode(value: unknown): value is ServiceCategoryCode;
 export declare function normalizeServiceCategoryCode(value: string): ServiceCategoryCode;
+export interface ServiceCategoryCapacityCapabilities {
+    requiresGuestCapacity: boolean;
+    usesStaffCapacity: boolean;
+    usesEquipmentCapacity: boolean;
+}
 export interface ServiceCategoryDefinition {
     code: ServiceCategoryCode;
     name: string;
     serviceType: Exclude<ProviderServiceType, "both">;
+    capacityCapabilities?: ServiceCategoryCapacityCapabilities;
 }
 export interface ServiceCategoryRecord extends ServiceCategoryDefinition {
     status: ServiceCategoryStatus;

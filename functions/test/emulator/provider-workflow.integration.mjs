@@ -56,6 +56,7 @@ const adminApp = initializeAdminApp({projectId}, `provider-admin-${Date.now()}`)
 const db = getFirestore(adminApp);
 
 try {
+  await seedRequiredServiceCategories();
   await testHealthCheck();
   await verifyIdentityPrerequisiteEnforcement();
   const workflow = await registerAndSubmitProvider();
@@ -68,6 +69,20 @@ try {
   await signOut(auth).catch(() => undefined);
   await deleteApp(clientApp);
   await deleteAdminApp(adminApp);
+}
+
+async function seedRequiredServiceCategories() {
+  await db.collection("serviceCategories").doc("catering_service").set({
+    code: "catering_service",
+    name: "Catering Service",
+    serviceType: "catering",
+    status: "active",
+    sortName: "catering service",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    createdBy: "test_seed",
+    updatedBy: "test_seed",
+  });
 }
 
 async function testHealthCheck() {
@@ -299,6 +314,14 @@ async function registerAndSubmitProvider() {
   const verificationRef = db.collection("providerVerifications").doc(created.verificationId);
   const provider = (await providerRef.get()).data();
   const verification = (await verificationRef.get()).data();
+  assert.equal(
+    verification?.providerAgreementVersion,
+    "2026-09-23",
+  );
+  assert.ok(
+    verification?.providerAgreementAcceptedAt,
+    "provider agreement acceptance timestamp must be recorded",
+  );
   const user = (await db.collection("users").doc(providerUser.uid).get()).data();
   assert.equal(user?.role, "provider");
   assert.equal(user?.providerId, created.providerId);
@@ -443,10 +466,8 @@ async function completeOnboarding(providerUser, input) {
       unavailableDates: [],
     },
     {
-      acceptedTerms: true,
-      acceptedPrivacy: true,
-      termsPolicyVersion: "phase7-test-terms",
-      privacyPolicyVersion: "phase7-test-privacy",
+      providerAgreementAccepted: true,
+      providerAgreementVersion: "2026-09-23",
     },
   ];
   for (const [index, data] of steps.entries()) {

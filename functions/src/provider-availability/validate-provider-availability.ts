@@ -84,7 +84,10 @@ export function validateProviderAvailability(
 ): ProviderAvailabilityResult {
   const issues: ProviderAvailabilityIssue[] = [];
   const providerCategories = providerServiceCategories(input.providerData);
-  const capabilities = providerCapacityCapabilities(providerCategories);
+  const capabilities = providerCapacityCapabilitiesSnapshot(
+    input.providerData,
+    providerCategories,
+  );
   const eventDate = validDate(input.request.eventDate);
   const now = validDate(input.now ?? new Date());
 
@@ -391,6 +394,42 @@ function providerServiceCategories(
       ),
     ),
   ];
+}
+
+function providerCapacityCapabilitiesSnapshot(
+  provider: Readonly<Record<string, unknown>>,
+  providerCategories: readonly ServiceCategoryCode[],
+): {
+  requiresGuestCapacity: boolean;
+  usesStaffCapacity: boolean;
+  usesEquipmentCapacity: boolean;
+} {
+  const value = provider.capacityCapabilities;
+
+  if (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  ) {
+    const record = value as Record<string, unknown>;
+
+    if (
+      typeof record.requiresGuestCapacity === "boolean" &&
+      typeof record.usesStaffCapacity === "boolean" &&
+      typeof record.usesEquipmentCapacity === "boolean"
+    ) {
+      return {
+        requiresGuestCapacity:
+          record.requiresGuestCapacity,
+        usesStaffCapacity:
+          record.usesStaffCapacity,
+        usesEquipmentCapacity:
+          record.usesEquipmentCapacity,
+      };
+    }
+  }
+
+  return providerCapacityCapabilities(providerCategories);
 }
 
 function providerOperatingDays(value: unknown): string[] {

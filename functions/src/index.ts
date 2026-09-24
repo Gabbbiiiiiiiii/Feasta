@@ -318,7 +318,7 @@ export const searchPlaces = onCall(callableOptions, async (request) => {
           locationBias: {
             circle: {
               center: ormocCenter,
-              radius: 75000,
+              radius: 50000,
             },
           },
         }),
@@ -628,9 +628,32 @@ async function fetchGoogleJson<T>(
     });
 
     if (!response.ok) {
+      const errorBody = await response.text();
+      let googleErrorMessage = "";
+
+      try {
+        const parsed = JSON.parse(errorBody) as {
+          error?: {
+            message?: unknown;
+            status?: unknown;
+          };
+        };
+
+        if (typeof parsed.error?.message === "string") {
+          googleErrorMessage = parsed.error.message;
+        }
+      } catch {
+        // Do not log arbitrary upstream response bodies.
+      }
+
       logger.warn("Google Maps API HTTP error", {
         status: response.status,
+        googleStatus:
+          response.headers.get("x-goog-status") ?? undefined,
+        googleErrorMessage:
+          googleErrorMessage.slice(0, 500) || undefined,
       });
+
       throw new HttpsError(
         "unavailable",
         "Google Maps service is temporarily unavailable.",

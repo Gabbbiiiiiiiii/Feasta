@@ -33,10 +33,13 @@ export default async function ProviderOnboardingStepPage({
   const requestedStep = onboardingStepBySlug((await params).step);
   const draft = await loadProviderOnboardingDraft(account);
 
-  const serviceCategories =
-    requestedStep?.number === 3
-      ? await getActiveServiceCategoryOptions()
-      : [];
+  const needsServiceCategories =
+    requestedStep?.number === 3 ||
+    requestedStep?.number === 5;
+
+  const serviceCategories = needsServiceCategories
+    ? await getActiveServiceCategoryOptions()
+    : [];
   const firstIncomplete = firstIncompleteSetupStep(draft.completedSteps);
 
   if (

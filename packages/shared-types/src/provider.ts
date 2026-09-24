@@ -44,6 +44,8 @@ export interface ProviderVerificationDocumentPolicy {
 
 export const UNVERSIONED_POLICY_VERSION = "unversioned" as const;
 
+export const PROVIDER_AGREEMENT_VERSION = "2026-09-23" as const;
+
 
 export interface ProviderCapacityCapabilities {
   requiresGuestCapacity: boolean;
@@ -122,6 +124,7 @@ export function providerCapacityCapabilities(
 export const PROVIDER_EVENT_TYPES = [
   "birthday",
   "wedding",
+  "debut",
   "anniversary",
   "reunion",
   "corporate",
@@ -173,10 +176,19 @@ export const PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS = [
   required: boolean;
 }[];
 
+export const PROVIDER_BUSINESS_REGISTRATION_TYPES = [
+  "individual",
+  "registered_business",
+] as const;
+
+export type ProviderBusinessRegistrationType =
+  (typeof PROVIDER_BUSINESS_REGISTRATION_TYPES)[number];
+
 export const PROVIDER_ONBOARDING_CLIENT_FIELDS = [
   "ownerFirstName",
   "ownerLastName",
   "businessName",
+  "businessRegistrationType",
   "businessEmail",
   "businessPhone",
   "description",
@@ -277,6 +289,7 @@ export interface ProviderOnboardingInput {
   ownerFirstName: string;
   ownerLastName: string;
   businessName: string;
+  businessRegistrationType: ProviderBusinessRegistrationType;
   businessEmail: string;
   businessPhone: string;
   description: string;
@@ -334,6 +347,8 @@ export interface ProviderVerification {
   privacyPolicyVersion: string;
   termsAcceptedAt: ProviderTimestamp | null;
   privacyAcceptedAt: ProviderTimestamp | null;
+  providerAgreementVersion: string;
+  providerAgreementAcceptedAt: ProviderTimestamp | null;
   submittedAt: ProviderTimestamp | null;
   reviewedAt: ProviderTimestamp | null;
   reviewedBy: string | null;
@@ -368,8 +383,14 @@ export interface ProviderVerificationDocument {
 export function providerVerificationDocumentPolicy(input: {
   providerServiceType: ProviderServiceType;
   serviceCategories?: readonly string[];
+  businessRegistrationType?: ProviderBusinessRegistrationType;
 }): ProviderVerificationDocumentPolicy {
   const categories = input.serviceCategories ?? [];
+  const registeredOrLegacy =
+    input.businessRegistrationType !== "individual";
+  const requiredAll: VerificationDocumentType[] = registeredOrLegacy
+    ? [...REQUIRED_VERIFICATION_DOCUMENT_TYPES]
+    : ["valid_id"];
   const requiresFoodPermit =
     input.providerServiceType === "catering" ||
     input.providerServiceType === "both" ||
@@ -377,11 +398,13 @@ export function providerVerificationDocumentPolicy(input: {
       (FOOD_SERVICE_CATEGORIES as readonly string[]).includes(category)
     );
   const requiresMayorsPermit = categories.includes("venue_provider");
+
+  if (requiresMayorsPermit) {
+    requiredAll.push("mayors_permit");
+  }
+
   return {
-    requiredAll: [
-      ...REQUIRED_VERIFICATION_DOCUMENT_TYPES,
-      ...(requiresMayorsPermit ? ["mayors_permit" as const] : []),
-    ],
+    requiredAll,
     requiredOneOf: requiresFoodPermit && !requiresMayorsPermit
       ? [FOOD_PERMIT_ALTERNATIVES]
       : [],
@@ -605,6 +628,19 @@ export function validateProviderOnboardingInput(
   const ownerFirstName = text("ownerFirstName", 1, 80);
   const ownerLastName = text("ownerLastName", 1, 80);
   const businessName = text("businessName", 2, 120);
+  const businessRegistrationType =
+    typeof input.businessRegistrationType === "string" &&
+    PROVIDER_BUSINESS_REGISTRATION_TYPES.includes(
+      input.businessRegistrationType as ProviderBusinessRegistrationType,
+    )
+      ? input.businessRegistrationType as ProviderBusinessRegistrationType
+      : null;
+  if (!businessRegistrationType) {
+    issues.push({
+      field: "businessRegistrationType",
+      code: "invalid",
+    });
+  }
   const rawBusinessEmail = text("businessEmail", 3, 160);
   const businessEmail = normalizeProviderEmail(rawBusinessEmail) ?? "";
   if (!businessEmail) {
@@ -788,7 +824,11 @@ export function validateProviderOnboardingInput(
   for (const field of Object.keys(input)) {
     if (!known.has(field)) issues.push({field, code: "unknown"});
   }
-  if (issues.length > 0 || !providerServiceType) {
+  if (
+    issues.length > 0 ||
+    !providerServiceType ||
+    !businessRegistrationType
+  ) {
     return {success: false, issues};
   }
 
@@ -798,6 +838,7 @@ export function validateProviderOnboardingInput(
       ownerFirstName,
       ownerLastName,
       businessName,
+      businessRegistrationType,
       businessEmail,
       businessPhone,
       description,

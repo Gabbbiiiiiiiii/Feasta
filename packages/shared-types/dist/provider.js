@@ -18,6 +18,7 @@ export const FOOD_PERMIT_ALTERNATIVES = [
     "mayors_permit",
 ];
 export const UNVERSIONED_POLICY_VERSION = "unversioned";
+export const PROVIDER_AGREEMENT_VERSION = "2026-09-23";
 const GUEST_CAPACITY_SERVICE_CATEGORIES = [
     "catering_service",
     "food_trays_packed_meals",
@@ -68,6 +69,7 @@ export function providerCapacityCapabilities(serviceCategories) {
 export const PROVIDER_EVENT_TYPES = [
     "birthday",
     "wedding",
+    "debut",
     "anniversary",
     "reunion",
     "corporate",
@@ -107,10 +109,15 @@ export const PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS = [
     { type: "mayors_permit", label: "Mayor's permit", required: false },
     { type: "other", label: "Other supporting document", required: false },
 ];
+export const PROVIDER_BUSINESS_REGISTRATION_TYPES = [
+    "individual",
+    "registered_business",
+];
 export const PROVIDER_ONBOARDING_CLIENT_FIELDS = [
     "ownerFirstName",
     "ownerLastName",
     "businessName",
+    "businessRegistrationType",
     "businessEmail",
     "businessPhone",
     "description",
@@ -173,15 +180,19 @@ export const PROVIDER_SERVER_OWNED_FIELDS = [
 ];
 export function providerVerificationDocumentPolicy(input) {
     const categories = input.serviceCategories ?? [];
+    const registeredOrLegacy = input.businessRegistrationType !== "individual";
+    const requiredAll = registeredOrLegacy
+        ? [...REQUIRED_VERIFICATION_DOCUMENT_TYPES]
+        : ["valid_id"];
     const requiresFoodPermit = input.providerServiceType === "catering" ||
         input.providerServiceType === "both" ||
         categories.some((category) => FOOD_SERVICE_CATEGORIES.includes(category));
     const requiresMayorsPermit = categories.includes("venue_provider");
+    if (requiresMayorsPermit) {
+        requiredAll.push("mayors_permit");
+    }
     return {
-        requiredAll: [
-            ...REQUIRED_VERIFICATION_DOCUMENT_TYPES,
-            ...(requiresMayorsPermit ? ["mayors_permit"] : []),
-        ],
+        requiredAll,
         requiredOneOf: requiresFoodPermit && !requiresMayorsPermit
             ? [FOOD_PERMIT_ALTERNATIVES]
             : [],
@@ -332,6 +343,16 @@ export function validateProviderOnboardingInput(input) {
     const ownerFirstName = text("ownerFirstName", 1, 80);
     const ownerLastName = text("ownerLastName", 1, 80);
     const businessName = text("businessName", 2, 120);
+    const businessRegistrationType = typeof input.businessRegistrationType === "string" &&
+        PROVIDER_BUSINESS_REGISTRATION_TYPES.includes(input.businessRegistrationType)
+        ? input.businessRegistrationType
+        : null;
+    if (!businessRegistrationType) {
+        issues.push({
+            field: "businessRegistrationType",
+            code: "invalid",
+        });
+    }
     const rawBusinessEmail = text("businessEmail", 3, 160);
     const businessEmail = normalizeProviderEmail(rawBusinessEmail) ?? "";
     if (!businessEmail) {
@@ -397,7 +418,9 @@ export function validateProviderOnboardingInput(input) {
         if (!known.has(field))
             issues.push({ field, code: "unknown" });
     }
-    if (issues.length > 0 || !providerServiceType) {
+    if (issues.length > 0 ||
+        !providerServiceType ||
+        !businessRegistrationType) {
         return { success: false, issues };
     }
     return {
@@ -406,6 +429,7 @@ export function validateProviderOnboardingInput(input) {
             ownerFirstName,
             ownerLastName,
             businessName,
+            businessRegistrationType,
             businessEmail,
             businessPhone,
             description,

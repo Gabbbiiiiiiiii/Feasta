@@ -58,6 +58,33 @@ export async function getEventVenueDetails(
   }
 }
 
+export async function reverseGeocodeEventVenue(
+  latitude: number,
+  longitude: number,
+): Promise<EventVenueDetails> {
+  initializeBrowserAppCheck();
+
+  const callable = httpsCallable<
+    {latitude: number; longitude: number},
+    unknown
+  >(
+    functions,
+    "reverseGeocode",
+    {timeout: 14_000},
+  );
+
+  try {
+    const response = await callable({
+      latitude,
+      longitude,
+    });
+
+    return parseDetails(response.data);
+  } catch (error) {
+    throw venueError(error);
+  }
+}
+
 function parseSuggestion(value: unknown): EventVenueSuggestion[] {
   if (!isRecord(value)) return [];
   const placeId = safeText(value.placeId, 220);

@@ -39,6 +39,8 @@ import {
   reactivateAdminServiceCategory,
   updateAdminServiceCategory,
 } from "@/lib/admin/file-maintenance/admin-service-category-client";
+import {providerCapacityCapabilities} from "@feasta/shared-types";
+
 import type {
   AdminServiceCategory,
   AdminServiceCategoryServiceType,
@@ -58,11 +60,17 @@ type ServiceTypeFilter =
 type EditorDraft = {
   name: string;
   serviceType: AdminServiceCategoryServiceType;
+  requiresGuestCapacity: boolean;
+  usesStaffCapacity: boolean;
+  usesEquipmentCapacity: boolean;
 };
 
 const EMPTY_DRAFT: EditorDraft = {
   name: "",
   serviceType: "addon",
+  requiresGuestCapacity: false,
+  usesStaffCapacity: false,
+  usesEquipmentCapacity: false,
 };
 
 function ServiceCategoryManagementClient({
@@ -215,10 +223,24 @@ function ServiceCategoryManagementClient({
   const openEdit = (
     category: AdminServiceCategory,
   ) => {
+    const legacyCapabilities =
+      providerCapacityCapabilities([
+        category.code,
+      ]);
+    const capacityCapabilities =
+      category.capacityCapabilities ??
+      legacyCapabilities;
+
     setEditing(category);
     setDraft({
       name: category.name,
       serviceType: category.serviceType,
+      requiresGuestCapacity:
+        capacityCapabilities.requiresGuestCapacity,
+      usesStaffCapacity:
+        capacityCapabilities.usesStaffCapacity,
+      usesEquipmentCapacity:
+        capacityCapabilities.usesEquipmentCapacity,
     });
     setFormError(undefined);
     setEditorOpen(true);
@@ -248,18 +270,50 @@ function ServiceCategoryManagementClient({
             code: editing.code,
             name,
             serviceType: draft.serviceType,
+            capacityCapabilities: {
+              requiresGuestCapacity:
+                draft.requiresGuestCapacity,
+              usesStaffCapacity:
+                draft.usesStaffCapacity,
+              usesEquipmentCapacity:
+                draft.usesEquipmentCapacity,
+            },
           });
 
           setCategories((current) =>
             current.map((category) =>
               category.code === editing.code
+
                 ? {
+
                     ...category,
+
                     name,
+
                     serviceType:
+
                       draft.serviceType,
+
+                    capacityCapabilities: {
+
+                      requiresGuestCapacity:
+
+                        draft.requiresGuestCapacity,
+
+                      usesStaffCapacity:
+
+                        draft.usesStaffCapacity,
+
+                      usesEquipmentCapacity:
+
+                        draft.usesEquipmentCapacity,
+
+                    },
+
                     sortName:
+
                       name.toLowerCase(),
+
                   }
                 : category,
             ),
@@ -284,6 +338,14 @@ function ServiceCategoryManagementClient({
               code,
               name,
               serviceType: draft.serviceType,
+              capacityCapabilities: {
+                requiresGuestCapacity:
+                  draft.requiresGuestCapacity,
+                usesStaffCapacity:
+                  draft.usesStaffCapacity,
+                usesEquipmentCapacity:
+                  draft.usesEquipmentCapacity,
+              },
             });
 
           const created =
@@ -292,6 +354,14 @@ function ServiceCategoryManagementClient({
               name,
               serviceType:
                 draft.serviceType,
+              capacityCapabilities: {
+                requiresGuestCapacity:
+                  draft.requiresGuestCapacity,
+                usesStaffCapacity:
+                  draft.usesStaffCapacity,
+                usesEquipmentCapacity:
+                  draft.usesEquipmentCapacity,
+              },
               status: "active" as const,
               sortName:
                 name.toLowerCase(),
@@ -530,7 +600,7 @@ function ServiceCategoryManagementClient({
             </DialogTitle>
             <DialogDescription>
               {editing
-                ? "Update the display name or service type. The category code remains unchanged."
+                ? "Update the display name, service type, and capacity requirements. The category code remains unchanged."
                 : "Create a service category providers can select during setup and service management."}
             </DialogDescription>
           </DialogHeader>
@@ -605,6 +675,92 @@ function ServiceCategoryManagementClient({
                 </option>
               </Select>
             </FormField>
+
+            <div className="grid gap-3 rounded-xl border border-border bg-muted/30 p-4">
+              <div>
+                <p className="font-semibold text-foreground">
+                  Capacity requirements
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Choose which capacity limits apply to this service.
+                </p>
+              </div>
+
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4"
+                  checked={draft.requiresGuestCapacity}
+                  disabled={isPending}
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+
+                    setDraft((current) => ({
+                      ...current,
+                      requiresGuestCapacity: checked,
+                    }));
+                  }}
+                />
+                <span>
+                  <span className="block font-medium text-foreground">
+                    Guest capacity
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    Ask providers for minimum and maximum guest limits.
+                  </span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4"
+                  checked={draft.usesStaffCapacity}
+                  disabled={isPending}
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+
+                    setDraft((current) => ({
+                      ...current,
+                      usesStaffCapacity: checked,
+                    }));
+                  }}
+                />
+                <span>
+                  <span className="block font-medium text-foreground">
+                    Staff / team capacity
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    Ask providers for their available staff or team size.
+                  </span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  className="mt-1 size-4"
+                  checked={draft.usesEquipmentCapacity}
+                  disabled={isPending}
+                  onChange={(event) => {
+                    const checked = event.currentTarget.checked;
+
+                    setDraft((current) => ({
+                      ...current,
+                      usesEquipmentCapacity: checked,
+                    }));
+                  }}
+                />
+                <span>
+                  <span className="block font-medium text-foreground">
+                    Equipment / resource capacity
+                  </span>
+                  <span className="block text-sm text-muted-foreground">
+                    Ask providers for available equipment or resources.
+                  </span>
+                </span>
+              </label>
+            </div>
 
             <DialogFooter>
               <Button

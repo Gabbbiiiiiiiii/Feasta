@@ -662,10 +662,16 @@ function firebaseCode(error: unknown): string {
 }
 
 async function call<T>(name: string, data: Record<string, unknown>): Promise<T> {
+  await auth.authStateReady();
+
+  const user = requireProviderAuthUser();
+  await user.getIdToken();
+
   const response = await httpsCallable<Record<string, unknown>, T>(
     functions,
     name,
   )(data);
+
   return response.data;
 }
 

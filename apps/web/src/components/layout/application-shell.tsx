@@ -58,7 +58,14 @@ function ApplicationShell({
               role={role}
               accountLabel={accountLabel}
               showNotifications={
-                providerContext?.kind !== "identity-limited"
+                role !== "provider" ||
+                (
+                  providerContext?.kind === "profile" &&
+                  providerContext.verificationStatus === "approved" &&
+                  providerContext.isActive &&
+                  !providerContext.isSuspended &&
+                  !providerContext.isDeleted
+                )
               }
               pageTitle={
                 pageTitle ??

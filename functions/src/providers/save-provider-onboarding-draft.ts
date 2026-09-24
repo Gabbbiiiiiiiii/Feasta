@@ -12,12 +12,12 @@ import {
   PROVIDER_OPERATING_DAYS,
   PROVIDER_SERVICE_TYPES,
   USER_ROLES,
-  providerCapacityCapabilities,
 } from "../shared/constants.js";
 import {db} from "../shared/firestore.js";
 import {
   requireActiveServiceCategories,
   requireActiveServiceCategoriesInTransaction,
+  resolveServiceCategoryCapacityCapabilitiesInTransaction,
 } from "../shared/service-category-policy.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
@@ -212,10 +212,47 @@ export const saveProviderOnboardingDraft = onCall(
       }
 
       if (step === 5) {
+        const serviceCategories =
+          Array.isArray(existing.serviceCategories)
+            ? existing.serviceCategories.filter(
+                (value): value is string =>
+                  typeof value === "string",
+              )
+            : [];
+
+        if (serviceCategories.length === 0) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Complete service selection before configuring capacity.",
+          );
+        }
+
+        const providerServiceType =
+          existing.providerServiceType;
+
+        if (
+          providerServiceType !== "catering" &&
+          providerServiceType !== "addon" &&
+          providerServiceType !== "both"
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Complete service selection before configuring capacity.",
+          );
+        }
+
+        const capacityCapabilities =
+          await resolveServiceCategoryCapacityCapabilitiesInTransaction(
+            transaction,
+            serviceCategories,
+            providerServiceType,
+            "serviceCategories",
+          );
+
         validated =
           normalizeStepFiveCapacity(
             validated,
-            existing,
+            capacityCapabilities,
           );
       }
       const completed = new Set<number>(
@@ -272,17 +309,17 @@ export const saveProviderOnboardingDraft = onCall(
         });
       }
       if (step === 6) {
-        transaction.update(userReference, {
-          ...(user.termsAcceptedAt == null ? {
-            termsAcceptedAt: serverTimestamp(),
-            termsPolicyVersion: validated.termsPolicyVersion,
-          } : {}),
-          ...(user.privacyAcceptedAt == null ? {
-            privacyAcceptedAt: serverTimestamp(),
-            privacyPolicyVersion: validated.privacyPolicyVersion,
-          } : {}),
-          updatedAt: serverTimestamp(),
-        });
+        transaction.set(
+          draftReference,
+          {
+            providerAgreementAccepted: true,
+            providerAgreementVersion:
+              validated.providerAgreementVersion,
+            providerAgreementAcceptedAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          },
+          {merge: true},
+        );
       }
 
       return {
@@ -322,6 +359,7 @@ function validateStep(
     case 2: {
       rejectUnknownFields(data, [
         "businessName",
+        "businessRegistrationType",
         "businessEmail",
         "businessPhone",
         "description",
@@ -346,6 +384,11 @@ function validateStep(
           minLength: 2,
           maxLength: 120,
         }),
+        businessRegistrationType: requireEnum(
+          data.businessRegistrationType,
+          "businessRegistrationType",
+          ["individual", "registered_business"] as const,
+        ),
         businessEmail,
         businessPhone: requirePhilippinePhone(
           data.businessPhone,
@@ -512,29 +555,25 @@ function validateStep(
     }
     case 6:
       rejectUnknownFields(data, [
-        "acceptedTerms",
-        "acceptedPrivacy",
-        "termsPolicyVersion",
-        "privacyPolicyVersion",
+        "providerAgreementAccepted",
+        "providerAgreementVersion",
       ]);
       if (
-        requireBoolean(data.acceptedTerms, "acceptedTerms") !== true ||
-        requireBoolean(data.acceptedPrivacy, "acceptedPrivacy") !== true
+        requireBoolean(
+          data.providerAgreementAccepted,
+          "providerAgreementAccepted",
+        ) !== true
       ) {
         throw new HttpsError(
           "failed-precondition",
-          "Terms and privacy consent are required.",
+          "Accept the Provider Agreement before continuing.",
         );
       }
       return {
-        termsPolicyVersion: requireString(
-          data.termsPolicyVersion,
-          "termsPolicyVersion",
-          {minLength: 1, maxLength: 80},
-        ),
-        privacyPolicyVersion: requireString(
-          data.privacyPolicyVersion,
-          "privacyPolicyVersion",
+        providerAgreementAccepted: true,
+        providerAgreementVersion: requireString(
+          data.providerAgreementVersion,
+          "providerAgreementVersion",
           {minLength: 1, maxLength: 80},
         ),
       };
@@ -545,30 +584,12 @@ function validateStep(
 
 function normalizeStepFiveCapacity(
   validated: Record<string, unknown>,
-  existingDraft: Record<string, unknown>,
+  capabilities: {
+    requiresGuestCapacity: boolean;
+    usesStaffCapacity: boolean;
+    usesEquipmentCapacity: boolean;
+  },
 ): Record<string, unknown> {
-  const serviceCategories =
-    Array.isArray(
-      existingDraft.serviceCategories,
-    )
-      ? existingDraft.serviceCategories.filter(
-          (value): value is string =>
-            typeof value === "string",
-        )
-      : [];
-
-  if (serviceCategories.length === 0) {
-    throw new HttpsError(
-      "failed-precondition",
-      "Complete service selection before configuring capacity.",
-    );
-  }
-
-  const capabilities =
-    providerCapacityCapabilities(
-      serviceCategories,
-    );
-
   const minGuestsPerEvent =
     requiredInteger(
       validated.minGuestsPerEvent,

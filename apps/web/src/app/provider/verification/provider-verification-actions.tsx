@@ -65,6 +65,21 @@ export function ProviderVerificationActions({
   const consentReady = consent == null ||
     (consent.termsAccepted && consent.privacyAccepted);
   const busy = useRef(false);
+  const documentFileInputRef = useRef<HTMLInputElement>(null);
+
+  function prepareDocumentReplacement(
+    nextDocumentType: VerificationDocumentType,
+  ) {
+    setDocumentType(nextDocumentType);
+    setFile(null);
+
+    const input = documentFileInputRef.current;
+
+    if (input) {
+      input.value = "";
+      input.focus();
+    }
+  }
   const submitKey = useRef(globalThis.crypto.randomUUID());
   const [documentType, setDocumentType] = useState<VerificationDocumentType>("business_permit");
   const [file, setFile] = useState<File | null>(null);
@@ -91,8 +106,8 @@ export function ProviderVerificationActions({
       });
       setMessage(
         documents.some((document) => document.documentType === documentType)
-          ? "The document was replaced securely."
-          : "The document was uploaded and registered securely.",
+          ? "The document was replaced successfully. Review it again before submitting."
+          : "The document was uploaded successfully. Review your documents before submitting.",
       );
       setFile(null);
       router.refresh();
@@ -150,8 +165,8 @@ export function ProviderVerificationActions({
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           {reviewMode
-            ? "Your required documents are registered. Submission sends the application to FEASTA administrators for review."
-            : "PDF, JPEG, PNG, or WebP. Maximum 10 MB. Files are private to you and FEASTA administrators."}
+            ? "Review your uploaded documents carefully before submitting them to FEASTA. If something is incorrect, go back and replace it before submission."
+            : "Upload the documents required for your provider type. PDF, JPEG, PNG, or WebP, up to 10 MB per file. Files are private to you and FEASTA administrators."}
         </p>
       </div>
       {!reviewMode ? (
@@ -166,7 +181,12 @@ export function ProviderVerificationActions({
             </Select>
           </FormField>
           <FormField label="Choose file" required disabled={action !== null}>
-            <Input type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+            <Input
+              ref={documentFileInputRef}
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            />
           </FormField>
           <Button type="submit" loading={action === "upload"} loadingLabel="Uploading" disabled={!file || !editable || action !== null}>
             {documents.some((document) => document.documentType === documentType)
@@ -188,53 +208,46 @@ export function ProviderVerificationActions({
           />
         </div>
       ) : null}
-      <div className="grid gap-3" aria-label="Verification document status">
-        {PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS.map((definition) => {
-          const document = documents.find(
-            (candidate) => candidate.documentType === definition.type,
-          );
-          return (
-            <article
-              key={definition.type}
-              className="grid min-w-0 gap-3 rounded-lg border border-border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-            >
-              <div className="min-w-0">
-                <h3 className="font-semibold">{definition.label}</h3>
-                <p className="text-sm text-muted-foreground">
-                  {requirementDescription(definition.type, policy)}
-                  {document?.fileSize != null
-                    ? ` · ${formatFileSize(document.fileSize)}`
-                    : ""}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge
-                  status={document?.status ?? "missing"}
-                  label={document ? undefined : "Not uploaded"}
-                />
-                {document && editable && !reviewMode ? (
-                  <ConfirmationDialog
-                    title={`Remove ${document.displayName}?`}
-                    description="The private file and its registration will be removed. You must upload it again if the policy requires it."
-                    destructive
-                    confirmLabel="Remove document"
-                    loading={action === "remove"}
-                    onConfirm={() => remove(document)}
-                    trigger={(
-                      <Button
-                        variant="destructive"
-                        size="compact"
-                        disabled={action !== null}
-                      >
-                        Remove
-                      </Button>
-                    )}
-                  />
-                ) : null}
-              </div>
-            </article>
-          );
-        })}
+      <div className="grid gap-6" aria-label="Verification document status">
+        <DocumentSection
+          verificationId={verificationId}
+          title="Required for your provider account"
+          description="These documents must satisfy your current FEASTA verification requirements before you can continue."
+          definitions={PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS.filter(
+            (definition) =>
+              policy.requiredAll.includes(definition.type) ||
+              policy.requiredOneOf.some((group) =>
+                group.includes(definition.type),
+              ),
+          )}
+          documents={documents}
+          policy={policy}
+          editable={editable}
+          reviewMode={reviewMode}
+          action={action}
+          onPrepareReplacement={prepareDocumentReplacement}
+          onRemove={remove}
+        />
+
+        <DocumentSection
+          verificationId={verificationId}
+          title="Optional supporting documents"
+          description="These documents are not currently required by your verification policy, but you may provide them when they help FEASTA review your business."
+          definitions={PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS.filter(
+            (definition) =>
+              !policy.requiredAll.includes(definition.type) &&
+              !policy.requiredOneOf.some((group) =>
+                group.includes(definition.type),
+              ),
+          )}
+          documents={documents}
+          policy={policy}
+          editable={editable}
+          reviewMode={reviewMode}
+          action={action}
+          onPrepareReplacement={prepareDocumentReplacement}
+          onRemove={remove}
+        />
       </div>
       {!editable ? (
         <AuthStatus
@@ -256,6 +269,12 @@ export function ProviderVerificationActions({
           message="Required Terms and Privacy Policy acceptance is not recorded. Return to provider setup or contact FEASTA support before submitting."
         />
       ) : null}
+      {reviewMode ? (
+        <AuthStatus
+          tone="info"
+          message="FEASTA manually reviews provider applications to help keep the platform trustworthy. Complete applications are typically reviewed within 1–3 business days. Applications requiring additional information may take longer. We will notify you when your application is approved or if additional information is required."
+        />
+      ) : null}
       {message ? <AuthStatus message={message} tone="success" /> : null}
       {error ? <AuthStatus message={error} tone="error" /> : null}
       <div className="flex flex-col items-stretch justify-end gap-2 sm:flex-row sm:items-center">
@@ -274,6 +293,146 @@ export function ProviderVerificationActions({
         ) : (
           <Button disabled={!canSubmit || action !== null} onClick={() => router.replace("/provider/verification?stage=review")}>Review application</Button>
         )}
+      </div>
+    </section>
+  );
+}
+
+function DocumentSection({
+  verificationId,
+  title,
+  description,
+  definitions,
+  documents,
+  policy,
+  editable,
+  reviewMode,
+  action,
+  onPrepareReplacement,
+  onRemove,
+}: {
+  verificationId: string;
+  title: string;
+  description: string;
+  definitions: readonly {
+    type: VerificationDocumentType;
+    label: string;
+    required: boolean;
+  }[];
+  documents: VerificationDocumentSummary[];
+  policy: {
+    requiredAll: readonly string[];
+    requiredOneOf: readonly (readonly string[])[];
+  };
+  editable: boolean;
+  reviewMode: boolean;
+  action: "upload" | "remove" | "submit" | null;
+  onPrepareReplacement: (type: VerificationDocumentType) => void;
+  onRemove: (document: VerificationDocumentSummary) => Promise<void>;
+}) {
+  if (definitions.length === 0) return null;
+
+  return (
+    <section className="grid gap-3">
+      <div>
+        <h3 className="font-semibold">{title}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {description}
+        </p>
+      </div>
+
+      <div className="grid gap-3">
+        {definitions.map((definition) => {
+          const document = documents.find(
+            (candidate) => candidate.documentType === definition.type,
+          );
+
+          const previewUrl = document
+            ? `/api/provider/verifications/${encodeURIComponent(
+                verificationId,
+              )}/documents/${encodeURIComponent(document.id)}`
+            : null;
+
+          return (
+            <article
+              key={definition.type}
+              className="grid min-w-0 gap-3 rounded-lg border border-border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+            >
+              <div className="min-w-0">
+                <h4 className="font-semibold">{definition.label}</h4>
+
+                <p className="text-sm text-muted-foreground">
+                  {requirementDescription(definition.type, policy)}
+                  {document?.fileSize != null
+                    ? ` · ${formatFileSize(document.fileSize)}`
+                    : ""}
+                </p>
+
+                {document ? (
+                  <p className="mt-1 break-all text-xs text-muted-foreground">
+                    {document.displayName}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge
+                  status={document?.status ?? "missing"}
+                  label={document ? undefined : "Not uploaded"}
+                />
+
+                {document && previewUrl ? (
+                  <Button
+                    variant="secondary"
+                    size="compact"
+                    asChild
+                  >
+                    <a
+                      href={previewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Preview
+                    </a>
+                  </Button>
+                ) : null}
+
+                {document && editable && !reviewMode ? (
+                  <>
+                    <Button
+                      variant="secondary"
+                      size="compact"
+                      disabled={action !== null}
+                      onClick={() => {
+                        onPrepareReplacement(definition.type);
+                      }}
+                    >
+                      Replace
+                    </Button>
+
+                    <ConfirmationDialog
+                      title={`Remove ${document.displayName}?`}
+                      description="The private file and its registration will be removed. You must upload it again if the policy requires it."
+                      destructive
+                      confirmLabel="Remove document"
+                      loading={action === "remove"}
+                      onConfirm={() => onRemove(document)}
+                      trigger={(
+                        <Button
+                          variant="destructive"
+                          size="compact"
+                          disabled={action !== null}
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    />
+                  </>
+                ) : null}
+              </div>
+            </article>
+          );
+        })}
       </div>
     </section>
   );

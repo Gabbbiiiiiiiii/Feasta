@@ -1,4 +1,5 @@
 import type {
+  ServiceCategoryCapacityCapabilities,
   ServiceCategoryCode,
   ServiceCategoryStatus,
 } from "@feasta/shared-types";
@@ -7,6 +8,7 @@ export type ServiceCategoryOption = {
   code: ServiceCategoryCode;
   name: string;
   serviceType: "catering" | "addon";
+  capacityCapabilities?: ServiceCategoryCapacityCapabilities;
   status: ServiceCategoryStatus;
 };
 

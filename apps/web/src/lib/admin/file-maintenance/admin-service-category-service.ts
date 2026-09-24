@@ -6,6 +6,7 @@ import {
 
 import type {
   AdminServiceCategory,
+  AdminServiceCategoryCapacityCapabilities,
   AdminServiceCategoryServiceType,
   AdminServiceCategoryStatus,
 } from "@/lib/admin/file-maintenance/admin-service-category-types";
@@ -24,6 +25,34 @@ function isStatus(
 ): value is AdminServiceCategoryStatus {
   return value === "active" ||
     value === "discontinued";
+}
+
+function parseCapacityCapabilities(
+  value: unknown,
+): AdminServiceCategoryCapacityCapabilities | undefined {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+
+  if (
+    typeof record.requiresGuestCapacity !== "boolean" ||
+    typeof record.usesStaffCapacity !== "boolean" ||
+    typeof record.usesEquipmentCapacity !== "boolean"
+  ) {
+    return undefined;
+  }
+
+  return {
+    requiresGuestCapacity: record.requiresGuestCapacity,
+    usesStaffCapacity: record.usesStaffCapacity,
+    usesEquipmentCapacity: record.usesEquipmentCapacity,
+  };
 }
 
 export async function getAdminServiceCategories(): Promise<
@@ -57,6 +86,16 @@ export async function getAdminServiceCategories(): Promise<
         code: document.id,
         name,
         serviceType: data.serviceType,
+        ...(parseCapacityCapabilities(
+          data.capacityCapabilities,
+        )
+          ? {
+              capacityCapabilities:
+                parseCapacityCapabilities(
+                  data.capacityCapabilities,
+                ),
+            }
+          : {}),
         status: data.status,
         sortName:
           typeof data.sortName === "string" &&

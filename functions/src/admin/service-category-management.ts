@@ -44,10 +44,17 @@ type CategoryServiceType =
 type CategoryStatus =
   "active" | "discontinued";
 
+type CategoryCapacityCapabilities = {
+  requiresGuestCapacity: boolean;
+  usesStaffCapacity: boolean;
+  usesEquipmentCapacity: boolean;
+};
+
 type CategoryData = {
   code: string;
   name: string;
   serviceType: CategoryServiceType;
+  capacityCapabilities?: CategoryCapacityCapabilities;
   status: CategoryStatus;
   sortName: string;
 };
@@ -103,6 +110,64 @@ function requireCategoryServiceType(
   return value;
 }
 
+function requireCapacityCapabilities(
+  value: unknown,
+): CategoryCapacityCapabilities {
+  const capabilities = requireObject(value);
+
+  if (
+    typeof capabilities.requiresGuestCapacity !== "boolean" ||
+    typeof capabilities.usesStaffCapacity !== "boolean" ||
+    typeof capabilities.usesEquipmentCapacity !== "boolean"
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "capacityCapabilities must contain boolean guest, staff, and equipment requirements.",
+    );
+  }
+
+  return {
+    requiresGuestCapacity:
+      capabilities.requiresGuestCapacity,
+    usesStaffCapacity:
+      capabilities.usesStaffCapacity,
+    usesEquipmentCapacity:
+      capabilities.usesEquipmentCapacity,
+  };
+}
+
+function parseStoredCapacityCapabilities(
+  value: unknown,
+): CategoryCapacityCapabilities | undefined {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value)
+  ) {
+    return undefined;
+  }
+
+  const capabilities =
+    value as Record<string, unknown>;
+
+  if (
+    typeof capabilities.requiresGuestCapacity !== "boolean" ||
+    typeof capabilities.usesStaffCapacity !== "boolean" ||
+    typeof capabilities.usesEquipmentCapacity !== "boolean"
+  ) {
+    return undefined;
+  }
+
+  return {
+    requiresGuestCapacity:
+      capabilities.requiresGuestCapacity,
+    usesStaffCapacity:
+      capabilities.usesStaffCapacity,
+    usesEquipmentCapacity:
+      capabilities.usesEquipmentCapacity,
+  };
+}
+
 function parseCategory(
   id: string,
   data: FirebaseFirestore.DocumentData | undefined,
@@ -130,6 +195,16 @@ function parseCategory(
     code: id,
     name: data.name,
     serviceType: data.serviceType,
+    ...(parseStoredCapacityCapabilities(
+      data.capacityCapabilities,
+    )
+      ? {
+          capacityCapabilities:
+            parseStoredCapacityCapabilities(
+              data.capacityCapabilities,
+            ),
+        }
+      : {}),
     status: data.status,
     sortName:
       typeof data.sortName === "string"
@@ -145,6 +220,12 @@ function categoryAuditData(
     code: category.code,
     name: category.name,
     serviceType: category.serviceType,
+    ...(category.capacityCapabilities
+      ? {
+          capacityCapabilities:
+            category.capacityCapabilities,
+        }
+      : {}),
     status: category.status,
     sortName: category.sortName,
   };
@@ -225,6 +306,10 @@ export const createServiceCategory = onCall(
     const name = requireCategoryName(input.name);
     const serviceType =
       requireCategoryServiceType(input.serviceType);
+    const capacityCapabilities =
+      requireCapacityCapabilities(
+        input.capacityCapabilities,
+      );
 
     const reference =
       db.collection(COLLECTION).doc(code);
@@ -233,6 +318,7 @@ export const createServiceCategory = onCall(
       code,
       name,
       serviceType,
+      capacityCapabilities,
       status: "active",
       sortName: name.toLowerCase(),
     };
@@ -300,6 +386,10 @@ export const updateServiceCategory = onCall(
         : requireCategoryServiceType(
             input.serviceType,
           );
+    const capacityCapabilities =
+      requireCapacityCapabilities(
+        input.capacityCapabilities,
+      );
 
     const reference =
       db.collection(COLLECTION).doc(code);
@@ -362,6 +452,7 @@ export const updateServiceCategory = onCall(
           ...before,
           name,
           serviceType,
+          capacityCapabilities,
           sortName: name.toLowerCase(),
         };
 
@@ -370,6 +461,8 @@ export const updateServiceCategory = onCall(
           {
             name: after.name,
             serviceType: after.serviceType,
+            capacityCapabilities:
+              after.capacityCapabilities,
             sortName: after.sortName,
             updatedAt: serverTimestamp(),
             updatedBy: actor.uid,

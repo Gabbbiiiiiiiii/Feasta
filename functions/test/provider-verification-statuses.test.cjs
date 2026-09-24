@@ -95,34 +95,65 @@ test("provider verification document policy is server-owned and canonical", () =
   assert.equal(isRequiredVerificationDocumentType("other"), false);
 });
 
-test("document requirements vary by provider business type", () => {
-  const addon = providerVerificationDocumentPolicy({
+test("document requirements vary by provider registration and service type", () => {
+  const individualPhotographer = providerVerificationDocumentPolicy({
     providerServiceType: "addon",
     serviceCategories: ["photographer"],
+    businessRegistrationType: "individual",
   });
-  assert.equal(addon.requiredOneOf.length, 0);
-  assert.equal(verificationDocumentsSatisfyPolicy(new Set([
-    "business_permit",
-    "dti_registration",
-    "bir_registration",
-    "valid_id",
-  ]), addon), true);
+  assert.deepEqual(individualPhotographer.requiredAll, ["valid_id"]);
+  assert.deepEqual(individualPhotographer.requiredOneOf, []);
 
-  const catering = providerVerificationDocumentPolicy({
+  const registeredPhotographer = providerVerificationDocumentPolicy({
+    providerServiceType: "addon",
+    serviceCategories: ["photographer"],
+    businessRegistrationType: "registered_business",
+  });
+  assert.deepEqual(
+    registeredPhotographer.requiredAll,
+    REQUIRED_VERIFICATION_DOCUMENT_TYPES,
+  );
+  assert.deepEqual(registeredPhotographer.requiredOneOf, []);
+
+  const individualCatering = providerVerificationDocumentPolicy({
     providerServiceType: "catering",
     serviceCategories: ["catering_service"],
+    businessRegistrationType: "individual",
   });
-  assert.deepEqual(catering.requiredOneOf, [[
+  assert.deepEqual(individualCatering.requiredAll, ["valid_id"]);
+  assert.deepEqual(individualCatering.requiredOneOf, [[
     "sanitary_permit",
     "mayors_permit",
   ]]);
-  assert.equal(verificationDocumentsSatisfyPolicy(new Set([
-    ...catering.requiredAll,
-  ]), catering), false);
-  assert.equal(verificationDocumentsSatisfyPolicy(new Set([
-    ...catering.requiredAll,
-    "sanitary_permit",
-  ]), catering), true);
+  assert.equal(verificationDocumentsSatisfyPolicy(
+    new Set(["valid_id"]),
+    individualCatering,
+  ), false);
+  assert.equal(verificationDocumentsSatisfyPolicy(
+    new Set(["valid_id", "sanitary_permit"]),
+    individualCatering,
+  ), true);
+
+  const individualVenue = providerVerificationDocumentPolicy({
+    providerServiceType: "addon",
+    serviceCategories: ["venue_provider"],
+    businessRegistrationType: "individual",
+  });
+  assert.deepEqual(individualVenue.requiredAll, [
+    "valid_id",
+    "mayors_permit",
+  ]);
+  assert.deepEqual(individualVenue.requiredOneOf, []);
+
+  const legacyPhotographer = providerVerificationDocumentPolicy({
+    providerServiceType: "addon",
+    serviceCategories: ["photographer"],
+  });
+  assert.deepEqual(
+    legacyPhotographer.requiredAll,
+    REQUIRED_VERIFICATION_DOCUMENT_TYPES,
+  );
+  assert.deepEqual(legacyPhotographer.requiredOneOf, []);
 });
 
 test("provider verification permits exactly the documented transitions", () => {
