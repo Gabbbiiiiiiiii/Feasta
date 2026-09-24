@@ -720,6 +720,7 @@ export const registerProvider = onCall(
               ownerId:
                 authenticatedUser.uid,
               businessName,
+              businessRegistrationType,
               businessEmail,
               businessPhone,
               ownerFirstName,
@@ -813,6 +814,7 @@ export const registerProvider = onCall(
               ownerId:
                 authenticatedUser.uid,
               businessName,
+              businessRegistrationType,
               businessEmail,
               providerServiceType,
               ownerFirstName,

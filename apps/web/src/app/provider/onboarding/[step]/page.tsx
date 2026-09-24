@@ -1,9 +1,10 @@
-﻿import {redirect} from "next/navigation";
+import {redirect} from "next/navigation";
 
 import {ProviderOnboardingShell} from "@/components/provider/onboarding-shell";
 import {providerAccessDestination} from "@/lib/auth/account-policy";
 import {
   loadProviderOnboardingDraft,
+  loadProviderOnboardingReview,
   requireProvider,
   requireVerifiedEmail,
 } from "@/lib/auth/session";
@@ -28,19 +29,76 @@ export default async function ProviderOnboardingStepPage({
     await requireProvider(),
     "/provider-verify-email",
   );
-  if (account.provider) redirect(providerAccessDestination(account));
-
-  const requestedStep = onboardingStepBySlug((await params).step);
-  const draft = await loadProviderOnboardingDraft(account);
+  const requestedStep =
+    onboardingStepBySlug(
+      (await params).step,
+    );
 
   const needsServiceCategories =
     requestedStep?.number === 3 ||
     requestedStep?.number === 5;
 
-  const serviceCategories = needsServiceCategories
-    ? await getActiveServiceCategoryOptions()
-    : [];
-  const firstIncomplete = firstIncompleteSetupStep(draft.completedSteps);
+  const serviceCategories =
+    needsServiceCategories
+      ? await getActiveServiceCategoryOptions()
+      : [];
+
+  if (account.providerId) {
+    const editableApplication =
+      !account.provider ||
+      account.provider.verificationStatus ===
+        "draft" ||
+      account.provider.verificationStatus ===
+        "resubmission_required";
+
+    if (!editableApplication) {
+      redirect(
+        providerAccessDestination(
+          account,
+        ),
+      );
+    }
+
+    if (
+      !requestedStep ||
+      requestedStep.number > 6
+    ) {
+      redirect(
+        "/provider/verification?stage=documents",
+      );
+    }
+
+    const review =
+      await loadProviderOnboardingReview(
+        account,
+      );
+
+    return (
+      <ProviderOnboardingShell
+        currentStep={requestedStep}
+        completedSteps={review.completedSteps}
+      >
+        <ProviderOnboardingStepForm
+          step={requestedStep}
+          draft={review}
+          serviceCategories={
+            serviceCategories
+          }
+          editingExistingApplication
+        />
+      </ProviderOnboardingShell>
+    );
+  }
+
+  const draft =
+    await loadProviderOnboardingDraft(
+      account,
+    );
+
+  const firstIncomplete =
+    firstIncompleteSetupStep(
+      draft.completedSteps,
+    );
 
   if (
     !requestedStep ||

@@ -421,7 +421,10 @@ export async function loadOwnedProviderVerification(
     provider.businessRegistrationType === "individual" ||
     provider.businessRegistrationType === "registered_business"
       ? provider.businessRegistrationType
-      : undefined;
+      : data.businessRegistrationType === "individual" ||
+          data.businessRegistrationType === "registered_business"
+        ? data.businessRegistrationType
+        : undefined;
   const policy = providerVerificationDocumentPolicy({
     providerServiceType,
     serviceCategories,
@@ -546,7 +549,19 @@ export async function loadProviderOnboardingDraft(
     ownerPhone: text(draft.ownerPhone, text(user.phoneNumber)),
     ownerEmail: account.email ?? text(user.email),
     businessName: text(draft.businessName),
-    businessEmail: text(draft.businessEmail, account.email ?? ""),
+
+    businessRegistrationType:
+      draft.businessRegistrationType ===
+        "individual" ||
+      draft.businessRegistrationType ===
+        "registered_business"
+        ? draft.businessRegistrationType
+        : undefined,
+
+    businessEmail: text(
+      draft.businessEmail,
+      account.email ?? "",
+    ),
     businessPhone: text(draft.businessPhone),
     description: text(draft.description),
     providerServiceType: ["catering", "addon", "both"].includes(
@@ -610,6 +625,343 @@ export async function loadProviderOnboardingDraft(
             step <= 6,
         )
       : [],
+  };
+}
+
+export async function loadProviderOnboardingReview(
+  account: SessionUser,
+): Promise<ProviderOnboardingDraft> {
+  if (
+    account.role !== "provider" ||
+    !account.providerId
+  ) {
+    throw new AccountAccessError(
+      "invalid_provider_link",
+    );
+  }
+
+  const [
+    userSnapshot,
+    providerSnapshot,
+    verificationSnapshot,
+  ] = await Promise.all([
+    adminDb
+      .collection("users")
+      .doc(account.uid)
+      .get(),
+
+    adminDb
+      .collection("providers")
+      .doc(account.providerId)
+      .get(),
+
+    adminDb
+      .collection("providerVerifications")
+      .where(
+        "providerId",
+        "==",
+        account.providerId,
+      )
+      .limit(2)
+      .get(),
+  ]);
+
+  const user =
+    userSnapshot.data() ?? {};
+
+  const provider =
+    providerSnapshot.data() ?? {};
+
+  if (
+    !providerSnapshot.exists ||
+    provider.ownerId !== account.uid
+  ) {
+    throw new AccountAccessError(
+      "invalid_provider_link",
+    );
+  }
+
+  const liveVerificationStatus =
+    typeof provider.verificationStatus === "string"
+      ? provider.verificationStatus
+      : "";
+
+  if (
+    ![
+      "draft",
+      "resubmission_required",
+    ].includes(liveVerificationStatus)
+  ) {
+    throw new AccountAccessError(
+      "invalid_provider_link",
+    );
+  }
+
+  const verification =
+    verificationSnapshot.docs.find(
+      (document) =>
+        document.data().ownerId ===
+        account.uid,
+    )?.data() ?? {};
+
+  const text = (
+    value: unknown,
+    fallback = "",
+  ) =>
+    typeof value === "string"
+      ? value.slice(0, 2000)
+      : fallback;
+
+  const stringList = (
+    value: unknown,
+  ): string[] =>
+    Array.isArray(value)
+      ? value
+          .filter(
+            (item): item is string =>
+              typeof item === "string",
+          )
+          .slice(0, 50)
+      : [];
+
+  const enumList = <T extends string>(
+    value: unknown,
+    allowed: readonly T[],
+  ): T[] =>
+    stringList(value).filter(
+      (item): item is T =>
+        allowed.includes(item as T),
+    );
+
+  const integer = (
+    value: unknown,
+    fallback: number,
+  ) =>
+    typeof value === "number" &&
+    Number.isInteger(value)
+      ? value
+      : fallback;
+
+  const coordinates =
+    provider.locationCoordinates as {
+      latitude?: unknown;
+      longitude?: unknown;
+    } | null | undefined;
+
+  const safeCoordinates =
+    coordinates &&
+    typeof coordinates === "object" &&
+    typeof coordinates.latitude ===
+      "number" &&
+    typeof coordinates.longitude ===
+      "number"
+      ? {
+          latitude:
+            coordinates.latitude,
+          longitude:
+            coordinates.longitude,
+        }
+      : null;
+
+  return {
+    ownerFirstName: text(
+      provider.ownerFirstName,
+      text(user.firstName),
+    ),
+
+    ownerLastName: text(
+      provider.ownerLastName,
+      text(user.lastName),
+    ),
+
+    ownerPhone: text(
+      provider.ownerPhone,
+      text(user.phoneNumber),
+    ),
+
+    ownerEmail:
+      account.email ??
+      text(user.email),
+
+    businessName:
+      text(provider.businessName),
+
+    businessRegistrationType:
+      provider.businessRegistrationType ===
+        "individual" ||
+      provider.businessRegistrationType ===
+        "registered_business"
+        ? provider.businessRegistrationType
+        : verification.businessRegistrationType ===
+              "individual" ||
+            verification.businessRegistrationType ===
+              "registered_business"
+          ? verification.businessRegistrationType
+          : undefined,
+
+    businessEmail:
+      text(
+        provider.businessEmail,
+        account.email ?? "",
+      ),
+
+    businessPhone:
+      text(provider.businessPhone),
+
+    description:
+      text(provider.description),
+
+    providerServiceType:
+      provider.providerServiceType ===
+        "catering" ||
+      provider.providerServiceType ===
+        "addon" ||
+      provider.providerServiceType ===
+        "both"
+        ? provider.providerServiceType
+        : "catering",
+
+    providerCategory:
+      isServiceCategoryCode(
+        provider.providerCategory,
+      )
+        ? provider.providerCategory
+        : "",
+
+    serviceCategories:
+      stringList(
+        provider.serviceCategories,
+      ).filter(
+        (
+          category,
+        ): category is ServiceCategoryCode =>
+          isServiceCategoryCode(
+            category,
+          ),
+      ),
+
+    address:
+      text(provider.address),
+
+    city:
+      text(
+        provider.city,
+        "Ormoc City",
+      ),
+
+    province:
+      text(
+        provider.province,
+        "Leyte",
+      ),
+
+    locationCoordinates:
+      safeCoordinates,
+
+    serviceAreas:
+      stringList(
+        provider.serviceAreas,
+      ),
+
+    maxServiceDistanceKm:
+      typeof provider.maxServiceDistanceKm ===
+          "number" &&
+        Number.isFinite(
+          provider.maxServiceDistanceKm,
+        )
+        ? provider.maxServiceDistanceKm
+        : null,
+
+    eventTypesSupported:
+      enumList(
+        provider.eventTypesSupported,
+        PROVIDER_EVENT_TYPES,
+      ) as ProviderEventType[],
+
+    minGuestsPerEvent:
+      integer(
+        provider.minGuestsPerEvent,
+        1,
+      ),
+
+    maxGuestsPerEvent:
+      integer(
+        provider.maxGuestsPerEvent,
+        0,
+      ),
+
+    acceptsMultipleEventsPerDay:
+      provider.acceptsMultipleEventsPerDay ===
+      true,
+
+    maxEventsPerDay:
+      integer(
+        provider.maxEventsPerDay,
+        1,
+      ),
+
+    availableStaffCount:
+      integer(
+        provider.availableStaffCount,
+        0,
+      ),
+
+    availableEquipmentCount:
+      integer(
+        provider.availableEquipmentCount,
+        0,
+      ),
+
+    operatingDays:
+      enumList(
+        provider.operatingDays,
+        PROVIDER_OPERATING_DAYS,
+      ) as ProviderOperatingDay[],
+
+    bookingLeadTimeDays:
+      integer(
+        provider.bookingLeadTimeDays,
+        0,
+      ),
+
+    unavailableDates:
+      stringList(
+        provider.unavailableDates,
+      ),
+
+    logoUrl:
+      text(provider.logoUrl) || null,
+
+    logoPublicId:
+      text(provider.logoPublicId) || null,
+
+    coverImageUrl:
+      text(provider.coverImageUrl) || null,
+
+    coverPublicId:
+      text(provider.coverPublicId) ||
+      null,
+
+    providerAgreementAccepted:
+      verification
+        .providerAgreementAcceptedAt !=
+      null,
+
+    providerAgreementVersion:
+      text(
+        verification
+          .providerAgreementVersion,
+        PROVIDER_AGREEMENT_VERSION,
+      ),
+
+    completedSteps: [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+    ],
   };
 }
 

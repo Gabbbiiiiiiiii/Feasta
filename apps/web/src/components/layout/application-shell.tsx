@@ -53,7 +53,7 @@ function ApplicationShell({
         </div>
 
         <div className="min-w-0 max-w-full flex-1 bg-[#F7F8FA] pb-24 md:pb-0">
-          <div className="print:hidden">
+          <div className="contents print:hidden">
             <ApplicationHeader
               role={role}
               accountLabel={accountLabel}

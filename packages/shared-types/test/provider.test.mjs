@@ -22,6 +22,7 @@ const valid = {
   ownerFirstName: "Ana",
   ownerLastName: "Reyes",
   businessName: "Ana Events",
+  businessRegistrationType: "individual",
   businessEmail: " ANA@EVENTS.TEST ",
   businessPhone: "+639171234567",
   description: "Full-service event catering for celebrations.",

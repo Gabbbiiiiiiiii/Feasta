@@ -167,7 +167,7 @@ export const deleteProviderOnboardingMedia =
         input.mediaType,
       );
 
-      await requireUnlinkedProviderOnboarding(
+      await requireEditableProviderOnboarding(
         actor.uid,
       );
 
@@ -231,18 +231,23 @@ export const deleteProviderServiceImage =
     },
   );
 
-async function requireUnlinkedProviderOnboarding(
+async function requireEditableProviderOnboarding(
   ownerId: string,
 ): Promise<void> {
   const userSnapshot = await db
     .collection("users")
     .doc(ownerId)
     .get();
-  const user = userSnapshot.data() ?? {};
+
+  const user =
+    userSnapshot.data() ?? {};
 
   if (
     !userSnapshot.exists ||
-    user.role !== USER_ROLES.provider
+    user.role !== USER_ROLES.provider ||
+    user.accountStatus !== "active" ||
+    user.isActive !== true ||
+    user.isBlocked !== false
   ) {
     throw new HttpsError(
       "permission-denied",
@@ -250,13 +255,81 @@ async function requireUnlinkedProviderOnboarding(
     );
   }
 
+  const providerId =
+    typeof user.providerId === "string"
+      ? user.providerId.trim()
+      : "";
+
+  if (!providerId) {
+    return;
+  }
+
+  const providerSnapshot =
+    await db
+      .collection("providers")
+      .doc(providerId)
+      .get();
+
+  const provider =
+    providerSnapshot.data() ?? {};
+
   if (
-    typeof user.providerId === "string" &&
-    user.providerId.trim().length > 0
+    !providerSnapshot.exists ||
+    provider.ownerId !== ownerId
+  ) {
+    throw new HttpsError(
+      "permission-denied",
+      "The linked provider application could not be verified.",
+    );
+  }
+
+  const verificationSnapshot =
+    await db
+      .collection(
+        "providerVerifications",
+      )
+      .where(
+        "providerId",
+        "==",
+        providerId,
+      )
+      .limit(1)
+      .get();
+
+  if (
+    verificationSnapshot.empty
   ) {
     throw new HttpsError(
       "failed-precondition",
-      "Linked provider media must be removed through the business profile update.",
+      "The linked provider verification record is missing.",
+    );
+  }
+
+  const verification =
+    verificationSnapshot.docs[0]
+      .data();
+
+  const editable =
+    (
+      provider.verificationStatus ===
+        "draft" ||
+      provider.verificationStatus ===
+        "resubmission_required"
+    ) &&
+    (
+      verification.status ===
+        "draft" ||
+      verification.status ===
+        "resubmission_required"
+    );
+
+  if (
+    verification.ownerId !== ownerId ||
+    !editable
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Provider application media is locked after submission.",
     );
   }
 }

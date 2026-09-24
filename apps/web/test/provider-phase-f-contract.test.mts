@@ -70,10 +70,177 @@ test("registration handoff and onboarding routes use trusted server state", asyn
   for (const route of [onboarding, step]) {
     assert.match(route, /requireProvider\(\)/u);
     assert.match(route, /requireVerifiedEmail/u);
-    assert.match(route, /providerAccessDestination\(account\)/u);
-    assert.match(route, /loadProviderOnboardingDraft\(account\)/u);
+    assert.match(
+      route,
+      /providerAccessDestination\(\s*account,?\s*\)/u,
+    );
+    assert.match(
+      route,
+      /loadProviderOnboardingDraft\(\s*account,?\s*\)/u,
+    );
   }
   assert.match(step, /requestedStep\.number > firstIncomplete\.number/u);
+});
+
+test("completed draft applications can edit earlier onboarding steps", async () => {
+  const [
+    step,
+    form,
+    verification,
+    session,
+  ] = await Promise.all([
+    webSource(
+      "app/provider/onboarding/[step]/page.tsx",
+    ),
+    webSource(
+      "app/provider/onboarding/[step]/provider-onboarding-step-form.tsx",
+    ),
+    webSource(
+      "app/provider/verification/provider-verification-actions.tsx",
+    ),
+    webSource(
+      "lib/auth/session.ts",
+    ),
+  ]);
+
+  assert.match(
+    step,
+    /loadProviderOnboardingReview/u,
+  );
+
+  assert.match(
+    step,
+    /editingExistingApplication/u,
+  );
+
+  assert.doesNotMatch(
+    step,
+    /reviewOnly/u,
+  );
+
+  assert.match(
+    form,
+    /editingExistingApplication/u,
+  );
+
+  assert.match(
+    form,
+    /saveProviderOnboardingDraft/u,
+  );
+
+  assert.match(
+    form,
+    /Save and continue to documents/u,
+  );
+
+  assert.match(
+    form,
+    /window\.location\.replace\([\s\S]*?\/provider\/verification\?stage=documents/u,
+  );
+
+  assert.doesNotMatch(
+    form,
+    /Review your saved onboarding information\. Use Back and Next/u,
+  );
+
+  assert.match(
+    verification,
+    /\/provider\/onboarding\/consent/u,
+  );
+
+  assert.match(
+    session,
+    /"draft"/u,
+  );
+
+  assert.match(
+    session,
+    /"resubmission_required"/u,
+  );
+});
+test("verification document actions use direct file selection and consistent navigation", async () => {
+  const verificationActions =
+    await webSource(
+      "app/provider/verification/provider-verification-actions.tsx",
+    );
+
+  assert.match(
+    verificationActions,
+    /input\.click\(\)/u,
+  );
+
+  assert.match(
+    verificationActions,
+    />\s*Upload file\s*</u,
+  );
+
+  assert.match(
+    verificationActions,
+    /\/provider\/onboarding\/consent/u,
+  );
+
+  assert.match(
+    verificationActions,
+    /sm:grid-cols-\[auto_minmax\(0,1fr\)_auto\]/u,
+  );
+
+  assert.match(
+    verificationActions,
+    />\s*Review application\s*</u,
+  );
+});
+
+test("provider agreement is visible inline and registration clears stale onboarding cache", async () => {
+  const [
+    form,
+    agreementPage,
+    agreementData,
+  ] = await Promise.all([
+    webSource(
+      "app/provider/onboarding/[step]/provider-onboarding-step-form.tsx",
+    ),
+    webSource(
+      "app/provider-agreement/page.tsx",
+    ),
+    webSource(
+      "lib/provider/provider-agreement.ts",
+    ),
+  ]);
+
+  assert.match(
+    form,
+    /PROVIDER_AGREEMENT_SECTIONS/u,
+  );
+
+  assert.match(
+    form,
+    /max-h-\[32rem\][\s\S]*overflow-y-auto/u,
+  );
+
+  assert.match(
+    form,
+    /End of Provider Agreement/u,
+  );
+
+  assert.match(
+    form,
+    /Scroll through the Provider Agreement to the end/u,
+  );
+
+  assert.match(
+    form,
+    /window\.location\.replace\([\s\S]*?\/provider\/verification\?stage=documents/u,
+  );
+
+  assert.match(
+    agreementPage,
+    /PROVIDER_AGREEMENT_SECTIONS/u,
+  );
+
+  assert.match(
+    agreementData,
+    /20\. Questions about this agreement/u,
+  );
 });
 
 test("legacy verification recovery routes retain trusted destinations", async () => {
@@ -128,5 +295,15 @@ test("the handoff does not trust browser-owned lifecycle state", async () => {
   assert.doesNotMatch(
     handoff,
     /(?:setEmailVerified|setPhoneVerified|setProviderId|setOnboardingStatus)/u,
+  );
+});
+test("onboarding draft rehydrates business registration classification", async () => {
+  const session = await webSource(
+    "lib/auth/session.ts",
+  );
+
+  assert.match(
+    session,
+    /loadProviderOnboardingDraft[\s\S]*?draft\.businessRegistrationType[\s\S]*?"individual"[\s\S]*?"registered_business"/u,
   );
 });

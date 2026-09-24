@@ -81,7 +81,10 @@ describe("provider onboarding routing policy", () => {
     ), "utf8");
     assert.match(route, /requireProvider\(\)/u);
     assert.match(route, /requireVerifiedEmail/u);
-    assert.match(route, /providerAccessDestination\(account\)/u);
+    assert.match(
+      route,
+      /providerAccessDestination\(\s*account,?\s*\)/u,
+    );
     assert.match(route, /requestedStep\.number > firstIncomplete\.number/u);
     assert.match(route, /redirect\(providerOnboardingPath\(firstIncomplete\)\)/u);
   });
@@ -401,7 +404,7 @@ describe("provider onboarding Capacity and schedule", () => {
     );
     assert.match(
       page,
-      /const serviceCategories = needsServiceCategories/u,
+      /const serviceCategories\s*=\s*needsServiceCategories/u,
     );
   });
 });
@@ -441,7 +444,7 @@ describe("provider onboarding Location and coverage", () => {
     );
     assert.match(
       form,
-      /Add at least one city or municipality you serve\./u,
+      /Add at least one city, municipality, or province you serve\./u,
     );
 
     assert.match(
@@ -534,6 +537,14 @@ describe("provider onboarding Location and coverage", () => {
     );
     assert.match(
       locationField,
+      /Add a city, municipality, or province/u,
+    );
+    assert.match(
+      locationField,
+      /Example: Ormoc City, Kananga, or Leyte/u,
+    );
+    assert.match(
+      locationField,
       /Add area/u,
     );
     assert.match(
@@ -551,6 +562,44 @@ describe("provider onboarding Location and coverage", () => {
     assert.doesNotMatch(
       locationField,
       />Longitude</u,
+    );
+  });
+});
+describe("provider onboarding scrolling UX", () => {
+  it("keeps the provider header sticky and lets agreement scrolling continue into the page", () => {
+    const form = readFileSync(path.resolve(
+      process.cwd(),
+      "src/app/provider/onboarding/[step]/provider-onboarding-step-form.tsx",
+    ), "utf8");
+
+    const shell = readFileSync(path.resolve(
+      process.cwd(),
+      "src/components/layout/application-shell.tsx",
+    ), "utf8");
+
+    const header = readFileSync(path.resolve(
+      process.cwd(),
+      "src/components/layout/application-header.tsx",
+    ), "utf8");
+
+    assert.match(
+      form,
+      /overflow-y-auto overscroll-auto scroll-smooth/u,
+    );
+
+    assert.doesNotMatch(
+      form,
+      /overscroll-contain/u,
+    );
+
+    assert.match(
+      shell,
+      /className="contents print:hidden"[\s\S]*?<ApplicationHeader/u,
+    );
+
+    assert.match(
+      header,
+      /sticky top-0 z-30/u,
     );
   });
 });

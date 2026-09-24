@@ -59,7 +59,10 @@ function FormField({
       }}
     >
       <div
-        className={cn("grid gap-2", className)}
+        className={cn(
+          "grid content-start gap-2",
+          className,
+        )}
         data-disabled={disabled || loading || undefined}
         aria-busy={loading || undefined}
       >

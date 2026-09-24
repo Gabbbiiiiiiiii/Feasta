@@ -101,7 +101,10 @@ export function ProviderVerificationActions({
 
     if (input) {
       input.value = "";
-      input.focus();
+
+      // Replace should behave like a file action, not a navigation
+      // hint. Open the system file picker immediately.
+      input.click();
     }
   }
   const submitKey = useRef(globalThis.crypto.randomUUID());
@@ -335,21 +338,86 @@ export function ProviderVerificationActions({
       ) : null}
       {message ? <AuthStatus message={message} tone="success" /> : null}
       {error ? <AuthStatus message={error} tone="error" /> : null}
-      <div className="flex flex-col items-stretch justify-end gap-2 sm:flex-row sm:items-center">
+      <div className="grid gap-3 border-t border-border pt-5 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
+        {reviewMode ? (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={action !== null}
+            onClick={() =>
+              router.replace(
+                "/provider/verification?stage=documents",
+              )
+            }
+            className="w-full sm:w-auto"
+          >
+            Back to documents
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={action !== null}
+            onClick={() => {
+              // The provider may have visited Step 6 before the
+              // canonical provider profile existed. Load the route
+              // from the server so an old registration-mode RSC
+              // entry cannot be reused from the client router cache.
+              window.location.assign(
+                "/provider/onboarding/consent",
+              );
+            }}
+            className="w-full sm:w-auto"
+          >
+            Back
+          </Button>
+        )}
+
         {!canSubmit ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm leading-6 text-muted-foreground sm:text-center">
             {consentReady
               ? "Complete every required document and one document from each alternative group before continuing."
               : "Record the required Terms and Privacy Policy acceptance before continuing."}
           </p>
-        ) : null}
-        {reviewMode ? (
-          <>
-            <Button variant="secondary" disabled={action !== null} onClick={() => router.replace("/provider/verification?stage=documents")}>Back to documents</Button>
-            <Button loading={action === "submit"} loadingLabel="Submitting" disabled={!canSubmit || action !== null} onClick={() => void submit()}>Submit for admin review</Button>
-          </>
         ) : (
-          <Button disabled={!canSubmit || action !== null} onClick={() => router.replace("/provider/verification?stage=review")}>Review application</Button>
+          <span
+            aria-hidden="true"
+            className="hidden sm:block"
+          />
+        )}
+
+        {reviewMode ? (
+          <Button
+            type="button"
+            loading={action === "submit"}
+            loadingLabel="Submitting"
+            disabled={
+              !canSubmit ||
+              action !== null
+            }
+            onClick={() =>
+              void submit()
+            }
+            className="w-full sm:w-auto"
+          >
+            Submit for admin review
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            disabled={
+              !canSubmit ||
+              action !== null
+            }
+            onClick={() =>
+              router.replace(
+                "/provider/verification?stage=review",
+              )
+            }
+            className="w-full sm:w-auto"
+          >
+            Review application
+          </Button>
         )}
       </div>
     </section>
@@ -452,6 +520,22 @@ function DocumentSection({
                     >
                       Preview
                     </a>
+                  </Button>
+                ) : null}
+
+                {!document && editable && !reviewMode ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="compact"
+                    disabled={action !== null}
+                    onClick={() =>
+                      onPrepareReplacement(
+                        definition.type,
+                      )
+                    }
+                  >
+                    Upload file
                   </Button>
                 ) : null}
 

@@ -485,6 +485,8 @@ export async function registerProviderBusiness(
     ownerFirstName: input.ownerFirstName,
     ownerLastName: input.ownerLastName,
     businessName: input.businessName,
+    businessRegistrationType:
+      input.businessRegistrationType,
     businessEmail: input.businessEmail.trim().toLowerCase(),
     businessPhone: input.businessPhone,
     description: input.description,

@@ -490,8 +490,9 @@ export function ProviderBusinessLocationField({
             <span className="text-destructive"> *</span>
           </h3>
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            Add every city or municipality where customers can
-            book your services. You can add more than one area.
+            Add the cities, municipalities, or provinces where
+            customers can book your services. Choose a province
+            when you serve the whole province.
           </p>
         </div>
 
@@ -500,7 +501,7 @@ export function ProviderBusinessLocationField({
             htmlFor={areaId}
             className="mb-2 block text-sm font-bold text-foreground"
           >
-            Add a city or municipality
+            Add a city, municipality, or province
           </label>
 
           <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
@@ -509,7 +510,7 @@ export function ProviderBusinessLocationField({
               value={areaInput}
               disabled={loading}
               maxLength={100}
-              placeholder="Example: Ormoc City"
+              placeholder="Example: Ormoc City, Kananga, or Leyte"
               onChange={(event) =>
                 setAreaInput(event.target.value)
               }

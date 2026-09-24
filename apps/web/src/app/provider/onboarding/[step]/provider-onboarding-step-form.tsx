@@ -27,7 +27,7 @@ import {ProviderBusinessLocationField} from "@/components/provider/provider-busi
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {Textarea} from "@/components/ui/textarea";
-import {customerAuthenticationError} from "@/lib/auth/error-messages";
+import {providerOnboardingError} from "@/lib/auth/error-messages";
 import {
   registerProviderBusiness,
   saveProviderOnboardingDraft,
@@ -42,6 +42,10 @@ import {
   type ProviderOnboardingDraft,
   type ProviderOnboardingStep,
 } from "@/lib/provider/onboarding";
+import {
+  PROVIDER_AGREEMENT_FINAL_SECTION,
+  PROVIDER_AGREEMENT_SECTIONS,
+} from "@/lib/provider/provider-agreement";
 import type {
   ServiceCategoryOption,
 } from "@/lib/service-categories/service-category-service";
@@ -62,10 +66,12 @@ export function ProviderOnboardingStepForm({
   step,
   draft,
   serviceCategories = [],
+  editingExistingApplication = false,
 }: {
   step: ProviderOnboardingStep;
   draft: ProviderOnboardingDraft;
   serviceCategories?: readonly ServiceCategoryOption[];
+  editingExistingApplication?: boolean;
 }) {
   const router = useRouter();
   const busy = useRef(false);
@@ -100,11 +106,34 @@ export function ProviderOnboardingStepForm({
     value: FormValues[K],
   ) => {
     setDirty(true);
-    setValues((current) => ({...current, [key]: value}));
+
+    setValues((current) => ({
+      ...current,
+      [key]: value,
+    }));
+
+    setFieldErrors((current) => {
+      if (!(key in current)) {
+        return current;
+      }
+
+      const next = {
+        ...current,
+      };
+
+      delete next[
+        key as string
+      ];
+
+      return next;
+    });
+
+    setError(null);
   };
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
     if (busy.current) return;
 
     if (step.number === 3 && hasNoServiceOffering) {
@@ -140,7 +169,9 @@ export function ProviderOnboardingStepForm({
     const validationErrors = {...prepared.errors, ...imageErrors};
     if (Object.keys(validationErrors).length > 0) {
       setFieldErrors(validationErrors);
-      setError("Review the highlighted owner or business fields.");
+      setError(
+        "Complete all required fields before continuing.",
+      );
       return;
     }
     busy.current = true;
@@ -192,6 +223,36 @@ export function ProviderOnboardingStepForm({
       }
       setValues(submissionValues);
       setDirty(false);
+
+      if (editingExistingApplication) {
+        const destination =
+          step.number === 6
+            ? "/provider/verification?stage=documents"
+            : (() => {
+                const next =
+                  PROVIDER_ONBOARDING_STEPS.find(
+                    (candidate) =>
+                      candidate.number ===
+                      step.number + 1,
+                  );
+
+                if (!next) {
+                  throw new Error(
+                    "The next onboarding step is unavailable.",
+                  );
+                }
+
+                return providerOnboardingPath(
+                  next,
+                );
+              })();
+
+        window.location.assign(
+          destination,
+        );
+        return;
+      }
+
       if (step.number === 6) {
         if (submissionValues.bookingLeadTimeDays === null) {
           throw new Error(
@@ -219,7 +280,14 @@ export function ProviderOnboardingStepForm({
           },
           idempotencyKey.current,
         );
-        router.replace("/provider/verification?stage=documents");
+        // Registration changes the trusted account from an onboarding draft
+        // into a linked provider. Use a full document navigation here so the
+        // Next.js client router cannot reuse the pre-registration Step 1-6
+        // cache when the provider later navigates backward.
+        window.location.replace(
+          "/provider/verification?stage=documents",
+        );
+        return;
       } else {
         const next = PROVIDER_ONBOARDING_STEPS.find(
           (candidate) => candidate.number === step.number + 1,
@@ -229,7 +297,11 @@ export function ProviderOnboardingStepForm({
       }
       router.refresh();
     } catch (caught) {
-      setError(customerAuthenticationError(caught));
+      setError(
+        providerOnboardingError(
+          caught,
+        ),
+      );
     } finally {
       busy.current = false;
       setLoading(false);
@@ -239,13 +311,37 @@ export function ProviderOnboardingStepForm({
   function goBack() {
     if (
       dirty &&
-      !window.confirm("Discard the unsaved changes on this step?")
+      !window.confirm(
+        "Discard the unsaved changes on this step?",
+      )
     ) {
       return;
     }
-    const previous = PROVIDER_ONBOARDING_STEPS[step.number - 2];
-    router.push(previous ? providerOnboardingPath(previous) : "/provider");
+
+    const previous =
+      PROVIDER_ONBOARDING_STEPS[
+        step.number - 2
+      ];
+
+    const destination =
+      previous
+        ? providerOnboardingPath(
+            previous,
+          )
+        : "/provider";
+
+    if (editingExistingApplication) {
+      window.location.assign(
+        destination,
+      );
+      return;
+    }
+
+    router.push(
+      destination,
+    );
   }
+
 
   return (
     <form
@@ -259,6 +355,7 @@ export function ProviderOnboardingStepForm({
         values={values}
         serviceCategories={serviceCategories}
         loading={loading}
+        editingExistingApplication={editingExistingApplication}
         fieldErrors={fieldErrors}
         onServiceOfferingEmptyChange={setHasNoServiceOffering}
         selectedImages={selectedImages}
@@ -312,6 +409,7 @@ export function ProviderOnboardingStepForm({
         }}
         update={update}
       />
+
       {error ? (
         <AuthStatus
           id="provider-onboarding-error"
@@ -319,6 +417,7 @@ export function ProviderOnboardingStepForm({
           tone="error"
         />
       ) : null}
+
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-between">
         <Button
           type="button"
@@ -329,13 +428,21 @@ export function ProviderOnboardingStepForm({
         >
           Back
         </Button>
+
         <Button
           type="submit"
           loading={loading}
-          loadingLabel={step.number === 6 ? "Creating profile" : "Saving"}
+          loadingLabel={
+            step.number === 6 &&
+            !editingExistingApplication
+              ? "Creating profile"
+              : "Saving"
+          }
           className="w-full sm:w-auto"
         >
-          {step.number === 6 ? "Save and continue to documents" : "Save and continue"}
+          {step.number === 6
+            ? "Save and continue to documents"
+            : "Save and continue"}
         </Button>
       </div>
     </form>
@@ -347,6 +454,7 @@ function StepFields({
   values,
   serviceCategories,
   loading,
+  editingExistingApplication,
   fieldErrors,
   onServiceOfferingEmptyChange,
   selectedImages,
@@ -358,6 +466,7 @@ function StepFields({
   values: FormValues;
   serviceCategories: readonly ServiceCategoryOption[];
   loading: boolean;
+  editingExistingApplication: boolean;
   fieldErrors: Record<string, string>;
   onServiceOfferingEmptyChange: (empty: boolean) => void;
   selectedImages: {logo: File | null; cover: File | null};
@@ -393,11 +502,52 @@ function StepFields({
         <FormField label="Account email" description="Managed by your authenticated account." disabled>
           <Input type="email" value={values.ownerEmail} readOnly />
         </FormField>
-        <FormField label="Owner mobile" description="Use a Philippine mobile number, such as 0917 123 4567." required disabled={loading} error={fieldErrors.ownerPhone}>
-          <Input type="tel" inputMode="tel" autoComplete="tel" value={values.ownerPhone} onChange={(event) => update("ownerPhone", event.target.value)} onBlur={() => {
-            const normalized = normalizePhilippineMobile(values.ownerPhone);
-            if (normalized) update("ownerPhone", normalized);
-          }} />
+        <FormField
+          label="Owner mobile"
+          description={
+            editingExistingApplication
+              ? "This is your verified account mobile number. Change it from Account & Settings so FEASTA can verify the new number securely."
+              : "Use a Philippine mobile number, such as 0917 123 4567."
+          }
+          required
+          disabled={
+            loading ||
+            editingExistingApplication
+          }
+          error={fieldErrors.ownerPhone}
+        >
+          <Input
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            value={values.ownerPhone}
+            disabled={
+              loading ||
+              editingExistingApplication
+            }
+            readOnly={
+              editingExistingApplication
+            }
+            onChange={(event) =>
+              update(
+                "ownerPhone",
+                event.target.value,
+              )
+            }
+            onBlur={() => {
+              const normalized =
+                normalizePhilippineMobile(
+                  values.ownerPhone,
+                );
+
+              if (normalized) {
+                update(
+                  "ownerPhone",
+                  normalized,
+                );
+              }
+            }}
+          />
         </FormField>
       </div>
     );
@@ -431,9 +581,22 @@ function StepFields({
           required
           disabled={loading}
           error={fieldErrors.businessRegistrationType}
-
         >
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div
+            className={[
+              "grid gap-3 sm:grid-cols-2",
+              fieldErrors.businessRegistrationType
+                ? "[&>label]:border-destructive [&>label]:bg-destructive/5"
+                : "",
+            ].join(" ")}
+            role="radiogroup"
+            aria-required="true"
+            aria-invalid={
+              Boolean(
+                fieldErrors.businessRegistrationType,
+              )
+            }
+          >
             <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-4">
               <input
                 className="mt-1"
@@ -1292,63 +1455,195 @@ function StepFields({
 }
 
   return (
+    <ProviderAgreementStep
+      accepted={values.providerAgreementAccepted}
+      loading={loading}
+      error={fieldErrors.providerAgreementAccepted}
+      onAcceptedChange={(accepted) =>
+        update(
+          "providerAgreementAccepted",
+          accepted,
+        )
+      }
+    />
+  );
+}
+
+function ProviderAgreementStep({
+  accepted,
+  loading,
+  error,
+  onAcceptedChange,
+}: {
+  accepted: boolean;
+  loading: boolean;
+  error?: string;
+  onAcceptedChange: (accepted: boolean) => void;
+}) {
+  const [hasReachedEnd, setHasReachedEnd] =
+    useState(accepted);
+
+  const acceptanceEnabled =
+    accepted || hasReachedEnd;
+
+  return (
     <div className="grid gap-5">
-      <p className="text-sm leading-6 text-muted-foreground">
-        Before continuing to verification, review the rules and
-        responsibilities that apply when offering services through FEASTA.
-      </p>
+      <div>
+        <h3 className="font-semibold text-foreground">
+          Read the FEASTA Provider Agreement
+        </h3>
 
-      <div className="rounded-xl border border-border bg-card p-5">
-        <div className="grid gap-2">
-          <h3 className="font-semibold text-foreground">
-            FEASTA Provider Agreement
-          </h3>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          Review the complete agreement below. Scroll to the end
+          before accepting the provider terms.
+        </p>
+      </div>
 
-          <p className="text-sm leading-6 text-muted-foreground">
-            Review the responsibilities that apply when offering services
-            through FEASTA, including listings, bookings, customer
-            communication, payments, service delivery, and platform conduct.
-          </p>
-
+      <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex flex-col gap-3 border-b border-border bg-muted/30 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div>
-            <Link
-              href="/provider-agreement"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-sm font-semibold text-primary hover:underline"
-            >
-              Read Provider Agreement
-              <span className="ml-1" aria-hidden="true">
-                ?
-              </span>
-            </Link>
+            <p className="font-semibold text-foreground">
+              FEASTA Provider Agreement
+            </p>
+
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              Version {PROVIDER_AGREEMENT_VERSION}
+            </p>
+          </div>
+
+          <Link
+            href="/provider-agreement"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-fit text-sm font-semibold text-primary hover:underline"
+          >
+            Open full page
+          </Link>
+        </div>
+
+        <div
+          tabIndex={0}
+          aria-label="Scrollable FEASTA Provider Agreement"
+          className="max-h-[32rem] overflow-y-auto overscroll-auto scroll-smooth px-4 py-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:px-5"
+          onScroll={(event) => {
+            const element =
+              event.currentTarget;
+
+            const remaining =
+              element.scrollHeight -
+              element.scrollTop -
+              element.clientHeight;
+
+            if (remaining <= 24) {
+              setHasReachedEnd(true);
+            }
+          }}
+        >
+          <div className="grid gap-7">
+            <div className="rounded-lg border border-border bg-muted/20 p-4">
+              <p className="text-sm leading-6 text-muted-foreground">
+                This agreement explains the responsibilities that
+                apply when offering catering or event-related
+                services through FEASTA.
+              </p>
+            </div>
+
+            {PROVIDER_AGREEMENT_SECTIONS.map(
+              (section) => (
+                <section
+                  key={section.title}
+                  className="grid gap-2"
+                >
+                  <h4 className="font-semibold leading-6 text-foreground">
+                    {section.title}
+                  </h4>
+
+                  <div className="grid gap-3">
+                    {section.paragraphs.map(
+                      (paragraph) => (
+                        <p
+                          key={paragraph}
+                          className="text-sm leading-6 text-muted-foreground"
+                        >
+                          {paragraph}
+                        </p>
+                      ),
+                    )}
+                  </div>
+                </section>
+              ),
+            )}
+
+            <section className="grid gap-2">
+              <h4 className="font-semibold leading-6 text-foreground">
+                {PROVIDER_AGREEMENT_FINAL_SECTION.title}
+              </h4>
+
+              <div className="grid gap-3">
+                {PROVIDER_AGREEMENT_FINAL_SECTION.paragraphs.map(
+                  (paragraph) => (
+                    <p
+                      key={paragraph}
+                      className="text-sm leading-6 text-muted-foreground"
+                    >
+                      {paragraph}
+                    </p>
+                  ),
+                )}
+              </div>
+            </section>
+
+            <section className="grid gap-4 border-t border-border pt-6">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+                  End of Provider Agreement
+                </p>
+
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Confirm your acceptance below to continue to
+                  provider verification.
+                </p>
+              </div>
+
+              <CheckboxField
+                label="I have read and agree to the FEASTA Provider Agreement."
+                checked={accepted}
+                required
+                disabled={
+                  loading ||
+                  !acceptanceEnabled
+                }
+                onChange={(event) =>
+                  onAcceptedChange(
+                    event.target.checked,
+                  )
+                }
+              />
+
+              {error ? (
+                <p
+                  className="text-sm text-destructive"
+                  role="alert"
+                >
+                  {error}
+                </p>
+              ) : null}
+            </section>
           </div>
         </div>
       </div>
 
-      <CheckboxField
-        label="I have read and agree to the FEASTA Provider Agreement."
-        checked={values.providerAgreementAccepted}
-        required
-        disabled={loading}
-        onChange={(event) =>
-          update(
-            "providerAgreementAccepted",
-            event.target.checked,
-          )
-        }
-      />
-
-      {fieldErrors.providerAgreementAccepted ? (
-        <p className="text-sm text-destructive" role="alert">
-          {fieldErrors.providerAgreementAccepted}
-        </p>
-      ) : null}
-
-      <AuthStatus
-        tone="info"
-        message="Your acceptance is recorded with the current agreement version and acceptance time when you continue. Your provider profile remains inactive until FEASTA completes verification."
-      />
+      {!acceptanceEnabled ? (
+        <AuthStatus
+          tone="info"
+          message="Scroll through the Provider Agreement to the end to enable the acceptance checkbox."
+        />
+      ) : (
+        <AuthStatus
+          tone="info"
+          message="Your acceptance is recorded with the current agreement version and acceptance time when you continue. Your provider profile remains inactive until FEASTA completes verification."
+        />
+      )}
     </div>
   );
 }
@@ -1710,7 +2005,7 @@ function prepareStepValues(
 
     if (normalized.serviceAreas.length === 0) {
       errors.serviceAreas =
-        "Add at least one city or municipality you serve.";
+        "Add at least one city, municipality, or province you serve.";
     }
 
     if (

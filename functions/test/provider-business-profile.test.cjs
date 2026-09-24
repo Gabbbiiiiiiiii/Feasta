@@ -139,12 +139,22 @@ test("callable verifies canonical media ownership and audits only allowlisted ch
   assert.doesNotMatch(callable, /\.\.\.request\.data/u);
 });
 
-test("linked providers cannot bypass the profile mutation when clearing media", () => {
-  assert.match(providerMedia, /requireUnlinkedProviderOnboarding\(\s*actor\.uid/u);
-  assert.match(providerMedia, /user\.providerId\.trim\(\)\.length > 0/u);
+test("onboarding media clearing permits only unlinked or editable linked applications", () => {
   assert.match(
     providerMedia,
-    /Linked provider media must be removed through the business profile update/u,
+    /requireEditableProviderOnboarding\(\s*actor\.uid/u,
+  );
+  assert.match(
+    providerMedia,
+    /provider\.verificationStatus ===\s*"draft"[\s\S]*?"resubmission_required"/u,
+  );
+  assert.match(
+    providerMedia,
+    /verification\.status ===\s*"draft"[\s\S]*?"resubmission_required"/u,
+  );
+  assert.match(
+    providerMedia,
+    /Provider application media is locked after submission/u,
   );
 });
 

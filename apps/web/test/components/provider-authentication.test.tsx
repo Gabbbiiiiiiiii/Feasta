@@ -1064,6 +1064,59 @@ describe("provider authentication and onboarding", () => {
     }));
   });
 
+  it("blocks Step 2 until business registration status is selected", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProviderOnboardingStepForm
+        step={PROVIDER_ONBOARDING_STEPS[1]}
+        draft={{
+          ownerFirstName: "Ada",
+          ownerLastName: "Lovelace",
+          ownerPhone: "+639171234567",
+          ownerEmail: "owner@example.test",
+          businessName: "FEASTA Catering",
+          businessEmail: "sales@feasta.test",
+          businessPhone: "+639171234567",
+          description:
+            "Complete catering services for celebrations.",
+          providerAgreementAccepted: false,
+          providerAgreementVersion:
+            PROVIDER_AGREEMENT_VERSION,
+          completedSteps: [1],
+        }}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole(
+        "button",
+        {
+          name: /save and continue/i,
+        },
+      ),
+    );
+
+    expect(
+      screen.getByText(
+        "Choose your business registration status.",
+      ),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.getByText(
+        "Complete all required fields before continuing.",
+      ),
+    ).toBeInTheDocument();
+
+    expect(
+      mocks.saveDraft,
+    ).not.toHaveBeenCalled();
+
+    expect(
+      mocks.push,
+    ).not.toHaveBeenCalled();
+  });
+
   it("validates and securely registers Cloudinary business images", async () => {
     const user = userEvent.setup();
     mocks.uploadImage.mockResolvedValueOnce({
@@ -1177,6 +1230,32 @@ describe("provider authentication and onboarding", () => {
     );
     expect(mocks.uploadImage).not.toHaveBeenCalled();
     expect(mocks.saveDraft).not.toHaveBeenCalled();
+  });
+
+  it("returns from verification documents to the provider agreement", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <ProviderVerificationActions
+        providerId="provider-one"
+        verificationId="verification-one"
+        canSubmit={false}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole(
+        "button",
+        {name: "Back"},
+      ),
+    );
+
+    // Step 7 intentionally performs a full document navigation instead
+    // of using the Next.js client router so an old pre-registration
+    // onboarding page cannot be restored from the RSC route cache.
+    expect(
+      mocks.push,
+    ).not.toHaveBeenCalled();
   });
 
   it("uploads a private verification document and prevents premature submission", async () => {

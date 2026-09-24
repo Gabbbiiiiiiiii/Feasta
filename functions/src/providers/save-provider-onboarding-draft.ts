@@ -1,6 +1,8 @@
 import {getAuth} from "firebase-admin/auth";
+import type {Transaction} from "firebase-admin/firestore";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 
+import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
 import {
@@ -34,6 +36,12 @@ import {
 } from "../shared/validation.js";
 
 const SETUP_STEPS = [1, 2, 3, 4, 5, 6] as const;
+
+const EDITABLE_APPLICATION_STATUSES =
+  new Set([
+    "draft",
+    "resubmission_required",
+  ]);
 
 export const saveProviderOnboardingDraft = onCall(
   {
@@ -151,14 +159,24 @@ export const saveProviderOnboardingDraft = onCall(
         );
       }
       const identity = await requireTrustedProviderIdentity(authUser, user);
-      if (
-        typeof user.providerId === "string" &&
-        user.providerId.trim().length > 0
-      ) {
-        throw new HttpsError(
-          "failed-precondition",
-          "Provider business setup is already complete.",
-        );
+      const linkedProviderId =
+        typeof user.providerId === "string"
+          ? user.providerId.trim()
+          : "";
+
+      if (linkedProviderId) {
+        return saveLinkedProviderApplicationStep({
+          transaction,
+          step,
+          actorId: actor.uid,
+          providerId:
+            linkedProviderId,
+          user:
+            user ?? {},
+          identityPhoneNumber:
+            identity.phoneNumber,
+          validated,
+        });
       }
 
       const existing = draftSnapshot.data() ?? {};
@@ -330,6 +348,712 @@ export const saveProviderOnboardingDraft = onCall(
     });
   },
 );
+
+async function saveLinkedProviderApplicationStep({
+  transaction,
+  step,
+  actorId,
+  providerId,
+  user,
+  identityPhoneNumber,
+  validated,
+}: {
+  transaction: Transaction;
+  step: number;
+  actorId: string;
+  providerId: string;
+  user: Record<string, unknown>;
+  identityPhoneNumber: string;
+  validated: Record<string, unknown>;
+}): Promise<{
+  success: true;
+  completedSteps: number[];
+  nextStep: number;
+}> {
+  const userReference =
+    db
+      .collection("users")
+      .doc(actorId);
+
+  const providerReference =
+    db
+      .collection("providers")
+      .doc(providerId);
+
+  const providerSnapshot =
+    await transaction.get(
+      providerReference,
+    );
+
+  const provider =
+    providerSnapshot.data() ?? {};
+
+  if (
+    !providerSnapshot.exists ||
+    provider.ownerId !== actorId
+  ) {
+    throw new HttpsError(
+      "permission-denied",
+      "The linked provider application could not be verified.",
+    );
+  }
+
+  const providerStatus =
+    typeof provider.verificationStatus ===
+      "string"
+      ? provider.verificationStatus
+      : "";
+
+  if (
+    !EDITABLE_APPLICATION_STATUSES.has(
+      providerStatus,
+    )
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Provider application details are locked after submission.",
+    );
+  }
+
+  const verificationQuery =
+    db
+      .collection(
+        "providerVerifications",
+      )
+      .where(
+        "providerId",
+        "==",
+        providerId,
+      )
+      .limit(1);
+
+  const verificationSnapshot =
+    await transaction.get(
+      verificationQuery,
+    );
+
+  if (
+    verificationSnapshot.empty
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The linked provider verification record is missing.",
+    );
+  }
+
+  const verificationDocument =
+    verificationSnapshot.docs[0];
+
+  const verification =
+    verificationDocument.data();
+
+  const verificationStatus =
+    typeof verification.status ===
+      "string"
+      ? verification.status
+      : "";
+
+  if (
+    verification.ownerId !== actorId ||
+    !EDITABLE_APPLICATION_STATUSES.has(
+      verificationStatus,
+    )
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Provider application details are locked after submission.",
+    );
+  }
+
+  let nextValidated = {
+    ...validated,
+  };
+
+  if (step === 2) {
+    const businessEmail =
+      searchText(
+        nextValidated.businessEmail,
+      ).toLowerCase();
+
+    const matchingBusinessEmails =
+      await transaction.get(
+        db
+          .collection("providers")
+          .where(
+            "businessEmail",
+            "==",
+            businessEmail,
+          )
+          .limit(2),
+      );
+
+    if (
+      matchingBusinessEmails.docs.some(
+        (document) =>
+          document.id !== providerId,
+      )
+    ) {
+      throw new HttpsError(
+        "already-exists",
+        "A provider profile already uses this business email.",
+      );
+    }
+
+    nextValidated = {
+      ...nextValidated,
+      businessEmail,
+    };
+  }
+
+  if (step === 3) {
+    const providerServiceType =
+      nextValidated
+        .providerServiceType;
+
+    if (
+      providerServiceType !==
+        "catering" &&
+      providerServiceType !==
+        "addon" &&
+      providerServiceType !==
+        "both"
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "providerServiceType is invalid.",
+      );
+    }
+
+    const serviceCategories =
+      await requireActiveServiceCategoriesInTransaction(
+        transaction,
+        Array.isArray(
+          nextValidated
+            .serviceCategories,
+        )
+          ? nextValidated
+              .serviceCategories
+              .filter(
+                (
+                  value,
+                ): value is string =>
+                  typeof value ===
+                  "string",
+              )
+          : [],
+        providerServiceType,
+        "serviceCategories",
+      );
+
+    const providerCategory =
+      nextValidated
+        .providerCategory;
+
+    if (
+      typeof providerCategory !==
+        "string" ||
+      providerCategory !==
+        serviceCategories[0]
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "providerCategory must match the primary service category.",
+      );
+    }
+
+    const capacityCapabilities =
+      await resolveServiceCategoryCapacityCapabilitiesInTransaction(
+        transaction,
+        serviceCategories,
+        providerServiceType,
+        "serviceCategories",
+      );
+
+    nextValidated = {
+      ...nextValidated,
+      providerCategory,
+      serviceCategories,
+      capacityCapabilities,
+    };
+  }
+
+  if (step === 5) {
+    const serviceCategories =
+      Array.isArray(
+        provider.serviceCategories,
+      )
+        ? provider
+            .serviceCategories
+            .filter(
+              (
+                value,
+              ): value is string =>
+                typeof value ===
+                "string",
+            )
+        : [];
+
+    const providerServiceType =
+      provider.providerServiceType;
+
+    if (
+      serviceCategories.length === 0 ||
+      (
+        providerServiceType !==
+          "catering" &&
+        providerServiceType !==
+          "addon" &&
+        providerServiceType !==
+          "both"
+      )
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Complete service selection before configuring capacity.",
+      );
+    }
+
+    const capacityCapabilities =
+      await resolveServiceCategoryCapacityCapabilitiesInTransaction(
+        transaction,
+        serviceCategories,
+        providerServiceType,
+        "serviceCategories",
+      );
+
+    nextValidated =
+      normalizeStepFiveCapacity(
+        nextValidated,
+        capacityCapabilities,
+      );
+  }
+
+  const providerUpdates:
+    Record<string, unknown> = {};
+
+  const verificationUpdates:
+    Record<string, unknown> = {};
+
+  if (step === 1) {
+    if (
+      nextValidated.ownerPhone !==
+        identityPhoneNumber
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Change and verify your account mobile number before using it as the provider owner phone.",
+      );
+    }
+
+    const ownerFirstName =
+      searchText(
+        nextValidated
+          .ownerFirstName,
+      );
+
+    const ownerLastName =
+      searchText(
+        nextValidated
+          .ownerLastName,
+      );
+
+    Object.assign(
+      providerUpdates,
+      {
+        ownerFirstName,
+        ownerLastName,
+        ownerPhone:
+          identityPhoneNumber,
+      },
+    );
+
+    Object.assign(
+      verificationUpdates,
+      {
+        ownerFirstName,
+        ownerLastName,
+        ownerName:
+          `${ownerFirstName} ${ownerLastName}`.trim(),
+      },
+    );
+
+    transaction.update(
+      userReference,
+      {
+        firstName:
+          ownerFirstName,
+        lastName:
+          ownerLastName,
+        phoneNumber:
+          identityPhoneNumber,
+        isPhoneVerified: true,
+        phoneVerifiedAt:
+          user.phoneVerifiedAt ??
+          serverTimestamp(),
+        updatedAt:
+          serverTimestamp(),
+      },
+    );
+  }
+
+  if (step === 2) {
+    Object.assign(
+      providerUpdates,
+      nextValidated,
+    );
+
+    Object.assign(
+      verificationUpdates,
+      {
+        businessName:
+          nextValidated
+            .businessName,
+        businessRegistrationType:
+          nextValidated
+            .businessRegistrationType,
+        businessEmail:
+          nextValidated
+            .businessEmail,
+      },
+    );
+  }
+
+  if (step === 3) {
+    Object.assign(
+      providerUpdates,
+      nextValidated,
+    );
+
+    const capacityCapabilities =
+      nextValidated
+        .capacityCapabilities as {
+          requiresGuestCapacity:
+            boolean;
+          usesStaffCapacity:
+            boolean;
+          usesEquipmentCapacity:
+            boolean;
+        };
+
+    if (
+      !capacityCapabilities
+        .requiresGuestCapacity
+    ) {
+      providerUpdates
+        .minGuestsPerEvent = 0;
+
+      providerUpdates
+        .maxGuestsPerEvent = 0;
+    }
+
+    if (
+      !capacityCapabilities
+        .usesStaffCapacity
+    ) {
+      providerUpdates
+        .availableStaffCount = 0;
+    }
+
+    if (
+      !capacityCapabilities
+        .usesEquipmentCapacity
+    ) {
+      providerUpdates
+        .availableEquipmentCount = 0;
+    }
+
+    verificationUpdates
+      .providerServiceType =
+        nextValidated
+          .providerServiceType;
+  }
+
+  if (step === 4) {
+    Object.assign(
+      providerUpdates,
+      nextValidated,
+      {
+        location:
+          `${searchText(
+            nextValidated.city,
+          )}, ${searchText(
+            nextValidated.province,
+          )}`,
+      },
+    );
+  }
+
+  if (step === 5) {
+    Object.assign(
+      providerUpdates,
+      nextValidated,
+    );
+  }
+
+  if (step === 6) {
+    verificationUpdates
+      .providerAgreementVersion =
+        nextValidated
+          .providerAgreementVersion;
+
+    verificationUpdates
+      .providerAgreementAcceptedAt =
+        serverTimestamp();
+  }
+
+  if (
+    Object.keys(
+      providerUpdates,
+    ).length > 0
+  ) {
+    const nextProvider = {
+      ...provider,
+      ...providerUpdates,
+    };
+
+    providerUpdates.searchTokens =
+      buildSearchTokens([
+        searchText(
+          nextProvider.businessName,
+        ),
+        searchText(
+          nextProvider.city,
+        ),
+        searchText(
+          nextProvider.province,
+        ),
+        searchText(
+          nextProvider
+            .providerServiceType,
+        ),
+        searchText(
+          nextProvider
+            .providerCategory,
+        ),
+        ...searchList(
+          nextProvider
+            .serviceCategories,
+        ),
+        ...searchList(
+          nextProvider
+            .serviceAreas,
+        ),
+        ...searchList(
+          nextProvider
+            .eventTypesSupported,
+        ),
+      ]);
+
+    providerUpdates.updatedAt =
+      serverTimestamp();
+
+    if (step === 2) {
+      const businessRegistrationType =
+        validated.businessRegistrationType;
+
+      if (
+        businessRegistrationType !== "individual" &&
+        businessRegistrationType !== "registered_business"
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "businessRegistrationType is invalid.",
+        );
+      }
+
+      // Keep the canonical provider profile and its verification
+      // snapshot synchronized. Existing legacy providers may not
+      // have had this field when their profile was first created.
+      providerUpdates.businessRegistrationType =
+        businessRegistrationType;
+
+      verificationUpdates.businessRegistrationType =
+        businessRegistrationType;
+    }
+
+    transaction.update(
+      providerReference,
+      providerUpdates,
+    );
+  }
+
+  if (
+    Object.keys(
+      verificationUpdates,
+    ).length > 0
+  ) {
+    const nextProvider = {
+      ...provider,
+      ...providerUpdates,
+    };
+
+    const nextVerification = {
+      ...verification,
+      ...verificationUpdates,
+    };
+
+    verificationUpdates
+      .searchTokens =
+        buildSearchTokens([
+          providerId,
+          searchText(
+            nextProvider.businessName,
+          ),
+          searchText(
+            nextProvider
+              .businessRegistrationType,
+          ),
+          searchText(
+            nextProvider.businessEmail,
+          ),
+          searchText(
+            nextProvider.businessPhone,
+          ),
+          searchText(
+            nextProvider.ownerFirstName,
+          ),
+          searchText(
+            nextProvider.ownerLastName,
+          ),
+          searchText(
+            nextVerification.ownerName,
+          ),
+          searchText(
+            nextProvider.ownerEmail,
+          ),
+          searchText(
+            nextProvider.ownerPhone,
+          ),
+          searchText(
+            nextProvider
+              .providerServiceType,
+          ),
+          searchText(
+            nextProvider
+              .providerCategory,
+          ),
+        ]);
+
+    verificationUpdates.updatedAt =
+      serverTimestamp();
+
+    transaction.update(
+      verificationDocument.ref,
+      verificationUpdates,
+    );
+  }
+
+  writeAuditLogInTransaction(
+    transaction,
+    {
+      actorId,
+      actorRole:
+        USER_ROLES.provider,
+      action:
+        "provider_onboarding_application_updated",
+      targetCollection:
+        "providers",
+      targetId:
+        providerId,
+      metadata: {
+        step,
+        verificationId:
+          verificationDocument.id,
+      },
+    },
+  );
+
+  return {
+    success: true,
+    completedSteps: [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+    ],
+    nextStep:
+      step === 6
+        ? 7
+        : step + 1,
+  };
+}
+
+function searchText(
+  value: unknown,
+): string {
+  return typeof value === "string"
+    ? value.trim()
+    : "";
+}
+
+function searchList(
+  value: unknown,
+): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap(
+    (item) => {
+      const normalized =
+        searchText(item);
+
+      return normalized
+        ? [normalized]
+        : [];
+    },
+  );
+}
+
+function buildSearchTokens(
+  values: readonly string[],
+): string[] {
+  const tokens =
+    new Set<string>();
+
+  for (const value of values) {
+    for (
+      const word of
+      value
+        .toLowerCase()
+        .split(
+          /[^a-z0-9]+/u,
+        )
+    ) {
+      if (!word) {
+        continue;
+      }
+
+      tokens.add(word);
+
+      for (
+        let length = 2;
+        length <=
+          Math.min(
+            word.length,
+            20,
+          );
+        length++
+      ) {
+        tokens.add(
+          word.slice(
+            0,
+            length,
+          ),
+        );
+      }
+    }
+  }
+
+  return [
+    ...tokens,
+  ].slice(
+    0,
+    200,
+  );
+}
 
 function validateStep(
   step: number,
