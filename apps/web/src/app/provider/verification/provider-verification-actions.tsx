@@ -67,6 +67,30 @@ export function ProviderVerificationActions({
   const busy = useRef(false);
   const documentFileInputRef = useRef<HTMLInputElement>(null);
 
+  const requiredDefinitions =
+    PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS.filter(
+      (definition) =>
+        policy.requiredAll.includes(definition.type) ||
+        policy.requiredOneOf.some((group) =>
+          group.includes(definition.type),
+        ),
+    );
+
+  const optionalDefinitions =
+    PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS.filter(
+      (definition) =>
+        !policy.requiredAll.includes(definition.type) &&
+        !policy.requiredOneOf.some((group) =>
+          group.includes(definition.type),
+        ),
+    );
+
+  const initialDocumentType =
+    requiredDefinitions[0]?.type ?? "valid_id";
+
+  const requiredRequirementCount =
+    policy.requiredAll.length + policy.requiredOneOf.length;
+
   function prepareDocumentReplacement(
     nextDocumentType: VerificationDocumentType,
   ) {
@@ -81,7 +105,8 @@ export function ProviderVerificationActions({
     }
   }
   const submitKey = useRef(globalThis.crypto.randomUUID());
-  const [documentType, setDocumentType] = useState<VerificationDocumentType>("business_permit");
+  const [documentType, setDocumentType] =
+    useState<VerificationDocumentType>(initialDocumentType);
   const [file, setFile] = useState<File | null>(null);
   const [action, setAction] = useState<"upload" | "remove" | "submit" | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -159,25 +184,70 @@ export function ProviderVerificationActions({
 
   return (
     <section className="grid gap-5 rounded-card border border-border bg-card p-5 shadow-card" aria-labelledby="verification-upload-title">
-      <div>
-        <h2 id="verification-upload-title" className="text-xl font-bold">
-          {reviewMode ? "Review and submit" : "Verification documents"}
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {reviewMode
-            ? "Review your uploaded documents carefully before submitting them to FEASTA. If something is incorrect, go back and replace it before submission."
-            : "Upload the documents required for your provider type. PDF, JPEG, PNG, or WebP, up to 10 MB per file. Files are private to you and FEASTA administrators."}
-        </p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 id="verification-upload-title" className="text-xl font-bold">
+            {reviewMode ? "Review and submit" : "Verification documents"}
+          </h2>
+
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+            {reviewMode
+              ? "Review your uploaded documents carefully before submitting them to FEASTA. If something is incorrect, go back and replace it before submission."
+              : "Your requirements are based on your business registration status and selected services. Upload PDF, JPEG, PNG, or WebP files up to 10 MB each. Files are private to you and FEASTA administrators."}
+          </p>
+        </div>
+
+        {!reviewMode ? (
+          <div className="shrink-0 rounded-lg border border-border bg-muted/40 px-4 py-2 text-sm">
+            <span className="font-bold text-foreground">
+              {requiredRequirementCount}
+            </span>{" "}
+            <span className="text-muted-foreground">
+              {requiredRequirementCount === 1
+                ? "required item"
+                : "required items"}
+            </span>
+          </div>
+        ) : null}
       </div>
       {!reviewMode ? (
-        <form className="grid gap-4 sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto] sm:items-end" onSubmit={upload}>
-          <FormField label="Document type" required disabled={action !== null}>
-            <Select value={documentType} onChange={(event) => setDocumentType(event.target.value as VerificationDocumentType)}>
-              {PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS.map((definition) => (
-                <option key={definition.type} value={definition.type}>
-                  {definition.label}{requirementLabel(definition.type, policy)}
-                </option>
-              ))}
+        <form
+          className="grid gap-4 lg:grid-cols-[minmax(16rem,0.9fr)_minmax(18rem,1.4fr)_auto] lg:items-end"
+          onSubmit={upload}
+        >
+          <FormField
+            label="Document type"
+            required
+            disabled={action !== null}
+          >
+            <Select
+              value={documentType}
+              onChange={(event) =>
+                setDocumentType(
+                  event.target.value as VerificationDocumentType,
+                )
+              }
+            >
+              {requiredDefinitions.length > 0 ? (
+                <optgroup label="Required documents">
+                  {requiredDefinitions.map((definition) => (
+                    <option key={definition.type} value={definition.type}>
+                      {definition.label}
+                      {requirementLabel(definition.type, policy)}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+
+              {optionalDefinitions.length > 0 ? (
+                <optgroup label="Optional supporting documents">
+                  {optionalDefinitions.map((definition) => (
+                    <option key={definition.type} value={definition.type}>
+                      {definition.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
             </Select>
           </FormField>
           <FormField label="Choose file" required disabled={action !== null}>
@@ -211,15 +281,9 @@ export function ProviderVerificationActions({
       <div className="grid gap-6" aria-label="Verification document status">
         <DocumentSection
           verificationId={verificationId}
-          title="Required for your provider account"
-          description="These documents must satisfy your current FEASTA verification requirements before you can continue."
-          definitions={PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS.filter(
-            (definition) =>
-              policy.requiredAll.includes(definition.type) ||
-              policy.requiredOneOf.some((group) =>
-                group.includes(definition.type),
-              ),
-          )}
+          title="Required documents"
+          description="Complete these requirements before reviewing and submitting your provider application."
+          definitions={requiredDefinitions}
           documents={documents}
           policy={policy}
           editable={editable}
@@ -232,14 +296,8 @@ export function ProviderVerificationActions({
         <DocumentSection
           verificationId={verificationId}
           title="Optional supporting documents"
-          description="These documents are not currently required by your verification policy, but you may provide them when they help FEASTA review your business."
-          definitions={PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS.filter(
-            (definition) =>
-              !policy.requiredAll.includes(definition.type) &&
-              !policy.requiredOneOf.some((group) =>
-                group.includes(definition.type),
-              ),
-          )}
+          description="These are not currently required. Add them only when they help FEASTA review your provider account."
+          definitions={optionalDefinitions}
           documents={documents}
           policy={policy}
           editable={editable}
@@ -459,7 +517,7 @@ function requirementDescription(
     requiredOneOf: readonly (readonly string[])[];
   },
 ): string {
-  if (policy.requiredAll.includes(type)) return "Required for this business";
+  if (policy.requiredAll.includes(type)) return "Required for your current verification profile";
   const alternative = policy.requiredOneOf.find((group) => group.includes(type));
   if (alternative) {
     return `One required: ${alternative.map(documentLabel).join(" or ")}`;
