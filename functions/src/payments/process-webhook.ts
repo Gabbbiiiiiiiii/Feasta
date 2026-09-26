@@ -55,6 +55,14 @@ import {
 import {
   providerRequestSettlementUpdateForPaymentOutcome,
 } from "./payment-settlement.js";
+import {
+  customerNotificationMessageForPaymentLifecycle,
+  customerNotificationTitleForPaymentLifecycle,
+  paymentLifecycleChoice,
+  providerNotificationMessageForPaymentLifecycle,
+  providerNotificationTitleForPaymentLifecycle,
+  timelineMessageForPaymentLifecycle,
+} from "./payment-lifecycle-messaging.js";
 
 type WebhookResult = {
   duplicate: boolean;
@@ -213,6 +221,11 @@ export async function processPayMongoWebhook(
 
       const payment =
         paymentSnapshot.data() ?? {};
+
+      const lifecyclePaymentChoice =
+        paymentLifecycleChoice(
+          payment.paymentChoice,
+        );
 
       const bookingId = readNonEmptyString(
         payment.mainEventId,
@@ -767,14 +780,25 @@ export async function processPayMongoWebhook(
             ),
 
           message:
-            timelineMessageForStatus(
+            timelineMessageForPaymentLifecycle(
               nextStatus,
+              lifecyclePaymentChoice,
             ),
 
           mainEventId: bookingId,
           providerRequestId,
           providerId,
           paymentId: event.paymentId,
+
+          ...(lifecyclePaymentChoice
+            ? {
+                paymentChoice:
+                  lifecyclePaymentChoice,
+              }
+            : {}),
+
+          paymentStatus:
+            nextStatus,
 
           source: "paymongo_webhook",
           createdAt: timestamp,
@@ -823,6 +847,13 @@ export async function processPayMongoWebhook(
             mainEventId: bookingId,
             providerRequestId,
             providerId,
+
+            ...(lifecyclePaymentChoice
+              ? {
+                  paymentChoice:
+                    lifecyclePaymentChoice,
+                }
+              : {}),
           },
         },
       );
@@ -833,13 +864,15 @@ export async function processPayMongoWebhook(
           userId: customerId,
 
           title:
-            customerNotificationTitle(
+            customerNotificationTitleForPaymentLifecycle(
               nextStatus,
+              lifecyclePaymentChoice,
             ),
 
           message:
-            customerNotificationMessage(
+            customerNotificationMessageForPaymentLifecycle(
               nextStatus,
+              lifecyclePaymentChoice,
             ),
 
           type: "payment",
@@ -854,13 +887,15 @@ export async function processPayMongoWebhook(
           userId: provider.ownerId,
 
           title:
-            providerNotificationTitle(
+            providerNotificationTitleForPaymentLifecycle(
               nextStatus,
+              lifecyclePaymentChoice,
             ),
 
           message:
-            providerNotificationMessage(
+            providerNotificationMessageForPaymentLifecycle(
               nextStatus,
+              lifecyclePaymentChoice,
             ),
 
           type: "payment",
@@ -1207,129 +1242,6 @@ function timelineTypeForStatus(
 
     default:
       return "payment_updated";
-  }
-}
-
-function timelineMessageForStatus(
-  status:
-    NonNullable<
-      ReturnType<
-        typeof statusForPayMongoEvent
-      >
-    >,
-): string {
-  switch (status) {
-    case "paid":
-      return (
-        "The provider down payment " +
-        "was successfully confirmed."
-      );
-
-    case "failed":
-      return (
-        "The provider down payment " +
-        "failed and may be retried."
-      );
-
-    case "expired":
-      return (
-        "The payment session expired " +
-        "and a new session may be created."
-      );
-
-    case "refunded":
-      return (
-        "The provider payment was " +
-        "successfully refunded."
-      );
-
-    default:
-      return "The provider payment was updated.";
-  }
-}
-
-function customerNotificationTitle(
-  status: string,
-): string {
-  return status === "paid"
-    ? "Payment confirmed"
-    : `Payment ${status}`;
-}
-
-function customerNotificationMessage(
-  status: string,
-): string {
-  switch (status) {
-    case "paid":
-      return (
-        "Your provider payment was " +
-        "securely confirmed."
-      );
-
-    case "failed":
-      return (
-        "Your provider payment failed. " +
-        "You may try again."
-      );
-
-    case "expired":
-      return (
-        "Your payment session expired. " +
-        "You may create a new session."
-      );
-
-    case "refunded":
-      return (
-        "Your provider payment was " +
-        "successfully refunded."
-      );
-
-    default:
-      return `Your payment is now ${status}.`;
-  }
-}
-
-function providerNotificationTitle(
-  status: string,
-): string {
-  return status === "paid"
-    ? "Payment received"
-    : `Payment ${status}`;
-}
-
-function providerNotificationMessage(
-  status: string,
-): string {
-  switch (status) {
-    case "paid":
-      return (
-        "A payment for your provider " +
-        "request was confirmed."
-      );
-
-    case "failed":
-      return (
-        "A payment for your provider " +
-        "request failed."
-      );
-
-    case "expired":
-      return (
-        "A payment session for your " +
-        "provider request expired."
-      );
-
-    case "refunded":
-      return (
-        "A payment for your provider " +
-        "request was refunded."
-      );
-
-    default:
-      return (
-        "A provider request payment " +
-        `is now ${status}.`
-      );
   }
 }
 

@@ -1131,6 +1131,11 @@ async function persistCheckout(
       const timestamp =
         serverTimestamp();
 
+      const persistedPaymentChoice =
+        parseCustomerPaymentChoice(
+          payment.paymentChoice,
+        );
+
       transaction.update(
         paymentReference,
         {
@@ -1156,7 +1161,7 @@ async function persistCheckout(
           paymentStatus:
             "processing",
           paymentId: input.paymentId,
-          ...(payment.paymentChoice === "remaining_balance"
+          ...(persistedPaymentChoice
             ? providerRequestSettlementUpdateForPaymentOutcome({
               providerRequestId: input.providerRequestId, providerRequest,
               paymentId: input.paymentId, paymentStatus: "processing", timestamp,
