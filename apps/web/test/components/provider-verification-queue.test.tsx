@@ -12,7 +12,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 import {ProviderVerificationQueue} from "@/components/admin/provider-verification/provider-verification-queue";
-import {reviewProviderVerification} from "@/lib/admin/provider-verification/provider-verification-client";
+import {
+  reviewProviderTaxProfile,
+  reviewProviderVerification,
+} from "@/lib/admin/provider-verification/provider-verification-client";
 import type {
   ProviderVerificationQueueFilters,
   ProviderVerificationQueuePage,
@@ -21,7 +24,13 @@ import type {
 
 vi.mock(
   "@/lib/admin/provider-verification/provider-verification-client",
-  () => ({reviewProviderVerification: vi.fn()}),
+  () => ({
+    reviewProviderTaxProfile:
+      vi.fn(),
+
+    reviewProviderVerification:
+      vi.fn(),
+  }),
 );
 
 const filters: ProviderVerificationQueueFilters = {
@@ -85,6 +94,9 @@ const selected: ProviderVerificationReviewDetail = {
     logoUrl: null,
     coverImageUrl: null,
   },
+
+  taxProfile: null,
+
   status: "submitted",
   submittedAt: "Jul 28, 2026, 9:00 AM",
   reviewedAt: "Not available",
@@ -134,7 +146,14 @@ describe("provider verification queue", () => {
   beforeEach(() => {
     push.mockReset();
     refresh.mockReset();
-    vi.mocked(reviewProviderVerification).mockReset();
+    vi.mocked(
+      reviewProviderTaxProfile,
+    ).mockReset();
+
+    vi.mocked(
+      reviewProviderVerification,
+    ).mockReset();
+
     query = "";
   });
 
@@ -290,6 +309,237 @@ describe("provider verification queue", () => {
         action: "start_review",
       }),
     );
+  });
+
+  it("reviews a pending tax profile independently from provider approval", async () => {
+    vi.mocked(
+      reviewProviderTaxProfile,
+    ).mockResolvedValueOnce({
+      providerId:
+        selected.providerId,
+
+      verificationStatus:
+        "verified",
+    });
+
+    render(
+      <ProviderVerificationQueue
+        page={page}
+        filters={filters}
+        summary={{
+          submitted: 1,
+          underReview: 0,
+          approvedToday: 0,
+          needsResubmission: 0,
+        }}
+        selected={{
+          ...selected,
+
+          taxProfile: {
+            birRegisteredName:
+              "FEASTA Sample Catering",
+
+            tin:
+              "123456789000",
+
+            taxType:
+              "vat_registered",
+
+            verificationStatus:
+              "pending",
+
+            submittedAt:
+              "Sep 25, 2026, 7:00 PM",
+
+            verifiedAt:
+              "Not available",
+
+            rejectedAt:
+              "Not available",
+
+            rejectionReason:
+              null,
+          },
+        }}
+        serviceCategoryOptions={
+          TEST_SERVICE_CATEGORY_OPTIONS
+        }
+      />,
+    );
+
+    expect(
+      screen.getByRole(
+        "heading",
+        {
+          name:
+            "Tax profile verification",
+        },
+      ),
+    ).toBeVisible();
+
+    expect(
+      screen.getByText(
+        "FEASTA Sample Catering",
+      ),
+    ).toBeVisible();
+
+    expect(
+      screen.getByText(
+        "123456789000",
+      ),
+    ).toBeVisible();
+
+    expect(
+      screen.getByText(
+        "Vat Registered",
+      ),
+    ).toBeVisible();
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Verify Tax Profile",
+        },
+      ),
+    );
+
+    const confirmation =
+      screen.getByRole(
+        "dialog",
+        {
+          name:
+            "Verify this tax profile?",
+        },
+      );
+
+    fireEvent.click(
+      within(
+        confirmation,
+      ).getByRole(
+        "button",
+        {
+          name:
+            "Verify Tax Profile",
+        },
+      ),
+    );
+
+    await vi.waitFor(
+      () => {
+        expect(
+          reviewProviderTaxProfile,
+        ).toHaveBeenCalledWith({
+          providerId:
+            selected.providerId,
+
+          action:
+            "verify",
+
+          reason:
+            undefined,
+        });
+
+        expect(
+          refresh,
+        ).toHaveBeenCalled();
+      },
+    );
+
+    expect(
+      reviewProviderVerification,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("requires a meaningful reason before rejecting a tax profile", () => {
+    render(
+      <ProviderVerificationQueue
+        page={page}
+        filters={filters}
+        summary={{
+          submitted: 1,
+          underReview: 0,
+          approvedToday: 0,
+          needsResubmission: 0,
+        }}
+        selected={{
+          ...selected,
+
+          taxProfile: {
+            birRegisteredName:
+              "FEASTA Sample Catering",
+
+            tin:
+              "123456789000",
+
+            taxType:
+              "non_vat",
+
+            verificationStatus:
+              "pending",
+
+            submittedAt:
+              "Sep 25, 2026, 7:00 PM",
+
+            verifiedAt:
+              "Not available",
+
+            rejectedAt:
+              "Not available",
+
+            rejectionReason:
+              null,
+          },
+        }}
+        serviceCategoryOptions={
+          TEST_SERVICE_CATEGORY_OPTIONS
+        }
+      />,
+    );
+
+    fireEvent.change(
+      screen.getByLabelText(
+        "Tax review reason",
+      ),
+      {
+        target: {
+          value: "short",
+        },
+      },
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Reject Tax Profile",
+        },
+      ),
+    );
+
+    expect(
+      screen.getByRole(
+        "alert",
+      ),
+    ).toHaveTextContent(
+      "at least 10 characters",
+    );
+
+    expect(
+      reviewProviderTaxProfile,
+    ).not.toHaveBeenCalled();
+
+    expect(
+      screen.queryByRole(
+        "dialog",
+        {
+          name:
+            "Reject this tax profile?",
+        },
+      ),
+    ).not.toBeInTheDocument();
   });
 
   it("requires meaningful remarks before an adverse decision is sent", async () => {

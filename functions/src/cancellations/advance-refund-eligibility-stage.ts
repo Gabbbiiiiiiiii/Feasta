@@ -6,6 +6,7 @@ import {
 } from "../bookings/booking-refund-policy.js";
 import {
   assertPreparationReady,
+  assertPreparationReadyForSettlement,
   assertRefundEligibilityTransition,
   assertRefundEligibilityUnlocked,
   cancellationError,
@@ -21,9 +22,8 @@ import {
   authorizeProviderRequest,
 } from "../provider-requests/provider-request-authorization.js";
 import {
-  canonicalPaymentLinkageReason,
-  paymentIdForProviderRequest,
-} from "../payments/payment-lifecycle.js";
+  readTrustedProviderRequestPaymentSetInTransaction,
+} from "../payments/provider-request-payment-reader.js";
 import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
@@ -150,15 +150,17 @@ async function advanceStage(input: {
 
   const providerReference = db.collection("providers").doc(providerId);
   const mainEventReference = db.collection("mainEvents").doc(mainEventId);
-  const paymentId = paymentIdForProviderRequest(input.providerRequestId);
-  const paymentReference = db.collection("payments").doc(paymentId);
+
+
   return db.runTransaction(async (transaction) => {
-    const [requestSnapshot, providerSnapshot, mainEventSnapshot,
-      paymentSnapshot] = await transaction.getAll(
+    const [
+      requestSnapshot,
+      providerSnapshot,
+      mainEventSnapshot,
+    ] = await transaction.getAll(
       requestReference,
       providerReference,
       mainEventReference,
-      paymentReference,
     );
     const authorized = authorizeProviderRequest({
       actorUid: input.actorUid,
@@ -195,43 +197,63 @@ async function advanceStage(input: {
       "preparation_started",
     );
 
-    const payment = paymentSnapshot.exists
-      ? paymentSnapshot.data() ?? {}
-      : null;
-    const downPaymentAmount = authorized.requestData.downPaymentAmount;
+    const mainEvent =
+      mainEventSnapshot.data() ?? {};
 
-    if (
-      typeof downPaymentAmount === "number" &&
-      downPaymentAmount > 0 &&
-      payment
-    ) {
-      if (
-        canonicalPaymentLinkageReason({
-          paymentId,
-          providerRequestId: input.providerRequestId,
-          mainEventId,
-          customerId: authorized.customerId,
-          providerId,
-          payment,
-          providerRequest: authorized.requestData,
-          mainEvent: mainEventSnapshot.data() ?? {},
-        })
-      ) {
-        throw cancellationError(
-          "failed-precondition",
-          REFUND_CANCELLATION_ERROR_REASONS.eligibilityInvalid,
-          "Provider-request payment readiness is invalid.",
-        );
-      }
+    const paymentSet =
+      await readTrustedProviderRequestPaymentSetInTransaction({
+        transaction,
+        providerRequestId:
+          input.providerRequestId,
+        providerRequest:
+          authorized.requestData,
+        mainEventId,
+        customerId:
+          authorized.customerId,
+        providerId,
+        mainEvent,
+        invalid: (): never => {
+          throw cancellationError(
+            "failed-precondition",
+            REFUND_CANCELLATION_ERROR_REASONS
+              .eligibilityInvalid,
+            "Provider-request payment readiness is invalid.",
+          );
+        },
+      });
+
+    const downPaymentAmount =
+      authorized.requestData
+        .downPaymentAmount;
+
+    if (paymentSet.mode === "p5") {
+      assertPreparationReadyForSettlement({
+        providerRequestStatus:
+          authorized.status,
+        downPaymentAmount,
+        settlement:
+          paymentSet.settlement,
+      });
     }
-
-    assertPreparationReady({
-      providerRequestStatus: authorized.status,
-      downPaymentAmount,
-      providerRequestPaymentStatus: authorized.requestData.paymentStatus,
-      paidAt: authorized.requestData.paidAt,
-      paymentStatus: paymentStatus(payment?.status),
-    });
+    else {
+      assertPreparationReady({
+        providerRequestStatus:
+          authorized.status,
+        downPaymentAmount,
+        providerRequestPaymentStatus:
+          authorized.requestData
+            .paymentStatus,
+        paidAt:
+          authorized.requestData
+            .paidAt,
+        paymentStatus:
+          paymentStatus(
+            paymentSet
+              .currentPayment
+              ?.status,
+          ),
+      });
+    }
 
     const timestamp = serverTimestamp();
     const nextState = nextRefundEligibilityState(

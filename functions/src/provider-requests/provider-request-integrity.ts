@@ -12,6 +12,10 @@ import {
 import {
   manilaDateKey,
 } from "../provider-availability/validate-provider-availability.js";
+import {
+  parsePackagePaymentTermsSnapshot,
+  type PackagePaymentTermsSnapshot,
+} from "../payments/package-payment-terms.js";
 import type {
   AuthorizedProviderRequest,
 } from "./provider-request-authorization.js";
@@ -268,6 +272,11 @@ export function validateAcceptanceProviderRequest(
     services,
   });
 
+  assertPackagePaymentTermsLinkage({
+    requestData,
+    mainEventData,
+  });
+
   const amount = money(
     requestData.amount,
     "Provider-request amount",
@@ -389,6 +398,128 @@ export function validateAcceptanceProviderRequest(
     downPaymentAmount,
     remainingBalance,
   };
+}
+
+function assertPackagePaymentTermsLinkage(
+  input: {
+    requestData: DocumentData;
+    mainEventData: DocumentData;
+  },
+): void {
+  const {
+    requestData,
+    mainEventData,
+  } = input;
+
+  const packageId =
+    optionalId(
+      requestData.packageId,
+    );
+
+  /*
+   * Add-on-only provider requests do not own the
+   * catering package stored on the parent event.
+   */
+  if (!packageId) {
+    const requestTerms =
+      parsePackagePaymentTermsSnapshot(
+        requestData
+          .packagePaymentTerms,
+      );
+
+    if (requestTerms) {
+      throw invalidPaymentTerms();
+    }
+
+    return;
+  }
+
+  const requestHasSnapshot =
+    Object.prototype
+      .hasOwnProperty.call(
+        requestData,
+        "packagePaymentTerms",
+      );
+
+  const eventHasSnapshot =
+    Object.prototype
+      .hasOwnProperty.call(
+        mainEventData,
+        "packagePaymentTerms",
+      );
+
+  /*
+   * Pending requests created before P4-B remain
+   * acceptable. They keep the legacy percentage
+   * checks already enforced below.
+   */
+  if (
+    !requestHasSnapshot &&
+    !eventHasSnapshot
+  ) {
+    return;
+  }
+
+  if (
+    !requestHasSnapshot ||
+    !eventHasSnapshot
+  ) {
+    throw invalidPaymentTerms();
+  }
+
+  const requestTerms =
+    parsePackagePaymentTermsSnapshot(
+      requestData
+        .packagePaymentTerms,
+    );
+
+  const eventTerms =
+    parsePackagePaymentTermsSnapshot(
+      mainEventData
+        .packagePaymentTerms,
+    );
+
+  if (
+    !requestTerms ||
+    !eventTerms ||
+    !samePackagePaymentTerms(
+      requestTerms,
+      eventTerms,
+    )
+  ) {
+    throw invalidPaymentTerms();
+  }
+}
+
+function samePackagePaymentTerms(
+  left:
+    PackagePaymentTermsSnapshot,
+  right:
+    PackagePaymentTermsSnapshot,
+): boolean {
+  return (
+    left.schemaVersion ===
+      right.schemaVersion &&
+    left.source ===
+      right.source &&
+    left.paymentPolicy ===
+      right.paymentPolicy &&
+    left.depositRateBps ===
+      right.depositRateBps &&
+    left
+      .balanceDueDaysBeforeEvent ===
+      right
+        .balanceDueDaysBeforeEvent &&
+    left.usesLegacyPaymentTerms ===
+      right.usesLegacyPaymentTerms
+  );
+}
+
+function invalidPaymentTerms(): HttpsError {
+  return new HttpsError(
+    "failed-precondition",
+    "The provider-request package payment terms are invalid.",
+  );
 }
 
 function assertSelectedServiceLinkage(

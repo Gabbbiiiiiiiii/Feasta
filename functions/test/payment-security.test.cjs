@@ -15,6 +15,7 @@ const {
 const {
   canonicalPaymentLinkageReason,
   checkoutEligibilityReason,
+  currentPaymentIdForProviderRequest,
   paymentIdForProviderRequest,
   validStoredCheckoutReason,
   webhookLifecycleConflictReason,
@@ -23,6 +24,13 @@ const {
   PAYMENT_STATUSES,
   PAYMENT_STATUS_TRANSITIONS,
 } = require(path.join(libRoot, "shared/constants.js"));
+
+const {
+  paymentIdForProviderRequestChoice,
+} = require(path.join(
+  libRoot,
+  "payments/payment-obligation.js",
+));
 
 test("payment lifecycle includes partial-refund semantics", () => {
   assert.equal(PAYMENT_STATUSES.includes("partially_refunded"), true);
@@ -193,6 +201,338 @@ test("canonical payment linkage binds one deterministic payment to one request",
   }), "authoritative_amount_mismatch");
 });
 
+test("current payment pointer preserves legacy fallback and accepts P5 IDs", () => {
+  const providerRequestId =
+    "provider-request-pointer";
+
+  const legacyId =
+    paymentIdForProviderRequest(
+      providerRequestId,
+    );
+
+  assert.equal(
+    currentPaymentIdForProviderRequest(
+      providerRequestId,
+      {},
+    ),
+    legacyId,
+  );
+
+  const fullPaymentId =
+    paymentIdForProviderRequestChoice(
+      providerRequestId,
+      "full",
+    );
+
+  assert.equal(
+    currentPaymentIdForProviderRequest(
+      providerRequestId,
+      {
+        paymentId:
+          fullPaymentId,
+      },
+    ),
+    fullPaymentId,
+  );
+
+  assert.equal(
+    currentPaymentIdForProviderRequest(
+      providerRequestId,
+      {
+        paymentId:
+          "forged-payment-id",
+      },
+    ),
+    null,
+  );
+});
+
+test("canonical payment linkage accepts server-derived P5 obligations", () => {
+  const providerRequestId =
+    "provider-request-p5-linkage";
+
+  const mainEventId =
+    "main-event-p5-linkage";
+
+  const financialSnapshot = {
+    schemaVersion: 1,
+    currency: "PHP",
+
+    grossAmountInCentavos:
+      3000000,
+
+    requiredUpfrontAmountInCentavos:
+      900000,
+
+    remainingBalanceInCentavos:
+      2100000,
+  };
+
+  const mainEvent = {
+    mainEventId,
+    bookingId: mainEventId,
+    customerId:
+      "customer-p5-linkage",
+
+    providerRequestIds: [
+      providerRequestId,
+    ],
+  };
+
+  const expectations = [
+    {
+      paymentChoice:
+        "minimum",
+
+      obligationKey:
+        "initial_minimum",
+
+      obligationKind:
+        "initial",
+
+      paymentType:
+        "provider_down_payment",
+
+      amountInCentavos:
+        900000,
+    },
+    {
+      paymentChoice:
+        "full",
+
+      obligationKey:
+        "initial_full",
+
+      obligationKind:
+        "initial",
+
+      paymentType:
+        "provider_down_payment",
+
+      amountInCentavos:
+        3000000,
+    },
+    {
+      paymentChoice:
+        "remaining_balance",
+
+      obligationKey:
+        "remaining_balance",
+
+      obligationKind:
+        "balance",
+
+      paymentType:
+        "provider_balance",
+
+      amountInCentavos:
+        2100000,
+    },
+  ];
+
+  for (
+    const expected of
+    expectations
+  ) {
+    const paymentId =
+      paymentIdForProviderRequestChoice(
+        providerRequestId,
+        expected.paymentChoice,
+      );
+
+    const providerRequest = {
+      providerRequestId,
+      mainEventId,
+      bookingId: mainEventId,
+
+      customerId:
+        "customer-p5-linkage",
+
+      providerId:
+        "provider-p5-linkage",
+
+      financialSnapshot,
+
+      paymentId,
+    };
+
+    const payment = {
+      paymentId,
+      providerRequestId,
+      mainEventId,
+      bookingId: mainEventId,
+
+      customerId:
+        "customer-p5-linkage",
+
+      providerId:
+        "provider-p5-linkage",
+
+      paymentChoice:
+        expected.paymentChoice,
+
+      obligationKey:
+        expected.obligationKey,
+
+      obligationKind:
+        expected.obligationKind,
+
+      paymentType:
+        expected.paymentType,
+
+      amountInCentavos:
+        expected.amountInCentavos,
+
+      amount:
+        expected.amountInCentavos /
+        100,
+
+      currency: "PHP",
+      gateway: "paymongo",
+    };
+
+    const base = {
+      paymentId,
+      providerRequestId,
+      mainEventId,
+
+      customerId:
+        "customer-p5-linkage",
+
+      providerId:
+        "provider-p5-linkage",
+
+      payment,
+      providerRequest,
+      mainEvent,
+    };
+
+    assert.equal(
+      canonicalPaymentLinkageReason(
+        base,
+      ),
+      null,
+      expected.paymentChoice,
+    );
+
+    assert.equal(
+      canonicalPaymentLinkageReason({
+        ...base,
+
+        payment: {
+          ...payment,
+
+          amountInCentavos: 1,
+        },
+      }),
+      "authoritative_amount_mismatch",
+    );
+
+    assert.equal(
+      canonicalPaymentLinkageReason({
+        ...base,
+
+        payment: {
+          ...payment,
+
+          obligationKey:
+            "forged_obligation",
+        },
+      }),
+      "canonical_linkage_mismatch",
+    );
+  }
+});
+
+test("P5 payment linkage fails closed without an immutable financial snapshot", () => {
+  const providerRequestId =
+    "provider-request-p5-invalid";
+
+  const mainEventId =
+    "main-event-p5-invalid";
+
+  const paymentId =
+    paymentIdForProviderRequestChoice(
+      providerRequestId,
+      "full",
+    );
+
+  assert.equal(
+    canonicalPaymentLinkageReason({
+      paymentId,
+      providerRequestId,
+      mainEventId,
+
+      customerId:
+        "customer-p5-invalid",
+
+      providerId:
+        "provider-p5-invalid",
+
+      providerRequest: {
+        providerRequestId,
+        mainEventId,
+        bookingId: mainEventId,
+
+        customerId:
+          "customer-p5-invalid",
+
+        providerId:
+          "provider-p5-invalid",
+
+        paymentId,
+      },
+
+      mainEvent: {
+        mainEventId,
+        bookingId: mainEventId,
+
+        customerId:
+          "customer-p5-invalid",
+
+        providerRequestIds: [
+          providerRequestId,
+        ],
+      },
+
+      payment: {
+        paymentId,
+        providerRequestId,
+        mainEventId,
+        bookingId: mainEventId,
+
+        customerId:
+          "customer-p5-invalid",
+
+        providerId:
+          "provider-p5-invalid",
+
+        paymentChoice:
+          "full",
+
+        obligationKey:
+          "initial_full",
+
+        obligationKind:
+          "initial",
+
+        paymentType:
+          "provider_down_payment",
+
+        amount:
+          30000,
+
+        amountInCentavos:
+          3000000,
+
+        currency: "PHP",
+        gateway: "paymongo",
+      },
+    }),
+    "authoritative_amount_mismatch",
+  );
+});
+
 test("webhook lifecycle guards reject booking resurrection", () => {
   assert.equal(webhookLifecycleConflictReason({
     providerRequestStatus: "payment_processing",
@@ -233,3 +573,119 @@ function eventBody({eventId, paymentId}) {
     },
   }}));
 }
+test(
+  "remaining-balance webhooks preserve confirmed lifecycle",
+  () => {
+    assert.equal(
+      webhookLifecycleConflictReason({
+        providerRequestStatus:
+          "confirmed",
+
+        mainEventStatus:
+          "confirmed",
+
+        nextPaymentStatus:
+          "paid",
+
+        paymentChoice:
+          "remaining_balance",
+      }),
+      null,
+    );
+
+    assert.equal(
+      webhookLifecycleConflictReason({
+        providerRequestStatus:
+          "confirmed",
+
+        mainEventStatus:
+          "confirmed",
+
+        nextPaymentStatus:
+          "failed",
+
+        paymentChoice:
+          "remaining_balance",
+      }),
+      null,
+    );
+
+    assert.equal(
+      webhookLifecycleConflictReason({
+        providerRequestStatus:
+          "confirmed",
+
+        mainEventStatus:
+          "confirmed",
+
+        nextPaymentStatus:
+          "expired",
+
+        paymentChoice:
+          "remaining_balance",
+      }),
+      null,
+    );
+  },
+);
+
+test(
+  "initial-payment webhook cannot reuse confirmed balance lifecycle",
+  () => {
+    assert.equal(
+      webhookLifecycleConflictReason({
+        providerRequestStatus:
+          "confirmed",
+
+        mainEventStatus:
+          "confirmed",
+
+        nextPaymentStatus:
+          "paid",
+
+        paymentChoice:
+          "minimum",
+      }),
+      "provider_request_lifecycle_conflict",
+    );
+  },
+);
+
+test(
+  "remaining-balance webhook still rejects incompatible booking lifecycle",
+  () => {
+    assert.equal(
+      webhookLifecycleConflictReason({
+        providerRequestStatus:
+          "cancelled",
+
+        mainEventStatus:
+          "confirmed",
+
+        nextPaymentStatus:
+          "paid",
+
+        paymentChoice:
+          "remaining_balance",
+      }),
+      "provider_request_lifecycle_conflict",
+    );
+
+    assert.equal(
+      webhookLifecycleConflictReason({
+        providerRequestStatus:
+          "confirmed",
+
+        mainEventStatus:
+          "cancelled",
+
+        nextPaymentStatus:
+          "paid",
+
+        paymentChoice:
+          "remaining_balance",
+      }),
+      "main_event_lifecycle_conflict",
+    );
+  },
+);

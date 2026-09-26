@@ -19,12 +19,39 @@ export const PACKAGE_STATUSES = [
 export type PackageStatus =
   (typeof PACKAGE_STATUSES)[number];
 
+export const PACKAGE_PAYMENT_POLICIES = [
+  "full_payment",
+  "deposit_then_balance",
+] as const;
+
+export type PackagePaymentPolicy =
+  (typeof PACKAGE_PAYMENT_POLICIES)[number];
+
 export type PackageInput = {
   name: string;
   description: string;
   eventType: string;
   price: number;
+
+  paymentPolicy:
+    PackagePaymentPolicy | null;
+
+  depositPercentage: number;
+
+  balanceDueDaysBeforeEvent:
+    number | null;
+
+  /*
+   * Temporary compatibility projection.
+   *
+   * Existing booking/provider-request code still
+   * consumes downPaymentPercentage. New package
+   * writes derive it from canonical payment terms.
+   */
   downPaymentPercentage: number;
+
+  usesLegacyPaymentTerms: boolean;
+
   minimumGuests: number;
   maximumGuests: number;
   imageUrl: string;
@@ -56,6 +83,12 @@ const MAX_INCLUSIONS_PER_GROUP = 50;
 
 const MAX_PACKAGE_PRICE = 10_000_000;
 const MAX_GUEST_COUNT = 100_000;
+
+const MIN_DEPOSIT_PERCENTAGE = 20;
+const MAX_DEPOSIT_PERCENTAGE = 80;
+
+const MIN_BALANCE_DUE_DAYS = 1;
+const MAX_BALANCE_DUE_DAYS = 30;
 
 export function authorizeProviderForPackageManagement(
   input: {
@@ -263,10 +296,9 @@ export function parsePackageInput(
     "Package price",
   );
 
-  const downPaymentPercentage =
-    requiredPercentage(
-      data.downPaymentPercentage,
-      "Down-payment percentage",
+  const paymentTerms =
+    parsePackagePaymentTerms(
+      data,
     );
 
   const minimumGuests =
@@ -311,7 +343,9 @@ export function parsePackageInput(
     description,
     eventType,
     price,
-    downPaymentPercentage,
+
+    ...paymentTerms,
+
     minimumGuests,
     maximumGuests,
     imageUrl: imageUrls ? imageUrls[0] ?? "" : imageUrl,
@@ -337,6 +371,23 @@ export function parsePackageInput(
       "Service inclusions",
     ),
   };
+}
+
+export function assertCanonicalPackagePaymentTerms(
+  packageInput: PackageInput,
+): asserts packageInput is PackageInput & {
+  paymentPolicy: PackagePaymentPolicy;
+  usesLegacyPaymentTerms: false;
+} {
+  if (
+    packageInput.usesLegacyPaymentTerms ||
+    packageInput.paymentPolicy === null
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Choose Full Payment or Down Payment + Balance.",
+    );
+  }
 }
 
 export function assertPackagePublishable(
@@ -520,6 +571,214 @@ function normalizeMoney(
   ) / 100;
 }
 
+function parsePackagePaymentTerms(
+  data: Readonly<Record<string, unknown>>,
+): {
+  paymentPolicy:
+    PackagePaymentPolicy | null;
+  depositPercentage: number;
+  balanceDueDaysBeforeEvent:
+    number | null;
+  downPaymentPercentage: number;
+  usesLegacyPaymentTerms: boolean;
+} {
+  /*
+   * Existing package documents predate
+   * paymentPolicy/depositPercentage.
+   *
+   * They remain readable and publishable until
+   * edited, at which point current terms are
+   * required and the package is migrated.
+   */
+  if (
+    data.paymentPolicy === undefined ||
+    data.paymentPolicy === null ||
+    data.paymentPolicy === ""
+  ) {
+    const legacyPercentage =
+      requiredPercentage(
+        data.downPaymentPercentage,
+        "Legacy down-payment percentage",
+      );
+
+    return {
+      paymentPolicy: null,
+      depositPercentage:
+        legacyPercentage,
+      balanceDueDaysBeforeEvent:
+        null,
+      downPaymentPercentage:
+        legacyPercentage,
+      usesLegacyPaymentTerms:
+        true,
+    };
+  }
+
+  const paymentPolicy =
+    parsePackagePaymentPolicy(
+      data.paymentPolicy,
+    );
+
+  if (!paymentPolicy) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Payment policy is invalid.",
+    );
+  }
+
+  if (
+    paymentPolicy ===
+    "full_payment"
+  ) {
+    const depositPercentage =
+      requiredPercentage(
+        data.depositPercentage,
+        "Full-payment percentage",
+      );
+
+    if (
+      depositPercentage !== 100
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Full-payment packages must require 100%.",
+      );
+    }
+
+    if (
+      data.balanceDueDaysBeforeEvent !==
+        undefined &&
+      data.balanceDueDaysBeforeEvent !==
+        null
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Full-payment packages cannot have a remaining-balance deadline.",
+      );
+    }
+
+    if (
+      data.downPaymentPercentage !==
+        undefined &&
+      data.downPaymentPercentage !==
+        null
+    ) {
+      const compatibilityPercentage =
+        requiredPercentage(
+          data.downPaymentPercentage,
+          "Down-payment compatibility percentage",
+        );
+
+      if (
+        compatibilityPercentage !==
+        100
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Full-payment compatibility percentage must be 100%.",
+        );
+      }
+    }
+
+    return {
+      paymentPolicy,
+      depositPercentage: 100,
+      balanceDueDaysBeforeEvent:
+        null,
+      downPaymentPercentage:
+        100,
+      usesLegacyPaymentTerms:
+        false,
+    };
+  }
+
+  const depositPercentage =
+    requiredPercentage(
+      data.depositPercentage,
+      "Deposit percentage",
+    );
+
+  if (
+    depositPercentage <
+      MIN_DEPOSIT_PERCENTAGE ||
+    depositPercentage >
+      MAX_DEPOSIT_PERCENTAGE
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Deposit percentage must be between " +
+        `${MIN_DEPOSIT_PERCENTAGE} and ` +
+        `${MAX_DEPOSIT_PERCENTAGE}.`,
+    );
+  }
+
+  const balanceDueDaysBeforeEvent =
+    requiredPositiveInteger(
+      data.balanceDueDaysBeforeEvent,
+      "Balance due days before event",
+    );
+
+  if (
+    balanceDueDaysBeforeEvent <
+      MIN_BALANCE_DUE_DAYS ||
+    balanceDueDaysBeforeEvent >
+      MAX_BALANCE_DUE_DAYS
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Balance deadline must be between " +
+        `${MIN_BALANCE_DUE_DAYS} and ` +
+        `${MAX_BALANCE_DUE_DAYS} days before the event.`,
+    );
+  }
+
+  if (
+    data.downPaymentPercentage !==
+      undefined &&
+    data.downPaymentPercentage !==
+      null
+  ) {
+    const compatibilityPercentage =
+      requiredPercentage(
+        data.downPaymentPercentage,
+        "Down-payment compatibility percentage",
+      );
+
+    if (
+      compatibilityPercentage !==
+      depositPercentage
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Payment percentages do not match.",
+      );
+    }
+  }
+
+  return {
+    paymentPolicy,
+    depositPercentage,
+    balanceDueDaysBeforeEvent,
+    downPaymentPercentage:
+      depositPercentage,
+    usesLegacyPaymentTerms:
+      false,
+  };
+}
+
+function parsePackagePaymentPolicy(
+  value: unknown,
+): PackagePaymentPolicy | null {
+  if (
+    value === "full_payment" ||
+    value ===
+      "deposit_then_balance"
+  ) {
+    return value;
+  }
+
+  return null;
+}
 function requiredPercentage(
   value: unknown,
   label: string,

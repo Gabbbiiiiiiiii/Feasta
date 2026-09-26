@@ -3,6 +3,7 @@ export * from "./booking.js";
 export * from "./cancellation.js";
 export * from "./collections.js";
 export * from "./enums.js";
+export * from "./payment.js";
 export * from "./provider.js";
 export * from "./provider-service-area.js";
 export * from "./provider-registration.js";

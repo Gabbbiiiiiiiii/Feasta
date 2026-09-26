@@ -1,4 +1,7 @@
 import {
+  AdminFinancialPolicyClient,
+} from "@/components/admin/settings/admin-financial-policy-client";
+import {
   AdminSettingsClient,
 } from "@/components/admin/settings/admin-settings-client";
 import {
@@ -13,8 +16,14 @@ export default async function AdminSettingsPage() {
     await getAdminPlatformSettings();
 
   return (
-    <AdminSettingsClient
-      initialSettings={settings}
-    />
+    <div className="grid gap-6">
+      <AdminSettingsClient
+        initialSettings={settings}
+      />
+
+      <AdminFinancialPolicyClient
+        initialSettings={settings}
+      />
+    </div>
   );
 }

@@ -115,6 +115,30 @@ export type ProviderVerificationHistoryEntry = {
   createdAt: string;
 };
 
+export type ProviderTaxProfileReviewStatus =
+  | "pending"
+  | "verified"
+  | "rejected";
+
+export type ProviderTaxProfileReviewDetail = {
+  birRegisteredName: string;
+  tin: string;
+
+  taxType:
+    | "non_vat"
+    | "vat_registered";
+
+  verificationStatus:
+    ProviderTaxProfileReviewStatus;
+
+  submittedAt: string;
+  verifiedAt: string;
+  rejectedAt: string;
+
+  rejectionReason:
+    string | null;
+};
+
 export type ProviderVerificationReviewDetail = {
   id: string;
   providerId: string;
@@ -150,6 +174,10 @@ export type ProviderVerificationReviewDetail = {
     logoUrl: string | null;
     coverImageUrl: string | null;
   };
+
+  taxProfile:
+    ProviderTaxProfileReviewDetail | null;
+
   status: ProviderVerificationStatus;
   submittedAt: string;
   reviewedAt: string;

@@ -80,6 +80,10 @@ export {
   updateProviderBusinessProfile,
 } from "./providers/update-provider-business-profile.js";
 export {
+  reviewProviderTaxProfile,
+  submitProviderTaxProfile,
+} from "./providers/provider-tax-profile.js";
+export {
   archiveProviderService,
   createProviderService,
   publishProviderService,

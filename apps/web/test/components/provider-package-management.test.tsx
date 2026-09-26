@@ -15,7 +15,12 @@ vi.mock("@/lib/auth/session", () => ({requireProviderCatalogAccess: mocks.accoun
 const props = {providerId: "provider-one", eventTypesSupported: ["birthday", "wedding"], minGuestsPerEvent: 10, maxGuestsPerEvent: 200};
 const base: ProviderPackage = {
   id: "newest", providerId: props.providerId, name: "Zeta celebration", description: "Family gathering",
-  eventType: "birthday", price: 12000, downPaymentPercentage: 20, minimumGuests: 20, maximumGuests: 80,
+  eventType: "birthday", price: 12000,
+  paymentPolicy: "deposit_then_balance",
+  depositPercentage: 20,
+  balanceDueDaysBeforeEvent: 7,
+  downPaymentPercentage: 20,
+  minimumGuests: 20, maximumGuests: 80,
   imageUrl: "https://example.com/legacy.png", imageUrls: ["https://example.com/cover.png", "https://example.com/second.png"],
   status: "draft", isActive: false, isPublished: false, providerPubliclyVisible: false,
   foodInclusions: [], decorInclusions: [], furnitureInclusions: [], serviceInclusions: [],
@@ -45,7 +50,11 @@ it("renders real package metrics, media, prices, guests and lifecycle actions", 
   expect(within(draft).getByRole("img")).toHaveAttribute("src", base.imageUrls![0]);
   expect(within(draft).getByText("20–80 guests")).toBeVisible();
   expect(within(draft).getByText(/12,000/)).toBeVisible();
-  expect(within(draft).getByText("20% down payment")).toBeVisible();
+  expect(
+    within(draft).getByText(
+      "20% minimum payment · Balance due 7 days before event",
+    ),
+  ).toBeVisible();
   expect(within(draft).getByRole("button", {name: `Edit ${base.name}`})).toBeEnabled();
   const published = screen.getByRole("article", {name: "Alpha wedding"});
   expect(within(published).getByRole("img")).toHaveAttribute("src", base.imageUrl);

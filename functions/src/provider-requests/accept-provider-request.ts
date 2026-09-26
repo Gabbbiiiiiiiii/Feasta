@@ -54,6 +54,9 @@ import {
 } from "./provider-request-integrity.js";
 import {providerAcceptancePlan} from "./provider-acceptance-plan.js";
 import {
+  buildProviderRequestFinancialSnapshot,
+} from "./provider-request-financial-snapshot.js";
+import {
   AVAILABILITY_COUNTED_REQUEST_STATUSES,
   manilaDateKey,
   manilaDateRange,
@@ -134,6 +137,18 @@ export const acceptProviderRequest = onCall(
       const mainEventReference = db
         .collection("mainEvents")
         .doc(mainEventId);
+
+      const platformSettingsReference =
+        db
+          .collection("appSettings")
+          .doc("platform");
+
+      const providerTaxProfileReference =
+        db
+          .collection(
+            "providerTaxProfiles",
+          )
+          .doc(providerId);
 
       const result = await db.runTransaction(
         async (transaction) => {
@@ -237,6 +252,8 @@ export const acceptProviderRequest = onCall(
             mainEventSnapshot,
             allRequestsSnapshot,
             activeRequestsSnapshot,
+            platformSettingsSnapshot,
+            providerTaxProfileSnapshot,
           ] = await Promise.all([
             transaction.get(
               providerReference,
@@ -252,6 +269,14 @@ export const acceptProviderRequest = onCall(
 
             transaction.get(
               activeRequestsQuery,
+            ),
+
+            transaction.get(
+              platformSettingsReference,
+            ),
+
+            transaction.get(
+              providerTaxProfileReference,
             ),
           ]);
 
@@ -301,6 +326,34 @@ export const acceptProviderRequest = onCall(
                 core.mainEventData,
               now: acceptanceTime,
             });
+
+          const financialSnapshot =
+            buildProviderRequestFinancialSnapshot(
+              {
+                providerId:
+                  authorized.providerId,
+
+                providerOwnerId:
+                  authorized.providerOwnerId,
+
+                providerRequest:
+                  authorized.requestData,
+
+                platformSettings:
+                  platformSettingsSnapshot
+                    .exists
+                    ? platformSettingsSnapshot
+                        .data() ?? {}
+                    : null,
+
+                providerTaxProfile:
+                  providerTaxProfileSnapshot
+                    .exists
+                    ? providerTaxProfileSnapshot
+                        .data() ?? {}
+                    : null,
+              },
+            );
 
           const availability =
             validateProviderAvailability({
@@ -392,6 +445,11 @@ export const acceptProviderRequest = onCall(
               respondedAt:
                 serverTimestamp(),
               acceptedAt:
+                serverTimestamp(),
+
+              financialSnapshot,
+
+              financialSnapshotCapturedAt:
                 serverTimestamp(),
 
               expiresAt:

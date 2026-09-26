@@ -1,5 +1,8 @@
 # Payment security
 
+The approved product/business rules for future full-payment, deposit/balance,
+commission, tax and settlement work are recorded in
+[`payment-business-contract.md`](payment-business-contract.md).
 Canonical payment records are backend-owned. Firestore Rules deny every client
 create, update, and delete on `payments`, nested payment events, and immutable
 payment audit history. Raw payment documents also contain gateway correlation,
@@ -20,7 +23,7 @@ The exact payment lifecycle is:
 | `paid` | `refunded` |
 | `refunded` | none |
 
-`pending → paid` is allowed because a fast webhook can arrive before the
+`pending â†’ paid` is allowed because a fast webhook can arrive before the
 checkout-creation transaction records `processing`. No transition may move a
 confirmed payment back to a failed or processing state.
 
@@ -70,7 +73,7 @@ full PayMongo error payloads are not stored or logged.
 `requestPaymentRefund` requires an active admin, App Check, a paid payment, and
 a gateway payment ID. It requests the refund using the backend secret but does
 not mark the payment refunded. Only a signed `payment.refunded` webhook performs
-`paid → refunded`. The refund request and confirmed state change are both
+`paid â†’ refunded`. The refund request and confirmed state change are both
 audited.
 
 Policy-backed cancellation refunds use

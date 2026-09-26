@@ -25,13 +25,24 @@ export type ProviderPackageStatus =
   | "published"
   | "archived";
 
+export type ProviderPackagePaymentPolicy =
+  | "full_payment"
+  | "deposit_then_balance";
+
 export type ProviderPackageInput = {
   name: string;
   description: string;
   eventType: string;
 
   price: number;
-  downPaymentPercentage: number;
+
+  paymentPolicy:
+    ProviderPackagePaymentPolicy;
+
+  depositPercentage: number;
+
+  balanceDueDaysBeforeEvent:
+    number | null;
 
   minimumGuests: number;
   maximumGuests: number;
@@ -54,6 +65,20 @@ export type ProviderPackage = {
   eventType: string;
 
   price: number;
+
+  paymentPolicy:
+    ProviderPackagePaymentPolicy | null;
+
+  depositPercentage: number;
+
+  balanceDueDaysBeforeEvent:
+    number | null;
+
+  /*
+   * Temporary compatibility field while the
+   * booking/provider-request migration still
+   * consumes the legacy percentage.
+   */
   downPaymentPercentage: number;
 
   minimumGuests: number;
@@ -198,8 +223,14 @@ function normalizePackageInput(
     price:
       input.price,
 
-    downPaymentPercentage:
-      input.downPaymentPercentage,
+    paymentPolicy:
+      input.paymentPolicy,
+
+    depositPercentage:
+      input.depositPercentage,
+
+    balanceDueDaysBeforeEvent:
+      input.balanceDueDaysBeforeEvent,
 
     minimumGuests:
       input.minimumGuests,
@@ -245,6 +276,72 @@ function parseProviderPackage(
       data.status,
     );
 
+  const downPaymentPercentage =
+    requiredNonNegativeNumber(
+      data.downPaymentPercentage,
+      "downPaymentPercentage",
+    );
+
+  const paymentPolicy =
+    packagePaymentPolicy(
+      data.paymentPolicy,
+    );
+
+  const depositPercentage =
+    paymentPolicy === null
+      ? downPaymentPercentage
+      : requiredNonNegativeNumber(
+          data.depositPercentage,
+          "depositPercentage",
+        );
+
+  let balanceDueDaysBeforeEvent:
+    number | null = null;
+
+  if (
+    paymentPolicy ===
+    "full_payment"
+  ) {
+    if (
+      depositPercentage !== 100 ||
+      (
+        data.balanceDueDaysBeforeEvent !==
+          undefined &&
+        data.balanceDueDaysBeforeEvent !==
+          null
+      )
+    ) {
+      throw invalidPackageRecord();
+    }
+  }
+
+  if (
+    paymentPolicy ===
+    "deposit_then_balance"
+  ) {
+    if (
+      depositPercentage < 20 ||
+      depositPercentage > 80 ||
+      downPaymentPercentage !==
+        depositPercentage
+    ) {
+      throw invalidPackageRecord();
+    }
+
+    balanceDueDaysBeforeEvent =
+      requiredNonNegativeInteger(
+        data.balanceDueDaysBeforeEvent,
+        "balanceDueDaysBeforeEvent",
+      );
+
+    if (
+      balanceDueDaysBeforeEvent < 1 ||
+      balanceDueDaysBeforeEvent > 30
+    ) {
+      throw invalidPackageRecord();
+    }
+  }
+
   return {
     id,
 
@@ -277,11 +374,13 @@ function parseProviderPackage(
         "price",
       ),
 
-    downPaymentPercentage:
-      requiredNonNegativeNumber(
-        data.downPaymentPercentage,
-        "downPaymentPercentage",
-      ),
+    paymentPolicy,
+
+    depositPercentage,
+
+    balanceDueDaysBeforeEvent,
+
+    downPaymentPercentage,
 
     minimumGuests:
       requiredNonNegativeInteger(
@@ -507,6 +606,28 @@ function normalizeStringArray(
         entry.trim(),
     )
     .filter(Boolean);
+}
+
+function packagePaymentPolicy(
+  value: unknown,
+): ProviderPackagePaymentPolicy | null {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  if (
+    value === "full_payment" ||
+    value ===
+      "deposit_then_balance"
+  ) {
+    return value;
+  }
+
+  throw invalidPackageRecord();
 }
 
 function packageStatus(

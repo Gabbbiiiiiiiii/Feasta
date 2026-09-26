@@ -25,7 +25,15 @@ export function ProviderPackageCard({item, onEdit, onPublish, onArchive}: {
       <p className="text-xs font-semibold uppercase text-primary-strong">{humanize(item.eventType)}</p>
       <p className="flex items-center gap-2 text-sm text-muted-foreground"><Users aria-hidden="true" className="size-4 shrink-0" />{item.minimumGuests}–{item.maximumGuests} guests</p>
       <PriceDisplay amount={item.price} />
-      <p className="text-xs text-muted-foreground">{item.downPaymentPercentage}% down payment</p>
+      <p className="text-xs text-muted-foreground">
+        {item.paymentPolicy ===
+        "full_payment"
+          ? "Full payment required"
+          : item.paymentPolicy ===
+            "deposit_then_balance"
+            ? `${item.depositPercentage}% minimum payment · Balance due ${item.balanceDueDaysBeforeEvent} days before event`
+            : `Legacy payment terms · ${item.downPaymentPercentage}% down payment`}
+      </p>
     </div>
     {item.status !== "archived" ? <div className="flex flex-wrap items-center gap-1 border-t border-border p-2">
       {item.status === "draft" ? <>

@@ -3,6 +3,7 @@ export const FIRESTORE_COLLECTIONS = {
   customers: "customers",
   providers: "providers",
   providerVerifications: "providerVerifications",
+  providerTaxProfiles: "providerTaxProfiles",
   serviceCategories: "serviceCategories",
 
   packages: "packages",

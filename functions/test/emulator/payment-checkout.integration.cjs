@@ -24,11 +24,18 @@ const libRoot = process.env.FEASTA_FUNCTIONS_LIB_DIR ??
     "payments/create-payment-session.js",
   ));
   const {
-    paymentIdForProviderRequest,
+    paymentIdForProviderRequestChoice,
   } = require(path.join(
     libRoot,
-    "payments/payment-lifecycle.js",
+    "payments/payment-obligation.js",
   ));
+
+  const paymentIdForProviderRequest =
+    (providerRequestId) =>
+      paymentIdForProviderRequestChoice(
+        providerRequestId,
+        "minimum",
+      );
   const {
     PayMongoRequestError,
   } = require(path.join(
@@ -60,6 +67,13 @@ const libRoot = process.env.FEASTA_FUNCTIONS_LIB_DIR ??
       paymentIdForProviderRequest,
       PayMongoRequestError,
     });
+
+    await initialChoiceExclusivityTest({
+      createPaymentSessionForCustomer,
+      paymentIdForProviderRequestChoice,
+      PayMongoRequestError,
+    });
+
     await independentProviderTest({
       createPaymentSessionForCustomer,
       paymentIdForProviderRequest,
@@ -450,6 +464,114 @@ async function ambiguousFailureTest(input) {
   );
 }
 
+async function initialChoiceExclusivityTest(input) {
+  const eventId =
+    "event-initial-choice-lock";
+
+  const requestId =
+    "request-initial-choice-lock";
+
+  const providerId =
+    "provider-initial-choice-lock";
+
+  await seedEvent({
+    eventId,
+    requests: [{
+      requestId,
+      providerId,
+    }],
+  });
+
+  await assert.rejects(
+    createSession(
+      input.createPaymentSessionForCustomer,
+      {
+        requestId,
+
+        paymentChoice:
+          "minimum",
+
+        clientKey:
+          "initial-choice-minimum",
+
+        createCheckout: async () => {
+          throw new input.PayMongoRequestError(
+            "simulated ambiguous minimum checkout",
+            "ambiguous",
+          );
+        },
+      },
+    ),
+
+    (error) =>
+      error.code === "unavailable",
+  );
+
+  await assert.rejects(
+    createSession(
+      input.createPaymentSessionForCustomer,
+      {
+        requestId,
+
+        paymentChoice:
+          "full",
+
+        clientKey:
+          "initial-choice-full",
+
+        createCheckout:
+          unexpectedGateway,
+      },
+    ),
+
+    (error) =>
+      error.code ===
+        "failed-precondition",
+  );
+
+  const request = (
+    await db.doc(
+      `providerRequests/${requestId}`,
+    ).get()
+  ).data();
+
+  const minimumPaymentId =
+    input.paymentIdForProviderRequestChoice(
+      requestId,
+      "minimum",
+    );
+
+  const fullPaymentId =
+    input.paymentIdForProviderRequestChoice(
+      requestId,
+      "full",
+    );
+
+  assert.equal(
+    request.initialPaymentChoice,
+    "minimum",
+  );
+
+  assert.equal(
+    request.initialPaymentId,
+    minimumPaymentId,
+  );
+
+  assert.equal(
+    request.paymentId,
+    minimumPaymentId,
+  );
+
+  assert.equal(
+    (
+      await db.doc(
+        `payments/${fullPaymentId}`,
+      ).get()
+    ).exists,
+    false,
+  );
+}
+
 async function independentProviderTest(input) {
   const eventId = "event-independent-payments";
   const requests = [
@@ -517,6 +639,7 @@ async function ownershipTest(input) {
     input.createPaymentSessionForCustomer({
       customerId: "another-customer",
       providerRequestId: requestId,
+      paymentChoice: "minimum",
       clientKey: "cross-customer-key",
       secretKey: "stub-secret",
       successUrl: "https://example.test/success",
@@ -636,6 +759,9 @@ async function createSession(createPaymentSessionForCustomer, input) {
   return createPaymentSessionForCustomer({
     customerId: "customer-payment-test",
     providerRequestId: input.requestId,
+    paymentChoice:
+      input.paymentChoice ??
+      "minimum",
     clientKey: input.clientKey,
     secretKey: "stub-secret",
     successUrl: "https://example.test/success",
@@ -671,7 +797,23 @@ async function seedEvent(input) {
         bookingId: input.eventId,
         customerId: "customer-payment-test",
         providerId: request.providerId,
+
         downPaymentAmount: amount,
+
+        financialSnapshot: {
+          schemaVersion: 1,
+          currency: "PHP",
+
+          grossAmountInCentavos:
+            amount * 200,
+
+          requiredUpfrontAmountInCentavos:
+            amount * 100,
+
+          remainingBalanceInCentavos:
+            amount * 100,
+        },
+
         status: "waiting_for_down_payment",
         paymentStatus: "unpaid",
       },

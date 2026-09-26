@@ -707,6 +707,23 @@ service cloud.firestore {
     }
 
     // ============================================================
+    // providerTaxProfiles
+    // ============================================================
+
+    match /providerTaxProfiles/{providerId} {
+      /*
+       * Tax identity contains sensitive TIN data.
+       * Only the owning provider and Admin may read it.
+       *
+       * All creation, submission, verification, rejection,
+       * and future correction workflows are backend-controlled.
+       */
+      allow read: if ownsProvider(providerId) || isAdmin();
+
+      allow create, update, delete: if false;
+    }
+
+    // ============================================================
     // providerVerifications
     // ============================================================
 

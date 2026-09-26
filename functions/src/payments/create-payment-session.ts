@@ -47,7 +47,6 @@ import {
   requireString,
 } from "../shared/validation.js";
 import {
-  authoritativeAmountInCentavos,
   canonicalPaymentLinkageReason,
   canonicalRequestLinkageReason,
   checkoutEligibilityReason,
@@ -55,6 +54,16 @@ import {
   providerOperationalReason,
   validStoredCheckoutReason,
 } from "./payment-lifecycle.js";
+import {
+  initialPaymentSelectionReason,
+  parseInitialPaymentChoice,
+  paymentIdForProviderRequestChoice,
+  providerPaymentObligationForChoice,
+  type InitialPaymentChoice,
+} from "./payment-obligation.js";
+import {
+  initialPaymentReservationSettlementUpdate,
+} from "./payment-settlement.js";
 import {
   createPayMongoCheckout,
   payMongoFailureCertainty,
@@ -108,6 +117,7 @@ export const createPaymentSession = onCall(
 
     rejectUnknownFields(input, [
       "providerRequestId",
+      "paymentChoice",
       "idempotencyKey",
     ]);
 
@@ -121,6 +131,18 @@ export const createPaymentSession = onCall(
         },
       );
 
+    const paymentChoice =
+      parseInitialPaymentChoice(
+        input.paymentChoice,
+      );
+
+    if (!paymentChoice) {
+      throw new HttpsError(
+        "invalid-argument",
+        "paymentChoice must be minimum or full.",
+      );
+    }
+
     const clientKey = requireString(
       input.idempotencyKey,
       "idempotencyKey",
@@ -133,6 +155,7 @@ export const createPaymentSession = onCall(
     return createPaymentSessionForCustomer({
       customerId: user.uid,
       providerRequestId,
+      paymentChoice,
       clientKey,
       secretKey:
         payMongoSecretKey.value(),
@@ -150,6 +173,8 @@ export async function createPaymentSessionForCustomer(
   input: {
     customerId: string;
     providerRequestId: string;
+    paymentChoice:
+      InitialPaymentChoice;
     clientKey: string;
     secretKey: string;
     successUrl: string;
@@ -160,6 +185,7 @@ export async function createPaymentSessionForCustomer(
   const {
     customerId,
     providerRequestId,
+    paymentChoice,
   } = input;
 
   const createCheckout =
@@ -174,10 +200,34 @@ export async function createPaymentSessionForCustomer(
       clientKey: input.clientKey,
       payload: {
         providerRequestId,
+        paymentChoice,
       },
     });
 
   const paymentId =
+    paymentIdForProviderRequestChoice(
+      providerRequestId,
+      paymentChoice,
+    );
+
+  const alternatePaymentChoice:
+    InitialPaymentChoice =
+      paymentChoice === "minimum"
+        ? "full"
+        : "minimum";
+
+  const alternatePaymentId =
+    paymentIdForProviderRequestChoice(
+      providerRequestId,
+      alternatePaymentChoice,
+    );
+
+  /*
+   * Historical checkout identity is read only as
+   * a migration guard. New checkout identity is
+   * always payment-choice specific.
+   */
+  const legacyPaymentId =
     paymentIdForProviderRequest(
       providerRequestId,
     );
@@ -185,6 +235,14 @@ export async function createPaymentSessionForCustomer(
   const paymentReference = db
     .collection("payments")
     .doc(paymentId);
+
+  const alternatePaymentReference = db
+    .collection("payments")
+    .doc(alternatePaymentId);
+
+  const legacyPaymentReference = db
+    .collection("payments")
+    .doc(legacyPaymentId);
 
   const providerRequestReference = db
     .collection("providerRequests")
@@ -194,9 +252,13 @@ export async function createPaymentSessionForCustomer(
     async (transaction) => {
       const [
         paymentSnapshot,
+        alternatePaymentSnapshot,
+        legacyPaymentSnapshot,
         providerRequestSnapshot,
       ] = await transaction.getAll(
         paymentReference,
+        alternatePaymentReference,
+        legacyPaymentReference,
         providerRequestReference,
       );
 
@@ -324,6 +386,84 @@ export async function createPaymentSessionForCustomer(
         throw invalidLinkage();
       }
 
+      const selectionReason =
+        initialPaymentSelectionReason({
+          providerRequestId,
+          providerRequest,
+          paymentChoice,
+        });
+
+      if (selectionReason) {
+        throw new HttpsError(
+          "failed-precondition",
+          selectionReason ===
+            "initial_payment_choice_locked"
+            ? "A different initial payment option has already been selected."
+            : "The existing initial payment requires reconciliation.",
+        );
+      }
+
+      /*
+       * A historical payment record can represent
+       * money that may already have reached the
+       * gateway even when the request never stored
+       * its old payment pointer. Never start a P5
+       * initial payment beside such a record.
+       */
+      if (
+        alternatePaymentSnapshot.exists ||
+        legacyPaymentSnapshot.exists
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "An existing initial payment must be resolved before another option can be selected.",
+        );
+      }
+
+      const selectingInitialPayment =
+        (
+          providerRequest
+            .initialPaymentChoice ===
+            undefined ||
+          providerRequest
+            .initialPaymentChoice === null
+        ) &&
+        (
+          providerRequest
+            .initialPaymentId ===
+            undefined ||
+          providerRequest
+            .initialPaymentId === null
+        ) &&
+        (
+          providerRequest
+            .paymentId ===
+            undefined ||
+          providerRequest
+            .paymentId === null
+        );
+
+      /*
+       * Selection and payment document are created
+       * atomically. Any orphaned or missing side of
+       * that pair fails closed.
+       */
+      if (
+        paymentSnapshot.exists ===
+          selectingInitialPayment
+      ) {
+        throw invalidLinkage();
+      }
+
+      const obligation =
+        providerPaymentObligationForChoice({
+          financialSnapshot:
+            providerRequest
+              .financialSnapshot,
+
+          paymentChoice,
+        });
+
       const providerOwnerId = stringValue(
         provider.ownerId,
       );
@@ -397,17 +537,7 @@ export async function createPaymentSessionForCustomer(
 
 
       const amountInCentavos =
-        authoritativeAmountInCentavos(
-          providerRequest
-            .downPaymentAmount,
-        );
-
-      if (amountInCentavos === null) {
-        throw new HttpsError(
-          "failed-precondition",
-          "The provider-request payment amount is invalid.",
-        );
-      }
+        obligation.amountInCentavos;
 
       if (existing) {
         if (existing.reconciliationRequired) {
@@ -471,6 +601,53 @@ export async function createPaymentSessionForCustomer(
         };
       }
 
+      if (selectingInitialPayment) {
+        const selectionTimestamp =
+          serverTimestamp();
+
+        const initialSettlementUpdate =
+          initialPaymentReservationSettlementUpdate({
+            financialSnapshot:
+              providerRequest
+                .financialSnapshot,
+
+            timestamp:
+              selectionTimestamp,
+          });
+
+        transaction.update(
+          providerRequestReference,
+          {
+            initialPaymentChoice:
+              paymentChoice,
+
+            initialPaymentId:
+              paymentId,
+
+            /*
+             * The current-payment pointer is
+             * reserved before gateway dispatch.
+             * This blocks the alternate initial
+             * choice even during ambiguous calls.
+             */
+            paymentId,
+
+            initialPaymentSelectedAt:
+              selectionTimestamp,
+
+            /*
+             * Settlement identity and financial progress are
+             * reserved in the same transaction as the immutable
+             * initial payment choice.
+             */
+            ...initialSettlementUpdate,
+
+            updatedAt:
+              selectionTimestamp,
+          },
+        );
+      }
+
       transaction.create(
         paymentReference,
         {
@@ -481,12 +658,29 @@ export async function createPaymentSessionForCustomer(
           customerId,
           providerId,
           amount:
-            providerRequest
-              .downPaymentAmount,
+            amountInCentavos /
+            100,
+
           amountInCentavos,
-          currency: PAYMENT_CURRENCY,
+
+          currency:
+            PAYMENT_CURRENCY,
+
+          obligationSchemaVersion:
+            obligation.schemaVersion,
+
+          paymentChoice:
+            obligation.paymentChoice,
+
+          obligationKey:
+            obligation.obligationKey,
+
+          obligationKind:
+            obligation.obligationKind,
+
           paymentType:
-            "provider_down_payment",
+            obligation.paymentType,
+
           gateway: "paymongo",
           status: "pending",
           checkoutCreationStatus:
@@ -522,7 +716,15 @@ export async function createPaymentSessionForCustomer(
           after: {
             status: "pending",
             providerRequestId,
+
+            paymentChoice:
+              obligation.paymentChoice,
+
+            obligationKey:
+              obligation.obligationKey,
+
             amountInCentavos,
+
             currency:
               PAYMENT_CURRENCY,
           },
@@ -566,7 +768,9 @@ export async function createPaymentSessionForCustomer(
         foundation.amountInCentavos,
       currency: PAYMENT_CURRENCY,
       description:
-        "FEASTA provider down payment",
+        paymentChoice === "full"
+          ? "FEASTA provider full payment"
+          : "FEASTA provider minimum payment",
       successUrl: input.successUrl,
       cancelUrl: input.cancelUrl,
     }, createCheckout);
@@ -970,7 +1174,6 @@ async function recordCheckoutFailure(
 
       if (
         payment.status === "processing" &&
-        payment.attemptSchemaVersion !== 1 &&
         !validStoredCheckoutReason(payment)
       ) {
         return payment.checkoutUrl as string;

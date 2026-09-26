@@ -108,15 +108,43 @@ export function ProviderPackageForm({
     );
 
   const [
-    downPaymentPercentage,
-    setDownPaymentPercentage,
+    paymentPolicy,
+    setPaymentPolicy,
+  ] = useState<
+    ProviderPackageInput["paymentPolicy"] | ""
+  >(
+    initialPackage?.paymentPolicy ??
+      "",
+  );
+
+  const [
+    depositPercentage,
+    setDepositPercentage,
+  ] = useState(
+    initialPackage &&
+    initialPackage.depositPercentage >= 20 &&
+    initialPackage.depositPercentage <= 80
+      ? String(
+          initialPackage.depositPercentage,
+        )
+      : "30",
+  );
+
+  const [
+    balanceDueDaysBeforeEvent,
+    setBalanceDueDaysBeforeEvent,
   ] = useState(
     initialPackage
+      ?.balanceDueDaysBeforeEvent !==
+      null &&
+    initialPackage
+      ?.balanceDueDaysBeforeEvent !==
+      undefined
       ? String(
           initialPackage
-            .downPaymentPercentage,
+            .balanceDueDaysBeforeEvent,
         )
-      : "20",
+      : "7",
   );
 
   const [
@@ -186,8 +214,15 @@ export function ProviderPackageForm({
     useState<string | null>(null);
 
   const parsedPrice = Number(price);
-  const parsedDownPayment =
-    Number(downPaymentPercentage);
+
+  const parsedDepositPercentage =
+    Number(depositPercentage);
+
+  const parsedBalanceDueDays =
+    Number(
+      balanceDueDaysBeforeEvent,
+    );
+
   const parsedMinimumGuests =
     Number(minimumGuests);
   const parsedMaximumGuests =
@@ -227,13 +262,52 @@ export function ProviderPackageForm({
       }
 
       if (
-        !Number.isFinite(
-          parsedDownPayment,
-        ) ||
-        parsedDownPayment < 0 ||
-        parsedDownPayment > 100
+        paymentPolicy !==
+          "full_payment" &&
+        paymentPolicy !==
+          "deposit_then_balance"
       ) {
-        return {field: "downPayment", message: "Down payment must be between 0 and 100%."};
+        return {
+          field:
+            "paymentPolicy",
+          message:
+            "Choose Full Payment or Down Payment + Balance.",
+        };
+      }
+
+      if (
+        paymentPolicy ===
+        "deposit_then_balance"
+      ) {
+        if (
+          !Number.isFinite(
+            parsedDepositPercentage,
+          ) ||
+          parsedDepositPercentage < 20 ||
+          parsedDepositPercentage > 80
+        ) {
+          return {
+            field:
+              "depositPercentage",
+            message:
+              "Minimum payment must be between 20 and 80%.",
+          };
+        }
+
+        if (
+          !Number.isInteger(
+            parsedBalanceDueDays,
+          ) ||
+          parsedBalanceDueDays < 1 ||
+          parsedBalanceDueDays > 30
+        ) {
+          return {
+            field:
+              "balanceDueDays",
+            message:
+              "Balance deadline must be between 1 and 30 days before the event.",
+          };
+        }
       }
 
       if (
@@ -266,7 +340,9 @@ export function ProviderPackageForm({
       description,
       eventType,
       parsedPrice,
-      parsedDownPayment,
+      paymentPolicy,
+      parsedDepositPercentage,
+      parsedBalanceDueDays,
       parsedMinimumGuests,
       parsedMaximumGuests,
       availableEventTypes,
@@ -281,7 +357,13 @@ export function ProviderPackageForm({
 
     if (
       submitting ||
-      validationError
+      validationError ||
+      (
+        paymentPolicy !==
+          "full_payment" &&
+        paymentPolicy !==
+          "deposit_then_balance"
+      )
     ) {
       return;
     }
@@ -298,8 +380,21 @@ export function ProviderPackageForm({
           description.trim(),
         eventType,
         price: parsedPrice,
-        downPaymentPercentage:
-          parsedDownPayment,
+
+        paymentPolicy,
+
+        depositPercentage:
+          paymentPolicy ===
+          "full_payment"
+            ? 100
+            : parsedDepositPercentage,
+
+        balanceDueDaysBeforeEvent:
+          paymentPolicy ===
+          "full_payment"
+            ? null
+            : parsedBalanceDueDays,
+
         minimumGuests:
           parsedMinimumGuests,
         maximumGuests:
@@ -489,26 +584,180 @@ export function ProviderPackageForm({
           />
         </FormField>
 
-        <FormField
-          label="Down payment (%)"
-          error={validationError?.field === "downPayment" ? validationError.message : undefined}
-          required
-        >
-          <Input
-            type="number"
-            min="0"
-            max="100"
-            step="0.01"
-            value={
-              downPaymentPercentage
+        <div className="grid gap-3 sm:col-span-2">
+          <div>
+            <p
+              id="package-payment-policy-label"
+              className="text-sm font-medium text-foreground"
+            >
+              Payment terms{" "}
+              <span
+                aria-hidden="true"
+                className="text-destructive"
+              >
+                *
+              </span>
+            </p>
+
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              Choose how much the customer must pay to confirm this package.
+            </p>
+          </div>
+
+          <div
+            role="radiogroup"
+            aria-labelledby="package-payment-policy-label"
+            aria-invalid={
+              validationError?.field ===
+              "paymentPolicy"
+                ? "true"
+                : undefined
             }
-            onChange={(event) =>
-              setDownPaymentPercentage(
-                event.target.value,
-              )
-            }
-          />
-        </FormField>
+            className="grid gap-3 sm:grid-cols-2"
+          >
+            <label className="flex cursor-pointer gap-3 rounded-lg border border-border bg-background p-4 transition hover:border-primary/40 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+              <input
+                type="radio"
+                name="packagePaymentPolicy"
+                value="full_payment"
+                checked={
+                  paymentPolicy ===
+                  "full_payment"
+                }
+                onChange={() =>
+                  setPaymentPolicy(
+                    "full_payment",
+                  )
+                }
+                className="mt-1 size-4 shrink-0 accent-primary"
+              />
+
+              <span className="grid gap-1">
+                <span className="text-sm font-semibold text-foreground">
+                  Full Payment
+                </span>
+
+                <span className="text-xs leading-5 text-muted-foreground">
+                  The customer must pay 100% of the booking amount.
+                </span>
+              </span>
+            </label>
+
+            <label className="flex cursor-pointer gap-3 rounded-lg border border-border bg-background p-4 transition hover:border-primary/40 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
+              <input
+                type="radio"
+                name="packagePaymentPolicy"
+                value="deposit_then_balance"
+                checked={
+                  paymentPolicy ===
+                  "deposit_then_balance"
+                }
+                onChange={() =>
+                  setPaymentPolicy(
+                    "deposit_then_balance",
+                  )
+                }
+                className="mt-1 size-4 shrink-0 accent-primary"
+              />
+
+              <span className="grid gap-1">
+                <span className="text-sm font-semibold text-foreground">
+                  Down Payment + Balance
+                </span>
+
+                <span className="text-xs leading-5 text-muted-foreground">
+                  Set the minimum required payment and when the remaining balance is due.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          {validationError?.field ===
+          "paymentPolicy" ? (
+            <p
+              role="alert"
+              className="text-sm text-destructive"
+            >
+              {validationError.message}
+            </p>
+          ) : null}
+
+          {paymentPolicy ===
+          "deposit_then_balance" ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField
+                label="Minimum payment (%)"
+                error={
+                  validationError?.field ===
+                  "depositPercentage"
+                    ? validationError.message
+                    : undefined
+                }
+                required
+              >
+                <Input
+                  type="number"
+                  min="20"
+                  max="80"
+                  step="0.01"
+                  value={
+                    depositPercentage
+                  }
+                  onChange={(event) =>
+                    setDepositPercentage(
+                      event.target.value,
+                    )
+                  }
+                />
+              </FormField>
+
+              <FormField
+                label="Balance due before event (days)"
+                error={
+                  validationError?.field ===
+                  "balanceDueDays"
+                    ? validationError.message
+                    : undefined
+                }
+                required
+              >
+                <Input
+                  type="number"
+                  min="1"
+                  max="30"
+                  step="1"
+                  value={
+                    balanceDueDaysBeforeEvent
+                  }
+                  onChange={(event) =>
+                    setBalanceDueDaysBeforeEvent(
+                      event.target.value,
+                    )
+                  }
+                />
+              </FormField>
+
+              <p className="text-xs leading-5 text-muted-foreground sm:col-span-2">
+                The percentage is the minimum required to confirm the booking. Customers may still choose to pay the full amount immediately.
+              </p>
+            </div>
+          ) : null}
+
+          {paymentPolicy ===
+          "full_payment" ? (
+            <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
+              Customers must pay the complete booking amount. There is no remaining-balance deadline.
+            </p>
+          ) : null}
+
+          {initialPackage &&
+          initialPackage.paymentPolicy ===
+            null ? (
+            <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs leading-5 text-muted-foreground">
+              This package uses legacy payment terms. Choose one of the current payment options before saving changes.
+            </p>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

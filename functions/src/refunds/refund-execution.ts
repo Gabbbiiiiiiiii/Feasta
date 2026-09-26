@@ -19,8 +19,11 @@ import {
 import {
   canonicalPaymentLinkageReason,
   canonicalRequestLinkageReason,
-  paymentIdForProviderRequest,
+  currentPaymentIdForProviderRequest,
 } from "../payments/payment-lifecycle.js";
+import {
+  readTrustedProviderRequestPaymentSetInTransaction,
+} from "../payments/provider-request-payment-reader.js";
 import {
   createPayMongoRefund,
   payMongoFailureCertainty,
@@ -64,13 +67,26 @@ import {
   REFUND_OPERATION_SCHEMA_VERSION,
   assertRefundOperationTransition,
   calculateCancellationRefund,
+  calculateCancellationRefundForPaymentSet,
   derivePaymentRefundStatus,
   gatewayRefundIdempotencyKey,
   readRefundAccounting,
   refundAccountingError,
-  refundOperationId,
 } from "./refund-accounting-domain.js";
 import {refundOperationKey} from "./refund-accounting.js";
+import {
+  allocateCancellationRefundAcrossPayments,
+} from "./refund-allocation-domain.js";
+import {
+  createRefundOperationReservationPlan,
+} from "./refund-operation-plan.js";
+import {
+  readRefundOperationBindings,
+  refundOperationBindingFor,
+  refundOperationSetCancellationStatus,
+  type RefundOperationBinding,
+  type RefundOperationSetEntry,
+} from "./refund-operation-set.js";
 
 const payMongoSecretKey = defineSecret("PAYMONGO_SECRET_KEY");
 const callableOptions = {
@@ -272,275 +288,990 @@ export async function approveCancellation(input: {
   cancellationRequestId: string;
   actorId: string;
 }): Promise<Omit<ApprovalResult, "idempotentReplay">> {
-  const cancellationReference = db.collection(
-    "providerRequestCancellationRequests",
-  ).doc(input.cancellationRequestId);
+  const cancellationReference =
+    db.collection(
+      "providerRequestCancellationRequests",
+    ).doc(
+      input.cancellationRequestId,
+    );
 
-  return db.runTransaction(async (transaction) => {
-    const cancellationSnapshot = await transaction.get(cancellationReference);
-    if (!cancellationSnapshot.exists) throw operationNotFound();
-    const cancellation = cancellationSnapshot.data() ?? {};
-    const ids = cancellationIds(cancellation);
-    const requestReference = db.collection("providerRequests").doc(
-      ids.providerRequestId,
-    );
-    const mainEventReference = db.collection("mainEvents").doc(ids.mainEventId);
-    const paymentId = paymentIdForProviderRequest(ids.providerRequestId);
-    const paymentReference = db.collection("payments").doc(paymentId);
-    const providerReference = db.collection("providers").doc(ids.providerId);
-    const allRequestsQuery = db.collection("providerRequests")
-      .where("mainEventId", "==", ids.mainEventId);
-    const [requestSnapshot, mainEventSnapshot, paymentSnapshot,
-      providerSnapshot, allRequestsSnapshot] = await Promise.all([
-      transaction.get(requestReference),
-      transaction.get(mainEventReference),
-      transaction.get(paymentReference),
-      transaction.get(providerReference),
-      transaction.get(allRequestsQuery),
-    ]);
-    if (!requestSnapshot.exists || !mainEventSnapshot.exists ||
-      !providerSnapshot.exists) throw approvalConflict();
-    const providerRequest = requestSnapshot.data() ?? {};
-    const mainEvent = mainEventSnapshot.data() ?? {};
-    const payment = paymentSnapshot.exists ? paymentSnapshot.data() ?? {} : null;
-    assertCancellationContext({
-      cancellationRequestId: input.cancellationRequestId,
-      cancellation,
-      ids,
-      providerRequest,
-      mainEvent,
-      payment,
-      paymentId,
-      provider: providerSnapshot.data() ?? {},
-      allRequestDocuments: allRequestsSnapshot.docs,
-    });
-    const currentCancellationStatus = parseProviderRequestCancellationStatus(
-      cancellation.status,
-    );
-    if (
-      currentCancellationStatus === "approved" ||
-      currentCancellationStatus === "refund_processing" ||
-      currentCancellationStatus === "refund_failed" ||
-      currentCancellationStatus === "refund_completed" ||
-      currentCancellationStatus === "cancelled_no_refund"
-    ) {
-      if (decisionOutcome(cancellation.decision) !== "approved") {
-        throw alreadyDecided();
+  return db.runTransaction(
+    async (transaction) => {
+      const cancellationSnapshot =
+        await transaction.get(
+          cancellationReference,
+        );
+
+      if (!cancellationSnapshot.exists) {
+        throw operationNotFound();
       }
-      return approvalResultFromStored({
-        cancellationRequestId: input.cancellationRequestId,
+
+      const cancellation =
+        cancellationSnapshot.data() ??
+        {};
+
+      const ids =
+        cancellationIds(
+          cancellation,
+        );
+
+      const requestReference =
+        db.collection(
+          "providerRequests",
+        ).doc(
+          ids.providerRequestId,
+        );
+
+      const mainEventReference =
+        db.collection(
+          "mainEvents",
+        ).doc(
+          ids.mainEventId,
+        );
+
+      const providerReference =
+        db.collection(
+          "providers",
+        ).doc(
+          ids.providerId,
+        );
+
+      const allRequestsQuery =
+        db.collection(
+          "providerRequests",
+        ).where(
+          "mainEventId",
+          "==",
+          ids.mainEventId,
+        );
+
+      const requestSnapshot =
+        await transaction.get(
+          requestReference,
+        );
+
+      if (!requestSnapshot.exists) {
+        throw approvalConflict();
+      }
+
+      const providerRequest =
+        requestSnapshot.data() ??
+        {};
+
+      const [
+        mainEventSnapshot,
+        providerSnapshot,
+        allRequestsSnapshot,
+      ] = await Promise.all([
+        transaction.get(
+          mainEventReference,
+        ),
+
+        transaction.get(
+          providerReference,
+        ),
+
+        transaction.get(
+          allRequestsQuery,
+        ),
+      ]);
+
+      if (
+        !mainEventSnapshot.exists ||
+        !providerSnapshot.exists
+      ) {
+        throw approvalConflict();
+      }
+
+      const mainEvent =
+        mainEventSnapshot.data() ??
+        {};
+
+      const paymentSet =
+        await readTrustedProviderRequestPaymentSetInTransaction({
+          transaction,
+
+          providerRequestId:
+            ids.providerRequestId,
+
+          providerRequest,
+
+          mainEventId:
+            ids.mainEventId,
+
+          customerId:
+            ids.customerId,
+
+          providerId:
+            ids.providerId,
+
+          mainEvent,
+
+          invalid: (): never => {
+            throw approvalConflict();
+          },
+        });
+
+      const paymentId =
+        paymentSet.currentPaymentId;
+
+      const payment =
+        paymentSet.currentPayment;
+
+      assertCancellationContext({
+        cancellationRequestId:
+          input.cancellationRequestId,
+
         cancellation,
+
+        ids,
+
         providerRequest,
+
         mainEvent,
-      });
-    }
-    if (currentCancellationStatus !== "submitted" &&
-      currentCancellationStatus !== "under_review") {
-      throw decisionNotAllowed();
-    }
-    const classification = classifyProviderRequestRefundPolicyEvidence(
-      providerRequest,
-    );
-    if (classification.status !== "policy_backed") {
-      throw refundAccountingError(
-        "failed-precondition",
-        classification.status === "legacy"
-          ? REFUND_ACCOUNTING_ERROR_REASONS.manualReviewRequired
-          : REFUND_ACCOUNTING_ERROR_REASONS.policyEvidenceInvalid,
-        "Automatic policy refund approval is unavailable.",
-      );
-    }
-    const eligibility = requireRefundEligibilityState(providerRequest);
-    if (eligibility.activeCancellationRequestId !== input.cancellationRequestId) {
-      throw approvalConflict();
-    }
-    const requestStatus = parseProviderRequestStatus(providerRequest.status);
-    if (!requestStatus) throw approvalConflict();
-    assertCancellationSubmissionAllowed(requestStatus);
-    const approvedId = nullableId(providerRequest.approvedCancellationRequestId);
-    if (approvedId !== null && approvedId !== input.cancellationRequestId) {
-      throw approvalConflict();
-    }
-    const calculation = calculateCancellationRefund({
-      providerRequest,
-      cancellationRequest: cancellation,
-      payment,
-    });
-    if (calculation.calculationStatus === "manual_review_required") {
-      throw refundAccountingError(
-        "failed-precondition",
-        REFUND_ACCOUNTING_ERROR_REASONS.manualReviewRequired,
-        "Refund approval requires manual review.",
-      );
-    }
-    if (!isProviderRequestStatusTransitionAllowed(requestStatus, "cancelled")) {
-      throw decisionNotAllowed();
-    }
-    const currentMainEventStatus = parseMainEventStatus(mainEvent.status);
-    if (!currentMainEventStatus) throw approvalConflict();
-    const summary = calculateMainEventRequestSummary(
-      allRequestsSnapshot.docs,
-      currentMainEventStatus,
-      [{providerRequestId: ids.providerRequestId, status: "cancelled"}],
-    );
-    if (summary.status !== currentMainEventStatus &&
-      !isMainEventStatusTransitionAllowed(currentMainEventStatus, summary.status)) {
-      throw approvalConflict();
-    }
-    const timestamp = serverTimestamp();
-    const zeroRefund = calculation.eligibleRefundAmountInCentavos === 0;
-    const nextCancellationStatus = zeroRefund
-      ? "cancelled_no_refund" as const
-      : "approved" as const;
-    assertCancellationStatusTransition(
-      currentCancellationStatus,
-      nextCancellationStatus,
-    );
-    let operationId: string | null = null;
 
-    if (!zeroRefund) {
-      if (!payment) throw approvalConflict();
-      const logicalOperationKey = refundOperationKey({
-        cancellationRequestId: input.cancellationRequestId,
-        logicalOperationKey: "approved-policy-cancellation",
-      });
-      operationId = refundOperationId({
-        paymentId,
-        cancellationRequestId: input.cancellationRequestId,
-        operationKey: logicalOperationKey,
-      });
-      const operationReference = paymentReference.collection("refunds")
-        .doc(operationId);
-      const operationSnapshot = await transaction.get(operationReference);
-      if (operationSnapshot.exists) throw approvalConflict();
-      if (payment.refundExecutionLock !== undefined &&
-        payment.refundExecutionLock !== null) throw approvalConflict();
-      const accounting = readRefundAccounting(
         payment,
-        calculation.originalPaidAmountInCentavos,
-      );
-      const requestedAmount = calculation.eligibleRefundAmountInCentavos;
-      const nextReserved = accounting.refundReservedAmountInCentavos +
-        requestedAmount;
-      transaction.create(operationReference, {
-        schemaVersion: REFUND_OPERATION_SCHEMA_VERSION,
-        paymentId,
-        providerRequestId: ids.providerRequestId,
-        mainEventId: ids.mainEventId,
-        cancellationRequestId: input.cancellationRequestId,
-        amountInCentavos: requestedAmount,
-        currency: PAYMENT_CURRENCY,
-        status: "reserved",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        completedAt: null,
-        failureCode: null,
-        operationKey: logicalOperationKey,
-        calculation,
-        gateway: "paymongo",
-        gatewayPaymentId: requireGatewayPaymentId(payment.paymongoResourceId),
-        gatewayRefundId: null,
-        gatewayStatus: null,
-        gatewayExecutionKey: gatewayRefundIdempotencyKey(operationId),
-        gatewayFailureCertainty: null,
-        gatewayRequestedAt: null,
-        gatewayAcceptedAt: null,
-        gatewayReconciledAt: null,
-        executionAttemptCount: 0,
-        lastExecutionAt: null,
-      });
-      transaction.update(paymentReference, {
-        refundAccountingSchemaVersion: REFUND_ACCOUNTING_SCHEMA_VERSION,
-        refundedAmountInCentavos: accounting.refundedAmountInCentavos,
-        refundReservedAmountInCentavos: nextReserved,
-        updatedAt: timestamp,
-      });
-    }
 
-    transaction.update(cancellationReference, {
-      status: nextCancellationStatus,
-      decision: {
-        outcome: "approved",
-        decidedAt: timestamp,
-        reason: null,
-      },
-      refundCalculation: calculation,
-      refundOperationId: operationId,
-      refundOperationIds: operationId ? [operationId] : [],
-      updatedAt: timestamp,
-    });
-    transaction.update(requestReference, {
-      status: "cancelled",
-      statusUpdatedAt: timestamp,
-      cancelledAt: timestamp,
-      approvedCancellationRequestId: input.cancellationRequestId,
-      refundEligibilityState: {
-        ...eligibility,
-        activeCancellationRequestId: null,
-      },
-      updatedAt: timestamp,
-    });
-    transaction.update(mainEventReference, mainEventUpdate({
-      summary,
-      currentStatus: currentMainEventStatus,
-      timestamp,
-    }));
-    transaction.create(mainEventReference.collection("timeline").doc(), {
-      type: zeroRefund
-        ? "cancellation_approved_no_refund"
-        : "cancellation_approved",
-      title: zeroRefund
-        ? "Provider Service Cancelled"
-        : "Cancellation Approved",
-      description: zeroRefund
-        ? "The Provider service was cancelled with no refund due under the agreed policy."
-        : "The Provider service was cancelled and its refund is ready for processing.",
-      providerRequestId: ids.providerRequestId,
-      providerId: ids.providerId,
-      cancellationRequestId: input.cancellationRequestId,
-      createdByRole: "admin",
-      createdAt: timestamp,
-    });
-    notifyCancellationDecision(transaction, {
-      customerId: ids.customerId,
-      providerOwnerId: providerOwnerId(providerSnapshot.data() ?? {}),
-      providerRequestId: ids.providerRequestId,
-      cancellationRequestId: input.cancellationRequestId,
-      approved: true,
-      zeroRefund,
-    });
-    writeAuditLogInTransaction(transaction, {
-      actorId: input.actorId,
-      actorRole: "admin",
-      action: "cancellation_request.approved",
-      targetCollection: "providerRequestCancellationRequests",
-      targetId: input.cancellationRequestId,
-      before: {status: currentCancellationStatus, providerRequestStatus: requestStatus},
-      after: {
-        status: nextCancellationStatus,
-        providerRequestStatus: "cancelled",
-        mainEventStatus: summary.status,
-      },
-      metadata: {
-        mainEventId: ids.mainEventId,
-        providerRequestId: ids.providerRequestId,
-        paymentId: payment ? paymentId : null,
-        refundOperationId: operationId,
-        refundAmountInCentavos: calculation.eligibleRefundAmountInCentavos,
-      },
-    });
-    return {
-      cancellationRequestId: input.cancellationRequestId,
-      providerRequestId: ids.providerRequestId,
-      mainEventId: ids.mainEventId,
-      cancellationStatus: nextCancellationStatus,
-      providerRequestStatus: "cancelled",
-      mainEventStatus: summary.status,
-      refundOperationId: operationId,
-      refundAmountInCentavos: calculation.eligibleRefundAmountInCentavos,
-      currency: PAYMENT_CURRENCY,
-    };
-  });
+        paymentId,
+
+        provider:
+          providerSnapshot.data() ??
+          {},
+
+        allRequestDocuments:
+          allRequestsSnapshot.docs,
+      });
+
+      const currentCancellationStatus =
+        parseProviderRequestCancellationStatus(
+          cancellation.status,
+        );
+
+      if (
+        currentCancellationStatus ===
+          "approved" ||
+        currentCancellationStatus ===
+          "refund_processing" ||
+        currentCancellationStatus ===
+          "refund_failed" ||
+        currentCancellationStatus ===
+          "refund_completed" ||
+        currentCancellationStatus ===
+          "cancelled_no_refund"
+      ) {
+        if (
+          decisionOutcome(
+            cancellation.decision,
+          ) !== "approved"
+        ) {
+          throw alreadyDecided();
+        }
+
+        return approvalResultFromStored({
+          cancellationRequestId:
+            input.cancellationRequestId,
+
+          cancellation,
+
+          providerRequest,
+
+          mainEvent,
+        });
+      }
+
+      if (
+        currentCancellationStatus !==
+          "submitted" &&
+        currentCancellationStatus !==
+          "under_review"
+      ) {
+        throw decisionNotAllowed();
+      }
+
+      const classification =
+        classifyProviderRequestRefundPolicyEvidence(
+          providerRequest,
+        );
+
+      if (
+        classification.status !==
+        "policy_backed"
+      ) {
+        throw refundAccountingError(
+          "failed-precondition",
+
+          classification.status ===
+            "legacy"
+            ? REFUND_ACCOUNTING_ERROR_REASONS
+                .manualReviewRequired
+            : REFUND_ACCOUNTING_ERROR_REASONS
+                .policyEvidenceInvalid,
+
+          "Automatic policy refund approval is unavailable.",
+        );
+      }
+
+      const eligibility =
+        requireRefundEligibilityState(
+          providerRequest,
+        );
+
+      if (
+        eligibility
+          .activeCancellationRequestId !==
+        input.cancellationRequestId
+      ) {
+        throw approvalConflict();
+      }
+
+      const requestStatus =
+        parseProviderRequestStatus(
+          providerRequest.status,
+        );
+
+      if (!requestStatus) {
+        throw approvalConflict();
+      }
+
+      assertCancellationSubmissionAllowed(
+        requestStatus,
+      );
+
+      const approvedId =
+        nullableId(
+          providerRequest
+            .approvedCancellationRequestId,
+        );
+
+      if (
+        approvedId !== null &&
+        approvedId !==
+          input.cancellationRequestId
+      ) {
+        throw approvalConflict();
+      }
+
+      const calculation =
+        paymentSet.mode === "p5"
+          ? calculateCancellationRefundForPaymentSet({
+              providerRequest,
+
+              cancellationRequest:
+                cancellation,
+
+              settlement:
+                paymentSet.settlement,
+
+              payments:
+                paymentSet.payments,
+            })
+          : calculateCancellationRefund({
+              providerRequest,
+
+              cancellationRequest:
+                cancellation,
+
+              payment,
+            });
+
+      if (
+        calculation
+          .calculationStatus ===
+        "manual_review_required"
+      ) {
+        throw refundAccountingError(
+          "failed-precondition",
+          REFUND_ACCOUNTING_ERROR_REASONS
+            .manualReviewRequired,
+          "Refund approval requires manual review.",
+        );
+      }
+
+      if (
+        !isProviderRequestStatusTransitionAllowed(
+          requestStatus,
+          "cancelled",
+        )
+      ) {
+        throw decisionNotAllowed();
+      }
+
+      const currentMainEventStatus =
+        parseMainEventStatus(
+          mainEvent.status,
+        );
+
+      if (!currentMainEventStatus) {
+        throw approvalConflict();
+      }
+
+      const summary =
+        calculateMainEventRequestSummary(
+          allRequestsSnapshot.docs,
+          currentMainEventStatus,
+          [
+            {
+              providerRequestId:
+                ids.providerRequestId,
+
+              status:
+                "cancelled",
+            },
+          ],
+        );
+
+      if (
+        summary.status !==
+          currentMainEventStatus &&
+        !isMainEventStatusTransitionAllowed(
+          currentMainEventStatus,
+          summary.status,
+        )
+      ) {
+        throw approvalConflict();
+      }
+
+      const timestamp =
+        serverTimestamp();
+
+      const zeroRefund =
+        calculation
+          .eligibleRefundAmountInCentavos ===
+        0;
+
+      const nextCancellationStatus =
+        zeroRefund
+          ? "cancelled_no_refund" as const
+          : "approved" as const;
+
+      assertCancellationStatusTransition(
+        currentCancellationStatus,
+        nextCancellationStatus,
+      );
+
+      const logicalOperationKey =
+        refundOperationKey({
+          cancellationRequestId:
+            input.cancellationRequestId,
+
+          logicalOperationKey:
+            "approved-policy-cancellation",
+        });
+
+      let operationId:
+        string | null =
+          null;
+
+      let operationIds:
+        string[] =
+          [];
+
+      let operationBindings:
+        Array<{
+          paymentId:
+            string;
+
+          refundOperationId:
+            string;
+
+          amountInCentavos:
+            number;
+        }> =
+          [];
+
+      if (!zeroRefund) {
+        let reservationPlan;
+
+        if (paymentSet.mode === "p5") {
+          const allocation =
+            allocateCancellationRefundAcrossPayments({
+              calculation,
+
+              settlement:
+                paymentSet.settlement,
+
+              payments:
+                paymentSet.payments,
+            });
+
+          reservationPlan =
+            createRefundOperationReservationPlan({
+              cancellationRequestId:
+                input.cancellationRequestId,
+
+              operationKey:
+                logicalOperationKey,
+
+              allocation,
+            });
+        }
+        else {
+          if (!payment) {
+            throw approvalConflict();
+          }
+
+          const original =
+            calculation
+              .originalPaidAmountInCentavos;
+
+          const completed =
+            calculation
+              .completedRefundAmountInCentavos;
+
+          const reserved =
+            calculation
+              .reservedRefundAmountInCentavos;
+
+          const requested =
+            calculation
+              .eligibleRefundAmountInCentavos;
+
+          if (
+            !Number.isSafeInteger(original) ||
+            !Number.isSafeInteger(completed) ||
+            !Number.isSafeInteger(reserved) ||
+            !Number.isSafeInteger(requested) ||
+            original <= 0 ||
+            completed < 0 ||
+            reserved < 0 ||
+            requested <= 0
+          ) {
+            throw approvalConflict();
+          }
+
+          reservationPlan =
+            createRefundOperationReservationPlan({
+              cancellationRequestId:
+                input.cancellationRequestId,
+
+              operationKey:
+                logicalOperationKey,
+
+              allocation: {
+                requestedAmountInCentavos:
+                  requested,
+
+                totalAllocatedAmountInCentavos:
+                  requested,
+
+                allocations: [
+                  {
+                    paymentId,
+
+                    originalPaidAmountInCentavos:
+                      original,
+
+                    completedRefundAmountInCentavos:
+                      completed,
+
+                    reservedRefundAmountInCentavos:
+                      reserved,
+
+                    availableRefundCapacityInCentavos:
+                      original -
+                      completed -
+                      reserved,
+
+                    allocatedRefundAmountInCentavos:
+                      requested,
+                  },
+                ],
+              },
+            });
+        }
+
+        operationId =
+          reservationPlan
+            .compatibilityRefundOperationId;
+
+        operationIds =
+          [
+            ...reservationPlan
+              .refundOperationIds,
+          ];
+
+        operationBindings =
+          reservationPlan
+            .reservations
+            .map(
+              (reservation) => ({
+                paymentId:
+                  reservation.paymentId,
+
+                refundOperationId:
+                  reservation
+                    .refundOperationId,
+
+                amountInCentavos:
+                  reservation
+                    .amountInCentavos,
+              }),
+            );
+
+        const operationReferences =
+          reservationPlan
+            .reservations
+            .map(
+              (reservation) =>
+                db.collection(
+                  "payments",
+                )
+                  .doc(
+                    reservation.paymentId,
+                  )
+                  .collection(
+                    "refunds",
+                  )
+                  .doc(
+                    reservation
+                      .refundOperationId,
+                  ),
+            );
+
+        const operationSnapshots =
+          await transaction.getAll(
+            ...operationReferences,
+          );
+
+        if (
+          operationSnapshots.some(
+            (snapshot) =>
+              snapshot.exists,
+          )
+        ) {
+          throw approvalConflict();
+        }
+
+        for (
+          const reservation of
+          reservationPlan.reservations
+        ) {
+          const paymentEntry =
+            paymentSet.payments.find(
+              (entry) =>
+                entry.id ===
+                reservation.paymentId,
+            );
+
+          if (!paymentEntry) {
+            throw approvalConflict();
+          }
+
+          const reservationPayment =
+            paymentEntry.data;
+
+          if (
+            reservationPayment
+              .refundExecutionLock !==
+              undefined &&
+            reservationPayment
+              .refundExecutionLock !==
+              null
+          ) {
+            throw approvalConflict();
+          }
+
+          const original =
+            positiveCentavos(
+              reservationPayment
+                .amountInCentavos,
+            );
+
+          const accounting =
+            readRefundAccounting(
+              reservationPayment,
+              original,
+            );
+
+          const nextReserved =
+            accounting
+              .refundReservedAmountInCentavos +
+            reservation
+              .amountInCentavos;
+
+          if (
+            !Number.isSafeInteger(
+              nextReserved,
+            ) ||
+            nextReserved > original
+          ) {
+            throw approvalConflict();
+          }
+
+          const reservationPaymentReference =
+            db.collection(
+              "payments",
+            ).doc(
+              reservation.paymentId,
+            );
+
+          const reservationOperationReference =
+            reservationPaymentReference
+              .collection(
+                "refunds",
+              )
+              .doc(
+                reservation
+                  .refundOperationId,
+              );
+
+          transaction.create(
+            reservationOperationReference,
+            {
+              schemaVersion:
+                REFUND_OPERATION_SCHEMA_VERSION,
+
+              paymentId:
+                reservation.paymentId,
+
+              providerRequestId:
+                ids.providerRequestId,
+
+              mainEventId:
+                ids.mainEventId,
+
+              cancellationRequestId:
+                input.cancellationRequestId,
+
+              amountInCentavos:
+                reservation
+                  .amountInCentavos,
+
+              currency:
+                PAYMENT_CURRENCY,
+
+              status:
+                "reserved",
+
+              createdAt:
+                timestamp,
+
+              updatedAt:
+                timestamp,
+
+              completedAt:
+                null,
+
+              failureCode:
+                null,
+
+              operationKey:
+                logicalOperationKey,
+
+              calculation,
+
+              gateway:
+                "paymongo",
+
+              gatewayPaymentId:
+                requireGatewayPaymentId(
+                  reservationPayment
+                    .paymongoResourceId,
+                ),
+
+              gatewayRefundId:
+                null,
+
+              gatewayStatus:
+                null,
+
+              gatewayExecutionKey:
+                gatewayRefundIdempotencyKey(
+                  reservation
+                    .refundOperationId,
+                ),
+
+              gatewayFailureCertainty:
+                null,
+
+              gatewayRequestedAt:
+                null,
+
+              gatewayAcceptedAt:
+                null,
+
+              gatewayReconciledAt:
+                null,
+
+              executionAttemptCount:
+                0,
+
+              lastExecutionAt:
+                null,
+
+              refundOperationSetSchemaVersion:
+                1,
+
+              refundOperationSetIndex:
+                operationBindings.findIndex(
+                  (binding) =>
+                    binding.refundOperationId ===
+                    reservation
+                      .refundOperationId,
+                ),
+
+              refundOperationSetSize:
+                operationBindings.length,
+            },
+          );
+
+          transaction.update(
+            reservationPaymentReference,
+            {
+              refundAccountingSchemaVersion:
+                REFUND_ACCOUNTING_SCHEMA_VERSION,
+
+              refundedAmountInCentavos:
+                accounting
+                  .refundedAmountInCentavos,
+
+              refundReservedAmountInCentavos:
+                nextReserved,
+
+              updatedAt:
+                timestamp,
+            },
+          );
+        }
+      }
+
+      transaction.update(
+        cancellationReference,
+        {
+          status:
+            nextCancellationStatus,
+
+          decision: {
+            outcome:
+              "approved",
+
+            decidedAt:
+              timestamp,
+
+            reason:
+              null,
+          },
+
+          refundCalculation:
+            calculation,
+
+          refundOperationId:
+            operationId,
+
+          refundOperationIds:
+            operationIds,
+
+          refundOperationPlanSchemaVersion:
+            1,
+
+          refundOperationBindings:
+            operationBindings,
+
+          updatedAt:
+            timestamp,
+        },
+      );
+
+      transaction.update(
+        requestReference,
+        {
+          status:
+            "cancelled",
+
+          statusUpdatedAt:
+            timestamp,
+
+          cancelledAt:
+            timestamp,
+
+          approvedCancellationRequestId:
+            input.cancellationRequestId,
+
+          refundEligibilityState: {
+            ...eligibility,
+
+            activeCancellationRequestId:
+              null,
+          },
+
+          updatedAt:
+            timestamp,
+        },
+      );
+
+      transaction.update(
+        mainEventReference,
+        mainEventUpdate({
+          summary,
+          currentStatus:
+            currentMainEventStatus,
+          timestamp,
+        }),
+      );
+
+      transaction.create(
+        mainEventReference
+          .collection(
+            "timeline",
+          )
+          .doc(),
+        {
+          type:
+            zeroRefund
+              ? "cancellation_approved_no_refund"
+              : "cancellation_approved",
+
+          title:
+            zeroRefund
+              ? "Provider Service Cancelled"
+              : "Cancellation Approved",
+
+          description:
+            zeroRefund
+              ? "The Provider service was cancelled with no refund due under the agreed policy."
+              : "The Provider service was cancelled and its refund is ready for processing.",
+
+          providerRequestId:
+            ids.providerRequestId,
+
+          providerId:
+            ids.providerId,
+
+          cancellationRequestId:
+            input.cancellationRequestId,
+
+          createdByRole:
+            "admin",
+
+          createdAt:
+            timestamp,
+        },
+      );
+
+      notifyCancellationDecision(
+        transaction,
+        {
+          customerId:
+            ids.customerId,
+
+          providerOwnerId:
+            providerOwnerId(
+              providerSnapshot.data() ??
+              {},
+            ),
+
+          providerRequestId:
+            ids.providerRequestId,
+
+          cancellationRequestId:
+            input.cancellationRequestId,
+
+          approved:
+            true,
+
+          zeroRefund,
+        },
+      );
+
+      writeAuditLogInTransaction(
+        transaction,
+        {
+          actorId:
+            input.actorId,
+
+          actorRole:
+            "admin",
+
+          action:
+            "cancellation_request.approved",
+
+          targetCollection:
+            "providerRequestCancellationRequests",
+
+          targetId:
+            input.cancellationRequestId,
+
+          before: {
+            status:
+              currentCancellationStatus,
+
+            providerRequestStatus:
+              requestStatus,
+          },
+
+          after: {
+            status:
+              nextCancellationStatus,
+
+            providerRequestStatus:
+              "cancelled",
+
+            mainEventStatus:
+              summary.status,
+          },
+
+          metadata: {
+            mainEventId:
+              ids.mainEventId,
+
+            providerRequestId:
+              ids.providerRequestId,
+
+            paymentId:
+              payment
+                ? paymentId
+                : null,
+
+            paymentIds:
+              paymentSet.payments.map(
+                (entry) =>
+                  entry.id,
+              ),
+
+            refundOperationId:
+              operationId,
+
+            refundOperationIds:
+              operationIds,
+
+            refundAmountInCentavos:
+              calculation
+                .eligibleRefundAmountInCentavos,
+          },
+        },
+      );
+
+      return {
+        cancellationRequestId:
+          input.cancellationRequestId,
+
+        providerRequestId:
+          ids.providerRequestId,
+
+        mainEventId:
+          ids.mainEventId,
+
+        cancellationStatus:
+          nextCancellationStatus,
+
+        providerRequestStatus:
+          "cancelled",
+
+        mainEventStatus:
+          summary.status,
+
+        refundOperationId:
+          operationId,
+
+        refundAmountInCentavos:
+          calculation
+            .eligibleRefundAmountInCentavos,
+
+        currency:
+          PAYMENT_CURRENCY,
+      };
+    },
+  );
 }
 
 export async function rejectCancellation(input: {
@@ -672,84 +1403,216 @@ export async function executeRefund(input: {
   cancellationRequestId: string;
   actorId: string;
 }): Promise<Omit<ExecutionResult, "idempotentReplay">> {
-  const prepared = await prepareRefundExecution(input);
-  if (prepared.completed) {
-    return {
-      cancellationRequestId: input.cancellationRequestId,
-      providerRequestId: prepared.providerRequestId,
-      paymentId: prepared.paymentId,
-      refundOperationId: prepared.refundOperationId,
-      status: "completed",
-      gatewayStatus: "succeeded",
-    };
-  }
-  let refund: PayMongoRefundResource;
-  if (prepared.amountInCentavos < 100) {
-    await recordExecutionFailure({
-      ...prepared,
-      actorId: input.actorId,
-      certainty: "not_sent",
-      failureCode: "GATEWAY_MINIMUM_UNSUPPORTED",
-    });
-    throw refundAccountingError(
-      "failed-precondition",
-      REFUND_EXECUTION_ERROR_REASONS.gatewayMinimumUnsupported,
-      "The refund requires manual reconciliation because it is below the gateway minimum.",
-    );
-  }
-  if (
-    prepared.amountInCentavos < prepared.originalAmountInCentavos &&
-    prepared.paymentMethodType !== "card" &&
-    prepared.paymentMethodType !== "gcash"
+  /*
+   * One callable remains the public contract.
+   *
+   * For operation-set approvals, successful synchronous refunds
+   * continue to the next bound payment in deterministic order.
+   *
+   * A pending/processing/failed gateway result stops the loop and
+   * waits for retry or webhook reconciliation.
+   */
+  for (
+    let operationStep = 0;
+    operationStep < 25;
+    operationStep += 1
   ) {
-    await recordExecutionFailure({
-      ...prepared,
-      actorId: input.actorId,
-      certainty: "not_sent",
-      failureCode: "PARTIAL_REFUND_CAPABILITY_UNCONFIRMED",
-    });
-    throw refundAccountingError(
-      "failed-precondition",
-      REFUND_EXECUTION_ERROR_REASONS.paymentCapabilityUnconfirmed,
-      "The settled payment method is not confirmed for partial refunds.",
-    );
+    const prepared =
+      await prepareRefundExecution(
+        input,
+      );
+
+    if (prepared.completed) {
+      return {
+        cancellationRequestId:
+          input.cancellationRequestId,
+
+        providerRequestId:
+          prepared.providerRequestId,
+
+        paymentId:
+          prepared.paymentId,
+
+        refundOperationId:
+          prepared.refundOperationId,
+
+        status:
+          "completed",
+
+        gatewayStatus:
+          "succeeded",
+      };
+    }
+
+    let refund:
+      PayMongoRefundResource;
+
+    if (
+      prepared
+        .amountInCentavos < 100
+    ) {
+      await recordExecutionFailure({
+        ...prepared,
+
+        actorId:
+          input.actorId,
+
+        certainty:
+          "not_sent",
+
+        failureCode:
+          "GATEWAY_MINIMUM_UNSUPPORTED",
+      });
+
+      throw refundAccountingError(
+        "failed-precondition",
+
+        REFUND_EXECUTION_ERROR_REASONS
+          .gatewayMinimumUnsupported,
+
+        "The refund requires manual reconciliation because it is below the gateway minimum.",
+      );
+    }
+
+    if (
+      prepared
+        .amountInCentavos <
+        prepared
+          .originalAmountInCentavos &&
+      prepared.paymentMethodType !==
+        "card" &&
+      prepared.paymentMethodType !==
+        "gcash"
+    ) {
+      await recordExecutionFailure({
+        ...prepared,
+
+        actorId:
+          input.actorId,
+
+        certainty:
+          "not_sent",
+
+        failureCode:
+          "PARTIAL_REFUND_CAPABILITY_UNCONFIRMED",
+      });
+
+      throw refundAccountingError(
+        "failed-precondition",
+
+        REFUND_EXECUTION_ERROR_REASONS
+          .paymentCapabilityUnconfirmed,
+
+        "The settled payment method is not confirmed for partial refunds.",
+      );
+    }
+
+    try {
+      refund =
+        await createPayMongoRefund({
+          secretKey:
+            payMongoSecretKey.value(),
+
+          idempotencyKey:
+            prepared.gatewayExecutionKey,
+
+          gatewayPaymentId:
+            prepared.gatewayPaymentId,
+
+          amountInCentavos:
+            prepared
+              .amountInCentavos,
+
+          reason:
+            "others",
+
+          metadata: {
+            feasta_payment_id:
+              prepared.paymentId,
+
+            feasta_refund_operation_id:
+              prepared
+                .refundOperationId,
+          },
+        });
+    }
+    catch (error) {
+      const certainty =
+        payMongoFailureCertainty(
+          error,
+        );
+
+      await recordExecutionFailure({
+        ...prepared,
+
+        actorId:
+          input.actorId,
+
+        certainty,
+      });
+
+      throw executionGatewayError(
+        certainty,
+      );
+    }
+
+    const reconciled =
+      await reconcileGatewayRefund({
+        paymentId:
+          prepared.paymentId,
+
+        refundOperationId:
+          prepared.refundOperationId,
+
+        refund,
+
+        actorId:
+          input.actorId,
+
+        source:
+          "refund_execution_response",
+      });
+
+    const result = {
+      cancellationRequestId:
+        input.cancellationRequestId,
+
+      providerRequestId:
+        prepared.providerRequestId,
+
+      paymentId:
+        prepared.paymentId,
+
+      refundOperationId:
+        prepared.refundOperationId,
+
+      status:
+        reconciled.status,
+
+      gatewayStatus:
+        refund.status,
+    };
+
+    /*
+     * A synchronous successful physical refund may leave another
+     * operation reserved. Continue only in that exact case.
+     *
+     * Pending/processing gateway resources wait for webhooks.
+     * Failed aggregate state waits for retry/reconciliation.
+     */
+    if (
+      refund.status ===
+        "succeeded" &&
+      reconciled.status ===
+        "processing"
+    ) {
+      continue;
+    }
+
+    return result;
   }
-  try {
-    refund = await createPayMongoRefund({
-      secretKey: payMongoSecretKey.value(),
-      idempotencyKey: prepared.gatewayExecutionKey,
-      gatewayPaymentId: prepared.gatewayPaymentId,
-      amountInCentavos: prepared.amountInCentavos,
-      reason: "others",
-      metadata: {
-        feasta_payment_id: prepared.paymentId,
-        feasta_refund_operation_id: prepared.refundOperationId,
-      },
-    });
-  } catch (error) {
-    const certainty = payMongoFailureCertainty(error);
-    await recordExecutionFailure({
-      ...prepared,
-      actorId: input.actorId,
-      certainty,
-    });
-    throw executionGatewayError(certainty);
-  }
-  const reconciled = await reconcileGatewayRefund({
-    paymentId: prepared.paymentId,
-    refundOperationId: prepared.refundOperationId,
-    refund,
-    actorId: input.actorId,
-    source: "refund_execution_response",
-  });
-  return {
-    cancellationRequestId: input.cancellationRequestId,
-    providerRequestId: prepared.providerRequestId,
-    paymentId: prepared.paymentId,
-    refundOperationId: prepared.refundOperationId,
-    status: reconciled.status,
-    gatewayStatus: refund.status,
-  };
+
+  throw accountingInvalid();
 }
 
 type PreparedExecution = {
@@ -777,31 +1640,99 @@ export async function prepareRefundExecution(input: {
   return db.runTransaction(async (transaction) => {
     const cancellationSnapshot = await transaction.get(cancellationReference);
     if (!cancellationSnapshot.exists) throw operationNotFound();
-    const cancellation = cancellationSnapshot.data() ?? {};
-    const ids = cancellationIds(cancellation);
-    const operationId = requireOperationId(cancellation.refundOperationId);
-    const paymentId = paymentIdForProviderRequest(ids.providerRequestId);
-    const paymentReference = db.collection("payments").doc(paymentId);
-    const operationReference = paymentReference.collection("refunds")
-      .doc(operationId);
-    const requestReference = db.collection("providerRequests")
-      .doc(ids.providerRequestId);
-    const mainEventReference = db.collection("mainEvents").doc(ids.mainEventId);
-    const [paymentSnapshot, operationSnapshot, requestSnapshot,
-      mainEventSnapshot] = await transaction.getAll(
-      paymentReference,
-      operationReference,
-      requestReference,
-      mainEventReference,
-    );
-    if (!paymentSnapshot.exists || !operationSnapshot.exists ||
-      !requestSnapshot.exists || !mainEventSnapshot.exists) {
+    const cancellation =
+      cancellationSnapshot.data() ?? {};
+
+    const operationBindings =
+      readRefundOperationBindings(
+        cancellation,
+      );
+
+    if (operationBindings !== null) {
+      return prepareRefundOperationSetExecution({
+        transaction,
+        cancellationRequestId:
+          input.cancellationRequestId,
+        actorId:
+          input.actorId,
+        cancellation,
+        operationBindings,
+      });
+    }
+
+    const ids =
+      cancellationIds(cancellation);
+
+    const operationId =
+      requireOperationId(
+        cancellation.refundOperationId,
+      );
+
+    const requestReference =
+      db.collection("providerRequests")
+        .doc(ids.providerRequestId);
+
+    const mainEventReference =
+      db.collection("mainEvents")
+        .doc(ids.mainEventId);
+
+    const requestSnapshot =
+      await transaction.get(
+        requestReference,
+      );
+
+    if (!requestSnapshot.exists) {
       throw operationNotFound();
     }
-    const payment = paymentSnapshot.data() ?? {};
-    const operation = operationSnapshot.data() ?? {};
-    const providerRequest = requestSnapshot.data() ?? {};
-    const mainEvent = mainEventSnapshot.data() ?? {};
+
+    const providerRequest =
+      requestSnapshot.data() ?? {};
+
+    const paymentId =
+      currentPaymentIdForProviderRequest(
+        ids.providerRequestId,
+        providerRequest,
+      );
+
+    if (!paymentId) {
+      throw operationNotFound();
+    }
+
+    const paymentReference =
+      db.collection("payments")
+        .doc(paymentId);
+
+    const operationReference =
+      paymentReference
+        .collection("refunds")
+        .doc(operationId);
+
+    const [
+      paymentSnapshot,
+      operationSnapshot,
+      mainEventSnapshot,
+    ] = await transaction.getAll(
+      paymentReference,
+      operationReference,
+      mainEventReference,
+    );
+
+    if (
+      !paymentSnapshot.exists ||
+      !operationSnapshot.exists ||
+      !mainEventSnapshot.exists
+    ) {
+      throw operationNotFound();
+    }
+
+    const payment =
+      paymentSnapshot.data() ?? {};
+
+    const operation =
+      operationSnapshot.data() ?? {};
+
+    const mainEvent =
+      mainEventSnapshot.data() ?? {};
     assertPolicyOperationLinkage({
       cancellationRequestId: input.cancellationRequestId,
       cancellation,
@@ -928,6 +1859,545 @@ export async function prepareRefundExecution(input: {
   });
 }
 
+type RefundOperationSetRecord = {
+  binding:
+    RefundOperationBinding;
+
+  paymentReference:
+    FirebaseFirestore.DocumentReference;
+
+  operationReference:
+    FirebaseFirestore.DocumentReference;
+
+  payment:
+    Record<string, unknown>;
+
+  operation:
+    Record<string, unknown>;
+};
+
+async function prepareRefundOperationSetExecution(input: {
+  transaction:
+    FirebaseFirestore.Transaction;
+
+  cancellationRequestId:
+    string;
+
+  actorId:
+    string;
+
+  cancellation:
+    Record<string, unknown>;
+
+  operationBindings:
+    readonly RefundOperationBinding[];
+}): Promise<PreparedExecution> {
+  if (
+    input.operationBindings.length === 0
+  ) {
+    throw executionNotAllowed();
+  }
+
+  const ids =
+    cancellationIds(
+      input.cancellation,
+    );
+
+  const requestReference =
+    db.collection(
+      "providerRequests",
+    ).doc(
+      ids.providerRequestId,
+    );
+
+  const mainEventReference =
+    db.collection(
+      "mainEvents",
+    ).doc(
+      ids.mainEventId,
+    );
+
+  const [
+    requestSnapshot,
+    mainEventSnapshot,
+  ] =
+    await input.transaction.getAll(
+      requestReference,
+      mainEventReference,
+    );
+
+  if (
+    !requestSnapshot.exists ||
+    !mainEventSnapshot.exists
+  ) {
+    throw operationNotFound();
+  }
+
+  const providerRequest =
+    requestSnapshot.data() ??
+    {};
+
+  const mainEvent =
+    mainEventSnapshot.data() ??
+    {};
+
+  const records =
+    await readRefundOperationSetRecordsInTransaction({
+      transaction:
+        input.transaction,
+
+      cancellationRequestId:
+        input.cancellationRequestId,
+
+      cancellation:
+        input.cancellation,
+
+      ids,
+
+      providerRequest,
+
+      mainEvent,
+
+      operationBindings:
+        input.operationBindings,
+    });
+
+  if (
+    records === null ||
+    records.length === 0
+  ) {
+    throw executionNotAllowed();
+  }
+
+  const aggregateStatus =
+    refundOperationSetCancellationStatus(
+      operationSetEntries(
+        records,
+      ),
+    );
+
+  const cancellationStatus =
+    parseProviderRequestCancellationStatus(
+      input.cancellation.status,
+    );
+
+  if (!cancellationStatus) {
+    throw executionNotAllowed();
+  }
+
+  if (
+    aggregateStatus ===
+      "refund_completed"
+  ) {
+    if (
+      cancellationStatus !==
+        "refund_completed"
+    ) {
+      throw refundAccountingError(
+        "failed-precondition",
+
+        REFUND_EXECUTION_ERROR_REASONS
+          .reconciliationRequired,
+
+        "Refund operations are complete but cancellation finalization requires reconciliation.",
+      );
+    }
+
+    const completedRecord =
+      records[0];
+
+    const amount =
+      positiveCentavos(
+        completedRecord
+          .operation
+          .amountInCentavos,
+      );
+
+    return {
+      cancellationRequestId:
+        input.cancellationRequestId,
+
+      providerRequestId:
+        ids.providerRequestId,
+
+      mainEventId:
+        ids.mainEventId,
+
+      paymentId:
+        completedRecord
+          .binding
+          .paymentId,
+
+      refundOperationId:
+        completedRecord
+          .binding
+          .refundOperationId,
+
+      amountInCentavos:
+        amount,
+
+      originalAmountInCentavos:
+        positiveCentavos(
+          completedRecord
+            .payment
+            .amountInCentavos,
+        ),
+
+      paymentMethodType:
+        paymentMethodType(
+          completedRecord
+            .payment
+            .paymentMethodType,
+        ),
+
+      gatewayPaymentId:
+        requireGatewayPaymentId(
+          completedRecord
+            .operation
+            .gatewayPaymentId,
+        ),
+
+      gatewayExecutionKey:
+        requireGatewayExecutionKey(
+          completedRecord
+            .operation
+            .gatewayExecutionKey,
+
+          completedRecord
+            .binding
+            .refundOperationId,
+        ),
+
+      customerId:
+        ids.customerId,
+
+      completed:
+        true,
+    };
+  }
+
+  if (
+    cancellationStatus !==
+      "approved" &&
+    cancellationStatus !==
+      "refund_processing" &&
+    cancellationStatus !==
+      "refund_failed"
+  ) {
+    throw executionNotAllowed();
+  }
+
+  /*
+   * Deterministic sequential execution:
+   * never advance past the first unresolved operation.
+   */
+  const selected =
+    records.find(
+      (record) =>
+        record.operation.status !==
+        "completed",
+    );
+
+  if (!selected) {
+    throw accountingInvalid();
+  }
+
+  const paymentId =
+    selected.binding.paymentId;
+
+  const operationId =
+    selected.binding
+      .refundOperationId;
+
+  const payment =
+    selected.payment;
+
+  const operation =
+    selected.operation;
+
+  const amount =
+    positiveCentavos(
+      operation.amountInCentavos,
+    );
+
+  if (
+    amount !==
+      selected.binding
+        .amountInCentavos
+  ) {
+    throw gatewayLinkageInvalid();
+  }
+
+  const gatewayPaymentId =
+    requireGatewayPaymentId(
+      operation.gatewayPaymentId,
+    );
+
+  const gatewayExecutionKey =
+    requireGatewayExecutionKey(
+      operation.gatewayExecutionKey,
+      operationId,
+    );
+
+  if (
+    operation.status !==
+      "reserved" &&
+    operation.status !==
+      "failed" &&
+    operation.status !==
+      "processing"
+  ) {
+    throw retryNotAllowed();
+  }
+
+  if (
+    operation.status !==
+      "processing"
+  ) {
+    assertRefundOperationTransition(
+      operation.status,
+      "processing",
+    );
+  }
+
+  if (
+    cancellationStatus !==
+      "refund_processing"
+  ) {
+    assertCancellationStatusTransition(
+      cancellationStatus,
+      "refund_processing",
+    );
+  }
+
+  const accounting =
+    readRefundAccounting(
+      payment,
+      positiveCentavos(
+        payment.amountInCentavos,
+      ),
+    );
+
+  if (
+    accounting
+      .refundReservedAmountInCentavos <
+    amount
+  ) {
+    throw accountingInvalid();
+  }
+
+  const attemptCount =
+    safeCount(
+      operation.executionAttemptCount,
+    );
+
+  assertGatewayRetryWindow(
+    operation,
+    attemptCount,
+  );
+
+  const timestamp =
+    serverTimestamp();
+
+  input.transaction.update(
+    selected.operationReference,
+    {
+      status:
+        "processing",
+
+      gatewayFailureCertainty:
+        null,
+
+      failureCode:
+        null,
+
+      gatewayRequestedAt:
+        operation.gatewayRequestedAt ??
+        timestamp,
+
+      executionAttemptCount:
+        attemptCount + 1,
+
+      lastExecutionAt:
+        timestamp,
+
+      updatedAt:
+        timestamp,
+    },
+  );
+
+  const cancellationReference =
+    db.collection(
+      "providerRequestCancellationRequests",
+    ).doc(
+      input.cancellationRequestId,
+    );
+
+  input.transaction.update(
+    cancellationReference,
+    {
+      status:
+        "refund_processing",
+
+      updatedAt:
+        timestamp,
+    },
+  );
+
+  if (
+    cancellationStatus !==
+      "refund_processing"
+  ) {
+    input.transaction.create(
+      mainEventReference
+        .collection(
+          "timeline",
+        )
+        .doc(),
+      {
+        type:
+          "refund_processing",
+
+        title:
+          "Refund Processing",
+
+        description:
+          "The approved Provider service refund is being processed.",
+
+        providerRequestId:
+          ids.providerRequestId,
+
+        cancellationRequestId:
+          input.cancellationRequestId,
+
+        createdByRole:
+          "admin",
+
+        createdAt:
+          timestamp,
+      },
+    );
+
+    createNotificationInTransaction(
+      input.transaction,
+      {
+        userId:
+          ids.customerId,
+
+        title:
+          "Refund processing",
+
+        message:
+          "Your approved Provider service refund is being processed.",
+
+        type:
+          "payment",
+
+        relatedId:
+          paymentId,
+
+        relatedCollection:
+          "payments",
+
+        metadata: {
+          cancellationStatus:
+            "refund_processing",
+        },
+      },
+    );
+  }
+
+  writeAuditLogInTransaction(
+    input.transaction,
+    {
+      actorId:
+        input.actorId,
+
+      actorRole:
+        "admin",
+
+      action:
+        attemptCount === 0
+          ? "refund_execution.started"
+          : "refund_execution.retried",
+
+      targetCollection:
+        "payments",
+
+      targetId:
+        paymentId,
+
+      before: {
+        operationStatus:
+          operation.status,
+      },
+
+      after: {
+        operationStatus:
+          "processing",
+      },
+
+      metadata: {
+        mainEventId:
+          ids.mainEventId,
+
+        providerRequestId:
+          ids.providerRequestId,
+
+        cancellationRequestId:
+          input.cancellationRequestId,
+
+        refundOperationId:
+          operationId,
+
+        amountInCentavos:
+          amount,
+
+        executionAttemptCount:
+          attemptCount + 1,
+      },
+    },
+  );
+
+  return {
+    cancellationRequestId:
+      input.cancellationRequestId,
+
+    providerRequestId:
+      ids.providerRequestId,
+
+    mainEventId:
+      ids.mainEventId,
+
+    paymentId,
+
+    refundOperationId:
+      operationId,
+
+    amountInCentavos:
+      amount,
+
+    originalAmountInCentavos:
+      positiveCentavos(
+        payment.amountInCentavos,
+      ),
+
+    paymentMethodType:
+      paymentMethodType(
+        payment.paymentMethodType,
+      ),
+
+    gatewayPaymentId,
+
+    gatewayExecutionKey,
+
+    customerId:
+      ids.customerId,
+
+    completed:
+      false,
+  };
+}
 export async function recordExecutionFailure(
   input: PreparedExecution & {
     actorId: string;
@@ -950,8 +2420,34 @@ export async function recordExecutionFailure(
     if (!operationSnapshot.exists || !cancellationSnapshot.exists) {
       throw operationNotFound();
     }
-    const operation = operationSnapshot.data() ?? {};
-    if (operation.status === "completed") return;
+    const operation =
+      operationSnapshot.data() ?? {};
+
+    const cancellation =
+      cancellationSnapshot.data() ?? {};
+
+    const operationBindings =
+      readRefundOperationBindings(
+        cancellation,
+      );
+
+    if (
+      operationBindings !== null &&
+      refundOperationBindingFor(
+        cancellation,
+        input.paymentId,
+        input.refundOperationId,
+      ) === null
+    ) {
+      throw gatewayLinkageInvalid();
+    }
+
+    if (
+      operation.status ===
+        "completed"
+    ) {
+      return;
+    }
     if (operation.status !== "processing") throw executionNotAllowed();
     const timestamp = serverTimestamp();
     const operationStatus = input.certainty === "ambiguous"
@@ -1014,253 +2510,1281 @@ export async function reconcileGatewayRefund(input: {
   source: "refund_execution_response" | "paymongo_webhook";
   webhookEventId?: string;
   webhookEventType?: string;
-}): Promise<{status: "processing" | "completed" | "failed"; replayed: boolean}> {
-  const paymentId = requireSafeDocumentId(input.paymentId, "Payment");
-  const operationId = requireOperationId(input.refundOperationId);
-  const paymentReference = db.collection("payments").doc(paymentId);
-  const operationReference = paymentReference.collection("refunds")
-    .doc(operationId);
-  const eventReference = input.webhookEventId
-    ? db.collection("paymentWebhookEvents").doc(input.webhookEventId)
-    : null;
-  return db.runTransaction(async (transaction) => {
-    const baseSnapshots = await transaction.getAll(
-      paymentReference,
-      operationReference,
-      ...(eventReference ? [eventReference] : []),
+}): Promise<{
+  status:
+    "processing" | "completed" | "failed";
+
+  replayed:
+    boolean;
+}> {
+  const paymentId =
+    requireSafeDocumentId(
+      input.paymentId,
+      "Payment",
     );
-    const paymentSnapshot = baseSnapshots[0];
-    const operationSnapshot = baseSnapshots[1];
-    const eventSnapshot = eventReference ? baseSnapshots[2] : null;
-    if (eventSnapshot?.exists) {
-      return replayedWebhookResult(eventSnapshot.data() ?? {}, input);
-    }
-    if (!paymentSnapshot.exists || !operationSnapshot.exists) {
-      if (eventReference) {
-        transaction.set(
-          eventReference,
-          refundWebhookRecord(input, "rejected", "operation_not_found"),
-        );
-        return {status: "failed" as const, replayed: false};
-      }
-      throw operationNotFound();
-    }
-    const payment = paymentSnapshot.data() ?? {};
-    const operation = operationSnapshot.data() ?? {};
-    const cancellationRequestId = storedId(
-      operation.cancellationRequestId,
-      "Cancellation request",
+
+  const operationId =
+    requireOperationId(
+      input.refundOperationId,
     );
-    const providerRequestId = storedId(
-      operation.providerRequestId,
-      "Provider request",
+
+  const paymentReference =
+    db.collection(
+      "payments",
+    ).doc(
+      paymentId,
     );
-    const mainEventId = storedId(operation.mainEventId, "Main event");
-    const cancellationReference = db.collection(
-      "providerRequestCancellationRequests",
-    ).doc(cancellationRequestId);
-    const requestReference = db.collection("providerRequests")
-      .doc(providerRequestId);
-    const mainEventReference = db.collection("mainEvents").doc(mainEventId);
-    const providerReference = db.collection("providers").doc(
-      storedId(operation.providerId ?? (payment.providerId), "Provider"),
-    );
-    const [cancellationSnapshot, requestSnapshot, mainEventSnapshot,
-      providerSnapshot] =
-      await transaction.getAll(
-        cancellationReference,
-        requestReference,
-        mainEventReference,
-        providerReference,
+
+  const operationReference =
+    paymentReference
+      .collection(
+        "refunds",
+      )
+      .doc(
+        operationId,
       );
-    if (!cancellationSnapshot.exists || !requestSnapshot.exists ||
-      !mainEventSnapshot.exists || !providerSnapshot.exists) {
-      throw gatewayLinkageInvalid();
-    }
-    const cancellation = cancellationSnapshot.data() ?? {};
-    const providerRequest = requestSnapshot.data() ?? {};
-    const mainEvent = mainEventSnapshot.data() ?? {};
-    const ids = cancellationIds(cancellation);
-    assertPolicyOperationLinkage({
-      cancellationRequestId,
-      cancellation,
-      ids,
-      paymentId,
-      payment,
-      operationId,
-      operation,
-      providerRequest,
-      mainEvent,
-    });
-    assertGatewayRefundLinkage({
-      paymentId,
-      operationId,
-      payment,
-      operation,
-      refund: input.refund,
-    });
-    if (operation.status === "completed") {
-      if (eventReference) {
-        transaction.set(
-          eventReference,
-          refundWebhookRecord(input, "duplicate", "refund_already_completed"),
+
+  const eventReference =
+    input.webhookEventId
+      ? db.collection(
+          "paymentWebhookEvents",
+        ).doc(
+          input.webhookEventId,
+        )
+      : null;
+
+  return db.runTransaction(
+    async (transaction) => {
+      const baseSnapshots =
+        await transaction.getAll(
+          paymentReference,
+          operationReference,
+
+          ...(
+            eventReference
+              ? [eventReference]
+              : []
+          ),
+        );
+
+      const paymentSnapshot =
+        baseSnapshots[0];
+
+      const operationSnapshot =
+        baseSnapshots[1];
+
+      const eventSnapshot =
+        eventReference
+          ? baseSnapshots[2]
+          : null;
+
+      if (eventSnapshot?.exists) {
+        return replayedWebhookResult(
+          eventSnapshot.data() ??
+            {},
+          input,
         );
       }
-      return {status: "completed" as const, replayed: true};
-    }
-    const timestamp = serverTimestamp();
-    const commonOperationUpdate = {
-      gatewayRefundId: input.refund.id,
-      gatewayStatus: input.refund.status,
-      gatewayAcceptedAt: operation.gatewayAcceptedAt ?? timestamp,
-      gatewayReconciledAt: timestamp,
-      gatewayFailureCertainty: null,
-      updatedAt: timestamp,
-    };
-    if (input.refund.status === "pending" || input.refund.status === "processing") {
-      transaction.update(operationReference, {
-        ...commonOperationUpdate,
-        status: "processing",
-        failureCode: null,
-      });
-      transaction.update(cancellationReference, {
-        status: "refund_processing",
-        updatedAt: timestamp,
-      });
-      if (eventReference) {
-        transaction.set(eventReference, refundWebhookRecord(input, "processed", null));
+
+      if (
+        !paymentSnapshot.exists ||
+        !operationSnapshot.exists
+      ) {
+        if (eventReference) {
+          transaction.set(
+            eventReference,
+
+            refundWebhookRecord(
+              input,
+              "rejected",
+              "operation_not_found",
+            ),
+          );
+
+          return {
+            status:
+              "failed" as const,
+
+            replayed:
+              false,
+          };
+        }
+
+        throw operationNotFound();
       }
-      writeRefundAudit(transaction, input, operation, "refund_execution.accepted", "processing");
-      return {status: "processing" as const, replayed: false};
-    }
-    if (input.refund.status === "failed") {
-      transaction.update(operationReference, {
-        ...commonOperationUpdate,
-        status: "failed",
-        gatewayFailureCertainty: "gateway_rejected",
-        failureCode: "GATEWAY_REFUND_FAILED",
-      });
-      transaction.update(cancellationReference, {
-        status: "refund_failed",
-        updatedAt: timestamp,
-      });
-      if (eventReference) {
-        transaction.set(
-          eventReference,
-          refundWebhookRecord(input, "processed", "gateway_refund_failed"),
+
+      const payment =
+        paymentSnapshot.data() ??
+        {};
+
+      const operation =
+        operationSnapshot.data() ??
+        {};
+
+      const cancellationRequestId =
+        storedId(
+          operation
+            .cancellationRequestId,
+
+          "Cancellation request",
         );
+
+      const providerRequestId =
+        storedId(
+          operation
+            .providerRequestId,
+
+          "Provider request",
+        );
+
+      const mainEventId =
+        storedId(
+          operation.mainEventId,
+          "Main event",
+        );
+
+      const cancellationReference =
+        db.collection(
+          "providerRequestCancellationRequests",
+        ).doc(
+          cancellationRequestId,
+        );
+
+      const requestReference =
+        db.collection(
+          "providerRequests",
+        ).doc(
+          providerRequestId,
+        );
+
+      const mainEventReference =
+        db.collection(
+          "mainEvents",
+        ).doc(
+          mainEventId,
+        );
+
+      const providerReference =
+        db.collection(
+          "providers",
+        ).doc(
+          storedId(
+            operation.providerId ??
+              payment.providerId,
+
+            "Provider",
+          ),
+        );
+
+      const [
+        cancellationSnapshot,
+        requestSnapshot,
+        mainEventSnapshot,
+        providerSnapshot,
+      ] =
+        await transaction.getAll(
+          cancellationReference,
+          requestReference,
+          mainEventReference,
+          providerReference,
+        );
+
+      if (
+        !cancellationSnapshot.exists ||
+        !requestSnapshot.exists ||
+        !mainEventSnapshot.exists ||
+        !providerSnapshot.exists
+      ) {
+        throw gatewayLinkageInvalid();
       }
-      writeRefundAudit(transaction, input, operation, "refund_execution.failed", "failed");
-      return {status: "failed" as const, replayed: false};
-    }
-    if (operation.status !== "processing" && operation.status !== "reserved" &&
-      operation.status !== "failed") throw executionNotAllowed();
-    if (operation.status !== "completed") {
-      assertRefundOperationTransition(operation.status, "completed");
-    }
-    const amount = positiveCentavos(operation.amountInCentavos);
-    const original = positiveCentavos(payment.amountInCentavos);
-    const accounting = readRefundAccounting(payment, original);
-    if (accounting.refundReservedAmountInCentavos < amount) {
-      throw accountingInvalid();
-    }
-    const nextReserved = accounting.refundReservedAmountInCentavos - amount;
-    const nextCompleted = accounting.refundedAmountInCentavos + amount;
-    const paymentStatus = derivePaymentRefundStatus({
-      originalPaidAmountInCentavos: original,
-      completedRefundAmountInCentavos: nextCompleted,
-    });
-    transaction.update(operationReference, {
-      ...commonOperationUpdate,
-      status: "completed",
-      completedAt: timestamp,
-      failureCode: null,
-    });
-    transaction.update(paymentReference, {
-      status: paymentStatus,
-      refundAccountingSchemaVersion: REFUND_ACCOUNTING_SCHEMA_VERSION,
-      refundedAmountInCentavos: nextCompleted,
-      refundReservedAmountInCentavos: nextReserved,
-      lastRefundCompletedAt: timestamp,
-      ...(paymentStatus === "refunded" ? {refundedAt: timestamp} : {}),
-      updatedAt: timestamp,
-    });
-    transaction.update(cancellationReference, {
-      status: "refund_completed",
-      refundCompletedAt: timestamp,
-      updatedAt: timestamp,
-    });
-    transaction.update(requestReference, {
-      paymentStatus,
-      ...(paymentStatus === "refunded" ? {refundedAt: timestamp} : {}),
-      updatedAt: timestamp,
-    });
-    transaction.create(mainEventReference.collection("timeline").doc(), {
-      type: "refund_completed",
-      title: "Refund Completed",
-      description: "The approved Provider service refund was completed.",
-      providerRequestId,
-      providerId: ids.providerId,
-      cancellationRequestId,
-      paymentId,
-      createdByRole: "system",
-      createdAt: timestamp,
-    });
-    createNotificationInTransaction(transaction, {
-      userId: ids.customerId,
-      title: "Refund completed",
-      message: "Your approved Provider service refund was completed.",
-      type: "payment",
-      relatedId: paymentId,
-      relatedCollection: "payments",
-      metadata: {cancellationStatus: "refund_completed"},
-    });
-    createNotificationInTransaction(transaction, {
-      userId: providerOwnerId(providerSnapshot.data() ?? {}),
-      title: "Provider service refund completed",
-      message: "The approved refund for one cancelled Provider service was completed.",
-      type: "payment",
-      relatedId: paymentId,
-      relatedCollection: "payments",
-      metadata: {cancellationStatus: "refund_completed"},
-    });
-    if (eventReference) {
-      transaction.set(eventReference, refundWebhookRecord(input, "processed", null));
-    }
-    writeAuditLogInTransaction(transaction, {
-      actorId: input.actorId,
-      actorRole: "system",
-      action: input.source === "paymongo_webhook"
-        ? "refund_webhook.reconciled"
-        : "refund_accounting.completed",
-      targetCollection: "payments",
-      targetId: paymentId,
-      source: input.source,
-      before: {
-        operationStatus: operation.status,
-        refundedAmountInCentavos: accounting.refundedAmountInCentavos,
-        refundReservedAmountInCentavos: accounting.refundReservedAmountInCentavos,
-      },
-      after: {
-        operationStatus: "completed",
-        paymentStatus,
-        cancellationStatus: "refund_completed",
-        refundedAmountInCentavos: nextCompleted,
-        refundReservedAmountInCentavos: nextReserved,
-      },
-      metadata: {
-        mainEventId,
-        providerRequestId,
+
+      const cancellation =
+        cancellationSnapshot.data() ??
+        {};
+
+      const providerRequest =
+        requestSnapshot.data() ??
+        {};
+
+      const mainEvent =
+        mainEventSnapshot.data() ??
+        {};
+
+      const ids =
+        cancellationIds(
+          cancellation,
+        );
+
+      assertPolicyOperationLinkage({
         cancellationRequestId,
-        refundOperationId: operationId,
-        amountInCentavos: amount,
-        webhookEventId: input.webhookEventId ?? null,
-      },
-    });
-    return {status: "completed" as const, replayed: false};
-  });
+        cancellation,
+        ids,
+        paymentId,
+        payment,
+        operationId,
+        operation,
+        providerRequest,
+        mainEvent,
+      });
+
+      assertGatewayRefundLinkage({
+        paymentId,
+        operationId,
+        payment,
+        operation,
+        refund:
+          input.refund,
+      });
+
+      const operationSetRecords =
+        await readRefundOperationSetRecordsInTransaction({
+          transaction,
+          cancellationRequestId,
+          cancellation,
+          ids,
+          providerRequest,
+          mainEvent,
+        });
+
+      if (
+        operation.status ===
+          "completed"
+      ) {
+        if (eventReference) {
+          transaction.set(
+            eventReference,
+
+            refundWebhookRecord(
+              input,
+              "duplicate",
+              "refund_already_completed",
+            ),
+          );
+        }
+
+        const replayStatus =
+          operationSetRecords === null
+            ? "completed"
+            : refundOperationSetCancellationStatus(
+                operationSetEntries(
+                  operationSetRecords,
+                ),
+              ) ===
+              "refund_completed"
+              ? "completed"
+              : refundOperationSetCancellationStatus(
+                    operationSetEntries(
+                      operationSetRecords,
+                    ),
+                  ) ===
+                  "refund_failed"
+                ? "failed"
+                : "processing";
+
+        return {
+          status:
+            replayStatus,
+
+          replayed:
+            true,
+        };
+      }
+
+      const timestamp =
+        serverTimestamp();
+
+      const commonOperationUpdate = {
+        gatewayRefundId:
+          input.refund.id,
+
+        gatewayStatus:
+          input.refund.status,
+
+        gatewayAcceptedAt:
+          operation.gatewayAcceptedAt ??
+          timestamp,
+
+        gatewayReconciledAt:
+          timestamp,
+
+        gatewayFailureCertainty:
+          null,
+
+        updatedAt:
+          timestamp,
+      };
+
+      if (
+        input.refund.status ===
+          "pending" ||
+        input.refund.status ===
+          "processing"
+      ) {
+        const aggregateStatus =
+          operationSetRecords === null
+            ? "refund_processing" as const
+            : refundOperationSetStatusAfter({
+                records:
+                  operationSetRecords,
+
+                paymentId,
+
+                refundOperationId:
+                  operationId,
+
+                status:
+                  "processing",
+
+                gatewayFailureCertainty:
+                  null,
+
+                failureCode:
+                  null,
+              });
+
+        transaction.update(
+          operationReference,
+          {
+            ...commonOperationUpdate,
+
+            status:
+              "processing",
+
+            failureCode:
+              null,
+          },
+        );
+
+        updateCancellationRefundStatus(
+          transaction,
+          cancellationReference,
+          cancellation,
+          aggregateStatus,
+          timestamp,
+        );
+
+        if (eventReference) {
+          transaction.set(
+            eventReference,
+
+            refundWebhookRecord(
+              input,
+              "processed",
+              null,
+            ),
+          );
+        }
+
+        writeRefundAudit(
+          transaction,
+          input,
+          operation,
+          "refund_execution.accepted",
+          "processing",
+        );
+
+        return {
+          status:
+            aggregateResultStatus(
+              aggregateStatus,
+            ),
+
+          replayed:
+            false,
+        };
+      }
+
+      if (
+        input.refund.status ===
+          "failed"
+      ) {
+        const aggregateStatus =
+          operationSetRecords === null
+            ? "refund_failed" as const
+            : refundOperationSetStatusAfter({
+                records:
+                  operationSetRecords,
+
+                paymentId,
+
+                refundOperationId:
+                  operationId,
+
+                status:
+                  "failed",
+
+                gatewayFailureCertainty:
+                  "gateway_rejected",
+
+                failureCode:
+                  "GATEWAY_REFUND_FAILED",
+              });
+
+        transaction.update(
+          operationReference,
+          {
+            ...commonOperationUpdate,
+
+            status:
+              "failed",
+
+            gatewayFailureCertainty:
+              "gateway_rejected",
+
+            failureCode:
+              "GATEWAY_REFUND_FAILED",
+          },
+        );
+
+        updateCancellationRefundStatus(
+          transaction,
+          cancellationReference,
+          cancellation,
+          aggregateStatus,
+          timestamp,
+        );
+
+        if (eventReference) {
+          transaction.set(
+            eventReference,
+
+            refundWebhookRecord(
+              input,
+              "processed",
+              "gateway_refund_failed",
+            ),
+          );
+        }
+
+        writeRefundAudit(
+          transaction,
+          input,
+          operation,
+          "refund_execution.failed",
+          "failed",
+        );
+
+        return {
+          status:
+            aggregateResultStatus(
+              aggregateStatus,
+            ),
+
+          replayed:
+            false,
+        };
+      }
+
+      if (
+        operation.status !==
+          "processing" &&
+        operation.status !==
+          "reserved" &&
+        operation.status !==
+          "failed"
+      ) {
+        throw executionNotAllowed();
+      }
+
+      if (
+        operation.status !==
+          "completed"
+      ) {
+        assertRefundOperationTransition(
+          operation.status,
+          "completed",
+        );
+      }
+
+      const amount =
+        positiveCentavos(
+          operation.amountInCentavos,
+        );
+
+      const original =
+        positiveCentavos(
+          payment.amountInCentavos,
+        );
+
+      const accounting =
+        readRefundAccounting(
+          payment,
+          original,
+        );
+
+      if (
+        accounting
+          .refundReservedAmountInCentavos <
+        amount
+      ) {
+        throw accountingInvalid();
+      }
+
+      const nextReserved =
+        accounting
+          .refundReservedAmountInCentavos -
+        amount;
+
+      const nextCompleted =
+        accounting
+          .refundedAmountInCentavos +
+        amount;
+
+      if (
+        !Number.isSafeInteger(
+          nextReserved,
+        ) ||
+        !Number.isSafeInteger(
+          nextCompleted,
+        ) ||
+        nextReserved < 0 ||
+        nextCompleted > original
+      ) {
+        throw accountingInvalid();
+      }
+
+      const paymentStatus =
+        derivePaymentRefundStatus({
+          originalPaidAmountInCentavos:
+            original,
+
+          completedRefundAmountInCentavos:
+            nextCompleted,
+        });
+
+      const aggregateStatus =
+        operationSetRecords === null
+          ? "refund_completed" as const
+          : refundOperationSetStatusAfter({
+              records:
+                operationSetRecords,
+
+              paymentId,
+
+              refundOperationId:
+                operationId,
+
+              status:
+                "completed",
+
+              gatewayFailureCertainty:
+                null,
+
+              failureCode:
+                null,
+            });
+
+      transaction.update(
+        operationReference,
+        {
+          ...commonOperationUpdate,
+
+          status:
+            "completed",
+
+          completedAt:
+            timestamp,
+
+          failureCode:
+            null,
+        },
+      );
+
+      transaction.update(
+        paymentReference,
+        {
+          status:
+            paymentStatus,
+
+          refundAccountingSchemaVersion:
+            REFUND_ACCOUNTING_SCHEMA_VERSION,
+
+          refundedAmountInCentavos:
+            nextCompleted,
+
+          refundReservedAmountInCentavos:
+            nextReserved,
+
+          lastRefundCompletedAt:
+            timestamp,
+
+          ...(
+            paymentStatus ===
+              "refunded"
+              ? {
+                  refundedAt:
+                    timestamp,
+                }
+              : {}
+          ),
+
+          updatedAt:
+            timestamp,
+        },
+      );
+
+      const bookingPaymentStatus =
+        operationSetRecords === null
+          ? paymentStatus
+          : aggregateStatus ===
+              "refund_completed"
+            ? providerRequestRefundStatusForCompletedCancellation(
+                cancellation,
+              )
+            : null;
+
+      if (
+        aggregateStatus ===
+          "refund_completed"
+      ) {
+        updateCancellationRefundStatus(
+          transaction,
+          cancellationReference,
+          cancellation,
+          "refund_completed",
+          timestamp,
+        );
+
+        if (!bookingPaymentStatus) {
+          throw accountingInvalid();
+        }
+
+        transaction.update(
+          requestReference,
+          {
+            paymentStatus:
+              bookingPaymentStatus,
+
+            ...(
+              bookingPaymentStatus ===
+                "refunded"
+                ? {
+                    refundedAt:
+                      timestamp,
+                  }
+                : {}
+            ),
+
+            updatedAt:
+              timestamp,
+          },
+        );
+
+        transaction.create(
+          mainEventReference
+            .collection(
+              "timeline",
+            )
+            .doc(),
+          {
+            type:
+              "refund_completed",
+
+            title:
+              "Refund Completed",
+
+            description:
+              "The approved Provider service refund was completed.",
+
+            providerRequestId,
+
+            providerId:
+              ids.providerId,
+
+            cancellationRequestId,
+
+            paymentId,
+
+            createdByRole:
+              "system",
+
+            createdAt:
+              timestamp,
+          },
+        );
+
+        createNotificationInTransaction(
+          transaction,
+          {
+            userId:
+              ids.customerId,
+
+            title:
+              "Refund completed",
+
+            message:
+              "Your approved Provider service refund was completed.",
+
+            type:
+              "payment",
+
+            relatedId:
+              providerRequestId,
+
+            relatedCollection:
+              "providerRequests",
+
+            metadata: {
+              cancellationStatus:
+                "refund_completed",
+            },
+          },
+        );
+
+        createNotificationInTransaction(
+          transaction,
+          {
+            userId:
+              providerOwnerId(
+                providerSnapshot.data() ??
+                {},
+              ),
+
+            title:
+              "Provider service refund completed",
+
+            message:
+              "The approved refund for one cancelled Provider service was completed.",
+
+            type:
+              "payment",
+
+            relatedId:
+              providerRequestId,
+
+            relatedCollection:
+              "providerRequests",
+
+            metadata: {
+              cancellationStatus:
+                "refund_completed",
+            },
+          },
+        );
+      }
+      else {
+        updateCancellationRefundStatus(
+          transaction,
+          cancellationReference,
+          cancellation,
+          aggregateStatus,
+          timestamp,
+        );
+      }
+
+      if (eventReference) {
+        transaction.set(
+          eventReference,
+
+          refundWebhookRecord(
+            input,
+            "processed",
+            null,
+          ),
+        );
+      }
+
+      writeAuditLogInTransaction(
+        transaction,
+        {
+          actorId:
+            input.actorId,
+
+          actorRole:
+            "system",
+
+          action:
+            input.source ===
+              "paymongo_webhook"
+              ? "refund_webhook.reconciled"
+              : "refund_accounting.completed",
+
+          targetCollection:
+            "payments",
+
+          targetId:
+            paymentId,
+
+          source:
+            input.source,
+
+          before: {
+            operationStatus:
+              operation.status,
+
+            refundedAmountInCentavos:
+              accounting
+                .refundedAmountInCentavos,
+
+            refundReservedAmountInCentavos:
+              accounting
+                .refundReservedAmountInCentavos,
+          },
+
+          after: {
+            operationStatus:
+              "completed",
+
+            paymentStatus,
+
+            cancellationStatus:
+              aggregateStatus,
+
+            refundedAmountInCentavos:
+              nextCompleted,
+
+            refundReservedAmountInCentavos:
+              nextReserved,
+          },
+
+          metadata: {
+            mainEventId,
+
+            providerRequestId,
+
+            cancellationRequestId,
+
+            refundOperationId:
+              operationId,
+
+            amountInCentavos:
+              amount,
+
+            webhookEventId:
+              input.webhookEventId ??
+              null,
+          },
+        },
+      );
+
+      return {
+        status:
+          aggregateResultStatus(
+            aggregateStatus,
+          ),
+
+        replayed:
+          false,
+      };
+    },
+  );
 }
 
+async function readRefundOperationSetRecordsInTransaction(input: {
+  transaction:
+    FirebaseFirestore.Transaction;
+
+  cancellationRequestId:
+    string;
+
+  cancellation:
+    Record<string, unknown>;
+
+  ids:
+    CancellationIds;
+
+  providerRequest:
+    Record<string, unknown>;
+
+  mainEvent:
+    Record<string, unknown>;
+
+  operationBindings?:
+    readonly RefundOperationBinding[];
+}): Promise<
+  readonly RefundOperationSetRecord[] |
+  null
+> {
+  const operationBindings =
+    input.operationBindings ??
+    readRefundOperationBindings(
+      input.cancellation,
+    );
+
+  if (operationBindings === null) {
+    return null;
+  }
+
+  if (
+    operationBindings.length === 0
+  ) {
+    throw gatewayLinkageInvalid();
+  }
+
+  const references:
+    FirebaseFirestore.DocumentReference[] =
+      [];
+
+  for (
+    const binding of
+    operationBindings
+  ) {
+    const paymentReference =
+      db.collection(
+        "payments",
+      ).doc(
+        binding.paymentId,
+      );
+
+    references.push(
+      paymentReference,
+    );
+
+    references.push(
+      paymentReference
+        .collection(
+          "refunds",
+        )
+        .doc(
+          binding.refundOperationId,
+        ),
+    );
+  }
+
+  const snapshots =
+    await input.transaction.getAll(
+      ...references,
+    );
+
+  const records:
+    RefundOperationSetRecord[] =
+      [];
+
+  for (
+    let index = 0;
+    index <
+      operationBindings.length;
+    index += 1
+  ) {
+    const binding =
+      operationBindings[index];
+
+    const paymentSnapshot =
+      snapshots[index * 2];
+
+    const operationSnapshot =
+      snapshots[index * 2 + 1];
+
+    if (
+      !paymentSnapshot.exists ||
+      !operationSnapshot.exists
+    ) {
+      throw operationNotFound();
+    }
+
+    const payment =
+      paymentSnapshot.data() ??
+      {};
+
+    const operation =
+      operationSnapshot.data() ??
+      {};
+
+    assertPolicyOperationLinkage({
+      cancellationRequestId:
+        input.cancellationRequestId,
+
+      cancellation:
+        input.cancellation,
+
+      ids:
+        input.ids,
+
+      paymentId:
+        binding.paymentId,
+
+      payment,
+
+      operationId:
+        binding.refundOperationId,
+
+      operation,
+
+      providerRequest:
+        input.providerRequest,
+
+      mainEvent:
+        input.mainEvent,
+    });
+
+    if (
+      positiveCentavos(
+        operation.amountInCentavos,
+      ) !==
+      binding.amountInCentavos
+    ) {
+      throw gatewayLinkageInvalid();
+    }
+
+    const paymentReference =
+      references[index * 2];
+
+    const operationReference =
+      references[index * 2 + 1];
+
+    records.push({
+      binding,
+      paymentReference,
+      operationReference,
+      payment,
+      operation,
+    });
+  }
+
+  return records;
+}
+
+function operationSetEntries(
+  records:
+    readonly RefundOperationSetRecord[],
+): readonly RefundOperationSetEntry[] {
+  return records.map(
+    (record) => ({
+      paymentId:
+        record.binding.paymentId,
+
+      refundOperationId:
+        record.binding
+          .refundOperationId,
+
+      status:
+        refundOperationStatus(
+          record.operation.status,
+        ),
+
+      gatewayFailureCertainty:
+        record.operation
+          .gatewayFailureCertainty,
+
+      failureCode:
+        record.operation.failureCode,
+    }),
+  );
+}
+
+function refundOperationSetStatusAfter(input: {
+  records:
+    readonly RefundOperationSetRecord[];
+
+  paymentId:
+    string;
+
+  refundOperationId:
+    string;
+
+  status:
+    RefundOperationSetEntry["status"];
+
+  gatewayFailureCertainty:
+    unknown;
+
+  failureCode:
+    unknown;
+}):
+  "refund_processing" |
+  "refund_failed" |
+  "refund_completed" {
+  const entries =
+    operationSetEntries(
+      input.records,
+    ).map(
+      (entry) =>
+        entry.paymentId ===
+          input.paymentId &&
+        entry.refundOperationId ===
+          input.refundOperationId
+          ? {
+              ...entry,
+
+              status:
+                input.status,
+
+              gatewayFailureCertainty:
+                input
+                  .gatewayFailureCertainty,
+
+              failureCode:
+                input.failureCode,
+            }
+          : entry,
+    );
+
+  return refundOperationSetCancellationStatus(
+    entries,
+  );
+}
+
+function refundOperationStatus(
+  value:
+    unknown,
+): RefundOperationSetEntry["status"] {
+  if (
+    value === "reserved" ||
+    value === "processing" ||
+    value === "failed" ||
+    value === "completed"
+  ) {
+    return value;
+  }
+
+  throw gatewayLinkageInvalid();
+}
+
+function aggregateResultStatus(
+  status:
+    "refund_processing" |
+    "refund_failed" |
+    "refund_completed",
+): "processing" | "failed" | "completed" {
+  return status ===
+    "refund_completed"
+    ? "completed"
+    : status ===
+        "refund_failed"
+      ? "failed"
+      : "processing";
+}
+
+function updateCancellationRefundStatus(
+  transaction:
+    FirebaseFirestore.Transaction,
+
+  cancellationReference:
+    FirebaseFirestore.DocumentReference,
+
+  cancellation:
+    Record<string, unknown>,
+
+  nextStatus:
+    "refund_processing" |
+    "refund_failed" |
+    "refund_completed",
+
+  timestamp:
+    ReturnType<typeof serverTimestamp>,
+): void {
+  const currentStatus =
+    parseProviderRequestCancellationStatus(
+      cancellation.status,
+    );
+
+  if (!currentStatus) {
+    throw gatewayLinkageInvalid();
+  }
+
+  if (
+    currentStatus !==
+      nextStatus
+  ) {
+    assertCancellationStatusTransition(
+      currentStatus,
+      nextStatus,
+    );
+  }
+
+  transaction.update(
+    cancellationReference,
+    {
+      status:
+        nextStatus,
+
+      ...(
+        nextStatus ===
+          "refund_completed"
+          ? {
+              refundCompletedAt:
+                timestamp,
+            }
+          : {}
+      ),
+
+      updatedAt:
+        timestamp,
+    },
+  );
+}
+
+function providerRequestRefundStatusForCompletedCancellation(
+  cancellation:
+    Record<string, unknown>,
+): "partially_refunded" | "refunded" {
+  const calculation =
+    cancellation
+      .refundCalculation;
+
+  if (
+    !calculation ||
+    typeof calculation !==
+      "object" ||
+    Array.isArray(calculation)
+  ) {
+    throw accountingInvalid();
+  }
+
+  const record =
+    calculation as
+      Record<string, unknown>;
+
+  const original =
+    positiveCentavos(
+      record
+        .originalPaidAmountInCentavos,
+    );
+
+  const completedBefore =
+    nonNegativeCentavos(
+      record
+        .completedRefundAmountInCentavos,
+    );
+
+  const newlyCompleted =
+    positiveCentavos(
+      record
+        .eligibleRefundAmountInCentavos,
+    );
+
+  const completedAfter =
+    completedBefore +
+    newlyCompleted;
+
+  if (
+    !Number.isSafeInteger(
+      completedAfter,
+    ) ||
+    completedAfter > original
+  ) {
+    throw accountingInvalid();
+  }
+
+  const status =
+    derivePaymentRefundStatus({
+      originalPaidAmountInCentavos:
+        original,
+
+      completedRefundAmountInCentavos:
+        completedAfter,
+    });
+
+  if (status === "paid") {
+    throw accountingInvalid();
+  }
+
+  return status;
+}
+
+function nonNegativeCentavos(
+  value:
+    unknown,
+): number {
+  if (
+    !Number.isSafeInteger(value) ||
+    (value as number) < 0
+  ) {
+    throw accountingInvalid();
+  }
+
+  return value as number;
+}
 function exactInput(
   request: CallableRequest<unknown>,
   fields: readonly string[],
@@ -1352,32 +3876,121 @@ function assertPolicyOperationLinkage(input: {
   providerRequest: Record<string, unknown>;
   mainEvent: Record<string, unknown>;
 }): void {
+  const operationBindings =
+    readRefundOperationBindings(
+      input.cancellation,
+    );
+
+  const operationSetBinding =
+    operationBindings === null
+      ? null
+      : refundOperationBindingFor(
+          input.cancellation,
+          input.paymentId,
+          input.operationId,
+        );
+
+  const operationSetIndex =
+    operationBindings === null
+      ? -1
+      : operationBindings.findIndex(
+          (binding) =>
+            binding.paymentId ===
+              input.paymentId &&
+            binding.refundOperationId ===
+              input.operationId,
+        );
+
+  const legacyOperationLinked =
+    operationBindings === null &&
+    input.cancellation
+      .refundOperationId ===
+      input.operationId &&
+    Array.isArray(
+      input.cancellation
+        .refundOperationIds,
+    ) &&
+    input.cancellation
+      .refundOperationIds
+      .includes(
+        input.operationId,
+      );
+
+  const operationSetLinked =
+    operationBindings !== null &&
+    operationSetBinding !== null &&
+    operationSetBinding
+      .amountInCentavos ===
+      input.operation
+        .amountInCentavos &&
+    input.operation
+      .refundOperationSetSchemaVersion ===
+      1 &&
+    input.operation
+      .refundOperationSetIndex ===
+      operationSetIndex &&
+    input.operation
+      .refundOperationSetSize ===
+      operationBindings.length;
+
   if (
     canonicalPaymentLinkageReason({
-      paymentId: input.paymentId,
-      providerRequestId: input.ids.providerRequestId,
-      mainEventId: input.ids.mainEventId,
-      customerId: input.ids.customerId,
-      providerId: input.ids.providerId,
-      payment: input.payment,
-      providerRequest: input.providerRequest,
-      mainEvent: input.mainEvent,
+      paymentId:
+        input.paymentId,
+
+      providerRequestId:
+        input.ids.providerRequestId,
+
+      mainEventId:
+        input.ids.mainEventId,
+
+      customerId:
+        input.ids.customerId,
+
+      providerId:
+        input.ids.providerId,
+
+      payment:
+        input.payment,
+
+      providerRequest:
+        input.providerRequest,
+
+      mainEvent:
+        input.mainEvent,
     }) ||
-    input.operation.schemaVersion !== REFUND_OPERATION_SCHEMA_VERSION ||
-    input.operation.providerRequestId !== input.ids.providerRequestId ||
-    input.operation.mainEventId !== input.ids.mainEventId ||
-    input.operation.cancellationRequestId !== input.cancellationRequestId ||
-    input.operation.currency !== PAYMENT_CURRENCY ||
-    input.operation.gateway !== "paymongo" ||
-    input.operation.gatewayPaymentId !== input.payment.paymongoResourceId ||
-    input.cancellation.refundOperationId !== input.operationId ||
-    !Array.isArray(input.cancellation.refundOperationIds) ||
-    !input.cancellation.refundOperationIds.includes(input.operationId) ||
-    input.providerRequest.status !== "cancelled" ||
-    input.providerRequest.approvedCancellationRequestId !==
+    input.operation.schemaVersion !==
+      REFUND_OPERATION_SCHEMA_VERSION ||
+    input.operation.providerRequestId !==
+      input.ids.providerRequestId ||
+    input.operation.mainEventId !==
+      input.ids.mainEventId ||
+    input.operation.cancellationRequestId !==
       input.cancellationRequestId ||
-    input.payment.refundExecutionLock !== undefined &&
-      input.payment.refundExecutionLock !== null
+    input.operation.currency !==
+      PAYMENT_CURRENCY ||
+    input.operation.gateway !==
+      "paymongo" ||
+    input.operation.gatewayPaymentId !==
+      input.payment
+        .paymongoResourceId ||
+    (
+      !legacyOperationLinked &&
+      !operationSetLinked
+    ) ||
+    input.providerRequest.status !==
+      "cancelled" ||
+    input.providerRequest
+      .approvedCancellationRequestId !==
+      input.cancellationRequestId ||
+    (
+      input.payment
+        .refundExecutionLock !==
+        undefined &&
+      input.payment
+        .refundExecutionLock !==
+        null
+    )
   ) {
     throw gatewayLinkageInvalid();
   }

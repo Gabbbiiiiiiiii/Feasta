@@ -49,6 +49,12 @@ import {
   webhookLifecycleConflictReason,
 } from "./payment-lifecycle.js";
 import {recordAttemptEvidence} from "./payment-attempt-evidence.js";
+import {
+  providerRequestPaymentReadPlan,
+} from "./provider-request-payment-set.js";
+import {
+  providerRequestSettlementUpdateForPaymentOutcome,
+} from "./payment-settlement.js";
 
 type WebhookResult = {
   duplicate: boolean;
@@ -569,12 +575,18 @@ export async function processPayMongoWebhook(
         webhookLifecycleConflictReason({
           providerRequestStatus:
             providerRequest.status,
-          mainEventStatus: booking.status,
-          nextPaymentStatus: nextStatus,
+          mainEventStatus:
+            booking.status,
+          nextPaymentStatus:
+            nextStatus,
+          paymentChoice:
+            payment.paymentChoice,
         });
 
       const operationalConflict =
         nextStatus === "paid" &&
+        payment.paymentChoice !==
+          "remaining_balance" &&
         (
           !providerOwnerSnapshot.exists ||
           providerOperationalReason(
@@ -687,6 +699,7 @@ export async function processPayMongoWebhook(
       const requestPaymentUpdate =
         createProviderRequestPaymentUpdate(
           nextStatus,
+          providerRequestId,
           event.paymentId,
           providerRequest,
           timestamp,
@@ -981,6 +994,7 @@ function createProviderRequestPaymentUpdate(
         typeof statusForPayMongoEvent
       >
     >,
+  providerRequestId: string,
   paymentId: string,
   providerRequest:
     Record<string, unknown>,
@@ -988,24 +1002,97 @@ function createProviderRequestPaymentUpdate(
     typeof serverTimestamp
   >,
 ): ProviderRequestPaymentUpdate {
-  if (status === "paid") {
-    return {
-      statusOverride: "confirmed",
+  const paymentReadPlan =
+    providerRequestPaymentReadPlan(
+      providerRequestId,
+      providerRequest,
+    );
 
+  /*
+   * Historical provider payments predate the P5 immutable
+   * payment-set and settlement projection.
+   *
+   * Preserve their original webhook lifecycle behavior.
+   * New P5 payment history must pass the strict payment-set
+   * validator before settlement fields are projected.
+   */
+  const settlementUpdate =
+    paymentReadPlan.mode === "p5"
+      ? providerRequestSettlementUpdateForPaymentOutcome({
+          providerRequestId,
+          providerRequest,
+          paymentId,
+          paymentStatus:
+            status,
+          timestamp,
+        })
+      : {};
+
+  const isBalancePayment =
+    providerRequest
+      .remainingBalancePaymentId ===
+      paymentId;
+
+  /*
+   * A balance payment is financial settlement on an
+   * already-confirmed booking.
+   *
+   * It must never emit a provider-request status override,
+   * so main-event aggregation preserves the existing
+   * confirmed booking lifecycle.
+   */
+  if (isBalancePayment) {
+    return {
       update: {
-        status: "confirmed",
-        paymentStatus: "paid",
+        paymentStatus:
+          status,
+
+        /*
+         * paymentId remains a compatibility/current-payment
+         * pointer. initialPaymentId remains immutable.
+         */
         paymentId,
 
-        paidAt: timestamp,
+        ...settlementUpdate,
 
-        confirmedAt:
-          providerRequest.confirmedAt ??
+        updatedAt:
+          timestamp,
+      },
+    };
+  }
+
+  if (status === "paid") {
+    return {
+      statusOverride:
+        "confirmed",
+
+      update: {
+        status:
+          "confirmed",
+
+        paymentStatus:
+          "paid",
+
+        paymentId,
+
+        paidAt:
           timestamp,
 
-        failedAt: null,
-        expiredAt: null,
-        updatedAt: timestamp,
+        confirmedAt:
+          providerRequest
+            .confirmedAt ??
+          timestamp,
+
+        failedAt:
+          null,
+
+        expiredAt:
+          null,
+
+        ...settlementUpdate,
+
+        updatedAt:
+          timestamp,
       },
     };
   }
@@ -1019,10 +1106,18 @@ function createProviderRequestPaymentUpdate(
         status:
           "waiting_for_down_payment",
 
-        paymentStatus: "failed",
+        paymentStatus:
+          "failed",
+
         paymentId,
-        failedAt: timestamp,
-        updatedAt: timestamp,
+
+        failedAt:
+          timestamp,
+
+        ...settlementUpdate,
+
+        updatedAt:
+          timestamp,
       },
     };
   }
@@ -1036,29 +1131,43 @@ function createProviderRequestPaymentUpdate(
         status:
           "waiting_for_down_payment",
 
-        paymentStatus: "expired",
+        paymentStatus:
+          "expired",
+
         paymentId,
-        expiredAt: timestamp,
-        updatedAt: timestamp,
+
+        expiredAt:
+          timestamp,
+
+        ...settlementUpdate,
+
+        updatedAt:
+          timestamp,
       },
     };
   }
 
   /*
-   * A refund changes the payment state, but it does not silently cancel
-   * the provider request. Cancellation and recovery require a separate
-   * administrative workflow with an explicit reason and audit record.
+   * A refund changes financial/payment state but does not
+   * silently cancel or reopen the provider request.
    */
   return {
     update: {
-      paymentStatus: "refunded",
+      paymentStatus:
+        "refunded",
+
       paymentId,
-      refundedAt: timestamp,
-      updatedAt: timestamp,
+
+      refundedAt:
+        timestamp,
+
+      ...settlementUpdate,
+
+      updatedAt:
+        timestamp,
     },
   };
 }
-
 function parseMainEventStatus(
   value: unknown,
 ): MainEventStatus {

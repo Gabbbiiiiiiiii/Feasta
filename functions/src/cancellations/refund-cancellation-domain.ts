@@ -4,6 +4,9 @@ import {Timestamp} from "firebase-admin/firestore";
 import {HttpsError} from "firebase-functions/v2/https";
 
 import {
+  type ProviderRequestSettlement,
+} from "../payments/payment-settlement.js";
+import {
   REFUND_ELIGIBILITY_STAGES,
   type RefundEligibilityStage,
 } from "../refund-policies/refund-policy-domain.js";
@@ -227,6 +230,86 @@ export function assertPreparationReady(input: {
       "failed-precondition",
       REFUND_CANCELLATION_ERROR_REASONS.transitionInvalid,
       "The required down payment must be confirmed before preparation begins.",
+    );
+  }
+}
+
+export function assertPreparationReadyForSettlement(
+  input: {
+    providerRequestStatus:
+      ProviderRequestStatus;
+
+    downPaymentAmount:
+      unknown;
+
+    settlement:
+      Readonly<ProviderRequestSettlement>;
+  },
+): void {
+  if (
+    input.providerRequestStatus !==
+      "confirmed"
+  ) {
+    throw cancellationError(
+      "failed-precondition",
+      REFUND_CANCELLATION_ERROR_REASONS
+        .transitionInvalid,
+      "Preparation can begin only for a confirmed provider request.",
+    );
+  }
+
+  if (
+    typeof input.downPaymentAmount !==
+      "number" ||
+    !Number.isFinite(
+      input.downPaymentAmount,
+    ) ||
+    input.downPaymentAmount < 0
+  ) {
+    throw cancellationError(
+      "failed-precondition",
+      REFUND_CANCELLATION_ERROR_REASONS
+        .eligibilityInvalid,
+      "Provider-request payment readiness is invalid.",
+    );
+  }
+
+  if (
+    input.downPaymentAmount === 0
+  ) {
+    return;
+  }
+
+  const initialPaymentId =
+    input.settlement
+      .initialPaymentId;
+
+  const initialSettled =
+    typeof initialPaymentId ===
+      "string" &&
+    input.settlement
+      .settledPaymentIds
+      .includes(initialPaymentId);
+
+  const settlementAllowsPreparation =
+    input.settlement.status ===
+      "deposit_settled" ||
+    input.settlement.status ===
+      "balance_payment_processing" ||
+    input.settlement.status ===
+      "fully_settled";
+
+  if (
+    !initialSettled ||
+    !settlementAllowsPreparation ||
+    input.settlement
+      .grossSettledAmountInCentavos <= 0
+  ) {
+    throw cancellationError(
+      "failed-precondition",
+      REFUND_CANCELLATION_ERROR_REASONS
+        .transitionInvalid,
+      "The required initial payment must be confirmed before preparation begins.",
     );
   }
 }

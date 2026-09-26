@@ -46,6 +46,9 @@ import {
   assertBookingSubmissionAllowed,
 } from "./booking-authorization.js";
 import {
+  buildPackagePaymentTermsSnapshot,
+} from "../payments/package-payment-terms.js";
+import {
   validateBookingPackage,
   type BookingPackageValidation,
 } from "./booking-contract.js";
@@ -517,12 +520,15 @@ export const submitBookingRequest = onCall(
               "Package price",
             );
 
-          const packageDownPaymentPercentage =
-            requireStoredPercentage(
-              packageData.downPaymentPercentage,
-              "Package down-payment percentage",
-              0,
+          const packagePaymentTerms =
+            buildPackagePaymentTermsSnapshot(
+              packageData,
             );
+
+          const packageDownPaymentPercentage =
+            packagePaymentTerms
+              .depositRateBps /
+            100;
 
           const selectedAddOns =
             addonSnapshots.map(
@@ -1134,6 +1140,8 @@ export const submitBookingRequest = onCall(
                   packageData.name,
                 ),
 
+              packagePaymentTerms,
+
               eventType,
               eventDate:
                 Timestamp.fromDate(
@@ -1265,6 +1273,8 @@ export const submitBookingRequest = onCall(
                 stringValue(
                   packageData.name,
                 ),
+
+              packagePaymentTerms,
 
               services: cateringServices,
 
@@ -1424,6 +1434,9 @@ export const submitBookingRequest = onCall(
                 type: "addon",
                 packageId: null,
                 packageName: null,
+
+                packagePaymentTerms:
+                  null,
 
                 services,
 

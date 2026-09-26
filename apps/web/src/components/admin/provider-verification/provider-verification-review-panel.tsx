@@ -20,6 +20,8 @@ import {Button} from "@/components/ui/button";
 import {Textarea} from "@/components/ui/textarea";
 import {
   type ProviderReviewAction,
+  type ProviderTaxReviewAction,
+  reviewProviderTaxProfile,
   reviewProviderVerification,
 } from "@/lib/admin/provider-verification/provider-verification-client";
 import type {
@@ -315,6 +317,15 @@ function ProviderVerificationReviewPanel({
         )}
       </section>
 
+      <TaxProfileReviewSection
+        providerId={
+          application.providerId
+        }
+        taxProfile={
+          application.taxProfile
+        }
+      />
+
       <section aria-labelledby="decision-heading" className="rounded-card border border-border bg-card p-4 shadow-card">
         <h3 id="decision-heading" className="text-lg font-bold">
           Administrative decision
@@ -436,6 +447,401 @@ function ProviderVerificationReviewPanel({
         </p>
       ) : null}
     </div>
+  );
+}
+
+function TaxProfileReviewSection({
+  providerId,
+  taxProfile,
+}: {
+  providerId: string;
+
+  taxProfile:
+    ProviderVerificationReviewDetail[
+      "taxProfile"
+    ];
+}) {
+  const router =
+    useRouter();
+
+  const [
+    reason,
+    setReason,
+  ] =
+    useState("");
+
+  const [
+    pendingAction,
+    setPendingAction,
+  ] =
+    useState<
+      ProviderTaxReviewAction | null
+    >(null);
+
+  const [
+    submitting,
+    setSubmitting,
+  ] =
+    useState(false);
+
+  const [
+    error,
+    setError,
+  ] =
+    useState<string | null>(
+      null,
+    );
+
+  if (!taxProfile) {
+    return (
+      <section
+        aria-labelledby="tax-review-heading"
+        className="rounded-card border border-border bg-card p-4 shadow-card"
+      >
+        <h3
+          id="tax-review-heading"
+          className="text-lg font-bold"
+        >
+          Tax profile verification
+        </h3>
+
+        <p className="mt-3 rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+          This provider has not submitted a tax profile for administrator
+          review.
+        </p>
+
+        <p className="mt-3 text-sm text-muted-foreground">
+          Provider approval and tax verification remain separate decisions.
+        </p>
+      </section>
+    );
+  }
+
+  const requiresReason =
+    pendingAction ===
+      "reject";
+
+  const reasonValid =
+    !requiresReason ||
+    reason.trim().length >= 10;
+
+  const selectAction = (
+    action:
+      ProviderTaxReviewAction,
+  ) => {
+    if (
+      action === "reject" &&
+      reason.trim().length < 10
+    ) {
+      setError(
+        "Enter a tax rejection reason with at least 10 characters.",
+      );
+      return;
+    }
+
+    setError(null);
+    setPendingAction(action);
+  };
+
+  const decide = async () => {
+    if (
+      !pendingAction ||
+      submitting
+    ) {
+      return;
+    }
+
+    if (
+      pendingAction ===
+        "reject" &&
+      reason.trim().length < 10
+    ) {
+      setError(
+        "Enter a tax rejection reason with at least 10 characters.",
+      );
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const result =
+        await reviewProviderTaxProfile(
+          {
+            providerId,
+            action:
+              pendingAction,
+            reason:
+              reason.trim() ||
+              undefined,
+          },
+        );
+
+      setPendingAction(
+        null,
+      );
+
+      setReason("");
+
+      feastaToast.success(
+        result.verificationStatus ===
+          "verified"
+          ? "Provider tax profile verified."
+          : "Provider tax profile rejected.",
+      );
+
+      router.refresh();
+    } catch (caught) {
+      const message =
+        caught instanceof Error
+          ? caught.message
+          : "The tax-profile decision could not be saved.";
+
+      setError(message);
+
+      feastaToast.error(
+        message,
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section
+      aria-labelledby="tax-review-heading"
+      className="rounded-card border border-border bg-card p-4 shadow-card"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3
+          id="tax-review-heading"
+          className="text-lg font-bold"
+        >
+          Tax profile verification
+        </h3>
+
+        <StatusBadge
+          status={
+            taxProfile
+              .verificationStatus
+          }
+        />
+      </div>
+
+      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+        Review the provider-declared tax identity independently from provider
+        approval and independently from FEASTA&apos;s platform tax settings.
+      </p>
+
+      <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+        <Detail
+          label="BIR registered name"
+          value={
+            taxProfile
+              .birRegisteredName
+          }
+        />
+
+        <Detail
+          label="TIN"
+          value={
+            taxProfile.tin
+          }
+        />
+
+        <Detail
+          label="Provider tax classification"
+          value={
+            humanize(
+              taxProfile.taxType,
+            )
+          }
+        />
+
+        <Detail
+          label="Tax profile submitted"
+          value={
+            taxProfile
+              .submittedAt
+          }
+        />
+
+        <Detail
+          label="Tax profile verified"
+          value={
+            taxProfile
+              .verifiedAt
+          }
+        />
+
+        <Detail
+          label="Tax profile rejected"
+          value={
+            taxProfile
+              .rejectedAt
+          }
+        />
+      </dl>
+
+      {taxProfile
+        .rejectionReason ? (
+        <p className="mt-4 rounded-lg border border-destructive/30 bg-destructive-subtle p-3 text-sm">
+          Previous tax rejection reason:{" "}
+          {
+            taxProfile
+              .rejectionReason
+          }
+        </p>
+      ) : null}
+
+      <p className="mt-4 rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+        Verifying or rejecting this tax profile does not approve, reject, or
+        suspend the provider account.
+      </p>
+
+      {taxProfile
+        .verificationStatus ===
+      "pending" ? (
+        <>
+          <label
+            htmlFor="provider-tax-review-reason"
+            className="mt-4 grid gap-2 text-sm font-semibold"
+          >
+            Tax review reason
+            <Textarea
+              id="provider-tax-review-reason"
+              value={reason}
+              maxLength={1000}
+              disabled={
+                submitting
+              }
+              onChange={(
+                event,
+              ) =>
+                setReason(
+                  event
+                    .currentTarget
+                    .value,
+                )
+              }
+              placeholder="Optional for verification. Required when rejecting a tax profile."
+            />
+          </label>
+
+          <p className="mt-2 text-sm text-muted-foreground">
+            Rejection requires at least 10 characters. Verification may be
+            recorded without a note.
+          </p>
+
+          {error ? (
+            <p
+              role="alert"
+              className="mt-3 text-sm font-semibold text-destructive"
+            >
+              {error}
+            </p>
+          ) : null}
+
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Button
+              type="button"
+              variant="primary"
+              disabled={
+                submitting
+              }
+              onClick={() =>
+                selectAction(
+                  "verify",
+                )
+              }
+            >
+              <CheckCircle2
+                aria-hidden="true"
+              />
+              Verify Tax Profile
+            </Button>
+
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={
+                submitting
+              }
+              onClick={() =>
+                selectAction(
+                  "reject",
+                )
+              }
+            >
+              <XCircle
+                aria-hidden="true"
+              />
+              Reject Tax Profile
+            </Button>
+          </div>
+        </>
+      ) : (
+        <p className="mt-4 text-sm text-muted-foreground">
+          No tax-profile transition is available from this status. A rejected
+          provider may correct and resubmit the tax profile from the provider
+          workspace.
+        </p>
+      )}
+
+      <ConfirmationDialog
+        open={
+          pendingAction != null
+        }
+        onOpenChange={(
+          open,
+        ) => {
+          if (!open) {
+            setPendingAction(
+              null,
+            );
+          }
+        }}
+        title={
+          pendingAction ===
+            "verify"
+            ? "Verify this tax profile?"
+            : "Reject this tax profile?"
+        }
+        description={
+          pendingAction ===
+            "verify"
+            ? "This marks only the provider tax profile as verified. It does not approve the provider account."
+            : "This marks only the provider tax profile as rejected and allows the provider to correct and resubmit it."
+        }
+        confirmLabel={
+          pendingAction ===
+            "verify"
+            ? "Verify Tax Profile"
+            : "Reject Tax Profile"
+        }
+        destructive={
+          pendingAction ===
+            "reject"
+        }
+        loading={
+          submitting
+        }
+        onConfirm={
+          decide
+        }
+      />
+
+      {requiresReason &&
+      !reasonValid ? (
+        <p
+          role="status"
+          className="mt-3 text-sm text-warning"
+        >
+          Enter at least 10 characters before rejecting this tax profile.
+        </p>
+      ) : null}
+    </section>
   );
 }
 

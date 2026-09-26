@@ -23,6 +23,7 @@ import {
 } from "../shared/timestamps.js";
 
 import {
+  assertCanonicalPackagePaymentTerms,
   assertDraftPackage,
   assertPackageMatchesProviderCapabilities,
   authorizeOwnedPackage,
@@ -37,6 +38,9 @@ const ALLOWED_FIELDS = [
   "description",
   "eventType",
   "price",
+  "paymentPolicy",
+  "depositPercentage",
+  "balanceDueDaysBeforeEvent",
   "downPaymentPercentage",
   "minimumGuests",
   "maximumGuests",
@@ -91,8 +95,23 @@ export const updateProviderPackage = onCall(
       description: input.description,
       eventType: input.eventType,
       price: input.price,
+
+      paymentPolicy:
+        input.paymentPolicy,
+
+      depositPercentage:
+        input.depositPercentage,
+
+      balanceDueDaysBeforeEvent:
+        input.balanceDueDaysBeforeEvent,
+
+      /*
+       * Optional compatibility input is accepted
+       * only when it agrees with canonical terms.
+       */
       downPaymentPercentage:
         input.downPaymentPercentage,
+
       minimumGuests:
         input.minimumGuests,
       maximumGuests:
@@ -108,6 +127,10 @@ export const updateProviderPackage = onCall(
       serviceInclusions:
         input.serviceInclusions,
     });
+
+    assertCanonicalPackagePaymentTerms(
+      validated,
+    );
 
     const userReference = db
       .collection("users")
@@ -206,6 +229,17 @@ export const updateProviderPackage = onCall(
 
             price:
               validated.price,
+
+            paymentPolicy:
+              validated.paymentPolicy,
+
+            depositPercentage:
+              validated
+                .depositPercentage,
+
+            balanceDueDaysBeforeEvent:
+              validated
+                .balanceDueDaysBeforeEvent,
 
             downPaymentPercentage:
               validated

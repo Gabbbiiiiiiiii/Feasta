@@ -1,9 +1,12 @@
 "use server";
 
 import {
+  updateAdminFinancialPolicy,
   updateAdminPlatformSettings,
 } from "@/lib/admin/settings/admin-settings-service";
 import type {
+  UpdateAdminFinancialPolicyInput,
+  UpdateAdminFinancialPolicyResult,
   UpdateAdminPlatformSettingsInput,
   UpdateAdminPlatformSettingsResult,
 } from "@/lib/admin/settings/admin-settings-types";
@@ -14,5 +17,17 @@ export async function updateAdminPlatformSettingsAction(
 ): Promise<UpdateAdminPlatformSettingsResult> {
   await requireAdmin();
 
-  return updateAdminPlatformSettings(input);
+  return updateAdminPlatformSettings(
+    input,
+  );
+}
+
+export async function updateAdminFinancialPolicyAction(
+  input: UpdateAdminFinancialPolicyInput,
+): Promise<UpdateAdminFinancialPolicyResult> {
+  await requireAdmin();
+
+  return updateAdminFinancialPolicy(
+    input,
+  );
 }

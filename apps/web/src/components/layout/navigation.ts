@@ -137,14 +137,6 @@ const providerServiceNavigation: NavigationLinkItem = {
   icon: Store,
 };
 
-const providerMessagesNavigation: NavigationLinkItem = {
-  kind: "link",
-  section: "COMMUNICATION",
-  label: "Messages",
-  href: "/provider/messages",
-  icon: MessageSquareText,
-};
-
 const providerBusinessNavigation: readonly NavigationItem[] = [
   {
     kind: "link",
@@ -192,6 +184,14 @@ const providerVerificationNavigation: NavigationLinkItem = {
   icon: FileCheck2,
 };
 
+const providerTaxProfileNavigation: NavigationLinkItem = {
+  kind: "link",
+  section: "ACCOUNT",
+  label: "Tax Profile",
+  href: "/provider/tax-profile",
+  icon: FileCheck2,
+};
+
 const providerAccountNavigation: NavigationLinkItem = {
   kind: "link",
   section: "ACCOUNT",
@@ -202,6 +202,12 @@ const providerAccountNavigation: NavigationLinkItem = {
 
 const providerRestrictedNavigation: readonly NavigationItem[] = [
   providerVerificationNavigation,
+  providerAccountNavigation,
+];
+
+const providerLinkedRestrictedNavigation: readonly NavigationItem[] = [
+  providerVerificationNavigation,
+  providerTaxProfileNavigation,
   providerAccountNavigation,
 ];
 
@@ -253,6 +259,7 @@ export function getRoleNavigation(
     return [
       ...catalogNavigation,
       providerVerificationNavigation,
+      providerTaxProfileNavigation,
       providerAccountNavigation,
     ];
   }
@@ -264,19 +271,16 @@ export function getRoleNavigation(
     !providerContext.isDeleted;
 
   if (!operational) {
-    return [
-      providerVerificationNavigation,
-      providerAccountNavigation,
-    ];
+    return providerLinkedRestrictedNavigation;
   }
 
   return [
     providerDashboardNavigation,
     ...providerBookingNavigation,
     ...catalogNavigation,
-    providerMessagesNavigation,
     ...providerBusinessNavigation,
     providerVerificationNavigation,
+    providerTaxProfileNavigation,
     providerAccountNavigation,
   ];
 }

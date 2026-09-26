@@ -140,6 +140,39 @@ describe(
     );
 
     it(
+      "versions financial policy separately",
+      () => {
+        expect(serviceSource).toContain(
+          "updateAdminFinancialPolicy",
+        );
+
+        expect(serviceSource).toContain(
+          "financialPolicyVersion",
+        );
+
+        expect(serviceSource).toContain(
+          "financialPolicyEffectiveAt",
+        );
+
+        expect(serviceSource).toContain(
+          "hasStoredFinancialPolicy",
+        );
+
+        expect(serviceSource).toContain(
+          "financial_policy_updated",
+        );
+
+        expect(actionSource).toContain(
+          "updateAdminFinancialPolicyAction",
+        );
+
+        expect(validationSource).toContain(
+          "validateAdminFinancialPolicyUpdate",
+        );
+      },
+    );
+
+    it(
       "keeps the internal reason in the audit record",
       () => {
         expect(serviceSource).toContain(
@@ -156,7 +189,15 @@ describe(
       "rejects unknown fields and exposes no deletion",
       () => {
         expect(validationSource).toContain(
-          "allowedInputKeys",
+          "allowedPlatformInputKeys",
+        );
+
+        expect(validationSource).toContain(
+          "allowedFinancialInputKeys",
+        );
+
+        expect(validationSource).toContain(
+          "rejectUnknownFields",
         );
 
         expect(validationSource).toContain(

@@ -229,6 +229,139 @@ test("acceptance preserves provider-owned add-ons in the owning package request"
   assert.equal(validate(event, actor).amount, 12000);
 });
 
+test("canonical package payment terms must match the parent event snapshot", () => {
+  const packageId =
+    "package_terms_001";
+
+  const providerId =
+    "provider_catering_001";
+
+  const packagePaymentTerms = {
+    schemaVersion: 1,
+    source:
+      "canonical_package",
+    paymentPolicy:
+      "deposit_then_balance",
+    depositRateBps: 2000,
+    balanceDueDaysBeforeEvent:
+      7,
+    usesLegacyPaymentTerms:
+      false,
+  };
+
+  const event =
+    mainEvent({
+      providerId,
+      currentProviderId:
+        providerId,
+
+      packageId,
+      packageName:
+        "Canonical Package",
+
+      packagePrice: 10000,
+
+      totalAmount: 10000,
+
+      downPaymentPercentage:
+        20,
+
+      downPaymentAmount:
+        2000,
+
+      remainingBalance:
+        8000,
+
+      selectedAddOns: [],
+
+      packagePaymentTerms,
+    });
+
+  const request = {
+    providerId,
+    type: "catering",
+
+    packageId,
+
+    packageName:
+      "Canonical Package",
+
+    packagePaymentTerms,
+
+    services: [
+      {
+        serviceId:
+          packageId,
+
+        name:
+          "Canonical Package",
+
+        category:
+          "catering",
+
+        price:
+          10000,
+
+        downPaymentPercentage:
+          20,
+
+        downPaymentAmount:
+          2000,
+      },
+    ],
+
+    amount:
+      10000,
+
+    downPaymentPercentage:
+      20,
+
+    downPaymentAmount:
+      2000,
+
+    remainingBalance:
+      8000,
+  };
+
+  assert.doesNotThrow(
+    () =>
+      validate(
+        event,
+        authorized({
+          providerId,
+          type: "catering",
+
+          requestData:
+            request,
+        }),
+      ),
+  );
+
+  assert.throws(
+    () =>
+      validate(
+        event,
+        authorized({
+          providerId,
+          type: "catering",
+
+          requestData: {
+            ...request,
+
+            packagePaymentTerms: {
+              ...packagePaymentTerms,
+
+              depositRateBps:
+                3000,
+            },
+          },
+        }),
+      ),
+
+    /package payment terms are invalid/u,
+  );
+});
+
 test("independent provider validation ignores selections owned by other providers", () => {
   const event = mainEvent({
     selectedAddOns: [

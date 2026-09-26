@@ -36,6 +36,22 @@ const initialSettings: AdminPlatformSettings = {
   supportEmail: "support@feasta.ph",
   serviceAreaDescription:
     "FEASTA serves customers and verified event service providers in Ormoc City.",
+
+  platformCommissionRateBps:
+    1000,
+
+  platformTaxStatus:
+    "non_vat",
+
+  platformVatRateBps:
+    1200,
+
+  financialPolicyVersion:
+    1,
+
+  financialPolicyEffectiveAt:
+    null,
+
   timezone: "Asia/Manila",
   currencyCode: "PHP",
   schemaVersion: 1,

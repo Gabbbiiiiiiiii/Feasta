@@ -1,8 +1,14 @@
 import {Timestamp} from "firebase-admin/firestore";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 
-import {calculateCancellationRefund} from "../refunds/refund-accounting-domain.js";
-import {cancellationPaymentState} from "./cancellation-payment-state.js";
+import {
+  calculateCancellationRefund,
+  calculateCancellationRefundForPaymentSet,
+} from "../refunds/refund-accounting-domain.js";
+import {
+  cancellationPaymentSetState,
+  cancellationPaymentState,
+} from "./cancellation-payment-state.js";
 
 import {
   classifyProviderRequestRefundPolicyEvidence,
@@ -25,10 +31,11 @@ import {
   type ProviderRequestCancellationStatus,
 } from "./refund-cancellation-domain.js";
 import {
-  canonicalPaymentLinkageReason,
   canonicalRequestLinkageReason,
-  paymentIdForProviderRequest,
 } from "../payments/payment-lifecycle.js";
+import {
+  readTrustedProviderRequestPaymentSetInTransaction,
+} from "../payments/provider-request-payment-reader.js";
 import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
@@ -170,8 +177,8 @@ async function submitCancellation(input: {
 
   const mainEventReference = db.collection("mainEvents").doc(mainEventId);
   const providerReference = db.collection("providers").doc(providerId);
-  const paymentId = paymentIdForProviderRequest(input.providerRequestId);
-  const paymentReference = db.collection("payments").doc(paymentId);
+
+
   const rolloutReference = db.collection("appSettings")
     .doc(CANCELLATION_REFUND_ROLLOUT_DOCUMENT_ID);
   const cancellationRequestId =
@@ -185,13 +192,16 @@ async function submitCancellation(input: {
     .doc(cancellationRequestId);
 
   return db.runTransaction(async (transaction) => {
-    const [requestSnapshot, mainEventSnapshot, providerSnapshot,
-      paymentSnapshot, cancellationSnapshot,
-      rolloutSnapshot] = await transaction.getAll(
+    const [
+      requestSnapshot,
+      mainEventSnapshot,
+      providerSnapshot,
+      cancellationSnapshot,
+      rolloutSnapshot,
+    ] = await transaction.getAll(
       requestReference,
       mainEventReference,
       providerReference,
-      paymentReference,
       cancellationReference,
       rolloutReference,
     );
@@ -302,43 +312,74 @@ async function submitCancellation(input: {
       );
     }
 
-    const payment = paymentSnapshot.exists
-      ? paymentSnapshot.data() ?? {}
-      : null;
-
-    if (
-      payment &&
-      canonicalPaymentLinkageReason({
-        paymentId,
-        providerRequestId: input.providerRequestId,
-        mainEventId,
-        customerId: input.actorUid,
-        providerId,
-        payment,
+    const paymentSet =
+      await readTrustedProviderRequestPaymentSetInTransaction({
+        transaction,
+        providerRequestId:
+          input.providerRequestId,
         providerRequest,
+        mainEventId,
+        customerId:
+          input.actorUid,
+        providerId,
         mainEvent,
-      })
-    ) {
-      throw cancellationNotAllowed();
-    }
+        invalid: (): never => {
+          throw cancellationNotAllowed();
+        },
+      });
 
-    const paymentState = cancellationPaymentState(providerRequest, payment);
+    const payment =
+      paymentSet.currentPayment;
+
+    const paymentState =
+      paymentSet.mode === "p5"
+        ? cancellationPaymentSetState(
+            providerRequest,
+            paymentSet.settlement,
+            paymentSet.payments,
+          )
+        : cancellationPaymentState(
+            providerRequest,
+            payment,
+          );
     if (paymentState === "refund_ineligible") throw cancellationNotAllowed();
     const paymentResolutionPending = paymentState === "awaiting_payment_resolution";
     // Recompute from accepted evidence inside this transaction, never the preview.
     if (eligibilityState && !paymentResolutionPending) {
-      calculateCancellationRefund({
-        providerRequest,
-        cancellationRequest: {
-          policyEvidenceStatus,
-          frozenEligibility: {
-            stage: eligibilityState.currentStage,
-            stageSequence: eligibilityState.stageSequence,
-            frozenAt: Timestamp.now(),
-          },
+      const cancellationEvidence = {
+        policyEvidenceStatus,
+
+        frozenEligibility: {
+          stage:
+            eligibilityState.currentStage,
+
+          stageSequence:
+            eligibilityState.stageSequence,
+
+          frozenAt:
+            Timestamp.now(),
         },
-        payment,
-      });
+      };
+
+      if (paymentSet.mode === "p5") {
+        calculateCancellationRefundForPaymentSet({
+          providerRequest,
+          cancellationRequest:
+            cancellationEvidence,
+          settlement:
+            paymentSet.settlement,
+          payments:
+            paymentSet.payments,
+        });
+      }
+      else {
+        calculateCancellationRefund({
+          providerRequest,
+          cancellationRequest:
+            cancellationEvidence,
+          payment,
+        });
+      }
     }
 
     const status = cancellationInitialStatus({

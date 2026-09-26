@@ -7,6 +7,10 @@ import {
   classifyProviderRequestRefundPolicyEvidence,
 } from "../bookings/booking-refund-policy.js";
 import {
+  type ProviderRequestSettlement,
+  type ProviderSettlementPayment,
+} from "../payments/payment-settlement.js";
+import {
   REFUND_ELIGIBILITY_STAGES,
   type RefundEligibilityStage,
 } from "../refund-policies/refund-policy-domain.js";
@@ -377,6 +381,242 @@ export function readRefundAccounting(
   };
 }
 
+export type PaymentSetRefundAccounting = {
+  originalPaidAmountInCentavos:
+    number;
+
+  completedRefundAmountInCentavos:
+    number;
+
+  reservedRefundAmountInCentavos:
+    number;
+};
+
+export function readPaymentSetRefundAccounting(
+  input: {
+    settlement:
+      Readonly<ProviderRequestSettlement>;
+
+    payments:
+      readonly ProviderSettlementPayment[];
+  },
+): PaymentSetRefundAccounting {
+  if (
+    input.settlement
+      .unresolvedPaymentIds.length > 0
+  ) {
+    throw refundAccountingError(
+      "failed-precondition",
+      REFUND_ACCOUNTING_ERROR_REASONS
+        .paymentNotSettled,
+      "Payment reconciliation must finish before refund calculation.",
+    );
+  }
+
+  const paymentById =
+    new Map<
+      string,
+      Readonly<UnknownRecord>
+    >();
+
+  for (const payment of input.payments) {
+    if (paymentById.has(payment.id)) {
+      throw accountingInvalid();
+    }
+
+    paymentById.set(
+      payment.id,
+      payment.data,
+    );
+  }
+
+  let originalPaidAmountInCentavos =
+    0;
+
+  let completedRefundAmountInCentavos =
+    0;
+
+  let reservedRefundAmountInCentavos =
+    0;
+
+  for (
+    const paymentId of
+    input.settlement.settledPaymentIds
+  ) {
+    const payment =
+      paymentById.get(paymentId);
+
+    if (!payment) {
+      throw accountingInvalid();
+    }
+
+    if (
+      payment.currency !==
+      PAYMENT_CURRENCY
+    ) {
+      throw refundAccountingError(
+        "failed-precondition",
+        REFUND_ACCOUNTING_ERROR_REASONS
+          .currencyUnsupported,
+        "The payment currency is not supported for refunds.",
+      );
+    }
+
+    const paymentAmount =
+      requirePositiveCentavos(
+        payment.amountInCentavos,
+        REFUND_ACCOUNTING_ERROR_REASONS
+          .paymentInvalid,
+      );
+
+    if (
+      !(payment.paidAt instanceof Timestamp)
+    ) {
+      throw refundAccountingError(
+        "failed-precondition",
+        REFUND_ACCOUNTING_ERROR_REASONS
+          .paymentNotSettled,
+        "A settled payment is missing authoritative settlement evidence.",
+      );
+    }
+
+    const accounting =
+      readRefundAccounting(
+        payment,
+        paymentAmount,
+      );
+
+    originalPaidAmountInCentavos +=
+      paymentAmount;
+
+    completedRefundAmountInCentavos +=
+      accounting
+        .refundedAmountInCentavos;
+
+    reservedRefundAmountInCentavos +=
+      accounting
+        .refundReservedAmountInCentavos;
+
+    if (
+      !Number.isSafeInteger(
+        originalPaidAmountInCentavos,
+      ) ||
+      !Number.isSafeInteger(
+        completedRefundAmountInCentavos,
+      ) ||
+      !Number.isSafeInteger(
+        reservedRefundAmountInCentavos,
+      )
+    ) {
+      throw accountingInvalid();
+    }
+  }
+
+  if (
+    originalPaidAmountInCentavos !==
+      input.settlement
+        .grossSettledAmountInCentavos ||
+    completedRefundAmountInCentavos +
+      reservedRefundAmountInCentavos >
+      originalPaidAmountInCentavos
+  ) {
+    throw accountingInvalid();
+  }
+
+  return {
+    originalPaidAmountInCentavos,
+
+    completedRefundAmountInCentavos,
+
+    reservedRefundAmountInCentavos,
+  };
+}
+
+/**
+ * Booking-level refund calculation over the complete trusted
+ * payment set.
+ *
+ * Gateway allocation is intentionally not performed here.
+ * P5-C5 will distribute eligibleRefundAmountInCentavos across
+ * individual PayMongo payment resources.
+ */
+export function calculateCancellationRefundForPaymentSet(
+  input: {
+    providerRequest:
+      Readonly<UnknownRecord>;
+
+    cancellationRequest:
+      Readonly<UnknownRecord>;
+
+    settlement:
+      Readonly<ProviderRequestSettlement>;
+
+    payments:
+      readonly ProviderSettlementPayment[];
+  },
+): RefundCalculation {
+  /*
+   * Reuse the existing policy/evidence parser with no payment
+   * solely to obtain the frozen stage and agreed policy rate.
+   */
+  const policyCalculation =
+    calculateCancellationRefund({
+      providerRequest:
+        input.providerRequest,
+
+      cancellationRequest:
+        input.cancellationRequest,
+
+      payment:
+        null,
+    });
+
+  if (
+    policyCalculation
+      .calculationStatus ===
+      "manual_review_required"
+  ) {
+    return policyCalculation;
+  }
+
+  const accounting =
+    readPaymentSetRefundAccounting({
+      settlement:
+        input.settlement,
+
+      payments:
+        input.payments,
+    });
+
+  if (
+    accounting
+      .originalPaidAmountInCentavos === 0
+  ) {
+    return policyCalculation;
+  }
+
+  return calculateRefundAmounts({
+    originalPaidAmountInCentavos:
+      accounting
+        .originalPaidAmountInCentavos,
+
+    refundBasisPoints:
+      policyCalculation
+        .refundBasisPoints,
+
+    completedRefundAmountInCentavos:
+      accounting
+        .completedRefundAmountInCentavos,
+
+    reservedRefundAmountInCentavos:
+      accounting
+        .reservedRefundAmountInCentavos,
+
+    frozenStage:
+      policyCalculation
+        .frozenStage,
+  });
+}
 export function derivePaymentRefundStatus(input: {
   originalPaidAmountInCentavos: number;
   completedRefundAmountInCentavos: number;

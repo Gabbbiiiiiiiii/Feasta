@@ -13,6 +13,12 @@ import {
   type PaymentStatus,
 } from "../shared/constants.js";
 
+import {
+  parseCustomerPaymentChoice,
+  paymentIdForProviderRequestChoice,
+  providerPaymentObligationForChoice,
+} from "./payment-obligation.js";
+
 const PAYMENT_COMPATIBLE_MAIN_EVENT_STATUSES =
   new Set<MainEventStatus>([
     "pending_provider_approval",
@@ -37,6 +43,53 @@ export function paymentIdForProviderRequest(
     )
     .digest("hex")
     .slice(0, 32)}`;
+}
+
+export function currentPaymentIdForProviderRequest(
+  providerRequestId: string,
+  providerRequest:
+    Readonly<Record<string, unknown>>,
+): string | null {
+  const storedPaymentId =
+    providerRequest.paymentId;
+
+  /*
+   * Historical provider requests did not have
+   * a trusted payment pointer before checkout.
+   *
+   * Preserve their deterministic legacy ID.
+   */
+  if (
+    storedPaymentId === undefined ||
+    storedPaymentId === null
+  ) {
+    return paymentIdForProviderRequest(
+      providerRequestId,
+    );
+  }
+
+  if (
+    typeof storedPaymentId !== "string"
+  ) {
+    return null;
+  }
+
+  const normalized =
+    storedPaymentId.trim();
+
+  /*
+   * Both legacy and P5 payment IDs use the
+   * payment_<32 hex characters> format.
+   */
+  if (
+    !/^payment_[a-f0-9]{32}$/u.test(
+      normalized,
+    )
+  ) {
+    return null;
+  }
+
+  return normalized;
 }
 
 export function authoritativeAmountInCentavos(
@@ -151,6 +204,7 @@ export function webhookLifecycleConflictReason(
     providerRequestStatus: unknown;
     mainEventStatus: unknown;
     nextPaymentStatus: PaymentStatus;
+    paymentChoice?: unknown;
   },
 ): string | null {
   if (input.nextPaymentStatus === "refunded") {
@@ -161,6 +215,45 @@ export function webhookLifecycleConflictReason(
     parseProviderRequestStatus(
       input.providerRequestStatus,
     );
+
+  const paymentChoice =
+    parseCustomerPaymentChoice(
+      input.paymentChoice,
+    );
+
+  /*
+   * A remaining-balance payment belongs to an already
+   * confirmed provider request.
+   *
+   * Its webhook may change financial settlement state,
+   * but must never move the booking back into the
+   * initial down-payment lifecycle.
+   */
+  if (
+    paymentChoice ===
+      "remaining_balance"
+  ) {
+    if (
+      requestStatus !==
+      "confirmed"
+    ) {
+      return "provider_request_lifecycle_conflict";
+    }
+
+    const balanceMainEventStatus =
+      parseMainEventStatus(
+        input.mainEventStatus,
+      );
+
+    if (
+      balanceMainEventStatus !==
+        "confirmed"
+    ) {
+      return "main_event_lifecycle_conflict";
+    }
+
+    return null;
+  }
 
   if (
     requestStatus !==
@@ -227,47 +320,278 @@ export function canonicalPaymentLinkageReason(
     return requestLinkageReason;
   }
 
-  if (
-    paymentId !==
+  const hasP5PaymentIdentity =
+    payment.paymentChoice !== undefined ||
+    payment.obligationKey !== undefined ||
+    payment.obligationKind !== undefined;
+
+  let expectedPaymentId: string;
+  let expectedPaymentType: string;
+  let expectedAmountInCentavos: number;
+  let expectedAmount: number;
+
+  if (hasP5PaymentIdentity) {
+    const paymentChoice =
+      parseCustomerPaymentChoice(
+        payment.paymentChoice,
+      );
+
+    if (!paymentChoice) {
+      return "canonical_linkage_mismatch";
+    }
+
+    let obligation:
+
+      ReturnType<
+        typeof providerPaymentObligationForChoice
+      >;
+
+    try {
+      obligation =
+        providerPaymentObligationForChoice(
+          {
+            financialSnapshot:
+              providerRequest
+                .financialSnapshot,
+
+            paymentChoice,
+          },
+        );
+    } catch {
+      return "authoritative_amount_mismatch";
+    }
+
+    expectedPaymentId =
+      paymentIdForProviderRequestChoice(
+        providerRequestId,
+        paymentChoice,
+      );
+
+    expectedPaymentType =
+      obligation.paymentType;
+
+    expectedAmountInCentavos =
+      obligation.amountInCentavos;
+
+    expectedAmount =
+      obligation.amountInCentavos /
+      100;
+
+    if (
+      payment.paymentChoice !==
+        paymentChoice ||
+      payment.obligationKey !==
+        obligation.obligationKey ||
+      payment.obligationKind !==
+        obligation.obligationKind
+    ) {
+      return "canonical_linkage_mismatch";
+    }
+
+    /*
+     * New P5 requests persist immutable payment-history identity.
+     *
+     * Older P5 records may predate those fields, so generic
+     * payment linkage must continue validating their server-issued
+     * obligation identity from the immutable financial snapshot.
+     *
+     * Once any new history field is present, however, the complete
+     * immutable selection must be coherent.
+     */
+    const hasImmutableP5PaymentHistory =
+      providerRequest
+        .initialPaymentChoice !==
+        undefined ||
+      providerRequest
+        .initialPaymentId !==
+        undefined ||
+      providerRequest
+        .remainingBalancePaymentId !==
+        undefined ||
+      providerRequest
+        .settlementSchemaVersion !==
+        undefined;
+
+    if (hasImmutableP5PaymentHistory) {
+      const initialChoiceForP5 =
+        parseCustomerPaymentChoice(
+          providerRequest
+            .initialPaymentChoice,
+        );
+
+      if (
+        initialChoiceForP5 !==
+          "minimum" &&
+        initialChoiceForP5 !==
+          "full"
+      ) {
+        return "canonical_linkage_mismatch";
+      }
+
+      const expectedInitialPaymentIdForP5 =
+        paymentIdForProviderRequestChoice(
+          providerRequestId,
+          initialChoiceForP5,
+        );
+
+      const expectedBalancePaymentIdForP5 =
+        paymentIdForProviderRequestChoice(
+          providerRequestId,
+          "remaining_balance",
+        );
+
+      if (
+        providerRequest
+          .initialPaymentId !==
+          expectedInitialPaymentIdForP5
+      ) {
+        return "canonical_linkage_mismatch";
+      }
+
+      const storedBalancePaymentIdForP5 =
+        providerRequest
+          .remainingBalancePaymentId;
+
+      if (
+        storedBalancePaymentIdForP5 !==
+          undefined &&
+        storedBalancePaymentIdForP5 !==
+          null &&
+        (
+          initialChoiceForP5 !==
+            "minimum" ||
+          storedBalancePaymentIdForP5 !==
+            expectedBalancePaymentIdForP5
+        )
+      ) {
+        return "canonical_linkage_mismatch";
+      }
+
+      if (
+        paymentChoice ===
+          "remaining_balance"
+      ) {
+        if (
+          initialChoiceForP5 !==
+            "minimum" ||
+          storedBalancePaymentIdForP5 !==
+            expectedPaymentId
+        ) {
+          return "canonical_linkage_mismatch";
+        }
+      }
+      else if (
+        paymentChoice !==
+          initialChoiceForP5 ||
+        expectedPaymentId !==
+          expectedInitialPaymentIdForP5
+      ) {
+        return "canonical_linkage_mismatch";
+      }
+
+      /*
+       * paymentId may point to either the immutable initial
+       * obligation or the later balance obligation.
+       */
+      const storedCurrentPaymentIdForP5 =
+        providerRequest.paymentId;
+
+      if (
+        typeof storedCurrentPaymentIdForP5 !==
+          "string" ||
+        (
+          storedCurrentPaymentIdForP5 !==
+            expectedInitialPaymentIdForP5 &&
+          storedCurrentPaymentIdForP5 !==
+            storedBalancePaymentIdForP5
+        )
+      ) {
+        return "canonical_linkage_mismatch";
+      }
+    }
+  } else {
+    expectedPaymentId =
       paymentIdForProviderRequest(
         providerRequestId,
-      ) ||
-    payment.paymentId !== paymentId ||
+      );
+
+    expectedPaymentType =
+      "provider_down_payment";
+
+    const legacyAmountInCentavos =
+      authoritativeAmountInCentavos(
+        providerRequest
+          .downPaymentAmount,
+      );
+
+    if (
+      legacyAmountInCentavos ===
+      null
+    ) {
+      return "authoritative_amount_mismatch";
+    }
+
+    expectedAmountInCentavos =
+      legacyAmountInCentavos;
+
+    if (
+      typeof providerRequest
+        .downPaymentAmount !==
+      "number"
+    ) {
+      return "authoritative_amount_mismatch";
+    }
+
+    expectedAmount =
+      providerRequest
+        .downPaymentAmount;
+  }
+
+  if (
+    paymentId !==
+      expectedPaymentId ||
+    payment.paymentId !==
+      paymentId ||
     payment.providerRequestId !==
       providerRequestId ||
-    payment.mainEventId !== mainEventId ||
-    payment.bookingId !== mainEventId ||
-    payment.customerId !== customerId ||
-    payment.providerId !== providerId ||
+    payment.mainEventId !==
+      mainEventId ||
+    payment.bookingId !==
+      mainEventId ||
+    payment.customerId !==
+      customerId ||
+    payment.providerId !==
+      providerId ||
     payment.paymentType !==
-      "provider_down_payment" ||
-    payment.gateway !== "paymongo" ||
+      expectedPaymentType ||
+    payment.gateway !==
+      "paymongo" ||
     (
+      !hasP5PaymentIdentity &&
       providerRequest.paymentId !==
         undefined &&
-      providerRequest.paymentId !== null &&
-      providerRequest.paymentId !== paymentId
+      providerRequest.paymentId !==
+        null &&
+      providerRequest.paymentId !==
+        paymentId
     )
   ) {
     return "canonical_linkage_mismatch";
   }
 
-  const amountInCentavos =
-    authoritativeAmountInCentavos(
-      providerRequest.downPaymentAmount,
-    );
-
   if (
-    amountInCentavos === null ||
     payment.amountInCentavos !==
-      amountInCentavos ||
+      expectedAmountInCentavos ||
     payment.amount !==
-      providerRequest.downPaymentAmount
+      expectedAmount
   ) {
     return "authoritative_amount_mismatch";
   }
 
-  if (payment.currency !== PAYMENT_CURRENCY) {
+  if (
+    payment.currency !==
+      PAYMENT_CURRENCY
+  ) {
     return "currency_mismatch";
   }
 

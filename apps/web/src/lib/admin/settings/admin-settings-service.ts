@@ -8,14 +8,19 @@ import {
 } from "firebase-admin/firestore";
 
 import {
+  DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+  DEFAULT_PLATFORM_VAT_RATE_BPS,
   FIRESTORE_COLLECTIONS,
+  parseTaxRegistrationStatus,
 } from "@feasta/shared-types";
 
 import type {
   AdminPlatformSettings,
+  UpdateAdminFinancialPolicyResult,
   UpdateAdminPlatformSettingsResult,
 } from "@/lib/admin/settings/admin-settings-types";
 import {
+  validateAdminFinancialPolicyUpdate,
   validateAdminPlatformSettingsUpdate,
 } from "@/lib/admin/settings/admin-settings-validation";
 import {requireAdmin} from "@/lib/auth/session";
@@ -30,6 +35,31 @@ const defaultSettings: AdminPlatformSettings = {
   supportEmail: "",
   serviceAreaDescription:
     "FEASTA serves customers and verified event service providers in Ormoc City.",
+
+  platformCommissionRateBps:
+    DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
+
+  /*
+   * Capstone default means FEASTA does not
+   * apply platform VAT. This is system
+   * configuration, not evidence of BIR
+   * registration status.
+   */
+  platformTaxStatus: "non_vat",
+
+  /*
+   * Stored as the demonstration/default VAT
+   * rate but inactive while platformTaxStatus
+   * is non_vat.
+   */
+  platformVatRateBps:
+    DEFAULT_PLATFORM_VAT_RATE_BPS,
+
+  financialPolicyVersion: 1,
+
+  financialPolicyEffectiveAt:
+    null,
+
   timezone: "Asia/Manila",
   currencyCode: "PHP",
   schemaVersion: 1,
@@ -73,6 +103,29 @@ export async function updateAdminPlatformSettings(
         supportEmail: update.supportEmail,
         serviceAreaDescription:
           update.serviceAreaDescription,
+
+        /*
+         * General platform-profile updates must
+         * never mutate the financial policy.
+         */
+        platformCommissionRateBps:
+          current
+            .platformCommissionRateBps,
+
+        platformTaxStatus:
+          current.platformTaxStatus,
+
+        platformVatRateBps:
+          current.platformVatRateBps,
+
+        financialPolicyVersion:
+          current
+            .financialPolicyVersion,
+
+        financialPolicyEffectiveAt:
+          current
+            .financialPolicyEffectiveAt,
+
         timezone: "Asia/Manila",
         currencyCode: "PHP",
         schemaVersion: 1,
@@ -161,6 +214,235 @@ export async function updateAdminPlatformSettings(
   };
 }
 
+export async function updateAdminFinancialPolicy(
+  input: unknown,
+): Promise<UpdateAdminFinancialPolicyResult> {
+  const administrator =
+    await requireAdmin();
+
+  const update =
+    validateAdminFinancialPolicyUpdate(
+      input,
+    );
+
+  const settingsReference =
+    platformSettingsReference();
+
+  const changed =
+    await adminDb.runTransaction(
+      async (transaction) => {
+        const snapshot =
+          await transaction.get(
+            settingsReference,
+          );
+
+        const current =
+          mapPlatformSettings(
+            snapshot,
+          );
+
+        const storedData =
+          snapshot.data() ?? {};
+
+        /*
+         * Older appSettings/platform documents
+         * predate financial-policy fields.
+         *
+         * Mapped defaults must not make an
+         * unstored legacy policy look persisted.
+         */
+        const hasStoredFinancialPolicy =
+          snapshot.exists &&
+          storedBasisPointRateOrNull(
+            storedData
+              .platformCommissionRateBps,
+          ) !== null &&
+          parseTaxRegistrationStatus(
+            storedData.platformTaxStatus,
+          ) !== null &&
+          storedBasisPointRateOrNull(
+            storedData.platformVatRateBps,
+          ) !== null &&
+          storedPositiveIntegerOrNull(
+            storedData
+              .financialPolicyVersion,
+          ) !== null;
+
+        const policyAlreadyStored =
+          hasStoredFinancialPolicy &&
+          current.platformCommissionRateBps ===
+            update.platformCommissionRateBps &&
+          current.platformTaxStatus ===
+            update.platformTaxStatus &&
+          current.platformVatRateBps ===
+            update.platformVatRateBps;
+
+        if (policyAlreadyStored) {
+          return false;
+        }
+
+        const timestamp =
+          FieldValue.serverTimestamp();
+
+        const nextVersion =
+          hasStoredFinancialPolicy
+            ? current
+                .financialPolicyVersion +
+              1
+            : 1;
+
+        const financialFields = {
+          platformCommissionRateBps:
+            update
+              .platformCommissionRateBps,
+
+          platformTaxStatus:
+            update.platformTaxStatus,
+
+          platformVatRateBps:
+            update.platformVatRateBps,
+
+          financialPolicyVersion:
+            nextVersion,
+
+          financialPolicyEffectiveAt:
+            timestamp,
+
+          updatedAt:
+            timestamp,
+
+          updatedBy:
+            administrator.uid,
+        };
+
+        if (snapshot.exists) {
+          transaction.update(
+            settingsReference,
+            financialFields,
+          );
+        } else {
+          transaction.create(
+            settingsReference,
+            {
+              platformName:
+                defaultSettings
+                  .platformName,
+
+              operatingCity:
+                defaultSettings
+                  .operatingCity,
+
+              supportEmail:
+                defaultSettings
+                  .supportEmail,
+
+              serviceAreaDescription:
+                defaultSettings
+                  .serviceAreaDescription,
+
+              ...financialFields,
+
+              timezone:
+                defaultSettings.timezone,
+
+              currencyCode:
+                defaultSettings
+                  .currencyCode,
+
+              schemaVersion:
+                defaultSettings
+                  .schemaVersion,
+
+              isPublic:
+                defaultSettings
+                  .isPublic,
+
+              createdAt:
+                timestamp,
+
+              createdBy:
+                administrator.uid,
+            },
+          );
+        }
+
+        transaction.create(
+          adminDb
+            .collection(
+              ADMIN_LOGS_COLLECTION,
+            )
+            .doc(),
+          {
+            actorId:
+              administrator.uid,
+
+            actorRole:
+              "admin",
+
+            action:
+              "financial_policy_updated",
+
+            description:
+              "Updated FEASTA commission and platform tax configuration.",
+
+            targetCollection:
+              FIRESTORE_COLLECTIONS
+                .appSettings,
+
+            targetId:
+              PLATFORM_SETTINGS_DOCUMENT,
+
+            source:
+              "web_admin",
+
+            reason:
+              update.internalReason,
+
+            before:
+              snapshot.exists
+                ? financialAuditSnapshot(
+                    current,
+                  )
+                : null,
+
+            after: {
+              platformCommissionRateBps:
+                update
+                  .platformCommissionRateBps,
+
+              platformTaxStatus:
+                update
+                  .platformTaxStatus,
+
+              platformVatRateBps:
+                update
+                  .platformVatRateBps,
+
+              financialPolicyVersion:
+                nextVersion,
+            },
+
+            createdAt:
+              timestamp,
+          },
+        );
+
+        return true;
+      },
+    );
+
+  const savedSnapshot =
+    await settingsReference.get();
+
+  return {
+    settings:
+      mapPlatformSettings(
+        savedSnapshot,
+      ),
+    changed,
+  };
+}
+
 function platformSettingsReference() {
   return adminDb
     .collection(
@@ -195,6 +477,41 @@ function mapPlatformSettings(
       data.serviceAreaDescription,
       defaultSettings.serviceAreaDescription,
     ),
+
+    platformCommissionRateBps:
+      storedBasisPointRate(
+        data.platformCommissionRateBps,
+        defaultSettings
+          .platformCommissionRateBps,
+      ),
+
+    platformTaxStatus:
+      parseTaxRegistrationStatus(
+        data.platformTaxStatus,
+      ) ??
+      defaultSettings
+        .platformTaxStatus,
+
+    platformVatRateBps:
+      storedBasisPointRate(
+        data.platformVatRateBps,
+        defaultSettings
+          .platformVatRateBps,
+      ),
+
+    financialPolicyVersion:
+      storedPositiveInteger(
+        data.financialPolicyVersion,
+        defaultSettings
+          .financialPolicyVersion,
+      ),
+
+    financialPolicyEffectiveAt:
+      timestampToIsoString(
+        data
+          .financialPolicyEffectiveAt,
+      ),
+
     timezone: "Asia/Manila",
     currencyCode: "PHP",
     schemaVersion: 1,
@@ -240,11 +557,96 @@ function auditSnapshot(
     supportEmail: settings.supportEmail,
     serviceAreaDescription:
       settings.serviceAreaDescription,
+
+    platformCommissionRateBps:
+      settings.platformCommissionRateBps,
+
+    platformTaxStatus:
+      settings.platformTaxStatus,
+
+    platformVatRateBps:
+      settings.platformVatRateBps,
+
+    financialPolicyVersion:
+      settings.financialPolicyVersion,
+
     timezone: settings.timezone,
     currencyCode: settings.currencyCode,
     schemaVersion: settings.schemaVersion,
     isPublic: settings.isPublic,
   };
+}
+
+function financialAuditSnapshot(
+  settings: AdminPlatformSettings,
+) {
+  return {
+    platformCommissionRateBps:
+      settings
+        .platformCommissionRateBps,
+
+    platformTaxStatus:
+      settings.platformTaxStatus,
+
+    platformVatRateBps:
+      settings.platformVatRateBps,
+
+    financialPolicyVersion:
+      settings
+        .financialPolicyVersion,
+  };
+}
+
+function storedBasisPointRateOrNull(
+  value: unknown,
+): number | null {
+  if (
+    Number.isSafeInteger(value) &&
+    (value as number) >= 0 &&
+    (value as number) <=
+      10_000
+  ) {
+    return value as number;
+  }
+
+  return null;
+}
+
+function storedBasisPointRate(
+  value: unknown,
+  fallback: number,
+): number {
+  return (
+    storedBasisPointRateOrNull(
+      value,
+    ) ??
+    fallback
+  );
+}
+
+function storedPositiveIntegerOrNull(
+  value: unknown,
+): number | null {
+  if (
+    Number.isSafeInteger(value) &&
+    (value as number) >= 1
+  ) {
+    return value as number;
+  }
+
+  return null;
+}
+
+function storedPositiveInteger(
+  value: unknown,
+  fallback: number,
+): number {
+  return (
+    storedPositiveIntegerOrNull(
+      value,
+    ) ??
+    fallback
+  );
 }
 
 function storedText(

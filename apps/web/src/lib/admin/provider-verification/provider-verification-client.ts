@@ -23,6 +23,22 @@ export type ProviderReviewResult = {
   idempotentReplay: boolean;
 };
 
+export const providerTaxReviewActions = [
+  "verify",
+  "reject",
+] as const;
+
+export type ProviderTaxReviewAction =
+  (typeof providerTaxReviewActions)[number];
+
+export type ProviderTaxReviewResult = {
+  providerId: string;
+
+  verificationStatus:
+    | "verified"
+    | "rejected";
+};
+
 export async function reviewProviderVerification({
   verificationId,
   action,
@@ -56,6 +72,92 @@ export async function reviewProviderVerification({
     return response.data;
   } catch (error) {
     throw new Error(reviewErrorMessage(error));
+  }
+}
+
+export async function reviewProviderTaxProfile({
+  providerId,
+  action,
+  reason,
+}: {
+  providerId: string;
+  action: ProviderTaxReviewAction;
+  reason?: string;
+}): Promise<ProviderTaxReviewResult> {
+  if (!auth.currentUser) {
+    throw new Error(
+      "Your administrator session expired. Sign in again.",
+    );
+  }
+
+  try {
+    const callable = httpsCallable<
+      {
+        providerId: string;
+        action: ProviderTaxReviewAction;
+        reason?: string;
+      },
+      ProviderTaxReviewResult
+    >(
+      functions,
+      "reviewProviderTaxProfile",
+    );
+
+    const response =
+      await callable({
+        providerId,
+        action,
+        reason:
+          reason?.trim() ||
+          undefined,
+      });
+
+    return response.data;
+  } catch (error) {
+    throw new Error(
+      taxReviewErrorMessage(
+        error,
+      ),
+    );
+  }
+}
+
+function taxReviewErrorMessage(
+  error: unknown,
+): string {
+  const code =
+    typeof error === "object" &&
+    error != null &&
+    "code" in error
+      ? String(error.code)
+      : "";
+
+  switch (
+    code.replace(
+      "functions/",
+      "",
+    )
+  ) {
+    case "unauthenticated":
+      return "Your administrator session expired. Sign in again.";
+
+    case "permission-denied":
+      return "You are not authorized to review this tax profile.";
+
+    case "failed-precondition":
+      return "This tax profile changed or is no longer pending review.";
+
+    case "resource-exhausted":
+      return "Too many tax review attempts. Wait briefly and try again.";
+
+    case "invalid-argument":
+      return "Check the tax review reason and try again.";
+
+    case "not-found":
+      return "The provider tax profile no longer exists.";
+
+    default:
+      return "The tax-profile decision could not be saved. Try again.";
   }
 }
 

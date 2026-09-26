@@ -37,6 +37,8 @@ const policies = [
   ["checkMarketplaceProviderAvailability", "provider-availability/check-marketplace-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "rejectUnknownFields", "MAX_PROVIDER_IDS", "validateProviderAvailability", "isProviderPubliclyEligible"]],
   ["registerProvider", "providers/register-provider.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "requireTrustedProviderIdentity", "requireProviderRegistrationConsent"]],
   ["saveProviderOnboardingDraft", "providers/save-provider-onboarding-draft.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "runTransaction", "requireTrustedProviderIdentity", "EDITABLE_APPLICATION_STATUSES", "writeAuditLogInTransaction"]],
+  ["submitProviderTaxProfile", "providers/provider-tax-profile.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "validateProviderTaxProfileSubmission", "runTransaction", "writeAuditLogInTransaction"]],
+  ["reviewProviderTaxProfile", "providers/provider-tax-profile.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "validateProviderTaxProfileReview", "runTransaction", "writeAuditLogInTransaction"]],
   [
     "createProviderMediaUploadSignature",
     "providers/provider-media.ts",
@@ -246,16 +248,21 @@ const policies = [
   ["removeVerificationDocument", "verification/remove-verification-document.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "EDITABLE_STATUSES", "writeAuditLogInTransaction"]],
   ["submitProviderVerification", "verification/submit-provider-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "requireTrustedProviderIdentity"]],
   ["reviewProviderVerification", "verification/review-provider-verification.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "createNotificationInTransaction", "loadApprovalOwnerAuth", "requireTrustedProviderIdentity"]],
+  ["createServiceCategory", "admin/service-category-management.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "authorizeAdmin", "requireCategoryCode", "requireCategoryName", "requireCategoryServiceType", "requireCapacityCapabilities", "runTransaction", "writeAuditLogInTransaction"]],
+  ["updateServiceCategory", "admin/service-category-management.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "authorizeAdmin", "requireCategoryCode", "requireCategoryName", "requireCapacityCapabilities", "categoryUsageCounts", "runTransaction", "writeAuditLogInTransaction"]],
+  ["discontinueServiceCategory", "admin/service-category-management.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "authorizeAdmin", "changeCategoryStatus", "requireCategoryCode", "runTransaction", "writeAuditLogInTransaction"]],
+  ["reactivateServiceCategory", "admin/service-category-management.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "authorizeAdmin", "changeCategoryStatus", "requireCategoryCode", "runTransaction", "writeAuditLogInTransaction"]],
+  ["deleteServiceCategory", "admin/service-category-management.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "authorizeAdmin", "requireCategoryCode", "categoryUsageCounts", "runTransaction", "writeAuditLogInTransaction"]],
   ["createComplaint", "content/create-complaint.ts", ["requireAuth(request)", "requireActiveUser", "enforceCallableRateLimit", "executeIdempotently", "writeAuditLogInTransaction"]],
   ["submitReview", "content/submit-review.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "executeIdempotently"]],
   ["deleteReview", "content/delete-review.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "executeIdempotently", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
-  ["createPaymentSession", "payments/create-payment-session.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "defineSecret", "rejectUnknownFields", "paymentIdForProviderRequest", "canonicalPaymentLinkageReason", "providerOperationalReason", "payMongoFailureCertainty", "calculateMainEventRequestSummary", "runTransaction"]],
+  ["createPaymentSession", "payments/create-payment-session.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "defineSecret", "rejectUnknownFields", "parseInitialPaymentChoice", "paymentIdForProviderRequestChoice", "providerPaymentObligationForChoice", "initialPaymentSelectionReason", "paymentIdForProviderRequest", "canonicalPaymentLinkageReason", "providerOperationalReason", "payMongoFailureCertainty", "calculateMainEventRequestSummary", "runTransaction"]],
   ["acceptProviderRequest", "provider-requests/accept-provider-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "assertCanonicalProviderRequestCore", "requireProviderResponseParentStatus", "validateAcceptanceProviderRequest", "validateProviderAvailability", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
   ["rejectProviderRequest", "provider-requests/reject-provider-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "assertCanonicalProviderRequestCore", "requireProviderResponseParentStatus", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
   ["markProviderBookingInProgress", "provider-requests/update-provider-booking-lifecycle.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
   ["completeProviderBooking", "provider-requests/update-provider-booking-lifecycle.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "authorizeProviderRequest", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
-  ["advanceProviderRequestRefundEligibilityStage", "cancellations/advance-refund-eligibility-stage.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "executeIdempotently", "assertCanonicalProviderRequestCore", "canonicalPaymentLinkageReason", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
-  ["submitProviderRequestCancellation", "cancellations/submit-provider-request-cancellation.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "executeIdempotently", "canonicalRequestLinkageReason", "canonicalPaymentLinkageReason", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
+  ["advanceProviderRequestRefundEligibilityStage", "cancellations/advance-refund-eligibility-stage.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "executeIdempotently", "assertCanonicalProviderRequestCore", "readTrustedProviderRequestPaymentSetInTransaction", "assertPreparationReadyForSettlement", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
+  ["submitProviderRequestCancellation", "cancellations/submit-provider-request-cancellation.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "executeIdempotently", "canonicalRequestLinkageReason", "readTrustedProviderRequestPaymentSetInTransaction", "calculateCancellationRefundForPaymentSet", "runTransaction", "writeAuditLogInTransaction", "createNotificationInTransaction", "appCheckCallableOptions"]],
   ["getProviderRequestCancellationOptions", "cancellations/get-provider-request-cancellation.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "INPUT_FIELDS", "canonicalRequestLinkageReason", "canonicalPaymentLinkageReason", "parseCancellationRefundRollout", "runTransaction", "appCheckCallableOptions"]],
   ["getProviderRequestCancellationStatus", "cancellations/get-provider-request-cancellation.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "INPUT_FIELDS", "canonicalRequestLinkageReason", "canonicalPaymentLinkageReason", "participantCancellationStatus", "appCheckCallableOptions"]],
   ["approveProviderRequestCancellationRefund", "refunds/refund-execution.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "exactInput", "approveCancellation", "canonicalRequestLinkageReason", "canonicalPaymentLinkageReason", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
@@ -288,6 +295,7 @@ test("payment checkout keeps provider-request authority and fail-safe gateway ha
     checkout.indexOf("export async function createPaymentSessionForCustomer"),
   );
   assert.ok(callable.includes('"providerRequestId"'));
+  assert.ok(callable.includes('"paymentChoice"'));
   assert.ok(callable.includes('"idempotencyKey"'));
   for (const field of ["amount", "customerId", "providerId", "bookingId", "paymentStatus", "successUrl", "cancelUrl"]) {
     assert.ok(
@@ -366,7 +374,10 @@ test("refund adjudication and execution never accept browser money authority", (
   assert.ok(execution.includes('"cancellationRequestId",\n      "idempotencyKey"'));
   assert.ok(execution.includes('"cancellationRequestId",\n      "reason",\n      "idempotencyKey"'));
   assert.ok(execution.includes("calculateCancellationRefund({"));
-  assert.ok(execution.includes("amountInCentavos: prepared.amountInCentavos"));
+  assert.match(
+    execution,
+    /amountInCentavos:\s*prepared\s*\.amountInCentavos/u,
+  );
   assert.equal(execution.includes("input.refundAmount"), false);
   assert.equal(execution.includes("input.refundBasisPoints"), false);
   assert.equal(execution.includes("request.data.paymentId"), false);
@@ -404,7 +415,33 @@ test("all deployed exports remain in the reviewed inventory", () => {
   const index = source("index.ts");
   const names = new Set();
   for (const match of index.matchAll(/export const\s+(\w+)\s*=/gu)) names.add(match[1]);
-  for (const match of index.matchAll(/export\s*\{\s*(\w+)[\s,}]/gu)) names.add(match[1]);
+  for (
+    const block of index.matchAll(
+      /export\s*\{([\s\S]*?)\}\s*from\s*["'][^"']+["'];/gu,
+    )
+  ) {
+    const entries =
+      block[1]
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+
+    for (const entry of entries) {
+      const parsed =
+        /^(?:type\s+)?(\w+)(?:\s+as\s+(\w+))?$/u.exec(
+          entry,
+        );
+
+      assert.ok(
+        parsed,
+        `Unsupported exported symbol syntax: ${entry}`,
+      );
+
+      names.add(
+        parsed[2] ?? parsed[1],
+      );
+    }
+  }
   assert.deepEqual([...names].sort(), [
     "acceptProviderRequest",
     "advanceProviderRequestRefundEligibilityStage",
@@ -416,6 +453,8 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "createComplaint",
     "createPaymentSession",
     "createProviderMediaUploadSignature",
+    "createProviderService",
+    "createProviderServiceImageUploadSignature",
     "createServiceCategory",
     "archiveProviderPackage",
     "createProviderPackage",
@@ -424,7 +463,11 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "updateProviderPackage",
     "deactivateCustomerAccount",
     "deactivateProviderAccount",
+    "deleteServiceCategory",
+    "deleteProviderOnboardingMedia",
+    "deleteProviderServiceImage",
     "deleteReview",
+    "discontinueServiceCategory",
     "ensureProviderIdentity",
     "ensureUserProfile",
     "executeProviderRequestRefund",
@@ -444,6 +487,8 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "payMongoWebhook",
     "prepareCustomerPhoneVerification",
     "prepareProviderPhoneVerification",
+    "publishProviderService",
+    "reactivateServiceCategory",
     "registerProvider",
     "registerVerificationDocument",
     "rejectProviderRequestCancellation",
@@ -451,6 +496,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "removeVerificationDocument",
     "requestPaymentRefund",
     "reverseGeocode",
+    "reviewProviderTaxProfile",
     "reviewProviderVerification",
     "revokeAllAccountSessions",
     "revokeAllCustomerSessions",
@@ -460,6 +506,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "setPackageRefundPolicyOverride",
     "submitBookingRequest",
     "submitProviderRequestCancellation",
+    "submitProviderTaxProfile",
     "submitProviderVerification",
     "submitReview",
     "syncPhoneVerification",
@@ -470,6 +517,8 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "updateProviderAvailability",
     "updateProviderAvailabilitySettings",
     "updateProviderBusinessProfile",
+    "updateServiceCategory",
+    "updateProviderService",
     "updateRoleAccountProfile",
   ].sort());
   assert.equal(index.includes("onSchedule"), false);

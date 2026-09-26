@@ -22,7 +22,12 @@ const props = {eventTypesSupported: ["birthday"], minGuestsPerEvent: 10, maxGues
 const image = "https://res.cloudinary.com/feasta/image/upload/v1/feasta/providers/owner/services/asset/image.png";
 const record: ProviderPackage = {
   id: "package-one", providerId: "provider-one", name: "Party package", description: "A celebration package.", eventType: "birthday",
-  price: 10000, downPaymentPercentage: 20, minimumGuests: 10, maximumGuests: 50, imageUrl: image,
+  price: 10000,
+  paymentPolicy: "deposit_then_balance",
+  depositPercentage: 20,
+  balanceDueDaysBeforeEvent: 7,
+  downPaymentPercentage: 20,
+  minimumGuests: 10, maximumGuests: 50, imageUrl: image,
   foodInclusions: [], decorInclusions: [], furnitureInclusions: [], serviceInclusions: [],
   status: "draft", isActive: false, isPublished: false, providerPubliclyVisible: false,
 };
@@ -47,6 +52,93 @@ describe("provider package modal and media", () => {
     fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({name: "Updated package", ...inclusions})));
   });
+  it("supports full payment and deposit-plus-balance package terms", async () => {
+    render(
+      <ProviderPackageForm
+        {...props}
+        initialPackage={record}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole(
+        "radio",
+        {
+          name:
+            /Down Payment \+ Balance/,
+        },
+      ),
+    ).toBeChecked();
+
+    expect(
+      screen.getByRole(
+        "spinbutton",
+        {
+          name:
+            /Minimum payment/,
+        },
+      ),
+    ).toHaveValue(20);
+
+    expect(
+      screen.getByRole(
+        "spinbutton",
+        {
+          name:
+            /Balance due before event/,
+        },
+      ),
+    ).toHaveValue(7);
+
+    fireEvent.click(
+      screen.getByRole(
+        "radio",
+        {
+          name:
+            /Full Payment/,
+        },
+      ),
+    );
+
+    expect(
+      screen.queryByRole(
+        "spinbutton",
+        {
+          name:
+            /Minimum payment/,
+        },
+      ),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole(
+        "button",
+        {
+          name:
+            "Save changes",
+        },
+      ),
+    );
+
+    await waitFor(() =>
+      expect(
+        mocks.update,
+      ).toHaveBeenCalledWith(
+        record.id,
+        expect.objectContaining({
+          paymentPolicy:
+            "full_payment",
+          depositPercentage:
+            100,
+          balanceDueDaysBeforeEvent:
+            null,
+        }),
+      ),
+    );
+  });
+
   it("edits the actual package in the shared dialog, preserves the listing and restores opener focus", async () => {
     const user = userEvent.setup();
     mocks.list.mockResolvedValue([{...record, imageUrls: [image, image.replace("asset", "second")], foodInclusions: ["Rice"]}]);

@@ -93,7 +93,6 @@ describe("provider navigation configuration", () => {
       null,
       "BOOKINGS",
       "SERVICES",
-      "COMMUNICATION",
       "BUSINESS",
       "ACCOUNT",
     ]);
@@ -104,7 +103,7 @@ describe("provider navigation configuration", () => {
     const disabled = navigationItems.filter((item) => item.kind === "disabled");
 
     expect(disabled).toEqual([]);
-    expect(hrefs(approvedProvider)).toContain("/provider/messages");
+    expect(hrefs(approvedProvider)).not.toContain("/provider/messages");
     expect(hrefs(approvedProvider)).toContain("/provider/business-profile");
     expect(hrefs(approvedProvider)).toContain("/provider/reviews");
   });
@@ -115,6 +114,7 @@ describe("provider navigation configuration", () => {
       expect(draftHrefs).toEqual([
         "/provider/packages",
         "/provider/verification",
+        "/provider/tax-profile",
         "/provider/account",
       ]);
     }
@@ -127,12 +127,14 @@ describe("provider navigation configuration", () => {
     ] as const) {
       expect(hrefs(providerContext({verificationStatus}))).toEqual([
         "/provider/verification",
+        "/provider/tax-profile",
         "/provider/account",
       ]);
     }
 
     expect(hrefs(providerContext({isActive: false}))).toEqual([
       "/provider/verification",
+      "/provider/tax-profile",
       "/provider/account",
     ]);
     expect(hrefs(approvedProvider)).toContain("/provider/requests");
@@ -182,6 +184,7 @@ describe("provider navigation configuration", () => {
       "/provider/business-profile",
       "/provider/packages",
       "/provider/services",
+      "/provider/tax-profile",
       "/provider/verification",
       "/provider/status",
       "/provider/account",
@@ -269,7 +272,6 @@ describe("provider navigation rendering", () => {
     for (const section of [
       "BOOKINGS",
       "SERVICES",
-      "COMMUNICATION",
       "BUSINESS",
       "ACCOUNT",
     ]) {
@@ -391,8 +393,8 @@ describe("provider navigation rendering", () => {
       .toHaveAttribute("href", "/provider/reviews");
     expect(within(complete).getByRole("link", {name: "Business Profile"}))
       .toHaveAttribute("href", "/provider/business-profile");
-    expect(within(complete).getByRole("link", {name: "Messages"}))
-      .toHaveAttribute("href", "/provider/messages");
+    expect(within(complete).queryByRole("link", {name: "Messages"}))
+      .not.toBeInTheDocument();
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("navigation", {
@@ -409,7 +411,7 @@ describe("provider navigation rendering", () => {
     };
     document.addEventListener("click", preventDocumentNavigation);
     await user.click(within(reopened).getByRole("link", {
-      name: "Messages",
+      name: "Account & Settings",
     }));
     document.removeEventListener("click", preventDocumentNavigation);
     expect(screen.queryByRole("navigation", {
@@ -519,8 +521,8 @@ describe("provider navigation rendering", () => {
     const reviews = within(complete).getByRole("link", {name: "Reviews"});
     expect(reviews).toHaveAttribute("href", "/provider/reviews");
     expect(reviews).toHaveAttribute("aria-current", "page");
-    expect(within(complete).getByRole("link", {name: "Messages"}))
-      .toHaveAttribute("href", "/provider/messages");
+    expect(within(complete).queryByRole("link", {name: "Messages"}))
+      .not.toBeInTheDocument();
 
     const preventDocumentNavigation = (event: MouseEvent) => {
       event.preventDefault();
@@ -533,7 +535,7 @@ describe("provider navigation rendering", () => {
     })).not.toBeInTheDocument();
   });
 
-  it("marks nested Messages routes active and closes mobile More on selection", async () => {
+  it("omits Messages and Communication from navigation on Messages routes", async () => {
     navigation.pathname = "/provider/messages/conversation";
     const user = userEvent.setup();
     render(
@@ -549,8 +551,10 @@ describe("provider navigation rendering", () => {
     const desktop = screen.getByRole("navigation", {
       name: "Provider primary navigation",
     });
-    expect(within(desktop).getByRole("link", {name: "Messages"}))
-      .toHaveAttribute("aria-current", "page");
+    expect(within(desktop).queryByRole("link", {name: "Messages"}))
+      .not.toBeInTheDocument();
+    expect(within(desktop).queryByRole("heading", {name: "COMMUNICATION"}))
+      .not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", {
       name: "More provider navigation",
@@ -558,19 +562,10 @@ describe("provider navigation rendering", () => {
     const complete = screen.getByRole("navigation", {
       name: "Provider complete mobile navigation",
     });
-    const messages = within(complete).getByRole("link", {name: "Messages"});
-    expect(messages).toHaveAttribute("href", "/provider/messages");
-    expect(messages).toHaveAttribute("aria-current", "page");
-
-    const preventDocumentNavigation = (event: MouseEvent) => {
-      event.preventDefault();
-    };
-    document.addEventListener("click", preventDocumentNavigation);
-    await user.click(messages);
-    document.removeEventListener("click", preventDocumentNavigation);
-    expect(screen.queryByRole("navigation", {
-      name: "Provider complete mobile navigation",
-    })).not.toBeInTheDocument();
+    expect(within(complete).queryByRole("link", {name: "Messages"}))
+      .not.toBeInTheDocument();
+    expect(within(complete).queryByRole("heading", {name: "COMMUNICATION"}))
+      .not.toBeInTheDocument();
   });
 
   it("marks nested Business Profile routes active and closes More on selection", async () => {
@@ -602,8 +597,8 @@ describe("provider navigation rendering", () => {
       name: "Business Profile",
     });
     expect(businessProfile).toHaveAttribute("aria-current", "page");
-    expect(within(complete).getByRole("link", {name: "Messages"}))
-      .toHaveAttribute("href", "/provider/messages");
+    expect(within(complete).queryByRole("link", {name: "Messages"}))
+      .not.toBeInTheDocument();
     expect(within(complete).getByRole("link", {name: "Reviews"}))
       .toHaveAttribute("href", "/provider/reviews");
 

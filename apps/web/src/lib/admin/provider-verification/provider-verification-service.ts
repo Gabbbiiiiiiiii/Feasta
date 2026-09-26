@@ -9,7 +9,10 @@ import {
   type Query,
   type QueryDocumentSnapshot,
 } from "firebase-admin/firestore";
-import {parseProviderVerificationStatusStrict} from "@feasta/shared-types";
+import {
+  parseProviderVerificationStatusStrict,
+  parseTaxRegistrationStatus,
+} from "@feasta/shared-types";
 
 import { requireAdmin } from "@/lib/auth/session";
 import { adminDb } from "@/lib/firebase/admin";
@@ -18,6 +21,7 @@ import type {
   ProviderVerificationQueueFilters,
   ProviderVerificationQueueItem,
   ProviderVerificationQueuePage,
+  ProviderTaxProfileReviewDetail,
   ProviderVerificationQueueSummary,
   ProviderVerificationReviewDetail,
   VerificationActivity,
@@ -655,16 +659,45 @@ export async function getProviderVerificationReview(
     return null;
   }
 
-  const [ownerSnapshot, documentsSnapshot, historySnapshot] = await Promise.all([
-    adminDb.collection("users").doc(ownerId).get(),
-    verificationSnapshot.ref.collection("documents").limit(20).get(),
+  const [
+    ownerSnapshot,
+    documentsSnapshot,
+    historySnapshot,
+    taxProfileSnapshot,
+  ] = await Promise.all([
+    adminDb
+      .collection("users")
+      .doc(ownerId)
+      .get(),
+
+    verificationSnapshot.ref
+      .collection("documents")
+      .limit(20)
+      .get(),
+
     verificationSnapshot.ref
       .collection("history")
       .orderBy("createdAt", "desc")
       .limit(50)
       .get(),
+
+    adminDb
+      .collection(
+        "providerTaxProfiles",
+      )
+      .doc(providerId)
+      .get(),
   ]);
-  const owner = ownerSnapshot.data() ?? {};
+
+  const owner =
+    ownerSnapshot.data() ?? {};
+
+  const taxProfile =
+    mapProviderTaxProfileReview(
+      taxProfileSnapshot,
+      providerId,
+      ownerId,
+    );
   const documents = documentsSnapshot.docs.map((document) => {
     const data = document.data();
     const fileSize = Number(data.fileSize);
@@ -775,6 +808,9 @@ export async function getProviderVerificationReview(
         "cover",
       ),
     },
+
+    taxProfile,
+
     status,
     submittedAt: formatDateTime(
       verification.submittedAt ?? verification.createdAt,
@@ -805,6 +841,106 @@ export async function getProviderVerificationReview(
       };
     }),
   };
+}
+
+function mapProviderTaxProfileReview(
+  snapshot:
+    DocumentSnapshot<DocumentData>,
+  providerId: string,
+  ownerId: string,
+): ProviderTaxProfileReviewDetail | null {
+  if (!snapshot.exists) {
+    return null;
+  }
+
+  const data =
+    snapshot.data() ?? {};
+
+  /*
+   * A malformed or cross-linked tax record must
+   * never be exposed inside another provider's
+   * administrator review.
+   */
+  if (
+    getString(data.providerId) !==
+      providerId ||
+    getString(data.ownerId) !==
+      ownerId
+  ) {
+    return null;
+  }
+
+  const birRegisteredName =
+    getString(
+      data.birRegisteredName,
+    );
+
+  const tin =
+    getString(data.tin);
+
+  const taxType =
+    parseTaxRegistrationStatus(
+      data.taxType,
+    );
+
+  const verificationStatus =
+    providerTaxReviewStatus(
+      data.verificationStatus,
+    );
+
+  if (
+    birRegisteredName.length < 2 ||
+    birRegisteredName.length > 160 ||
+    !/^\d{9,15}$/u.test(tin) ||
+    !taxType ||
+    !verificationStatus
+  ) {
+    return null;
+  }
+
+  return {
+    birRegisteredName,
+    tin,
+    taxType,
+    verificationStatus,
+
+    submittedAt:
+      formatDateTime(
+        data.submittedAt,
+      ),
+
+    verifiedAt:
+      formatDateTime(
+        data.verifiedAt,
+      ),
+
+    rejectedAt:
+      formatDateTime(
+        data.rejectedAt,
+      ),
+
+    rejectionReason:
+      getNullableString(
+        data.rejectionReason,
+      ),
+  };
+}
+
+function providerTaxReviewStatus(
+  value: unknown,
+):
+ProviderTaxProfileReviewDetail[
+  "verificationStatus"
+] | null {
+  if (
+    value === "pending" ||
+    value === "verified" ||
+    value === "rejected"
+  ) {
+    return value;
+  }
+
+  return null;
 }
 
 function cloudinaryProviderImageUrl(

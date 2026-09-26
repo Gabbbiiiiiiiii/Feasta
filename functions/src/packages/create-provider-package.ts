@@ -23,6 +23,7 @@ import {
 } from "../shared/timestamps.js";
 
 import {
+  assertCanonicalPackagePaymentTerms,
   assertPackageMatchesProviderCapabilities,
   authorizeProviderForPackageManagement,
   parsePackageInput,
@@ -34,6 +35,9 @@ const ALLOWED_FIELDS = [
   "description",
   "eventType",
   "price",
+  "paymentPolicy",
+  "depositPercentage",
+  "balanceDueDaysBeforeEvent",
   "downPaymentPercentage",
   "minimumGuests",
   "maximumGuests",
@@ -80,6 +84,10 @@ export const createProviderPackage = onCall(
 
     const validated =
       parsePackageInput(input);
+
+    assertCanonicalPackagePaymentTerms(
+      validated,
+    );
 
     const userReference = db
       .collection("users")
@@ -162,6 +170,22 @@ export const createProviderPackage = onCall(
             price:
               validated.price,
 
+            paymentPolicy:
+              validated.paymentPolicy,
+
+            depositPercentage:
+              validated
+                .depositPercentage,
+
+            balanceDueDaysBeforeEvent:
+              validated
+                .balanceDueDaysBeforeEvent,
+
+            /*
+             * Compatibility field retained until
+             * booking/provider-request migration
+             * is complete.
+             */
             downPaymentPercentage:
               validated
                 .downPaymentPercentage,
