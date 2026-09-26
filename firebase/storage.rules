@@ -1,0 +1,417 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function currentUserId() {
+      return request.auth.uid;
+    }
+
+    function userExists() {
+      return isSignedIn() &&
+        firestore.exists(
+          /databases/(default)/documents/users/$(currentUserId())
+        );
+    }
+
+    function currentUser() {
+      return firestore.get(
+        /databases/(default)/documents/users/$(currentUserId())
+      ).data;
+    }
+
+    function isAdmin() {
+      return userExists() &&
+        currentUser().role == 'admin' &&
+        currentUser().accountStatus == 'active' &&
+        currentUser().isBlocked != true;
+    }
+
+    function isActiveUser() {
+      return userExists() &&
+        currentUser().accountStatus is string &&
+        currentUser().accountStatus == 'active' &&
+        currentUser().isActive is bool &&
+        currentUser().isActive != false &&
+        currentUser().isBlocked is bool &&
+        currentUser().isBlocked != true;
+    }
+
+    // Ownership is derived only from the authenticated UID and Firestore.
+    // Reject ownership-like custom metadata so clients cannot create a second,
+    // misleading ownership channel on protected objects.
+    function hasNoSpoofedOwnershipMetadata() {
+      return !request.resource.metadata.keys().hasAny([
+        'ownerId',
+        'userId',
+        'providerId',
+        'uid'
+      ]);
+    }
+
+    function isAllowedImage(fileName) {
+      return (
+        request.resource.contentType == 'image/jpeg' &&
+        fileName.matches('.*\\.(jpg|jpeg|JPG|JPEG)')
+      ) || (
+        request.resource.contentType == 'image/png' &&
+        fileName.matches('.*\\.(png|PNG)')
+      ) || (
+        request.resource.contentType == 'image/webp' &&
+        fileName.matches('.*\\.(webp|WEBP)')
+      );
+    }
+
+    function isAllowedVerificationFile(fileName) {
+      return isAllowedImage(fileName) || (
+        request.resource.contentType == 'application/pdf' &&
+        fileName.matches('.*\\.(pdf|PDF)')
+      );
+    }
+
+    function isAllowedAttachment(fileName) {
+      return isAllowedVerificationFile(fileName);
+    }
+
+    function providerExists(providerId) {
+      return firestore.exists(
+        /databases/(default)/documents/providers/$(providerId)
+      );
+    }
+
+    function providerData(providerId) {
+      return firestore.get(
+        /databases/(default)/documents/providers/$(providerId)
+      ).data;
+    }
+
+    function ownsProvider(providerId) {
+      return isActiveUser() &&
+        providerExists(providerId) &&
+        providerData(providerId).ownerId == currentUserId();
+    }
+
+    function providerIsApproved(providerId) {
+      return providerExists(providerId) &&
+        'publiclyVisible' in providerData(providerId) &&
+        providerData(providerId).publiclyVisible == true &&
+        'verificationStatus' in providerData(providerId) &&
+        providerData(providerId).verificationStatus == 'approved' &&
+        'isActive' in providerData(providerId) &&
+        providerData(providerId).isActive == true &&
+        (
+          !('isSuspended' in providerData(providerId)) ||
+          providerData(providerId).isSuspended == false
+        ) &&
+        (
+          !('isDeleted' in providerData(providerId)) ||
+          providerData(providerId).isDeleted == false
+        ) &&
+        providerOwnerAccountIsActive(providerId);
+    }
+
+    function providerOwnerAccountIsActive(providerId) {
+      let ownerId = providerData(providerId).ownerId;
+      return ownerId is string &&
+        firestore.exists(
+          /databases/(default)/documents/users/$(ownerId)
+        ) &&
+        firestore.get(
+          /databases/(default)/documents/users/$(ownerId)
+        ).data.role == 'provider' &&
+        firestore.get(
+          /databases/(default)/documents/users/$(ownerId)
+        ).data.providerId == providerId &&
+        firestore.get(
+          /databases/(default)/documents/users/$(ownerId)
+        ).data.accountStatus == 'active' &&
+        firestore.get(
+          /databases/(default)/documents/users/$(ownerId)
+        ).data.isBlocked != true &&
+        firestore.get(
+          /databases/(default)/documents/users/$(ownerId)
+        ).data.isActive != false;
+    }
+
+    function ownsProviderMediaPath(providerId) {
+      return ownsProvider(providerId) ||
+        (
+          isActiveUser() &&
+          currentUser().role == 'provider' &&
+          providerId == currentUserId() &&
+          !providerExists(providerId) &&
+          currentUser().providerId == null
+        );
+    }
+
+    function providerVerificationIsEditable(providerId) {
+      return firestore.get(
+        /databases/(default)/documents/providers/$(providerId)
+      ).data.verificationStatus in [
+        'draft',
+        'resubmission_required'
+      ];
+    }
+
+    function bookingExists(bookingId) {
+      return firestore.exists(
+        /databases/(default)/documents/bookings/$(bookingId)
+      );
+    }
+
+    function bookingData(bookingId) {
+      return firestore.get(
+        /databases/(default)/documents/bookings/$(bookingId)
+      ).data;
+    }
+
+    function isBookingParticipant(bookingId) {
+      return isActiveUser() &&
+        bookingExists(bookingId) &&
+        (
+          bookingData(bookingId).customerId == currentUserId() ||
+          (
+            bookingData(bookingId).providerId is string &&
+            ownsProvider(bookingData(bookingId).providerId)
+          ) ||
+          (
+            bookingData(bookingId).providerIds is list &&
+            currentUser().providerId is string &&
+            bookingData(bookingId).providerIds.hasAny([
+              currentUser().providerId
+            ])
+          ) ||
+          isAdmin()
+        );
+    }
+
+    function complaintExists(complaintId) {
+      return firestore.exists(
+        /databases/(default)/documents/complaints/$(complaintId)
+      );
+    }
+
+    function complaintData(complaintId) {
+      return firestore.get(
+        /databases/(default)/documents/complaints/$(complaintId)
+      ).data;
+    }
+
+    function mainEventExists(mainEventId) {
+      return firestore.exists(
+        /databases/(default)/documents/mainEvents/$(mainEventId)
+      );
+    }
+
+    function ownsMainEvent(mainEventId) {
+      return isActiveUser() &&
+        mainEventExists(mainEventId) &&
+        firestore.get(
+          /databases/(default)/documents/mainEvents/$(mainEventId)
+        ).data.customerId == currentUserId();
+    }
+
+    function isComplaintCreator(complaintId) {
+      return isActiveUser() &&
+        complaintExists(complaintId) &&
+        complaintData(complaintId).userId == currentUserId();
+    }
+
+    function isRelatedComplaintProvider(complaintId) {
+      return isActiveUser() &&
+        complaintExists(complaintId) &&
+        complaintData(complaintId).providerId is string &&
+        ownsProvider(complaintData(complaintId).providerId);
+    }
+
+    function isVerificationDocumentType(documentType) {
+      return documentType in [
+        'business_permit',
+        'dti_registration',
+        'bir_registration',
+        'valid_id',
+        'sanitary_permit',
+        'mayors_permit',
+        'other'
+      ];
+    }
+
+    function isUnderSize(maxBytes) {
+      return request.resource.size > 0 &&
+        request.resource.size <= maxBytes;
+    }
+
+    match /users/{userId}/profile/{fileName} {
+      allow read: if isSignedIn() &&
+        (
+          currentUserId() == userId ||
+          isAdmin()
+        );
+
+      allow create, update: if isActiveUser() &&
+        currentUserId() == userId &&
+        hasNoSpoofedOwnershipMetadata() &&
+        isAllowedImage(fileName) &&
+        isUnderSize(5 * 1024 * 1024);
+
+      allow delete: if isActiveUser() &&
+        currentUserId() == userId;
+    }
+
+    match /providers/{providerId}/logo/{fileName} {
+      allow read: if providerIsApproved(providerId) ||
+        (
+          isActiveUser() &&
+          (
+            ownsProviderMediaPath(providerId) ||
+            isAdmin()
+          )
+        );
+
+      allow create, update: if ownsProviderMediaPath(providerId) &&
+        hasNoSpoofedOwnershipMetadata() &&
+        isAllowedImage(fileName) &&
+        isUnderSize(5 * 1024 * 1024);
+
+      allow delete: if ownsProviderMediaPath(providerId);
+    }
+
+    match /providers/{providerId}/cover/{fileName} {
+      allow read: if providerIsApproved(providerId) ||
+        (
+          isActiveUser() &&
+          (
+            ownsProviderMediaPath(providerId) ||
+            isAdmin()
+          )
+        );
+
+      allow create, update: if ownsProviderMediaPath(providerId) &&
+        hasNoSpoofedOwnershipMetadata() &&
+        isAllowedImage(fileName) &&
+        isUnderSize(10 * 1024 * 1024);
+
+      allow delete: if ownsProviderMediaPath(providerId);
+    }
+
+    match /providers/{providerId}/verification/{documentType}/{fileName} {
+      allow read: if isActiveUser() &&
+        (
+          ownsProvider(providerId) ||
+          isAdmin()
+        );
+
+      allow create, update: if ownsProvider(providerId) &&
+        providerVerificationIsEditable(providerId) &&
+        isVerificationDocumentType(documentType) &&
+        hasNoSpoofedOwnershipMetadata() &&
+        isAllowedVerificationFile(fileName) &&
+        isUnderSize(10 * 1024 * 1024);
+
+      // Removal is coordinated by removeVerificationDocument so metadata,
+      // editable-state checks, audit logging, and object retention cannot
+      // diverge. The Admin SDK performs the final private-object deletion.
+      allow delete: if false;
+    }
+
+    match /providers/{providerId}/packages/{fileName} {
+      allow read: if providerIsApproved(providerId) ||
+        (
+          isActiveUser() &&
+          (
+            ownsProvider(providerId) ||
+            isAdmin()
+          )
+        );
+
+      allow create, update: if ownsProvider(providerId) &&
+        hasNoSpoofedOwnershipMetadata() &&
+        isAllowedImage(fileName) &&
+        isUnderSize(10 * 1024 * 1024);
+
+      allow delete: if ownsProvider(providerId);
+    }
+
+    match /bookings/{bookingId}/attachments/{fileName} {
+      allow read: if isBookingParticipant(bookingId);
+
+      allow create: if resource == null &&
+        isBookingParticipant(bookingId) &&
+        hasNoSpoofedOwnershipMetadata() &&
+        isAllowedAttachment(fileName) &&
+        isUnderSize(10 * 1024 * 1024);
+
+      // Attachments are immutable once created; corrections use a new name.
+      allow update: if false;
+
+      // Booking evidence is retained for the event audit trail.
+      allow delete: if false;
+    }
+
+    match /mainEvents/{mainEventId}/attachments/{fileName} {
+      allow read: if isActiveUser() &&
+        (
+          ownsMainEvent(mainEventId) ||
+          isAdmin()
+        );
+
+      allow create: if resource == null &&
+        ownsMainEvent(mainEventId) &&
+        hasNoSpoofedOwnershipMetadata() &&
+        isAllowedAttachment(fileName) &&
+        isUnderSize(10 * 1024 * 1024);
+
+      allow update: if false;
+
+      allow delete: if false;
+    }
+
+    match /providerRequests/{providerRequestId}/attachments/{fileName} {
+      allow read: if isActiveUser() &&
+        (
+          firestore.get(
+            /databases/(default)/documents/providerRequests/$(providerRequestId)
+          ).data.customerId == currentUserId() ||
+          firestore.get(
+            /databases/(default)/documents/providers/$(
+              firestore.get(
+                /databases/(default)/documents/providerRequests/$(providerRequestId)
+              ).data.providerId
+            )
+          ).data.ownerId == currentUserId() ||
+          isAdmin()
+        );
+
+      allow create, update: if false;
+      allow delete: if false;
+    }
+
+    match /complaints/{complaintId}/evidence/{fileName} {
+      allow read: if isActiveUser() &&
+        (
+          isComplaintCreator(complaintId) ||
+          isRelatedComplaintProvider(complaintId) ||
+          isAdmin()
+        );
+
+      allow create: if resource == null &&
+        isComplaintCreator(complaintId) &&
+        hasNoSpoofedOwnershipMetadata() &&
+        isAllowedAttachment(fileName) &&
+        isUnderSize(10 * 1024 * 1024);
+
+      // Complaint evidence is immutable once submitted.
+      allow update: if false;
+
+      allow delete: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
