@@ -49,6 +49,7 @@ class BookingStatus {
   static const String accepted = 'accepted';
   static const String rejected = 'rejected';
   static const String waitingPayment = 'waiting_payment';
+  static const String waitingForDownPayment = 'waiting_for_down_payment';
   static const String paymentProcessing = 'payment_processing';
   static const String confirmed = 'confirmed';
 
@@ -63,6 +64,7 @@ class BookingStatus {
     accepted,
     rejected,
     waitingPayment,
+    waitingForDownPayment,
     paymentProcessing,
     confirmed,
     inProgress,
@@ -70,6 +72,10 @@ class BookingStatus {
     cancelled,
     expired,
   ];
+
+  static bool isWaitingForPayment(String status) {
+    return status == waitingPayment || status == waitingForDownPayment;
+  }
 }
 
 class ProviderServiceTypes {

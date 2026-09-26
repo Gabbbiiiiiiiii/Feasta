@@ -8,6 +8,7 @@ import '../../core/theme/app_sizes.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/widgets.dart';
+import '../../shared/models/customer_payment_request.dart';
 import '../../shared/models/feasta_models.dart';
 import '../../shared/widgets/loading_skeleton.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
@@ -1779,7 +1780,7 @@ class ActionButtons extends StatelessWidget {
   Widget build(BuildContext context) {
     final canCancel =
         (booking.status == BookingStatus.pending ||
-            booking.status == BookingStatus.waitingPayment ||
+            BookingStatus.isWaitingForPayment(booking.status) ||
             booking.status == BookingStatus.confirmed) &&
         booking.cancellationStatus != 'requested' &&
         booking.recoveryStatus != BookingRecoveryStatus.open &&
@@ -1818,21 +1819,7 @@ class ActionButtons extends StatelessWidget {
           },
         ),
 
-        if (booking.status == BookingStatus.waitingPayment) ...[
-          const SizedBox(height: AppSpacing.sm),
-          FeastaPrimaryButton(
-            label: 'Pay Down Payment',
-            icon: const Icon(Icons.payment_rounded),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => PaymentRequiredScreen(booking: booking),
-                ),
-              );
-            },
-          ),
-        ],
+        _ProviderPaymentAction(booking: booking),
 
         if (booking.status == BookingStatus.completed) ...[
           const SizedBox(height: AppSpacing.sm),
@@ -1887,6 +1874,72 @@ class ActionButtons extends StatelessWidget {
           ),
         ],
       ],
+    );
+  }
+}
+
+class _ProviderPaymentAction extends StatefulWidget {
+  const _ProviderPaymentAction({required this.booking});
+
+  final BookingModel booking;
+
+  @override
+  State<_ProviderPaymentAction> createState() => _ProviderPaymentActionState();
+}
+
+class _ProviderPaymentActionState extends State<_ProviderPaymentAction> {
+  late Future<List<CustomerProviderPaymentRequest>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ProviderPaymentAction oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.booking.id != widget.booking.id ||
+        oldWidget.booking.status != widget.booking.status ||
+        oldWidget.booking.paymentStatus != widget.booking.paymentStatus) {
+      _future = _load();
+    }
+  }
+
+  Future<List<CustomerProviderPaymentRequest>> _load() {
+    return FeastaRepository().customerPaymentRequests(booking: widget.booking);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<CustomerProviderPaymentRequest>>(
+      future: _future,
+      builder: (context, snapshot) {
+        final canPay =
+            snapshot.data?.any((request) => request.canStartCheckout) ?? false;
+
+        if (!canPay) {
+          return const SizedBox.shrink();
+        }
+
+        return Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.sm),
+          child: FeastaPrimaryButton(
+            label: 'Manage Payments',
+            icon: const Icon(Icons.payment_rounded),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      PaymentRequiredScreen(booking: widget.booking),
+                ),
+              );
+            },
+          ),
+        );
+      },
     );
   }
 }
@@ -2154,7 +2207,7 @@ class _CustomerRecoveryNoticeCard extends StatelessWidget {
                   ),
                 ),
 
-                if (booking.status == BookingStatus.waitingPayment) ...[
+                if (BookingStatus.isWaitingForPayment(booking.status)) ...[
                   const SizedBox(height: AppSpacing.sm),
                   Text(
                     'Complete the down payment to confirm this recovered booking.',

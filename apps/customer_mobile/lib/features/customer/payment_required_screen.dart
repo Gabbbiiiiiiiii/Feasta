@@ -4,10 +4,10 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/security/runtime_security.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
-import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/widgets.dart';
+import '../../shared/models/customer_payment_request.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import 'payment_status_screen.dart';
@@ -24,21 +24,55 @@ class PaymentRequiredScreen extends StatefulWidget {
 class _PaymentRequiredScreenState extends State<PaymentRequiredScreen> {
   final FeastaRepository repository = FeastaRepository();
 
-  bool isProcessing = false;
+  late Future<List<CustomerProviderPaymentRequest>> _requestsFuture;
+
+  String? _processingRequestId;
+  CustomerPaymentChoice? _processingChoice;
 
   BookingModel get booking => widget.booking;
 
-  Future<void> _continueToPayment() async {
+  bool get isProcessing => _processingRequestId != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _requestsFuture = _loadRequests();
+  }
+
+  Future<List<CustomerProviderPaymentRequest>> _loadRequests() {
+    return repository.customerPaymentRequests(booking: booking);
+  }
+
+  void _reload() {
+    setState(() {
+      _requestsFuture = _loadRequests();
+    });
+  }
+
+  Future<void> _continueToPayment(
+    CustomerProviderPaymentRequest request,
+    CustomerPaymentOption option,
+  ) async {
     if (isProcessing) {
       return;
     }
 
     setState(() {
-      isProcessing = true;
+      _processingRequestId = request.id;
+      _processingChoice = option.choice;
     });
 
     try {
-      final session = await repository.createPaymentSession(booking: booking);
+      final session = await repository.createProviderPaymentSession(
+        providerRequestId: request.id,
+        paymentChoice: option.choice,
+      );
+
+      if (session.bookingId != booking.id) {
+        throw Exception(
+          'The secure payment session does not match this booking.',
+        );
+      }
 
       final checkoutUri = RuntimeSecurity.requireTrustedPayMongoCheckout(
         session.checkoutUrl,
@@ -60,7 +94,12 @@ class _PaymentRequiredScreenState extends State<PaymentRequiredScreen> {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => PaymentStatusScreen(bookingId: booking.id),
+          builder: (_) => PaymentStatusScreen(
+            bookingId: booking.id,
+            providerRequestId: request.id,
+            paymentChoice: option.choice,
+            amountInCentavos: option.amountInCentavos,
+          ),
         ),
       );
     } catch (error) {
@@ -75,10 +114,13 @@ class _PaymentRequiredScreenState extends State<PaymentRequiredScreen> {
             content: Text(error.toString().replaceAll('Exception: ', '')),
           ),
         );
+
+      _reload();
     } finally {
       if (mounted) {
         setState(() {
-          isProcessing = false;
+          _processingRequestId = null;
+          _processingChoice = null;
         });
       }
     }
@@ -93,101 +135,165 @@ class _PaymentRequiredScreenState extends State<PaymentRequiredScreen> {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         title: Text(
-          'Payment Required',
+          'Payments',
           style: AppTypography.sectionTitle.copyWith(
             color: AppColors.mainText,
             fontWeight: FontWeight.w900,
           ),
         ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.screen,
-          AppSpacing.sm,
-          AppSpacing.screen,
-          140,
-        ),
-        children: [
-          _PaymentRequiredHero(providerName: booking.providerBusinessName),
-
-          const SizedBox(height: AppSpacing.xl),
-
-          const _SectionHeading(
-            title: 'Booking information',
-            subtitle:
-                'Review the accepted booking before continuing to payment.',
-          ),
-
-          const SizedBox(height: AppSpacing.md),
-
-          _PaymentSectionCard(
-            icon: Icons.receipt_long_outlined,
-            title: 'Booking',
-            children: [
-              _DetailRow(label: 'Booking code', value: booking.bookingCode),
-              _DetailRow(
-                label: 'Provider',
-                value: booking.providerBusinessName,
+      body: FutureBuilder<List<CustomerProviderPaymentRequest>>(
+        future: _requestsFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              snapshot.data == null) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(AppSpacing.screen),
+                child: CircularProgressIndicator(),
               ),
-              _DetailRow(label: 'Package', value: booking.packageName),
-              _DetailRow(label: 'Event type', value: booking.eventType),
-            ],
-          ),
+            );
+          }
 
-          const SizedBox(height: AppSpacing.xl),
+          if (snapshot.hasError) {
+            return FeastaApplicationErrorState(
+              kind: FeastaErrorKind.load,
+              message:
+                  'We could not load the trusted payment information. '
+                  'Please try again.',
+              onRetry: _reload,
+            );
+          }
 
-          const _SectionHeading(
-            title: 'Payment summary',
-            subtitle: 'Only the required down payment is due now.',
-          ),
+          final requests =
+              snapshot.data ?? const <CustomerProviderPaymentRequest>[];
 
-          const SizedBox(height: AppSpacing.md),
-
-          _PaymentSummaryCard(
-            totalAmount: booking.totalAmount,
-            downPaymentAmount: booking.downPaymentAmount,
-            remainingBalance: booking.remainingBalance,
-            downPaymentPercentage: booking.downPaymentPercentage,
-          ),
-
-          const SizedBox(height: AppSpacing.xl),
-
-          const _SectionHeading(
-            title: 'Payment method',
-            subtitle: 'You will continue to PayMongo’s secure checkout.',
-          ),
-
-          const SizedBox(height: AppSpacing.md),
-
-          const _PayMongoCard(),
-
-          const SizedBox(height: AppSpacing.md),
-
-          const _SecurePaymentNotice(),
-
-          const SizedBox(height: AppSpacing.md),
-
-          const _PaymentProcessCard(),
-        ],
-      ),
-      bottomNavigationBar: _PaymentBottomBar(
-        amount: booking.downPaymentAmount,
-        isProcessing: isProcessing,
-        onPressed: _continueToPayment,
+          return RefreshIndicator(
+            color: AppColors.primary,
+            onRefresh: () async {
+              _reload();
+              await _requestsFuture;
+            },
+            child: _PaymentPageContent(
+              booking: booking,
+              requests: requests,
+              processingRequestId: _processingRequestId,
+              processingChoice: _processingChoice,
+              onPay: _continueToPayment,
+            ),
+          );
+        },
       ),
     );
   }
 }
 
-class _PaymentRequiredHero extends StatelessWidget {
-  const _PaymentRequiredHero({required this.providerName});
+class _PaymentPageContent extends StatelessWidget {
+  const _PaymentPageContent({
+    required this.booking,
+    required this.requests,
+    required this.processingRequestId,
+    required this.processingChoice,
+    required this.onPay,
+  });
 
-  final String providerName;
+  final BookingModel booking;
+  final List<CustomerProviderPaymentRequest> requests;
+  final String? processingRequestId;
+  final CustomerPaymentChoice? processingChoice;
+
+  final Future<void> Function(
+    CustomerProviderPaymentRequest request,
+    CustomerPaymentOption option,
+  )
+  onPay;
 
   @override
   Widget build(BuildContext context) {
+    final payableCount = requests
+        .where((request) => request.canStartCheckout)
+        .length;
+
+    return ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.screen,
+        AppSpacing.sm,
+        AppSpacing.screen,
+        AppSpacing.massive,
+      ),
+      children: [
+        _PaymentHero(
+          bookingCode: booking.bookingCode,
+          payableCount: payableCount,
+        ),
+
+        const SizedBox(height: AppSpacing.xl),
+
+        _BookingSummary(booking: booking),
+
+        const SizedBox(height: AppSpacing.xl),
+
+        Text(
+          'Provider payments',
+          style: AppTypography.sectionTitle.copyWith(
+            color: AppColors.mainText,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+
+        const SizedBox(height: AppSpacing.xxs),
+
+        Text(
+          'Each provider has its own payment requirement. '
+          'The final payable amount is verified by FEASTA before checkout.',
+          style: AppTypography.bodySmall.copyWith(
+            color: AppColors.secondaryTextAccessible,
+            height: 1.45,
+          ),
+        ),
+
+        const SizedBox(height: AppSpacing.md),
+
+        if (requests.isEmpty)
+          const FeastaEmptyState(
+            icon: Icons.payments_outlined,
+            title: 'No provider payments available',
+            message:
+                'There are no provider payment requests attached '
+                'to this booking.',
+          )
+        else
+          for (var index = 0; index < requests.length; index++) ...[
+            _ProviderPaymentCard(
+              request: requests[index],
+              processingRequestId: processingRequestId,
+              processingChoice: processingChoice,
+              onPay: onPay,
+            ),
+            if (index != requests.length - 1)
+              const SizedBox(height: AppSpacing.md),
+          ],
+
+        const SizedBox(height: AppSpacing.xl),
+
+        const _SecureCheckoutNotice(),
+      ],
+    );
+  }
+}
+
+class _PaymentHero extends StatelessWidget {
+  const _PaymentHero({required this.bookingCode, required this.payableCount});
+
+  final String bookingCode;
+  final int payableCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPayment = payableCount > 0;
+
     return Container(
-      width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.xl),
       decoration: BoxDecoration(
         color: AppColors.primarySubtle,
@@ -196,48 +302,27 @@ class _PaymentRequiredHero extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Stack(
+          Container(
+            width: 82,
+            height: 82,
             alignment: Alignment.center,
-            clipBehavior: Clip.none,
-            children: [
-              Container(
-                width: 104,
-                height: 104,
-                decoration: const BoxDecoration(
-                  color: AppColors.surface,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const Icon(
-                Icons.account_balance_wallet_outlined,
-                color: AppColors.primary,
-                size: 48,
-              ),
-              Positioned(
-                right: -1,
-                bottom: 3,
-                child: Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: AppColors.success,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.surface, width: 4),
-                  ),
-                  child: const Icon(
-                    Icons.check_rounded,
-                    color: Colors.white,
-                    size: 18,
-                  ),
-                ),
-              ),
-            ],
+            decoration: const BoxDecoration(
+              color: AppColors.surface,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              hasPayment
+                  ? Icons.account_balance_wallet_outlined
+                  : Icons.verified_outlined,
+              color: AppColors.primaryStrong,
+              size: 40,
+            ),
           ),
 
-          const SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: AppSpacing.md),
 
           Text(
-            'Down payment required',
+            hasPayment ? 'Payment available' : 'No payment due right now',
             textAlign: TextAlign.center,
             style: AppTypography.pageTitle.copyWith(
               color: AppColors.mainText,
@@ -245,16 +330,28 @@ class _PaymentRequiredHero extends StatelessWidget {
             ),
           ),
 
+          const SizedBox(height: AppSpacing.xs),
+
+          Text(
+            hasPayment
+                ? '$payableCount provider '
+                      '${payableCount == 1 ? 'payment is' : 'payments are'} '
+                      'ready for secure checkout.'
+                : 'FEASTA found no payment action currently available.',
+            textAlign: TextAlign.center,
+            style: AppTypography.bodySmall.copyWith(
+              color: AppColors.secondaryTextAccessible,
+              height: 1.45,
+            ),
+          ),
+
           const SizedBox(height: AppSpacing.sm),
 
           Text(
-            '$providerName accepted your booking request. '
-            'Complete the required down payment to secure '
-            'and confirm your booking.',
-            textAlign: TextAlign.center,
-            style: AppTypography.body.copyWith(
+            bookingCode,
+            style: AppTypography.caption.copyWith(
               color: AppColors.secondaryTextAccessible,
-              height: 1.5,
+              fontWeight: FontWeight.w800,
             ),
           ),
         ],
@@ -263,47 +360,10 @@ class _PaymentRequiredHero extends StatelessWidget {
   }
 }
 
-class _SectionHeading extends StatelessWidget {
-  const _SectionHeading({required this.title, required this.subtitle});
+class _BookingSummary extends StatelessWidget {
+  const _BookingSummary({required this.booking});
 
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: AppTypography.sectionTitle.copyWith(
-            color: AppColors.mainText,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.xxs),
-        Text(
-          subtitle,
-          style: AppTypography.bodySmall.copyWith(
-            color: AppColors.secondaryTextAccessible,
-            height: 1.4,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PaymentSectionCard extends StatelessWidget {
-  const _PaymentSectionCard({
-    required this.icon,
-    required this.title,
-    required this.children,
-  });
-
-  final IconData icon;
-  final String title;
-  final List<Widget> children;
+  final BookingModel booking;
 
   @override
   Widget build(BuildContext context) {
@@ -312,14 +372,149 @@ class _PaymentSectionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _CardHeading(icon: icon, title: title),
+          Text(
+            'Booking',
+            style: AppTypography.cardTitle.copyWith(
+              color: AppColors.mainText,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
 
-          const SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: AppSpacing.md),
 
-          for (var index = 0; index < children.length; index++) ...[
-            children[index],
-            if (index != children.length - 1)
-              const Divider(height: AppSpacing.lg, color: AppColors.border),
+          _DetailRow(label: 'Event', value: booking.eventType),
+
+          const Divider(height: AppSpacing.lg, color: AppColors.border),
+
+          _DetailRow(label: 'Booking total', value: _peso(booking.totalAmount)),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProviderPaymentCard extends StatelessWidget {
+  const _ProviderPaymentCard({
+    required this.request,
+    required this.processingRequestId,
+    required this.processingChoice,
+    required this.onPay,
+  });
+
+  final CustomerProviderPaymentRequest request;
+  final String? processingRequestId;
+  final CustomerPaymentChoice? processingChoice;
+
+  final Future<void> Function(
+    CustomerProviderPaymentRequest request,
+    CustomerPaymentOption option,
+  )
+  onPay;
+
+  bool get anyCheckoutRunning => processingRequestId != null;
+
+  @override
+  Widget build(BuildContext context) {
+    return FeastaCard(
+      padding: const EdgeInsets.all(AppSpacing.card),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.primarySubtle,
+                  borderRadius: BorderRadius.circular(AppRadius.medium),
+                ),
+                child: const Icon(
+                  Icons.storefront_outlined,
+                  color: AppColors.primaryStrong,
+                ),
+              ),
+
+              const SizedBox(width: AppSpacing.sm),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      request.providerBusinessName,
+                      style: AppTypography.cardTitle.copyWith(
+                        color: AppColors.mainText,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+
+                    const SizedBox(height: AppSpacing.xxs),
+
+                    Text(
+                      request.packageName,
+                      style: AppTypography.bodySmall.copyWith(
+                        color: AppColors.secondaryTextAccessible,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: AppSpacing.md),
+
+          _DetailRow(label: 'Request status', value: _humanize(request.status)),
+
+          const Divider(height: AppSpacing.lg, color: AppColors.border),
+
+          _DetailRow(
+            label: 'Payment status',
+            value: _humanize(request.paymentStatus),
+          ),
+
+          if (request.checkoutOptions.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.lg),
+
+            for (
+              var index = 0;
+              index < request.checkoutOptions.length;
+              index++
+            ) ...[
+              _PaymentOptionButton(
+                request: request,
+                option: request.checkoutOptions[index],
+                disabled: anyCheckoutRunning,
+                isLoading:
+                    processingRequestId == request.id &&
+                    processingChoice == request.checkoutOptions[index].choice,
+                primary: index == 0,
+                onPay: onPay,
+              ),
+              if (index != request.checkoutOptions.length - 1)
+                const SizedBox(height: AppSpacing.sm),
+            ],
+          ] else ...[
+            const SizedBox(height: AppSpacing.md),
+
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppSpacing.sm),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceMuted,
+                borderRadius: BorderRadius.circular(AppRadius.medium),
+              ),
+              child: Text(
+                _noPaymentMessage(request),
+                style: AppTypography.bodySmall.copyWith(
+                  color: AppColors.secondaryTextAccessible,
+                  height: 1.4,
+                ),
+              ),
+            ),
           ],
         ],
       ),
@@ -327,39 +522,98 @@ class _PaymentSectionCard extends StatelessWidget {
   }
 }
 
-class _CardHeading extends StatelessWidget {
-  const _CardHeading({required this.icon, required this.title});
+class _PaymentOptionButton extends StatelessWidget {
+  const _PaymentOptionButton({
+    required this.request,
+    required this.option,
+    required this.disabled,
+    required this.isLoading,
+    required this.primary,
+    required this.onPay,
+  });
 
-  final IconData icon;
-  final String title;
+  final CustomerProviderPaymentRequest request;
+  final CustomerPaymentOption option;
+  final bool disabled;
+  final bool isLoading;
+  final bool primary;
+
+  final Future<void> Function(
+    CustomerProviderPaymentRequest request,
+    CustomerPaymentOption option,
+  )
+  onPay;
+
+  String get actionLabel {
+    switch (option.choice) {
+      case CustomerPaymentChoice.minimum:
+        return 'Pay Minimum';
+
+      case CustomerPaymentChoice.full:
+        return 'Pay Full';
+
+      case CustomerPaymentChoice.remainingBalance:
+        return 'Pay Remaining Balance';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Container(
-          width: 42,
-          height: 42,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: AppColors.primarySubtle,
-            borderRadius: BorderRadius.circular(AppRadius.medium),
-          ),
-          child: Icon(icon, color: AppColors.primaryStrong, size: 21),
-        ),
+    final label = '$actionLabel · ${_peso(option.amount)}';
 
-        const SizedBox(width: AppSpacing.sm),
+    final callback = disabled
+        ? null
+        : () {
+            onPay(request, option);
+          };
 
-        Expanded(
-          child: Text(
-            title,
-            style: AppTypography.cardTitle.copyWith(
-              color: AppColors.mainText,
-              fontWeight: FontWeight.w900,
+    if (primary) {
+      return FeastaPrimaryButton(
+        label: label,
+        loadingLabel: 'Preparing secure checkout',
+        isLoading: isLoading,
+        icon: const Icon(Icons.payment_rounded),
+        onPressed: callback,
+      );
+    }
+
+    return FeastaSecondaryButton(
+      label: label,
+      loadingLabel: 'Preparing secure checkout',
+      isLoading: isLoading,
+      icon: const Icon(Icons.payment_rounded),
+      onPressed: callback,
+    );
+  }
+}
+
+class _SecureCheckoutNotice extends StatelessWidget {
+  const _SecureCheckoutNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return FeastaCard(
+      padding: const EdgeInsets.all(AppSpacing.card),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.verified_user_outlined, color: AppColors.success),
+
+          const SizedBox(width: AppSpacing.sm),
+
+          Expanded(
+            child: Text(
+              'Checkout opens securely through PayMongo. '
+              'The mobile app does not send an authoritative payment amount. '
+              'FEASTA updates the payment only after trusted confirmation.',
+              style: AppTypography.bodySmall.copyWith(
+                color: AppColors.secondaryTextAccessible,
+                height: 1.45,
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -372,34 +626,6 @@ class _DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final largeText = MediaQuery.textScalerOf(context).scale(16) >= 22;
-
-    if (largeText) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: AppTypography.caption.copyWith(
-              color: AppColors.secondaryTextAccessible,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-
-          const SizedBox(height: AppSpacing.xxs),
-
-          Text(
-            value,
-            style: AppTypography.bodySmall.copyWith(
-              color: AppColors.mainText,
-              fontWeight: FontWeight.w800,
-              height: 1.4,
-            ),
-          ),
-        ],
-      );
-    }
-
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -423,7 +649,6 @@ class _DetailRow extends StatelessWidget {
             style: AppTypography.bodySmall.copyWith(
               color: AppColors.mainText,
               fontWeight: FontWeight.w800,
-              height: 1.35,
             ),
           ),
         ),
@@ -432,561 +657,53 @@ class _DetailRow extends StatelessWidget {
   }
 }
 
-class _PaymentSummaryCard extends StatelessWidget {
-  const _PaymentSummaryCard({
-    required this.totalAmount,
-    required this.downPaymentAmount,
-    required this.remainingBalance,
-    required this.downPaymentPercentage,
-  });
+String _noPaymentMessage(CustomerProviderPaymentRequest request) {
+  switch (request.paymentStatus) {
+    case 'processing':
+      return 'Payment confirmation is currently in progress.';
 
-  final double totalAmount;
-  final double downPaymentAmount;
-  final double remainingBalance;
-  final double downPaymentPercentage;
+    case 'paid':
+      return 'No additional payment is currently due for this provider.';
 
-  @override
-  Widget build(BuildContext context) {
-    return FeastaCard(
-      padding: const EdgeInsets.all(AppSpacing.card),
-      child: Column(
-        children: [
-          _PriceRow(label: 'Booking total', amount: totalAmount),
+    case 'failed':
+    case 'expired':
+      return 'This payment is not currently eligible for another checkout.';
 
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
-            child: Divider(height: 1, color: AppColors.border),
-          ),
-
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: AppColors.primarySubtle,
-              borderRadius: BorderRadius.circular(AppRadius.large),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Due now',
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.secondaryTextAccessible,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-
-                const SizedBox(height: AppSpacing.xxs),
-
-                FeastaPriceText(
-                  amount: downPaymentAmount,
-                  decimalDigits: 0,
-                  semanticLabel: 'Down payment due now',
-                  style: AppTypography.pageTitle.copyWith(
-                    color: AppColors.primaryStrong,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-
-                const SizedBox(height: AppSpacing.xs),
-
-                Text(
-                  '${downPaymentPercentage.toStringAsFixed(0)}% down payment',
-                  style: AppTypography.bodySmall.copyWith(
-                    color: AppColors.secondaryTextAccessible,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: AppSpacing.md),
-
-          _PriceRow(label: 'Remaining balance', amount: remainingBalance),
-        ],
-      ),
-    );
+    default:
+      return 'No online payment action is currently available.';
   }
 }
 
-class _PriceRow extends StatelessWidget {
-  const _PriceRow({required this.label, required this.amount});
+String _humanize(String value) {
+  final normalized = value.trim();
 
-  final String label;
-  final double amount;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: AppTypography.bodySmall.copyWith(
-              color: AppColors.mainText,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-
-        const SizedBox(width: AppSpacing.md),
-
-        FeastaPriceText(
-          amount: amount,
-          decimalDigits: 0,
-          semanticLabel: label,
-          style: AppTypography.label.copyWith(
-            color: AppColors.mainText,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-      ],
-    );
+  if (normalized.isEmpty) {
+    return 'Unavailable';
   }
+
+  return normalized
+      .split('_')
+      .where((part) => part.isNotEmpty)
+      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
 }
 
-class _PayMongoCard extends StatelessWidget {
-  const _PayMongoCard();
+String _peso(double amount) {
+  final fixed = amount.toStringAsFixed(2);
+  final parts = fixed.split('.');
+  final digits = parts[0];
 
-  @override
-  Widget build(BuildContext context) {
-    return FeastaCard(
-      padding: const EdgeInsets.all(AppSpacing.card),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: AppColors.primarySubtle,
-              borderRadius: BorderRadius.circular(AppRadius.large),
-            ),
-            child: const Icon(
-              Icons.verified_user_outlined,
-              color: AppColors.primaryStrong,
-              size: 26,
-            ),
-          ),
+  final buffer = StringBuffer();
 
-          const SizedBox(width: AppSpacing.md),
+  for (var index = 0; index < digits.length; index++) {
+    final remaining = digits.length - index;
 
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Secure checkout with PayMongo',
-                  style: AppTypography.cardTitle.copyWith(
-                    color: AppColors.mainText,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
+    buffer.write(digits[index]);
 
-                const SizedBox(height: AppSpacing.xs),
-
-                Text(
-                  'Available payment methods depend on '
-                  'the options enabled in your PayMongo checkout.',
-                  style: AppTypography.bodySmall.copyWith(
-                    color: AppColors.secondaryTextAccessible,
-                    height: 1.4,
-                  ),
-                ),
-
-                const SizedBox(height: AppSpacing.sm),
-
-                Wrap(
-                  spacing: AppSpacing.xs,
-                  runSpacing: AppSpacing.xs,
-                  children: const [
-                    _PaymentMethodChip(
-                      icon: Icons.phone_android_rounded,
-                      label: 'E-wallets',
-                    ),
-                    _PaymentMethodChip(
-                      icon: Icons.credit_card_rounded,
-                      label: 'Cards',
-                    ),
-                    _PaymentMethodChip(
-                      icon: Icons.account_balance_outlined,
-                      label: 'Online payment',
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+    if (remaining > 1 && remaining % 3 == 1) {
+      buffer.write(',');
+    }
   }
-}
 
-class _PaymentMethodChip extends StatelessWidget {
-  const _PaymentMethodChip({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.sm,
-        vertical: AppSpacing.xs,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceMuted,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 16, color: AppColors.secondaryTextAccessible),
-          const SizedBox(width: 5),
-          Text(
-            label,
-            style: AppTypography.caption.copyWith(
-              color: AppColors.mainText,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SecurePaymentNotice extends StatelessWidget {
-  const _SecurePaymentNotice();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.successSubtle,
-        borderRadius: BorderRadius.circular(AppRadius.large),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 38,
-            height: 38,
-            alignment: Alignment.center,
-            decoration: const BoxDecoration(
-              color: AppColors.surface,
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.lock_outline_rounded,
-              color: AppColors.success,
-              size: 20,
-            ),
-          ),
-
-          const SizedBox(width: AppSpacing.sm),
-
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Secure external checkout',
-                  style: AppTypography.label.copyWith(
-                    color: AppColors.mainText,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-
-                const SizedBox(height: AppSpacing.xxs),
-
-                Text(
-                  'FEASTA opens the trusted PayMongo checkout page '
-                  'for payment. Your booking is updated only after '
-                  'FEASTA receives the secure payment confirmation.',
-                  style: AppTypography.bodySmall.copyWith(
-                    color: AppColors.secondaryTextAccessible,
-                    height: 1.45,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PaymentProcessCard extends StatelessWidget {
-  const _PaymentProcessCard();
-
-  @override
-  Widget build(BuildContext context) {
-    return FeastaCard(
-      padding: const EdgeInsets.all(AppSpacing.card),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'How payment works',
-            style: AppTypography.cardTitle.copyWith(
-              color: AppColors.mainText,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-
-          const SizedBox(height: AppSpacing.lg),
-
-          const _PaymentStep(
-            number: '1',
-            title: 'Continue to secure checkout',
-            description: 'FEASTA creates a payment session for this booking.',
-          ),
-
-          const _PaymentStepConnector(),
-
-          const _PaymentStep(
-            number: '2',
-            title: 'Complete payment',
-            description:
-                'Finish the payment using the available method in PayMongo.',
-          ),
-
-          const _PaymentStepConnector(),
-
-          const _PaymentStep(
-            number: '3',
-            title: 'Wait for confirmation',
-            description:
-                'FEASTA confirms the payment after receiving the secure payment update.',
-          ),
-
-          const _PaymentStepConnector(),
-
-          const _PaymentStep(
-            number: '4',
-            title: 'Booking confirmed',
-            description:
-                'Once payment succeeds, your booking can move to the confirmed state.',
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PaymentStep extends StatelessWidget {
-  const _PaymentStep({
-    required this.number,
-    required this.title,
-    required this.description,
-  });
-
-  final String number;
-  final String title;
-  final String description;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 34,
-          height: 34,
-          alignment: Alignment.center,
-          decoration: const BoxDecoration(
-            color: AppColors.primarySubtle,
-            shape: BoxShape.circle,
-          ),
-          child: Text(
-            number,
-            style: AppTypography.label.copyWith(
-              color: AppColors.primaryStrong,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ),
-
-        const SizedBox(width: AppSpacing.sm),
-
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: AppTypography.label.copyWith(
-                  color: AppColors.mainText,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-
-              const SizedBox(height: AppSpacing.xxs),
-
-              Text(
-                description,
-                style: AppTypography.bodySmall.copyWith(
-                  color: AppColors.secondaryTextAccessible,
-                  height: 1.4,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PaymentStepConnector extends StatelessWidget {
-  const _PaymentStepConnector();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.only(left: 16, top: 5, bottom: 5),
-      child: SizedBox(
-        width: 2,
-        height: 18,
-        child: ColoredBox(color: AppColors.border),
-      ),
-    );
-  }
-}
-
-class _PaymentBottomBar extends StatelessWidget {
-  const _PaymentBottomBar({
-    required this.amount,
-    required this.isProcessing,
-    required this.onPressed,
-  });
-
-  final double amount;
-  final bool isProcessing;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final largeText = MediaQuery.textScalerOf(context).scale(16) >= 22;
-
-    return Container(
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.screen,
-        AppSpacing.sm,
-        AppSpacing.screen,
-        AppSpacing.md,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        border: const Border(top: BorderSide(color: AppColors.border)),
-        boxShadow: AppShadows.navigation,
-      ),
-      child: SafeArea(
-        top: false,
-        child: largeText
-            ? Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    'Amount due now',
-                    style: AppTypography.caption.copyWith(
-                      color: AppColors.secondaryTextAccessible,
-                    ),
-                  ),
-
-                  const SizedBox(height: AppSpacing.xxs),
-
-                  FeastaPriceText(
-                    amount: amount,
-                    decimalDigits: 0,
-                    semanticLabel: 'Amount due now',
-                    style: AppTypography.sectionTitle.copyWith(
-                      color: AppColors.primaryStrong,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-
-                  const SizedBox(height: AppSpacing.sm),
-
-                  FeastaPrimaryButton(
-                    label: isProcessing
-                        ? 'Opening Checkout...'
-                        : 'Continue to Payment',
-                    icon: isProcessing
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: AppColors.surface,
-                            ),
-                          )
-                        : const Icon(Icons.lock_outline_rounded),
-                    onPressed: isProcessing ? null : onPressed,
-                  ),
-                ],
-              )
-            : Row(
-                children: [
-                  Expanded(
-                    flex: 4,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Due now',
-                          style: AppTypography.caption.copyWith(
-                            color: AppColors.secondaryTextAccessible,
-                          ),
-                        ),
-
-                        const SizedBox(height: 2),
-
-                        FeastaPriceText(
-                          amount: amount,
-                          decimalDigits: 0,
-                          semanticLabel: 'Amount due now',
-                          style: AppTypography.cardTitle.copyWith(
-                            color: AppColors.primaryStrong,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(width: AppSpacing.md),
-
-                  Expanded(
-                    flex: 6,
-                    child: FeastaPrimaryButton(
-                      label: isProcessing ? 'Opening...' : 'Pay Now',
-                      icon: isProcessing
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: AppColors.surface,
-                              ),
-                            )
-                          : const Icon(Icons.lock_outline_rounded),
-                      onPressed: isProcessing ? null : onPressed,
-                    ),
-                  ),
-                ],
-              ),
-      ),
-    );
-  }
+  return '₱${buffer.toString()}.${parts[1]}';
 }

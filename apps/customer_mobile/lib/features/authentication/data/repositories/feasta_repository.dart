@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../../../core/constants/firestore_collections.dart';
 import '../../../../core/constants/status_constants.dart';
 import '../../../../core/firestore/query_builder.dart';
+import '../../../../shared/models/customer_payment_request.dart';
 import '../../../../shared/models/feasta_models.dart';
 import '../../../../core/domain/service_category.dart';
 import '../../../../core/helpers/provider_category_helper.dart';
@@ -1557,6 +1558,96 @@ class FeastaRepository {
         });
   }
 
+  Stream<CustomerProviderPaymentRequest?> customerPaymentRequestById({
+    required String bookingId,
+    required String mainEventStatus,
+    required String providerRequestId,
+  }) {
+    final normalizedBookingId = bookingId.trim();
+    final normalizedProviderRequestId = providerRequestId.trim();
+
+    if (normalizedBookingId.isEmpty ||
+        !RegExp(
+          r'^[A-Za-z0-9_-]{8,160}$',
+        ).hasMatch(normalizedProviderRequestId)) {
+      return Stream<CustomerProviderPaymentRequest?>.error(
+        Exception('The selected payment request is invalid.'),
+      );
+    }
+
+    return _db
+        .collection(FirestoreCollections.providerRequests)
+        .doc(normalizedProviderRequestId)
+        .snapshots()
+        .map((snapshot) {
+          final data = snapshot.data();
+
+          if (!snapshot.exists) {
+            return null;
+          }
+
+          if (data == null ||
+              data['customerId'] != currentUid ||
+              (data['mainEventId'] ?? data['bookingId']) !=
+                  normalizedBookingId) {
+            throw Exception('The booking payment information is unavailable.');
+          }
+
+          return CustomerProviderPaymentRequest.fromDoc(
+            snapshot,
+            mainEventStatus: mainEventStatus,
+          );
+        });
+  }
+
+  Future<List<CustomerProviderPaymentRequest>> customerPaymentRequests({
+    required BookingModel booking,
+  }) async {
+    final providerRequestIds = booking.providerRequestIds
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+
+    if (providerRequestIds.isEmpty) {
+      return const [];
+    }
+
+    if (providerRequestIds.toSet().length != providerRequestIds.length) {
+      throw Exception('The booking payment information is invalid.');
+    }
+
+    final snapshots = await Future.wait(
+      providerRequestIds.map(
+        (providerRequestId) => _db
+            .collection(FirestoreCollections.providerRequests)
+            .doc(providerRequestId)
+            .get(),
+      ),
+    );
+
+    final requests = <CustomerProviderPaymentRequest>[];
+
+    for (final snapshot in snapshots) {
+      final data = snapshot.data();
+
+      if (!snapshot.exists ||
+          data == null ||
+          data['customerId'] != currentUid ||
+          (data['mainEventId'] ?? data['bookingId']) != booking.id) {
+        throw Exception('The booking payment information is unavailable.');
+      }
+
+      requests.add(
+        CustomerProviderPaymentRequest.fromDoc(
+          snapshot,
+          mainEventStatus: booking.status,
+        ),
+      );
+    }
+
+    return requests;
+  }
+
   Stream<BookingModel?> bookingById(String bookingId) {
     return _db
         .collection(FirestoreCollections.mainEvents)
@@ -1632,33 +1723,77 @@ class FeastaRepository {
     await batch.commit();
   }
 
-  Future<({String paymentId, String checkoutUrl})> createPaymentSession({
-    required BookingModel booking,
+  Future<
+    ({
+      String paymentId,
+      String checkoutUrl,
+      String providerRequestId,
+      String bookingId,
+    })
+  >
+  createProviderPaymentSession({
+    required String providerRequestId,
+    required CustomerPaymentChoice paymentChoice,
   }) async {
+    final normalizedProviderRequestId = providerRequestId.trim();
+
+    if (!RegExp(
+      r'^[A-Za-z0-9_-]{8,160}$',
+    ).hasMatch(normalizedProviderRequestId)) {
+      throw Exception('The selected payment request is invalid.');
+    }
+
+    final random = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+
     final response = await _functions
-        .httpsCallable('createPaymentSession')
+        .httpsCallable(
+          'createPaymentSession',
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
+        )
         .call({
-          'bookingId': booking.id,
-          'idempotencyKey': 'booking:${booking.id}:provider_down_payment',
+          'providerRequestId': normalizedProviderRequestId,
+          'paymentChoice': paymentChoice.apiValue,
+          'idempotencyKey':
+              'customer-mobile-checkout:'
+              '$normalizedProviderRequestId:'
+              '${paymentChoice.apiValue}:'
+              '$random',
         });
+
     final data = Map<String, dynamic>.from(response.data as Map);
+
     final paymentId = data['paymentId'];
     final checkoutUrl = data['checkoutUrl'];
-    if (paymentId is! String || checkoutUrl is! String) {
+    final returnedProviderRequestId = data['providerRequestId'];
+    final bookingId = data['bookingId'];
+
+    if (paymentId is! String ||
+        paymentId.trim().isEmpty ||
+        checkoutUrl is! String ||
+        checkoutUrl.trim().isEmpty ||
+        returnedProviderRequestId != normalizedProviderRequestId ||
+        bookingId is! String ||
+        bookingId.trim().isEmpty) {
       throw Exception('The secure payment session response was invalid.');
     }
-    return (paymentId: paymentId, checkoutUrl: checkoutUrl);
+
+    return (
+      paymentId: paymentId,
+      checkoutUrl: checkoutUrl,
+      providerRequestId: returnedProviderRequestId as String,
+      bookingId: bookingId,
+    );
   }
 
   @Deprecated(
-    'Canonical payment records are created only by createPaymentSession.',
+    'Canonical payment records are created only by createProviderPaymentSession.',
   )
   Future<String> createPaymentRecord({
     required BookingModel booking,
     required String paymentMethod,
   }) async {
     throw UnsupportedError(
-      'Direct client payment creation is disabled. Use createPaymentSession.',
+      'Direct client payment creation is disabled. Use createProviderPaymentSession.',
     );
     /* Legacy implementation retained temporarily for migration reference.
     final now = FieldValue.serverTimestamp();

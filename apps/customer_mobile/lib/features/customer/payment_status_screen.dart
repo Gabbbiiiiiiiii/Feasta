@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../core/constants/status_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/widgets.dart';
+import '../../shared/models/customer_payment_request.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import 'booking_details_screen.dart';
@@ -13,9 +13,18 @@ import 'customer_main_screen.dart';
 import 'payment_required_screen.dart';
 
 class PaymentStatusScreen extends StatelessWidget {
-  const PaymentStatusScreen({required this.bookingId, super.key});
+  const PaymentStatusScreen({
+    required this.bookingId,
+    required this.providerRequestId,
+    required this.paymentChoice,
+    required this.amountInCentavos,
+    super.key,
+  });
 
   final String bookingId;
+  final String providerRequestId;
+  final CustomerPaymentChoice paymentChoice;
+  final int amountInCentavos;
 
   @override
   Widget build(BuildContext context) {
@@ -38,24 +47,20 @@ class PaymentStatusScreen extends StatelessWidget {
       ),
       body: StreamBuilder<BookingModel?>(
         stream: repository.bookingById(bookingId),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting &&
-              snapshot.data == null) {
+        builder: (context, bookingSnapshot) {
+          if (bookingSnapshot.connectionState == ConnectionState.waiting &&
+              bookingSnapshot.data == null) {
             return const _PaymentStatusLoading();
           }
 
-          if (snapshot.hasError) {
-            return FeastaApplicationErrorState(
+          if (bookingSnapshot.hasError) {
+            return const FeastaApplicationErrorState(
               kind: FeastaErrorKind.load,
-              message:
-                  'We could not check your payment status. '
-                  'Your payment record is still protected. '
-                  'Please try again.',
-              onRetry: () {},
+              message: 'We could not check the booking linked to this payment.',
             );
           }
 
-          final booking = snapshot.data;
+          final booking = bookingSnapshot.data;
 
           if (booking == null) {
             return const FeastaEmptyState(
@@ -65,9 +70,51 @@ class PaymentStatusScreen extends StatelessWidget {
             );
           }
 
-          final state = _PaymentDisplayState.fromBooking(booking);
+          return StreamBuilder<CustomerProviderPaymentRequest?>(
+            stream: repository.customerPaymentRequestById(
+              bookingId: booking.id,
+              mainEventStatus: booking.status,
+              providerRequestId: providerRequestId,
+            ),
+            builder: (context, requestSnapshot) {
+              if (requestSnapshot.connectionState == ConnectionState.waiting &&
+                  requestSnapshot.data == null) {
+                return const _PaymentStatusLoading();
+              }
 
-          return _PaymentStatusContent(booking: booking, state: state);
+              if (requestSnapshot.hasError) {
+                return const FeastaApplicationErrorState(
+                  kind: FeastaErrorKind.load,
+                  message:
+                      'We could not check the provider payment status. '
+                      'Please return to the booking and try again.',
+                );
+              }
+
+              final request = requestSnapshot.data;
+
+              if (request == null) {
+                return const FeastaEmptyState(
+                  icon: Icons.payments_outlined,
+                  title: 'Payment request unavailable',
+                  message: 'The provider payment request could not be found.',
+                );
+              }
+
+              final state = _PaymentDisplayState.fromRequest(
+                request: request,
+                paymentChoice: paymentChoice,
+              );
+
+              return _PaymentStatusContent(
+                booking: booking,
+                request: request,
+                paymentChoice: paymentChoice,
+                amountInCentavos: amountInCentavos,
+                state: state,
+              );
+            },
+          );
         },
       ),
     );
@@ -80,6 +127,7 @@ enum _PaymentStateKind {
   confirmed,
   failed,
   expired,
+  cancelled,
   refunded,
 }
 
@@ -94,12 +142,9 @@ class _PaymentDisplayState {
   });
 
   final _PaymentStateKind kind;
-
   final String title;
   final String description;
-
   final IconData icon;
-
   final Color foreground;
   final Color background;
 
@@ -110,74 +155,107 @@ class _PaymentDisplayState {
       kind == _PaymentStateKind.expired ||
       kind == _PaymentStateKind.waiting;
 
-  bool get showProgress => kind == _PaymentStateKind.processing;
+  bool get showProgress =>
+      kind == _PaymentStateKind.processing || kind == _PaymentStateKind.waiting;
 
-  factory _PaymentDisplayState.fromBooking(BookingModel booking) {
-    if (booking.status == BookingStatus.confirmed ||
-        booking.paymentStatus == PaymentStatus.partiallyPaid ||
-        booking.paymentStatus == PaymentStatus.paid) {
-      return const _PaymentDisplayState(
-        kind: _PaymentStateKind.confirmed,
-        title: 'Payment confirmed',
-        description:
-            'Your payment has been verified and your booking is confirmed.',
-        icon: Icons.verified_rounded,
-        foreground: AppColors.success,
-        background: AppColors.successSubtle,
-      );
-    }
+  factory _PaymentDisplayState.fromRequest({
+    required CustomerProviderPaymentRequest request,
+    required CustomerPaymentChoice paymentChoice,
+  }) {
+    final paymentStatus = request.paymentStatus;
+    final settlementStatus = request.settlementStatus;
 
-    if (booking.status == BookingStatus.paymentProcessing ||
-        booking.paymentStatus == PaymentRecordStatus.pending ||
-        booking.paymentStatus == PaymentRecordStatus.processing) {
-      return const _PaymentDisplayState(
-        kind: _PaymentStateKind.processing,
-        title: 'Confirming your payment',
+    if (paymentStatus == 'refunded' || paymentStatus == 'partially_refunded') {
+      return _PaymentDisplayState(
+        kind: _PaymentStateKind.refunded,
+        title: paymentStatus == 'partially_refunded'
+            ? 'Payment partially refunded'
+            : 'Payment refunded',
         description:
-            'Your payment is being verified securely. '
-            'This page will update automatically when FEASTA '
-            'receives the payment confirmation.',
-        icon: Icons.sync_rounded,
+            'This payment has a refund recorded. '
+            'Open the booking details for the latest financial status.',
+        icon: Icons.replay_rounded,
         foreground: AppColors.primaryStrong,
         background: AppColors.primarySubtle,
       );
     }
 
-    if (booking.paymentStatus == PaymentStatus.failed) {
+    if (paymentStatus == 'cancelled') {
+      return const _PaymentDisplayState(
+        kind: _PaymentStateKind.cancelled,
+        title: 'Payment cancelled',
+        description:
+            'This payment attempt was cancelled. '
+            'Open the payment options to review what is available next.',
+        icon: Icons.cancel_outlined,
+        foreground: AppColors.error,
+        background: AppColors.errorSubtle,
+      );
+    }
+
+    if (paymentStatus == 'failed') {
       return const _PaymentDisplayState(
         kind: _PaymentStateKind.failed,
         title: 'Payment unsuccessful',
         description:
             'The payment was not completed successfully. '
-            'Your booking has not been confirmed.',
+            'You may retry when FEASTA confirms another checkout is allowed.',
         icon: Icons.error_outline_rounded,
         foreground: AppColors.error,
         background: AppColors.errorSubtle,
       );
     }
 
-    if (booking.paymentStatus == PaymentStatus.expired ||
-        booking.status == BookingStatus.expired) {
+    if (paymentStatus == 'expired') {
       return const _PaymentDisplayState(
         kind: _PaymentStateKind.expired,
         title: 'Payment expired',
-        description:
-            'The payment session or booking payment window expired '
-            'before confirmation was received.',
+        description: 'The secure payment session expired before confirmation.',
         icon: Icons.timer_off_outlined,
         foreground: AppColors.error,
         background: AppColors.errorSubtle,
       );
     }
 
-    if (booking.paymentStatus == PaymentStatus.refunded) {
+    final successfullySettled = switch (paymentChoice) {
+      CustomerPaymentChoice.minimum =>
+        paymentStatus == 'paid' &&
+            (settlementStatus == 'deposit_settled' ||
+                settlementStatus == 'fully_settled'),
+      CustomerPaymentChoice.full =>
+        paymentStatus == 'paid' && settlementStatus == 'fully_settled',
+      CustomerPaymentChoice.remainingBalance =>
+        paymentStatus == 'paid' && settlementStatus == 'fully_settled',
+    };
+
+    if (successfullySettled) {
+      return _PaymentDisplayState(
+        kind: _PaymentStateKind.confirmed,
+        title: paymentChoice == CustomerPaymentChoice.remainingBalance
+            ? 'Remaining balance paid'
+            : 'Payment confirmed',
+        description: paymentChoice == CustomerPaymentChoice.minimum
+            ? 'Your minimum payment was verified. '
+                  'The booking can remain active with a remaining balance.'
+            : paymentChoice == CustomerPaymentChoice.remainingBalance
+            ? 'The remaining provider balance was verified successfully.'
+            : 'Your full provider payment was verified successfully.',
+        icon: Icons.verified_rounded,
+        foreground: AppColors.success,
+        background: AppColors.successSubtle,
+      );
+    }
+
+    if (paymentStatus == 'processing' ||
+        settlementStatus == 'initial_payment_processing' ||
+        settlementStatus == 'balance_payment_processing') {
       return const _PaymentDisplayState(
-        kind: _PaymentStateKind.refunded,
-        title: 'Payment refunded',
+        kind: _PaymentStateKind.processing,
+        title: 'Confirming your payment',
         description:
-            'This payment has been refunded. '
-            'Open the booking details to review the latest status.',
-        icon: Icons.replay_rounded,
+            'FEASTA is waiting for trusted PayMongo confirmation. '
+            'This page updates automatically.',
+        icon: Icons.sync_rounded,
         foreground: AppColors.primaryStrong,
         background: AppColors.primarySubtle,
       );
@@ -185,11 +263,11 @@ class _PaymentDisplayState {
 
     return const _PaymentDisplayState(
       kind: _PaymentStateKind.waiting,
-      title: 'Waiting for payment',
+      title: 'Waiting for payment confirmation',
       description:
-          'We have not received a successful payment confirmation yet. '
-          'If you already completed PayMongo checkout, keep this page open '
-          'while FEASTA waits for the secure confirmation.',
+          'No successful payment confirmation has been received yet. '
+          'This page will update automatically when the provider payment '
+          'state changes.',
       icon: Icons.schedule_rounded,
       foreground: AppColors.primaryStrong,
       background: AppColors.primarySubtle,
@@ -198,9 +276,18 @@ class _PaymentDisplayState {
 }
 
 class _PaymentStatusContent extends StatelessWidget {
-  const _PaymentStatusContent({required this.booking, required this.state});
+  const _PaymentStatusContent({
+    required this.booking,
+    required this.request,
+    required this.paymentChoice,
+    required this.amountInCentavos,
+    required this.state,
+  });
 
   final BookingModel booking;
+  final CustomerProviderPaymentRequest request;
+  final CustomerPaymentChoice paymentChoice;
+  final int amountInCentavos;
   final _PaymentDisplayState state;
 
   void _openBooking(BuildContext context) {
@@ -245,11 +332,19 @@ class _PaymentStatusContent extends StatelessWidget {
 
         const SizedBox(height: AppSpacing.xl),
 
-        _PaymentReferenceCard(booking: booking),
+        _PaymentReferenceCard(
+          booking: booking,
+          request: request,
+          paymentChoice: paymentChoice,
+        ),
 
         const SizedBox(height: AppSpacing.md),
 
-        _PaymentAmountCard(booking: booking),
+        _PaymentAmountCard(
+          paymentChoice: paymentChoice,
+          amountInCentavos: amountInCentavos,
+          request: request,
+        ),
 
         const SizedBox(height: AppSpacing.md),
 
@@ -259,7 +354,7 @@ class _PaymentStatusContent extends StatelessWidget {
 
         if (state.canRetry) ...[
           FeastaPrimaryButton(
-            label: 'Try Payment Again',
+            label: 'Review Payment Options',
             icon: const Icon(Icons.refresh_rounded),
             onPressed: () {
               _retryPayment(context);
@@ -270,7 +365,7 @@ class _PaymentStatusContent extends StatelessWidget {
 
         if (state.isSuccess)
           FeastaPrimaryButton(
-            label: 'View Confirmed Booking',
+            label: 'View Booking',
             icon: const Icon(Icons.event_available_rounded),
             onPressed: () {
               _openBooking(context);
@@ -368,9 +463,15 @@ class _PaymentStateHero extends StatelessWidget {
 }
 
 class _PaymentReferenceCard extends StatelessWidget {
-  const _PaymentReferenceCard({required this.booking});
+  const _PaymentReferenceCard({
+    required this.booking,
+    required this.request,
+    required this.paymentChoice,
+  });
 
   final BookingModel booking;
+  final CustomerProviderPaymentRequest request;
+  final CustomerPaymentChoice paymentChoice;
 
   @override
   Widget build(BuildContext context) {
@@ -380,7 +481,7 @@ class _PaymentReferenceCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Booking information',
+            'Payment information',
             style: AppTypography.cardTitle.copyWith(
               color: AppColors.mainText,
               fontWeight: FontWeight.w900,
@@ -395,26 +496,34 @@ class _PaymentReferenceCard extends StatelessWidget {
 
           _StatusDetailRow(
             label: 'Provider',
-            value: booking.providerBusinessName,
+            value: request.providerBusinessName,
           ),
 
           const Divider(height: AppSpacing.lg, color: AppColors.border),
 
-          _StatusDetailRow(label: 'Package', value: booking.packageName),
+          _StatusDetailRow(label: 'Service', value: request.packageName),
 
           const Divider(height: AppSpacing.lg, color: AppColors.border),
 
           _StatusDetailRow(
-            label: 'Booking status',
-            value: _bookingStatusLabel(booking.status),
+            label: 'Payment type',
+            value: _choiceLabel(paymentChoice),
           ),
 
           const Divider(height: AppSpacing.lg, color: AppColors.border),
 
           _StatusDetailRow(
             label: 'Payment status',
-            value: _paymentStatusLabel(booking.paymentStatus),
+            value: _humanize(request.paymentStatus),
           ),
+
+          if (request.settlementStatus != null) ...[
+            const Divider(height: AppSpacing.lg, color: AppColors.border),
+            _StatusDetailRow(
+              label: 'Settlement',
+              value: _humanize(request.settlementStatus!),
+            ),
+          ],
         ],
       ),
     );
@@ -422,35 +531,47 @@ class _PaymentReferenceCard extends StatelessWidget {
 }
 
 class _PaymentAmountCard extends StatelessWidget {
-  const _PaymentAmountCard({required this.booking});
+  const _PaymentAmountCard({
+    required this.paymentChoice,
+    required this.amountInCentavos,
+    required this.request,
+  });
 
-  final BookingModel booking;
+  final CustomerPaymentChoice paymentChoice;
+  final int amountInCentavos;
+  final CustomerProviderPaymentRequest request;
 
   @override
   Widget build(BuildContext context) {
+    final outstanding = request.outstandingAmountInCentavos;
+
     return FeastaCard(
       padding: const EdgeInsets.all(AppSpacing.card),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _AmountRow(label: 'Booking total', amount: booking.totalAmount),
-
-          const SizedBox(height: AppSpacing.sm),
-
-          _AmountRow(
-            label: 'Down payment',
-            amount: booking.downPaymentAmount,
-            emphasized: true,
+          Text(
+            'Payment summary',
+            style: AppTypography.cardTitle.copyWith(
+              color: AppColors.mainText,
+              fontWeight: FontWeight.w900,
+            ),
           ),
 
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: AppSpacing.md),
-            child: Divider(height: 1, color: AppColors.border),
+          const SizedBox(height: AppSpacing.lg),
+
+          _StatusDetailRow(
+            label: _choiceLabel(paymentChoice),
+            value: _pesoFromCentavos(amountInCentavos),
           ),
 
-          _AmountRow(
-            label: 'Remaining balance',
-            amount: booking.remainingBalance,
-          ),
+          if (outstanding != null) ...[
+            const Divider(height: AppSpacing.lg, color: AppColors.border),
+            _StatusDetailRow(
+              label: 'Outstanding provider balance',
+              value: _pesoFromCentavos(outstanding),
+            ),
+          ],
         ],
       ),
     );
@@ -464,34 +585,32 @@ class _PaymentConfirmationNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final success = state.isSuccess;
-
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: success ? AppColors.successSubtle : AppColors.primarySubtle,
-        borderRadius: BorderRadius.circular(AppRadius.large),
-        border: Border.all(color: AppColors.border),
-      ),
+    return FeastaCard(
+      padding: const EdgeInsets.all(AppSpacing.card),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            success ? Icons.verified_user_outlined : Icons.security_outlined,
-            color: success ? AppColors.success : AppColors.primaryStrong,
+            state.isSuccess
+                ? Icons.verified_user_outlined
+                : Icons.security_rounded,
+            color: state.isSuccess
+                ? AppColors.success
+                : AppColors.primaryStrong,
           ),
 
           const SizedBox(width: AppSpacing.sm),
 
           Expanded(
             child: Text(
-              success
-                  ? 'FEASTA received the secure payment confirmation. '
-                        'You do not need to submit a receipt manually.'
-                  : 'Do not treat the PayMongo browser page alone as payment confirmation. '
-                        'FEASTA confirms payment only after the secure backend update is received.',
+              state.isSuccess
+                  ? 'This status is based on FEASTA’s trusted '
+                        'provider-payment settlement state.'
+                  : 'Do not rely only on the browser result. '
+                        'FEASTA marks payment complete only after '
+                        'trusted backend confirmation.',
               style: AppTypography.bodySmall.copyWith(
-                color: AppColors.mainText,
+                color: AppColors.secondaryTextAccessible,
                 height: 1.45,
               ),
             ),
@@ -510,31 +629,6 @@ class _StatusDetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final largeText = MediaQuery.textScalerOf(context).scale(16) >= 22;
-
-    if (largeText) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: AppTypography.caption.copyWith(
-              color: AppColors.secondaryTextAccessible,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: AppSpacing.xxs),
-          Text(
-            value,
-            style: AppTypography.bodySmall.copyWith(
-              color: AppColors.mainText,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ],
-      );
-    }
-
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -547,7 +641,9 @@ class _StatusDetailRow extends StatelessWidget {
             ),
           ),
         ),
+
         const SizedBox(width: AppSpacing.md),
+
         Expanded(
           flex: 6,
           child: Text(
@@ -564,146 +660,47 @@ class _StatusDetailRow extends StatelessWidget {
   }
 }
 
-class _AmountRow extends StatelessWidget {
-  const _AmountRow({
-    required this.label,
-    required this.amount,
-    this.emphasized = false,
-  });
-
-  final String label;
-  final double amount;
-  final bool emphasized;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: AppTypography.bodySmall.copyWith(
-              color: AppColors.mainText,
-              fontWeight: emphasized ? FontWeight.w900 : FontWeight.w600,
-            ),
-          ),
-        ),
-
-        const SizedBox(width: AppSpacing.md),
-
-        FeastaPriceText(
-          amount: amount,
-          decimalDigits: 0,
-          semanticLabel: label,
-          style: (emphasized ? AppTypography.cardTitle : AppTypography.label)
-              .copyWith(
-                color: emphasized
-                    ? AppColors.primaryStrong
-                    : AppColors.mainText,
-                fontWeight: FontWeight.w900,
-              ),
-        ),
-      ],
-    );
-  }
-}
-
 class _PaymentStatusLoading extends StatelessWidget {
   const _PaymentStatusLoading();
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return const Center(
       child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xl),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(color: AppColors.primary),
-            const SizedBox(height: AppSpacing.lg),
-            Text(
-              'Checking payment status...',
-              style: AppTypography.cardTitle.copyWith(
-                color: AppColors.mainText,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              'FEASTA is checking the latest secure booking information.',
-              textAlign: TextAlign.center,
-              style: AppTypography.bodySmall.copyWith(
-                color: AppColors.secondaryTextAccessible,
-              ),
-            ),
-          ],
-        ),
+        padding: EdgeInsets.all(AppSpacing.screen),
+        child: CircularProgressIndicator(),
       ),
     );
   }
 }
 
-String _bookingStatusLabel(String status) {
-  switch (status) {
-    case BookingStatus.pending:
-      return 'Pending';
+String _choiceLabel(CustomerPaymentChoice choice) {
+  switch (choice) {
+    case CustomerPaymentChoice.minimum:
+      return 'Minimum payment';
 
-    case BookingStatus.accepted:
-      return 'Accepted';
+    case CustomerPaymentChoice.full:
+      return 'Full payment';
 
-    case BookingStatus.waitingPayment:
-      return 'Waiting for Payment';
-
-    case BookingStatus.paymentProcessing:
-      return 'Payment Processing';
-
-    case BookingStatus.confirmed:
-      return 'Confirmed';
-
-    case BookingStatus.completed:
-      return 'Completed';
-
-    case BookingStatus.cancelled:
-      return 'Cancelled';
-
-    case BookingStatus.rejected:
-      return 'Rejected';
-
-    case BookingStatus.expired:
-      return 'Expired';
-
-    default:
-      return status;
+    case CustomerPaymentChoice.remainingBalance:
+      return 'Remaining balance';
   }
 }
 
-String _paymentStatusLabel(String status) {
-  switch (status) {
-    case PaymentStatus.unpaid:
-      return 'Unpaid';
+String _humanize(String value) {
+  final normalized = value.trim();
 
-    case PaymentStatus.partiallyPaid:
-      return 'Partially Paid';
-
-    case PaymentStatus.paid:
-      return 'Paid';
-
-    case PaymentStatus.failed:
-      return 'Failed';
-
-    case PaymentStatus.refunded:
-      return 'Refunded';
-
-    case PaymentStatus.expired:
-      return 'Expired';
-
-    case PaymentRecordStatus.pending:
-      return 'Pending';
-
-    case PaymentRecordStatus.processing:
-      return 'Processing';
-
-    default:
-      return status;
+  if (normalized.isEmpty) {
+    return 'Unavailable';
   }
+
+  return normalized
+      .split('_')
+      .where((part) => part.isNotEmpty)
+      .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+      .join(' ');
+}
+
+String _pesoFromCentavos(int value) {
+  return '₱${(value / 100).toStringAsFixed(2)}';
 }

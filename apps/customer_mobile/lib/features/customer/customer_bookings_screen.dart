@@ -168,6 +168,7 @@ class BookingCard extends StatelessWidget {
         return 'Accepted';
 
       case 'waiting_payment':
+      case 'waiting_for_down_payment':
         return 'Payment Required';
 
       case 'payment_processing':
@@ -197,6 +198,7 @@ class BookingCard extends StatelessWidget {
     switch (booking.status) {
       case 'pending':
       case 'waiting_payment':
+      case 'waiting_for_down_payment':
       case 'payment_processing':
         return FeastaStatusTone.warning;
 
@@ -252,6 +254,7 @@ class BookingCard extends StatelessWidget {
         return 'Provider accepted your request';
 
       case 'waiting_payment':
+      case 'waiting_for_down_payment':
         return 'Down payment required';
 
       case 'payment_processing':
@@ -286,6 +289,7 @@ class BookingCard extends StatelessWidget {
         return 'Open your booking to see the next required step.';
 
       case 'waiting_payment':
+      case 'waiting_for_down_payment':
         return 'Complete the required down payment to confirm your booking.';
 
       case 'payment_processing':
@@ -320,6 +324,7 @@ class BookingCard extends StatelessWidget {
         return Icons.thumb_up_alt_outlined;
 
       case 'waiting_payment':
+      case 'waiting_for_down_payment':
         return Icons.account_balance_wallet_outlined;
 
       case 'payment_processing':
@@ -1051,7 +1056,7 @@ class _BookingCardActions extends StatelessWidget {
   final bool forceStack;
 
   bool get showPayment {
-    return booking.status == BookingStatus.waitingPayment;
+    return BookingStatus.isWaitingForPayment(booking.status);
   }
 
   bool get showChat {
