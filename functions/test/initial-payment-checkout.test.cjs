@@ -43,7 +43,7 @@ test(
 
     assert.match(
       checkout,
-      /parseInitialPaymentChoice/u,
+      /parseCustomerPaymentChoice/u,
     );
 
     assert.doesNotMatch(

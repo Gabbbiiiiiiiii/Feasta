@@ -176,13 +176,19 @@ describe("customer payment service contract", () => {
       'payment.currency !== "PHP"',
     );
     expect(service).toContain(
-      "amountInCentavos !== Math.round(downPaymentAmount * 100)",
+      "returnedObligationAmount(",
     );
     expect(service).toContain(
-      'input.providerRequestStatus === "waiting_for_down_payment"',
+      "parseCustomerPaymentChoice(",
     );
     expect(service).toContain(
-      'input.providerRequestPaymentStatus !== "processing"',
+      "customerBookingCheckoutOptions(",
+    );
+    expect(service).toContain(
+      "option.choice === paymentChoice",
+    );
+    expect(service).toContain(
+      "Math.round(option.amount * 100) === amountInCentavos",
     );
     expect(service).toContain(
       '"waiting_for_down_payment",',
@@ -223,14 +229,29 @@ describe("customer payment service contract", () => {
     expect(service).toContain(
       "allAssignedProvidersAccepted",
     );
-    expect(service).toMatch(
-      /canStartCheckout:\s*allAssignedProvidersAccepted\s*&&\s*canRetryReturnedCheckout/u,
+    expect(service).toContain(
+      "canStartCheckout:",
+    );
+    expect(service).toContain(
+      "allAssignedProvidersAccepted &&",
+    );
+    expect(service).toContain(
+      "customerBookingCheckoutOptions(",
+    );
+    expect(service).toContain(
+      "option.choice === paymentChoice",
     );
   });
 
   it("keeps retry request-scoped and introduces no polling or snapshot listener", () => {
     expect(component).toContain(
-      "createCustomerPaymentCheckout(selectedPayment.providerRequestId)",
+      "createCustomerPaymentCheckout(",
+    );
+    expect(component).toContain(
+      "selectedPayment.providerRequestId",
+    );
+    expect(component).toContain(
+      "selectedPayment.paymentChoice",
     );
     expect(component).toContain(
       "payment.canStartCheckout",

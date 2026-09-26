@@ -1,4 +1,5 @@
 import type {
+  CustomerPaymentChoice,
   MainEventStatus,
   ProviderRequestStatus,
   ProviderRequestType,
@@ -21,7 +22,13 @@ export type CustomerBookingService = {
   downPaymentAmount: number;
 };
 
+export type CustomerBookingPaymentOption = {
+  choice: CustomerPaymentChoice;
+  amount: number;
+};
+
 export type CustomerBookingProviderRequest = {
+  checkoutOptions: CustomerBookingPaymentOption[];
   id: string;
   providerRequestId: string;
 

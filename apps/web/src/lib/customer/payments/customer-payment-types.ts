@@ -1,4 +1,5 @@
 import type {
+  CustomerPaymentChoice,
   PaymentGateway,
   PaymentStatus,
   PaymentType,
@@ -10,6 +11,7 @@ export type CustomerPaymentStatusFilter =
   | PaymentStatus;
 
 export type CustomerPayment = {
+  paymentChoice: CustomerPaymentChoice | null;
   id: string;
   paymentId: string;
 
@@ -68,6 +70,7 @@ export type CustomerPaymentPage = {
 
 export type CreateCustomerPaymentSessionInput = {
   providerRequestId: string;
+  paymentChoice: CustomerPaymentChoice;
   idempotencyKey: string;
 };
 
@@ -91,6 +94,7 @@ export type CustomerPaymentReturnLookup = {
 };
 
 export type CustomerPaymentReturnDetails = {
+  paymentChoice: CustomerPaymentChoice | null;
   providerRequestId: string;
 
   providerName: string;

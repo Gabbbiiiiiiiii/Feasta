@@ -40,6 +40,7 @@ const PAGE_SIZE = 10;
 
 type CheckoutSelection = Pick<
   CustomerPayment,
+  | "paymentChoice"
   | "providerRequestId"
   | "providerName"
   | "formattedAmount"
@@ -59,6 +60,7 @@ export function CustomerPaymentsClient({
   const [cursorHistory, setCursorHistory] = useState<(string | null)[]>([null]);
   const [selectedPayment, setSelectedPayment] = useState<CheckoutSelection | null>(null);
   const [checkoutPending, setCheckoutPending] = useState(false);
+  const checkoutInFlight = useRef(false);
   const [paymentReturnState, setPaymentReturnState] =
     useState<CustomerPaymentReturnState>("loading");
   const [paymentReturn, setPaymentReturn] =
@@ -255,13 +257,15 @@ export function CustomerPaymentsClient({
   }
 
   async function beginCheckout() {
-    if (!selectedPayment) return;
+    if (!selectedPayment?.paymentChoice || checkoutInFlight.current) return;
+    checkoutInFlight.current = true;
     setCheckoutPending(true);
     try {
-      const result = await createCustomerPaymentCheckout(selectedPayment.providerRequestId);
+      const result = await createCustomerPaymentCheckout(selectedPayment.providerRequestId, selectedPayment.paymentChoice);
       redirectToCustomerPaymentCheckout(result);
     } catch (error: unknown) {
       feastaToast.error(error instanceof Error ? error.message : "Checkout could not be started.");
+      checkoutInFlight.current = false;
       setCheckoutPending(false);
       setSelectedPayment(null);
     }
@@ -271,6 +275,7 @@ export function CustomerPaymentsClient({
     payment: CustomerPaymentReturnDetails,
   ) {
     setSelectedPayment({
+      paymentChoice: payment.paymentChoice,
       providerRequestId:
         payment.providerRequestId,
       providerName: payment.providerName,
@@ -375,7 +380,7 @@ export function CustomerPaymentsClient({
         open={selectedPayment !== null}
         onOpenChange={(open) => !open && setSelectedPayment(null)}
         title="Continue to secure checkout?"
-        description={selectedPayment ? `You will continue to PayMongo to pay ${selectedPayment.formattedAmount} for ${selectedPayment.providerName}.` : "Continue to PayMongo checkout."}
+        description={selectedPayment ? `You will continue to PayMongo to pay the ${selectedPayment.paymentChoice === "remaining_balance" ? "remaining balance" : selectedPayment.paymentChoice === "full" ? "full payment" : "minimum payment"} of ${selectedPayment.formattedAmount} for ${selectedPayment.providerName}.` : "Continue to PayMongo checkout."}
         confirmLabel="Continue to PayMongo"
         loadingLabel="Starting checkout"
         loading={checkoutPending}
@@ -403,7 +408,7 @@ function PaymentCard({payment, disabled, onCheckout}: {
           <PaymentDetail label="Booking" value={payment.bookingCode || payment.bookingId} />
           <PaymentDetail
             label="Payment type"
-            value={paymentTypeLabel(payment.paymentType)}
+            value={payment.paymentChoice === "full" ? "Full payment" : payment.paymentChoice === "minimum" ? "Minimum payment" : paymentTypeLabel(payment.paymentType)}
           />
           <PaymentDetail label="Created" value={formatDate(payment.createdAt)} />
           {payment.paidAt ? (

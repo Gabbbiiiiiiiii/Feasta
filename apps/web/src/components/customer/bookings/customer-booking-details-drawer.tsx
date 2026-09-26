@@ -1,5 +1,7 @@
 "use client";
 
+import type {CustomerPaymentChoice} from "@feasta/shared-types";
+
 import {
   CalendarDays,
   CreditCard,
@@ -54,6 +56,8 @@ function CustomerBookingDetailsDrawer({
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string>();
   const [paymentRequestId, setPaymentRequestId] = useState<string | null>(null);
+  const [paymentRequestChoice, setPaymentRequestChoice] =
+    useState<CustomerPaymentChoice | null>(null);
   const [paymentError, setPaymentError] = useState<string>();
   const detailsRequestRef = useRef(0);
   const checkoutInFlightRef = useRef(false);
@@ -110,21 +114,23 @@ function CustomerBookingDetailsDrawer({
     onOpenChange(nextOpen);
   };
 
-  const startCheckout = async (providerRequestId: string) => {
+  const startCheckout = async (providerRequestId: string, paymentChoice: CustomerPaymentChoice) => {
     if (checkoutInFlightRef.current) return;
 
     checkoutInFlightRef.current = true;
     setPaymentRequestId(providerRequestId);
+    setPaymentRequestChoice(paymentChoice);
     setPaymentError(undefined);
 
     try {
-      const checkout = await createCustomerPaymentCheckout(providerRequestId);
+      const checkout = await createCustomerPaymentCheckout(providerRequestId, paymentChoice);
       redirectToCustomerPaymentCheckout(checkout);
     } catch (error: unknown) {
       setPaymentError(paymentErrorMessage(error));
     } finally {
       checkoutInFlightRef.current = false;
       setPaymentRequestId(null);
+      setPaymentRequestChoice(null);
     }
   };
 
@@ -166,8 +172,9 @@ function CustomerBookingDetailsDrawer({
         <BookingDetailsContent
           details={details}
           paymentRequestId={paymentRequestId}
+          paymentRequestChoice={paymentRequestChoice}
           paymentError={paymentError}
-          onPay={(providerRequestId) => void startCheckout(providerRequestId)}
+          onPay={(providerRequestId, paymentChoice) => void startCheckout(providerRequestId, paymentChoice)}
         />
       ) : null}
     </DetailDrawer>
@@ -177,13 +184,15 @@ function CustomerBookingDetailsDrawer({
 function BookingDetailsContent({
   details,
   paymentRequestId,
+  paymentRequestChoice,
   paymentError,
   onPay,
 }: {
   details: CustomerBookingDetails;
   paymentRequestId: string | null;
+  paymentRequestChoice: CustomerPaymentChoice | null;
   paymentError?: string;
-  onPay: (providerRequestId: string) => void;
+  onPay: (providerRequestId: string, paymentChoice: CustomerPaymentChoice) => void;
 }) {
   const {booking} = details;
   const providerRequests = details.providerRequests.slice(0, MAX_PROVIDER_REQUESTS);
@@ -270,16 +279,20 @@ function BookingDetailsContent({
                 compact
                 paymentAction={canStartCustomerBookingPayment(request, booking.id) ? (
                   <div className="grid gap-2 border-t border-border pt-4">
-                    <Button
+                    {request.checkoutOptions.map((option) => <Button
+                      key={option.choice}
                       fullWidth
-                      loading={paymentRequestId === request.providerRequestId}
+                      loading={
+                        paymentRequestId === request.providerRequestId &&
+                        paymentRequestChoice === option.choice
+                      }
                       loadingLabel="Creating secure checkout"
                       disabled={paymentRequestId !== null}
-                      onClick={() => onPay(request.providerRequestId)}
+                      onClick={() => onPay(request.providerRequestId, option.choice)}
                     >
                       <CreditCard aria-hidden="true" className="size-5" />
-                      Pay securely
-                    </Button>
+                      Pay {option.choice === "remaining_balance" ? "remaining balance" : option.choice} {formatCurrency(option.amount)}
+                    </Button>)}
                     <p className="text-xs leading-5 text-muted-foreground">
                       Payment is completed on PayMongo. Your booking updates only after FEASTA verifies the payment.
                     </p>

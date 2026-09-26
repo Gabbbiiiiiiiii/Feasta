@@ -1,4 +1,5 @@
 import "server-only";
+import {customerBookingCheckoutOptions} from "./customer-booking-checkout-options";
 
 import {createHash} from "node:crypto";
 
@@ -333,7 +334,7 @@ async function loadOwnedProviderRequests(
     })
     .sort(compareProviderRequestDocuments)
     .map((document) => {
-      const request = mapProviderRequestDocument(document);
+      const request = mapProviderRequestDocument(document, mainEventStatus);
       return {
         ...request,
         reviewStatus: includeReviewStatus
@@ -522,6 +523,7 @@ function mapBookingDocument(
 
 function mapProviderRequestDocument(
   document: DocumentSnapshot<DocumentData>,
+  mainEventStatus: unknown,
 ): CustomerBookingProviderRequest {
   const data = document.data() ?? {};
 
@@ -544,6 +546,7 @@ function mapProviderRequestDocument(
     status: normalizeProviderRequestStatus(data.status),
     paymentStatus: stringValue(data.paymentStatus) || "unpaid",
     paymentId: nullableString(data.paymentId),
+    checkoutOptions: customerBookingCheckoutOptions(document.id, data, mainEventStatus),
     rejectionReason: nullableString(data.rejectionReason),
     cancellationReason: nullableString(data.cancellationReason),
     requestedAt: isoDateValue(data.requestedAt),

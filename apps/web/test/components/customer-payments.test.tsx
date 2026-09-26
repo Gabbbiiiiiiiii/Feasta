@@ -44,7 +44,8 @@ const initialPage: CustomerPaymentPage = {
       amountInCentavos: 250000,
       formattedAmount: "₱2,500.00",
       currency: "PHP",
-      paymentType: "provider_down_payment",
+      paymentChoice: "minimum",
+    paymentType: "provider_down_payment",
       gateway: "paymongo",
       status: "pending",
       canStartCheckout: true,
@@ -66,7 +67,8 @@ const initialPage: CustomerPaymentPage = {
       amountInCentavos: 500000,
       formattedAmount: "₱5,000.00",
       currency: "PHP",
-      paymentType: "provider_down_payment",
+      paymentChoice: "minimum",
+    paymentType: "provider_down_payment",
       gateway: "paymongo",
       status: "paid",
       canStartCheckout: false,
@@ -99,6 +101,7 @@ const returnLookup = {
 };
 
 const processingReturn: CustomerPaymentReturnDetails = {
+  paymentChoice: "minimum",
   providerRequestId: returnLookup.providerRequestId,
   providerName: "Ana Events",
   serviceLabel: "Wedding photography",
@@ -182,7 +185,7 @@ describe("customer payments", () => {
     expect(mocks.createCheckout).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", {name: /continue to paymongo/iu}));
-    await waitFor(() => expect(mocks.createCheckout).toHaveBeenCalledWith("request_pending_12345678"));
+    await waitFor(() => expect(mocks.createCheckout).toHaveBeenCalledWith("request_pending_12345678", "minimum"));
     expect(mocks.redirectCheckout).toHaveBeenCalledWith(checkout);
   });
 

@@ -1,4 +1,5 @@
 import "server-only";
+import {customerBookingCheckoutOptions} from "../bookings/customer-booking-checkout-options";
 
 import {
   AggregateField,
@@ -11,6 +12,7 @@ import {
 } from "firebase-admin/firestore";
 
 import {
+  parseCustomerPaymentChoice,
   MAIN_EVENT_STATUSES,
   PAYMENT_GATEWAYS,
   PAYMENT_STATUSES,
@@ -112,7 +114,7 @@ export async function getCustomerPaymentReturnDetails(
     bookingId !== lookup.bookingId ||
     providerRequestId !== lookup.providerRequestId ||
     !providerId ||
-    payment.paymentType !== "provider_down_payment" ||
+    !["provider_down_payment", "provider_balance"].includes(payment.paymentType) ||
     payment.gateway !== "paymongo"
   ) {
     throw new CustomerPaymentReturnUnavailableError();
@@ -203,15 +205,17 @@ export async function getCustomerPaymentReturnDetails(
     paymentAmount === null ||
     requestAmount < downPaymentAmount ||
     payment.currency !== "PHP" ||
-    amountInCentavos !== Math.round(downPaymentAmount * 100) ||
+    amountInCentavos !== returnedObligationAmount(payment, providerRequest, downPaymentAmount) ||
     Math.round(paymentAmount * 100) !== amountInCentavos
   ) {
     throw new CustomerPaymentReturnUnavailableError();
   }
 
   const services = returnServiceSummary(providerRequest.services);
+  const paymentChoice = parseCustomerPaymentChoice(payment.paymentChoice);
 
   return {
+    paymentChoice,
     providerRequestId,
     providerName: boundedText(
       providerRequest.providerBusinessName || provider.businessName,
@@ -238,12 +242,9 @@ export async function getCustomerPaymentReturnDetails(
     providerRequestStatus,
     canStartCheckout:
       allAssignedProvidersAccepted &&
-      canRetryReturnedCheckout({
-        paymentStatus,
-        providerRequestStatus,
-        providerRequestPaymentStatus: providerRequest.paymentStatus,
-        mainEventStatus,
-      }),
+      ["pending", "failed", "expired"].includes(paymentStatus) &&
+      customerBookingCheckoutOptions(providerRequestId, providerRequest, mainEventStatus)
+        .some((option) => option.choice === paymentChoice && Math.round(option.amount * 100) === amountInCentavos),
     bookingLabel: boundedText(
       mainEvent.bookingCode,
       "Booking details",
@@ -653,7 +654,7 @@ function mapPaymentDocument(
   );
   const currency = stringValue(data.currency).toUpperCase() || "PHP";
   const status = normalizePaymentStatus(data.status);
-  const requestStatus = stringValue(providerRequestData.status);
+  const paymentChoice = parseCustomerPaymentChoice(data.paymentChoice);
   const ownsRequest = providerRequestData.customerId === customerId;
 
   const allAssignedProvidersAccepted =
@@ -680,6 +681,7 @@ function mapPaymentDocument(
     amountInCentavos,
     formattedAmount: formatCentavos(amountInCentavos, currency),
     currency,
+    paymentChoice,
     paymentType: normalizePaymentType(data.paymentType),
     gateway: normalizePaymentGateway(data.gateway),
     status,
@@ -687,9 +689,9 @@ function mapPaymentDocument(
       ownsRequest &&
       allAssignedProvidersAccepted &&
       ["pending", "failed", "expired"].includes(status) &&
-      ["waiting_for_down_payment", "payment_processing"].includes(
-        requestStatus,
-      ),
+      providerRequestData.paymentId === document.id &&
+      customerBookingCheckoutOptions(providerRequestId, providerRequestData, bookingData.status)
+        .some((option) => option.choice === paymentChoice && Math.round(option.amount * 100) === amountInCentavos),
     createdAt: isoDateValue(data.createdAt),
     updatedAt: isoDateValue(data.updatedAt),
     paidAt: isoDateValue(data.paidAt),
@@ -774,20 +776,13 @@ function strictProviderRequestStatus(
     : null;
 }
 
-function canRetryReturnedCheckout(input: {
-  paymentStatus: PaymentStatus;
-  providerRequestStatus: ProviderRequestStatus;
-  providerRequestPaymentStatus: unknown;
-  mainEventStatus: MainEventStatus;
-}): boolean {
-  return [
-    "pending_provider_approval",
-    "needs_provider_replacement",
-    "waiting_for_down_payment",
-  ].includes(input.mainEventStatus) &&
-    input.providerRequestStatus === "waiting_for_down_payment" &&
-    input.providerRequestPaymentStatus !== "processing" &&
-    ["pending", "failed", "expired"].includes(input.paymentStatus);
+function returnedObligationAmount(payment: DocumentData, request: DocumentData, legacyAmount: number): unknown {
+  const choice = parseCustomerPaymentChoice(payment.paymentChoice);
+  if (payment.paymentChoice === undefined) return Math.round(legacyAmount * 100);
+  const snapshot = request.financialSnapshot;
+  if (!choice || snapshot?.schemaVersion !== 1 || snapshot.currency !== "PHP") return null;
+  return choice === "minimum" ? snapshot.requiredUpfrontAmountInCentavos :
+    choice === "full" ? snapshot.grossAmountInCentavos : snapshot.remainingBalanceInCentavos;
 }
 
 function normalizePaymentType(value: unknown): PaymentType {

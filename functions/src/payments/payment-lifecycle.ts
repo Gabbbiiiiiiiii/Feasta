@@ -17,6 +17,7 @@ import {
   parseCustomerPaymentChoice,
   paymentIdForProviderRequestChoice,
   providerPaymentObligationForChoice,
+  type CustomerPaymentChoice,
 } from "./payment-obligation.js";
 
 const PAYMENT_COMPATIBLE_MAIN_EVENT_STATUSES =
@@ -122,6 +123,7 @@ export function checkoutEligibilityReason(
     payment?:
       Readonly<Record<string, unknown>> |
       null;
+    paymentChoice?: CustomerPaymentChoice;
   },
 ): string | null {
   const requestStatus =
@@ -133,6 +135,15 @@ export function checkoutEligibilityReason(
     parseMainEventStatus(
       input.mainEvent.status,
     );
+
+  if ((input.payment?.paymentChoice ?? input.paymentChoice) === "remaining_balance") {
+    if (mainEventStatus !== "confirmed") return "main_event_not_payment_eligible";
+    if (requestStatus !== "confirmed") return "provider_request_not_payment_eligible";
+    if (!input.payment) return null;
+    const status = parsePaymentStatus(input.payment.status);
+    return status && CHECKOUT_PAYMENT_STATUSES.has(status)
+      ? null : "payment_not_checkout_eligible";
+  }
 
   if (
     !mainEventStatus ||

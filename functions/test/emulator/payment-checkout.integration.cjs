@@ -83,6 +83,8 @@ const libRoot = process.env.FEASTA_FUNCTIONS_LIB_DIR ??
     });
     await durableAttemptTests({createPaymentSessionForCustomer, paymentIdForProviderRequest,
       PayMongoRequestError});
+    await p6CheckoutTests({createPaymentSessionForCustomer, paymentIdForProviderRequestChoice,
+      PayMongoRequestError});
 
     console.log(
       "Payment checkout emulator integration passed.",
@@ -839,4 +841,167 @@ async function seedEvent(input) {
 
 async function unexpectedGateway() {
   throw new Error("gateway must not be called");
+}
+
+async function p6CheckoutTests(input) {
+  const test = require("node:test");
+  const {providerRequestSettlementUpdateForPaymentOutcome} = require(path.join(
+    libRoot, "payments/payment-settlement.js"));
+  let sequence = 0;
+  async function fixture(choice = "minimum", settle = true) {
+    const requestId = "request-p6-" + (++sequence);
+    const eventId = "event-p6-" + sequence;
+    await seedEvent({eventId, requests: [{requestId, providerId: "provider-p6-" + sequence}]});
+    const initial = await createSession(input.createPaymentSessionForCustomer,
+      {requestId, paymentChoice: choice, clientKey: "p6-initial-key"});
+    const requestRef = db.doc("providerRequests/" + requestId);
+    const eventRef = db.doc("mainEvents/" + eventId);
+    if (settle) {
+      await db.doc("payments/" + initial.paymentId).update({status: "paid", paidAt: Timestamp.now()});
+      await requestRef.update({status: "confirmed", paymentStatus: "paid",
+        ...providerRequestSettlementUpdateForPaymentOutcome({
+          providerRequestId: requestId, providerRequest: (await requestRef.get()).data(),
+          paymentId: initial.paymentId, paymentStatus: "paid", timestamp: Timestamp.now(),
+        })});
+      await eventRef.update({status: "confirmed"});
+    }
+    const balanceId = input.paymentIdForProviderRequestChoice(requestId, "remaining_balance");
+    const balanceRef = db.doc("payments/" + balanceId);
+    const checkout = (extra = {}) => createSession(input.createPaymentSessionForCustomer, {
+      requestId, paymentChoice: "remaining_balance", clientKey: "p6-balance-key", ...extra});
+    return {requestId, requestRef, eventRef, initial, balanceId, balanceRef, checkout};
+  }
+  for (const choice of ["minimum", "full"]) {
+    await test("P6 exact trusted " + choice + " amount and immutable selection", async () => {
+      const f = await fixture(choice, false);
+      const payment = (await db.doc("payments/" + f.initial.paymentId).get()).data();
+      assert.equal(payment.amountInCentavos, choice === "minimum" ? 1350000 : 2700000);
+      await assert.rejects(createSession(input.createPaymentSessionForCustomer, {
+        requestId: f.requestId, paymentChoice: choice === "minimum" ? "full" : "minimum",
+        clientKey: "p6-alternate-key", createCheckout: unexpectedGateway}),
+      error => error.code === "failed-precondition");
+    });
+  }
+  await test("P6 full-payment package rejects minimum and accepts full", async () => {
+    const requestId = "request-p6-full-package";
+    await seedEvent({eventId: "event-p6-full-package",
+      requests: [{requestId, providerId: "provider-p6-full-package"}]});
+    await db.doc("providerRequests/" + requestId).update({
+      "financialSnapshot.requiredUpfrontAmountInCentavos": 2700000,
+      "financialSnapshot.remainingBalanceInCentavos": 0});
+    await assert.rejects(createSession(input.createPaymentSessionForCustomer, {
+      requestId, clientKey: "p6-full-minimum-key", createCheckout: unexpectedGateway}),
+    error => error.code === "failed-precondition");
+    let amount;
+    await createSession(input.createPaymentSessionForCustomer, {requestId, paymentChoice: "full",
+      clientKey: "p6-full-package-key", createCheckout: async value => {
+        amount = value.amountInCentavos;
+        return {id: "cs_p6_full", checkoutUrl: "https://checkout.paymongo.com/p6-full"};
+      }});
+    assert.equal(amount, 2700000);
+  });
+  for (const [name, choice, settle, mutation] of [
+    ["before minimum settles", "minimum", false, null],
+    ["after full settles", "full", true, null],
+    ["unconfirmed request", "minimum", true, {status: "waiting_for_down_payment"}],
+    ["active cancellation", "minimum", true, {activeCancellationRequestId: "cancel-p6-active"}],
+    ["malformed balance pointer", "minimum", true, {remainingBalancePaymentId: "payment_bad"}],
+    ["inconsistent outstanding", "minimum", true, {outstandingAmountInCentavos: 1}],
+    ["inconsistent settlement", "minimum", true, {settlementStatus: "fully_settled"}],
+  ]) {
+    await test("P6 rejects balance " + name, async () => {
+      const f = await fixture(choice, settle);
+      if (mutation) await f.requestRef.update(mutation);
+      await assert.rejects(f.checkout({createCheckout: unexpectedGateway}),
+        error => error.code === "failed-precondition");
+      assert.equal((await f.balanceRef.get()).exists, false);
+    });
+  }
+  await test("P6 requires confirmed event and rejects orphan balance document", async () => {
+    const f = await fixture();
+    await f.eventRef.update({status: "waiting_for_down_payment"});
+    await assert.rejects(f.checkout({createCheckout: unexpectedGateway}),
+      error => error.code === "failed-precondition");
+    await f.eventRef.update({status: "confirmed"});
+    await f.balanceRef.set({status: "pending"});
+    await assert.rejects(f.checkout({createCheckout: unexpectedGateway}),
+      error => error.code === "failed-precondition");
+  });
+  await test("P6 reserves exact balance atomically, keeps confirmation, and deduplicates", async () => {
+    const f = await fixture();
+    const calls = [];
+    const createCheckout = async value => {
+      calls.push(value);
+      const request = (await f.requestRef.get()).data();
+      assert.equal(request.remainingBalancePaymentId, f.balanceId);
+      assert.equal(request.paymentId, f.balanceId);
+      assert.equal(request.initialPaymentId, f.initial.paymentId);
+      assert.equal(request.initialPaymentChoice, "minimum");
+      assert.equal((await f.balanceRef.get()).data().amountInCentavos, 1350000);
+      assert.equal(value.amountInCentavos, 1350000);
+      assert.equal(value.description, "FEASTA provider remaining balance");
+      return {id: "cs_p6_balance", checkoutUrl: "https://checkout.paymongo.com/p6-balance"};
+    };
+    const results = await Promise.all([f.checkout({createCheckout}), f.checkout({createCheckout})]);
+    assert.equal(results[0].paymentId, f.balanceId);
+    assert.equal(results[1].paymentId, f.balanceId);
+    assert.equal(new Set(calls.map(c => c.idempotencyKey)).size, 1);
+    assert.equal((await f.balanceRef.collection("checkoutAttempts").get()).size, 1);
+    assert.equal((await f.requestRef.get()).data().status, "confirmed");
+    assert.equal((await f.requestRef.get()).data().settlementStatus, "balance_payment_processing");
+    assert.equal((await f.eventRef.get()).data().status, "confirmed");
+    assert.equal((await f.checkout({createCheckout: unexpectedGateway})).created, false);
+  });
+  await test("P6 ambiguous balance dispatch resumes the same durable attempt", async () => {
+    const f = await fixture();
+    const calls = [];
+    const createCheckout = async value => {
+      calls.push(value);
+      throw new input.PayMongoRequestError("timeout", "ambiguous");
+    };
+    for (let i = 0; i < 2; i++) await assert.rejects(f.checkout({createCheckout}),
+      error => error.code === "unavailable");
+    assert.equal(calls[0].idempotencyKey, calls[1].idempotencyKey);
+    assert.equal((await f.balanceRef.collection("checkoutAttempts").get()).size, 1);
+    assert.equal((await f.eventRef.get()).data().status, "confirmed");
+  });
+  for (const status of ["failed", "expired"]) {
+    await test("P6 " + status + " balance retries only with terminal evidence, on same payment", async () => {
+      const f = await fixture();
+      await f.checkout({
+        checkoutId: "cs_p6_" + status + "_initial",
+      });
+      const payment = (await f.balanceRef.get()).data();
+      const attemptRef = f.balanceRef.collection("checkoutAttempts").doc(payment.currentCheckoutAttemptId);
+      const attempt = (await attemptRef.get()).data();
+      await f.balanceRef.update({status});
+      await f.requestRef.update({paymentStatus: status,
+        ...providerRequestSettlementUpdateForPaymentOutcome({providerRequestId: f.requestId,
+          providerRequest: (await f.requestRef.get()).data(), paymentId: f.balanceId,
+          paymentStatus: status, timestamp: Timestamp.now()})});
+      await attemptRef.update({resolution: status});
+      await assert.rejects(f.checkout({createCheckout: unexpectedGateway}),
+        error => error.code === "failed-precondition");
+      await attemptRef.update({terminalEvidence: {schemaVersion: 1, authority: "paymongo",
+        outcome: "terminal_unsuccessful", irreversible: true, exhaustive: true,
+        evidenceReference: "p6-trusted-terminal-fixture", paymentId: f.balanceId,
+        attemptId: attemptRef.id, checkoutId: attempt.paymongoCheckoutId,
+        paymentIntentIds: [], paymentIds: []}});
+      const result = await f.checkout({checkoutId: "cs_p6_retry_" + status});
+      assert.equal(result.paymentId, f.balanceId);
+      assert.equal((await f.balanceRef.collection("checkoutAttempts").get()).size, 2);
+      assert.equal((await f.requestRef.get()).data().initialPaymentId, f.initial.paymentId);
+      assert.equal((await f.requestRef.get()).data().status, "confirmed");
+      assert.equal((await f.eventRef.get()).data().status, "confirmed");
+    });
+  }
+  await test("P6 balance persistence rechecks cancellation after gateway dispatch", async () => {
+    const f = await fixture();
+    await assert.rejects(f.checkout({createCheckout: async () => {
+      await f.requestRef.update({activeCancellationRequestId: "cancel-p6-race"});
+      return {id: "cs_p6_race", checkoutUrl: "https://checkout.paymongo.com/p6-race"};
+    }}), error => error.code === "unavailable");
+    assert.equal((await f.balanceRef.get()).data().status, "pending");
+    assert.equal((await f.eventRef.get()).data().status, "confirmed");
+  });
 }

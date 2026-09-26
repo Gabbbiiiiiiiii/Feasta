@@ -2,6 +2,7 @@
 
 import {FirebaseError} from "firebase/app";
 import {httpsCallable} from "firebase/functions";
+import {parseCustomerPaymentChoice, type CustomerPaymentChoice} from "@feasta/shared-types";
 
 import {WebAuthenticationError} from "@/lib/auth/client-session";
 import type {
@@ -28,6 +29,7 @@ const SAFE_CLIENT_PAYMENT_ERRORS = new Set([
 
 export async function createCustomerPaymentCheckout(
   providerRequestId: string,
+  paymentChoice: CustomerPaymentChoice,
 ): Promise<CreateCustomerPaymentSessionResult> {
   try {
     await auth.authStateReady();
@@ -42,8 +44,12 @@ export async function createCustomerPaymentCheckout(
     const normalizedProviderRequestId = normalizeProviderRequestId(
       providerRequestId,
     );
+    if (!parseCustomerPaymentChoice(paymentChoice)) {
+      throw new Error("The selected payment request is invalid.");
+    }
     const idempotencyKey = createPaymentIdempotencyKey(
       normalizedProviderRequestId,
+      paymentChoice,
     );
 
     initializeBrowserAppCheck();
@@ -59,6 +65,7 @@ export async function createCustomerPaymentCheckout(
 
     const response = await callable({
       providerRequestId: normalizedProviderRequestId,
+      paymentChoice,
       idempotencyKey,
     });
 
@@ -153,6 +160,7 @@ function rememberCustomerPaymentReturn(
 
 function createPaymentIdempotencyKey(
   providerRequestId: string,
+  paymentChoice: CustomerPaymentChoice,
 ): string {
   const randomId = globalThis.crypto?.randomUUID?.();
 
@@ -162,7 +170,7 @@ function createPaymentIdempotencyKey(
     );
   }
 
-  return ["customer-checkout", providerRequestId, randomId].join(":");
+  return ["customer-checkout", providerRequestId, paymentChoice, randomId].join(":");
 }
 
 function normalizeProviderRequestId(value: string): string {

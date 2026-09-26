@@ -1,5 +1,7 @@
 "use client";
 
+import type {CustomerPaymentChoice} from "@feasta/shared-types";
+
 import {
   Building2,
   CalendarDays,
@@ -54,6 +56,8 @@ function CustomerBookingDetailContent({
   const {booking, providerRequests} = details;
   const router = useRouter();
   const [paymentRequestId, setPaymentRequestId] = useState<string | null>(null);
+  const [paymentRequestChoice, setPaymentRequestChoice] =
+    useState<CustomerPaymentChoice | null>(null);
   const [messageRequestId, setMessageRequestId] = useState<string | null>(null);
   const [selectedReviewRequestId, setSelectedReviewRequestId] =
     useState<string | null>(null);
@@ -81,7 +85,7 @@ function CustomerBookingDetailContent({
     setSelectedCancellationRequestId(providerRequestId);
   }
 
-  async function startCheckout(providerRequestId: string) {
+  async function startCheckout(providerRequestId: string, paymentChoice: CustomerPaymentChoice) {
     if (paymentRequestId !== null) return;
 
     const request = providerRequests.find(
@@ -96,9 +100,10 @@ function CustomerBookingDetailContent({
     }
 
     setPaymentRequestId(providerRequestId);
+    setPaymentRequestChoice(paymentChoice);
 
     try {
-      const checkout = await createCustomerPaymentCheckout(providerRequestId);
+      const checkout = await createCustomerPaymentCheckout(providerRequestId, paymentChoice);
       redirectToCustomerPaymentCheckout(checkout);
     } catch (error: unknown) {
       feastaToast.error(
@@ -108,6 +113,7 @@ function CustomerBookingDetailContent({
       );
     } finally {
       setPaymentRequestId(null);
+      setPaymentRequestChoice(null);
     }
   }
 
@@ -193,6 +199,7 @@ function CustomerBookingDetailContent({
                   request,
                   bookingId: booking.id,
                   paymentRequestId,
+                  paymentRequestChoice,
                   onPay: startCheckout,
                 })}
                 messageAction={messageActionForRequest({
@@ -476,12 +483,17 @@ function paymentActionForRequest({
   request,
   bookingId,
   paymentRequestId,
+  paymentRequestChoice,
   onPay,
 }: {
   request: CustomerBookingDetails["providerRequests"][number];
   bookingId: string;
   paymentRequestId: string | null;
-  onPay: (providerRequestId: string) => Promise<void>;
+  paymentRequestChoice: CustomerPaymentChoice | null;
+  onPay: (
+    providerRequestId: string,
+    paymentChoice: CustomerPaymentChoice,
+  ) => Promise<void>;
 }) {
   if (isCustomerBookingPaymentProcessing(request)) {
     return (
@@ -499,20 +511,25 @@ function paymentActionForRequest({
 
   if (!canStartCustomerBookingPayment(request, bookingId)) return undefined;
 
-  const loading = paymentRequestId === request.providerRequestId;
+  const requestLoading =
+    paymentRequestId === request.providerRequestId;
 
   return (
     <div className="grid gap-2 border-t border-border pt-4">
-      <Button
+      {request.checkoutOptions.map((option) => <Button
+        key={option.choice}
         fullWidth
-        loading={loading}
+        loading={
+          requestLoading &&
+          paymentRequestChoice === option.choice
+        }
         loadingLabel="Preparing secure checkout…"
         disabled={paymentRequestId !== null}
-        onClick={() => void onPay(request.providerRequestId)}
+        onClick={() => void onPay(request.providerRequestId, option.choice)}
       >
         <CreditCard aria-hidden="true" className="size-5" />
-        Pay {formatCurrency(request.downPaymentAmount)} down payment
-      </Button>
+        Pay {option.choice === "remaining_balance" ? "remaining balance" : option.choice} {formatCurrency(option.amount)}
+      </Button>)}
       <p className="text-xs leading-5 text-muted-foreground">
         You’ll continue to PayMongo. FEASTA updates this request only after trusted payment confirmation.
       </p>

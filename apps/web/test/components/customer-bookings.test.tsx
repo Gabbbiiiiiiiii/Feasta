@@ -200,8 +200,8 @@ describe("customer booking history and details", () => {
     render(<CustomerBookingExperience initialPage={pageFixture()} />);
     await user.click(screen.getAllByRole("button", {name: "View booking FEA-2026-0001"})[0]);
 
-    expect(await screen.findByRole("button", {name: "Pay securely"})).toBeEnabled();
-    expect(screen.getAllByRole("button", {name: "Pay securely"})).toHaveLength(1);
+    expect(await screen.findByRole("button", {name: /Pay minimum/u})).toBeEnabled();
+    expect(screen.getAllByRole("button", {name: /Pay minimum/u})).toHaveLength(1);
     expect(screen.queryByRole("button", {name: /refund/iu})).not.toBeInTheDocument();
     expect(screen.queryByRole("button", {name: /cancel booking|edit booking|reschedule|mark (?:confirmed|completed)/iu})).not.toBeInTheDocument();
   });
@@ -213,13 +213,13 @@ describe("customer booking history and details", () => {
     }));
     render(<CustomerBookingExperience initialPage={pageFixture()} />);
     fireEvent.click(screen.getAllByRole("button", {name: "View booking FEA-2026-0001"})[0]);
-    const paymentButton = await screen.findByRole("button", {name: "Pay securely"});
+    const paymentButton = await screen.findByRole("button", {name: /Pay minimum/u});
 
     fireEvent.click(paymentButton);
     fireEvent.click(paymentButton);
 
     expect(mocks.createCheckout).toHaveBeenCalledTimes(1);
-    expect(mocks.createCheckout).toHaveBeenCalledWith("provider-request-waiting-001");
+    expect(mocks.createCheckout).toHaveBeenCalledWith("provider-request-waiting-001", "minimum");
     expect(screen.getByRole("button", {name: "Creating secure checkout"})).toBeDisabled();
 
     await act(async () => resolveCheckout(checkoutFixture()));
@@ -234,7 +234,7 @@ describe("customer booking history and details", () => {
     render(<CustomerBookingExperience initialPage={pageFixture()} />);
 
     await user.click(screen.getAllByRole("button", {name: "View booking FEA-2026-0001"})[0]);
-    await user.click(await screen.findByRole("button", {name: "Pay securely"}));
+    await user.click(await screen.findByRole("button", {name: /Pay minimum/u}));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "The secure checkout could not be created. Please try again.",
@@ -428,12 +428,13 @@ describe("customer booking history and details", () => {
     const user = userEvent.setup();
     const paidDetails = detailsFixture();
     paidDetails.details.providerRequests[0].paymentStatus = "paid";
+    paidDetails.details.providerRequests[0].checkoutOptions = [];
     mocks.loadDetails.mockResolvedValueOnce(paidDetails);
     render(<CustomerBookingExperience initialPage={pageFixture()} />);
 
     await user.click(screen.getAllByRole("button", {name: "View booking FEA-2026-0001"})[0]);
     expect(await screen.findByRole("heading", {name: "Provider requests"})).toBeVisible();
-    expect(screen.queryByRole("button", {name: "Pay securely"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: /Pay minimum/u})).not.toBeInTheDocument();
   });
 
   it("distinguishes initial empty, filtered empty, action error, and route error states", async () => {
@@ -575,6 +576,10 @@ function providerRequestFixture(
   overrides: Partial<CustomerBookingProviderRequest> = {},
 ): CustomerBookingProviderRequest {
   return {
+    checkoutOptions: (overrides.status ?? "waiting_for_down_payment") === "waiting_for_down_payment" &&
+      ["unpaid", "pending", "failed", "expired"].includes(overrides.paymentStatus ?? "unpaid") &&
+      (overrides.downPaymentAmount ?? 25000) > 0
+      ? [{choice: "minimum", amount: overrides.downPaymentAmount ?? 25000}, {choice: "full", amount: overrides.amount ?? 100000}] : [],
     id: "request-waiting",
     providerRequestId: "provider-request-waiting-001",
     mainEventId: "owned-booking-001",

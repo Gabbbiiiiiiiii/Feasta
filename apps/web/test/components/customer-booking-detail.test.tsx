@@ -142,7 +142,7 @@ describe("customer booking dedicated detail page", () => {
     expect(timeline).not.toBeNull();
     expect(within(timeline as HTMLElement).getByRole("list", {name: "Booking activity"})).toBeInTheDocument();
 
-    expect(screen.getByRole("button", {name: /pay .*25,000\.00 down payment/iu})).toBeVisible();
+    expect(screen.getByRole("button", {name: /pay minimum .*25,000\.00/iu})).toBeVisible();
     expect(screen.getByRole("button", {
       name: "Review cancellation options for Maria's Catering's service",
     })).toBeVisible();
@@ -157,7 +157,7 @@ describe("customer booking dedicated detail page", () => {
     expect(requestCard).not.toBeNull();
     expect(
       within(requestCard as HTMLElement).getByRole("button", {
-        name: /pay .*25,000\.00 down payment/iu,
+        name: /pay minimum .*25,000\.00/iu,
       }),
     ).toBeVisible();
   });
@@ -460,14 +460,15 @@ describe("customer booking dedicated detail page", () => {
     result.details.providerRequests = [providerRequestFixture({
       status: "confirmed",
       paymentStatus: "paid",
+      checkoutOptions: [{choice: "remaining_balance", amount: 75_000}],
       paymentId: "internal-payment-id-must-not-render",
       paidAt: "2026-08-03T02:30:00.000Z",
     })];
 
     const {container} = render(<CustomerBookingDetailPage result={result} />);
 
-    expect(screen.getByText(/does not currently collect provider balances online/u)).toBeVisible();
-    expect(screen.queryByRole("button", {name: /pay .*balance/iu})).not.toBeInTheDocument();
+    expect(screen.getByText(/pay the remaining balance securely through FEASTA when eligible/u)).toBeVisible();
+    expect(screen.getByRole("button", {name: /pay remaining balance/iu})).toBeVisible();
     expect(screen.getByRole("link", {name: "View Payments"})).toHaveAttribute(
       "href",
       "/customer/payments",
@@ -476,7 +477,7 @@ describe("customer booking dedicated detail page", () => {
       name: "View Maria's Catering provider profile",
     })).toHaveAttribute("href", "/customer/providers/provider-001");
     expect(container).not.toHaveTextContent("internal-payment-id-must-not-render");
-    expect(container).not.toHaveTextContent(/paymongo/iu);
+    expect(container).toHaveTextContent(/PayMongo/u);
   });
 
   it("does not present a mixed completed and in-progress event as completed", () => {
@@ -803,12 +804,12 @@ describe("customer booking dedicated detail page", () => {
     mocks.createCheckout.mockReturnValueOnce(pending.promise);
     render(<CustomerBookingDetailPage result={detailResult()} />);
 
-    const button = screen.getByRole("button", {name: /pay .*25,000\.00 down payment/iu});
+    const button = screen.getByRole("button", {name: /pay minimum .*25,000\.00/iu});
     fireEvent.click(button);
     fireEvent.click(button);
 
     expect(mocks.createCheckout).toHaveBeenCalledTimes(1);
-    expect(mocks.createCheckout).toHaveBeenCalledWith("request-1");
+    expect(mocks.createCheckout).toHaveBeenCalledWith("request-1", "minimum");
     expect(screen.getByRole("button", {name: "Preparing secure checkout…"})).toBeDisabled();
 
     await act(async () => pending.resolve(checkout));
@@ -823,12 +824,12 @@ describe("customer booking dedicated detail page", () => {
     );
     render(<CustomerBookingDetailPage result={detailResult()} />);
 
-    fireEvent.click(screen.getByRole("button", {name: /pay .*25,000\.00 down payment/iu}));
+    fireEvent.click(screen.getByRole("button", {name: /pay minimum .*25,000\.00/iu}));
 
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith(
       "This payment is no longer available. Refresh the booking to see its latest status.",
     ));
-    expect(screen.getByRole("button", {name: /pay .*25,000\.00 down payment/iu})).toBeEnabled();
+    expect(screen.getByRole("button", {name: /pay minimum .*25,000\.00/iu})).toBeEnabled();
     expect(mocks.redirectCheckout).not.toHaveBeenCalled();
   });
 
@@ -1427,6 +1428,10 @@ function providerRequestFixture(
   overrides: Partial<CustomerBookingProviderRequest> = {},
 ): CustomerBookingProviderRequest {
   return {
+    checkoutOptions: (overrides.status ?? "waiting_for_down_payment") === "waiting_for_down_payment" &&
+      ["unpaid", "pending", "failed", "expired"].includes(overrides.paymentStatus ?? "unpaid") &&
+      (overrides.downPaymentAmount ?? 25000) > 0
+      ? [{choice: "minimum", amount: overrides.downPaymentAmount ?? 25000}, {choice: "full", amount: overrides.amount ?? 100000}] : [],
     id: "request-1",
     providerRequestId: "request-1",
     mainEventId: "owned-booking-001",

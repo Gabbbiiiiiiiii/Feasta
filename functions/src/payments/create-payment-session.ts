@@ -56,14 +56,18 @@ import {
 } from "./payment-lifecycle.js";
 import {
   initialPaymentSelectionReason,
-  parseInitialPaymentChoice,
+  parseCustomerPaymentChoice,
   paymentIdForProviderRequestChoice,
   providerPaymentObligationForChoice,
   type InitialPaymentChoice,
+  type CustomerPaymentChoice,
 } from "./payment-obligation.js";
 import {
   initialPaymentReservationSettlementUpdate,
+  providerRequestSettlementUpdateForPaymentOutcome,
 } from "./payment-settlement.js";
+import {readTrustedProviderRequestPaymentSetInTransaction}
+  from "./provider-request-payment-reader.js";
 import {
   createPayMongoCheckout,
   payMongoFailureCertainty,
@@ -132,14 +136,14 @@ export const createPaymentSession = onCall(
       );
 
     const paymentChoice =
-      parseInitialPaymentChoice(
+      parseCustomerPaymentChoice(
         input.paymentChoice,
       );
 
     if (!paymentChoice) {
       throw new HttpsError(
         "invalid-argument",
-        "paymentChoice must be minimum or full.",
+        "paymentChoice must be minimum, full, or remaining_balance.",
       );
     }
 
@@ -174,7 +178,7 @@ export async function createPaymentSessionForCustomer(
     customerId: string;
     providerRequestId: string;
     paymentChoice:
-      InitialPaymentChoice;
+      CustomerPaymentChoice;
     clientKey: string;
     secretKey: string;
     successUrl: string;
@@ -212,7 +216,7 @@ export async function createPaymentSessionForCustomer(
 
   const alternatePaymentChoice:
     InitialPaymentChoice =
-      paymentChoice === "minimum"
+      paymentChoice !== "full"
         ? "full"
         : "minimum";
 
@@ -386,7 +390,9 @@ export async function createPaymentSessionForCustomer(
         throw invalidLinkage();
       }
 
-      const selectionReason =
+      let selectingInitialPayment = false;
+      if (paymentChoice !== "remaining_balance") {
+        const selectionReason =
         initialPaymentSelectionReason({
           providerRequestId,
           providerRequest,
@@ -420,7 +426,7 @@ export async function createPaymentSessionForCustomer(
         );
       }
 
-      const selectingInitialPayment =
+      selectingInitialPayment =
         (
           providerRequest
             .initialPaymentChoice ===
@@ -453,6 +459,40 @@ export async function createPaymentSessionForCustomer(
           selectingInitialPayment
       ) {
         throw invalidLinkage();
+      }
+      } else {
+        const paymentSet = await readTrustedProviderRequestPaymentSetInTransaction({
+          transaction, providerRequestId, providerRequest,
+          mainEventId: bookingId, customerId, providerId, mainEvent: booking,
+          invalid: () => { throw invalidLinkage(); },
+        });
+        if (paymentSet.mode !== "p5" ||
+          providerRequest.settlementSchemaVersion !== 1 ||
+          providerRequest.settlementStatus !== paymentSet.settlement.status ||
+          providerRequest.outstandingAmountInCentavos !==
+            paymentSet.settlement.outstandingAmountInCentavos ||
+          providerRequest.grossSettledAmountInCentavos !==
+            paymentSet.settlement.grossSettledAmountInCentavos ||
+          providerRequest.initialPaymentChoice !== "minimum" ||
+          !paymentSet.settlement.settledPaymentIds.includes(
+            paymentSet.plan.initialPaymentId ?? "",
+          ) ||
+          paymentSet.settlement.outstandingAmountInCentavos <= 0 ||
+          // An already reserved pending/processing balance resumes its durable attempt.
+          !(paymentSet.settlement.status === "deposit_settled" ||
+            (paymentSnapshot.exists &&
+              paymentSet.settlement.status === "balance_payment_processing")) ||
+          paymentSnapshot.exists !== (paymentSet.plan.remainingBalancePaymentId !== null) ||
+          (paymentSnapshot.exists && providerRequest.paymentId !== paymentId) ||
+          alternatePaymentSnapshot.exists || legacyPaymentSnapshot.exists
+        ) {
+          throw invalidLinkage();
+        }
+        const balanceObligation = providerPaymentObligationForChoice({
+          financialSnapshot: providerRequest.financialSnapshot, paymentChoice,
+        });
+        if (balanceObligation.amountInCentavos !==
+          paymentSet.settlement.outstandingAmountInCentavos) throw invalidLinkage();
       }
 
       const obligation =
@@ -499,6 +539,7 @@ export async function createPaymentSessionForCustomer(
           providerRequest,
           mainEvent: booking,
           payment: existing,
+          paymentChoice,
         })
       ) {
         throw new HttpsError(
@@ -648,6 +689,21 @@ export async function createPaymentSessionForCustomer(
         );
       }
 
+      if (paymentChoice === "remaining_balance") {
+        const timestamp = serverTimestamp();
+        transaction.update(providerRequestReference, {
+          remainingBalancePaymentId: paymentId,
+          paymentId,
+          paymentStatus: "pending",
+          ...providerRequestSettlementUpdateForPaymentOutcome({
+            providerRequestId,
+            providerRequest: {...providerRequest, remainingBalancePaymentId: paymentId},
+            paymentId, paymentStatus: "pending", timestamp,
+          }),
+          updatedAt: timestamp,
+        });
+      }
+
       transaction.create(
         paymentReference,
         {
@@ -770,7 +826,9 @@ export async function createPaymentSessionForCustomer(
       description:
         paymentChoice === "full"
           ? "FEASTA provider full payment"
-          : "FEASTA provider minimum payment",
+          : paymentChoice === "remaining_balance"
+            ? "FEASTA provider remaining balance"
+            : "FEASTA provider minimum payment",
       successUrl: input.successUrl,
       cancelUrl: input.cancelUrl,
     }, createCheckout);
@@ -911,6 +969,28 @@ async function persistCheckout(
       const provider =
         providerSnapshot.data() ?? {};
 
+      if (payment.paymentChoice === "remaining_balance") {
+        const evidence = classifyProviderRequestRefundPolicyEvidence(providerRequest);
+        if (evidence.status === "invalid" ||
+          (evidence.status === "policy_backed"
+            ? requireRefundEligibilityState(providerRequest).activeCancellationRequestId
+            : legacyActiveCancellationRequestId(providerRequest)) !== null) throw invalidLinkage();
+        const paymentSet = await readTrustedProviderRequestPaymentSetInTransaction({
+          transaction, providerRequestId: input.providerRequestId, providerRequest,
+          mainEventId: input.bookingId, customerId: input.customerId,
+          providerId: input.providerId, mainEvent: booking,
+          invalid: () => { throw invalidLinkage(); },
+        });
+        if (paymentSet.mode !== "p5" ||
+          paymentSet.currentPaymentId !== input.paymentId ||
+          !paymentSet.settlement.settledPaymentIds.includes(
+            paymentSet.plan.initialPaymentId ?? "",
+          ) ||
+          paymentSet.settlement.outstandingAmountInCentavos !== input.amountInCentavos) {
+          throw invalidLinkage();
+        }
+      }
+
       if (payment.attemptSchemaVersion === 1) {
         if (payment.reconciliationRequired ||
           typeof payment.currentCheckoutAttemptId !== "string") {
@@ -1038,7 +1118,7 @@ async function persistCheckout(
       }
 
       const summary =
-        calculateMainEventRequestSummary(
+        payment.paymentChoice === "remaining_balance" ? null : calculateMainEventRequestSummary(
           relationships.activeRequests,
           currentMainEventStatus,
           [{
@@ -1072,15 +1152,20 @@ async function persistCheckout(
         requestReference,
         {
           status:
-            "payment_processing",
+            payment.paymentChoice === "remaining_balance" ? "confirmed" : "payment_processing",
           paymentStatus:
             "processing",
           paymentId: input.paymentId,
+          ...(payment.paymentChoice === "remaining_balance"
+            ? providerRequestSettlementUpdateForPaymentOutcome({
+              providerRequestId: input.providerRequestId, providerRequest,
+              paymentId: input.paymentId, paymentStatus: "processing", timestamp,
+            }) : {}),
           updatedAt: timestamp,
         },
       );
 
-      transaction.update(
+      if (summary) transaction.update(
         bookingReference,
         {
           ...summary,
@@ -1156,6 +1241,16 @@ async function recordCheckoutFailure(
       const providerRequest =
         requestSnapshot.data() ?? {};
 
+      if (payment.paymentChoice === "remaining_balance") {
+        const evidence = classifyProviderRequestRefundPolicyEvidence(providerRequest);
+        if (evidence.status === "invalid" || providerRequest.status !== "confirmed" ||
+          (evidence.status === "policy_backed"
+            ? requireRefundEligibilityState(providerRequest).activeCancellationRequestId
+            : legacyActiveCancellationRequestId(providerRequest)) !== null) return null;
+        const booking = await transaction.get(db.collection("mainEvents").doc(payment.mainEventId));
+        if (booking.data()?.status !== "confirmed") return null;
+      }
+
       if (
         payment.customerId !==
           input.customerId ||
@@ -1194,8 +1289,8 @@ async function recordCheckoutFailure(
         payment.status === "pending" &&
         !payment.checkoutUrl &&
         !payment.paymongoCheckoutId &&
-        providerRequest.status ===
-          "waiting_for_down_payment"
+        providerRequest.status === (payment.paymentChoice === "remaining_balance"
+          ? "confirmed" : "waiting_for_down_payment")
       ) {
         transaction.update(
           paymentReference,

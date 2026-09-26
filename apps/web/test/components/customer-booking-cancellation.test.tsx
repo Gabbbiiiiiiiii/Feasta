@@ -378,6 +378,10 @@ function providerRequest(
   overrides: Partial<CustomerBookingProviderRequest> = {},
 ): CustomerBookingProviderRequest {
   return {
+    checkoutOptions: (overrides.status ?? "waiting_for_down_payment") === "waiting_for_down_payment" &&
+      ["unpaid", "pending", "failed", "expired"].includes(overrides.paymentStatus ?? "unpaid") &&
+      (overrides.downPaymentAmount ?? 25000) > 0
+      ? [{choice: "minimum", amount: overrides.downPaymentAmount ?? 25000}, {choice: "full", amount: overrides.amount ?? 100000}] : [],
     id: PROVIDER_REQUEST_ID,
     providerRequestId: PROVIDER_REQUEST_ID,
     mainEventId: "event-0001",

@@ -139,7 +139,7 @@ function CustomerBookingProviderRequestCard({
 
           {request.remainingBalance > 0 ? (
             <p className="border-t border-border pt-3 text-xs leading-5 text-muted-foreground">
-              The remaining balance is informational. FEASTA does not currently collect provider balances online.
+              You can pay the remaining balance securely through FEASTA when eligible.
             </p>
           ) : null}
         </section>
