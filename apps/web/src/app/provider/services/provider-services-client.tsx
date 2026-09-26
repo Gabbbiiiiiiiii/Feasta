@@ -45,6 +45,14 @@ import {
   Button,
 } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
   archiveProviderService,
   listProviderServices,
   publishProviderService,
@@ -130,6 +138,8 @@ export function ProviderServicesClient({
     createOpen,
     setCreateOpen,
   ] = useState(false);
+
+  const [creating, setCreating] = useState(false);
 
   const [
     editingService,
@@ -347,12 +357,19 @@ export function ProviderServicesClient({
     );
 
   return (
+    <Dialog
+      open={createOpen}
+      onOpenChange={(open) => {
+        if (!creating) setCreateOpen(open);
+      }}
+    >
     <div className="grid gap-6">
       <PageHeading
         eyebrow="Provider management"
         title="Event Services"
         description="Create and manage the event services customers can discover and book through FEASTA."
         actions={
+          <DialogTrigger asChild>
           <Button
             type="button"
             disabled={
@@ -367,6 +384,7 @@ export function ProviderServicesClient({
             <Plus aria-hidden="true" />
             New service
           </Button>
+          </DialogTrigger>
         }
       />
 
@@ -393,20 +411,21 @@ export function ProviderServicesClient({
         </div>
       ) : null}
 
-      {createOpen ? (
-        <div className="rounded-xl border bg-card p-6">
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold">
+      <DialogContent className="flex max-h-[90dvh] max-w-4xl flex-col gap-0 overflow-hidden p-0">
+          <DialogHeader className="shrink-0 border-b border-border px-6 py-5 pr-16">
+            <DialogTitle>
               Create event service
-            </h2>
+            </DialogTitle>
 
-            <p className="mt-1 text-sm text-muted-foreground">
-              Save the service as a draft first. You can
-              review and publish it afterward.
-            </p>
-          </div>
+            <DialogDescription>
+              Add the details customers need to understand and book this
+              service. Save as a draft to review and publish afterward.
+            </DialogDescription>
+          </DialogHeader>
 
           <ProviderServiceForm
+            inDialog
+            onSubmittingChange={setCreating}
             serviceCategories={
               serviceCategories
             }
@@ -421,8 +440,7 @@ export function ProviderServicesClient({
               await loadServices();
             }}
           />
-        </div>
-      ) : null}
+      </DialogContent>
 
       {editingService ? (
         <div className="rounded-xl border bg-card p-6">
@@ -743,6 +761,7 @@ export function ProviderServicesClient({
         }}
       />
     </div>
+    </Dialog>
   );
 }
 

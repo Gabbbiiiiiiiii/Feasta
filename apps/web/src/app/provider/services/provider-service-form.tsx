@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useId,
   useMemo,
   useState,
 } from "react";
@@ -46,6 +47,8 @@ type ProviderServiceFormProps = {
     readonly ServiceCategoryOption[];
 
   initialService?: ProviderService;
+  inDialog?: boolean;
+  onSubmittingChange?: (submitting: boolean) => void;
 
   onSaved: () => void | Promise<void>;
   onCancel: () => void;
@@ -55,9 +58,12 @@ export function ProviderServiceForm({
   serviceCategories,
   serviceCategoryOptions,
   initialService,
+  inDialog = false,
+  onSubmittingChange,
   onSaved,
   onCancel,
 }: ProviderServiceFormProps) {
+  const fieldId = useId();
   const editing =
     initialService !== undefined;
 
@@ -329,6 +335,7 @@ export function ProviderServiceForm({
     }
 
     setSubmitting(true);
+    onSubmittingChange?.(true);
     setError(null);
 
     let nextServiceImage =
@@ -426,14 +433,17 @@ export function ProviderServiceForm({
     } finally {
       setUploadingImage(false);
       setSubmitting(false);
+      onSubmittingChange?.(false);
     }
   }
   return (
     <form
       onSubmit={handleSubmit}
-      className="grid gap-6"
+      className={inDialog ? "flex min-h-0 flex-1 flex-col overflow-hidden" : "grid gap-6"}
+      aria-busy={submitting || uploadingImage}
     >
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className={inDialog ? "grid min-h-0 flex-1 grid-cols-1 gap-6 overflow-y-auto overscroll-contain p-6" : "grid gap-6"}>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <FormField
           label="Service name"
           required
@@ -452,16 +462,19 @@ export function ProviderServiceForm({
 
         <FormField
           label="Service category"
+          id={`${fieldId}-category`}
           required
         >
           <select
+            id={`${fieldId}-category`}
+            required
             value={category}
             onChange={(event) =>
               setCategory(
                 event.target.value,
               )
             }
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            className="h-10 min-w-0 w-full rounded-md border border-input bg-background px-3 text-sm"
           >
             {selectableServiceCategories.map(
               (item) => (
@@ -495,12 +508,15 @@ export function ProviderServiceForm({
         />
       </FormField>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <FormField
           label="Pricing type"
+          id={`${fieldId}-pricing`}
           required
         >
           <select
+            id={`${fieldId}-pricing`}
+            required
             value={pricingType}
             onChange={(event) => {
               const nextPricingType =
@@ -518,7 +534,7 @@ export function ProviderServiceForm({
                 setPrice("");
               }
             }}
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            className="h-10 min-w-0 w-full rounded-md border border-input bg-background px-3 text-sm"
           >
             {ADDON_PRICING_TYPES.map(
               (item) => (
@@ -570,7 +586,7 @@ export function ProviderServiceForm({
         )}
       </div>
 
-      <FormField label="Service image">
+      <FormField label="Service image" id={`${fieldId}-image`}>
         <div className="grid gap-3">
           {imagePreviewUrl || serviceImage ? (
             <div className="overflow-hidden rounded-lg border border-border">
@@ -601,6 +617,7 @@ export function ProviderServiceForm({
                   : "Upload image"}
 
               <input
+                id={`${fieldId}-image`}
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
                 className="sr-only"
@@ -651,7 +668,9 @@ export function ProviderServiceForm({
         </p>
       ) : null}
 
-      <div className="flex flex-wrap justify-end gap-3">
+      </div>
+
+      <div className={inDialog ? "flex shrink-0 flex-wrap justify-between gap-3 border-t border-border px-6 py-4" : "flex flex-wrap justify-end gap-3"}>
         <Button
         type="button"
         variant="secondary"
