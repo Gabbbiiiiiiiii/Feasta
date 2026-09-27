@@ -50,11 +50,21 @@ import type {
   ServiceCategoryOption,
 } from "@/lib/service-categories/service-category-service";
 
+const CAPACITY_NUMBER_FIELDS = [
+  "minGuestsPerEvent",
+  "maxGuestsPerEvent",
+  "availableStaffCount",
+  "availableEquipmentCount",
+  "maxEventsPerDay",
+  "bookingLeadTimeDays",
+] as const;
+type CapacityNumberField = (typeof CAPACITY_NUMBER_FIELDS)[number];
+
 type FormValues = Omit<
   ProviderOnboardingInput,
-  "bookingLeadTimeDays" | "businessRegistrationType"
-> & {
-  bookingLeadTimeDays: number | null;
+  CapacityNumberField | "businessRegistrationType" | "providerServiceType"
+> & Record<CapacityNumberField, number | string> & {
+  providerServiceType: ProviderOnboardingInput["providerServiceType"] | null;
   businessRegistrationType: ProviderBusinessRegistrationType | null;
   ownerPhone: string;
   ownerEmail: string;
@@ -79,7 +89,7 @@ export function ProviderOnboardingStepForm({
   const [loading, setLoading] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [hasNoServiceOffering, setHasNoServiceOffering] =
-    useState(false);
+    useState(!draft.providerServiceType);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [selectedImages, setSelectedImages] = useState<{
@@ -254,7 +264,11 @@ export function ProviderOnboardingStepForm({
       }
 
       if (step.number === 6) {
-        if (submissionValues.bookingLeadTimeDays === null) {
+        if (submissionValues.providerServiceType === null) {
+          throw new Error("Choose at least one service offering.");
+        }
+
+        if (submissionValues.bookingLeadTimeDays === "") {
           throw new Error(
             "Minimum booking notice is required before registration.",
           );
@@ -274,7 +288,8 @@ export function ProviderOnboardingStepForm({
         await registerProviderBusiness(
           {
             ...submissionValues,
-            bookingLeadTimeDays: submissionValues.bookingLeadTimeDays,
+            ...numericCapacityValues(submissionValues),
+            providerServiceType: submissionValues.providerServiceType,
             businessRegistrationType:
               submissionValues.businessRegistrationType,
           },
@@ -347,6 +362,7 @@ export function ProviderOnboardingStepForm({
     <form
       className="grid min-w-0 gap-5"
       onSubmit={submit}
+      noValidate={step.number === 5}
       aria-describedby={error ? "provider-onboarding-error" : undefined}
     >
       <h2 className="sr-only">{step.label}</h2>
@@ -482,13 +498,8 @@ function StepFields({
 }) {
   const [serviceOfferingSelection, setServiceOfferingSelection] =
     useState<"catering" | "addon" | "both" | "none">(
-      values.providerServiceType,
+      values.providerServiceType ?? "none",
     );
-
-  const integer = (value: string, fallback = 0) => {
-    const parsed = Number.parseInt(value, 10);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  };
 
   if (step === 1) {
     return (
@@ -820,6 +831,7 @@ function StepFields({
       if (!nextCatering && !nextAddon) {
         setServiceOfferingSelection("none");
         onServiceOfferingEmptyChange(true);
+        update("providerServiceType", null);
         update("serviceCategories", []);
         update("providerCategory", "");
         return;
@@ -1200,7 +1212,7 @@ function StepFields({
             onChange={(value) =>
               update(
                 "minGuestsPerEvent",
-                integer(value),
+                value,
               )
             }
           />
@@ -1216,7 +1228,7 @@ function StepFields({
             onChange={(value) =>
               update(
                 "maxGuestsPerEvent",
-                integer(value),
+                value,
               )
             }
           />
@@ -1225,8 +1237,8 @@ function StepFields({
 
       {capabilities.usesStaffCapacity ? (
         <NumberField
-          label="Available staff"
-          description="People normally available to fulfill bookings."
+          label="People available per event"
+          description="Include yourself and anyone who normally helps fulfill a booking. If you work alone, enter 1."
           value={values.availableStaffCount}
           minimum={0}
           maximum={100000}
@@ -1235,34 +1247,18 @@ function StepFields({
           onChange={(value) =>
             update(
               "availableStaffCount",
-              integer(value),
+              value,
             )
           }
         />
       ) : null}
 
-      {capabilities.usesEquipmentCapacity ? (
-        <NumberField
-          label="Available equipment units"
-          description="Equipment, vehicles, booths, rental units, or other service resources currently available."
-          value={values.availableEquipmentCount}
-          minimum={0}
-          maximum={100000}
-          disabled={loading}
-          error={fieldErrors.availableEquipmentCount}
-          onChange={(value) =>
-            update(
-              "availableEquipmentCount",
-              integer(value),
-            )
-          }
-        />
-      ) : null}
+
 
       <div className="sm:col-span-2">
         <CheckboxField
           label="Accept multiple events on the same day"
-          description="Enable this only when your staffing, equipment, and schedule can support multiple bookings."
+          description="Enable this only when your staffing and schedule can support multiple bookings."
           checked={
             values.acceptsMultipleEventsPerDay
           }
@@ -1293,7 +1289,7 @@ function StepFields({
           onChange={(value) =>
             update(
               "maxEventsPerDay",
-              integer(value, 1),
+              value,
             )
           }
         />
@@ -1310,7 +1306,7 @@ function StepFields({
         onChange={(value) =>
           update(
             "bookingLeadTimeDays",
-            value === "" ? null : integer(value),
+            value,
           )
         }
       />
@@ -1661,7 +1657,7 @@ function NumberField({
 }: {
   label: string;
   description?: string;
-  value: number | null;
+  value: number | string;
   minimum: number;
   maximum?: number;
   required?: boolean;
@@ -1671,7 +1667,7 @@ function NumberField({
 }) {
   return (
     <FormField label={label} description={description} required={required} disabled={disabled} error={error}>
-      <Input type="number" inputMode="numeric" min={minimum} max={maximum} value={value ?? ""} onChange={(event) => onChange(event.target.value)} />
+      <Input type="number" inputMode="numeric" step={1} min={minimum} max={maximum} value={value} onChange={(event) => onChange(event.target.value)} />
     </FormField>
   );
 }
@@ -1726,7 +1722,7 @@ function initialValues(draft: ProviderOnboardingDraft): FormValues {
     businessEmail: draft.businessEmail ?? draft.ownerEmail,
     businessPhone: draft.businessPhone ?? "",
     description: draft.description ?? "",
-    providerServiceType: draft.providerServiceType ?? "catering",
+    providerServiceType: draft.providerServiceType ?? null,
     providerCategory:
       isServiceCategoryCode(draft.providerCategory)
         ? draft.providerCategory
@@ -1752,8 +1748,9 @@ function initialValues(draft: ProviderOnboardingDraft): FormValues {
     maxEventsPerDay: draft.maxEventsPerDay ?? 1,
     availableStaffCount: draft.availableStaffCount ?? 0,
     availableEquipmentCount: draft.availableEquipmentCount ?? 0,
+
     operatingDays: draft.operatingDays ?? [],
-    bookingLeadTimeDays: draft.bookingLeadTimeDays ?? null,
+    bookingLeadTimeDays: draft.bookingLeadTimeDays ?? "",
     unavailableDates: draft.unavailableDates ?? [],
     logoUrl: draft.logoUrl ?? null,
     logoPublicId: draft.logoPublicId ?? null,
@@ -1825,15 +1822,29 @@ function resolveStepFiveCapacityCapabilities(
         usesEquipmentCapacity:
           resolved.usesEquipmentCapacity ||
           categoryCapabilities.usesEquipmentCapacity,
+
       };
     },
     {
       requiresGuestCapacity: false,
       usesStaffCapacity: false,
       usesEquipmentCapacity: false,
+
     },
   );
 }
+function numericCapacityValues(
+  values: FormValues,
+): Pick<ProviderOnboardingInput, CapacityNumberField> {
+  return Object.fromEntries(
+    CAPACITY_NUMBER_FIELDS.map((field) => [
+      field,
+      // An unanswered field must fail validation, never become numeric zero.
+      String(values[field]).trim() === "" ? Number.NaN : Number(values[field]),
+    ]),
+  ) as Pick<ProviderOnboardingInput, CapacityNumberField>;
+}
+
 function prepareStepValues(
   step: number,
   values: FormValues,
@@ -2019,6 +2030,8 @@ function prepareStepValues(
     }
   }
   if (step === 5) {
+  const capacity = numericCapacityValues(values);
+  Object.assign(normalized, capacity);
   const capabilities = resolveStepFiveCapacityCapabilities(
     values.serviceCategories,
     serviceCategories,
@@ -2026,20 +2039,20 @@ function prepareStepValues(
 
   if (capabilities.requiresGuestCapacity) {
     if (
-      !Number.isInteger(values.minGuestsPerEvent) ||
-      values.minGuestsPerEvent < 1 ||
-      values.minGuestsPerEvent > 100000 ||
-      values.minGuestsPerEvent >
-        values.maxGuestsPerEvent
+      !Number.isInteger(capacity.minGuestsPerEvent) ||
+      capacity.minGuestsPerEvent < 1 ||
+      capacity.minGuestsPerEvent > 100000 ||
+      capacity.minGuestsPerEvent >
+        capacity.maxGuestsPerEvent
     ) {
       errors.minGuestsPerEvent =
         "Minimum guests must be from 1 to 100,000 and not exceed the maximum.";
     }
 
     if (
-      !Number.isInteger(values.maxGuestsPerEvent) ||
-      values.maxGuestsPerEvent < 1 ||
-      values.maxGuestsPerEvent > 100000
+      !Number.isInteger(capacity.maxGuestsPerEvent) ||
+      capacity.maxGuestsPerEvent < 1 ||
+      capacity.maxGuestsPerEvent > 100000
     ) {
       errors.maxGuestsPerEvent =
         "Maximum guests must be from 1 to 100,000.";
@@ -2052,31 +2065,33 @@ function prepareStepValues(
   if (!capabilities.usesStaffCapacity) {
     normalized.availableStaffCount = 0;
   } else if (
-    !Number.isInteger(values.availableStaffCount) ||
-    values.availableStaffCount < 0 ||
-    values.availableStaffCount > 100000
+    !Number.isInteger(capacity.availableStaffCount) ||
+    capacity.availableStaffCount < 0 ||
+    capacity.availableStaffCount > 100000
   ) {
     errors.availableStaffCount =
-      "Available staff must be from 0 to 100,000.";
+      "People available per event must be a whole number from 0 to 100,000.";
   }
+
+
+
 
   if (!capabilities.usesEquipmentCapacity) {
     normalized.availableEquipmentCount = 0;
   } else if (
-    !Number.isInteger(values.availableEquipmentCount) ||
-    values.availableEquipmentCount < 0 ||
-    values.availableEquipmentCount > 100000
+    !Number.isInteger(capacity.availableEquipmentCount) ||
+    capacity.availableEquipmentCount < 0 ||
+    capacity.availableEquipmentCount > 100000
   ) {
     errors.availableEquipmentCount =
-      "Available equipment must be from 0 to 100,000.";
+      "Service equipment / resources must be a whole number from 0 to 100,000.";
   }
-
   if (!values.acceptsMultipleEventsPerDay) {
     normalized.maxEventsPerDay = 1;
   } else if (
-    !Number.isInteger(values.maxEventsPerDay) ||
-    values.maxEventsPerDay < 1 ||
-    values.maxEventsPerDay > 100
+    !Number.isInteger(capacity.maxEventsPerDay) ||
+    capacity.maxEventsPerDay < 1 ||
+    capacity.maxEventsPerDay > 100
   ) {
     errors.maxEventsPerDay =
       "Maximum events per day must be from 1 to 100.";
@@ -2087,13 +2102,13 @@ function prepareStepValues(
       "Choose at least one operating day.";
   }
 
-  if (values.bookingLeadTimeDays === null) {
+  if (String(values.bookingLeadTimeDays).trim() === "") {
     errors.bookingLeadTimeDays =
       "Enter your minimum booking notice.";
   } else if (
-    !Number.isInteger(values.bookingLeadTimeDays) ||
-    values.bookingLeadTimeDays < 0 ||
-    values.bookingLeadTimeDays > 365
+    !Number.isInteger(capacity.bookingLeadTimeDays) ||
+    capacity.bookingLeadTimeDays < 0 ||
+    capacity.bookingLeadTimeDays > 365
   ) {
     errors.bookingLeadTimeDays =
       "Minimum booking notice must be between 0 and 365 days.";

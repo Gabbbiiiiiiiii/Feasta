@@ -568,7 +568,7 @@ export async function loadProviderOnboardingDraft(
       String(draft.providerServiceType),
     )
       ? draft.providerServiceType as "catering" | "addon" | "both"
-      : "catering",
+      : undefined,
     providerCategory: isServiceCategoryCode(draft.providerCategory)
       ? draft.providerCategory
       : "",
@@ -599,11 +599,16 @@ export async function loadProviderOnboardingDraft(
     maxEventsPerDay: integer(draft.maxEventsPerDay, 1),
     availableStaffCount: integer(draft.availableStaffCount, 0),
     availableEquipmentCount: integer(draft.availableEquipmentCount, 0),
+
     operatingDays: enumList(
       draft.operatingDays,
       PROVIDER_OPERATING_DAYS,
     ) as ProviderOperatingDay[],
-    bookingLeadTimeDays: integer(draft.bookingLeadTimeDays, 0),
+    bookingLeadTimeDays:
+      typeof draft.bookingLeadTimeDays === "number" &&
+      Number.isInteger(draft.bookingLeadTimeDays)
+        ? draft.bookingLeadTimeDays
+        : undefined,
     unavailableDates: stringList(draft.unavailableDates),
     logoUrl: text(draft.logoUrl) || null,
     logoPublicId: text(draft.logoPublicId) || null,
@@ -819,7 +824,7 @@ export async function loadProviderOnboardingReview(
       provider.providerServiceType ===
         "both"
         ? provider.providerServiceType
-        : "catering",
+        : undefined,
 
     providerCategory:
       isServiceCategoryCode(
@@ -912,6 +917,8 @@ export async function loadProviderOnboardingReview(
         0,
       ),
 
+
+
     operatingDays:
       enumList(
         provider.operatingDays,
@@ -919,10 +926,10 @@ export async function loadProviderOnboardingReview(
       ) as ProviderOperatingDay[],
 
     bookingLeadTimeDays:
-      integer(
-        provider.bookingLeadTimeDays,
-        0,
-      ),
+      typeof provider.bookingLeadTimeDays === "number" &&
+      Number.isInteger(provider.bookingLeadTimeDays)
+        ? provider.bookingLeadTimeDays
+        : undefined,
 
     unavailableDates:
       stringList(

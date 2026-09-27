@@ -338,12 +338,9 @@ describe("provider onboarding Capacity and schedule", () => {
     );
     assert.match(
       form,
-      /Available staff must be from 0 to 100,000\./u,
+      /People available per event must be a whole number from 0 to 100,000\./u,
     );
-    assert.match(
-      form,
-      /Available equipment must be from 0 to 100,000\./u,
-    );
+
     assert.match(
       form,
       /Maximum events per day must be from 1 to 100\./u,
