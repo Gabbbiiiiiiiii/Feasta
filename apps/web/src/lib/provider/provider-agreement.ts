@@ -28,10 +28,13 @@ export const PROVIDER_AGREEMENT_SECTIONS = [
     ],
   },
   {
-    title: "5. Availability and capacity",
+    title: "5. Availability and daily booking limit",
     paragraphs: [
-      "You are responsible for maintaining realistic operating days, unavailable dates, booking notice requirements, guest capacity, staffing, equipment capacity, and limits on simultaneous or same-day events.",
-      "Information entered during onboarding represents your normal operating capabilities. Actual availability may still depend on existing bookings and the circumstances of a particular event.",
+      "You are responsible for maintaining realistic operating days, unavailable dates, booking notice requirements, guest capacity, staffing, equipment capacity, and other availability information shown through FEASTA.",
+      "To help maintain reliable service quality and reduce scheduling conflicts, each provider may accept only one FEASTA booking for any calendar date.",
+      "FEASTA serves as an additional booking channel for providers and may not reflect all bookings, appointments, or engagements that a provider manages outside the platform. You are responsible for managing your external commitments and ensuring that they do not interfere with an accepted FEASTA booking.",
+      "Once you have accepted a FEASTA booking for a specific date, you may not accept another FEASTA booking for that same calendar date, even if the events would occur at different times.",
+      "Information entered during onboarding represents your normal operating capabilities. Actual availability may still depend on existing FEASTA bookings, external commitments, and the circumstances of a particular event.",
     ],
   },
   {
@@ -46,7 +49,7 @@ export const PROVIDER_AGREEMENT_SECTIONS = [
     paragraphs: [
       "When you receive a booking request, you are responsible for reviewing the event details before accepting or rejecting it.",
       "If you accept a booking, you are expected to honor the confirmed services, event details, inclusions, pricing, and other agreed booking information, subject to legitimate changes or cancellations handled through the platform and applicable policies.",
-      "Do not accept bookings that you know you cannot reasonably fulfill.",
+      "Do not accept bookings that you know you cannot reasonably fulfill. You are also responsible for checking your external commitments before accepting a FEASTA booking so that outside bookings, appointments, or engagements do not interfere with the service you have agreed to provide through FEASTA.",
     ],
   },
   {

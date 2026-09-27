@@ -8,7 +8,7 @@ export interface ProviderVerificationDocumentPolicy {
     requiredOneOf: readonly (readonly VerificationDocumentType[])[];
 }
 export declare const UNVERSIONED_POLICY_VERSION: "unversioned";
-export declare const PROVIDER_AGREEMENT_VERSION: "2026-09-23";
+export declare const PROVIDER_AGREEMENT_VERSION: "2026-09-27";
 export interface ProviderCapacityCapabilities {
     requiresGuestCapacity: boolean;
     usesStaffCapacity: boolean;

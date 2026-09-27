@@ -18,7 +18,7 @@ export const FOOD_PERMIT_ALTERNATIVES = [
     "mayors_permit",
 ];
 export const UNVERSIONED_POLICY_VERSION = "unversioned";
-export const PROVIDER_AGREEMENT_VERSION = "2026-09-23";
+export const PROVIDER_AGREEMENT_VERSION = "2026-09-27";
 const GUEST_CAPACITY_SERVICE_CATEGORIES = [
     "catering_service",
     "food_trays_packed_meals",

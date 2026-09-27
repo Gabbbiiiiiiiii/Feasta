@@ -44,7 +44,7 @@ export interface ProviderVerificationDocumentPolicy {
 
 export const UNVERSIONED_POLICY_VERSION = "unversioned" as const;
 
-export const PROVIDER_AGREEMENT_VERSION = "2026-09-23" as const;
+export const PROVIDER_AGREEMENT_VERSION = "2026-09-27" as const;
 
 
 export interface ProviderCapacityCapabilities {

@@ -33,7 +33,7 @@ export default function ProviderAgreementPage() {
                 <span className="font-medium text-foreground">
                   Effective:
                 </span>{" "}
-                September 23, 2026
+                September 27, 2026
               </p>
 
               <p>
