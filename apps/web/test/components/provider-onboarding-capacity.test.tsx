@@ -98,6 +98,18 @@ describe("provider onboarding capacity", () => {
       }),
     ).not.toBeInTheDocument();
 
+    expect(
+      screen.queryByRole("checkbox", {
+        name: /^Accept multiple events/,
+      }),
+    ).not.toBeInTheDocument();
+
+    expect(
+      screen.queryByRole("spinbutton", {
+        name: /^Maximum events per day/,
+      }),
+    ).not.toBeInTheDocument();
+
     submit();
 
     await waitFor(() =>
@@ -109,12 +121,14 @@ describe("provider onboarding capacity", () => {
       expect.objectContaining({
         availableStaffCount: 1,
         availableEquipmentCount: 0,
+        acceptsMultipleEventsPerDay: false,
+        maxEventsPerDay: 1,
       }),
     );
   });
   it.each([
     "Minimum guests per event", "Maximum guests per event",
-    "Maximum events per day", "Minimum booking notice",
+    "Minimum booking notice",
   ])("allows select-all, delete, and replacement in %s", async (label) => {
     const user = userEvent.setup();
     await renderCapacity({...savedCapacity, serviceCategories: ["catering_service"], acceptsMultipleEventsPerDay: true});
@@ -167,7 +181,6 @@ describe("provider onboarding capacity", () => {
     ["Minimum booking notice", "366"],
     ["Minimum guests per event", "100001"],
     ["Maximum guests per event", "100001"],
-    ["Maximum events per day", "101"],
   ])("rejects invalid whole-number values in %s", async (label, tooLarge) => {
     await renderCapacity({...savedCapacity, serviceCategories: ["catering_service"], acceptsMultipleEventsPerDay: true});
     const input = field(label);
@@ -179,18 +192,48 @@ describe("provider onboarding capacity", () => {
     }
   });
 
-  it("retains guest ordering and the single-event limit", async () => {
-    await renderCapacity({...savedCapacity, serviceCategories: ["catering_service"], acceptsMultipleEventsPerDay: true});
-    fireEvent.change(field("Minimum guests per event"), {target: {value: "101"}});
+  it("retains guest ordering and normalizes legacy multi-event drafts to one booking per day", async () => {
+    await renderCapacity({
+      ...savedCapacity,
+      serviceCategories: ["catering_service"],
+      acceptsMultipleEventsPerDay: true,
+      maxEventsPerDay: 10,
+    });
+
+    expect(
+      screen.queryByRole("checkbox", {
+        name: /^Accept multiple events/,
+      }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.change(
+      field("Minimum guests per event"),
+      {target: {value: "101"}},
+    );
+
     submit();
-    expect(field("Minimum guests per event")).toHaveAttribute("aria-invalid", "true");
+
+    expect(
+      field("Minimum guests per event"),
+    ).toHaveAttribute("aria-invalid", "true");
+
     expect(mocks.save).not.toHaveBeenCalled();
-    fireEvent.change(field("Minimum guests per event"), {target: {value: "1"}});
-    fireEvent.change(field("Maximum events per day"), {target: {value: ""}});
-    fireEvent.click(screen.getByRole("checkbox", {name: /^Accept multiple events/}));
+
+    fireEvent.change(
+      field("Minimum guests per event"),
+      {target: {value: "1"}},
+    );
+
     submit();
-    await waitFor(() => expect(mocks.save).toHaveBeenCalledWith(5, expect.objectContaining({
-      acceptsMultipleEventsPerDay: false, maxEventsPerDay: 1,
-    })));
+
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledWith(
+        5,
+        expect.objectContaining({
+          acceptsMultipleEventsPerDay: false,
+          maxEventsPerDay: 1,
+        }),
+      )
+    );
   });
 });

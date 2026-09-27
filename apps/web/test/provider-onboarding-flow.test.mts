@@ -318,15 +318,22 @@ describe("provider onboarding Capacity and schedule", () => {
     ), "utf8");
 
     assert.match(form, /maximum=\{100000\}/u);
-    assert.match(form, /maximum=\{100\}/u);
     assert.match(form, /maximum=\{365\}/u);
-    assert.match(
+    assert.doesNotMatch(
       form,
       /Accept multiple events on the same day/u,
     );
+    assert.doesNotMatch(
+      form,
+      /Maximum events per day/u,
+    );
     assert.match(
       form,
-      /values\.acceptsMultipleEventsPerDay \? \(/u,
+      /normalized\.acceptsMultipleEventsPerDay = false;/u,
+    );
+    assert.match(
+      form,
+      /normalized\.maxEventsPerDay = 1;/u,
     );
     assert.match(
       form,
@@ -338,10 +345,7 @@ describe("provider onboarding Capacity and schedule", () => {
     );
 
 
-    assert.match(
-      form,
-      /Maximum events per day must be from 1 to 100\./u,
-    );
+
   });
 
   it("derives Step 5 capacity fields from service-category metadata with legacy fallback", () => {

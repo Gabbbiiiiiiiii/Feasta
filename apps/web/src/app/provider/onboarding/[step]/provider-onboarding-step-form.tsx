@@ -1240,44 +1240,6 @@ function StepFields({
 
 
       <div className="sm:col-span-2">
-        <CheckboxField
-          label="Accept multiple events on the same day"
-          description="Enable this if your business can fulfill more than one booking on the same day."
-          checked={
-            values.acceptsMultipleEventsPerDay
-          }
-          disabled={loading}
-          onChange={(event) => {
-            update(
-              "acceptsMultipleEventsPerDay",
-              event.target.checked,
-            );
-
-            if (!event.target.checked) {
-              update(
-                "maxEventsPerDay",
-                1,
-              );
-            }
-          }}
-        />
-      {values.acceptsMultipleEventsPerDay ? (
-        <NumberField
-          label="Maximum events per day"
-          description="Maximum bookings your business can realistically fulfill on the same day."
-          value={values.maxEventsPerDay}
-          minimum={1}
-          maximum={100}
-          disabled={loading}
-          error={fieldErrors.maxEventsPerDay}
-          onChange={(value) =>
-            update(
-              "maxEventsPerDay",
-              value,
-            )
-          }
-        />
-      ) : null}
 
       <NumberField
         label="Minimum booking notice (days)"
@@ -2070,16 +2032,10 @@ function prepareStepValues(
     errors.availableEquipmentCount =
       "Service equipment / resources must be a whole number from 0 to 100,000.";
   }
-  if (!values.acceptsMultipleEventsPerDay) {
-    normalized.maxEventsPerDay = 1;
-  } else if (
-    !Number.isInteger(capacity.maxEventsPerDay) ||
-    capacity.maxEventsPerDay < 1 ||
-    capacity.maxEventsPerDay > 100
-  ) {
-    errors.maxEventsPerDay =
-      "Maximum events per day must be from 1 to 100.";
-  }
+  // FEASTA currently allows one platform booking per provider per day.
+  // Keep the legacy fields fixed for compatibility with existing records.
+  normalized.acceptsMultipleEventsPerDay = false;
+  normalized.maxEventsPerDay = 1;
 
   if (values.operatingDays.length === 0) {
     errors.operatingDays =
