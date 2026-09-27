@@ -122,7 +122,7 @@ export function CustomerEventListMenu() {
       handleOpenRequest,
     );
 
-  
+
 
   return () => {
       window.removeEventListener(
