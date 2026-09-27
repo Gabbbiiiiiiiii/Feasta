@@ -1235,30 +1235,14 @@ function StepFields({
         </>
       ) : null}
 
-      {capabilities.usesStaffCapacity ? (
-        <NumberField
-          label="People available per event"
-          description="Include yourself and anyone who normally helps fulfill a booking. If you work alone, enter 1."
-          value={values.availableStaffCount}
-          minimum={0}
-          maximum={100000}
-          disabled={loading}
-          error={fieldErrors.availableStaffCount}
-          onChange={(value) =>
-            update(
-              "availableStaffCount",
-              value,
-            )
-          }
-        />
-      ) : null}
+
 
 
 
       <div className="sm:col-span-2">
         <CheckboxField
           label="Accept multiple events on the same day"
-          description="Enable this only when your staffing and schedule can support multiple bookings."
+          description="Enable this if your business can fulfill more than one booking on the same day."
           checked={
             values.acceptsMultipleEventsPerDay
           }

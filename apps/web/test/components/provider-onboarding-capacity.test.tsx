@@ -83,51 +83,37 @@ beforeEach(() => {
 });
 
 describe("provider onboarding capacity", () => {
-  it.each([
-    ["photographer", 1, 2],
-    ["event_host_emcee", 1, 0],
-    ["catering_service", 10, 25],
-    ["photographer", 0, 0],
-  ])("saves %s with %i people and %i resources", async (category, people, equipment) => {
-    const view = await renderCapacity({...savedCapacity, serviceCategories: [category]});
-    fireEvent.change(field("People available per event"), {target: {value: String(people)}});
-    if (category === "event_host_emcee") {
-      expect(screen.queryByRole("spinbutton", {name: /^Service equipment/})).not.toBeInTheDocument();
-    } else {
-      fireEvent.change(field("Service equipment / resources"), {target: {value: String(equipment)}});
-    }
-    expect(screen.getByRole("checkbox", {name: /^Accept multiple events/})).not.toBeChecked();
-    submit();
-    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/provider/onboarding/consent"));
-    expect(mocks.save).toHaveBeenCalledWith(5, expect.objectContaining({
-      availableStaffCount: people,
-      availableEquipmentCount: equipment,
-      bookingLeadTimeDays: 3,
-      acceptsMultipleEventsPerDay: false,
-      maxEventsPerDay: 1,
-      minGuestsPerEvent: category === "catering_service" ? 1 : 0,
-      maxGuestsPerEvent: category === "catering_service" ? 100 : 0,
-    }));
-    const payload = mocks.save.mock.calls[0][1];
-    view.unmount();
-    await renderCapacity({...savedCapacity, ...payload, serviceCategories: [category]});
-    expect(field("People available per event")).toHaveValue(people);
-    if (category !== "event_host_emcee") expect(field("Service equipment / resources")).toHaveValue(equipment);
-  });
-
-  it("explains counting yourself and when equipment zero is appropriate", async () => {
+  it("keeps legacy staff and equipment values internal without showing their inputs", async () => {
     await renderCapacity();
-    expect(field("People available per event")).toHaveAccessibleDescription(
-      "Include yourself and anyone who normally helps fulfill a booking. If you work alone, enter 1.",
+
+    expect(
+      screen.queryByRole("spinbutton", {
+        name: /^People available per event/,
+      }),
+    ).not.toBeInTheDocument();
+
+    expect(
+      screen.queryByRole("spinbutton", {
+        name: /^Service equipment/,
+      }),
+    ).not.toBeInTheDocument();
+
+    submit();
+
+    await waitFor(() =>
+      expect(mocks.save).toHaveBeenCalledOnce()
     );
-    expect(field("Service equipment / resources")).toHaveAccessibleDescription(
-      /If your service does not depend on equipment quantity, enter 0\./,
+
+    expect(mocks.save).toHaveBeenCalledWith(
+      5,
+      expect.objectContaining({
+        availableStaffCount: 1,
+        availableEquipmentCount: 0,
+      }),
     );
   });
-
   it.each([
     "Minimum guests per event", "Maximum guests per event",
-    "People available per event", "Service equipment / resources",
     "Maximum events per day", "Minimum booking notice",
   ])("allows select-all, delete, and replacement in %s", async (label) => {
     const user = userEvent.setup();
@@ -169,19 +155,15 @@ describe("provider onboarding capacity", () => {
     await waitFor(() => expect(mocks.save).toHaveBeenCalledWith(5, expect.objectContaining({bookingLeadTimeDays: 0})));
   });
 
-  it.each([false, true])("preserves saved numbers and explicit zero (existing=%s)", async (existing) => {
+  it.each([false, true])("preserves saved booking notice and explicit zero (existing=%s)", async (existing) => {
     for (const notice of [0, 3]) {
       const view = await renderCapacity({...savedCapacity, bookingLeadTimeDays: notice}, existing);
-      expect(field("People available per event")).toHaveValue(1);
-      expect(field("Service equipment / resources")).toHaveValue(0);
       expect(field("Minimum booking notice")).toHaveValue(notice);
       view.unmount();
     }
   });
 
   it.each([
-    ["People available per event", "100001"],
-    ["Service equipment / resources", "100001"],
     ["Minimum booking notice", "366"],
     ["Minimum guests per event", "100001"],
     ["Maximum guests per event", "100001"],
