@@ -23,12 +23,25 @@ import {
 
 import {CatalogImageUploader, uploadCatalogImages} from "@/components/provider/catalog-image-uploader";
 import {packageImageDrafts} from "@/lib/provider/catalog-media";
+import {
+  CATERING_PACKAGE_SERVICE_TIERS,
+  cateringPackageServiceTierDescription,
+  cateringPackageServiceTierLabel,
+  type CateringPackageServiceTier,
+} from "@/lib/catering/catering-service-tier";
 
 import {providerContentCapabilities} from "@/lib/provider/provider-content-capabilities";
 
 import {Textarea} from "@/components/ui/textarea";
 import {Select} from "@/components/ui/select";
 
+import {
+  ProviderPackageOfferBuilder,
+  createProviderPackageOfferDraft,
+  serializeProviderPackageOfferDraft,
+  type ProviderPackageOfferDraft,
+  uploadProviderPackageVisualStyleImages,
+} from "./provider-package-offer-builder";
 const EVENT_TYPES = [
   "birthday",
   "wedding",
@@ -70,6 +83,15 @@ export function ProviderPackageForm({
   const capabilities = providerContentCapabilities(providerServiceType, serviceCategories);
   const editing =
     initialPackage !== undefined;
+
+  const legacyPackageNotice =
+    editing &&
+    Object.keys(
+      initialPackage?.serviceOptions ?? {},
+    ).length === 0 &&
+    !initialPackage?.serviceTier
+      ? "This existing package needs a service option before future changes can be saved. Choose every service style and price that applies."
+      : undefined;
   const availableEventTypes =
     useMemo(
         () =>
@@ -99,6 +121,15 @@ export function ProviderPackageForm({
         availableEventTypes[0] ??
         "",
     );
+  const [
+    serviceTier,
+    setServiceTier,
+  ] = useState<
+    CateringPackageServiceTier | ""
+  >(
+    initialPackage?.serviceTier ?? "",
+  );
+
 
   const [price, setPrice] =
     useState(
@@ -107,17 +138,6 @@ export function ProviderPackageForm({
         : "",
     );
 
-  const [
-    downPaymentPercentage,
-    setDownPaymentPercentage,
-  ] = useState(
-    initialPackage
-      ? String(
-          initialPackage
-            .downPaymentPercentage,
-        )
-      : "20",
-  );
 
   const [
     minimumGuests,
@@ -179,6 +199,25 @@ export function ProviderPackageForm({
 
   const [images, setImages] = useState(() => packageImageDrafts(initialPackage?.imageUrls, initialPackage?.imageUrl));
 
+  const [
+    offerDraft,
+    setOfferDraft,
+  ] = useState<ProviderPackageOfferDraft>(
+    () =>
+      createProviderPackageOfferDraft(
+        initialPackage,
+      ),
+  );
+  const [
+    submitAttempted,
+    setSubmitAttempted,
+  ] = useState(false);
+
+  const [
+    offerInteracted,
+    setOfferInteracted,
+  ] = useState(false);
+
   const [submitting, setSubmitting] =
     useState(false);
 
@@ -186,12 +225,38 @@ export function ProviderPackageForm({
     useState<string | null>(null);
 
   const parsedPrice = Number(price);
-  const parsedDownPayment =
-    Number(downPaymentPercentage);
   const parsedMinimumGuests =
     Number(minimumGuests);
   const parsedMaximumGuests =
     Number(maximumGuests);
+  const offerConfiguration =
+    serializeProviderPackageOfferDraft(
+      offerDraft,
+    );
+
+  function updateOfferDraft(
+    next: ProviderPackageOfferDraft,
+  ) {
+    setOfferInteracted(true);
+    setOfferDraft(next);
+
+    const serialized =
+      serializeProviderPackageOfferDraft(
+        next,
+      );
+
+    setPrice(
+      serialized.startingPrice === null
+        ? ""
+        : String(
+            serialized.startingPrice,
+          ),
+    );
+
+    setServiceTier(
+      serialized.firstEnabledTier ?? "",
+    );
+  }
 
   const validationError =
     useMemo(() => {
@@ -217,6 +282,21 @@ export function ProviderPackageForm({
         ) {
         return {field: "eventType", message: "Choose an event type supported by your business."};
         }
+      if (offerConfiguration.error) {
+        return {
+          field: "serviceOptions",
+          message:
+            offerConfiguration.error,
+        };
+      }
+      if (!serviceTier) {
+        return {
+          field: "serviceTier",
+          message:
+            "Choose Drop-Off, Buffet Setup, or Full-Service Catering.",
+        };
+      }
+
 
       if (
         !Number.isFinite(parsedPrice) ||
@@ -226,15 +306,6 @@ export function ProviderPackageForm({
         return {field: "price", message: "Enter a valid package price."};
       }
 
-      if (
-        !Number.isFinite(
-          parsedDownPayment,
-        ) ||
-        parsedDownPayment < 0 ||
-        parsedDownPayment > 100
-      ) {
-        return {field: "downPayment", message: "Down payment must be between 0 and 100%."};
-      }
 
       if (
         !Number.isInteger(
@@ -265,8 +336,10 @@ export function ProviderPackageForm({
       name,
       description,
       eventType,
+      serviceTier,
+      offerConfiguration.error,
       parsedPrice,
-      parsedDownPayment,
+
       parsedMinimumGuests,
       parsedMaximumGuests,
       availableEventTypes,
@@ -278,6 +351,7 @@ export function ProviderPackageForm({
     event: React.FormEvent<HTMLFormElement>,
   ) {
     event.preventDefault();
+    setSubmitAttempted(true);
 
     if (
       submitting ||
@@ -292,14 +366,19 @@ export function ProviderPackageForm({
 
     try {
       const uploaded = await uploadCatalogImages(images, (saved) => setImages((current) => current.map((image) => image.id === saved.id ? saved : image)));
+      const uploadedVisualStyles = await uploadProviderPackageVisualStyleImages(offerConfiguration);
       const input: ProviderPackageInput = {
         name: name.trim(),
         description:
           description.trim(),
         eventType,
+        serviceTier: serviceTier || null,
+        serviceOptions:
+          offerConfiguration.serviceOptions,
+        themeOptions:
+          uploadedVisualStyles,
         price: parsedPrice,
-        downPaymentPercentage:
-          parsedDownPayment,
+        downPaymentPercentage: 100,
         minimumGuests:
           parsedMinimumGuests,
         maximumGuests:
@@ -449,9 +528,75 @@ export function ProviderPackageForm({
           </Select>
         </FormField>
       </div>
+      <section
+        aria-label="Catering service level"
+        className="hidden grid gap-3 rounded-xl border border-border bg-muted/20 p-4"
+      >
+        <div>
+          <h3 className="text-sm font-bold text-foreground">
+            Catering service level *
+          </h3>
+
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Choose how this package will be served.
+            Drop-Off Catering is managed through Menu &amp; Catalog.
+          </p>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-3">
+          {CATERING_PACKAGE_SERVICE_TIERS.map(
+            (tier) => {
+              const selected =
+                serviceTier === tier;
+
+              return (
+                <button
+                  key={tier}
+                  type="button"
+                  aria-pressed={selected}
+                  disabled={submitting}
+                  onClick={() =>
+                    setServiceTier(tier)
+                  }
+                  className={[
+                    "rounded-xl border p-4 text-left transition",
+                    selected
+                      ? "border-primary bg-secondary"
+                      : "border-border bg-background hover:border-primary/30 hover:bg-muted/30",
+                  ].join(" ")}
+                >
+                  <span className="block text-sm font-bold text-foreground">
+                    {cateringPackageServiceTierLabel(
+                      tier,
+                    )}
+                  </span>
+
+                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                    {cateringPackageServiceTierDescription(
+                      tier,
+                    )}
+                  </span>
+                </button>
+              );
+            },
+          )}
+        </div>
+
+        {validationError?.field ===
+        "serviceTier" ? (
+          <p
+            role="alert"
+            className="text-sm text-destructive"
+          >
+            {validationError.message}
+          </p>
+        ) : null}
+      </section>
+
 
       <FormField
         label="Description"
+        description="Use this as the complete package details customers should review. Include furniture, setup arrangements, staffing or waitstaff, timing, limitations, and other important conditions."
         error={validationError?.field === "description" ? validationError.message : undefined}
         required
       >
@@ -463,52 +608,36 @@ export function ProviderPackageForm({
             )
           }
           maxLength={2000}
-          rows={3}
+          rows={6}
           className="w-full rounded-md border bg-background px-3 py-2 text-sm"
         />
       </FormField>
 
       <h3 className="text-sm font-bold uppercase text-primary-strong">Pricing &amp; capacity</h3>
       <div className="grid gap-4 sm:grid-cols-2">
-        <FormField
-          label="Package price"
-          error={validationError?.field === "price" ? validationError.message : undefined}
-          required
-        >
-          <Input
-            type="number"
-            min="0"
-            max="10000000"
-            step="0.01"
-            value={price}
-            onChange={(event) =>
-              setPrice(
-                event.target.value,
-              )
-            }
-          />
-        </FormField>
+                <div className="rounded-xl border border-border bg-muted/20 p-4">
+          <p className="text-sm font-medium text-foreground">
+            Starting price
+          </p>
 
-        <FormField
-          label="Down payment (%)"
-          error={validationError?.field === "downPayment" ? validationError.message : undefined}
-          required
-        >
-          <Input
-            type="number"
-            min="0"
-            max="100"
-            step="0.01"
-            value={
-              downPaymentPercentage
-            }
-            onChange={(event) =>
-              setDownPaymentPercentage(
-                event.target.value,
-              )
-            }
-          />
-        </FormField>
+          <p className="mt-1 text-2xl font-bold text-foreground">
+            {price
+              ? `₱${Number(price).toLocaleString(
+                  "en-PH",
+                  {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  },
+                )}`
+              : "Ã¢â‚¬â€"}
+          </p>
+
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Automatically uses the lowest price
+            among the enabled service options.
+          </p>
+        </div>
+
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -559,7 +688,7 @@ export function ProviderPackageForm({
       <p className="-mt-2 text-xs text-muted-foreground">
         Your business is configured for{" "}
         <span className="font-medium text-foreground">
-            {minGuestsPerEvent}–
+            {minGuestsPerEvent}
             {maxGuestsPerEvent} guests
         </span>{" "}
         per event.
@@ -569,9 +698,59 @@ export function ProviderPackageForm({
         <CatalogImageUploader images={images} onChange={setImages} disabled={submitting} />
       </section>
 
-      <section aria-label="Optional inclusions" className="grid gap-4 sm:grid-cols-2">
+            <section
+        aria-label="Package content"
+        className="grid gap-4 rounded-2xl border border-border bg-muted/20 p-4 sm:p-5"
+      >
+        <div>
+          <h3 className="text-sm font-bold uppercase text-primary-strong">
+            Package content
+          </h3>
+
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            Food belongs to the package itself.
+            Service-specific responsibilities are
+            configured below, while furniture and
+            setup belong to each theme.
+          </p>
+        </div>
+
+        {capabilities.catering ? (
+          <InclusionTextarea
+            label="Food inclusions"
+            value={foodInclusionsText}
+            onChange={
+              setFoodInclusionsText
+            }
+          />
+        ) : null}
+      </section>
+
+      <ProviderPackageOfferBuilder
+        value={offerDraft}
+        onChange={updateOfferDraft}
+        disabled={submitting}
+        error={
+          (submitAttempted ||
+            offerInteracted) &&
+          (
+            validationError?.field ===
+              "serviceOptions" ||
+            validationError?.field ===
+              "serviceTier" ||
+            validationError?.field ===
+              "price"
+          )
+            ? validationError.message
+            : undefined
+        }
+        legacyNotice={
+          legacyPackageNotice
+        }
+      />
+<section aria-label="Optional inclusions" className="hidden grid gap-4 sm:grid-cols-2">
       <div className="sm:col-span-2"><h3 className="text-sm font-bold uppercase text-primary-strong">Optional inclusions</h3>
-      <p className="mt-1 text-sm text-muted-foreground">Optional — add inclusions to help customers understand what this package covers. Every inclusion field is optional.</p></div>
+      <p className="mt-1 text-sm text-muted-foreground">Optional â€” add inclusions to help customers understand what this package covers. Every inclusion field is optional.</p></div>
       {capabilities.catering ? <InclusionTextarea
         label="Food inclusions"
         value={foodInclusionsText}
@@ -609,12 +788,12 @@ export function ProviderPackageForm({
 
       </div>
       <div className={dialogLayout ? "grid shrink-0 gap-3 border-t border-border bg-card px-5 py-4 sm:px-6" : "grid gap-3"}>
-      {error ? (
+      {error || (submitAttempted && validationError) ? (
         <p
           role="alert"
           className="text-sm text-destructive"
         >
-          {error}
+          {error ?? validationError?.message}
         </p>
       ) : null}
 
@@ -630,12 +809,7 @@ export function ProviderPackageForm({
 
         <Button
           type="submit"
-          disabled={
-            submitting ||
-            Boolean(
-              validationError,
-            )
-          }
+          disabled={submitting}
           loading={submitting}
           loadingLabel={
             editing
