@@ -8,35 +8,50 @@ import {
   validateAdminFinancialPolicyUpdate,
 } from "@/lib/admin/settings/admin-settings-validation";
 
+function validInput(
+  overrides:
+    Record<string, unknown> = {},
+) {
+  return {
+    platformCommissionRateBps:
+      1000,
+    platformTaxStatus:
+      "non_vat",
+    platformVatRateBps:
+      1200,
+
+    minimumDepositRateBps:
+      2000,
+
+    maximumDepositRateBps:
+      8000,
+
+    minimumBalanceDueDaysBeforeEvent:
+      1,
+
+    maximumBalanceDueDaysBeforeEvent:
+      30,
+
+    internalReason:
+      "Configure the initial capstone financial policy.",
+
+    ...overrides,
+  };
+}
+
 describe(
   "Admin financial policy validation",
   () => {
     it(
-      "accepts canonical commission and non-VAT configuration",
+      "accepts canonical commission, tax and payment-term configuration",
       () => {
         expect(
           validateAdminFinancialPolicyUpdate(
-            {
-              platformCommissionRateBps:
-                1000,
-              platformTaxStatus:
-                "non_vat",
-              platformVatRateBps:
-                1200,
-              internalReason:
-                "Configure the initial capstone financial policy.",
-            },
+            validInput(),
           ),
-        ).toEqual({
-          platformCommissionRateBps:
-            1000,
-          platformTaxStatus:
-            "non_vat",
-          platformVatRateBps:
-            1200,
-          internalReason:
-            "Configure the initial capstone financial policy.",
-        });
+        ).toEqual(
+          validInput(),
+        );
       },
     );
 
@@ -45,16 +60,10 @@ describe(
       () => {
         expect(
           validateAdminFinancialPolicyUpdate(
-            {
-              platformCommissionRateBps:
-                1000,
+            validInput({
               platformTaxStatus:
                 "vat_registered",
-              platformVatRateBps:
-                1200,
-              internalReason:
-                "Enable VAT simulation for capstone demonstration.",
-            },
+            }),
           ).platformTaxStatus,
         ).toBe(
           "vat_registered",
@@ -73,15 +82,9 @@ describe(
       (platformTaxStatus) => {
         expect(() =>
           validateAdminFinancialPolicyUpdate(
-            {
-              platformCommissionRateBps:
-                1000,
+            validInput({
               platformTaxStatus,
-              platformVatRateBps:
-                1200,
-              internalReason:
-                "Validate the financial policy input.",
-            },
+            }),
           ),
         ).toThrow(
           "Choose a valid FEASTA tax status.",
@@ -94,16 +97,12 @@ describe(
       () => {
         expect(() =>
           validateAdminFinancialPolicyUpdate(
-            {
-              platformCommissionRateBps:
-                1000,
+            validInput({
               platformTaxStatus:
                 "vat_registered",
               platformVatRateBps:
                 0,
-              internalReason:
-                "Validate VAT simulation requirements.",
-            },
+            }),
           ),
         ).toThrow(
           "VAT rate must be greater than 0",
@@ -112,7 +111,7 @@ describe(
     );
 
     it(
-      "rejects arbitrary or malformed basis-point rates",
+      "rejects malformed FEASTA basis-point rates",
       () => {
         for (
           const platformCommissionRateBps
@@ -125,18 +124,112 @@ describe(
         ) {
           expect(() =>
             validateAdminFinancialPolicyUpdate(
-              {
+              validInput({
                 platformCommissionRateBps,
-                platformTaxStatus:
-                  "non_vat",
-                platformVatRateBps:
-                  1200,
-                internalReason:
-                  "Validate commission rate bounds.",
-              },
+              }),
             ),
           ).toThrow();
         }
+      },
+    );
+
+    it(
+      "rejects zero or full-payment deposit bounds",
+      () => {
+        expect(() =>
+          validateAdminFinancialPolicyUpdate(
+            validInput({
+              minimumDepositRateBps:
+                0,
+            }),
+          ),
+        ).toThrow(
+          "Minimum deposit rate must be greater than 0% and below 100%.",
+        );
+
+        expect(() =>
+          validateAdminFinancialPolicyUpdate(
+            validInput({
+              maximumDepositRateBps:
+                10000,
+            }),
+          ),
+        ).toThrow(
+          "Maximum deposit rate must be greater than 0% and below 100%.",
+        );
+      },
+    );
+
+    it(
+      "rejects an inverted deposit range",
+      () => {
+        expect(() =>
+          validateAdminFinancialPolicyUpdate(
+            validInput({
+              minimumDepositRateBps:
+                9000,
+
+              maximumDepositRateBps:
+                8000,
+            }),
+          ),
+        ).toThrow(
+          "Minimum deposit rate cannot exceed the maximum deposit rate.",
+        );
+      },
+    );
+
+    it(
+      "rejects invalid balance-deadline limits",
+      () => {
+        for (
+          const [
+            field,
+            value,
+          ] of [
+            [
+              "minimumBalanceDueDaysBeforeEvent",
+              0,
+            ],
+            [
+              "minimumBalanceDueDaysBeforeEvent",
+              1.5,
+            ],
+            [
+              "maximumBalanceDueDaysBeforeEvent",
+              366,
+            ],
+          ] as const
+        ) {
+          expect(() =>
+            validateAdminFinancialPolicyUpdate(
+              validInput({
+                [field]: value,
+              }),
+            ),
+          ).toThrow(
+            /between 1 and 365 days/iu,
+          );
+        }
+      },
+    );
+
+    it(
+      "rejects an inverted balance-deadline range",
+      () => {
+        expect(() =>
+          validateAdminFinancialPolicyUpdate(
+            validInput({
+              minimumBalanceDueDaysBeforeEvent:
+                31,
+
+              maximumBalanceDueDaysBeforeEvent:
+                30,
+            }),
+          ),
+        ).toThrow(
+          "Minimum balance deadline cannot exceed the maximum balance deadline.",
+        );
       },
     );
 
@@ -145,18 +238,10 @@ describe(
       () => {
         expect(() =>
           validateAdminFinancialPolicyUpdate(
-            {
-              platformCommissionRateBps:
-                1000,
-              platformTaxStatus:
-                "non_vat",
-              platformVatRateBps:
-                1200,
+            validInput({
               customTax:
                 true,
-              internalReason:
-                "Validate unknown field protection.",
-            },
+            }),
           ),
         ).toThrow(
           'The platform setting "customTax" cannot be modified.',

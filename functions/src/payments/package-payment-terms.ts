@@ -5,17 +5,25 @@ import {
 const BASIS_POINTS_SCALE =
   10_000;
 
-const MIN_DEPOSIT_RATE_BPS =
-  2_000;
-
-const MAX_DEPOSIT_RATE_BPS =
-  8_000;
-
-const MIN_BALANCE_DUE_DAYS =
+/*
+ * Booking snapshots validate the terms already
+ * saved on the package.
+ *
+ * They intentionally do not re-apply today's
+ * Admin policy, because policy changes must not
+ * invalidate historical package terms.
+ */
+const MIN_CANONICAL_DEPOSIT_RATE_BPS =
   1;
 
-const MAX_BALANCE_DUE_DAYS =
-  30;
+const MAX_CANONICAL_DEPOSIT_RATE_BPS =
+  9_999;
+
+const MIN_CANONICAL_BALANCE_DUE_DAYS =
+  1;
+
+const MAX_CANONICAL_BALANCE_DUE_DAYS =
+  365;
 
 export const PACKAGE_PAYMENT_POLICIES = [
   "full_payment",
@@ -115,9 +123,9 @@ export function buildPackagePaymentTermsSnapshot(
 
     if (
       depositRateBps <
-        MIN_DEPOSIT_RATE_BPS ||
+        MIN_CANONICAL_DEPOSIT_RATE_BPS ||
       depositRateBps >
-        MAX_DEPOSIT_RATE_BPS
+        MAX_CANONICAL_DEPOSIT_RATE_BPS
     ) {
       throw invalidTerms();
     }
@@ -126,8 +134,8 @@ export function buildPackagePaymentTermsSnapshot(
       requiredInteger(
         packageData
           .balanceDueDaysBeforeEvent,
-        MIN_BALANCE_DUE_DAYS,
-        MAX_BALANCE_DUE_DAYS,
+        MIN_CANONICAL_BALANCE_DUE_DAYS,
+        MAX_CANONICAL_BALANCE_DUE_DAYS,
       );
 
     return {
@@ -314,9 +322,9 @@ export function parsePackagePaymentTermsSnapshot(
 
   if (
     depositRateBps <
-      MIN_DEPOSIT_RATE_BPS ||
+      MIN_CANONICAL_DEPOSIT_RATE_BPS ||
     depositRateBps >
-      MAX_DEPOSIT_RATE_BPS
+      MAX_CANONICAL_DEPOSIT_RATE_BPS
   ) {
     throw invalidSnapshot();
   }
@@ -325,8 +333,8 @@ export function parsePackagePaymentTermsSnapshot(
     requiredInteger(
       data
         .balanceDueDaysBeforeEvent,
-      MIN_BALANCE_DUE_DAYS,
-      MAX_BALANCE_DUE_DAYS,
+      MIN_CANONICAL_BALANCE_DUE_DAYS,
+      MAX_CANONICAL_BALANCE_DUE_DAYS,
     );
 
   return {

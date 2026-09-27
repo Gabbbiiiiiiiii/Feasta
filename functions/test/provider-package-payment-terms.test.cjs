@@ -1,8 +1,12 @@
-const assert = require("node:assert/strict");
-const test = require("node:test");
+const assert =
+  require("node:assert/strict");
+
+const test =
+  require("node:test");
 
 const {
   assertCanonicalPackagePaymentTerms,
+  assertPackagePaymentTermsWithinPolicy,
   assertPackagePublishable,
   parsePackageInput,
 } = require(
@@ -11,15 +15,21 @@ const {
 
 const base = {
   name: "Wedding package",
+
   description:
     "A complete wedding catering package.",
+
   eventType: "wedding",
+
   price: 30000,
 
   paymentPolicy:
     "deposit_then_balance",
+
   depositPercentage: 30,
-  balanceDueDaysBeforeEvent: 7,
+
+  balanceDueDaysBeforeEvent:
+    7,
 
   minimumGuests: 20,
   maximumGuests: 100,
@@ -30,6 +40,20 @@ const base = {
   decorInclusions: [],
   furnitureInclusions: [],
   serviceInclusions: [],
+};
+
+const policy = {
+  minimumDepositRateBps:
+    2000,
+
+  maximumDepositRateBps:
+    8000,
+
+  minimumBalanceDueDaysBeforeEvent:
+    1,
+
+  maximumBalanceDueDaysBeforeEvent:
+    30,
 };
 
 test(
@@ -68,18 +92,28 @@ test(
         parsed,
       ),
     );
+
+    assert.doesNotThrow(() =>
+      assertPackagePaymentTermsWithinPolicy(
+        parsed,
+        policy,
+      ),
+    );
   },
 );
 
 test(
-  "full-payment package derives 100 percent and has no balance deadline",
+  "full-payment package remains separate from deposit bounds",
   () => {
     const parsed =
       parsePackageInput({
         ...base,
+
         paymentPolicy:
           "full_payment",
+
         depositPercentage: 100,
+
         balanceDueDaysBeforeEvent:
           null,
       });
@@ -95,26 +129,29 @@ test(
     );
 
     assert.equal(
-      parsed.downPaymentPercentage,
-      100,
-    );
-
-    assert.equal(
       parsed.balanceDueDaysBeforeEvent,
       null,
+    );
+
+    assert.doesNotThrow(() =>
+      assertPackagePaymentTermsWithinPolicy(
+        parsed,
+        policy,
+      ),
     );
   },
 );
 
 test(
-  "deposit policy enforces 20 to 80 percent",
+  "package parser uses a permanent technical deposit envelope",
   () => {
-    for (const depositPercentage of [
-      19.99,
-      80.01,
-      0,
-      100,
-    ]) {
+    for (
+      const depositPercentage
+      of [
+        0,
+        100,
+      ]
+    ) {
       assert.throws(
         () =>
           parsePackageInput({
@@ -128,10 +165,16 @@ test(
       );
     }
 
-    for (const depositPercentage of [
-      20,
-      80,
-    ]) {
+    for (
+      const depositPercentage
+      of [
+        10,
+        20,
+        80,
+        90,
+        99.99,
+      ]
+    ) {
       assert.doesNotThrow(() =>
         parsePackageInput({
           ...base,
@@ -143,11 +186,15 @@ test(
 );
 
 test(
-  "deposit policy enforces 1 to 30 day balance deadline",
+  "package parser uses a permanent 1 to 365 day envelope",
   () => {
     for (
       const balanceDueDaysBeforeEvent
-      of [0, 31, 1.5]
+      of [
+        0,
+        366,
+        1.5,
+      ]
     ) {
       assert.throws(
         () =>
@@ -164,7 +211,12 @@ test(
 
     for (
       const balanceDueDaysBeforeEvent
-      of [1, 30]
+      of [
+        1,
+        30,
+        60,
+        365,
+      ]
     ) {
       assert.doesNotThrow(() =>
         parsePackageInput({
@@ -177,15 +229,95 @@ test(
 );
 
 test(
+  "current Admin policy rejects canonical package terms outside the saved bounds",
+  () => {
+    for (
+      const patch of [
+        {
+          depositPercentage:
+            19.99,
+        },
+        {
+          depositPercentage:
+            80.01,
+        },
+        {
+          balanceDueDaysBeforeEvent:
+            31,
+        },
+      ]
+    ) {
+      const parsed =
+        parsePackageInput({
+          ...base,
+          ...patch,
+        });
+
+      assert.throws(
+        () =>
+          assertPackagePaymentTermsWithinPolicy(
+            parsed,
+            policy,
+          ),
+        {
+          code:
+            "invalid-argument",
+        },
+      );
+    }
+  },
+);
+
+test(
+  "changed Admin bounds can authorize different future package terms",
+  () => {
+    const changedPolicy = {
+      minimumDepositRateBps:
+        1000,
+
+      maximumDepositRateBps:
+        9000,
+
+      minimumBalanceDueDaysBeforeEvent:
+        2,
+
+      maximumBalanceDueDaysBeforeEvent:
+        60,
+    };
+
+    const parsed =
+      parsePackageInput({
+        ...base,
+
+        depositPercentage:
+          90,
+
+        balanceDueDaysBeforeEvent:
+          60,
+      });
+
+    assert.doesNotThrow(() =>
+      assertPackagePaymentTermsWithinPolicy(
+        parsed,
+        changedPolicy,
+      ),
+    );
+  },
+);
+
+test(
   "full payment rejects a balance deadline or non-100 percentage",
   () => {
     assert.throws(
       () =>
         parsePackageInput({
           ...base,
+
           paymentPolicy:
             "full_payment",
+
           depositPercentage: 80,
+
           balanceDueDaysBeforeEvent:
             null,
         }),
@@ -199,9 +331,12 @@ test(
       () =>
         parsePackageInput({
           ...base,
+
           paymentPolicy:
             "full_payment",
+
           depositPercentage: 100,
+
           balanceDueDaysBeforeEvent:
             7,
         }),
@@ -220,6 +355,7 @@ test(
       () =>
         parsePackageInput({
           ...base,
+
           downPaymentPercentage:
             50,
         }),
@@ -237,16 +373,20 @@ test(
     const {
       paymentPolicy:
         _paymentPolicy,
+
       depositPercentage:
         _depositPercentage,
+
       balanceDueDaysBeforeEvent:
         _balanceDueDaysBeforeEvent,
+
       ...legacy
     } = base;
 
     const parsed =
       parsePackageInput({
         ...legacy,
+
         downPaymentPercentage:
           0,
       });
@@ -269,6 +409,7 @@ test(
     assert.doesNotThrow(() =>
       assertPackagePublishable({
         ...legacy,
+
         downPaymentPercentage:
           0,
       }),

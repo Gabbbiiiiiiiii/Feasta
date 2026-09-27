@@ -160,21 +160,21 @@ test(
 );
 
 test(
-  "canonical deposit terms enforce the agreed boundaries",
+  "canonical booking snapshots preserve saved package terms within the permanent envelope",
   () => {
     for (
       const patch of [
         {
           depositPercentage:
-            19.99,
+            0,
           downPaymentPercentage:
-            19.99,
+            0,
         },
         {
           depositPercentage:
-            80.01,
+            100,
           downPaymentPercentage:
-            80.01,
+            100,
         },
         {
           balanceDueDaysBeforeEvent:
@@ -182,7 +182,7 @@ test(
         },
         {
           balanceDueDaysBeforeEvent:
-            31,
+            366,
         },
       ]
     ) {
@@ -198,6 +198,40 @@ test(
           code:
             "failed-precondition",
         },
+      );
+    }
+
+    for (
+      const patch of [
+        {
+          depositPercentage:
+            10,
+          downPaymentPercentage:
+            10,
+        },
+        {
+          depositPercentage:
+            90,
+          downPaymentPercentage:
+            90,
+        },
+        {
+          balanceDueDaysBeforeEvent:
+            60,
+        },
+        {
+          balanceDueDaysBeforeEvent:
+            365,
+        },
+      ]
+    ) {
+      assert.doesNotThrow(
+        () =>
+          buildPackagePaymentTermsSnapshot(
+            canonicalDeposit(
+              patch,
+            ),
+          ),
       );
     }
   },

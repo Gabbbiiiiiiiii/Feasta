@@ -26,11 +26,16 @@ import {
   assertCanonicalPackagePaymentTerms,
   assertDraftPackage,
   assertPackageMatchesProviderCapabilities,
+  assertPackagePaymentTermsWithinPolicy,
   authorizeOwnedPackage,
   authorizeProviderForPackageManagement,
   parsePackageInput,
   verifyPackageImages,
 } from "./package-domain.js";
+import {
+  packagePaymentPolicyBoundsFromData,
+  packagePaymentPolicySettingsReference,
+} from "./package-payment-policy.js";
 
 const ALLOWED_FIELDS = [
   "packageId",
@@ -140,6 +145,9 @@ export const updateProviderPackage = onCall(
       .collection("packages")
       .doc(packageId);
 
+    const paymentPolicyReference =
+      packagePaymentPolicySettingsReference();
+
     return db.runTransaction(
       async (transaction) => {
         const userSnapshot =
@@ -180,12 +188,18 @@ export const updateProviderPackage = onCall(
         const [
           providerSnapshot,
           packageSnapshot,
+          paymentPolicySnapshot,
         ] = await Promise.all([
           transaction.get(
             providerReference,
           ),
+
           transaction.get(
             packageReference,
+          ),
+
+          transaction.get(
+            paymentPolicyReference,
           ),
         ]);
 
@@ -211,6 +225,16 @@ export const updateProviderPackage = onCall(
         assertPackageMatchesProviderCapabilities(
           provider.providerData,
           validated,
+        );
+
+        const paymentPolicyBounds =
+          packagePaymentPolicyBoundsFromData(
+            paymentPolicySnapshot.data(),
+          );
+
+        assertPackagePaymentTermsWithinPolicy(
+          validated,
+          paymentPolicyBounds,
         );
 
         await verifyPackageImages(validated, actor.uid, packageRecord.packageData);

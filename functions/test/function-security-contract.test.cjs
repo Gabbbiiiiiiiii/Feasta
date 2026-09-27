@@ -489,6 +489,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "prepareProviderPhoneVerification",
     "publishProviderService",
     "reactivateServiceCategory",
+    "reconcileRemainingBalanceLifecycle",
     "refreshProviderPayoutAccount",
     "registerProvider",
     "registerVerificationDocument",

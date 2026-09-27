@@ -22,6 +22,15 @@ export type AdminPlatformSettings = {
 
   platformVatRateBps: number;
 
+  minimumDepositRateBps: number;
+  maximumDepositRateBps: number;
+
+  minimumBalanceDueDaysBeforeEvent:
+    number;
+
+  maximumBalanceDueDaysBeforeEvent:
+    number;
+
   /**
    * Incremented only when the financial policy
    * actually changes.
@@ -65,6 +74,15 @@ export type UpdateAdminFinancialPolicyInput = {
     TaxRegistrationStatus;
 
   platformVatRateBps: number;
+
+  minimumDepositRateBps: number;
+  maximumDepositRateBps: number;
+
+  minimumBalanceDueDaysBeforeEvent:
+    number;
+
+  maximumBalanceDueDaysBeforeEvent:
+    number;
 
   /**
    * Private administrative justification.

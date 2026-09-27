@@ -25,10 +25,15 @@ import {
 import {
   assertCanonicalPackagePaymentTerms,
   assertPackageMatchesProviderCapabilities,
+  assertPackagePaymentTermsWithinPolicy,
   authorizeProviderForPackageManagement,
   parsePackageInput,
   verifyPackageImages,
 } from "./package-domain.js";
+import {
+  packagePaymentPolicyBoundsFromData,
+  packagePaymentPolicySettingsReference,
+} from "./package-payment-policy.js";
 
 const ALLOWED_FIELDS = [
   "name",
@@ -93,12 +98,23 @@ export const createProviderPackage = onCall(
       .collection("users")
       .doc(actor.uid);
 
+    const paymentPolicyReference =
+      packagePaymentPolicySettingsReference();
+
     return db.runTransaction(
       async (transaction) => {
-        const userSnapshot =
-          await transaction.get(
+        const [
+          userSnapshot,
+          paymentPolicySnapshot,
+        ] = await Promise.all([
+          transaction.get(
             userReference,
-          );
+          ),
+
+          transaction.get(
+            paymentPolicyReference,
+          ),
+        ]);
 
         if (!userSnapshot.exists) {
           throw new HttpsError(
@@ -146,6 +162,16 @@ export const createProviderPackage = onCall(
         assertPackageMatchesProviderCapabilities(
           provider.providerData,
           validated,
+        );
+
+        const paymentPolicyBounds =
+          packagePaymentPolicyBoundsFromData(
+            paymentPolicySnapshot.data(),
+          );
+
+        assertPackagePaymentTermsWithinPolicy(
+          validated,
+          paymentPolicyBounds,
         );
 
         await verifyPackageImages(validated, actor.uid);

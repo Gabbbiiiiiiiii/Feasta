@@ -20,6 +20,7 @@ import {
 } from "@feasta/shared-types";
 
 import type {
+  AdminFinanceAttentionQueue,
   AdminPayment,
   AdminPaymentAuditEntry,
   AdminPaymentDateFilter,
@@ -46,12 +47,20 @@ const COLLECTIONS = {
   users: "users",
   webhookEvents: "paymentWebhookEvents",
   adminLogs: "adminLogs",
+  providerPaymentAccounts:
+    "providerPaymentAccounts",
+  providerPayoutAttempts:
+    "providerPayoutAttempts",
+  providerSettlements:
+    "providerSettlements",
 } as const;
 
 const DEFAULT_PAGE_SIZE = 10;
 const MAX_PAGE_SIZE = 30;
 const SEARCH_RESULT_LIMIT = 30;
 const DETAIL_HISTORY_LIMIT = 25;
+const FINANCE_ATTENTION_PER_KIND_LIMIT = 8;
+const FINANCE_ATTENTION_TOTAL_LIMIT = 12;
 const STATISTICS_CACHE_MS = 30 * 1000;
 const PROCESSING_STALE_MS = 30 * 60 * 1000;
 const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
@@ -172,6 +181,453 @@ export async function getAdminPaymentPage(
   };
 }
 
+type AdminFinanceAttentionCandidate =
+  Omit<
+    AdminFinanceAttentionQueue["items"][number],
+    "payment"
+  >;
+
+export async function getAdminFinanceAttentionQueue(): Promise<
+  AdminFinanceAttentionQueue
+> {
+  await requireAdmin();
+
+  const [
+    failedPayoutSnapshot,
+    reconciliationSnapshot,
+  ] = await Promise.all([
+    adminDb
+      .collection(
+        COLLECTIONS
+          .providerPayoutAttempts,
+      )
+      .where(
+        "status",
+        "==",
+        "failed",
+      )
+      .limit(
+        FINANCE_ATTENTION_PER_KIND_LIMIT,
+      )
+      .get(),
+
+    adminDb
+      .collection(
+        COLLECTIONS
+          .providerSettlements,
+      )
+      .where(
+        "status",
+        "==",
+        "reconciliation_required",
+      )
+      .limit(
+        FINANCE_ATTENTION_PER_KIND_LIMIT,
+      )
+      .get(),
+  ]);
+
+  const failedPayoutCandidates =
+    await Promise.all(
+      failedPayoutSnapshot.docs.map(
+        mapFailedPayoutAttentionCandidate,
+      ),
+    );
+
+  const reconciliationCandidates =
+    reconciliationSnapshot.docs.map(
+      mapReconciliationAttentionCandidate,
+    );
+
+  const candidates = [
+    ...failedPayoutCandidates,
+    ...reconciliationCandidates,
+  ];
+
+  const paymentIds =
+    [...new Set(
+      candidates
+        .map((item) => item.paymentId)
+        .filter(
+          (value): value is string =>
+            Boolean(value),
+        ),
+    )];
+
+  const paymentSnapshots =
+    await Promise.all(
+      paymentIds.map(
+        async (paymentId) =>
+          adminDb
+            .collection(
+              COLLECTIONS.payments,
+            )
+            .doc(paymentId)
+            .get(),
+      ),
+    );
+
+  const existingPaymentDocuments =
+    paymentSnapshots.filter(
+      (document) => document.exists,
+    );
+
+  const relations =
+    await loadPaymentRelations(
+      existingPaymentDocuments,
+    );
+
+  const paymentById =
+    new Map(
+      existingPaymentDocuments.map(
+        (document) => [
+          document.id,
+          mapPaymentDocument(
+            document,
+            relations,
+          ),
+        ] as const,
+      ),
+    );
+
+  const items =
+    candidates
+      .map((candidate) => {
+        const payment =
+          candidate.paymentId
+            ? paymentById.get(
+                candidate.paymentId,
+              ) ?? null
+            : null;
+
+        if (
+          candidate.recordState ===
+            "valid" &&
+          !payment
+        ) {
+          return {
+            ...candidate,
+            recordState:
+              "invalid" as const,
+            reason:
+              "The linked payment record could not be found.",
+            payment: null,
+          };
+        }
+
+        return {
+          ...candidate,
+          payment,
+        };
+      })
+      .sort(
+        (left, right) =>
+          attentionTimestamp(
+            right.updatedAt,
+          ) -
+          attentionTimestamp(
+            left.updatedAt,
+          ),
+      )
+      .slice(
+        0,
+        FINANCE_ATTENTION_TOTAL_LIMIT,
+      );
+
+  return {items};
+}
+
+async function mapFailedPayoutAttentionCandidate(
+  document:
+    QueryDocumentSnapshot<DocumentData>,
+): Promise<AdminFinanceAttentionCandidate> {
+  const data =
+    document.data();
+
+  const payoutAttemptId =
+    nullableString(
+      data.payoutAttemptId,
+    );
+
+  const settlementId =
+    nullableString(
+      data.settlementId,
+    );
+
+  const earningId =
+    nullableString(
+      data.earningId,
+    );
+
+  const providerId =
+    nullableString(
+      data.providerId,
+    );
+
+  const amount =
+    adminCentavos(
+      data.amountInCentavos,
+    );
+
+  const updatedAt =
+    isoDateValue(
+      data.updatedAt,
+    ) ??
+    isoDateValue(
+      data.completedAt,
+    ) ??
+    isoDateValue(
+      data.createdAt,
+    );
+
+  const gatewayReason =
+    nullableString(
+      data.failureMessage,
+    ) ??
+    nullableString(
+      data.failureCode,
+    ) ??
+    "Provider payout attempt failed.";
+
+  const base = {
+    id:
+      `failed_payout:${document.id}`,
+    kind:
+      "failed_payout" as const,
+    paymentId: null,
+    providerId,
+    settlementId,
+    payoutAttemptId:
+      payoutAttemptId ??
+      document.id,
+    status: "failed" as const,
+    amountInCentavos: amount,
+    formattedAmount:
+      amount !== null
+        ? formatCentavos(
+            amount,
+            "PHP",
+          )
+        : null,
+    reason: gatewayReason,
+    updatedAt,
+  };
+
+  if (
+    data.schemaVersion !== 1 ||
+    data.currency !== "PHP" ||
+    data.gateway !== "paymongo" ||
+    data.status !== "failed" ||
+    !payoutAttemptId ||
+    payoutAttemptId !==
+      document.id ||
+    !settlementId ||
+    !earningId ||
+    !providerId ||
+    amount === null ||
+    amount <= 0 ||
+    !isAdminFinanceId(
+      payoutAttemptId,
+    ) ||
+    !isAdminFinanceId(
+      settlementId,
+    )
+  ) {
+    return {
+      ...base,
+      recordState:
+        "invalid",
+      reason:
+        "The failed payout record did not pass FEASTA finance validation.",
+    };
+  }
+
+  const settlementSnapshot =
+    await adminDb
+      .collection(
+        COLLECTIONS
+          .providerSettlements,
+      )
+      .doc(settlementId)
+      .get();
+
+  if (!settlementSnapshot.exists) {
+    return {
+      ...base,
+      recordState:
+        "invalid",
+      reason:
+        "The settlement referenced by this failed payout was not found.",
+    };
+  }
+
+  const settlementData =
+    settlementSnapshot.data() ?? {};
+
+  const storedSettlementId =
+    nullableString(
+      settlementData.settlementId,
+    ) ??
+    settlementSnapshot.id;
+
+  const paymentId =
+    nullableString(
+      settlementData.paymentId,
+    );
+
+  const settlementEarningId =
+    nullableString(
+      settlementData.earningId,
+    );
+
+  const settlementProviderId =
+    nullableString(
+      settlementData.providerId,
+    );
+
+  if (
+    settlementData.schemaVersion !== 1 ||
+    settlementData.currency !== "PHP" ||
+    storedSettlementId !==
+      settlementId ||
+    settlementEarningId !==
+      earningId ||
+    settlementProviderId !==
+      providerId ||
+    !paymentId ||
+    !isAdminFinanceId(paymentId)
+  ) {
+    return {
+      ...base,
+      recordState:
+        "invalid",
+      reason:
+        "The failed payout could not be linked safely to its settlement and payment.",
+    };
+  }
+
+  return {
+    ...base,
+    recordState: "valid",
+    paymentId,
+  };
+}
+
+function mapReconciliationAttentionCandidate(
+  document:
+    QueryDocumentSnapshot<DocumentData>,
+): AdminFinanceAttentionCandidate {
+  const data =
+    document.data();
+
+  const settlementId =
+    nullableString(
+      data.settlementId,
+    ) ??
+    document.id;
+
+  const paymentId =
+    nullableString(
+      data.paymentId,
+    );
+
+  const providerId =
+    nullableString(
+      data.providerId,
+    );
+
+  const amount =
+    adminCentavos(
+      data.netSettlementAmountInCentavos,
+    );
+
+  const updatedAt =
+    isoDateValue(
+      data.updatedAt,
+    ) ??
+    isoDateValue(
+      data.createdAt,
+    );
+
+  const reason =
+    nullableString(
+      data.reconciliationReason,
+    ) ??
+    "Provider settlement requires reconciliation.";
+
+  const valid =
+    data.schemaVersion === 1 &&
+    data.currency === "PHP" &&
+    data.status ===
+      "reconciliation_required" &&
+    data.reconciliationRequired ===
+      true &&
+    Boolean(paymentId) &&
+    Boolean(providerId) &&
+    amount !== null &&
+    isAdminFinanceId(
+      settlementId,
+    ) &&
+    Boolean(
+      paymentId &&
+      isAdminFinanceId(
+        paymentId,
+      ),
+    );
+
+  return {
+    id:
+      `reconciliation:${document.id}`,
+    kind:
+      "reconciliation_required",
+    recordState:
+      valid
+        ? "valid"
+        : "invalid",
+    paymentId:
+      valid
+        ? paymentId
+        : null,
+    providerId,
+    settlementId,
+    payoutAttemptId:
+      nullableString(
+        data.lastPayoutAttemptId,
+      ),
+    status:
+      "reconciliation_required",
+    amountInCentavos:
+      amount,
+    formattedAmount:
+      amount !== null
+        ? formatCentavos(
+            amount,
+            "PHP",
+          )
+        : null,
+    reason:
+      valid
+        ? reason
+        : "The reconciliation record did not pass FEASTA finance validation.",
+    updatedAt,
+  };
+}
+
+function attentionTimestamp(
+  value: string | null,
+): number {
+  if (!value) {
+    return 0;
+  }
+
+  const parsed =
+    Date.parse(value);
+
+  return Number.isFinite(parsed)
+    ? parsed
+    : 0;
+}
+
 export async function getAdminPaymentDetails(
   paymentId: string,
 ): Promise<AdminPaymentDetailsResult> {
@@ -196,7 +652,12 @@ export async function getAdminPaymentDetails(
   const relations = await loadPaymentRelations([paymentSnapshot]);
   const payment = mapPaymentDocument(paymentSnapshot, relations);
 
-  const [webhookSnapshot, auditSnapshot, providerFinance] = await Promise.all([
+  const [
+    webhookSnapshot,
+    auditSnapshot,
+    providerFinance,
+    payoutAccount,
+  ] = await Promise.all([
     adminDb
       .collection(COLLECTIONS.webhookEvents)
       .where("paymentId", "==", payment.id)
@@ -212,6 +673,10 @@ export async function getAdminPaymentDetails(
       .limit(DETAIL_HISTORY_LIMIT)
       .get(),
       loadAdminPaymentProviderFinance(payment),
+
+      loadAdminPaymentPayoutAccount(
+        payment,
+      ),
   ]);
 
   const bookingSnapshot = payment.mainEventId
@@ -246,6 +711,14 @@ export async function getAdminPaymentDetails(
         nullableString(providerRequestData.requestType) ??
         nullableString(providerRequestData.type),
     },
+    financialSummary:
+      mapAdminPaymentFinancialSummary({
+        providerRequestSnapshot,
+        payment,
+      }),
+
+    payoutAccount,
+
     providerFinance,
     webhooks: webhookSnapshot.docs.map(mapWebhookEvent),
     auditHistory: auditSnapshot.docs.map(mapAuditEntry),
@@ -254,6 +727,723 @@ export async function getAdminPaymentDetails(
   return {details};
 }
 
+const ADMIN_REMAINING_BALANCE_STATUSES =
+  new Set([
+    "not_applicable",
+    "not_due",
+    "due_soon",
+    "due",
+    "grace_period",
+    "overdue",
+    "paid",
+    "cancelled",
+  ]);
+
+const ADMIN_TAX_STATUSES =
+  new Set([
+    "non_vat",
+    "vat_registered",
+  ]);
+
+const ADMIN_PROVIDER_TAX_VERIFICATION_STATUSES =
+  new Set([
+    "pending",
+    "verified",
+    "rejected",
+  ]);
+
+const ADMIN_PAYOUT_SETUP_STATUSES =
+  new Set([
+    "not_started",
+    "onboarding",
+    "action_required",
+    "ready",
+    "unavailable",
+  ]);
+
+const ADMIN_LINKED_ACCOUNT_TYPES =
+  new Set([
+    "consumer",
+    "merchant",
+  ]);
+
+const ADMIN_SETTLEMENT_TRANSPORT_MODES =
+  new Set([
+    "disabled",
+    "wallet_transfer",
+    "workflow",
+  ]);
+
+function mapAdminPaymentFinancialSummary(
+  input: {
+    providerRequestSnapshot:
+      DocumentSnapshot<DocumentData> |
+      undefined;
+
+    payment: AdminPayment;
+  },
+): AdminPaymentDetails["financialSummary"] {
+  const document =
+    input.providerRequestSnapshot;
+
+  if (!document?.exists) {
+    return emptyAdminPaymentFinancialSummary(
+      "not_available",
+    );
+  }
+
+  const data =
+    document.data() ?? {};
+
+  if (
+    input.payment.providerRequestId &&
+    document.id !==
+      input.payment.providerRequestId
+  ) {
+    return emptyAdminPaymentFinancialSummary(
+      "invalid",
+    );
+  }
+
+  const storedProviderId =
+    nullableString(
+      data.providerId,
+    );
+
+  if (
+    storedProviderId &&
+    storedProviderId !==
+      input.payment.providerId
+  ) {
+    return emptyAdminPaymentFinancialSummary(
+      "invalid",
+    );
+  }
+
+  const snapshot =
+    recordValue(
+      data.financialSnapshot,
+    );
+
+  const bookingValue =
+    adminCentavos(
+      snapshot.grossAmountInCentavos,
+    );
+
+  const commissionRate =
+    adminBasisPointRate(
+      snapshot
+        .platformCommissionRateBps,
+    );
+
+  const platformVatRate =
+    adminBasisPointRate(
+      snapshot.platformVatRateBps,
+    );
+
+  const policyVersion =
+    adminPositiveInteger(
+      snapshot
+        .financialPolicyVersion,
+    );
+
+  const platformTaxStatus =
+    adminOptionalTaxStatus(
+      snapshot.platformTaxStatus,
+    );
+
+  const providerTaxType =
+    adminOptionalTaxStatus(
+      snapshot.providerTaxType,
+    );
+
+  const providerTaxVerificationStatus =
+    adminOptionalProviderTaxVerificationStatus(
+      snapshot
+        .providerTaxVerificationStatus,
+    );
+
+  if (
+    snapshot.schemaVersion !== 1 ||
+    snapshot.currency !== "PHP" ||
+    bookingValue === null ||
+    bookingValue <= 0 ||
+    commissionRate === null ||
+    platformVatRate === null ||
+    policyVersion === null ||
+    platformTaxStatus === null
+  ) {
+    return emptyAdminPaymentFinancialSummary(
+      "invalid",
+    );
+  }
+
+  const hasCollected =
+    data.grossSettledAmountInCentavos !==
+      undefined &&
+    data.grossSettledAmountInCentavos !==
+      null;
+
+  const hasOutstanding =
+    data.outstandingAmountInCentavos !==
+      undefined &&
+    data.outstandingAmountInCentavos !==
+      null;
+
+  const collected =
+    hasCollected
+      ? adminCentavos(
+          data
+            .grossSettledAmountInCentavos,
+        )
+      : null;
+
+  const outstanding =
+    hasOutstanding
+      ? adminCentavos(
+          data
+            .outstandingAmountInCentavos,
+        )
+      : null;
+
+  if (
+    hasCollected !== hasOutstanding ||
+    (hasCollected && collected === null) ||
+    (hasOutstanding && outstanding === null) ||
+    (
+      collected !== null &&
+      outstanding !== null &&
+      collected + outstanding !==
+        bookingValue
+    )
+  ) {
+    return emptyAdminPaymentFinancialSummary(
+      "invalid",
+    );
+  }
+
+  const remainingBalanceStatusRaw =
+    nullableString(
+      data.remainingBalanceStatus,
+    );
+
+  if (
+    remainingBalanceStatusRaw &&
+    !ADMIN_REMAINING_BALANCE_STATUSES
+      .has(
+        remainingBalanceStatusRaw,
+      )
+  ) {
+    return emptyAdminPaymentFinancialSummary(
+      "invalid",
+    );
+  }
+
+  const fullySettled =
+    typeof data.fullySettled ===
+      "boolean"
+      ? data.fullySettled
+      : null;
+
+  if (
+    data.fullySettled !== undefined &&
+    data.fullySettled !== null &&
+    fullySettled === null
+  ) {
+    return emptyAdminPaymentFinancialSummary(
+      "invalid",
+    );
+  }
+
+  const providerVatAccrued =
+    adminOptionalCentavos(
+      data
+        .providerVatAccruedInCentavos,
+    );
+
+  const providerVatReversed =
+    adminOptionalCentavos(
+      data
+        .providerVatReversedInCentavos,
+    );
+
+  const providerVatNet =
+    adminOptionalCentavos(
+      data
+        .providerVatNetInCentavos,
+    );
+
+  const commissionAccrued =
+    adminOptionalCentavos(
+      data
+        .commissionAccruedInCentavos,
+    );
+
+  const commissionReversed =
+    adminOptionalCentavos(
+      data
+        .commissionReversedInCentavos,
+    );
+
+  const commissionEarned =
+    adminOptionalCentavos(
+      data
+        .commissionEarnedInCentavos,
+    );
+
+  const platformVatAccrued =
+    adminOptionalCentavos(
+      data
+        .platformVatAccruedInCentavos,
+    );
+
+  const platformVatReversed =
+    adminOptionalCentavos(
+      data
+        .platformVatReversedInCentavos,
+    );
+
+  const platformVatNet =
+    adminOptionalCentavos(
+      data
+        .platformVatNetInCentavos,
+    );
+
+  return {
+    recordState: "valid",
+
+    bookingValueInCentavos:
+      bookingValue,
+
+    collectedAmountInCentavos:
+      collected,
+
+    remainingCustomerBalanceInCentavos:
+      outstanding,
+
+    formattedBookingValue:
+      formatCentavos(
+        bookingValue,
+        "PHP",
+      ),
+
+    formattedCollectedAmount:
+      formatOptionalCentavos(
+        collected,
+      ),
+
+    formattedRemainingCustomerBalance:
+      formatOptionalCentavos(
+        outstanding,
+      ),
+
+    remainingBalanceStatus:
+      remainingBalanceStatusRaw as
+        AdminPaymentDetails[
+          "financialSummary"
+        ]["remainingBalanceStatus"],
+
+    remainingBalanceDueAt:
+      isoDateValue(
+        data.remainingBalanceDueAt,
+      ),
+
+    remainingBalanceGraceEndsAt:
+      isoDateValue(
+        data
+          .remainingBalanceGraceEndsAt,
+      ),
+
+    fullySettled,
+
+    providerTaxType,
+    providerTaxVerificationStatus,
+
+    providerVatAccruedInCentavos:
+      providerVatAccrued,
+
+    providerVatReversedInCentavos:
+      providerVatReversed,
+
+    providerVatNetInCentavos:
+      providerVatNet,
+
+    formattedProviderVatAccrued:
+      formatOptionalCentavos(
+        providerVatAccrued,
+      ),
+
+    formattedProviderVatReversed:
+      formatOptionalCentavos(
+        providerVatReversed,
+      ),
+
+    formattedProviderVatNet:
+      formatOptionalCentavos(
+        providerVatNet,
+      ),
+
+    platformCommissionRateBps:
+      commissionRate,
+
+    commissionAccruedInCentavos:
+      commissionAccrued,
+
+    commissionReversedInCentavos:
+      commissionReversed,
+
+    commissionEarnedInCentavos:
+      commissionEarned,
+
+    formattedCommissionAccrued:
+      formatOptionalCentavos(
+        commissionAccrued,
+      ),
+
+    formattedCommissionReversed:
+      formatOptionalCentavos(
+        commissionReversed,
+      ),
+
+    formattedCommissionEarned:
+      formatOptionalCentavos(
+        commissionEarned,
+      ),
+
+    platformTaxStatus,
+
+    platformVatRateBps:
+      platformVatRate,
+
+    platformVatAccruedInCentavos:
+      platformVatAccrued,
+
+    platformVatReversedInCentavos:
+      platformVatReversed,
+
+    platformVatNetInCentavos:
+      platformVatNet,
+
+    formattedPlatformVatAccrued:
+      formatOptionalCentavos(
+        platformVatAccrued,
+      ),
+
+    formattedPlatformVatReversed:
+      formatOptionalCentavos(
+        platformVatReversed,
+      ),
+
+    formattedPlatformVatNet:
+      formatOptionalCentavos(
+        platformVatNet,
+      ),
+
+    financialPolicyVersion:
+      policyVersion,
+  };
+}
+
+async function loadAdminPaymentPayoutAccount(
+  payment: AdminPayment,
+): Promise<
+  AdminPaymentDetails["payoutAccount"]
+> {
+  if (!payment.providerId) {
+    return emptyAdminPaymentPayoutAccount(
+      "invalid",
+    );
+  }
+
+  const snapshot =
+    await adminDb
+      .collection(
+        COLLECTIONS
+          .providerPaymentAccounts,
+      )
+      .doc(payment.providerId)
+      .get();
+
+  if (!snapshot.exists) {
+    return emptyAdminPaymentPayoutAccount(
+      "not_available",
+    );
+  }
+
+  const data =
+    snapshot.data() ?? {};
+
+  const setupStatus =
+    nullableString(
+      data.setupStatus,
+    );
+
+  const linkedAccountType =
+    nullableString(
+      data.linkedAccountType,
+    );
+
+  const transportMode =
+    nullableString(
+      data.settlementTransportMode,
+    );
+
+  if (
+    data.schemaVersion !== 1 ||
+    data.providerId !==
+      payment.providerId ||
+    !setupStatus ||
+    !ADMIN_PAYOUT_SETUP_STATUSES
+      .has(setupStatus) ||
+    (
+      linkedAccountType !== null &&
+      !ADMIN_LINKED_ACCOUNT_TYPES
+        .has(linkedAccountType)
+    ) ||
+    typeof data.payoutReady !==
+      "boolean" ||
+    !transportMode ||
+    !ADMIN_SETTLEMENT_TRANSPORT_MODES
+      .has(transportMode) ||
+    typeof data
+      .settlementTransportReady !==
+      "boolean"
+  ) {
+    return emptyAdminPaymentPayoutAccount(
+      "invalid",
+    );
+  }
+
+  return {
+    recordState: "valid",
+
+    setupStatus:
+      setupStatus as
+        AdminPaymentDetails[
+          "payoutAccount"
+        ]["setupStatus"],
+
+    linkedAccountType:
+      linkedAccountType as
+        AdminPaymentDetails[
+          "payoutAccount"
+        ]["linkedAccountType"],
+
+    invitationStatus:
+      nullableString(
+        data.invitationStatus,
+      ),
+
+    activationStatus:
+      nullableString(
+        data.activationStatus,
+      ),
+
+    payoutReady:
+      data.payoutReady,
+
+    relationshipStatus:
+      nullableString(
+        data.relationshipStatus,
+      ),
+
+    settlementTransportMode:
+      transportMode as
+        AdminPaymentDetails[
+          "payoutAccount"
+        ]["settlementTransportMode"],
+
+    settlementTransportReady:
+      data
+        .settlementTransportReady,
+
+    updatedAt:
+      isoDateValue(
+        data.updatedAt,
+      ),
+  };
+}
+
+function emptyAdminPaymentFinancialSummary(
+  recordState:
+    AdminPaymentDetails[
+      "financialSummary"
+    ]["recordState"],
+): AdminPaymentDetails["financialSummary"] {
+  return {
+    recordState,
+
+    bookingValueInCentavos: null,
+    collectedAmountInCentavos: null,
+    remainingCustomerBalanceInCentavos:
+      null,
+
+    formattedBookingValue: null,
+    formattedCollectedAmount: null,
+    formattedRemainingCustomerBalance:
+      null,
+
+    remainingBalanceStatus: null,
+    remainingBalanceDueAt: null,
+    remainingBalanceGraceEndsAt: null,
+    fullySettled: null,
+
+    providerTaxType: null,
+    providerTaxVerificationStatus:
+      null,
+
+    providerVatAccruedInCentavos:
+      null,
+    providerVatReversedInCentavos:
+      null,
+    providerVatNetInCentavos: null,
+
+    formattedProviderVatAccrued:
+      null,
+    formattedProviderVatReversed:
+      null,
+    formattedProviderVatNet: null,
+
+    platformCommissionRateBps: null,
+
+    commissionAccruedInCentavos:
+      null,
+    commissionReversedInCentavos:
+      null,
+    commissionEarnedInCentavos:
+      null,
+
+    formattedCommissionAccrued:
+      null,
+    formattedCommissionReversed:
+      null,
+    formattedCommissionEarned:
+      null,
+
+    platformTaxStatus: null,
+    platformVatRateBps: null,
+
+    platformVatAccruedInCentavos:
+      null,
+    platformVatReversedInCentavos:
+      null,
+    platformVatNetInCentavos: null,
+
+    formattedPlatformVatAccrued:
+      null,
+    formattedPlatformVatReversed:
+      null,
+    formattedPlatformVatNet: null,
+
+    financialPolicyVersion: null,
+  };
+}
+
+function emptyAdminPaymentPayoutAccount(
+  recordState:
+    AdminPaymentDetails[
+      "payoutAccount"
+    ]["recordState"],
+): AdminPaymentDetails["payoutAccount"] {
+  return {
+    recordState,
+    setupStatus: null,
+    linkedAccountType: null,
+    invitationStatus: null,
+    activationStatus: null,
+    payoutReady: null,
+    relationshipStatus: null,
+    settlementTransportMode: null,
+    settlementTransportReady: null,
+    updatedAt: null,
+  };
+}
+
+function adminOptionalCentavos(
+  value: unknown,
+): number | null {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return null;
+  }
+
+  return adminCentavos(value);
+}
+
+function formatOptionalCentavos(
+  value: number | null,
+): string | null {
+  return value === null
+    ? null
+    : formatCentavos(
+        value,
+        "PHP",
+      );
+}
+
+function adminBasisPointRate(
+  value: unknown,
+): number | null {
+  return Number.isSafeInteger(value) &&
+    (value as number) >= 0 &&
+    (value as number) <= 10_000
+    ? value as number
+    : null;
+}
+
+function adminPositiveInteger(
+  value: unknown,
+): number | null {
+  return Number.isSafeInteger(value) &&
+    (value as number) >= 1
+    ? value as number
+    : null;
+}
+
+function adminOptionalTaxStatus(
+  value: unknown,
+): AdminPaymentDetails[
+  "financialSummary"
+]["providerTaxType"] {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return null;
+  }
+
+  return typeof value === "string" &&
+    ADMIN_TAX_STATUSES.has(value)
+    ? value as
+        AdminPaymentDetails[
+          "financialSummary"
+        ]["providerTaxType"]
+    : null;
+}
+
+function adminOptionalProviderTaxVerificationStatus(
+  value: unknown,
+): AdminPaymentDetails[
+  "financialSummary"
+]["providerTaxVerificationStatus"] {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return null;
+  }
+
+  return typeof value === "string" &&
+    ADMIN_PROVIDER_TAX_VERIFICATION_STATUSES
+      .has(value)
+    ? value as
+        AdminPaymentDetails[
+          "financialSummary"
+        ]["providerTaxVerificationStatus"]
+    : null;
+}
 const ADMIN_PROVIDER_EARNING_STATUSES =
   new Set([
     "pending",
@@ -1617,49 +2807,165 @@ function refundEligibility(input: {
 async function queryAdminPaymentStatistics(): Promise<
   AdminPaymentStatistics
 > {
-  const payments = adminDb.collection(COLLECTIONS.payments);
+  const payments =
+    adminDb.collection(
+      COLLECTIONS.payments,
+    );
 
-  const [paid, pending, processing, failed, expired, refunded] =
+  const payoutAttempts =
+    adminDb.collection(
+      COLLECTIONS
+        .providerPayoutAttempts,
+    );
+
+  const settlements =
+    adminDb.collection(
+      COLLECTIONS
+        .providerSettlements,
+    );
+
+  const [
+    paid,
+    pending,
+    processing,
+    failed,
+    expired,
+    refunded,
+    failedPayouts,
+    reconciliationCases,
+  ] =
     await Promise.all([
       payments
-        .where("status", "==", "paid")
+        .where(
+          "status",
+          "==",
+          "paid",
+        )
         .aggregate({
-          amountInCentavos: AggregateField.sum("amountInCentavos"),
+          amountInCentavos:
+            AggregateField.sum(
+              "amountInCentavos",
+            ),
         })
         .get(),
-      payments.where("status", "==", "pending").count().get(),
-      payments.where("status", "==", "processing").count().get(),
-      payments.where("status", "==", "failed").count().get(),
-      payments.where("status", "==", "expired").count().get(),
+
       payments
-        .where("status", "==", "refunded")
+        .where(
+          "status",
+          "==",
+          "pending",
+        )
+        .count()
+        .get(),
+
+      payments
+        .where(
+          "status",
+          "==",
+          "processing",
+        )
+        .count()
+        .get(),
+
+      payments
+        .where(
+          "status",
+          "==",
+          "failed",
+        )
+        .count()
+        .get(),
+
+      payments
+        .where(
+          "status",
+          "==",
+          "expired",
+        )
+        .count()
+        .get(),
+
+      payments
+        .where(
+          "status",
+          "==",
+          "refunded",
+        )
         .aggregate({
-          amountInCentavos: AggregateField.sum("amountInCentavos"),
+          amountInCentavos:
+            AggregateField.sum(
+              "amountInCentavos",
+            ),
         })
+        .get(),
+
+      payoutAttempts
+        .where(
+          "status",
+          "==",
+          "failed",
+        )
+        .count()
+        .get(),
+
+      settlements
+        .where(
+          "status",
+          "==",
+          "reconciliation_required",
+        )
+        .count()
         .get(),
     ]);
 
-  const confirmedVolumeInCentavos = aggregateNumber(
-    paid.data().amountInCentavos,
-  );
-  const refundedAmountInCentavos = aggregateNumber(
-    refunded.data().amountInCentavos,
-  );
+  const confirmedVolumeInCentavos =
+    aggregateNumber(
+      paid.data()
+        .amountInCentavos,
+    );
+
+  const refundedAmountInCentavos =
+    aggregateNumber(
+      refunded.data()
+        .amountInCentavos,
+    );
+
+  const failedPaymentCount =
+    failed.data().count;
 
   return {
     confirmedVolumeInCentavos,
+
     pendingProcessingCount:
-      pending.data().count + processing.data().count,
-    failedExpiredCount: failed.data().count + expired.data().count,
+      pending.data().count +
+      processing.data().count,
+
+    failedPaymentCount,
+
+    failedExpiredCount:
+      failedPaymentCount +
+      expired.data().count,
+
+    failedPayoutCount:
+      failedPayouts.data().count,
+
+    reconciliationRequiredCount:
+      reconciliationCases.data()
+        .count,
+
     refundedAmountInCentavos,
-    confirmedVolumeFormatted: formatCentavos(
-      confirmedVolumeInCentavos,
-      "PHP",
-    ),
-    refundedAmountFormatted: formatCentavos(
-      refundedAmountInCentavos,
-      "PHP",
-    ),
+
+    confirmedVolumeFormatted:
+      formatCentavos(
+        confirmedVolumeInCentavos,
+        "PHP",
+      ),
+
+    refundedAmountFormatted:
+      formatCentavos(
+        refundedAmountInCentavos,
+        "PHP",
+      ),
   };
 }
 

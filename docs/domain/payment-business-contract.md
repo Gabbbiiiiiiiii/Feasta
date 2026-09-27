@@ -9,9 +9,12 @@ operating business.
 ## Customer payment policy
 
 - A package uses either `full_payment` or `deposit_then_balance`.
-- For `deposit_then_balance`, the provider chooses a minimum deposit from 20%
-  to 80%.
-- The provider chooses a remaining-balance deadline from 1 to 30 days before
+- For `deposit_then_balance`, the provider chooses a minimum deposit within the
+  current versioned FEASTA payment-term policy.
+- The initial/default deposit range is 20% to 80%.
+- The provider chooses a remaining-balance deadline within the current
+  versioned FEASTA payment-term policy.
+- The initial/default remaining-balance deadline range is 1 to 30 days before
   the event.
 - A deposit is the minimum payment required to confirm the booking. It is not
   the maximum the customer may pay.
@@ -25,11 +28,41 @@ operating business.
 Existing legacy records with a 0% down-payment value remain readable for
 compatibility. A 0% deposit is not offered as a new package payment policy.
 
+### Versioned package payment-term policy
+
+The Admin financial policy stores these package-term limits in
+`appSettings/platform`:
+
+- `minimumDepositRateBps`
+- `maximumDepositRateBps`
+- `minimumBalanceDueDaysBeforeEvent`
+- `maximumBalanceDueDaysBeforeEvent`
+
+The same `financialPolicyVersion` also versions FEASTA commission and simulated
+FEASTA tax configuration. FEASTA does not create a separate deposit-policy or
+balance-policy version.
+
+Admin policy changes apply prospectively when a Provider creates or edits a
+package. The trusted create/update Cloud Functions independently reload the
+current platform policy and enforce it server-side. Provider form validation is
+only an early user-experience check and is not financial authority.
+
+Changing the Admin policy does not recalculate or rewrite existing packages,
+Provider-request financial snapshots, payments, earnings, settlements, payout
+attempts, or ledger records.
+
+A package that was valid when saved remains readable under the permanent
+technical envelope. For `deposit_then_balance`, the stored deposit must be
+greater than 0% and below 100%, and the stored balance deadline must be between
+1 and 365 days before the event. `full_payment` remains a distinct 100% payment
+policy with no remaining-balance deadline.
 ## Commission
 
-- The initial platform commission policy is 10%.
-- The rate will later be versioned/configurable rather than treated as a
-  permanent hard-coded business rule.
+- The initial/default platform commission policy is 10%.
+- Commission is stored as versioned platform configuration in
+  `appSettings/platform` rather than treated as a permanent hard-coded rate.
+- `financialPolicyVersion` identifies the version of the financial policy used
+  for new trusted financial snapshots.
 - There is one economic commission for each provider booking/request.
 - If the customer pays in multiple successful transactions, FEASTA allocates
   that same commission proportionally as money is collected.
@@ -94,8 +127,10 @@ For this capstone:
 - When FEASTA VAT is enabled, VAT applies to FEASTA's own platform
   fee/commission rather than automatically to the provider's complete booking
   sale.
-- The initial demonstration VAT rate is 12%.
-- FEASTA tax status and VAT rate must later be versioned configuration.
+- The initial/default demonstration VAT rate is 12%.
+- FEASTA tax status and VAT rate are versioned platform configuration under the
+  same `financialPolicyVersion` used for commission and package payment-term
+  bounds.
 
 Whether FEASTA commission is calculated from a VAT-inclusive or VAT-exclusive
 provider service base is a FEASTA commercial policy. It must be versioned and

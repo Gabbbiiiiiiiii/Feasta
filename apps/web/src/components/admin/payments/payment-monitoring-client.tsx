@@ -6,6 +6,7 @@ import {
   PhilippinePeso,
   RotateCcw,
 } from "lucide-react";
+
 import {
   useCallback,
   useMemo,
@@ -16,12 +17,16 @@ import {
 } from "react";
 
 import {
+  loadAdminFinanceAttentionQueueAction,
   loadAdminPaymentDetailsAction,
   loadAdminPaymentsAction,
 } from "@/app/admin/payments/actions";
 import {
   PaymentDetailsDrawer,
 } from "@/components/admin/payments/payment-details-drawer";
+import {
+  PaymentFinanceAttention,
+} from "@/components/admin/payments/payment-finance-attention";
 import {
   formatPaymentDate,
   formatPaymentType,
@@ -59,6 +64,7 @@ import {PageHeading} from "@/components/layout/page-heading";
 import {Button} from "@/components/ui/button";
 import {Select} from "@/components/ui/select";
 import type {
+  AdminFinanceAttentionQueue,
   AdminPayment,
   AdminPaymentDateFilter,
   AdminPaymentDetails,
@@ -72,6 +78,9 @@ import type {
 
 type PaymentMonitoringClientProps = {
   initialPage: AdminPaymentPage;
+
+  initialAttention:
+    AdminFinanceAttentionQueue;
 };
 
 const DEFAULT_FILTERS: AdminPaymentFilters = {
@@ -90,9 +99,21 @@ const FIRST_PAGE_CURSOR = "__first_page__";
 
 function PaymentMonitoringClient({
   initialPage,
+  initialAttention,
 }: PaymentMonitoringClientProps) {
   const [page, setPage] =
     useState<AdminPaymentPage>(initialPage);
+
+  const [attentionQueue, setAttentionQueue] =
+    useState<AdminFinanceAttentionQueue>(
+      initialAttention,
+    );
+
+  const [attentionLoading, setAttentionLoading] =
+    useState(false);
+
+  const [attentionError, setAttentionError] =
+    useState<string>();
 
   const [filters, setFilters] =
     useState<AdminPaymentFilters>(
@@ -138,6 +159,7 @@ function PaymentMonitoringClient({
 
   const pageRequestId = useRef(0);
   const detailsRequestId = useRef(0);
+  const attentionRequestId = useRef(0);
 
   const loadPage = useCallback(
     (
@@ -188,6 +210,47 @@ function PaymentMonitoringClient({
     },
     [],
   );
+
+  const refreshFinanceAttention =
+    useCallback(() => {
+      const requestId =
+        ++attentionRequestId.current;
+
+      setAttentionLoading(true);
+      setAttentionError(undefined);
+
+      void loadAdminFinanceAttentionQueueAction()
+        .then((result) => {
+          if (
+            attentionRequestId.current !==
+            requestId
+          ) {
+            return;
+          }
+
+          setAttentionQueue(result);
+        })
+        .catch((error: unknown) => {
+          if (
+            attentionRequestId.current !==
+            requestId
+          ) {
+            return;
+          }
+
+          setAttentionError(
+            errorMessage(error),
+          );
+        })
+        .finally(() => {
+          if (
+            attentionRequestId.current ===
+            requestId
+          ) {
+            setAttentionLoading(false);
+          }
+        });
+    }, []);
 
   const applyFilters = useCallback(
     (
@@ -512,15 +575,15 @@ const handleRefundRequested =
       <PageHeading
         eyebrow="Administration"
         title="Payment Monitoring"
-        description="Monitor booking payments, PayMongo activity, transaction issues, and refund eligibility."
+        description="Monitor Customer payments, Provider payout health, reconciliation cases, transaction issues, and refund eligibility."
       />
 
-      <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+            <section
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
         aria-label="Payment statistics"
       >
         <SummaryCard
-          label="Confirmed Payment Volume"
+          label="Customer collected"
           value={
             page.statistics
               .confirmedVolumeFormatted
@@ -544,10 +607,10 @@ const handleRefundRequested =
         />
 
         <SummaryCard
-          label="Failed / Expired"
+          label="Failed payments"
           value={
             page.statistics
-              .failedExpiredCount
+              .failedPaymentCount
           }
           icon={
             <CircleAlert className="size-5" />
@@ -556,7 +619,31 @@ const handleRefundRequested =
         />
 
         <SummaryCard
-          label="Refunded Amount"
+          label="Failed payouts"
+          value={
+            page.statistics
+              .failedPayoutCount
+          }
+          icon={
+            <CircleAlert className="size-5" />
+          }
+          loading={isPending}
+        />
+
+        <SummaryCard
+          label="Reconciliation cases"
+          value={
+            page.statistics
+              .reconciliationRequiredCount
+          }
+          icon={
+            <CircleAlert className="size-5" />
+          }
+          loading={isPending}
+        />
+
+        <SummaryCard
+          label="Refunded amount"
           value={
             page.statistics
               .refundedAmountFormatted
@@ -567,6 +654,18 @@ const handleRefundRequested =
           loading={isPending}
         />
       </section>
+
+      <PaymentFinanceAttention
+        queue={attentionQueue}
+        loading={attentionLoading}
+        error={attentionError}
+        onRefresh={
+          refreshFinanceAttention
+        }
+        onViewPayment={
+          openPaymentDetails
+        }
+      />
 
       <FilterToolbar
         searchValue={searchValue}
@@ -665,6 +764,31 @@ const handleRefundRequested =
               </option>
               <option value="last_30_days">
                 Last 30 days
+              </option>
+            </FilterSelect>
+
+            <FilterSelect
+              label="Record review"
+              value={filters.issue}
+              disabled={isPending}
+              onChange={(value) =>
+                applyFilters({
+                  issue:
+                    value as
+                      AdminPaymentFilters["issue"],
+                })
+              }
+            >
+              <option value="all">
+                All records
+              </option>
+
+              <option value="with_issues">
+                With detected issues
+              </option>
+
+              <option value="without_issues">
+                Without detected issues
               </option>
             </FilterSelect>
           </>
@@ -873,6 +997,15 @@ function filterLabels(
 
     labels.push(
       `Date: ${dates[filters.date]}`,
+    );
+  }
+
+  if (filters.issue !== "all") {
+    labels.push(
+      filters.issue ===
+        "with_issues"
+        ? "Review: With detected issues"
+        : "Review: Without detected issues",
     );
   }
 

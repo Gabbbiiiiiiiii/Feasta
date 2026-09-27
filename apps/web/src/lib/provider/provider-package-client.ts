@@ -320,8 +320,8 @@ function parseProviderPackage(
     "deposit_then_balance"
   ) {
     if (
-      depositPercentage < 20 ||
-      depositPercentage > 80 ||
+      depositPercentage <= 0 ||
+      depositPercentage >= 100 ||
       downPaymentPercentage !==
         depositPercentage
     ) {
@@ -336,7 +336,7 @@ function parseProviderPackage(
 
     if (
       balanceDueDaysBeforeEvent < 1 ||
-      balanceDueDaysBeforeEvent > 30
+      balanceDueDaysBeforeEvent > 365
     ) {
       throw invalidPackageRecord();
     }

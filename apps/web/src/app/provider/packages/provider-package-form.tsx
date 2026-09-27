@@ -25,6 +25,11 @@ import {CatalogImageUploader, uploadCatalogImages} from "@/components/provider/c
 import {packageImageDrafts} from "@/lib/provider/catalog-media";
 
 import {providerContentCapabilities} from "@/lib/provider/provider-content-capabilities";
+import {
+  DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS,
+  depositRateBpsToPercentage,
+  type ProviderPackagePaymentPolicyBounds,
+} from "@/lib/provider/provider-package-payment-policy";
 
 import {Textarea} from "@/components/ui/textarea";
 import {Select} from "@/components/ui/select";
@@ -48,6 +53,9 @@ type ProviderPackageFormProps = {
   minGuestsPerEvent: number;
   maxGuestsPerEvent: number;
 
+  paymentPolicyBounds?:
+    ProviderPackagePaymentPolicyBounds;
+
   initialPackage?: ProviderPackage;
 
   onSaved: () => void | Promise<void>;
@@ -62,12 +70,55 @@ export function ProviderPackageForm({
   eventTypesSupported,
   minGuestsPerEvent,
   maxGuestsPerEvent,
+
+  paymentPolicyBounds =
+    DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS,
+
   initialPackage,
   onSaved,
   onCancel,
   onSubmittingChange,
 }: ProviderPackageFormProps) {
   const capabilities = providerContentCapabilities(providerServiceType, serviceCategories);
+
+  const minimumDepositPercentageAllowed =
+    depositRateBpsToPercentage(
+      paymentPolicyBounds
+        .minimumDepositRateBps,
+    );
+
+  const maximumDepositPercentageAllowed =
+    depositRateBpsToPercentage(
+      paymentPolicyBounds
+        .maximumDepositRateBps,
+    );
+
+  const minimumBalanceDaysAllowed =
+    paymentPolicyBounds
+      .minimumBalanceDueDaysBeforeEvent;
+
+  const maximumBalanceDaysAllowed =
+    paymentPolicyBounds
+      .maximumBalanceDueDaysBeforeEvent;
+
+  const defaultDepositPercentage =
+    Math.min(
+      maximumDepositPercentageAllowed,
+      Math.max(
+        minimumDepositPercentageAllowed,
+        30,
+      ),
+    );
+
+  const defaultBalanceDueDays =
+    Math.min(
+      maximumBalanceDaysAllowed,
+      Math.max(
+        minimumBalanceDaysAllowed,
+        7,
+      ),
+    );
+
   const editing =
     initialPackage !== undefined;
   const availableEventTypes =
@@ -121,30 +172,32 @@ export function ProviderPackageForm({
     depositPercentage,
     setDepositPercentage,
   ] = useState(
-    initialPackage &&
-    initialPackage.depositPercentage >= 20 &&
-    initialPackage.depositPercentage <= 80
+    initialPackage?.paymentPolicy ===
+      "deposit_then_balance"
       ? String(
           initialPackage.depositPercentage,
         )
-      : "30",
+      : String(
+          defaultDepositPercentage,
+        ),
   );
 
   const [
     balanceDueDaysBeforeEvent,
     setBalanceDueDaysBeforeEvent,
   ] = useState(
+    initialPackage?.paymentPolicy ===
+      "deposit_then_balance" &&
     initialPackage
-      ?.balanceDueDaysBeforeEvent !==
-      null &&
-    initialPackage
-      ?.balanceDueDaysBeforeEvent !==
-      undefined
+      .balanceDueDaysBeforeEvent !==
+      null
       ? String(
           initialPackage
             .balanceDueDaysBeforeEvent,
         )
-      : "7",
+      : String(
+          defaultBalanceDueDays,
+        ),
   );
 
   const [
@@ -283,14 +336,16 @@ export function ProviderPackageForm({
           !Number.isFinite(
             parsedDepositPercentage,
           ) ||
-          parsedDepositPercentage < 20 ||
-          parsedDepositPercentage > 80
+          parsedDepositPercentage <
+            minimumDepositPercentageAllowed ||
+          parsedDepositPercentage >
+            maximumDepositPercentageAllowed
         ) {
           return {
             field:
               "depositPercentage",
             message:
-              "Minimum payment must be between 20 and 80%.",
+              `Minimum payment must be between ${minimumDepositPercentageAllowed}% and ${maximumDepositPercentageAllowed}%.`,
           };
         }
 
@@ -298,14 +353,16 @@ export function ProviderPackageForm({
           !Number.isInteger(
             parsedBalanceDueDays,
           ) ||
-          parsedBalanceDueDays < 1 ||
-          parsedBalanceDueDays > 30
+          parsedBalanceDueDays <
+            minimumBalanceDaysAllowed ||
+          parsedBalanceDueDays >
+            maximumBalanceDaysAllowed
         ) {
           return {
             field:
               "balanceDueDays",
             message:
-              "Balance deadline must be between 1 and 30 days before the event.",
+              `Balance deadline must be between ${minimumBalanceDaysAllowed} and ${maximumBalanceDaysAllowed} days before the event.`,
           };
         }
       }
@@ -348,6 +405,10 @@ export function ProviderPackageForm({
       availableEventTypes,
       minGuestsPerEvent,
       maxGuestsPerEvent,
+      minimumDepositPercentageAllowed,
+      maximumDepositPercentageAllowed,
+      minimumBalanceDaysAllowed,
+      maximumBalanceDaysAllowed,
     ]);
 
   async function handleSubmit(
@@ -697,8 +758,8 @@ export function ProviderPackageForm({
               >
                 <Input
                   type="number"
-                  min="20"
-                  max="80"
+                  min={minimumDepositPercentageAllowed}
+                  max={maximumDepositPercentageAllowed}
                   step="0.01"
                   value={
                     depositPercentage
@@ -723,8 +784,8 @@ export function ProviderPackageForm({
               >
                 <Input
                   type="number"
-                  min="1"
-                  max="30"
+                  min={minimumBalanceDaysAllowed}
+                  max={maximumBalanceDaysAllowed}
                   step="1"
                   value={
                     balanceDueDaysBeforeEvent
@@ -738,7 +799,7 @@ export function ProviderPackageForm({
               </FormField>
 
               <p className="text-xs leading-5 text-muted-foreground sm:col-span-2">
-                The percentage is the minimum required to confirm the booking. Customers may still choose to pay the full amount immediately.
+                Current FEASTA policy allows a {minimumDepositPercentageAllowed}%–{maximumDepositPercentageAllowed}% minimum payment and a balance deadline of {minimumBalanceDaysAllowed}–{maximumBalanceDaysAllowed} days before the event. Customers may still choose to pay the full amount immediately.
               </p>
             </div>
           ) : null}

@@ -212,3 +212,98 @@ The following collections remain trusted backend-only finance records:
 - `providerPayoutAttempts`
 
 Firestore client rules deny direct reads and writes to these collections. Provider and Admin views are projected through trusted server-side services.
+
+## P11 Admin Payment Monitoring and Payment Settings
+
+P11 expands Admin finance visibility without merging Customer payment truth,
+Provider earning truth, Provider settlement truth, or FEASTA platform economics.
+
+### Admin Payment Monitoring
+
+Admin Payment Monitoring exposes read-only financial context for:
+
+- booking value;
+- Customer amount collected;
+- Customer remaining balance;
+- Provider tax type and verification state;
+- Provider VAT component;
+- FEASTA commission accrued, reversed, and earned;
+- FEASTA simulated tax status and VAT component;
+- Provider pending, available, paid, and reversed earnings;
+- Provider payout-account setup and relationship state;
+- settlement transport mode and transport readiness;
+- failed Customer payments;
+- failed Provider payout attempts; and
+- reconciliation-required Provider settlements.
+
+Ordinary payment-list rows remain lightweight. Provider earning, settlement,
+payout-account, and payout-attempt enrichment is loaded only where required by
+Admin detail or Finance Attention views.
+
+### Finance Attention
+
+Finance Attention is a bounded read-only queue for:
+
+- failed Provider payout attempts; and
+- Provider settlements in `reconciliation_required`.
+
+The queue uses explicit bounded status queries and direct document linkage. A
+malformed or contradictory payout/settlement/payment relationship fails closed
+as invalid evidence instead of being guessed or silently repaired.
+
+Admin may inspect the linked payment detail when canonical linkage is valid.
+Finance Attention does not provide payout, settlement, refund, or reconciliation
+mutation controls.
+
+### Versioned financial policy
+
+`appSettings/platform` contains one versioned financial policy. Relevant fields
+include:
+
+- `platformCommissionRateBps`
+- `platformTaxStatus`
+- `platformVatRateBps`
+- `minimumDepositRateBps`
+- `maximumDepositRateBps`
+- `minimumBalanceDueDaysBeforeEvent`
+- `maximumBalanceDueDaysBeforeEvent`
+- `financialPolicyVersion`
+- `financialPolicyEffectiveAt`
+
+Initial/default package-term limits are a 20% to 80% deposit and a remaining
+balance deadline 1 to 30 days before the event.
+
+The Admin may update those limits for future Provider package create/edit
+operations. Updates use the same `financialPolicyVersion` as commission and
+simulated FEASTA tax configuration.
+
+The Admin settings service does not rewrite historical payments, Provider
+requests, main events, ledger entries, Provider earnings, settlements, or payout
+attempts.
+
+### Provider package enforcement
+
+The Provider web page receives a server-projected copy of the current
+payment-term limits for form guidance.
+
+Trusted Provider package create/update Functions independently read
+`appSettings/platform` inside the trusted operation and enforce the current
+policy. The browser-projected limits are not authoritative.
+
+Package publication and booking payment-term snapshot creation intentionally do
+not reapply a later Admin policy. This preserves terms that were valid when the
+package was created or edited.
+
+### Security and settlement transport
+
+Direct browser mutation of `appSettings/platform` is denied. Financial-policy
+updates use the authenticated Admin server action and trusted Admin SDK.
+
+Provider finance collections remain backend-only.
+
+Provider payout transport also remains fail-closed. Linked-account onboarding,
+relationship readiness, and `payoutReady` do not by themselves authorize money
+movement. `settlementTransportReady` remains a separate requirement.
+
+P11 does not enable PayMongo `/v2/batch_transfers` dispatch and does not add an
+Admin payout mutation interface.

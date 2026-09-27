@@ -17,15 +17,15 @@ export default function AdminPaymentsLoading() {
       <PageHeading
         eyebrow="Administration"
         title="Payment Monitoring"
-        description="Monitor booking payments, PayMongo activity, transaction issues, and refund eligibility."
+        description="Monitor Customer payments, Provider payout health, reconciliation cases, transaction issues, and refund eligibility."
       />
 
-      <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+            <section
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
         aria-label="Loading payment statistics"
       >
         <SummaryCard
-          label="Confirmed Payment Volume"
+          label="Customer collected"
           loading
         />
 
@@ -35,17 +35,32 @@ export default function AdminPaymentsLoading() {
         />
 
         <SummaryCard
-          label="Failed / Expired"
+          label="Failed payments"
           loading
         />
 
         <SummaryCard
-          label="Refunded Amount"
+          label="Failed payouts"
+          loading
+        />
+
+        <SummaryCard
+          label="Reconciliation cases"
+          loading
+        />
+
+        <SummaryCard
+          label="Refunded amount"
           loading
         />
       </section>
 
-      <LoadingSkeleton
+            <LoadingSkeleton
+        className="h-64 w-full rounded-card"
+        label="Loading finance attention"
+      />
+
+<LoadingSkeleton
         className="h-44 w-full rounded-card"
         label="Loading payment filters"
       />

@@ -450,7 +450,9 @@ function PaymentDetailsContent({
         </div>
       </DetailsSection>
 
-            <ProviderFinanceDetails details={details} />
+            <AdminFinancialOverview details={details} />
+
+      <ProviderFinanceDetails details={details} />
 
 <DetailsSection
         title="PayMongo webhook history"
@@ -554,6 +556,449 @@ function PaymentDetailsContent({
       </DetailsSection>
     </div>
   );
+}
+
+function AdminFinancialOverview({
+  details,
+}: {
+  details: AdminPaymentDetails;
+}) {
+  const summary =
+    details.financialSummary;
+
+  const payout =
+    details.payoutAccount;
+
+  return (
+    <>
+      <DetailsSection
+        title="Booking financial summary"
+      >
+        {summary.recordState ===
+        "valid" ? (
+          <div className="grid gap-3">
+            <DetailsGrid>
+              <DetailField
+                label="Booking value"
+                value={
+                  summary
+                    .formattedBookingValue ??
+                  "Not recorded"
+                }
+              />
+
+              <DetailField
+                label="Customer collected"
+                value={
+                  summary
+                    .formattedCollectedAmount ??
+                  "Not recorded"
+                }
+              />
+
+              <DetailField
+                label="Remaining customer balance"
+                value={
+                  summary
+                    .formattedRemainingCustomerBalance ??
+                  "Not recorded"
+                }
+              />
+
+              <DetailField
+                label="Remaining balance status"
+                value={financeStatusLabel(
+                  summary
+                    .remainingBalanceStatus,
+                )}
+              />
+
+              <DetailField
+                label="Balance due"
+                value={formatPaymentDate(
+                  summary
+                    .remainingBalanceDueAt,
+                )}
+              />
+
+              <DetailField
+                label="Grace period ends"
+                value={formatPaymentDate(
+                  summary
+                    .remainingBalanceGraceEndsAt,
+                )}
+              />
+
+              <DetailField
+                label="Customer fully settled"
+                value={booleanFinanceLabel(
+                  summary.fullySettled,
+                )}
+              />
+
+              <DetailField
+                label="Financial policy version"
+                value={
+                  summary
+                    .financialPolicyVersion ??
+                  "Not recorded"
+                }
+              />
+            </DetailsGrid>
+
+            <p className="text-xs leading-5 text-muted-foreground">
+              Booking value comes from the
+              frozen booking financial
+              snapshot. Customer collection
+              and remaining balance come from
+              trusted server-maintained
+              settlement totals.
+            </p>
+          </div>
+        ) : (
+          <AdminFinanceProjectionNotice
+            kind={summary.recordState}
+            label="booking financial summary"
+          />
+        )}
+      </DetailsSection>
+
+      <DetailsSection
+        title="Provider tax and VAT"
+      >
+        {summary.recordState ===
+        "valid" ? (
+          <div className="grid gap-3">
+            <DetailsGrid>
+              <DetailField
+                label="Provider tax classification"
+                value={financeStatusLabel(
+                  summary.providerTaxType,
+                )}
+              />
+
+              <DetailField
+                label="Tax verification"
+                value={financeStatusLabel(
+                  summary
+                    .providerTaxVerificationStatus,
+                )}
+              />
+
+              <DetailField
+                label="Provider VAT accrued"
+                value={
+                  summary
+                    .formattedProviderVatAccrued ??
+                  "Not recorded"
+                }
+              />
+
+              <DetailField
+                label="Provider VAT reversed"
+                value={
+                  summary
+                    .formattedProviderVatReversed ??
+                  "Not recorded"
+                }
+              />
+
+              <DetailField
+                label="Provider VAT net"
+                value={
+                  summary
+                    .formattedProviderVatNet ??
+                  "Not recorded"
+                }
+              />
+            </DetailsGrid>
+
+            <p className="text-xs leading-5 text-muted-foreground">
+              Provider tax classification is
+              independent from business
+              registration type. The frozen
+              booking snapshot uses an
+              authoritative tax type only when
+              the Provider tax profile was
+              verified.
+            </p>
+          </div>
+        ) : (
+          <AdminFinanceProjectionNotice
+            kind={summary.recordState}
+            label="Provider tax projection"
+          />
+        )}
+      </DetailsSection>
+
+      <DetailsSection
+        title="FEASTA commission and tax"
+      >
+        {summary.recordState ===
+        "valid" ? (
+          <div className="grid gap-3">
+            <DetailsGrid>
+              <DetailField
+                label="Commission rate"
+                value={basisPointsLabel(
+                  summary
+                    .platformCommissionRateBps,
+                )}
+              />
+
+              <DetailField
+                label="Commission accrued"
+                value={
+                  summary
+                    .formattedCommissionAccrued ??
+                  "Not recorded"
+                }
+              />
+
+              <DetailField
+                label="Commission reversed"
+                value={
+                  summary
+                    .formattedCommissionReversed ??
+                  "Not recorded"
+                }
+              />
+
+              <DetailField
+                label="Commission earned"
+                value={
+                  summary
+                    .formattedCommissionEarned ??
+                  "Not recorded"
+                }
+              />
+
+              <DetailField
+                label="FEASTA tax status"
+                value={financeStatusLabel(
+                  summary.platformTaxStatus,
+                )}
+              />
+
+              <DetailField
+                label="FEASTA VAT rate"
+                value={basisPointsLabel(
+                  summary
+                    .platformVatRateBps,
+                )}
+              />
+
+              <DetailField
+                label="FEASTA VAT accrued"
+                value={
+                  summary
+                    .formattedPlatformVatAccrued ??
+                  "Not recorded"
+                }
+              />
+
+              <DetailField
+                label="FEASTA VAT reversed"
+                value={
+                  summary
+                    .formattedPlatformVatReversed ??
+                  "Not recorded"
+                }
+              />
+
+              <DetailField
+                label="FEASTA VAT net"
+                value={
+                  summary
+                    .formattedPlatformVatNet ??
+                  "Not recorded"
+                }
+              />
+            </DetailsGrid>
+
+            <p className="text-xs leading-5 text-muted-foreground">
+              Commission accrued, reversed,
+              and earned are the canonical
+              accounting values. FEASTA does
+              not infer a separate pending
+              commission amount.
+            </p>
+          </div>
+        ) : (
+          <AdminFinanceProjectionNotice
+            kind={summary.recordState}
+            label="FEASTA financial projection"
+          />
+        )}
+      </DetailsSection>
+
+      <DetailsSection
+        title="Provider payout account"
+      >
+        {payout.recordState ===
+        "valid" ? (
+          <div className="grid gap-3">
+            {!payout
+              .settlementTransportReady ? (
+              <div
+                className="rounded-lg border border-warning/30 bg-warning-subtle p-4"
+                role="status"
+              >
+                <p className="font-bold text-warning">
+                  Settlement transport not ready
+                </p>
+
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                  Provider account onboarding
+                  readiness does not mean FEASTA
+                  can dispatch a Provider
+                  settlement.
+                </p>
+              </div>
+            ) : null}
+
+            <DetailsGrid>
+              <DetailField
+                label="Payout setup"
+                value={financeStatusLabel(
+                  payout.setupStatus,
+                )}
+              />
+
+              <DetailField
+                label="Linked account type"
+                value={financeStatusLabel(
+                  payout.linkedAccountType,
+                )}
+              />
+
+              <DetailField
+                label="Invitation status"
+                value={financeStatusLabel(
+                  payout.invitationStatus,
+                )}
+              />
+
+              <DetailField
+                label="Activation status"
+                value={financeStatusLabel(
+                  payout.activationStatus,
+                )}
+              />
+
+              <DetailField
+                label="Account onboarding ready"
+                value={booleanFinanceLabel(
+                  payout.payoutReady,
+                )}
+              />
+
+              <DetailField
+                label="PayMongo relationship"
+                value={financeStatusLabel(
+                  payout.relationshipStatus,
+                )}
+              />
+
+              <DetailField
+                label="Settlement transport mode"
+                value={financeStatusLabel(
+                  payout
+                    .settlementTransportMode,
+                )}
+              />
+
+              <DetailField
+                label="Settlement transport ready"
+                value={booleanFinanceLabel(
+                  payout
+                    .settlementTransportReady,
+                )}
+              />
+
+              <DetailField
+                label="Last updated"
+                value={formatPaymentDate(
+                  payout.updatedAt,
+                )}
+              />
+            </DetailsGrid>
+
+            <p className="text-xs leading-5 text-muted-foreground">
+              Payout-account state is
+              read-only here. Admin monitoring
+              does not authorize payout
+              dispatch or rewrite Provider
+              settlement amounts.
+            </p>
+          </div>
+        ) : (
+          <AdminFinanceProjectionNotice
+            kind={payout.recordState}
+            label="Provider payout account"
+          />
+        )}
+      </DetailsSection>
+    </>
+  );
+}
+
+function AdminFinanceProjectionNotice({
+  kind,
+  label,
+}: {
+  kind:
+    AdminPaymentDetails[
+      "financialSummary"
+    ]["recordState"];
+
+  label: string;
+}) {
+  if (kind === "not_available") {
+    return (
+      <EmptyDetailMessage>
+        No {label} is available for this
+        payment.
+      </EmptyDetailMessage>
+    );
+  }
+
+  if (kind === "invalid") {
+    return (
+      <p
+        className="rounded-lg border border-destructive/30 bg-destructive-subtle p-4 text-sm font-semibold text-destructive"
+        role="alert"
+      >
+        The {label} failed FEASTA&apos;s
+        finance validation. No financial
+        value is being inferred.
+      </p>
+    );
+  }
+
+  return null;
+}
+
+function basisPointsLabel(
+  value: number | null,
+): string {
+  if (value === null) {
+    return "Not recorded";
+  }
+
+  return `${value / 100}%`;
+}
+
+function booleanFinanceLabel(
+  value: boolean | null,
+): string {
+  if (value === null) {
+    return "Not recorded";
+  }
+
+  return value
+    ? "Yes"
+    : "No";
 }
 
 function ProviderFinanceDetails({

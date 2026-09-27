@@ -109,7 +109,10 @@ export type AdminPayment = {
 export type AdminPaymentStatistics = {
   confirmedVolumeInCentavos: number;
   pendingProcessingCount: number;
+  failedPaymentCount: number;
   failedExpiredCount: number;
+  failedPayoutCount: number;
+  reconciliationRequiredCount: number;
   refundedAmountInCentavos: number;
 
   confirmedVolumeFormatted: string;
@@ -139,6 +142,44 @@ export type AdminPaymentPage = {
   hasMore: boolean;
 };
 
+export type AdminFinanceAttentionKind =
+  | "failed_payout"
+  | "reconciliation_required";
+
+export type AdminFinanceAttentionRecordState =
+  | "valid"
+  | "invalid";
+
+export type AdminFinanceAttentionItem = {
+  id: string;
+
+  kind: AdminFinanceAttentionKind;
+
+  recordState:
+    AdminFinanceAttentionRecordState;
+
+  paymentId: string | null;
+  providerId: string | null;
+  settlementId: string | null;
+  payoutAttemptId: string | null;
+
+  status:
+    | "failed"
+    | "reconciliation_required"
+    | null;
+
+  amountInCentavos: number | null;
+  formattedAmount: string | null;
+
+  reason: string | null;
+  updatedAt: string | null;
+
+  payment: AdminPayment | null;
+};
+
+export type AdminFinanceAttentionQueue = {
+  items: AdminFinanceAttentionItem[];
+};
 export type AdminPaymentDetailsResult = {
   details: AdminPaymentDetails;
 };
@@ -299,6 +340,161 @@ export type AdminPaymentProviderPayoutAttempts = {
   last:
     AdminPaymentProviderPayoutAttemptDetails;
 };
+export type AdminPaymentFinancialRecordState =
+  | "not_available"
+  | "valid"
+  | "invalid";
+
+export type AdminPaymentRemainingBalanceStatus =
+  | "not_applicable"
+  | "not_due"
+  | "due_soon"
+  | "due"
+  | "grace_period"
+  | "overdue"
+  | "paid"
+  | "cancelled";
+
+export type AdminPaymentTaxStatus =
+  | "non_vat"
+  | "vat_registered";
+
+export type AdminPaymentProviderTaxVerificationStatus =
+  | "pending"
+  | "verified"
+  | "rejected";
+
+export type AdminPaymentFinancialSummary = {
+  recordState:
+    AdminPaymentFinancialRecordState;
+
+  bookingValueInCentavos: number | null;
+  collectedAmountInCentavos: number | null;
+  remainingCustomerBalanceInCentavos:
+    number | null;
+
+  formattedBookingValue: string | null;
+  formattedCollectedAmount: string | null;
+  formattedRemainingCustomerBalance:
+    string | null;
+
+  remainingBalanceStatus:
+    AdminPaymentRemainingBalanceStatus | null;
+
+  remainingBalanceDueAt: string | null;
+  remainingBalanceGraceEndsAt: string | null;
+  fullySettled: boolean | null;
+
+  providerTaxType:
+    AdminPaymentTaxStatus | null;
+
+  providerTaxVerificationStatus:
+    AdminPaymentProviderTaxVerificationStatus | null;
+
+  providerVatAccruedInCentavos:
+    number | null;
+
+  providerVatReversedInCentavos:
+    number | null;
+
+  providerVatNetInCentavos:
+    number | null;
+
+  formattedProviderVatAccrued:
+    string | null;
+
+  formattedProviderVatReversed:
+    string | null;
+
+  formattedProviderVatNet:
+    string | null;
+
+  platformCommissionRateBps:
+    number | null;
+
+  commissionAccruedInCentavos:
+    number | null;
+
+  commissionReversedInCentavos:
+    number | null;
+
+  commissionEarnedInCentavos:
+    number | null;
+
+  formattedCommissionAccrued:
+    string | null;
+
+  formattedCommissionReversed:
+    string | null;
+
+  formattedCommissionEarned:
+    string | null;
+
+  platformTaxStatus:
+    AdminPaymentTaxStatus | null;
+
+  platformVatRateBps:
+    number | null;
+
+  platformVatAccruedInCentavos:
+    number | null;
+
+  platformVatReversedInCentavos:
+    number | null;
+
+  platformVatNetInCentavos:
+    number | null;
+
+  formattedPlatformVatAccrued:
+    string | null;
+
+  formattedPlatformVatReversed:
+    string | null;
+
+  formattedPlatformVatNet:
+    string | null;
+
+  financialPolicyVersion:
+    number | null;
+};
+
+export type AdminPaymentPayoutSetupStatus =
+  | "not_started"
+  | "onboarding"
+  | "action_required"
+  | "ready"
+  | "unavailable";
+
+export type AdminPaymentSettlementTransportMode =
+  | "disabled"
+  | "wallet_transfer"
+  | "workflow";
+
+export type AdminPaymentPayoutAccountDetails = {
+  recordState:
+    AdminPaymentFinancialRecordState;
+
+  setupStatus:
+    AdminPaymentPayoutSetupStatus | null;
+
+  linkedAccountType:
+    "consumer" | "merchant" | null;
+
+  invitationStatus: string | null;
+  activationStatus: string | null;
+
+  payoutReady: boolean | null;
+
+  relationshipStatus: string | null;
+
+  settlementTransportMode:
+    AdminPaymentSettlementTransportMode | null;
+
+  settlementTransportReady:
+    boolean | null;
+
+  updatedAt: string | null;
+};
 export type AdminPaymentProviderFinance = {
   earning:
     AdminPaymentProviderEarningDetails;
@@ -328,6 +524,12 @@ export type AdminPaymentDetails = {
     status: string | null;
     requestType: string | null;
   };
+
+  financialSummary:
+    AdminPaymentFinancialSummary;
+
+  payoutAccount:
+    AdminPaymentPayoutAccountDetails;
 
   providerFinance: AdminPaymentProviderFinance;
 

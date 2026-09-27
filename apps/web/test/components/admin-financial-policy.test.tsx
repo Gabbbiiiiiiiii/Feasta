@@ -48,6 +48,18 @@ const initialSettings:
     platformVatRateBps:
       1200,
 
+    minimumDepositRateBps:
+      2000,
+
+    maximumDepositRateBps:
+      8000,
+
+    minimumBalanceDueDaysBeforeEvent:
+      1,
+
+    maximumBalanceDueDaysBeforeEvent:
+      30,
+
     financialPolicyVersion:
       1,
 
@@ -73,7 +85,7 @@ describe(
     });
 
     it(
-      "renders current commission, tax simulation and policy version",
+      "renders commission, tax and payment-term policy values",
       () => {
         render(
           <AdminFinancialPolicyClient
@@ -114,6 +126,30 @@ describe(
         ).toHaveValue(12);
 
         expect(
+          screen.getByLabelText(
+            "Minimum deposit (%)",
+          ),
+        ).toHaveValue(20);
+
+        expect(
+          screen.getByLabelText(
+            "Maximum deposit (%)",
+          ),
+        ).toHaveValue(80);
+
+        expect(
+          screen.getByLabelText(
+            "Minimum balance deadline (days before event)",
+          ),
+        ).toHaveValue(1);
+
+        expect(
+          screen.getByLabelText(
+            "Maximum balance deadline (days before event)",
+          ),
+        ).toHaveValue(30);
+
+        expect(
           screen.getByText(
             /Policy version 1/iu,
           ),
@@ -121,7 +157,7 @@ describe(
 
         expect(
           screen.getByText(
-            /does not claim that FEASTA is currently registered/iu,
+            /existing booking financial snapshots are not recalculated/iu,
           ),
         ).toBeInTheDocument();
       },
@@ -184,9 +220,7 @@ describe(
             },
           );
 
-        expect(
-          save,
-        ).toBeDisabled();
+        expect(save).toBeDisabled();
 
         fireEvent.change(
           screen.getByLabelText(
@@ -199,9 +233,7 @@ describe(
           },
         );
 
-        expect(
-          save,
-        ).toBeDisabled();
+        expect(save).toBeDisabled();
 
         fireEvent.change(
           screen.getByLabelText(
@@ -215,14 +247,113 @@ describe(
           },
         );
 
-        expect(
-          save,
-        ).toBeEnabled();
+        expect(save).toBeEnabled();
       },
     );
 
     it(
-      "submits basis points and refreshes the saved policy version",
+      "accepts a valid payment-term policy change with an administrative reason",
+      () => {
+        render(
+          <AdminFinancialPolicyClient
+            initialSettings={
+              initialSettings
+            }
+          />,
+        );
+
+        const save =
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Save financial policy",
+            },
+          );
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "Minimum deposit (%)",
+          ),
+          {
+            target: {
+              value: "25",
+            },
+          },
+        );
+
+        expect(save).toBeDisabled();
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "Internal reason",
+          ),
+          {
+            target: {
+              value:
+                "Adjust future Provider package payment-term limits.",
+            },
+          },
+        );
+
+        expect(save).toBeEnabled();
+      },
+    );
+
+    it(
+      "blocks inverted payment-term ranges",
+      () => {
+        render(
+          <AdminFinancialPolicyClient
+            initialSettings={
+              initialSettings
+            }
+          />,
+        );
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "Minimum deposit (%)",
+          ),
+          {
+            target: {
+              value: "90",
+            },
+          },
+        );
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "Internal reason",
+          ),
+          {
+            target: {
+              value:
+                "Validate payment-term range handling.",
+            },
+          },
+        );
+
+        expect(
+          screen.getByRole(
+            "button",
+            {
+              name:
+                "Save financial policy",
+            },
+          ),
+        ).toBeDisabled();
+
+        expect(
+          screen.getByText(
+            "Invalid",
+          ),
+        ).toBeInTheDocument();
+      },
+    );
+
+    it(
+      "submits all canonical policy fields and refreshes the saved version",
       async () => {
         vi.mocked(
           updateAdminFinancialPolicyAction,
@@ -237,8 +368,17 @@ describe(
             platformTaxStatus:
               "vat_registered",
 
-            platformVatRateBps:
-              1200,
+            minimumDepositRateBps:
+              2500,
+
+            maximumDepositRateBps:
+              7500,
+
+            minimumBalanceDueDaysBeforeEvent:
+              2,
+
+            maximumBalanceDueDaysBeforeEvent:
+              21,
 
             financialPolicyVersion:
               2,
@@ -287,11 +427,44 @@ describe(
 
         fireEvent.change(
           screen.getByLabelText(
-            "FEASTA VAT rate (%)",
+            "Minimum deposit (%)",
           ),
           {
             target: {
-              value: "12",
+              value: "25",
+            },
+          },
+        );
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "Maximum deposit (%)",
+          ),
+          {
+            target: {
+              value: "75",
+            },
+          },
+        );
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "Minimum balance deadline (days before event)",
+          ),
+          {
+            target: {
+              value: "2",
+            },
+          },
+        );
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "Maximum balance deadline (days before event)",
+          ),
+          {
+            target: {
+              value: "21",
             },
           },
         );
@@ -303,7 +476,7 @@ describe(
           {
             target: {
               value:
-                "Enable the VAT simulation for the capstone demonstration.",
+                "Update the versioned financial and payment-term policy.",
             },
           },
         );
@@ -331,8 +504,20 @@ describe(
             platformVatRateBps:
               1200,
 
+            minimumDepositRateBps:
+              2500,
+
+            maximumDepositRateBps:
+              7500,
+
+            minimumBalanceDueDaysBeforeEvent:
+              2,
+
+            maximumBalanceDueDaysBeforeEvent:
+              21,
+
             internalReason:
-              "Enable the VAT simulation for the capstone demonstration.",
+              "Update the versioned financial and payment-term policy.",
           });
         });
 
@@ -347,6 +532,18 @@ describe(
             /Policy version 2/iu,
           ),
         ).toBeInTheDocument();
+
+        expect(
+          screen.getByLabelText(
+            "Minimum deposit (%)",
+          ),
+        ).toHaveValue(25);
+
+        expect(
+          screen.getByLabelText(
+            "Maximum balance deadline (days before event)",
+          ),
+        ).toHaveValue(21);
 
         expect(
           screen.getByLabelText(
@@ -380,12 +577,22 @@ describe(
 
         fireEvent.change(
           screen.getByLabelText(
-            "FEASTA tax status",
+            "Maximum deposit (%)",
           ),
           {
             target: {
-              value:
-                "vat_registered",
+              value: "70",
+            },
+          },
+        );
+
+        fireEvent.change(
+          screen.getByLabelText(
+            "Maximum balance deadline (days before event)",
+          ),
+          {
+            target: {
+              value: "14",
             },
           },
         );
@@ -408,11 +615,15 @@ describe(
 
         expect(
           screen.getByLabelText(
-            "FEASTA tax status",
+            "Maximum deposit (%)",
           ),
-        ).toHaveValue(
-          "non_vat",
-        );
+        ).toHaveValue(80);
+
+        expect(
+          screen.getByLabelText(
+            "Maximum balance deadline (days before event)",
+          ),
+        ).toHaveValue(30);
       },
     );
   },

@@ -46,6 +46,18 @@ const initialSettings: AdminPlatformSettings = {
   platformVatRateBps:
     1200,
 
+  minimumDepositRateBps:
+    2000,
+
+  maximumDepositRateBps:
+    8000,
+
+  minimumBalanceDueDaysBeforeEvent:
+    1,
+
+  maximumBalanceDueDaysBeforeEvent:
+    30,
+
   financialPolicyVersion:
     1,
 

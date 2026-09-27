@@ -11,6 +11,25 @@ vi.mock("@/lib/provider/provider-package-client", () => ({listProviderPackages: 
 vi.mock("@/app/provider/packages/menu-actions", () => ({loadProviderMenuAction: mocks.load, saveProviderMenuAction: vi.fn()}));
 vi.mock("@/lib/provider/provider-media-client", () => ({uploadProviderServiceImage: vi.fn()}));
 vi.mock("@/lib/auth/session", () => ({requireProviderCatalogAccess: mocks.account}));
+vi.mock(
+  "@/lib/provider/provider-package-payment-policy-service",
+  () => ({
+    getProviderPackagePaymentPolicyBounds:
+      vi.fn().mockResolvedValue({
+        minimumDepositRateBps:
+          2000,
+
+        maximumDepositRateBps:
+          8000,
+
+        minimumBalanceDueDaysBeforeEvent:
+          1,
+
+        maximumBalanceDueDaysBeforeEvent:
+          30,
+      }),
+  }),
+);
 
 const props = {providerId: "provider-one", eventTypesSupported: ["birthday", "wedding"], minGuestsPerEvent: 10, maxGuestsPerEvent: 200};
 const base: ProviderPackage = {

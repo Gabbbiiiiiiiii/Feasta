@@ -10,6 +10,10 @@ import {
   PROVIDER_EVENT_TYPES,
 } from "../shared/constants.js";
 
+import type {
+  PackagePaymentPolicyBounds,
+} from "./package-payment-policy.js";
+
 export const PACKAGE_STATUSES = [
   "draft",
   "published",
@@ -84,11 +88,11 @@ const MAX_INCLUSIONS_PER_GROUP = 50;
 const MAX_PACKAGE_PRICE = 10_000_000;
 const MAX_GUEST_COUNT = 100_000;
 
-const MIN_DEPOSIT_PERCENTAGE = 20;
-const MAX_DEPOSIT_PERCENTAGE = 80;
+const MIN_CANONICAL_BALANCE_DUE_DAYS =
+  1;
 
-const MIN_BALANCE_DUE_DAYS = 1;
-const MAX_BALANCE_DUE_DAYS = 30;
+const MAX_CANONICAL_BALANCE_DUE_DAYS =
+  365;
 
 export function authorizeProviderForPackageManagement(
   input: {
@@ -386,6 +390,75 @@ export function assertCanonicalPackagePaymentTerms(
     throw new HttpsError(
       "invalid-argument",
       "Choose Full Payment or Down Payment + Balance.",
+    );
+  }
+}
+
+export function assertPackagePaymentTermsWithinPolicy(
+  packageInput: PackageInput,
+  bounds: PackagePaymentPolicyBounds,
+): void {
+  if (
+    packageInput.paymentPolicy !==
+      "deposit_then_balance"
+  ) {
+    return;
+  }
+
+  const depositRateBps =
+    Math.round(
+      packageInput.depositPercentage *
+        100,
+    );
+
+  if (
+    !Number.isSafeInteger(
+      depositRateBps,
+    ) ||
+    depositRateBps <
+      bounds.minimumDepositRateBps ||
+    depositRateBps >
+      bounds.maximumDepositRateBps
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Deposit percentage must be between " +
+        `${
+          bounds.minimumDepositRateBps /
+          100
+        } and ` +
+        `${
+          bounds.maximumDepositRateBps /
+          100
+        }%.`,
+    );
+  }
+
+  const balanceDueDaysBeforeEvent =
+    packageInput
+      .balanceDueDaysBeforeEvent;
+
+  if (
+    balanceDueDaysBeforeEvent ===
+      null ||
+    balanceDueDaysBeforeEvent <
+      bounds
+        .minimumBalanceDueDaysBeforeEvent ||
+    balanceDueDaysBeforeEvent >
+      bounds
+        .maximumBalanceDueDaysBeforeEvent
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Balance deadline must be between " +
+        `${
+          bounds
+            .minimumBalanceDueDaysBeforeEvent
+        } and ` +
+        `${
+          bounds
+            .maximumBalanceDueDaysBeforeEvent
+        } days before the event.`,
     );
   }
 }
@@ -698,17 +771,21 @@ function parsePackagePaymentTerms(
       "Deposit percentage",
     );
 
+  /*
+   * This parser enforces only the permanent
+   * technical envelope.
+   *
+   * The current Admin-configured business
+   * policy is enforced separately during
+   * Provider create/edit.
+   */
   if (
-    depositPercentage <
-      MIN_DEPOSIT_PERCENTAGE ||
-    depositPercentage >
-      MAX_DEPOSIT_PERCENTAGE
+    depositPercentage <= 0 ||
+    depositPercentage >= 100
   ) {
     throw new HttpsError(
       "invalid-argument",
-      "Deposit percentage must be between " +
-        `${MIN_DEPOSIT_PERCENTAGE} and ` +
-        `${MAX_DEPOSIT_PERCENTAGE}.`,
+      "Deposit percentage must be greater than 0 and below 100.",
     );
   }
 
@@ -720,15 +797,13 @@ function parsePackagePaymentTerms(
 
   if (
     balanceDueDaysBeforeEvent <
-      MIN_BALANCE_DUE_DAYS ||
+      MIN_CANONICAL_BALANCE_DUE_DAYS ||
     balanceDueDaysBeforeEvent >
-      MAX_BALANCE_DUE_DAYS
+      MAX_CANONICAL_BALANCE_DUE_DAYS
   ) {
     throw new HttpsError(
       "invalid-argument",
-      "Balance deadline must be between " +
-        `${MIN_BALANCE_DUE_DAYS} and ` +
-        `${MAX_BALANCE_DUE_DAYS} days before the event.`,
+      "Balance deadline must be between 1 and 365 days before the event.",
     );
   }
 

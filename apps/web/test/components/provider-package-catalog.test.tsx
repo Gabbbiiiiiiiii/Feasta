@@ -52,6 +52,95 @@ describe("provider package modal and media", () => {
     fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({name: "Updated package", ...inclusions})));
   });
+  it("uses the Admin-configured payment-term limits in the Provider form", () => {
+    render(
+      <ProviderPackageForm
+        {...props}
+        initialPackage={record}
+        paymentPolicyBounds={{
+          minimumDepositRateBps:
+            1000,
+          maximumDepositRateBps:
+            9000,
+          minimumBalanceDueDaysBeforeEvent:
+            2,
+          maximumBalanceDueDaysBeforeEvent:
+            60,
+        }}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole(
+        "radio",
+        {
+          name:
+            /Down Payment \+ Balance/,
+        },
+      ),
+    );
+
+    const deposit =
+      screen.getByRole(
+        "spinbutton",
+        {
+          name:
+            /Minimum payment/,
+        },
+      );
+
+    const deadline =
+      screen.getByRole(
+        "spinbutton",
+        {
+          name:
+            /Balance due before event/,
+        },
+      );
+
+    expect(deposit).toHaveAttribute(
+      "min",
+      "10",
+    );
+
+    expect(deposit).toHaveAttribute(
+      "max",
+      "90",
+    );
+
+    expect(deadline).toHaveAttribute(
+      "min",
+      "2",
+    );
+
+    expect(deadline).toHaveAttribute(
+      "max",
+      "60",
+    );
+
+    expect(
+      screen.getByText(
+        /Current FEASTA policy allows a 10%–90% minimum payment and a balance deadline of 2–60 days/iu,
+      ),
+    ).toBeVisible();
+
+    fireEvent.change(
+      deposit,
+      {
+        target: {
+          value: "95",
+        },
+      },
+    );
+
+    expect(
+      screen.getByText(
+        "Minimum payment must be between 10% and 90%.",
+      ),
+    ).toBeVisible();
+  });
   it("supports full payment and deposit-plus-balance package terms", async () => {
     render(
       <ProviderPackageForm

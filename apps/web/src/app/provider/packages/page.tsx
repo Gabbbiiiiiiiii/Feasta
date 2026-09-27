@@ -5,6 +5,9 @@ import Link from "next/link";
 import {
   requireProviderCatalogAccess,
 } from "@/lib/auth/session";
+import {
+  getProviderPackagePaymentPolicyBounds,
+} from "@/lib/provider/provider-package-payment-policy-service";
 
 import {
   ProviderPackagesClient,
@@ -24,6 +27,9 @@ export default async function ProviderPackagesPage() {
 
   const capabilities = providerContentCapabilities(account.provider.providerServiceType, account.provider.serviceCategories);
 
+  const paymentPolicyBounds =
+    await getProviderPackagePaymentPolicyBounds();
+
   return (
     <div className="grid gap-6">
     {capabilities.packages ? <ProviderPackagesClient
@@ -39,6 +45,7 @@ export default async function ProviderPackagesPage() {
       maxGuestsPerEvent={
         account.provider.maxGuestsPerEvent
       }
+      paymentPolicyBounds={paymentPolicyBounds}
     /> : <section className="rounded-xl border border-border bg-card p-6"><h1 className="text-2xl font-bold">Your service catalog</h1><p className="mt-2 text-muted-foreground">Manage your service offerings in Services.</p><Link href="/provider/services" className="mt-3 inline-flex min-h-11 items-center font-bold text-primary-strong underline focus-visible:ring-2 focus-visible:ring-primary">Manage services</Link></section>}
     {capabilities.catering && account.provider.verificationStatus === "approved" ? <ProviderMenuManager /> : null}
     </div>

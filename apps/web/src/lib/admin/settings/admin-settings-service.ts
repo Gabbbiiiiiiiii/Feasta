@@ -10,6 +10,10 @@ import {
 import {
   DEFAULT_PLATFORM_COMMISSION_RATE_BPS,
   DEFAULT_PLATFORM_VAT_RATE_BPS,
+  MAX_BALANCE_DUE_DAYS_BEFORE_EVENT,
+  MAX_DEPOSIT_RATE_BPS,
+  MIN_BALANCE_DUE_DAYS_BEFORE_EVENT,
+  MIN_DEPOSIT_RATE_BPS,
   FIRESTORE_COLLECTIONS,
   parseTaxRegistrationStatus,
 } from "@feasta/shared-types";
@@ -54,6 +58,18 @@ const defaultSettings: AdminPlatformSettings = {
    */
   platformVatRateBps:
     DEFAULT_PLATFORM_VAT_RATE_BPS,
+
+  minimumDepositRateBps:
+    MIN_DEPOSIT_RATE_BPS,
+
+  maximumDepositRateBps:
+    MAX_DEPOSIT_RATE_BPS,
+
+  minimumBalanceDueDaysBeforeEvent:
+    MIN_BALANCE_DUE_DAYS_BEFORE_EVENT,
+
+  maximumBalanceDueDaysBeforeEvent:
+    MAX_BALANCE_DUE_DAYS_BEFORE_EVENT,
 
   financialPolicyVersion: 1,
 
@@ -117,6 +133,20 @@ export async function updateAdminPlatformSettings(
 
         platformVatRateBps:
           current.platformVatRateBps,
+
+        minimumDepositRateBps:
+          current.minimumDepositRateBps,
+
+        maximumDepositRateBps:
+          current.maximumDepositRateBps,
+
+        minimumBalanceDueDaysBeforeEvent:
+          current
+            .minimumBalanceDueDaysBeforeEvent,
+
+        maximumBalanceDueDaysBeforeEvent:
+          current
+            .maximumBalanceDueDaysBeforeEvent,
 
         financialPolicyVersion:
           current
@@ -268,14 +298,28 @@ export async function updateAdminFinancialPolicy(
               .financialPolicyVersion,
           ) !== null;
 
+        const hasStoredPaymentTermPolicy =
+          storedPaymentTermPolicyOrNull(
+            storedData,
+          ) !== null;
+
         const policyAlreadyStored =
           hasStoredFinancialPolicy &&
+          hasStoredPaymentTermPolicy &&
           current.platformCommissionRateBps ===
             update.platformCommissionRateBps &&
           current.platformTaxStatus ===
             update.platformTaxStatus &&
           current.platformVatRateBps ===
-            update.platformVatRateBps;
+            update.platformVatRateBps &&
+          current.minimumDepositRateBps ===
+            update.minimumDepositRateBps &&
+          current.maximumDepositRateBps ===
+            update.maximumDepositRateBps &&
+          current.minimumBalanceDueDaysBeforeEvent ===
+            update.minimumBalanceDueDaysBeforeEvent &&
+          current.maximumBalanceDueDaysBeforeEvent ===
+            update.maximumBalanceDueDaysBeforeEvent;
 
         if (policyAlreadyStored) {
           return false;
@@ -301,6 +345,20 @@ export async function updateAdminFinancialPolicy(
 
           platformVatRateBps:
             update.platformVatRateBps,
+
+          minimumDepositRateBps:
+            update.minimumDepositRateBps,
+
+          maximumDepositRateBps:
+            update.maximumDepositRateBps,
+
+          minimumBalanceDueDaysBeforeEvent:
+            update
+              .minimumBalanceDueDaysBeforeEvent,
+
+          maximumBalanceDueDaysBeforeEvent:
+            update
+              .maximumBalanceDueDaysBeforeEvent,
 
           financialPolicyVersion:
             nextVersion,
@@ -383,7 +441,7 @@ export async function updateAdminFinancialPolicy(
               "financial_policy_updated",
 
             description:
-              "Updated FEASTA commission and platform tax configuration.",
+              "Updated FEASTA financial and payment-term policy.",
 
             targetCollection:
               FIRESTORE_COLLECTIONS
@@ -417,6 +475,22 @@ export async function updateAdminFinancialPolicy(
               platformVatRateBps:
                 update
                   .platformVatRateBps,
+
+              minimumDepositRateBps:
+                update
+                  .minimumDepositRateBps,
+
+              maximumDepositRateBps:
+                update
+                  .maximumDepositRateBps,
+
+              minimumBalanceDueDaysBeforeEvent:
+                update
+                  .minimumBalanceDueDaysBeforeEvent,
+
+              maximumBalanceDueDaysBeforeEvent:
+                update
+                  .maximumBalanceDueDaysBeforeEvent,
 
               financialPolicyVersion:
                 nextVersion,
@@ -460,6 +534,11 @@ function mapPlatformSettings(
 
   const data = snapshot.data() ?? {};
 
+  const paymentTermPolicy =
+    storedPaymentTermPolicyOrNull(
+      data,
+    );
+
   return {
     platformName: storedText(
       data.platformName,
@@ -498,6 +577,30 @@ function mapPlatformSettings(
         defaultSettings
           .platformVatRateBps,
       ),
+
+    minimumDepositRateBps:
+      paymentTermPolicy
+        ?.minimumDepositRateBps ??
+      defaultSettings
+        .minimumDepositRateBps,
+
+    maximumDepositRateBps:
+      paymentTermPolicy
+        ?.maximumDepositRateBps ??
+      defaultSettings
+        .maximumDepositRateBps,
+
+    minimumBalanceDueDaysBeforeEvent:
+      paymentTermPolicy
+        ?.minimumBalanceDueDaysBeforeEvent ??
+      defaultSettings
+        .minimumBalanceDueDaysBeforeEvent,
+
+    maximumBalanceDueDaysBeforeEvent:
+      paymentTermPolicy
+        ?.maximumBalanceDueDaysBeforeEvent ??
+      defaultSettings
+        .maximumBalanceDueDaysBeforeEvent,
 
     financialPolicyVersion:
       storedPositiveInteger(
@@ -567,6 +670,20 @@ function auditSnapshot(
     platformVatRateBps:
       settings.platformVatRateBps,
 
+    minimumDepositRateBps:
+      settings.minimumDepositRateBps,
+
+    maximumDepositRateBps:
+      settings.maximumDepositRateBps,
+
+    minimumBalanceDueDaysBeforeEvent:
+      settings
+        .minimumBalanceDueDaysBeforeEvent,
+
+    maximumBalanceDueDaysBeforeEvent:
+      settings
+        .maximumBalanceDueDaysBeforeEvent,
+
     financialPolicyVersion:
       settings.financialPolicyVersion,
 
@@ -591,10 +708,101 @@ function financialAuditSnapshot(
     platformVatRateBps:
       settings.platformVatRateBps,
 
+    minimumDepositRateBps:
+      settings.minimumDepositRateBps,
+
+    maximumDepositRateBps:
+      settings.maximumDepositRateBps,
+
+    minimumBalanceDueDaysBeforeEvent:
+      settings
+        .minimumBalanceDueDaysBeforeEvent,
+
+    maximumBalanceDueDaysBeforeEvent:
+      settings
+        .maximumBalanceDueDaysBeforeEvent,
+
     financialPolicyVersion:
       settings
         .financialPolicyVersion,
   };
+}
+
+function storedPaymentTermPolicyOrNull(
+  data: Readonly<
+    Record<string, unknown>
+  >,
+): {
+  minimumDepositRateBps: number;
+  maximumDepositRateBps: number;
+  minimumBalanceDueDaysBeforeEvent:
+    number;
+  maximumBalanceDueDaysBeforeEvent:
+    number;
+} | null {
+  const minimumDepositRateBps =
+    storedDepositPolicyRateOrNull(
+      data.minimumDepositRateBps,
+    );
+
+  const maximumDepositRateBps =
+    storedDepositPolicyRateOrNull(
+      data.maximumDepositRateBps,
+    );
+
+  const minimumBalanceDueDaysBeforeEvent =
+    storedBalancePolicyDaysOrNull(
+      data
+        .minimumBalanceDueDaysBeforeEvent,
+    );
+
+  const maximumBalanceDueDaysBeforeEvent =
+    storedBalancePolicyDaysOrNull(
+      data
+        .maximumBalanceDueDaysBeforeEvent,
+    );
+
+  if (
+    minimumDepositRateBps === null ||
+    maximumDepositRateBps === null ||
+    minimumBalanceDueDaysBeforeEvent ===
+      null ||
+    maximumBalanceDueDaysBeforeEvent ===
+      null ||
+    minimumDepositRateBps >
+      maximumDepositRateBps ||
+    minimumBalanceDueDaysBeforeEvent >
+      maximumBalanceDueDaysBeforeEvent
+  ) {
+    return null;
+  }
+
+  return {
+    minimumDepositRateBps,
+    maximumDepositRateBps,
+    minimumBalanceDueDaysBeforeEvent,
+    maximumBalanceDueDaysBeforeEvent,
+  };
+}
+
+function storedDepositPolicyRateOrNull(
+  value: unknown,
+): number | null {
+  return Number.isSafeInteger(value) &&
+    (value as number) > 0 &&
+    (value as number) < 10_000
+    ? value as number
+    : null;
+}
+
+function storedBalancePolicyDaysOrNull(
+  value: unknown,
+): number | null {
+  return Number.isSafeInteger(value) &&
+    (value as number) >= 1 &&
+    (value as number) <= 365
+    ? value as number
+    : null;
 }
 
 function storedBasisPointRateOrNull(

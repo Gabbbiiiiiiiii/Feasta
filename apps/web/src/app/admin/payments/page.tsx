@@ -2,12 +2,16 @@ import {
   PaymentMonitoringClient,
 } from "@/components/admin/payments/payment-monitoring-client";
 import {
+  getAdminFinanceAttentionQueue,
   getAdminPaymentPage,
 } from "@/lib/admin/payments/admin-payment-service";
 
 export default async function AdminPaymentsPage() {
-  const initialPage =
-    await getAdminPaymentPage({
+  const [
+    initialPage,
+    initialAttention,
+  ] = await Promise.all([
+    getAdminPaymentPage({
       search: "",
       status: "all",
       paymentType: "all",
@@ -17,11 +21,15 @@ export default async function AdminPaymentsPage() {
       sortDirection: "descending",
       pageSize: 10,
       cursor: null,
-    });
+    }),
+
+    getAdminFinanceAttentionQueue(),
+  ]);
 
   return (
     <PaymentMonitoringClient
       initialPage={initialPage}
+      initialAttention={initialAttention}
     />
   );
 }

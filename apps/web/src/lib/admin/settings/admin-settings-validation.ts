@@ -22,6 +22,10 @@ const allowedFinancialInputKeys =
     "platformCommissionRateBps",
     "platformTaxStatus",
     "platformVatRateBps",
+    "minimumDepositRateBps",
+    "maximumDepositRateBps",
+    "minimumBalanceDueDaysBeforeEvent",
+    "maximumBalanceDueDaysBeforeEvent",
     "internalReason",
   ]);
 
@@ -148,6 +152,48 @@ export function validateAdminFinancialPolicyUpdate(
     );
   }
 
+  const minimumDepositRateBps =
+    requiredDepositPolicyRate(
+      input.minimumDepositRateBps,
+      "Minimum deposit rate",
+    );
+
+  const maximumDepositRateBps =
+    requiredDepositPolicyRate(
+      input.maximumDepositRateBps,
+      "Maximum deposit rate",
+    );
+
+  if (
+    minimumDepositRateBps >
+    maximumDepositRateBps
+  ) {
+    throw new Error(
+      "Minimum deposit rate cannot exceed the maximum deposit rate.",
+    );
+  }
+
+  const minimumBalanceDueDaysBeforeEvent =
+    requiredBalancePolicyDays(
+      input.minimumBalanceDueDaysBeforeEvent,
+      "Minimum balance deadline",
+    );
+
+  const maximumBalanceDueDaysBeforeEvent =
+    requiredBalancePolicyDays(
+      input.maximumBalanceDueDaysBeforeEvent,
+      "Maximum balance deadline",
+    );
+
+  if (
+    minimumBalanceDueDaysBeforeEvent >
+    maximumBalanceDueDaysBeforeEvent
+  ) {
+    throw new Error(
+      "Minimum balance deadline cannot exceed the maximum balance deadline.",
+    );
+  }
+
   const internalReason =
     requiredText(
       input.internalReason,
@@ -160,6 +206,13 @@ export function validateAdminFinancialPolicyUpdate(
     platformCommissionRateBps,
     platformTaxStatus,
     platformVatRateBps,
+
+    minimumDepositRateBps,
+    maximumDepositRateBps,
+
+    minimumBalanceDueDaysBeforeEvent,
+    maximumBalanceDueDaysBeforeEvent,
+
     internalReason,
   };
 }
@@ -254,4 +307,39 @@ function requiredText(
   }
 
   return normalized;
+}
+
+function requiredDepositPolicyRate(
+  value: unknown,
+  label: string,
+): number {
+  if (
+    !Number.isSafeInteger(value) ||
+    (value as number) <= 0 ||
+    (value as number) >=
+      BASIS_POINTS_SCALE
+  ) {
+    throw new Error(
+      `${label} must be greater than 0% and below 100%.`,
+    );
+  }
+
+  return value as number;
+}
+
+function requiredBalancePolicyDays(
+  value: unknown,
+  label: string,
+): number {
+  if (
+    !Number.isSafeInteger(value) ||
+    (value as number) < 1 ||
+    (value as number) > 365
+  ) {
+    throw new Error(
+      `${label} must be a whole number between 1 and 365 days.`,
+    );
+  }
+
+  return value as number;
 }

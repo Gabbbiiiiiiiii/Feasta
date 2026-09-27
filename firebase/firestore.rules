@@ -1539,6 +1539,7 @@ service cloud.firestore {
 
       // Financial rollout controls are server-managed even for Admin users.
       allow create, update: if isAdmin() &&
+          settingId != 'platform' &&
           settingId != 'refundPolicyBookingAgreement' &&
           settingId != 'cancellationRefundRollout';
       allow delete: if false;

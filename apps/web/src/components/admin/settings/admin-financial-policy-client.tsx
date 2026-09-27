@@ -65,6 +65,46 @@ function AdminFinancialPolicyClient({
   );
 
   const [
+    minimumDepositPercentage,
+    setMinimumDepositPercentage,
+  ] = useState(
+    basisPointsToInput(
+      initialSettings
+        .minimumDepositRateBps,
+    ),
+  );
+
+  const [
+    maximumDepositPercentage,
+    setMaximumDepositPercentage,
+  ] = useState(
+    basisPointsToInput(
+      initialSettings
+        .maximumDepositRateBps,
+    ),
+  );
+
+  const [
+    minimumBalanceDueDays,
+    setMinimumBalanceDueDays,
+  ] = useState(
+    String(
+      initialSettings
+        .minimumBalanceDueDaysBeforeEvent,
+    ),
+  );
+
+  const [
+    maximumBalanceDueDays,
+    setMaximumBalanceDueDays,
+  ] = useState(
+    String(
+      initialSettings
+        .maximumBalanceDueDaysBeforeEvent,
+    ),
+  );
+
+  const [
     internalReason,
     setInternalReason,
   ] = useState("");
@@ -94,27 +134,89 @@ function AdminFinancialPolicyClient({
       vatPercentage,
     );
 
+  const minimumDepositRateBps =
+    depositInputToBasisPoints(
+      minimumDepositPercentage,
+    );
+
+  const maximumDepositRateBps =
+    depositInputToBasisPoints(
+      maximumDepositPercentage,
+    );
+
+  const minimumBalanceDueDaysBeforeEvent =
+    daysInputToInteger(
+      minimumBalanceDueDays,
+    );
+
+  const maximumBalanceDueDaysBeforeEvent =
+    daysInputToInteger(
+      maximumBalanceDueDays,
+    );
+
+  const depositBoundsValid =
+    minimumDepositRateBps !== null &&
+    maximumDepositRateBps !== null &&
+    minimumDepositRateBps <=
+      maximumDepositRateBps;
+
+  const balanceDeadlineBoundsValid =
+    minimumBalanceDueDaysBeforeEvent !==
+      null &&
+    maximumBalanceDueDaysBeforeEvent !==
+      null &&
+    minimumBalanceDueDaysBeforeEvent <=
+      maximumBalanceDueDaysBeforeEvent;
+
+  /*
+   * Raw-value comparison intentionally keeps
+   * Discard enabled even while an edited field
+   * is temporarily invalid.
+   */
   const hasChanges = useMemo(
     () =>
-      commissionRateBps !==
-        null &&
-      vatRateBps !== null &&
-      (
-        commissionRateBps !==
+      commissionPercentage !==
+        basisPointsToInput(
           savedSettings
-            .platformCommissionRateBps ||
-        platformTaxStatus !==
+            .platformCommissionRateBps,
+        ) ||
+      platformTaxStatus !==
+        savedSettings
+          .platformTaxStatus ||
+      vatPercentage !==
+        basisPointsToInput(
           savedSettings
-            .platformTaxStatus ||
-        vatRateBps !==
+            .platformVatRateBps,
+        ) ||
+      minimumDepositPercentage !==
+        basisPointsToInput(
           savedSettings
-            .platformVatRateBps
-      ),
+            .minimumDepositRateBps,
+        ) ||
+      maximumDepositPercentage !==
+        basisPointsToInput(
+          savedSettings
+            .maximumDepositRateBps,
+        ) ||
+      minimumBalanceDueDays !==
+        String(
+          savedSettings
+            .minimumBalanceDueDaysBeforeEvent,
+        ) ||
+      maximumBalanceDueDays !==
+        String(
+          savedSettings
+            .maximumBalanceDueDaysBeforeEvent,
+        ),
     [
-      commissionRateBps,
+      commissionPercentage,
+      maximumBalanceDueDays,
+      maximumDepositPercentage,
+      minimumBalanceDueDays,
+      minimumDepositPercentage,
       platformTaxStatus,
       savedSettings,
-      vatRateBps,
+      vatPercentage,
     ],
   );
 
@@ -122,6 +224,8 @@ function AdminFinancialPolicyClient({
     hasChanges &&
     commissionRateBps !== null &&
     vatRateBps !== null &&
+    depositBoundsValid &&
+    balanceDeadlineBoundsValid &&
     (
       platformTaxStatus ===
         "non_vat" ||
@@ -144,7 +248,49 @@ function AdminFinancialPolicyClient({
       vatRateBps === null
     ) {
       setError(
-        "Enter valid percentage values between 0 and 100.",
+        "Enter valid FEASTA percentage values between 0 and 100.",
+      );
+      return;
+    }
+
+    if (
+      minimumDepositRateBps === null ||
+      maximumDepositRateBps === null
+    ) {
+      setError(
+        "Deposit limits must be greater than 0% and below 100%.",
+      );
+      return;
+    }
+
+    if (
+      minimumDepositRateBps >
+      maximumDepositRateBps
+    ) {
+      setError(
+        "Minimum deposit rate cannot exceed the maximum deposit rate.",
+      );
+      return;
+    }
+
+    if (
+      minimumBalanceDueDaysBeforeEvent ===
+        null ||
+      maximumBalanceDueDaysBeforeEvent ===
+        null
+    ) {
+      setError(
+        "Balance deadlines must be whole numbers between 1 and 365 days.",
+      );
+      return;
+    }
+
+    if (
+      minimumBalanceDueDaysBeforeEvent >
+      maximumBalanceDueDaysBeforeEvent
+    ) {
+      setError(
+        "Minimum balance deadline cannot exceed the maximum balance deadline.",
       );
       return;
     }
@@ -174,6 +320,14 @@ function AdminFinancialPolicyClient({
                 platformVatRateBps:
                   vatRateBps,
 
+                minimumDepositRateBps,
+
+                maximumDepositRateBps,
+
+                minimumBalanceDueDaysBeforeEvent,
+
+                maximumBalanceDueDaysBeforeEvent,
+
                 internalReason,
               },
             );
@@ -198,6 +352,34 @@ function AdminFinancialPolicyClient({
             basisPointsToInput(
               result.settings
                 .platformVatRateBps,
+            ),
+          );
+
+          setMinimumDepositPercentage(
+            basisPointsToInput(
+              result.settings
+                .minimumDepositRateBps,
+            ),
+          );
+
+          setMaximumDepositPercentage(
+            basisPointsToInput(
+              result.settings
+                .maximumDepositRateBps,
+            ),
+          );
+
+          setMinimumBalanceDueDays(
+            String(
+              result.settings
+                .minimumBalanceDueDaysBeforeEvent,
+            ),
+          );
+
+          setMaximumBalanceDueDays(
+            String(
+              result.settings
+                .maximumBalanceDueDaysBeforeEvent,
             ),
           );
 
@@ -242,6 +424,34 @@ function AdminFinancialPolicyClient({
       ),
     );
 
+    setMinimumDepositPercentage(
+      basisPointsToInput(
+        savedSettings
+          .minimumDepositRateBps,
+      ),
+    );
+
+    setMaximumDepositPercentage(
+      basisPointsToInput(
+        savedSettings
+          .maximumDepositRateBps,
+      ),
+    );
+
+    setMinimumBalanceDueDays(
+      String(
+        savedSettings
+          .minimumBalanceDueDaysBeforeEvent,
+      ),
+    );
+
+    setMaximumBalanceDueDays(
+      String(
+        savedSettings
+          .maximumBalanceDueDaysBeforeEvent,
+      ),
+    );
+
     setInternalReason("");
     setError(null);
     setSuccess(null);
@@ -275,13 +485,14 @@ function AdminFinancialPolicyClient({
 
             <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
               Configure FEASTA&apos;s
-              platform commission and
-              platform-tax simulation.
-              These values are versioned
-              so future bookings can
-              snapshot the exact policy
-              that applied when they were
-              created.
+              commission, platform-tax
+              simulation, Provider deposit
+              limits, and remaining-balance
+              deadline limits. Financial
+              policy changes share one
+              version so future financial
+              snapshots can identify the
+              policy in effect.
             </p>
           </div>
         </div>
@@ -325,6 +536,20 @@ function AdminFinancialPolicyClient({
             separately.
           </p>
         </div>
+      </div>
+
+      <div className="mt-4 rounded-lg border border-border bg-muted/30 p-4 text-sm leading-6">
+        <p className="font-semibold text-foreground">
+          Prospective payment-term policy
+        </p>
+
+        <p className="mt-1 text-muted-foreground">
+          These limits are stored as
+          platform policy for future
+          package-term enforcement.
+          Existing booking financial
+          snapshots are not recalculated.
+        </p>
       </div>
 
       <form
@@ -463,6 +688,142 @@ function AdminFinancialPolicyClient({
             </span>
           </div>
 
+          <div className="grid gap-2">
+            <label
+              htmlFor="financial-policy-minimum-deposit"
+              className="font-semibold text-foreground"
+            >
+              Minimum deposit (%)
+            </label>
+
+            <Input
+              id="financial-policy-minimum-deposit"
+              type="number"
+              min="0.01"
+              max="99.99"
+              step="0.01"
+              inputMode="decimal"
+              value={
+                minimumDepositPercentage
+              }
+              disabled={isPending}
+              onChange={(event) => {
+                setMinimumDepositPercentage(
+                  event.currentTarget
+                    .value,
+                );
+              }}
+            />
+
+            <span className="text-sm leading-5 text-muted-foreground">
+              Lowest deposit percentage
+              allowed by the versioned
+              package payment policy.
+            </span>
+          </div>
+
+          <div className="grid gap-2">
+            <label
+              htmlFor="financial-policy-maximum-deposit"
+              className="font-semibold text-foreground"
+            >
+              Maximum deposit (%)
+            </label>
+
+            <Input
+              id="financial-policy-maximum-deposit"
+              type="number"
+              min="0.01"
+              max="99.99"
+              step="0.01"
+              inputMode="decimal"
+              value={
+                maximumDepositPercentage
+              }
+              disabled={isPending}
+              onChange={(event) => {
+                setMaximumDepositPercentage(
+                  event.currentTarget
+                    .value,
+                );
+              }}
+            />
+
+            <span className="text-sm leading-5 text-muted-foreground">
+              Full-payment packages remain
+              a separate 100% payment
+              policy.
+            </span>
+          </div>
+
+          <div className="grid gap-2">
+            <label
+              htmlFor="financial-policy-minimum-balance-deadline"
+              className="font-semibold text-foreground"
+            >
+              Minimum balance deadline (days before event)
+            </label>
+
+            <Input
+              id="financial-policy-minimum-balance-deadline"
+              type="number"
+              min="1"
+              max="365"
+              step="1"
+              inputMode="numeric"
+              value={
+                minimumBalanceDueDays
+              }
+              disabled={isPending}
+              onChange={(event) => {
+                setMinimumBalanceDueDays(
+                  event.currentTarget
+                    .value,
+                );
+              }}
+            />
+
+            <span className="text-sm leading-5 text-muted-foreground">
+              Earliest allowed lower bound
+              for a package&apos;s remaining
+              balance deadline.
+            </span>
+          </div>
+
+          <div className="grid gap-2">
+            <label
+              htmlFor="financial-policy-maximum-balance-deadline"
+              className="font-semibold text-foreground"
+            >
+              Maximum balance deadline (days before event)
+            </label>
+
+            <Input
+              id="financial-policy-maximum-balance-deadline"
+              type="number"
+              min="1"
+              max="365"
+              step="1"
+              inputMode="numeric"
+              value={
+                maximumBalanceDueDays
+              }
+              disabled={isPending}
+              onChange={(event) => {
+                setMaximumBalanceDueDays(
+                  event.currentTarget
+                    .value,
+                );
+              }}
+            />
+
+            <span className="text-sm leading-5 text-muted-foreground">
+              Package balance deadlines
+              must remain within the saved
+              minimum and maximum limits.
+            </span>
+          </div>
+
           <div className="grid content-start gap-2 rounded-lg border border-border bg-muted/30 p-4">
             <p className="font-semibold text-foreground">
               Current interpretation
@@ -500,6 +861,30 @@ function AdminFinancialPolicyClient({
                             100
                       }%`
                     : "Inactive"
+                }
+              />
+
+              <PolicyValue
+                label="Provider deposit range"
+                value={
+                  depositBoundsValid
+                    ? `${
+                        minimumDepositRateBps /
+                        100
+                      }%–${
+                        maximumDepositRateBps /
+                        100
+                      }%`
+                    : "Invalid"
+                }
+              />
+
+              <PolicyValue
+                label="Balance deadline range"
+                value={
+                  balanceDeadlineBoundsValid
+                    ? `${minimumBalanceDueDaysBeforeEvent}–${maximumBalanceDueDaysBeforeEvent} days before event`
+                    : "Invalid"
                 }
               />
             </dl>
@@ -622,6 +1007,51 @@ function percentageInputToBasisPoints(
   }
 
   return basisPoints;
+}
+
+function depositInputToBasisPoints(
+  value: string,
+): number | null {
+  const basisPoints =
+    percentageInputToBasisPoints(
+      value,
+    );
+
+  if (
+    basisPoints === null ||
+    basisPoints <= 0 ||
+    basisPoints >= 10_000
+  ) {
+    return null;
+  }
+
+  return basisPoints;
+}
+
+function daysInputToInteger(
+  value: string,
+): number | null {
+  const normalized =
+    value.trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  const days =
+    Number(normalized);
+
+  if (
+    !Number.isSafeInteger(
+      days,
+    ) ||
+    days < 1 ||
+    days > 365
+  ) {
+    return null;
+  }
+
+  return days;
 }
 
 function basisPointsToInput(

@@ -216,3 +216,55 @@ Firestore client rules allow only Admin reads of raw
 `financialLedgerEntries`. Customer and Provider clients cannot read them, and
 no browser client, including Admin, can create, update, or delete ledger
 evidence. Ledger writes are Functions/Admin-SDK only.
+
+## P11 Admin monitoring and versioned payment policy
+
+P11 keeps the payment trust boundaries introduced by the earlier payment phases
+while adding Admin finance visibility and configurable future package
+payment-term bounds.
+
+Admin Payment Monitoring distinguishes:
+
+- booking value;
+- Customer collected amount;
+- Customer remaining balance;
+- Provider earning state;
+- Provider settlement state;
+- Provider payout-attempt evidence;
+- FEASTA commission;
+- Provider VAT;
+- FEASTA VAT;
+- failed Customer payments;
+- failed Provider payouts; and
+- reconciliation-required settlements.
+
+Those values are not collapsed into a single "paid" state. In particular,
+Customer payment success does not imply Provider payout success.
+
+The versioned `appSettings/platform` financial policy contains commission,
+simulated FEASTA tax/VAT, deposit bounds, and remaining-balance deadline bounds
+under one `financialPolicyVersion`.
+
+The initial/default package policy is:
+
+- minimum deposit: 20%;
+- maximum deposit: 80%;
+- minimum remaining-balance deadline: 1 day before the event; and
+- maximum remaining-balance deadline: 30 days before the event.
+
+Admin changes to those bounds apply to future Provider package create/edit
+operations. Trusted Cloud Functions reload and enforce the current policy.
+Provider browser validation is guidance only.
+
+Existing saved package terms and frozen booking financial snapshots are not
+recalculated when Admin settings change. Booking snapshot validation therefore
+checks stored package terms against the permanent technical envelope rather
+than today's Admin policy.
+
+Direct client mutation of `appSettings/platform` is denied. Admin monitoring
+does not expose controls to mark Provider payouts paid, retry payout dispatch,
+force reconciliation, release settlement money, send payouts, or withdraw
+funds.
+
+Settlement transport remains fail-closed and the current implementation does
+not dispatch PayMongo batch transfers.

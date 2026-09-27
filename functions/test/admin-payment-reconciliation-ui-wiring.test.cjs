@@ -80,20 +80,33 @@ test(
         "export async function getAdminPaymentPage",
       );
 
+    const attentionStart =
+      service.indexOf(
+        "export async function getAdminFinanceAttentionQueue",
+        pageStart,
+      );
+
     const detailsStart =
       service.indexOf(
         "export async function getAdminPaymentDetails",
+        pageStart,
       );
+
+    const pageEnd =
+      attentionStart > pageStart
+        ? attentionStart
+        : detailsStart;
 
     assert.ok(
       pageStart >= 0 &&
-      detailsStart > pageStart,
+      pageEnd > pageStart &&
+      detailsStart > pageEnd,
     );
 
     const pageSource =
       service.slice(
         pageStart,
-        detailsStart,
+        pageEnd,
       );
 
     assert.doesNotMatch(

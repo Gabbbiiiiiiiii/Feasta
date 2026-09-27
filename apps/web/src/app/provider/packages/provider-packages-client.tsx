@@ -38,6 +38,10 @@ import {
 import {
   ProviderPackageForm,
 } from "./provider-package-form";
+import {
+  DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS,
+  type ProviderPackagePaymentPolicyBounds,
+} from "@/lib/provider/provider-package-payment-policy";
 
 import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger} from "@/components/ui/dialog";
 
@@ -48,6 +52,9 @@ type ProviderPackagesClientProps = {
   eventTypesSupported: string[];
   minGuestsPerEvent: number;
   maxGuestsPerEvent: number;
+
+  paymentPolicyBounds?:
+    ProviderPackagePaymentPolicyBounds;
 };
 
 export function ProviderPackagesClient({
@@ -57,6 +64,9 @@ export function ProviderPackagesClient({
   eventTypesSupported,
   minGuestsPerEvent,
   maxGuestsPerEvent,
+
+  paymentPolicyBounds =
+    DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS,
 }: ProviderPackagesClientProps) {
   const [
     packages,
@@ -275,6 +285,7 @@ export function ProviderPackagesClient({
           eventTypesSupported={eventTypesSupported}
           minGuestsPerEvent={minGuestsPerEvent}
           maxGuestsPerEvent={maxGuestsPerEvent}
+          paymentPolicyBounds={paymentPolicyBounds}
           onSubmittingChange={setFormBusy}
           onCancel={() => setCreateOpen(false)}
           onSaved={async () => { await loadPackages(); setCreateOpen(false); }}
