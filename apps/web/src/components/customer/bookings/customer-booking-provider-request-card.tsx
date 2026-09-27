@@ -19,6 +19,7 @@ import type {
   CustomerBookingProviderRequest,
   CustomerBookingService,
 } from "@/lib/customer/bookings/customer-booking-types";
+import {isHistoricalDepositTerms} from "@/lib/payments/full-payment-presentation";
 import {cn} from "@/lib/utils";
 
 type CustomerBookingProviderRequestCardProps = {
@@ -54,6 +55,10 @@ function CustomerBookingProviderRequestCard({
       null;
   const responseTimestamp = providerRequestResponseTimestamp(request);
   const paymentPresentation = providerPaymentPresentation(request);
+  const historicalDeposit = isHistoricalDepositTerms({
+    amount: request.amount,
+    upfrontAmount: request.downPaymentAmount,
+  });
 
   return (
     <article className={cn(
@@ -105,11 +110,15 @@ function CustomerBookingProviderRequestCard({
         !compact && "xl:grid-cols-4",
       )}>
         <FinancialMetric label="Service amount" value={formatCurrency(request.amount)} />
-        <FinancialMetric label="Required down payment" value={formatCurrency(request.downPaymentAmount)} />
-        <FinancialMetric label="Remaining balance" value={formatCurrency(request.remainingBalance)} />
-        <FinancialMetric label="Down payment rate" value={formatPercentage(request.downPaymentPercentage)} />
+        {historicalDeposit ? <>
+          <FinancialMetric label="Required down payment" value={formatCurrency(request.downPaymentAmount)} />
+          <FinancialMetric label="Remaining balance" value={formatCurrency(request.remainingBalance)} />
+          <FinancialMetric label="Down payment rate" value={formatPercentage(request.downPaymentPercentage)} />
+        </> : (
+          <FinancialMetric label="Full payment" value={formatCurrency(request.downPaymentAmount)} />
+        )}
       </dl>
-      {request.remainingBalanceStatus ? (
+      {historicalDeposit && request.remainingBalanceStatus && request.remainingBalanceStatus !== "not_applicable" ? (
         <RemainingBalanceLifecycle
           request={request}
         />
@@ -142,7 +151,7 @@ function CustomerBookingProviderRequestCard({
             <PaymentDate label="Refunded" value={request.refundedAt} />
           ) : null}
 
-          {request.remainingBalance > 0 ? (
+          {historicalDeposit && request.remainingBalance > 0 ? (
             <p className="border-t border-border pt-3 text-xs leading-5 text-muted-foreground">
               You can pay the remaining balance securely through FEASTA when eligible.
             </p>

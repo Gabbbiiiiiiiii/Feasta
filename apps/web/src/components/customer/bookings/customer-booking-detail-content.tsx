@@ -25,6 +25,7 @@ import {
   formatCount,
   formatCurrency,
 } from "@/components/customer/bookings/booking-formatters";
+import {customerPaymentChoiceActionLabel} from "@/lib/payments/full-payment-presentation";
 import {CustomerBookingCancellationDialog} from "@/components/customer/bookings/customer-booking-cancellation-dialog";
 import {CustomerBookingCancellationStatus} from "@/components/customer/bookings/customer-booking-cancellation-status";
 import {CustomerBookingProviderRequestCard} from "@/components/customer/bookings/customer-booking-provider-request-card";
@@ -175,7 +176,7 @@ function CustomerBookingDetailContent({
         </div>
         <p className="mt-3 flex min-w-0 items-start gap-2 text-xs leading-5 text-muted-foreground">
           <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-          <span>Payments, down payments, and remaining balances are handled per provider request.</span>
+          <span>Each provider request is paid separately. New bookings use full payment after the provider accepts.</span>
         </p>
       </DetailSection>
 
@@ -514,8 +515,14 @@ function paymentActionForRequest({
   const requestLoading =
     paymentRequestId === request.providerRequestId;
 
+  const onlyFullPayment = request.checkoutOptions.length === 1 &&
+    request.checkoutOptions[0]?.choice === "full";
+
   return (
     <div className="grid gap-2 border-t border-border pt-4">
+      {onlyFullPayment ? (
+        <p className="text-sm font-bold">Full Payment</p>
+      ) : null}
       {request.checkoutOptions.map((option) => <Button
         key={option.choice}
         fullWidth
@@ -528,7 +535,7 @@ function paymentActionForRequest({
         onClick={() => void onPay(request.providerRequestId, option.choice)}
       >
         <CreditCard aria-hidden="true" className="size-5" />
-        Pay {option.choice === "remaining_balance" ? "remaining balance" : option.choice} {formatCurrency(option.amount)}
+        Pay {customerPaymentChoiceActionLabel(option.choice)} {formatCurrency(option.amount)}
       </Button>)}
       <p className="text-xs leading-5 text-muted-foreground">
         You’ll continue to PayMongo. FEASTA updates this request only after trusted payment confirmation.

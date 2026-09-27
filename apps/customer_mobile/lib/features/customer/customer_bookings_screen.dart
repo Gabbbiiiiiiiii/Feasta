@@ -10,6 +10,7 @@ import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../chat/chat_screen.dart';
 import 'booking_details_screen.dart';
+import 'full_payment_presentation.dart';
 import 'payment_required_screen.dart';
 
 class CustomerBookingsScreen extends StatefulWidget {
@@ -255,7 +256,12 @@ class BookingCard extends StatelessWidget {
 
       case 'waiting_payment':
       case 'waiting_for_down_payment':
-        return 'Down payment required';
+        return isHistoricalDepositTerms(
+              amount: booking.totalAmount,
+              upfrontAmount: booking.downPaymentAmount,
+            )
+            ? 'Down payment required'
+            : 'Full payment required';
 
       case 'payment_processing':
         return 'Payment is processing';
@@ -290,7 +296,12 @@ class BookingCard extends StatelessWidget {
 
       case 'waiting_payment':
       case 'waiting_for_down_payment':
-        return 'Complete the required down payment to confirm your booking.';
+        return isHistoricalDepositTerms(
+              amount: booking.totalAmount,
+              upfrontAmount: booking.downPaymentAmount,
+            )
+            ? 'Complete the required down payment to confirm your booking.'
+            : 'Complete the full payment to confirm your booking.';
 
       case 'payment_processing':
         return 'Your payment is being verified. No action is needed right now.';
@@ -1105,7 +1116,12 @@ class _BookingCardActions extends StatelessWidget {
             onPressed: onPayment,
             style: _primaryStyle,
             child: Text(
-              'Pay down payment',
+              isHistoricalDepositTerms(
+                    amount: booking.totalAmount,
+                    upfrontAmount: booking.downPaymentAmount,
+                  )
+                  ? 'Pay down payment'
+                  : 'Pay full payment',
               textAlign: TextAlign.center,
               style: AppTypography.button.copyWith(
                 color: Colors.white,

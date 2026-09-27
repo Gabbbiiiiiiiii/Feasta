@@ -20,7 +20,7 @@ class RecoveryOffersScreen extends StatelessWidget {
         return AlertDialog(
           title: const Text('Confirm Recovery Caterer'),
           content: Text(
-            'Selecting ${offer.offeringProviderBusinessName} will replace the original catering provider for this booking. After selecting, you must complete the down payment to confirm the booking.',
+            'Selecting ${offer.offeringProviderBusinessName} will replace the original catering provider for this booking. After selecting, you must complete the required payment to confirm the booking.',
           ),
           actions: [
             TextButton(
@@ -48,7 +48,7 @@ class RecoveryOffersScreen extends StatelessWidget {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Recovery caterer selected. Please pay down payment.'),
+          content: Text('Recovery caterer selected. Please complete the required payment.'),
         ),
       );
 
@@ -155,7 +155,7 @@ class RecoveryOffersScreen extends StatelessWidget {
                         ),
                       ),
                       child: const Text(
-                        'Important: If you select this caterer, they will become the new main catering provider for your booking. Your external marketplace add-ons will stay on hold until you complete the catering down payment.',
+                        'Important: If you select this caterer, they will become the new main catering provider for your booking. Your external marketplace add-ons will stay on hold until you complete the required catering payment.',
                         style: TextStyle(
                           height: 1.4,
                           fontWeight: FontWeight.w700,
@@ -255,7 +255,7 @@ class RecoveryOffersScreen extends StatelessWidget {
                   border: Border.all(color: primary.withOpacity(0.25)),
                 ),
                 child: const Text(
-                  'Compare the caterers who offered to handle your rejected booking request. Select only one caterer to continue, then complete the down payment to confirm.',
+                  'Compare the caterers who offered to handle your rejected booking request. Select only one caterer to continue, then complete the required payment to confirm.',
                   style: TextStyle(height: 1.4, fontWeight: FontWeight.w700),
                 ),
               ),

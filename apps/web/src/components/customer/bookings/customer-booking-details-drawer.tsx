@@ -21,6 +21,7 @@ import {
   formatCount,
   formatCurrency,
 } from "@/components/customer/bookings/booking-formatters";
+import {customerPaymentChoiceActionLabel} from "@/lib/payments/full-payment-presentation";
 import {CustomerBookingProviderRequestCard} from "@/components/customer/bookings/customer-booking-provider-request-card";
 import {DetailDrawer} from "@/components/data/detail-drawer";
 import {
@@ -241,7 +242,7 @@ function BookingDetailsContent({
         </div>
         <p className="flex min-w-0 items-start gap-2 text-xs leading-5 text-muted-foreground">
           <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-          <span>Payments, down payments, and remaining balances are handled per provider request.</span>
+          <span>Each provider request is paid separately. New bookings use full payment after the provider accepts.</span>
         </p>
       </section>
 
@@ -279,6 +280,9 @@ function BookingDetailsContent({
                 compact
                 paymentAction={canStartCustomerBookingPayment(request, booking.id) ? (
                   <div className="grid gap-2 border-t border-border pt-4">
+                    {request.checkoutOptions.length === 1 && request.checkoutOptions[0]?.choice === "full" ? (
+                      <p className="text-sm font-bold">Full Payment</p>
+                    ) : null}
                     {request.checkoutOptions.map((option) => <Button
                       key={option.choice}
                       fullWidth
@@ -291,7 +295,7 @@ function BookingDetailsContent({
                       onClick={() => onPay(request.providerRequestId, option.choice)}
                     >
                       <CreditCard aria-hidden="true" className="size-5" />
-                      Pay {option.choice === "remaining_balance" ? "remaining balance" : option.choice} {formatCurrency(option.amount)}
+                      Pay {customerPaymentChoiceActionLabel(option.choice)} {formatCurrency(option.amount)}
                     </Button>)}
                     <p className="text-xs leading-5 text-muted-foreground">
                       Payment is completed on PayMongo. Your booking updates only after FEASTA verifies the payment.

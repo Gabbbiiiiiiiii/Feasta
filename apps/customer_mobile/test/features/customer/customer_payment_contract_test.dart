@@ -116,6 +116,8 @@ void main() {
 
       expect(source, contains("'Pay Full'"));
 
+      expect(source, contains("'Pay Full Payment'"));
+
       expect(source, contains("'Pay Remaining Balance'"));
 
       expect(source, contains('PaymentStatusScreen('));
@@ -125,6 +127,43 @@ void main() {
       expect(source, contains('paymentChoice: option.choice'));
 
       expect(source, contains('amountInCentavos: option.amountInCentavos'));
+    });
+  });
+
+  group('P13-D full payment customer copy', () {
+    test('new package and booking summary present Full Payment', () {
+      final packageDetails = File(
+        'lib/features/customer/package_details_screen.dart',
+      ).readAsStringSync();
+      final bookingSummary = File(
+        'lib/features/customer/booking_summary_screen.dart',
+      ).readAsStringSync();
+
+      expect(packageDetails, contains("'Full Payment'"));
+      expect(packageDetails, isNot(contains('% down payment')));
+      expect(bookingSummary, contains("'Full Payment'"));
+      expect(bookingSummary, isNot(contains('Down payment')));
+      expect(
+        bookingSummary,
+        contains(
+          'The exact amount due is taken from the accepted provider request.',
+        ),
+      );
+    });
+
+    test('stored partial deposits keep down-payment presentation', () {
+      final bookings = File(
+        'lib/features/customer/customer_bookings_screen.dart',
+      ).readAsStringSync();
+      final details = File(
+        'lib/features/customer/booking_details_screen.dart',
+      ).readAsStringSync();
+
+      expect(bookings, contains("'Down payment required'"));
+      expect(bookings, contains("'Full payment required'"));
+      expect(bookings, contains("'Pay down payment'"));
+      expect(details, contains("label: 'Down payment'"));
+      expect(details, contains("label: 'Full payment'"));
     });
   });
 }

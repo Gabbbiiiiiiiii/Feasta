@@ -52,6 +52,8 @@ describe("customer package marketplace", () => {
     } : {});
     render(<PackageDetail detail={{provider, packageRecord: {...packageRecord, inclusions: populated ? ["Rice", "Setup"] : []}, customization}} />);
     expect(screen.getByRole("heading", {level: 1, name: packageRecord.name})).toBeVisible();
+    expect(screen.getAllByText("Full Payment").length).toBeGreaterThan(0);
+    expect(screen.getByText(/You pay the full amount after the provider accepts your request/)).toBeVisible();
     expect(screen.queryByRole("heading", {name: "Decor inclusions"})).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", {name: "Furniture inclusions"})).not.toBeInTheDocument();
     if (populated) {

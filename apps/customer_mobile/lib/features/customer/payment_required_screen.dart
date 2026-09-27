@@ -487,6 +487,10 @@ class _ProviderPaymentCard extends StatelessWidget {
               _PaymentOptionButton(
                 request: request,
                 option: request.checkoutOptions[index],
+                onlyFullPayment:
+                    request.checkoutOptions.length == 1 &&
+                    request.checkoutOptions[index].choice ==
+                        CustomerPaymentChoice.full,
                 disabled: anyCheckoutRunning,
                 isLoading:
                     processingRequestId == request.id &&
@@ -526,6 +530,7 @@ class _PaymentOptionButton extends StatelessWidget {
   const _PaymentOptionButton({
     required this.request,
     required this.option,
+    required this.onlyFullPayment,
     required this.disabled,
     required this.isLoading,
     required this.primary,
@@ -534,6 +539,7 @@ class _PaymentOptionButton extends StatelessWidget {
 
   final CustomerProviderPaymentRequest request;
   final CustomerPaymentOption option;
+  final bool onlyFullPayment;
   final bool disabled;
   final bool isLoading;
   final bool primary;
@@ -545,6 +551,10 @@ class _PaymentOptionButton extends StatelessWidget {
   onPay;
 
   String get actionLabel {
+    if (onlyFullPayment && option.choice == CustomerPaymentChoice.full) {
+      return 'Pay Full Payment';
+    }
+
     switch (option.choice) {
       case CustomerPaymentChoice.minimum:
         return 'Pay Minimum';

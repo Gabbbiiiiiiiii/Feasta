@@ -214,9 +214,12 @@ export function PackageDetail({
               className="mt-2"
             />
 
-            <p className="mt-3 text-xs leading-5 text-feasta-text-secondary">
-              Review the package details and provider information before
-              deciding whether this option fits your event.
+            <p className="mt-3 text-sm font-bold text-foreground">
+              Full Payment
+            </p>
+            <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+              You pay the full amount after the provider accepts your request.
+              The exact amount due comes from the accepted provider request.
             </p>
 
             <CustomerAuthLink returnTo={bookingHref}
@@ -514,9 +517,9 @@ export function PackageDetail({
                 confirm your booking or charge you.
                 Your request is submitted to the
                 selected providers for review first.
-                Payment becomes available only when
-                the applicable provider requests
-                reach the required acceptance stage.
+                Payment becomes available only after
+                a provider accepts the request. New
+                bookings use Full Payment.
               </p>
             </div>
           </div>

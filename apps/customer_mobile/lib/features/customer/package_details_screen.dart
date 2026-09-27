@@ -546,10 +546,9 @@ class _PackageOverviewCard extends StatelessWidget {
                     icon: Icons.people_outline_rounded,
                     label: '${eventPackage.guestCapacity} guests',
                   ),
-                  _PackageInfoPill(
+                  const _PackageInfoPill(
                     icon: Icons.payments_outlined,
-                    label:
-                        '${eventPackage.downPaymentPercentage.toStringAsFixed(0)}% down payment',
+                    label: 'Full Payment',
                   ),
                 ],
               ),
@@ -593,25 +592,15 @@ class _PackageOverviewCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Required down payment',
+                            'Full Payment',
                             style: AppTypography.caption.copyWith(
                               color: AppColors.secondaryTextAccessible,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                           const SizedBox(height: AppSpacing.xxs),
-                          FeastaPriceText(
-                            amount: eventPackage.downPaymentAmount,
-                            decimalDigits: 0,
-                            semanticLabel: 'Required down payment',
-                            style: AppTypography.cardTitle.copyWith(
-                              color: AppColors.primaryStrong,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
                           Text(
-                            '${eventPackage.downPaymentPercentage.toStringAsFixed(0)}% of the package price',
+                            'You pay the full amount after the provider accepts your request.',
                             style: AppTypography.caption.copyWith(
                               color: AppColors.secondaryTextAccessible,
                             ),

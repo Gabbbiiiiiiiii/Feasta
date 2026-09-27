@@ -9,6 +9,7 @@ import type {
   CustomerBooking,
   CustomerBookingProviderRequest,
 } from "@/lib/customer/bookings/customer-booking-types";
+import {isHistoricalDepositTerms} from "@/lib/payments/full-payment-presentation";
 
 const dateFormatter = new Intl.DateTimeFormat("en-PH", {
   dateStyle: "medium",
@@ -136,6 +137,9 @@ function bookingNextStep(
   booking: Pick<
     CustomerBooking,
     | "status"
+    | "estimatedEventTotal"
+    | "downPaymentAmount"
+    | "remainingBalance"
     | "pendingProviderRequestCount"
     | "acceptedProviderRequestCount"
     | "waitingPaymentProviderRequestCount"
@@ -167,7 +171,12 @@ function bookingNextStep(
         "At least one provider declined. Review the affected request while other providers respond." :
         "At least one provider declined. Review the affected provider request.";
     case "waiting_for_down_payment":
-      return "Accepted provider requests require a down payment. Review each request's payment status.";
+      return isHistoricalDepositTerms({
+        amount: booking.estimatedEventTotal,
+        upfrontAmount: booking.downPaymentAmount,
+      })
+        ? "Accepted provider requests require a down payment. Review each request's payment status."
+        : "Accepted provider requests require full payment. Review each request's payment status.";
     case "confirmed":
       return "Your event booking is confirmed. Review the schedule and provider requests.";
     case "in_progress":
@@ -239,7 +248,10 @@ function providerRequestServiceLabel(
 }
 
 function providerRequestOutcomeLabel(
-  request: Pick<CustomerBookingProviderRequest, "providerName" | "status">,
+  request: Pick<
+    CustomerBookingProviderRequest,
+    "providerName" | "status" | "amount" | "downPaymentAmount"
+  >,
 ): string {
   switch (request.status) {
     case "pending":
@@ -247,7 +259,12 @@ function providerRequestOutcomeLabel(
     case "accepted":
       return "Accepted — confirmation pending";
     case "waiting_for_down_payment":
-      return "Accepted — down payment required";
+      return isHistoricalDepositTerms({
+        amount: request.amount,
+        upfrontAmount: request.downPaymentAmount,
+      })
+        ? "Accepted — down payment required"
+        : "Accepted — payment required";
     case "payment_processing":
       return "Accepted — payment processing";
     case "confirmed":

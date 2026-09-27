@@ -44,7 +44,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       title: 'Book, Track & Pay Securely',
       description:
           'Submit booking requests, track provider updates, communicate with '
-          'selected providers, and complete required down payments through '
+          'selected providers, and complete full payment through '
           'PayMongo.',
       semanticsLabel: 'Track bookings and payments securely',
     ),

@@ -25,11 +25,7 @@ import {CatalogImageUploader, uploadCatalogImages} from "@/components/provider/c
 import {packageImageDrafts} from "@/lib/provider/catalog-media";
 
 import {providerContentCapabilities} from "@/lib/provider/provider-content-capabilities";
-import {
-  DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS,
-  depositRateBpsToPercentage,
-  type ProviderPackagePaymentPolicyBounds,
-} from "@/lib/provider/provider-package-payment-policy";
+import {type ProviderPackagePaymentPolicyBounds} from "@/lib/provider/provider-package-payment-policy";
 
 import {Textarea} from "@/components/ui/textarea";
 import {Select} from "@/components/ui/select";
@@ -71,53 +67,12 @@ export function ProviderPackageForm({
   minGuestsPerEvent,
   maxGuestsPerEvent,
 
-  paymentPolicyBounds =
-    DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS,
-
   initialPackage,
   onSaved,
   onCancel,
   onSubmittingChange,
 }: ProviderPackageFormProps) {
   const capabilities = providerContentCapabilities(providerServiceType, serviceCategories);
-
-  const minimumDepositPercentageAllowed =
-    depositRateBpsToPercentage(
-      paymentPolicyBounds
-        .minimumDepositRateBps,
-    );
-
-  const maximumDepositPercentageAllowed =
-    depositRateBpsToPercentage(
-      paymentPolicyBounds
-        .maximumDepositRateBps,
-    );
-
-  const minimumBalanceDaysAllowed =
-    paymentPolicyBounds
-      .minimumBalanceDueDaysBeforeEvent;
-
-  const maximumBalanceDaysAllowed =
-    paymentPolicyBounds
-      .maximumBalanceDueDaysBeforeEvent;
-
-  const defaultDepositPercentage =
-    Math.min(
-      maximumDepositPercentageAllowed,
-      Math.max(
-        minimumDepositPercentageAllowed,
-        30,
-      ),
-    );
-
-  const defaultBalanceDueDays =
-    Math.min(
-      maximumBalanceDaysAllowed,
-      Math.max(
-        minimumBalanceDaysAllowed,
-        7,
-      ),
-    );
 
   const editing =
     initialPackage !== undefined;
@@ -157,48 +112,6 @@ export function ProviderPackageForm({
         ? String(initialPackage.price)
         : "",
     );
-
-  const [
-    paymentPolicy,
-    setPaymentPolicy,
-  ] = useState<
-    ProviderPackageInput["paymentPolicy"] | ""
-  >(
-    initialPackage?.paymentPolicy ??
-      "",
-  );
-
-  const [
-    depositPercentage,
-    setDepositPercentage,
-  ] = useState(
-    initialPackage?.paymentPolicy ===
-      "deposit_then_balance"
-      ? String(
-          initialPackage.depositPercentage,
-        )
-      : String(
-          defaultDepositPercentage,
-        ),
-  );
-
-  const [
-    balanceDueDaysBeforeEvent,
-    setBalanceDueDaysBeforeEvent,
-  ] = useState(
-    initialPackage?.paymentPolicy ===
-      "deposit_then_balance" &&
-    initialPackage
-      .balanceDueDaysBeforeEvent !==
-      null
-      ? String(
-          initialPackage
-            .balanceDueDaysBeforeEvent,
-        )
-      : String(
-          defaultBalanceDueDays,
-        ),
-  );
 
   const [
     minimumGuests,
@@ -268,14 +181,6 @@ export function ProviderPackageForm({
 
   const parsedPrice = Number(price);
 
-  const parsedDepositPercentage =
-    Number(depositPercentage);
-
-  const parsedBalanceDueDays =
-    Number(
-      balanceDueDaysBeforeEvent,
-    );
-
   const parsedMinimumGuests =
     Number(minimumGuests);
   const parsedMaximumGuests =
@@ -315,59 +220,6 @@ export function ProviderPackageForm({
       }
 
       if (
-        paymentPolicy !==
-          "full_payment" &&
-        paymentPolicy !==
-          "deposit_then_balance"
-      ) {
-        return {
-          field:
-            "paymentPolicy",
-          message:
-            "Choose Full Payment or Down Payment + Balance.",
-        };
-      }
-
-      if (
-        paymentPolicy ===
-        "deposit_then_balance"
-      ) {
-        if (
-          !Number.isFinite(
-            parsedDepositPercentage,
-          ) ||
-          parsedDepositPercentage <
-            minimumDepositPercentageAllowed ||
-          parsedDepositPercentage >
-            maximumDepositPercentageAllowed
-        ) {
-          return {
-            field:
-              "depositPercentage",
-            message:
-              `Minimum payment must be between ${minimumDepositPercentageAllowed}% and ${maximumDepositPercentageAllowed}%.`,
-          };
-        }
-
-        if (
-          !Number.isInteger(
-            parsedBalanceDueDays,
-          ) ||
-          parsedBalanceDueDays <
-            minimumBalanceDaysAllowed ||
-          parsedBalanceDueDays >
-            maximumBalanceDaysAllowed
-        ) {
-          return {
-            field:
-              "balanceDueDays",
-            message:
-              `Balance deadline must be between ${minimumBalanceDaysAllowed} and ${maximumBalanceDaysAllowed} days before the event.`,
-          };
-        }
-      }
-
-      if (
         !Number.isInteger(
             parsedMinimumGuests,
         ) ||
@@ -397,18 +249,11 @@ export function ProviderPackageForm({
       description,
       eventType,
       parsedPrice,
-      paymentPolicy,
-      parsedDepositPercentage,
-      parsedBalanceDueDays,
       parsedMinimumGuests,
       parsedMaximumGuests,
       availableEventTypes,
       minGuestsPerEvent,
       maxGuestsPerEvent,
-      minimumDepositPercentageAllowed,
-      maximumDepositPercentageAllowed,
-      minimumBalanceDaysAllowed,
-      maximumBalanceDaysAllowed,
     ]);
 
   async function handleSubmit(
@@ -416,16 +261,7 @@ export function ProviderPackageForm({
   ) {
     event.preventDefault();
 
-    if (
-      submitting ||
-      validationError ||
-      (
-        paymentPolicy !==
-          "full_payment" &&
-        paymentPolicy !==
-          "deposit_then_balance"
-      )
-    ) {
+    if (submitting || validationError) {
       return;
     }
 
@@ -442,19 +278,9 @@ export function ProviderPackageForm({
         eventType,
         price: parsedPrice,
 
-        paymentPolicy,
-
-        depositPercentage:
-          paymentPolicy ===
-          "full_payment"
-            ? 100
-            : parsedDepositPercentage,
-
-        balanceDueDaysBeforeEvent:
-          paymentPolicy ===
-          "full_payment"
-            ? null
-            : parsedBalanceDueDays,
+        paymentPolicy: "full_payment",
+        depositPercentage: 100,
+        balanceDueDaysBeforeEvent: null,
 
         minimumGuests:
           parsedMinimumGuests,
@@ -645,182 +471,24 @@ export function ProviderPackageForm({
           />
         </FormField>
 
-        <div className="grid gap-3 sm:col-span-2">
-          <div>
-            <p
-              id="package-payment-policy-label"
-              className="text-sm font-medium text-foreground"
-            >
-              Payment terms{" "}
-              <span
-                aria-hidden="true"
-                className="text-destructive"
-              >
-                *
-              </span>
-            </p>
-
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Choose how much the customer must pay to confirm this package.
-            </p>
-          </div>
-
-          <div
-            role="radiogroup"
-            aria-labelledby="package-payment-policy-label"
-            aria-invalid={
-              validationError?.field ===
-              "paymentPolicy"
-                ? "true"
-                : undefined
-            }
-            className="grid gap-3 sm:grid-cols-2"
-          >
-            <label className="flex cursor-pointer gap-3 rounded-lg border border-border bg-background p-4 transition hover:border-primary/40 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-              <input
-                type="radio"
-                name="packagePaymentPolicy"
-                value="full_payment"
-                checked={
-                  paymentPolicy ===
-                  "full_payment"
-                }
-                onChange={() =>
-                  setPaymentPolicy(
-                    "full_payment",
-                  )
-                }
-                className="mt-1 size-4 shrink-0 accent-primary"
-              />
-
-              <span className="grid gap-1">
-                <span className="text-sm font-semibold text-foreground">
-                  Full Payment
-                </span>
-
-                <span className="text-xs leading-5 text-muted-foreground">
-                  The customer must pay 100% of the booking amount.
-                </span>
-              </span>
-            </label>
-
-            <label className="flex cursor-pointer gap-3 rounded-lg border border-border bg-background p-4 transition hover:border-primary/40 has-[:checked]:border-primary has-[:checked]:bg-primary/5">
-              <input
-                type="radio"
-                name="packagePaymentPolicy"
-                value="deposit_then_balance"
-                checked={
-                  paymentPolicy ===
-                  "deposit_then_balance"
-                }
-                onChange={() =>
-                  setPaymentPolicy(
-                    "deposit_then_balance",
-                  )
-                }
-                className="mt-1 size-4 shrink-0 accent-primary"
-              />
-
-              <span className="grid gap-1">
-                <span className="text-sm font-semibold text-foreground">
-                  Down Payment + Balance
-                </span>
-
-                <span className="text-xs leading-5 text-muted-foreground">
-                  Set the minimum required payment and when the remaining balance is due.
-                </span>
-              </span>
-            </label>
-          </div>
-
-          {validationError?.field ===
-          "paymentPolicy" ? (
-            <p
-              role="alert"
-              className="text-sm text-destructive"
-            >
-              {validationError.message}
-            </p>
-          ) : null}
-
-          {paymentPolicy ===
-          "deposit_then_balance" ? (
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FormField
-                label="Minimum payment (%)"
-                error={
-                  validationError?.field ===
-                  "depositPercentage"
-                    ? validationError.message
-                    : undefined
-                }
-                required
-              >
-                <Input
-                  type="number"
-                  min={minimumDepositPercentageAllowed}
-                  max={maximumDepositPercentageAllowed}
-                  step="0.01"
-                  value={
-                    depositPercentage
-                  }
-                  onChange={(event) =>
-                    setDepositPercentage(
-                      event.target.value,
-                    )
-                  }
-                />
-              </FormField>
-
-              <FormField
-                label="Balance due before event (days)"
-                error={
-                  validationError?.field ===
-                  "balanceDueDays"
-                    ? validationError.message
-                    : undefined
-                }
-                required
-              >
-                <Input
-                  type="number"
-                  min={minimumBalanceDaysAllowed}
-                  max={maximumBalanceDaysAllowed}
-                  step="1"
-                  value={
-                    balanceDueDaysBeforeEvent
-                  }
-                  onChange={(event) =>
-                    setBalanceDueDaysBeforeEvent(
-                      event.target.value,
-                    )
-                  }
-                />
-              </FormField>
-
-              <p className="text-xs leading-5 text-muted-foreground sm:col-span-2">
-                Current FEASTA policy allows a {minimumDepositPercentageAllowed}%–{maximumDepositPercentageAllowed}% minimum payment and a balance deadline of {minimumBalanceDaysAllowed}–{maximumBalanceDaysAllowed} days before the event. Customers may still choose to pay the full amount immediately.
-              </p>
-            </div>
-          ) : null}
-
-          {paymentPolicy ===
-          "full_payment" ? (
-            <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs leading-5 text-muted-foreground">
-              Customers must pay the complete booking amount. There is no remaining-balance deadline.
-            </p>
-          ) : null}
-
+        <div className="grid gap-2 sm:col-span-2">
+          <p className="text-sm font-medium text-foreground">
+            Payment terms
+          </p>
+          <p className="text-sm font-semibold text-foreground">
+            Full Payment
+          </p>
+          <p className="text-xs leading-5 text-muted-foreground">
+            Customers pay the full amount after you accept their booking request.
+          </p>
           {initialPackage &&
-          initialPackage.paymentPolicy ===
-            null ? (
+          initialPackage.paymentPolicy !==
+            "full_payment" ? (
             <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs leading-5 text-muted-foreground">
-              This package uses legacy payment terms. Choose one of the current payment options before saving changes.
+              Saving updates this package to Full Payment. Bookings already created keep their original payment records.
             </p>
           ) : null}
         </div>
-      </div>
-
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField
           label="Minimum guests"

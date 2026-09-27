@@ -276,14 +276,21 @@ export function ProviderRequestDetailDrawer({
             />
 
             <AmountRow
-              label="Required down payment"
+              label={
+                request.downPaymentAmount > 0 &&
+                request.downPaymentAmount < request.amount
+                  ? "Required down payment"
+                  : "Full payment"
+              }
               amount={
                 request.downPaymentAmount
               }
             />
 
             {request.downPaymentPercentage !==
-            null ? (
+            null &&
+            request.downPaymentAmount > 0 &&
+            request.downPaymentAmount < request.amount ? (
               <div className="flex items-center justify-between gap-4 text-sm">
                 <span className="text-muted-foreground">
                   Down payment rate

@@ -35,7 +35,7 @@ class PaymentSuccessScreen extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                'Your down payment for $providerName has been recorded. Your booking is now confirmed.',
+                'Your full payment for $providerName has been recorded. Your booking is now confirmed.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: Colors.grey,

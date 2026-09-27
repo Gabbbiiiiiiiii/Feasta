@@ -14,6 +14,7 @@ import '../../shared/widgets/loading_skeleton.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../chat/chat_screen.dart';
 import 'addon_payment_required_screen.dart';
+import 'full_payment_presentation.dart';
 import 'payment_required_screen.dart';
 import 'recovery_offers_screen.dart';
 import 'review_screen.dart';
@@ -223,7 +224,12 @@ class BookingStatusCard extends StatelessWidget {
         return 'The provider accepted your booking request.';
 
       case BookingStatus.waitingPayment:
-        return 'Your booking was accepted. Complete the required down payment to confirm it.';
+        return isHistoricalDepositTerms(
+              amount: booking.totalAmount,
+              upfrontAmount: booking.downPaymentAmount,
+            )
+            ? 'Your booking was accepted. Complete the required down payment to confirm it.'
+            : 'Your booking was accepted. Complete the full payment to confirm it.';
 
       case BookingStatus.paymentProcessing:
         return 'Your payment is currently being processed.';
@@ -462,7 +468,7 @@ class _BookingNextActionCard extends StatelessWidget {
           title: 'Provider accepted your request',
           message:
               'Your booking was accepted. Wait for the booking to move to '
-              'payment required before paying the down payment.',
+              'payment required before paying.',
           accent: AppColors.primaryStrong,
           background: AppColors.primarySubtle,
         );
@@ -472,7 +478,12 @@ class _BookingNextActionCard extends StatelessWidget {
 
         return _BookingNextStep(
           icon: Icons.account_balance_wallet_outlined,
-          title: 'Complete your down payment',
+          title: isHistoricalDepositTerms(
+            amount: booking.totalAmount,
+            upfrontAmount: booking.downPaymentAmount,
+          )
+              ? 'Complete your down payment'
+              : 'Complete your full payment',
           message: deadline == null
               ? 'Payment is now required to confirm and reserve your booking.'
               : 'Payment is now required to confirm your booking. '
@@ -801,7 +812,7 @@ class TimelineItem extends StatelessWidget {
         return 'The provider was unable to accept your booking request.';
       case 'payment_confirmed':
       case 'paid':
-        return 'Your down payment was successfully confirmed.';
+        return 'Your payment was successfully confirmed.';
       case 'payment_processing':
         return 'Your payment is being verified.';
       case 'payment_failed':
@@ -1131,22 +1142,45 @@ class PaymentDetailsCard extends StatelessWidget {
               color: AppColors.primarySubtle,
               borderRadius: BorderRadius.circular(AppRadius.large),
             ),
-            child: Column(
-              children: [
-                _PriceRow(
-                  label: 'Down payment',
-                  amount: booking.downPaymentAmount,
-                  accent: true,
-                ),
-
-                const SizedBox(height: AppSpacing.sm),
-
-                _PriceRow(
-                  label: 'Remaining balance',
-                  amount: booking.remainingBalance,
-                ),
-              ],
-            ),
+            child: isHistoricalDepositTerms(
+              amount: booking.totalAmount,
+              upfrontAmount: booking.downPaymentAmount,
+            )
+                ? Column(
+                    children: [
+                      _PriceRow(
+                        label: 'Down payment',
+                        amount: booking.downPaymentAmount,
+                        accent: true,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      _PriceRow(
+                        label: 'Remaining balance',
+                        amount: booking.remainingBalance,
+                      ),
+                    ],
+                  )
+                : booking.downPaymentAmount > 0 &&
+                      booking.downPaymentAmount >= booking.totalAmount
+                ? _PriceRow(
+                    label: 'Full payment',
+                    amount: booking.downPaymentAmount,
+                    accent: true,
+                  )
+                : Column(
+                    children: [
+                      _PriceRow(
+                        label: 'Down payment',
+                        amount: booking.downPaymentAmount,
+                        accent: true,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      _PriceRow(
+                        label: 'Remaining balance',
+                        amount: booking.remainingBalance,
+                      ),
+                    ],
+                  ),
           ),
 
           const SizedBox(height: AppSpacing.md),
@@ -2210,7 +2244,7 @@ class _CustomerRecoveryNoticeCard extends StatelessWidget {
                 if (BookingStatus.isWaitingForPayment(booking.status)) ...[
                   const SizedBox(height: AppSpacing.sm),
                   Text(
-                    'Complete the down payment to confirm this recovered booking.',
+                    'Complete the required payment to confirm this recovered booking.',
                     style: AppTypography.label.copyWith(
                       color: AppColors.primaryStrong,
                       fontWeight: FontWeight.w900,

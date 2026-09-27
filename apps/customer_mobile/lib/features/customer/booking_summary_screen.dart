@@ -61,12 +61,8 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     return widget.eventPackage.price + addOnsTotal;
   }
 
-  double get downPaymentAmount {
-    return totalAmount * (widget.eventPackage.downPaymentPercentage / 100);
-  }
-
-  double get remainingBalance {
-    return totalAmount - downPaymentAmount;
+  double get fullPaymentEstimate {
+    return totalAmount;
   }
 
   String get formattedDate {
@@ -361,7 +357,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           const _SectionHeading(
             title: 'Payment summary',
             subtitle:
-                'You only pay the down payment after the provider accepts the request.',
+                'Full Payment. You pay the full amount after the provider accepts the request.',
           ),
 
           const SizedBox(height: AppSpacing.md),
@@ -370,9 +366,6 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
             packagePrice: widget.eventPackage.price,
             addOnsTotal: addOnsTotal,
             totalAmount: totalAmount,
-            downPaymentPercentage: widget.eventPackage.downPaymentPercentage,
-            downPaymentAmount: downPaymentAmount,
-            remainingBalance: remainingBalance,
           ),
 
           const SizedBox(height: AppSpacing.md),
@@ -384,7 +377,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
       ),
       bottomNavigationBar: _BookingSubmitBar(
         isSubmitting: isSubmitting,
-        downPaymentAmount: downPaymentAmount,
+        fullPaymentEstimate: fullPaymentEstimate,
         onSubmit: _submitBookingRequest,
       ),
     );
@@ -965,17 +958,11 @@ class _PaymentSummaryCard extends StatelessWidget {
     required this.packagePrice,
     required this.addOnsTotal,
     required this.totalAmount,
-    required this.downPaymentPercentage,
-    required this.downPaymentAmount,
-    required this.remainingBalance,
   });
 
   final double packagePrice;
   final double addOnsTotal;
   final double totalAmount;
-  final double downPaymentPercentage;
-  final double downPaymentAmount;
-  final double remainingBalance;
 
   @override
   Widget build(BuildContext context) {
@@ -1009,18 +996,22 @@ class _PaymentSummaryCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(AppRadius.large),
             ),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _PriceSummaryRow(
-                  label:
-                      'Down payment '
-                      '(${downPaymentPercentage.toStringAsFixed(0)}%)',
-                  amount: downPaymentAmount,
-                  accent: true,
+                Text(
+                  'Full Payment',
+                  style: AppTypography.label.copyWith(
+                    color: AppColors.primaryStrong,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
-                const SizedBox(height: AppSpacing.sm),
-                _PriceSummaryRow(
-                  label: 'Remaining balance',
-                  amount: remainingBalance,
+                const SizedBox(height: AppSpacing.xxs),
+                Text(
+                  'The exact amount due is taken from the accepted provider request. This summary does not set the payment amount.',
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.secondaryTextAccessible,
+                    height: 1.4,
+                  ),
                 ),
               ],
             ),
@@ -1036,13 +1027,11 @@ class _PriceSummaryRow extends StatelessWidget {
     required this.label,
     required this.amount,
     this.emphasized = false,
-    this.accent = false,
   });
 
   final String label;
   final double amount;
   final bool emphasized;
-  final bool accent;
 
   @override
   Widget build(BuildContext context) {
@@ -1057,8 +1046,8 @@ class _PriceSummaryRow extends StatelessWidget {
           child: Text(
             label,
             style: textStyle.copyWith(
-              color: accent ? AppColors.primaryStrong : AppColors.mainText,
-              fontWeight: emphasized || accent
+              color: AppColors.mainText,
+              fontWeight: emphasized
                   ? FontWeight.w900
                   : FontWeight.w600,
             ),
@@ -1070,10 +1059,10 @@ class _PriceSummaryRow extends StatelessWidget {
           decimalDigits: 0,
           semanticLabel: label,
           style: textStyle.copyWith(
-            color: emphasized || accent
+            color: emphasized
                 ? AppColors.primaryStrong
                 : AppColors.mainText,
-            fontWeight: emphasized || accent
+            fontWeight: emphasized
                 ? FontWeight.w900
                 : FontWeight.w700,
           ),
@@ -1129,7 +1118,7 @@ class _BookingProcessNotice extends StatelessWidget {
                   'Submitting this request does not immediately '
                   'confirm your booking. The provider must accept '
                   'the request first. After acceptance, complete '
-                  'the required down payment to confirm the booking.',
+                  'the full payment to confirm the booking.',
                   style: AppTypography.bodySmall.copyWith(
                     color: AppColors.secondaryTextAccessible,
                     height: 1.45,
@@ -1147,12 +1136,12 @@ class _BookingProcessNotice extends StatelessWidget {
 class _BookingSubmitBar extends StatelessWidget {
   const _BookingSubmitBar({
     required this.isSubmitting,
-    required this.downPaymentAmount,
+    required this.fullPaymentEstimate,
     required this.onSubmit,
   });
 
   final bool isSubmitting;
-  final double downPaymentAmount;
+  final double fullPaymentEstimate;
   final VoidCallback onSubmit;
 
   @override
@@ -1174,7 +1163,7 @@ class _BookingSubmitBar extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    'Due after provider acceptance',
+                    'Full payment after acceptance',
                     style: AppTypography.caption.copyWith(
                       color: AppColors.secondaryTextAccessible,
                     ),
@@ -1182,9 +1171,9 @@ class _BookingSubmitBar extends StatelessWidget {
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 FeastaPriceText(
-                  amount: downPaymentAmount,
+                  amount: fullPaymentEstimate,
                   decimalDigits: 0,
-                  semanticLabel: 'Down payment due after provider acceptance',
+                  semanticLabel: 'Estimated full payment after provider acceptance',
                   style: AppTypography.label.copyWith(
                     color: AppColors.primaryStrong,
                     fontWeight: FontWeight.w900,

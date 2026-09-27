@@ -150,6 +150,53 @@ describe("customer booking dedicated detail page", () => {
       .not.toBeInTheDocument();
   });
 
+  it("presents full payment for a canonical full-payment request and submits only full", async () => {
+    const result = detailResult();
+    result.details.booking.estimatedEventTotal = 125_000;
+    result.details.booking.downPaymentAmount = 125_000;
+    result.details.booking.remainingBalance = 0;
+    result.details.providerRequests = [providerRequestFixture({
+      amount: 125_000,
+      downPaymentAmount: 125_000,
+      downPaymentPercentage: 100,
+      remainingBalance: 0,
+      checkoutOptions: [{choice: "full", amount: 125_000}],
+      services: [{
+        id: "service-1",
+        name: "Catering buffet",
+        category: "Food",
+        price: 125_000,
+        downPaymentPercentage: 100,
+        downPaymentAmount: 125_000,
+      }],
+    })];
+    mocks.createCheckout.mockResolvedValueOnce({
+      paymentId: "payment_request_12345678",
+      providerRequestId: "request-1",
+      bookingId: "owned-booking-001",
+      checkoutUrl: "https://checkout.paymongo.com/session-12345678",
+      created: true,
+    });
+
+    render(<CustomerBookingDetailPage result={result} />);
+
+    expect(screen.getByRole("heading", {
+      name: "A provider service requires full payment",
+    })).toBeVisible();
+    expect(screen.getByText("Accepted — payment required")).toBeVisible();
+    expect(screen.getByLabelText("Status: Full payment required")).toBeVisible();
+    expect(screen.getByText("Full Payment")).toBeVisible();
+    expect(screen.queryByRole("button", {name: /pay minimum/iu})).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: /remaining balance/iu})).not.toBeInTheDocument();
+    expect(screen.queryByText("Required down payment")).not.toBeInTheDocument();
+    expect(screen.queryByText("Down payment rate")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", {name: /pay full payment .*125,000\.00/iu}));
+
+    expect(mocks.createCheckout).toHaveBeenCalledTimes(1);
+    expect(mocks.createCheckout).toHaveBeenCalledWith("request-1", "full");
+  });
+
   it("shows the request-scoped down-payment amount in the eligible action", () => {
     render(<CustomerBookingDetailPage result={detailResult()} />);
 

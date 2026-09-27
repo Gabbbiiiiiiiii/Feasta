@@ -487,9 +487,13 @@ export function ProviderRequestsClient({
         }}
         title="Accept this request?"
         description={
-          selectedRequest?.downPaymentAmount
+          selectedRequest &&
+          selectedRequest.downPaymentAmount > 0 &&
+          selectedRequest.downPaymentAmount < selectedRequest.amount
             ? "The customer will be asked to complete the required down payment after you accept."
-            : "This request will be confirmed after you accept it."
+            : selectedRequest?.downPaymentAmount
+              ? "The customer will be asked to pay the full amount after you accept."
+              : "This request will be confirmed after you accept it."
         }
         confirmLabel={
           actionPending

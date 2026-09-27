@@ -91,7 +91,7 @@ class _AddonPaymentRequiredScreenState
                 ),
                 const Divider(height: 28),
                 const Text(
-                  'This payment is separate from your catering down payment.',
+                  'This payment is separate from your catering full payment.',
                   style: TextStyle(color: Colors.grey, height: 1.4),
                 ),
               ],

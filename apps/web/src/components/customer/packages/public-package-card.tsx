@@ -252,6 +252,9 @@ export function PublicPackageCard({
                 amount={packageRecord.price}
                 className="mt-1"
               />
+              <p className="mt-1 text-[11px] font-bold leading-4 text-foreground">
+                Full Payment
+              </p>
             </div>
 
             <span

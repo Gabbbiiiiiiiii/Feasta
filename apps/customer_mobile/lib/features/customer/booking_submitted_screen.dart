@@ -405,9 +405,9 @@ class _BookingProgressCard extends StatelessWidget {
 
           _ProgressStep(
             step: 3,
-            title: 'Pay down payment',
+            title: 'Pay full payment',
             description:
-                'If accepted, you will be asked to complete the required down payment.',
+                'If accepted, you will be asked to pay the full amount.',
             state: _ProgressStepState.upcoming,
             showConnector: true,
           ),

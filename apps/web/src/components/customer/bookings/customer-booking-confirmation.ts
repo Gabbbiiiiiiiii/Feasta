@@ -2,6 +2,7 @@ import type {
   CustomerBooking,
   CustomerBookingProviderRequest,
 } from "@/lib/customer/bookings/customer-booking-types";
+import {isHistoricalDepositTerms} from "@/lib/payments/full-payment-presentation";
 
 type CustomerBookingConfirmationTone =
   | "success"
@@ -120,17 +121,37 @@ export function bookingConfirmationPresentation(
       eyebrow: "Booking progress",
       title: "Some provider services are confirmed",
       description:
-        "Provider services progress independently. Review each request for outstanding responses, payment verification, or down-payment steps.",
+        "Provider services progress independently. Review each request for outstanding responses, payment verification, or payment steps.",
       tone: "info",
     };
   }
 
   if (hasWaitingPayment || booking.status === "waiting_for_down_payment") {
-    return {
+    const historicalDeposit = providerRequests.some((request) =>
+      request.status === "waiting_for_down_payment" &&
+      isHistoricalDepositTerms({
+        amount: request.amount,
+        upfrontAmount: request.downPaymentAmount,
+      }),
+    ) || (
+      providerRequests.length === 0 &&
+      isHistoricalDepositTerms({
+        amount: booking.estimatedEventTotal,
+        upfrontAmount: booking.downPaymentAmount,
+      })
+    );
+
+    return historicalDeposit ? {
       eyebrow: "Payment needed",
       title: "A provider service requires a down payment",
       description:
         "Review each provider request and complete only the eligible required down payments shown below.",
+      tone: "warning",
+    } : {
+      eyebrow: "Payment needed",
+      title: "A provider service requires full payment",
+      description:
+        "Review each provider request and pay the full amount shown for that request.",
       tone: "warning",
     };
   }
@@ -167,12 +188,18 @@ export function bookingConfirmationPresentation(
 export function providerPaymentPresentation(
   request: CustomerBookingProviderRequest,
 ): CustomerProviderPaymentPresentation {
+  const historicalDeposit = isHistoricalDepositTerms({
+    amount: request.amount,
+    upfrontAmount: request.downPaymentAmount,
+  });
+
   if (request.paymentStatus === "refunded") {
     return {
-      label: "Down payment refunded",
+      label: historicalDeposit ? "Down payment refunded" : "Payment refunded",
       status: "refunded",
-      description:
-        "The recorded provider down payment was refunded. No cancellation is implied by this payment state.",
+      description: historicalDeposit
+        ? "The recorded provider down payment was refunded. No cancellation is implied by this payment state."
+        : "The recorded provider payment was refunded. No cancellation is implied by this payment state.",
       showPaidAt: false,
       showRefundedAt: true,
     };
@@ -208,10 +235,11 @@ export function providerPaymentPresentation(
 
   if (request.paymentStatus === "paid") {
     return {
-      label: "Down payment confirmed",
+      label: historicalDeposit ? "Down payment confirmed" : "Full payment confirmed",
       status: "paid",
-      description:
-        "FEASTA has authoritative confirmation of this provider down payment.",
+      description: historicalDeposit
+        ? "FEASTA has authoritative confirmation of this provider down payment."
+        : "FEASTA has authoritative confirmation of this full payment.",
       showPaidAt: true,
       showRefundedAt: false,
     };
@@ -221,8 +249,9 @@ export function providerPaymentPresentation(
     return {
       label: "Payment failed",
       status: "failed",
-      description:
-        "The provider down payment was not confirmed. Use the available secure action when you are ready to retry.",
+      description: historicalDeposit
+        ? "The provider down payment was not confirmed. Use the available secure action when you are ready to retry."
+        : "The full payment was not confirmed. Use the available secure action when you are ready to retry.",
       showPaidAt: false,
       showRefundedAt: false,
     };
@@ -240,11 +269,18 @@ export function providerPaymentPresentation(
   }
 
   if (request.status === "waiting_for_down_payment") {
-    return {
+    return historicalDeposit ? {
       label: "Down payment required",
       status: "waiting_for_down_payment",
       description:
         "Complete the required down payment using the secure action for this provider request.",
+      showPaidAt: false,
+      showRefundedAt: false,
+    } : {
+      label: "Full payment required",
+      status: "waiting_for_down_payment",
+      description:
+        "Complete the full payment using the secure action for this provider request.",
       showPaidAt: false,
       showRefundedAt: false,
     };
@@ -254,8 +290,9 @@ export function providerPaymentPresentation(
     return {
       label: "No active payment",
       status: request.status,
-      description:
-        "No provider down-payment action is available for this request.",
+      description: historicalDeposit
+        ? "No provider down-payment action is available for this request."
+        : "No payment action is available for this request.",
       showPaidAt: false,
       showRefundedAt: false,
     };
@@ -264,8 +301,9 @@ export function providerPaymentPresentation(
   return {
     label: "Payment not yet required",
     status: request.status,
-    description:
-      "No confirmed provider down payment is recorded for this request.",
+    description: historicalDeposit
+      ? "No confirmed provider down payment is recorded for this request."
+      : "No confirmed provider payment is recorded for this request.",
     showPaidAt: false,
     showRefundedAt: false,
   };

@@ -28,7 +28,7 @@ export function ProviderPackageCard({item, onEdit, onPublish, onArchive}: {
       <p className="text-xs text-muted-foreground">
         {item.paymentPolicy ===
         "full_payment"
-          ? "Full payment required"
+          ? "Full Payment. Customers pay the full amount after you accept their booking request."
           : item.paymentPolicy ===
             "deposit_then_balance"
             ? `${item.depositPercentage}% minimum payment · Balance due ${item.balanceDueDaysBeforeEvent} days before event`

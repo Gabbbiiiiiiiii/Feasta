@@ -653,7 +653,7 @@ class FeastaRepository {
       'status': BookingStatus.waitingPayment,
       'title': 'Recovery Caterer Selected',
       'description':
-          'Customer selected $providerBusinessName as the new catering provider. Customer must complete the down payment.',
+          'Customer selected $providerBusinessName as the new catering provider. Customer must complete the required payment.',
       'createdBy': currentUid,
       'createdByRole': UserRoles.customer,
       'createdAt': now,
@@ -664,7 +664,7 @@ class FeastaRepository {
         'userId': providerOwnerId,
         'title': 'Recovery Offer Selected',
         'message':
-            '${booking.customerFirstName} ${booking.customerLastName} selected your recovery offer. Waiting for down payment.',
+            '${booking.customerFirstName} ${booking.customerLastName} selected your recovery offer. Waiting for payment.',
         'type': NotificationType.booking,
         'relatedId': booking.id,
         'relatedCollection': FirestoreCollections.mainEvents,
@@ -895,10 +895,9 @@ class FeastaRepository {
     final cateringSubtotal = package.price + cateringAddOnsTotal;
     final estimatedEventTotal = cateringSubtotal + marketplaceAddOnsTotal;
 
-    final downPaymentAmount =
-        cateringSubtotal * (package.downPaymentPercentage / 100);
-
-    final remainingBalance = cateringSubtotal - downPaymentAmount;
+    const downPaymentPercentage = 100.0;
+    final downPaymentAmount = cateringSubtotal;
+    const remainingBalance = 0.0;
 
     final bookingRef = _db.collection(FirestoreCollections.mainEvents).doc();
     final timelineRef = _db
@@ -947,7 +946,7 @@ class FeastaRepository {
       'marketplaceAddOnsTotal': marketplaceAddOnsTotal,
       'cateringSubtotal': cateringSubtotal,
       'estimatedEventTotal': estimatedEventTotal,
-      'downPaymentPercentage': package.downPaymentPercentage,
+      'downPaymentPercentage': downPaymentPercentage,
       'downPaymentAmount': downPaymentAmount,
       'remainingBalance': remainingBalance,
       'status': BookingStatus.pending,
@@ -1701,7 +1700,11 @@ class FeastaRepository {
       'status': BookingStatus.waitingPayment,
       'title': 'Booking Request Accepted',
       'description':
-          'Provider accepted the booking request. Customer must complete the down payment.',
+          booking.remainingBalance > 0 &&
+                  booking.downPaymentAmount > 0 &&
+                  booking.downPaymentAmount < booking.totalAmount
+              ? 'Provider accepted the booking request. Customer must complete the down payment.'
+              : 'Provider accepted the booking request. Customer must complete the full payment.',
       'createdBy': currentUid,
       'createdByRole': UserRoles.provider,
       'createdAt': now,
@@ -1711,7 +1714,11 @@ class FeastaRepository {
       'userId': booking.customerId,
       'title': 'Booking Accepted',
       'message':
-          '${booking.providerBusinessName} accepted your booking request. Please complete your down payment.',
+          booking.remainingBalance > 0 &&
+                  booking.downPaymentAmount > 0 &&
+                  booking.downPaymentAmount < booking.totalAmount
+              ? '${booking.providerBusinessName} accepted your booking request. Please complete your down payment.'
+              : '${booking.providerBusinessName} accepted your booking request. Please complete your full payment.',
       'type': NotificationType.booking,
       'relatedId': booking.id,
       'relatedCollection': FirestoreCollections.mainEvents,
@@ -1876,7 +1883,11 @@ class FeastaRepository {
       'status': BookingStatus.confirmed,
       'title': 'Booking Confirmed',
       'description':
-          'Customer completed the down payment. Booking is now confirmed.',
+          booking.remainingBalance > 0 &&
+                  booking.downPaymentAmount > 0 &&
+                  booking.downPaymentAmount < booking.totalAmount
+              ? 'Customer completed the down payment. Booking is now confirmed.'
+              : 'Customer completed the full payment. Booking is now confirmed.',
       'createdBy': booking.customerId,
       'createdByRole': UserRoles.customer,
       'createdAt': now,
@@ -1892,9 +1903,16 @@ class FeastaRepository {
     if (providerOwnerId != null) {
       batch.set(notificationRef, {
         'userId': providerOwnerId,
-        'title': 'Down Payment Completed',
-        'message':
-            '${booking.customerFirstName} ${booking.customerLastName} completed the down payment.',
+        'title': booking.remainingBalance > 0 &&
+                booking.downPaymentAmount > 0 &&
+                booking.downPaymentAmount < booking.totalAmount
+            ? 'Down Payment Completed'
+            : 'Full Payment Completed',
+        'message': booking.remainingBalance > 0 &&
+                booking.downPaymentAmount > 0 &&
+                booking.downPaymentAmount < booking.totalAmount
+            ? '${booking.customerFirstName} ${booking.customerLastName} completed the down payment.'
+            : '${booking.customerFirstName} ${booking.customerLastName} completed the full payment.',
         'type': NotificationType.payment,
         'relatedId': booking.id,
         'relatedCollection': FirestoreCollections.mainEvents,
