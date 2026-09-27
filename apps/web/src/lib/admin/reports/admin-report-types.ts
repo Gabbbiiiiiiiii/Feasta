@@ -259,6 +259,15 @@ export type AdminReportResult = {
   bookings: AdminBookingPerformance;
   payments: AdminPaymentPerformance;
   providers: AdminProviderPerformance;
+
+  /*
+   * Trusted P12 financial projection.
+   *
+   * Optional only for compatibility with legacy serialized
+   * report snapshots. Newly generated reports always include it.
+   */
+  financial?: import("./admin-financial-report-types").AdminFinancialReport;
+
   definitions: AdminReportDefinition[];
 };
 
@@ -299,7 +308,7 @@ export const ADMIN_REPORT_DEFINITIONS: readonly AdminReportDefinition[] = [
     id: "platform_revenue",
     label: "FEASTA Platform Revenue",
     description:
-      "Not configured. FEASTA does not yet persist commission, processing-fee allocation, or provider-payout records.",
+      "Net FEASTA platform revenue is not derived automatically. The Financial Report section separately reports trusted commission movements, VAT movements, refunds, Provider earnings, settlement payouts, and observed gateway processing-fee evidence.",
   },
   {
     id: "payment_success_rate",

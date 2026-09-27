@@ -2,12 +2,15 @@
 
 import {
   getCustomerPaymentPage,
+  getCustomerPaymentReceipt,
   getCustomerPaymentReturnDetails,
+  isCustomerPaymentReceiptUnavailableError,
   isCustomerPaymentReturnUnavailableError,
 } from "@/lib/customer/payments/customer-payment-service";
 import type {
   CustomerPaymentFilters,
   CustomerPaymentPage,
+  CustomerPaymentReceiptLoadResult,
   CustomerPaymentReturnLoadResult,
   CustomerPaymentReturnLookup,
 } from "@/lib/customer/payments/customer-payment-types";
@@ -41,6 +44,35 @@ export async function loadCustomerPaymentReturnAction(
       )
     ) {
       return {status: "unavailable"};
+    }
+
+    throw error;
+  }
+}
+export async function loadCustomerPaymentReceiptAction(
+  paymentId: string,
+): Promise<CustomerPaymentReceiptLoadResult> {
+  await requireCustomer();
+
+  try {
+    return {
+      status: "ready",
+
+      receipt:
+        await getCustomerPaymentReceipt(
+          paymentId,
+        ),
+    };
+  } catch (error: unknown) {
+    if (
+      isCustomerPaymentReceiptUnavailableError(
+        error,
+      )
+    ) {
+      return {
+        status:
+          "unavailable",
+      };
     }
 
     throw error;

@@ -114,7 +114,7 @@ export function createAdminReportCsv(
     ["Awaiting webhook confirmation", String(report.payments.awaitingWebhookConfirmation.value)],
     ["Payment success rate", report.payments.paymentSuccessRate.formattedValue],
     ["Refund rate", report.payments.refundRate.formattedValue],
-    ["FEASTA platform revenue", "Not configured"],
+    ["Net FEASTA platform revenue", "Not derived automatically"],
     ["Platform revenue note", report.payments.platformRevenue.explanation],
   ]);
 
@@ -156,6 +156,114 @@ export function createAdminReportCsv(
     ]);
   }
 
+  section(rows, "FINANCIAL REPORT");
+
+  if (report.financial) {
+    const financial =
+      report.financial;
+
+    addRows(rows, [
+      ["Scope", financial.scopeNotice],
+      ["Customer gross collected (PHP)", centavos(financial.ledger.grossCollectedInCentavos)],
+      ["Completed refunds (PHP)", centavos(financial.ledger.completedRefundsInCentavos)],
+      ["Customer cash movement (PHP)", centavos(financial.ledger.customerCashMovementInCentavos)],
+      ["Commission accrued (PHP)", centavos(financial.ledger.commissionAccruedInCentavos)],
+      ["Commission reversed (PHP)", centavos(financial.ledger.commissionReversedInCentavos)],
+      ["Commission net movement (PHP)", centavos(financial.ledger.commissionNetMovementInCentavos)],
+      ["Provider VAT accrued (PHP)", centavos(financial.ledger.providerVatAccruedInCentavos)],
+      ["Provider VAT reversed (PHP)", centavos(financial.ledger.providerVatReversedInCentavos)],
+      ["FEASTA VAT accrued (PHP)", centavos(financial.ledger.platformVatAccruedInCentavos)],
+      ["FEASTA VAT reversed (PHP)", centavos(financial.ledger.platformVatReversedInCentavos)],
+      ["FEASTA VAT net movement (PHP)", centavos(financial.ledger.platformVatNetMovementInCentavos)],
+      ["Provider earning reversals (PHP)", centavos(financial.providerEarnings.reversedAmountInCentavos)],
+      ["Net Provider earnings (PHP)", centavos(financial.providerEarnings.netEarningInCentavos)],
+      ["Provider earnings pending (PHP)", centavos(financial.providerEarnings.pendingAmountInCentavos)],
+      ["Provider earnings available (PHP)", centavos(financial.providerEarnings.availableAmountInCentavos)],
+      ["Provider earning paid bucket (PHP)", centavos(financial.providerEarnings.paidAmountInCentavos)],
+      ["Confirmed settlement paid out (PHP)", centavos(financial.settlementPayouts.paidOutAmountInCentavos)],
+      ["Observed gateway processing fees (PHP)", centavos(financial.gatewayFees.observedFeeInCentavos)],
+      ["Gateway-fee evidence completeness", titleCase(financial.gatewayFees.evidenceCompleteness)],
+      ["Gateway-fee observed payments", String(financial.gatewayFees.observedCount)],
+      ["Gateway-fee unavailable payments", String(financial.gatewayFees.unavailableCount)],
+      ["Gateway-fee invalid payments", String(financial.gatewayFees.invalidCount)],
+      ["Net FEASTA platform revenue", "Not derived automatically"],
+      ["Gateway-fee note", financial.gatewayFeeNotice],
+      ["Record notice", financial.recordNotice],
+    ]);
+
+    rows.push([]);
+
+    rows.push([
+      "Ledger created",
+      "Entry type",
+      "Ledger entry ID",
+      "Payment ID",
+      "Provider ID",
+      "Gross (PHP)",
+      "Refund (PHP)",
+      "Commission accrued (PHP)",
+      "Commission reversed (PHP)",
+      "Provider VAT accrued (PHP)",
+      "Provider VAT reversed (PHP)",
+      "FEASTA VAT accrued (PHP)",
+      "FEASTA VAT reversed (PHP)",
+    ]);
+
+    for (
+      const row of
+        financial.ledgerRows
+    ) {
+      rows.push([
+        row.createdAt,
+        titleCase(row.entryType),
+        row.ledgerEntryId,
+        row.paymentId,
+        row.providerId,
+        centavos(row.grossAmountInCentavos),
+        centavos(row.refundAmountInCentavos),
+        centavos(row.commissionAccruedInCentavos),
+        centavos(row.commissionReversedInCentavos),
+        centavos(row.providerVatAccruedInCentavos),
+        centavos(row.providerVatReversedInCentavos),
+        centavos(row.platformVatAccruedInCentavos),
+        centavos(row.platformVatReversedInCentavos),
+      ]);
+    }
+
+    rows.push([]);
+
+    rows.push([
+      "Settlement paid out",
+      "Settlement ID",
+      "Earning ID",
+      "Payment ID",
+      "Provider ID",
+      "Status",
+      "Net settlement (PHP)",
+      "Paid out amount (PHP)",
+    ]);
+
+    for (
+      const row of
+        financial.settlementPayoutRows
+    ) {
+      rows.push([
+        row.paidOutAt,
+        row.settlementId,
+        row.earningId,
+        row.paymentId,
+        row.providerId,
+        titleCase(row.status),
+        centavos(row.netSettlementAmountInCentavos),
+        centavos(row.paidOutAmountInCentavos),
+      ]);
+    }
+  } else {
+    addRows(rows, [
+      ["Financial Report", "Unavailable in this legacy report snapshot"],
+      ["Net FEASTA platform revenue", "Not derived automatically"],
+    ]);
+  }
   section(rows, "PROVIDER PERFORMANCE");
   rows.push([
     "Provider ID",

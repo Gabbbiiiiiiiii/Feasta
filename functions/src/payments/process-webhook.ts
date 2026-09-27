@@ -811,6 +811,7 @@ export async function processPayMongoWebhook(
           nextStatus,
           event.gatewayResourceId,
           event.eventId,
+          event.gatewayFeeInCentavos,
           timestamp,
           payment,
         );
@@ -1283,6 +1284,8 @@ function createPaymentUpdate(
     >,
   gatewayResourceId: string,
   webhookEventId: string,
+  gatewayFeeInCentavos:
+    number | null,
   timestamp: ReturnType<
     typeof serverTimestamp
   >,
@@ -1305,6 +1308,40 @@ function createPaymentUpdate(
     update.paidAt = timestamp;
     update.failedAt = null;
     update.expiredAt = null;
+
+    /*
+     * P12 gateway processing-fee evidence.
+     *
+     * This is deliberately stored as evidence separate from
+     * FEASTA commission, VAT, Provider earnings, refunds,
+     * settlements, and payouts.
+     *
+     * Missing evidence remains explicit "unavailable" and is
+     * never fabricated as a zero fee.
+     */
+    update.gatewayProcessingFeeEvidence = {
+      schemaVersion: 1,
+
+      provider:
+        "paymongo",
+
+      source:
+        "paymongo_payment_resource",
+
+      status:
+        gatewayFeeInCentavos === null
+          ? "unavailable"
+          : "observed",
+
+      amountInCentavos:
+        gatewayFeeInCentavos,
+
+      currency:
+        "PHP",
+
+      recordedAt:
+        timestamp,
+    };
   } else if (status === "failed") {
     update.failedAt = timestamp;
   } else if (status === "expired") {

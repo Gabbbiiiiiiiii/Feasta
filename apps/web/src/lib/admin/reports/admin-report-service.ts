@@ -31,6 +31,10 @@ import {
   type AdminReportResolvedPeriod,
 } from "@/lib/admin/reports/admin-report-types";
 import {
+  getAdminFinancialReportForResolvedFilters,
+} from "@/lib/admin/reports/admin-financial-report-service";
+
+import {
   createAdminReportMetric,
   createAdminReportMoneyMetric,
   createAdminReportRateMetric,
@@ -138,10 +142,20 @@ export async function getAdminReport(
 async function queryAdminReport(
   filters: ReturnType<typeof resolveAdminReportFilters>,
 ): Promise<AdminReportResult> {
-  const source = await loadReportSource(
-    filters.period,
-    filters.comparisonPeriod,
-  );
+  const [
+    source,
+    financial,
+  ] =
+    await Promise.all([
+      loadReportSource(
+        filters.period,
+        filters.comparisonPeriod,
+      ),
+
+      getAdminFinancialReportForResolvedFilters(
+        filters,
+      ),
+    ]);
   const current = applyReportFilters(
     selectPeriod(source, filters.period),
     source.providers,
@@ -169,6 +183,7 @@ async function queryAdminReport(
       filters.grouping,
     ),
     providers: buildProviderPerformance(current, source.providers),
+    financial,
     definitions: [...ADMIN_REPORT_DEFINITIONS],
   };
 }
@@ -514,7 +529,7 @@ function buildPaymentPerformance(
       processingFeeInCentavos: null,
       netPlatformRevenueInCentavos: null,
       explanation:
-        "FEASTA does not yet persist commission, processing-fee allocation, or provider-payout records. These values cannot be calculated accurately.",
+        "Net FEASTA platform revenue is intentionally not derived automatically. See the Financial Report section for trusted commission and VAT movements, completed refunds, Provider earnings, settlement payouts, and gateway-fee evidence.",
     },
   };
 }

@@ -307,3 +307,29 @@ movement. `settlementTransportReady` remains a separate requirement.
 
 P11 does not enable PayMongo `/v2/batch_transfers` dispatch and does not add an
 Admin payout mutation interface.
+
+## P12 earnings statements and financial reporting
+
+The monthly Provider Earnings Statement is a bounded read-only projection. Its
+period boundaries use `Asia/Manila`. It shows Provider earning activity and
+refund reversals, supports print and CSV, and does not expose Admin-only or raw
+gateway evidence.
+
+Provider earning truth remains separate from settlement truth. A pending,
+available, paid, or reversed earning does not by itself assert settlement or
+payout transport state.
+
+The Admin Financial Report and Financial Export are also read-only projections.
+They report commission, Provider VAT, FEASTA VAT, reversals, refunds, Provider
+earnings, settlements, payout evidence, and gateway processing-fee evidence
+completeness. If gateway-fee evidence is incomplete, Net FEASTA platform revenue
+is not derived automatically.
+
+An observed gateway processing fee may legitimately be zero. Missing trusted
+evidence remains unavailable and never defaults to zero. Gateway processing
+fees remain separate from commission, VAT, Provider earnings, refund allocation,
+settlements, and payouts.
+
+Customer-paid truth is not Provider-paid truth. Refund truth is not payout
+truth. Settlement truth is not payout transport truth. Settlement transport
+continues to fail closed.

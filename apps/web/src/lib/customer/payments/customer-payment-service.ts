@@ -29,6 +29,7 @@ import type {
   CustomerPayment,
   CustomerPaymentFilters,
   CustomerPaymentPage,
+  CustomerPaymentReceipt,
   CustomerPaymentReturnDetails,
   CustomerPaymentReturnLookup,
   CustomerPaymentStatistics,
@@ -73,6 +74,22 @@ type PaymentRelations = {
   >;
 };
 
+export class CustomerPaymentReceiptUnavailableError extends Error {
+  constructor() {
+    super("Payment receipt unavailable");
+    this.name =
+      "CustomerPaymentReceiptUnavailableError";
+  }
+}
+
+export function isCustomerPaymentReceiptUnavailableError(
+  error: unknown,
+): error is CustomerPaymentReceiptUnavailableError {
+  return (
+    error instanceof
+      CustomerPaymentReceiptUnavailableError
+  );
+}
 export class CustomerPaymentReturnUnavailableError extends Error {
   constructor() {
     super("Payment return unavailable");
@@ -86,6 +103,308 @@ export function isCustomerPaymentReturnUnavailableError(
   return error instanceof CustomerPaymentReturnUnavailableError;
 }
 
+export async function getCustomerPaymentReceipt(
+  rawPaymentId: string,
+): Promise<CustomerPaymentReceipt> {
+  const customer =
+    await requireCustomer();
+
+  const paymentId =
+    stringValue(rawPaymentId);
+
+  if (
+    !SAFE_DOCUMENT_ID.test(
+      paymentId,
+    ) ||
+    paymentId.length < 8
+  ) {
+    throw new CustomerPaymentReceiptUnavailableError();
+  }
+
+  const paymentSnapshot =
+    await adminDb
+      .collection(
+        COLLECTIONS.payments,
+      )
+      .doc(paymentId)
+      .get();
+
+  if (!paymentSnapshot.exists) {
+    throw new CustomerPaymentReceiptUnavailableError();
+  }
+
+  const payment =
+    paymentSnapshot.data() ?? {};
+
+  const storedPaymentId =
+    stringValue(
+      payment.paymentId,
+    );
+
+  const bookingId =
+    stringValue(
+      payment.mainEventId,
+    ) ||
+    stringValue(
+      payment.bookingId,
+    );
+
+  const providerRequestId =
+    stringValue(
+      payment.providerRequestId,
+    );
+
+  const providerId =
+    stringValue(
+      payment.providerId,
+    );
+
+  if (
+    paymentSnapshot.id !==
+      paymentId ||
+    storedPaymentId !==
+      paymentId ||
+    payment.customerId !==
+      customer.uid ||
+    !bookingId ||
+    !providerRequestId ||
+    !providerId ||
+    payment.currency !==
+      "PHP"
+  ) {
+    throw new CustomerPaymentReceiptUnavailableError();
+  }
+
+  const status =
+    customerPaymentReceiptStatus(
+      payment.status,
+    );
+
+  const paymentType =
+    strictPaymentType(
+      payment.paymentType,
+    );
+
+  const gateway =
+    strictPaymentGateway(
+      payment.gateway,
+    );
+
+  const amountPaidInCentavos =
+    positiveCentavos(
+      payment.amountInCentavos,
+    );
+
+  if (
+    !status ||
+    !paymentType ||
+    !gateway ||
+    amountPaidInCentavos ===
+      null
+  ) {
+    throw new CustomerPaymentReceiptUnavailableError();
+  }
+
+  const [
+    providerRequestSnapshot,
+    bookingSnapshot,
+    providerSnapshot,
+  ] =
+    await adminDb.getAll(
+      adminDb
+        .collection(
+          COLLECTIONS.providerRequests,
+        )
+        .doc(
+          providerRequestId,
+        ),
+
+      adminDb
+        .collection(
+          COLLECTIONS.mainEvents,
+        )
+        .doc(
+          bookingId,
+        ),
+
+      adminDb
+        .collection(
+          COLLECTIONS.providers,
+        )
+        .doc(
+          providerId,
+        ),
+    );
+
+  if (
+    !providerRequestSnapshot.exists ||
+    !bookingSnapshot.exists ||
+    !providerSnapshot.exists
+  ) {
+    throw new CustomerPaymentReceiptUnavailableError();
+  }
+
+  const providerRequest =
+    providerRequestSnapshot.data() ?? {};
+
+  const booking =
+    bookingSnapshot.data() ?? {};
+
+  const provider =
+    providerSnapshot.data() ?? {};
+
+  if (
+    providerRequestSnapshot.id !==
+      providerRequestId ||
+    providerRequest
+      .providerRequestId !==
+      providerRequestId ||
+    providerRequest
+      .mainEventId !==
+      bookingId ||
+    providerRequest
+      .bookingId !==
+      bookingId ||
+    providerRequest
+      .customerId !==
+      customer.uid ||
+    providerRequest
+      .providerId !==
+      providerId ||
+    !providerRequestContainsPayment(
+      providerRequest,
+      paymentId,
+    ) ||
+    bookingSnapshot.id !==
+      bookingId ||
+    booking.mainEventId !==
+      bookingId ||
+    booking.bookingId !==
+      bookingId ||
+    booking.customerId !==
+      customer.uid ||
+    !Array.isArray(
+      booking.providerRequestIds,
+    ) ||
+    !booking
+      .providerRequestIds
+      .includes(
+        providerRequestId,
+      ) ||
+    providerSnapshot.id !==
+      providerId
+  ) {
+    throw new CustomerPaymentReceiptUnavailableError();
+  }
+
+  const refundedAmountInCentavos =
+    customerReceiptRefundedAmount({
+      payment,
+      status,
+      amountPaidInCentavos,
+    });
+
+  if (
+    refundedAmountInCentavos ===
+      null
+  ) {
+    throw new CustomerPaymentReceiptUnavailableError();
+  }
+
+  const netPaidInCentavos =
+    amountPaidInCentavos -
+    refundedAmountInCentavos;
+
+  const services =
+    returnServiceSummary(
+      providerRequest.services,
+    );
+
+  return {
+    documentKind:
+      "payment_receipt",
+
+    paymentId,
+
+    bookingId,
+
+    bookingCode:
+      nullableString(
+        booking.bookingCode,
+      ),
+
+    providerRequestId,
+    providerId,
+
+    providerName:
+      boundedText(
+        providerRequest
+          .providerBusinessName ||
+          provider.businessName,
+        "Provider unavailable",
+        120,
+      ),
+
+    serviceLabel:
+      services.names.length > 0
+        ? services.names.join(", ")
+        : boundedText(
+            providerRequest
+              .packageName,
+            "Event service",
+            160,
+          ),
+
+    paymentChoice:
+      parseCustomerPaymentChoice(
+        payment.paymentChoice,
+      ),
+
+    paymentType,
+    gateway,
+    status,
+
+    currency:
+      "PHP",
+
+    amountPaidInCentavos,
+
+    amountPaidFormatted:
+      formatCentavos(
+        amountPaidInCentavos,
+        "PHP",
+      ),
+
+    refundedAmountInCentavos,
+
+    refundedAmountFormatted:
+      formatCentavos(
+        refundedAmountInCentavos,
+        "PHP",
+      ),
+
+    netPaidInCentavos,
+
+    netPaidFormatted:
+      formatCentavos(
+        netPaidInCentavos,
+        "PHP",
+      ),
+
+    paidAt:
+      isoDateValue(
+        payment.paidAt,
+      ),
+
+    refundedAt:
+      isoDateValue(
+        payment.refundedAt,
+      ),
+
+    recordNotice:
+      "This Payment Receipt is a FEASTA platform payment record for the transaction shown. It is not a statutory fiscal document.",
+  };
+}
 export async function getCustomerPaymentReturnDetails(
   input: CustomerPaymentReturnLookup,
 ): Promise<CustomerPaymentReturnDetails> {
@@ -640,6 +959,10 @@ function mapPaymentDocument(
   customerId: string,
 ): CustomerPayment {
   const data = document.data() ?? {};
+
+  const canonicalPaymentId =
+    stringValue(data.paymentId) ||
+    document.id;
   const bookingId =
     stringValue(data.mainEventId) || stringValue(data.bookingId);
   const providerRequestId = stringValue(data.providerRequestId);
@@ -666,9 +989,58 @@ function mapPaymentDocument(
         relations.bookingProviderRequests.get(bookingId) ?? [],
     });
 
+  const receiptStatus =
+    customerPaymentReceiptStatus(
+      status,
+    );
+
+  const receiptRefundedAmount =
+    receiptStatus &&
+    currency === "PHP"
+      ? customerReceiptRefundedAmount({
+          payment: data,
+          status: receiptStatus,
+          amountPaidInCentavos:
+            amountInCentavos,
+        })
+      : null;
+
+  const receiptProjectionValid =
+    canonicalPaymentId === document.id &&
+    ownsRequest &&
+    providerRequestData.providerRequestId === providerRequestId &&
+    providerRequestData.mainEventId === bookingId &&
+    providerRequestData.providerId === providerId &&
+    providerRequestContainsPayment(
+      providerRequestData,
+      canonicalPaymentId,
+    ) &&
+    bookingData.customerId === customerId &&
+    Array.isArray(
+      bookingData.providerRequestIds,
+    ) &&
+    bookingData.providerRequestIds.includes(
+      providerRequestId,
+    );
+
+  const canViewReceipt =
+    receiptStatus !== null &&
+    receiptRefundedAmount !== null &&
+    receiptProjectionValid;
+
+  const refundedAmountInCentavos =
+    canViewReceipt
+      ? receiptRefundedAmount
+      : 0;
+
+  const netPaidInCentavos =
+    canViewReceipt
+      ? amountInCentavos -
+        refundedAmountInCentavos
+      : 0;
   return {
     id: document.id,
-    paymentId: stringValue(data.paymentId) || document.id,
+    paymentId: canonicalPaymentId,
     bookingId,
     bookingCode: nullableString(bookingData.bookingCode),
     providerRequestId,
@@ -692,6 +1064,24 @@ function mapPaymentDocument(
       providerRequestData.paymentId === document.id &&
       customerBookingCheckoutOptions(providerRequestId, providerRequestData, bookingData.status)
         .some((option) => option.choice === paymentChoice && Math.round(option.amount * 100) === amountInCentavos),
+    refundedAmountInCentavos,
+
+    formattedRefundedAmount:
+      formatCentavos(
+        refundedAmountInCentavos,
+        currency,
+      ),
+
+    netPaidInCentavos,
+
+    formattedNetPaid:
+      formatCentavos(
+        netPaidInCentavos,
+        currency,
+      ),
+
+    canViewReceipt,
+
     createdAt: isoDateValue(data.createdAt),
     updatedAt: isoDateValue(data.updatedAt),
     paidAt: isoDateValue(data.paidAt),
@@ -742,6 +1132,170 @@ function decodeCursor(value: string | null): PaymentCursor | null {
   }
 }
 
+function customerPaymentReceiptStatus(
+  value: unknown,
+):
+  | "paid"
+  | "partially_refunded"
+  | "refunded"
+  | null {
+  const status =
+    strictPaymentStatus(
+      value,
+    );
+
+  return (
+    status === "paid" ||
+    status ===
+      "partially_refunded" ||
+    status === "refunded"
+  )
+    ? status
+    : null;
+}
+
+function strictPaymentType(
+  value: unknown,
+): PaymentType | null {
+  const normalized =
+    stringValue(
+      value,
+    ).toLowerCase();
+
+  return (
+    PAYMENT_TYPES as
+      readonly string[]
+  ).includes(
+    normalized,
+  )
+    ? normalized as PaymentType
+    : null;
+}
+
+function strictPaymentGateway(
+  value: unknown,
+): PaymentGateway | null {
+  const normalized =
+    stringValue(
+      value,
+    ).toLowerCase();
+
+  return (
+    PAYMENT_GATEWAYS as
+      readonly string[]
+  ).includes(
+    normalized,
+  )
+    ? normalized as PaymentGateway
+    : null;
+}
+
+function providerRequestContainsPayment(
+  providerRequest:
+    DocumentData,
+  paymentId:
+    string,
+): boolean {
+  const paymentIds =
+    new Set(
+      [
+        providerRequest.paymentId,
+        providerRequest.initialPaymentId,
+        providerRequest.remainingBalancePaymentId,
+      ]
+        .map(
+          stringValue,
+        )
+        .filter(
+          Boolean,
+        ),
+    );
+
+  return paymentIds.has(
+    paymentId,
+  );
+}
+
+function customerReceiptRefundedAmount(
+  input: {
+    payment:
+      DocumentData;
+
+    status:
+      | "paid"
+      | "partially_refunded"
+      | "refunded";
+
+    amountPaidInCentavos:
+      number;
+  },
+): number | null {
+  const stored =
+    input.payment
+      .refundedAmountInCentavos;
+
+  const canonical =
+    Number.isSafeInteger(
+      stored,
+    ) &&
+    (stored as number) >= 0 &&
+    (stored as number) <=
+      input.amountPaidInCentavos
+      ? stored as number
+      : null;
+
+  if (
+    input.status === "paid"
+  ) {
+    return (
+      canonical === null ||
+      canonical === 0
+    )
+      ? 0
+      : null;
+  }
+
+  if (
+    input.status ===
+      "partially_refunded"
+  ) {
+    return (
+      canonical !== null &&
+      canonical > 0 &&
+      canonical <
+        input.amountPaidInCentavos
+    )
+      ? canonical
+      : null;
+  }
+
+  /*
+   * Canonical full refund:
+   * completed refund accounting equals the
+   * historically settled payment amount.
+   */
+  if (
+    canonical !== null
+  ) {
+    return (
+      canonical ===
+        input.amountPaidInCentavos
+    )
+      ? canonical
+      : null;
+  }
+
+  /*
+   * Legacy FEASTA full-refund records predate
+   * canonical refund-accounting fields.
+   *
+   * A trusted terminal "refunded" payment is
+   * represented as a complete refund rather
+   * than fabricating partial-refund money.
+   */
+  return input
+    .amountPaidInCentavos;
+}
 function normalizePaymentStatus(value: unknown): PaymentStatus {
   const normalized = stringValue(value).toLowerCase();
 

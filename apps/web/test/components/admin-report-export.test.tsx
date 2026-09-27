@@ -26,7 +26,13 @@ describe("admin report CSV export", () => {
     expect(exported.content).toContain('"Reporting period","Jul 3, 2026 – Aug 1, 2026"');
     expect(exported.content).toContain('"Data source","Authorized server-generated bounded operational data"');
     expect(exported.content).toContain('"Provider-associated volume (PHP)","100.00"');
-    expect(exported.content).toContain('"FEASTA platform revenue","Not configured"');
+    expect(exported.content).toContain(
+      '"Net FEASTA platform revenue","Not derived automatically"',
+    );
+
+    expect(exported.content).not.toContain(
+      '"FEASTA platform revenue","Not configured"',
+    );
     expect(exported.content).not.toContain('"FEASTA revenue (PHP)"');
   });
 

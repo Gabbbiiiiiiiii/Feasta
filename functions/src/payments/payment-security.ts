@@ -22,6 +22,14 @@ export type GatewayPaymentEvidence = {
   id: string;
   paymentIntentId: string | null;
   gatewayPaidAtMs: number | null;
+
+  /*
+   * Gateway-observed PayMongo processing fee.
+   *
+   * null means the trusted payment resource did not expose
+   * fee evidence. null must never be interpreted as zero.
+   */
+  gatewayFeeInCentavos: number | null;
 };
 
 export type PayMongoPaymentEvent = {
@@ -38,6 +46,16 @@ export type PayMongoPaymentEvent = {
   paymentIds: string[];
   paymentIntentIds: string[];
   successfulPayments: GatewayPaymentEvidence[];
+
+  /*
+   * Processing-fee evidence from the gateway payment resource
+   * selected as the authoritative successful payment.
+   *
+   * This is informational gateway evidence only. It is not
+   * commission, VAT, Provider earning, refund, or payout
+   * authority.
+   */
+  gatewayFeeInCentavos: number | null;
 };
 
 export type PayMongoRefundEvent = {
@@ -203,6 +221,10 @@ export function parsePayMongoWebhookEvent(
 
   let currencyValue = attributes.currency;
   const successfulPayments: GatewayPaymentEvidence[] = [];
+
+  let gatewayFeeInCentavos:
+    number | null = null;
+
   const paymentIds = new Set<string>();
   const paymentIntentIds = new Set<string>();
   if (resourceType === "payment") paymentIds.add(gatewayResourceId);
@@ -240,8 +262,25 @@ export function parsePayMongoWebhookEvent(
           data.currency !== currencyValue) {
           throw new Error("Checkout payment relationship is invalid.");
         }
-        successfulPayments.push(paymentEvidence(value.id, data));
+        successfulPayments.push(
+          paymentEvidence(
+            value.id,
+            data,
+          ),
+        );
       }
+
+      const selectedPaymentEvidence =
+        successfulPayments.find(
+          (payment) =>
+            payment.id ===
+            gatewayResourceId,
+        );
+
+      gatewayFeeInCentavos =
+        selectedPaymentEvidence
+          ?.gatewayFeeInCentavos ??
+        null;
     } else if (amountInCentavos === undefined && currencyValue === undefined &&
       intent.attributes !== undefined) {
       // Preserve resource-level amount/currency for non-success notifications.
@@ -254,7 +293,18 @@ export function parsePayMongoWebhookEvent(
     if (attributes.status !== undefined && attributes.status !== "paid") {
       throw new Error("Payment success status is invalid.");
     }
-    successfulPayments.push(paymentEvidence(resource.id, attributes));
+    const evidence =
+      paymentEvidence(
+        resource.id,
+        attributes,
+      );
+
+    successfulPayments.push(
+      evidence,
+    );
+
+    gatewayFeeInCentavos =
+      evidence.gatewayFeeInCentavos;
   }
   const currency = requireString(currencyValue, "currency").toUpperCase();
 
@@ -285,6 +335,7 @@ export function parsePayMongoWebhookEvent(
     paymentIds: [...paymentIds],
     paymentIntentIds: [...paymentIntentIds],
     successfulPayments,
+    gatewayFeeInCentavos,
   };
 }
 
@@ -295,11 +346,63 @@ function optionalGatewayId(value: unknown): string | null {
   return id;
 }
 
-function paymentEvidence(id: unknown, data: Record<string, unknown>): GatewayPaymentEvidence {
-  const paymentId = optionalGatewayId(id);
-  if (!paymentId?.startsWith("pay_")) throw new Error("Invalid gateway payment id.");
-  return {id: paymentId, paymentIntentId: optionalGatewayId(data.payment_intent_id),
-    gatewayPaidAtMs: gatewayPaidAtMillis(data.paid_at)};
+function paymentEvidence(
+  id: unknown,
+  data: Record<string, unknown>,
+): GatewayPaymentEvidence {
+  const paymentId =
+    optionalGatewayId(id);
+
+  if (
+    !paymentId?.startsWith("pay_")
+  ) {
+    throw new Error(
+      "Invalid gateway payment id.",
+    );
+  }
+
+  return {
+    id:
+      paymentId,
+
+    paymentIntentId:
+      optionalGatewayId(
+        data.payment_intent_id,
+      ),
+
+    gatewayPaidAtMs:
+      gatewayPaidAtMillis(
+        data.paid_at,
+      ),
+
+    gatewayFeeInCentavos:
+      optionalGatewayFeeInCentavos(
+        data.fee,
+      ),
+  };
+}
+
+function optionalGatewayFeeInCentavos(
+  value: unknown,
+): number | null {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return null;
+  }
+
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 0
+  ) {
+    throw new Error(
+      "Gateway payment fee is invalid.",
+    );
+  }
+
+  return value;
 }
 
 export function statusForPayMongoEvent(

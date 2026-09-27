@@ -32,6 +32,20 @@ export type CustomerPayment = {
 
   canStartCheckout: boolean;
 
+  /*
+   * Customer-safe refund projection.
+   *
+   * These values are derived from trusted backend payment
+   * and refund accounting. They are display-only.
+   */
+  refundedAmountInCentavos: number;
+  formattedRefundedAmount: string;
+
+  netPaidInCentavos: number;
+  formattedNetPaid: string;
+
+  canViewReceipt: boolean;
+
   createdAt: string | null;
   updatedAt: string | null;
   paidAt: string | null;
@@ -68,6 +82,79 @@ export type CustomerPaymentPage = {
   hasMore: boolean;
 };
 
+
+export type CustomerPaymentReceiptStatus =
+  | "paid"
+  | "partially_refunded"
+  | "refunded";
+
+export type CustomerPaymentReceipt = {
+  documentKind:
+    "payment_receipt";
+
+  paymentId: string;
+
+  bookingId: string;
+  bookingCode: string | null;
+
+  providerRequestId: string;
+  providerId: string;
+  providerName: string;
+
+  serviceLabel: string;
+
+  paymentChoice:
+    CustomerPaymentChoice | null;
+
+  paymentType:
+    PaymentType;
+
+  gateway:
+    PaymentGateway;
+
+  status:
+    CustomerPaymentReceiptStatus;
+
+  currency:
+    "PHP";
+
+  amountPaidInCentavos:
+    number;
+
+  amountPaidFormatted:
+    string;
+
+  refundedAmountInCentavos:
+    number;
+
+  refundedAmountFormatted:
+    string;
+
+  netPaidInCentavos:
+    number;
+
+  netPaidFormatted:
+    string;
+
+  paidAt:
+    string | null;
+
+  refundedAt:
+    string | null;
+
+  recordNotice:
+    string;
+};
+
+export type CustomerPaymentReceiptLoadResult =
+  | {
+      status: "ready";
+      receipt:
+        CustomerPaymentReceipt;
+    }
+  | {
+      status: "unavailable";
+    };
 export type CreateCustomerPaymentSessionInput = {
   providerRequestId: string;
   paymentChoice: CustomerPaymentChoice;

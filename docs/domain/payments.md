@@ -20,10 +20,11 @@ The exact payment lifecycle is:
 | `processing` | `paid`, `failed`, `expired` |
 | `failed` | `processing` |
 | `expired` | `processing` |
-| `paid` | `refunded` |
+| `paid` | `partially_refunded`, `refunded` |
+| `partially_refunded` | `refunded` |
 | `refunded` | none |
 
-`pending ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ paid` is allowed because a fast webhook can arrive before the
+`pending` to `paid` is allowed because a fast webhook can arrive before the
 checkout-creation transaction records `processing`. No transition may move a
 confirmed payment back to a failed or processing state.
 
@@ -80,7 +81,7 @@ full PayMongo error payloads are not stored or logged.
 `requestPaymentRefund` requires an active admin, App Check, a paid payment, and
 a gateway payment ID. It requests the refund using the backend secret but does
 not mark the payment refunded. Only a signed `payment.refunded` webhook performs
-`paid ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ refunded`. The refund request and confirmed state change are both
+the legacy full-refund confirmation. The refund request and confirmed state change are both
 audited.
 
 Policy-backed cancellation refunds use
@@ -97,6 +98,13 @@ trusted payment evidence identifies `card` or `gcash`; unknown methods and
 webhook parser does not yet capture authoritative payment-method evidence, so
 legacy/current unknown-method partial refunds remain blocked. This is a
 production rollout blocker, not a client decision.
+
+A payment may contain multiple completed refund operations. Cumulative completed
+amounts move `paid` to `partially_refunded` and finally to `refunded`. Each
+completed operation creates separate immutable reversal evidence for commission,
+Provider VAT, FEASTA VAT, and Provider earning. Refund and payout reservations
+exclude each other before external money movement. Refund truth does not imply
+payout truth.
 
 ## Cancellation/refund rollout
 
@@ -268,3 +276,27 @@ funds.
 
 Settlement transport remains fail-closed and the current implementation does
 not dispatch PayMongo batch transfers.
+
+## P12 gateway-fee evidence and read-only reporting
+
+Trusted PayMongo evidence may establish an observed gateway processing fee,
+including a legitimate zero-centavo fee. Missing evidence remains null, absent,
+or unavailable and is never defaulted to zero. Gateway processing fees remain
+separate from commission, Provider VAT, FEASTA VAT, Provider earning, refund
+allocation, settlement, and payout calculations.
+
+Customer Payment History and the protected Payment Receipt route use bounded
+server-authorized projections and expose partial/full refund history without
+Provider or internal finance evidence. The receipt is printable.
+
+The monthly Provider Earnings Statement uses `Asia/Manila` periods and exposes
+earning and refund-reversal evidence through read-only print and CSV views.
+Provider earning truth remains separate from settlement truth.
+
+The read-only Admin Financial Report and Financial Export cover commission, VAT,
+reversals, refunds, Provider earnings, settlements, and gateway-fee evidence
+completeness. If gateway-fee evidence is incomplete, Net FEASTA platform revenue
+is not derived automatically.
+
+Customer-paid truth is not Provider-paid truth. Settlement truth is not payout
+transport truth, and transport remains fail-closed.

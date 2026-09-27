@@ -86,8 +86,21 @@ describe("admin reports integration", () => {
     expect(screen.getByText("Booking performance test section")).toBeInTheDocument();
     expect(screen.getByText("Payment performance test section")).toBeInTheDocument();
     expect(screen.getByText("Provider performance test section")).toBeInTheDocument();
-    expect(screen.getByRole("heading", {name: "FEASTA platform revenue"})).toBeInTheDocument();
-    expect(screen.getByText("Not configured", {selector: "p"})).toBeInTheDocument();
+    expect(
+      screen.getByRole(
+        "heading",
+        {
+          name:
+            "Financial Report",
+        },
+      ),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.queryByText(
+        "Not configured",
+      ),
+    ).not.toBeInTheDocument();
   });
 
   it(

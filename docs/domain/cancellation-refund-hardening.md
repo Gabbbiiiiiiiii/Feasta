@@ -71,3 +71,28 @@ raw payloads, or secrets and cannot mutate money.
   `GATEWAY_MINIMUM_UNSUPPORTED`, `REFUND_RECONCILIATION_REQUIRED`, webhook
   rejection reason codes, and nonzero reserved refund totals older than the
   operational settlement window.
+
+## P12 accounting and reporting boundary
+
+A payment may have multiple refund operations. Completed partial refunds move
+the canonical payment to `partially_refunded`; cumulative completion of the full
+paid amount moves it to `refunded`. Each completed refund retains immutable,
+operation-specific commission, Provider VAT, FEASTA VAT, and Provider earning
+reversal evidence. Refund and payout reservations continue to exclude each other
+before external money movement.
+
+Gateway processing-fee evidence is independent of refund allocation. Trusted
+evidence may record an observed zero fee, but missing evidence remains null,
+absent, or unavailable and must never become zero. Gateway fees do not
+participate in commission, VAT, Provider earning, refund allocation, settlement,
+or payout calculations.
+
+Customers receive only bounded refund history through Payment History and the
+protected Payment Receipt route. Providers receive bounded reversals through the
+read-only Provider Earnings Statement. Admins receive read-only Financial Report
+and Financial Export projections. None of those surfaces can approve, execute,
+or reconcile refunds or mutate payout state.
+
+Refund truth is not payout truth. Provider earning truth is not settlement
+truth, settlement truth is not payout transport truth, and settlement transport
+remains fail-closed.

@@ -936,3 +936,69 @@ textarea::placeholder {
     text-decoration: none !important;
   }
 }
+
+@media print {
+  [data-payment-receipt] {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    border: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  [data-payment-receipt] header,
+  [data-payment-receipt] section,
+  [data-payment-receipt] footer,
+  [data-payment-receipt] dl {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  [data-payment-receipt] * {
+    box-shadow: none !important;
+  }
+}
+/* ==========================================================================
+   PROVIDER EARNINGS STATEMENT PRINTING
+   ========================================================================== */
+
+@media print {
+  body:has([data-provider-earnings-statement]) * {
+    visibility: hidden !important;
+  }
+
+  body:has([data-provider-earnings-statement])
+    [data-provider-earnings-statement],
+  body:has([data-provider-earnings-statement])
+    [data-provider-earnings-statement] * {
+    visibility: visible !important;
+  }
+
+  body:has([data-provider-earnings-statement])
+    [data-provider-earnings-statement] {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+
+    width: 100% !important;
+    max-width: none !important;
+
+    border: 0 !important;
+    background: #ffffff !important;
+
+    box-shadow: none !important;
+  }
+
+  body:has([data-provider-earnings-statement])
+    [data-provider-earnings-statement] header,
+  body:has([data-provider-earnings-statement])
+    [data-provider-earnings-statement] section,
+  body:has([data-provider-earnings-statement])
+    [data-provider-earnings-statement] footer,
+  body:has([data-provider-earnings-statement])
+    [data-provider-earnings-statement] tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}

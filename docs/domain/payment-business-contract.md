@@ -86,6 +86,15 @@ Gateway processing fees remain separate from:
 - refunds; and
 - payouts.
 
+Only trusted PayMongo evidence may establish an observed gateway processing
+fee. An observed fee may legitimately be zero. If that evidence is missing, the
+fee remains null, absent, or unavailable; missing evidence must never default to
+zero.
+
+Gateway processing fees do not participate in canonical commission, Provider
+VAT, FEASTA VAT, Provider earning, refund allocation, settlement, or payout
+calculations.
+
 ## Provider settlement
 
 Customer collection and provider settlement are separate financial concepts.
@@ -156,3 +165,25 @@ Withholding must remain separate from generic fees, VAT and commission.
   verification.
 - Commission, VAT, gateway fee, withholding, provider earnings, refunds and
   payouts remain separate auditable financial concepts.
+
+## P12 receipts, statements, and reports
+
+- Customers receive a protected, server-authorized Payment Receipt with
+  partial/full refund history and a printable view. It excludes Provider and
+  internal finance evidence.
+- Providers receive a monthly Provider Earnings Statement using `Asia/Manila`
+  periods, refund reversals, print, and CSV.
+- Admins receive a read-only Financial Report and Financial Export covering
+  commission, VAT, reversals, refunds, Provider earnings, settlements, and
+  gateway-fee evidence completeness.
+- Incomplete gateway-fee evidence means Net FEASTA platform revenue is not
+  derived automatically.
+
+FEASTA-generated documents use those descriptive labels. FEASTA does not
+present them as an Official Receipt, Official Invoice, Sales Invoice, BIR
+Invoice, or Tax Invoice.
+
+Customer-paid truth is not Provider-paid truth. Refund truth is not payout
+truth. Provider earning truth is not settlement truth, and settlement truth is
+not payout transport truth. Settlement transport remains fail-closed until
+explicitly verified by trusted server policy.

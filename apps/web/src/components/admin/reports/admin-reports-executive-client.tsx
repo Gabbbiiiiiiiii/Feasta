@@ -19,6 +19,10 @@ import {
   loadAdminReportAction,
 } from "@/app/admin/reports/actions";
 import {
+  AdminFinancialReportSummary,
+} from "@/components/admin/reports/admin-financial-report-summary";
+
+import {
   AdminPaymentPerformance,
 } from "@/components/admin/reports/admin-payment-performance";
 import {
@@ -203,7 +207,7 @@ export function AdminReportsExecutiveClient({
         <PageHeading
           eyebrow="Administration"
           title="Reports and Insights"
-          description="Review booking activity, provider participation, and provider-associated payment volume using bounded operational data."
+          description="Review booking activity, provider participation, payment performance, and trusted financial movements using bounded administrative data."
         />
         <div className="grid w-full shrink-0 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
             <Button
@@ -444,33 +448,12 @@ export function AdminReportsExecutiveClient({
           serviceCategoryOptions={serviceCategoryOptions}
         />
 
-      <section className="grid gap-4 lg:grid-cols-2" aria-label="Financial interpretation">
-        <article className="rounded-card border border-border bg-card p-5 shadow-card">
-          <h2 className="text-lg font-bold">Provider-associated payments</h2>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Customer payments are associated with provider services. Confirmed Payment Volume does not represent FEASTA-owned revenue and does not deduct a provider payout or platform commission.
-          </p>
-          <dl className="mt-4 grid gap-3 sm:grid-cols-2">
-            <FinancialDetail
-              label="Confirmed payment volume"
-              value={report.payments.confirmedPaymentVolume.formattedValue}
-            />
-            <FinancialDetail
-              label="Provider-associated volume"
-              value={report.payments.providerAssociatedVolume.formattedValue}
-            />
-          </dl>
-        </article>
-        <article className="rounded-card border border-warning/40 bg-warning/10 p-5 shadow-card">
-          <h2 className="text-lg font-bold">FEASTA platform revenue</h2>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            {report.payments.platformRevenue.explanation}
-          </p>
-          <p className="mt-4 inline-flex rounded-full border border-warning/50 bg-card px-3 py-1 text-sm font-bold">
-            Not configured
-          </p>
-        </article>
-      </section>
+      <AdminFinancialReportSummary
+        report={report.financial}
+        fallbackExplanation={
+          report.payments.platformRevenue.explanation
+        }
+      />
 
       <section
         aria-labelledby="metric-definitions-heading"
@@ -600,15 +583,6 @@ function ReportDateInput({
         onChange={(event) => onChange(event.target.value)}
         className="min-h-12 w-full rounded-lg border border-input bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
       />
-    </div>
-  );
-}
-
-function FinancialDetail({label, value}: {label: string; value: string}) {
-  return (
-    <div className="rounded-lg border border-border bg-background p-3">
-      <dt className="text-xs font-semibold text-muted-foreground">{label}</dt>
-      <dd className="mt-1 text-lg font-black">{value}</dd>
     </div>
   );
 }

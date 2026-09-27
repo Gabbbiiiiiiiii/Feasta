@@ -7,10 +7,12 @@ import {
   CircleOff,
   Clock3,
   ExternalLink,
+  FileText,
   RefreshCw,
   RotateCcw,
   WalletCards,
 } from "lucide-react";
+import Link from "next/link";
 import {useState} from "react";
 
 import {SummaryCard} from "@/components/data";
@@ -275,6 +277,22 @@ export function ProviderFinancePanel({
             and applicable withholding. Provider VAT remains part of the provider
             service gross and is not deducted again here.
           </p>
+        </div>
+
+        <div className="flex justify-end">
+          <Button
+            asChild
+            variant="secondary"
+            size="compact"
+          >
+            <Link href="/provider/payments/statements">
+              <FileText
+                aria-hidden="true"
+                className="size-4"
+              />
+              View earnings statement
+            </Link>
+          </Button>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

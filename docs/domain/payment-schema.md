@@ -157,3 +157,37 @@ A later Admin financial-policy update must not recalculate:
 - Provider earnings;
 - Provider settlement; or
 - payout-attempt evidence.
+
+## P12 refund, gateway-fee, receipt, and reporting schema
+
+### Payment refund accounting
+
+One payment may have multiple `payments/{paymentId}/refunds/{refundOperationId}`
+records. Canonical payment status includes `partially_refunded` and `refunded`,
+and cumulative completed refund amounts determine the transition between them.
+Each completed operation retains its own immutable ledger reversal evidence.
+
+Refund reversals separately track commission, Provider VAT, FEASTA VAT, and
+Provider earning amounts. Gateway processing fees are not part of those
+reversal allocations and do not participate in canonical commission, VAT,
+Provider earning, refund allocation, settlement, or payout calculations.
+
+### Gateway processing-fee evidence
+
+Trusted PayMongo webhook evidence may record an observed gateway processing fee.
+An observed fee of zero centavos is valid evidence. Missing or untrusted evidence
+remains null, absent, or unavailable and must never be normalized to zero.
+
+### Read-only projections
+
+- Customer Payment History and the protected Payment Receipt route expose only
+  Customer-safe, server-authorized payment and refund evidence.
+- The monthly Provider Earnings Statement uses `Asia/Manila` periods and keeps
+  earning state separate from settlement and payout state.
+- The Admin Financial Report and Financial Export expose bounded commission,
+  VAT, reversal, refund, Provider earning, settlement, and gateway-fee evidence.
+  When gateway-fee evidence is incomplete, Net FEASTA platform revenue is not
+  derived automatically.
+
+These projections do not mutate payments, refund operations, ledger entries,
+Provider earnings, settlements, or payout attempts.

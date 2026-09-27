@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import {Banknote, CircleCheckBig, Clock3, CreditCard, ReceiptText} from "lucide-react";
 import {useCallback, useEffect, useMemo, useRef, useState, useTransition} from "react";
 
@@ -303,7 +305,7 @@ export function CustomerPaymentsClient({
       <PageHeading
         eyebrow="My payments"
         title="Payments"
-        description="Track booking payments and continue a secure PayMongo checkout when payment is due."
+        description="Track booking payments, refunds, and payment receipts, or continue secure PayMongo checkout when payment is due."
       />
 
       {paymentReturnKind ? (
@@ -346,6 +348,7 @@ export function CustomerPaymentsClient({
               <option value="pending">Pending</option>
               <option value="processing">Processing</option>
               <option value="paid">Paid</option>
+              <option value="partially_refunded">Partially refunded</option>
               <option value="failed">Failed</option>
               <option value="expired">Expired</option>
               <option value="refunded">Refunded</option>
@@ -417,13 +420,61 @@ function PaymentCard({payment, disabled, onCheckout}: {
           {payment.refundedAt ? (
             <PaymentDetail label="Refunded" value={formatDate(payment.refundedAt)} />
           ) : null}
+          {payment.status === "partially_refunded" ||
+          payment.status === "refunded" ? (
+            <>
+              <PaymentDetail
+                label="Refunded amount"
+                value={payment.formattedRefundedAmount}
+                strong
+              />
+
+              <PaymentDetail
+                label="Net paid after refund"
+                value={payment.formattedNetPaid}
+                strong
+              />
+            </>
+          ) : null}
         </dl>
       </div>
-      {payment.canStartCheckout ? (
-        <Button className="w-full lg:w-auto" disabled={disabled} onClick={() => onCheckout(payment)}>
-          <CreditCard aria-hidden="true" className="size-5" />
-          Pay now
-        </Button>
+      {payment.canStartCheckout ||
+      payment.canViewReceipt ? (
+        <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap lg:justify-end">
+          {payment.canViewReceipt ? (
+            <Button
+              asChild
+              variant="secondary"
+              className="w-full sm:w-auto"
+            >
+              <Link
+                href={`/customer/payments/${encodeURIComponent(payment.paymentId)}/receipt`}
+              >
+                <ReceiptText
+                  aria-hidden="true"
+                  className="size-5"
+                />
+                View receipt
+              </Link>
+            </Button>
+          ) : null}
+
+          {payment.canStartCheckout ? (
+            <Button
+              className="w-full sm:w-auto"
+              disabled={disabled}
+              onClick={() =>
+                onCheckout(payment)
+              }
+            >
+              <CreditCard
+                aria-hidden="true"
+                className="size-5"
+              />
+              Pay now
+            </Button>
+          ) : null}
+        </div>
       ) : null}
     </article>
   );
