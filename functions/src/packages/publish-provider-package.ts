@@ -23,6 +23,7 @@ import {
 } from "../shared/timestamps.js";
 
 import {
+  assertCanonicalPackagePaymentTerms,
   assertDraftPackage,
   assertPackageMatchesProviderCapabilities,
   assertPackagePublishable,
@@ -149,6 +150,14 @@ export const publishProviderPackage = onCall(
           parsePackageInput(
             packageRecord.packageData,
           );
+        /*
+         * P13-C:
+         * Historical legacy/deposit package records remain readable,
+         * but newly published packages must use canonical full payment.
+         */
+        assertCanonicalPackagePaymentTerms(
+          validated,
+        );
 
         assertPackageMatchesProviderCapabilities(
           provider.providerData,

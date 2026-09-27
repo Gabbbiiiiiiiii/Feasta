@@ -53,6 +53,10 @@ import {
   type BookingPackageValidation,
 } from "./booking-contract.js";
 import {
+  FULL_PAYMENT_PERCENTAGE,
+  requireNewBookingFullPaymentTerms,
+} from "./full-payment-booking-policy.js";
+import {
   assertRefundPolicyAcknowledgements,
   buildProviderRequestRefundPolicyEvidence,
   parseBookingRefundPolicyRollout,
@@ -521,14 +525,14 @@ export const submitBookingRequest = onCall(
             );
 
           const packagePaymentTerms =
-            buildPackagePaymentTermsSnapshot(
-              packageData,
+            requireNewBookingFullPaymentTerms(
+              buildPackagePaymentTermsSnapshot(
+                packageData,
+              ),
             );
 
           const packageDownPaymentPercentage =
-            packagePaymentTerms
-              .depositRateBps /
-            100;
+            FULL_PAYMENT_PERCENTAGE;
 
           const selectedAddOns =
             addonSnapshots.map(
@@ -599,15 +603,7 @@ export const submitBookingRequest = onCall(
                     ) || "event_service",
                   price,
                   downPaymentPercentage:
-                    requireStoredPercentage(
-                      addon
-                        .downPaymentPercentage,
-                      "Add-on down-payment percentage",
-                      source ===
-                        "catering_provider"
-                        ? packageDownPaymentPercentage
-                        : 100,
-                    ),
+                    FULL_PAYMENT_PERCENTAGE,
                   source,
                 };
               },
@@ -908,12 +904,6 @@ export const submitBookingRequest = onCall(
               cateringServices,
             );
 
-          const cateringEffectivePercentage =
-            calculateEffectivePercentage(
-              cateringSubtotal,
-              cateringDownPaymentAmount,
-            );
-
           const marketplaceAddOnsTotal =
             calculateServiceTotal(
               marketplaceAddOns.map(
@@ -1185,7 +1175,7 @@ export const submitBookingRequest = onCall(
               totalAmount:
                 cateringSubtotal,
               downPaymentPercentage:
-                cateringEffectivePercentage,
+                FULL_PAYMENT_PERCENTAGE,
               downPaymentAmount:
                 cateringDownPaymentAmount,
               remainingBalance:
@@ -1280,7 +1270,7 @@ export const submitBookingRequest = onCall(
 
               amount: cateringSubtotal,
               downPaymentPercentage:
-                cateringEffectivePercentage,
+                FULL_PAYMENT_PERCENTAGE,
               downPaymentAmount:
                 cateringDownPaymentAmount,
               remainingBalance:
@@ -1384,12 +1374,6 @@ export const submitBookingRequest = onCall(
                 services,
               );
 
-            const effectivePercentage =
-              calculateEffectivePercentage(
-                amount,
-                providerDownPaymentAmount,
-              );
-
             const providerRefundPolicyEvidence =
               requiredRefundPolicyEvidence(
                 refundPolicyRolloutMode,
@@ -1442,7 +1426,7 @@ export const submitBookingRequest = onCall(
 
                 amount,
                 downPaymentPercentage:
-                  effectivePercentage,
+                  FULL_PAYMENT_PERCENTAGE,
                 downPaymentAmount:
                   providerDownPaymentAmount,
                 remainingBalance:
@@ -1943,30 +1927,6 @@ function requireStoredMoney(
   return roundCurrency(value);
 }
 
-function requireStoredPercentage(
-  value: unknown,
-  label: string,
-  fallback: number,
-): number {
-  if (value == null) {
-    return fallback;
-  }
-
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0 ||
-    value > 100
-  ) {
-    throw new HttpsError(
-      "failed-precondition",
-      `${label} is invalid.`,
-    );
-  }
-
-  return value;
-}
-
 function roundCurrency(
   value: number,
 ): number {
@@ -2026,19 +1986,6 @@ function calculateServiceDownPayment(
         service.downPaymentAmount,
       0,
     ),
-  );
-}
-
-function calculateEffectivePercentage(
-  total: number,
-  downPayment: number,
-): number {
-  if (total <= 0) {
-    return 0;
-  }
-
-  return roundCurrency(
-    (downPayment / total) * 100,
   );
 }
 

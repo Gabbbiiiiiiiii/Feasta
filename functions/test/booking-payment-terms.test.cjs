@@ -279,7 +279,7 @@ test(
 );
 
 test(
-  "booking submission snapshots canonical terms instead of trusting only the legacy percentage",
+  "booking submission requires canonical full-payment terms instead of trusting legacy percentages",
   () => {
     const root =
       path.resolve(
@@ -308,7 +308,12 @@ test(
 
     assert.match(
       source,
-      /packagePaymentTerms\s*\.depositRateBps/u,
+      /requireNewBookingFullPaymentTerms\s*\(\s*buildPackagePaymentTermsSnapshot\s*\(/u,
+    );
+
+    assert.match(
+      source,
+      /const packageDownPaymentPercentage\s*=\s*FULL_PAYMENT_PERCENTAGE/u,
     );
 
     assert.match(

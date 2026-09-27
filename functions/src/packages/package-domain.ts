@@ -380,16 +380,17 @@ export function parsePackageInput(
 export function assertCanonicalPackagePaymentTerms(
   packageInput: PackageInput,
 ): asserts packageInput is PackageInput & {
-  paymentPolicy: PackagePaymentPolicy;
+  paymentPolicy: "full_payment";
   usesLegacyPaymentTerms: false;
 } {
   if (
     packageInput.usesLegacyPaymentTerms ||
-    packageInput.paymentPolicy === null
+    packageInput.paymentPolicy !==
+      "full_payment"
   ) {
     throw new HttpsError(
       "invalid-argument",
-      "Choose Full Payment or Down Payment + Balance.",
+      "New and edited packages must use Full Payment.",
     );
   }
 }
