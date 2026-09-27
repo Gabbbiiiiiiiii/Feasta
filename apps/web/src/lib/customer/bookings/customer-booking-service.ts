@@ -30,6 +30,7 @@ import type {
   CustomerBookingResults,
   CustomerBookingProviderRequest,
   CustomerBookingService,
+  CustomerRemainingBalanceStatus,
   CustomerBookingStatistics,
 } from "@/lib/customer/bookings/customer-booking-types";
 import {
@@ -546,6 +547,35 @@ function mapProviderRequestDocument(
     status: normalizeProviderRequestStatus(data.status),
     paymentStatus: stringValue(data.paymentStatus) || "unpaid",
     paymentId: nullableString(data.paymentId),
+    settlementStatus:
+      nullableString(
+        data.settlementStatus,
+      ),
+
+    grossSettledAmountInCentavos:
+      nullableCentavos(
+        data.grossSettledAmountInCentavos,
+      ),
+
+    outstandingAmountInCentavos:
+      nullableCentavos(
+        data.outstandingAmountInCentavos,
+      ),
+
+    remainingBalanceStatus:
+      normalizeRemainingBalanceStatus(
+        data.remainingBalanceStatus,
+      ),
+
+    remainingBalanceDueAt:
+      isoDateValue(
+        data.remainingBalanceDueAt,
+      ),
+
+    remainingBalanceGraceEndsAt:
+      isoDateValue(
+        data.remainingBalanceGraceEndsAt,
+      ),
     checkoutOptions: customerBookingCheckoutOptions(document.id, data, mainEventStatus),
     rejectionReason: nullableString(data.rejectionReason),
     cancellationReason: nullableString(data.cancellationReason),
@@ -690,6 +720,36 @@ function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizeRemainingBalanceStatus(
+  value: unknown,
+): CustomerRemainingBalanceStatus | null {
+  switch (value) {
+    case "not_applicable":
+    case "not_due":
+    case "due_soon":
+    case "due":
+    case "grace_period":
+    case "overdue":
+    case "paid":
+    case "cancelled":
+      return value;
+
+    default:
+      return null;
+  }
+}
+
+function nullableCentavos(
+  value: unknown,
+): number | null {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0
+  )
+    ? value
+    : null;
+}
 function nullableString(value: unknown): string | null {
   const normalized = stringValue(value);
   return normalized || null;

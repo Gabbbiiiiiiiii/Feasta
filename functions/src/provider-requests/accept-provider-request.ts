@@ -57,6 +57,10 @@ import {
   buildProviderRequestFinancialSnapshot,
 } from "./provider-request-financial-snapshot.js";
 import {
+  DEFAULT_REMAINING_BALANCE_TIMING_POLICY,
+  remainingBalanceSchedule,
+} from "../payments/remaining-balance-domain.js";
+import {
   providerPayoutReadinessReason,
 } from "../provider-finance/provider-payment-account-domain.js";
 import {
@@ -395,6 +399,56 @@ export const acceptProviderRequest = onCall(
               },
             );
 
+          const packagePaymentTerms =
+            financialSnapshot
+              .packagePaymentTerms;
+
+          const balanceDueDaysBeforeEvent =
+            financialSnapshot
+              .remainingBalanceInCentavos > 0 &&
+            packagePaymentTerms
+              ?.paymentPolicy ===
+                "deposit_then_balance"
+              ? packagePaymentTerms
+                  .balanceDueDaysBeforeEvent
+              : null;
+
+          /*
+           * P10 freezes balance timing at Provider acceptance.
+           *
+           * It is derived from the already-frozen package payment
+           * terms and the authoritative event date. Later package
+           * edits therefore cannot move the Customer's due date.
+           *
+           * Legacy records without canonical payment terms remain
+           * explicit legacy records instead of receiving invented
+           * due dates.
+           */
+          const remainingBalanceTiming =
+            balanceDueDaysBeforeEvent === null
+              ? null
+              : remainingBalanceSchedule({
+                  eventDate:
+                    acceptanceSnapshot
+                      .eventDate
+                      .toDate(),
+
+                  balanceDueDaysBeforeEvent,
+
+                  remainingBalanceInCentavos:
+                    financialSnapshot
+                      .remainingBalanceInCentavos,
+
+                  settledBalanceInCentavos: 0,
+
+                  cancelled: false,
+
+                  now: acceptanceTime,
+
+                  policy:
+                    DEFAULT_REMAINING_BALANCE_TIMING_POLICY,
+                });
+
           const availability =
             validateProviderAvailability({
               providerData:
@@ -491,6 +545,50 @@ export const acceptProviderRequest = onCall(
 
               financialSnapshotCapturedAt:
                 serverTimestamp(),
+
+              /*
+               * Customer settlement timing is separate from
+               * Provider payout/settlement timing.
+               *
+               * These fields describe when the Customer owes the
+               * remaining booking balance only.
+               */
+              remainingBalanceTimingSchemaVersion:
+                remainingBalanceTiming
+                  ? 1
+                  : null,
+
+              balanceDueDaysBeforeEvent:
+                balanceDueDaysBeforeEvent,
+
+              remainingBalanceDueSoonWindowDays:
+                remainingBalanceTiming
+                  ? DEFAULT_REMAINING_BALANCE_TIMING_POLICY
+                      .dueSoonWindowDays
+                  : null,
+
+              remainingBalanceGracePeriodDays:
+                remainingBalanceTiming
+                  ? DEFAULT_REMAINING_BALANCE_TIMING_POLICY
+                      .gracePeriodDays
+                  : null,
+
+              remainingBalanceDueAt:
+                remainingBalanceTiming
+                  ?.dueAt
+                  ? Timestamp.fromDate(
+                      remainingBalanceTiming.dueAt,
+                    )
+                  : null,
+
+              remainingBalanceGraceEndsAt:
+                remainingBalanceTiming
+                  ?.graceEndsAt
+                  ? Timestamp.fromDate(
+                      remainingBalanceTiming
+                        .graceEndsAt,
+                    )
+                  : null,
 
               expiresAt:
                 nextStatus ===

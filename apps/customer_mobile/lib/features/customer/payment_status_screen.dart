@@ -572,6 +572,35 @@ class _PaymentAmountCard extends StatelessWidget {
               value: _pesoFromCentavos(outstanding),
             ),
           ],
+          if (request.remainingBalanceStatus != null) ...[
+            const Divider(height: AppSpacing.lg, color: AppColors.border),
+            _StatusDetailRow(
+              label: 'Balance status',
+              value: _remainingBalanceStatusLabel(
+                request.remainingBalanceStatus!,
+              ),
+            ),
+          ],
+
+          if (request.remainingBalanceDueAt != null) ...[
+            const Divider(height: AppSpacing.lg, color: AppColors.border),
+            _StatusDetailRow(
+              label: 'Balance due',
+              value: _formatManilaBalanceDate(request.remainingBalanceDueAt!),
+            ),
+          ],
+
+          if (request.remainingBalanceGraceEndsAt != null &&
+              (request.remainingBalanceStatus == 'grace_period' ||
+                  request.remainingBalanceStatus == 'overdue')) ...[
+            const Divider(height: AppSpacing.lg, color: AppColors.border),
+            _StatusDetailRow(
+              label: 'Overdue from',
+              value: _formatManilaBalanceDate(
+                request.remainingBalanceGraceEndsAt!,
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -604,7 +633,7 @@ class _PaymentConfirmationNotice extends StatelessWidget {
           Expanded(
             child: Text(
               state.isSuccess
-                  ? 'This status is based on FEASTA’s trusted '
+                  ? 'This status is based on FEASTAâ€™s trusted '
                         'provider-payment settlement state.'
                   : 'Do not rely only on the browser result. '
                         'FEASTA marks payment complete only after '
@@ -687,6 +716,60 @@ String _choiceLabel(CustomerPaymentChoice choice) {
   }
 }
 
+String _remainingBalanceStatusLabel(String value) {
+  switch (value) {
+    case 'not_applicable':
+      return 'No balance due';
+
+    case 'not_due':
+      return 'Not due';
+
+    case 'due_soon':
+      return 'Due soon';
+
+    case 'due':
+      return 'Due today';
+
+    case 'grace_period':
+      return 'Grace period';
+
+    case 'overdue':
+      return 'Overdue';
+
+    case 'paid':
+      return 'Paid';
+
+    case 'cancelled':
+      return 'Cancelled';
+
+    default:
+      return 'Unavailable';
+  }
+}
+
+String _formatManilaBalanceDate(DateTime value) {
+  final manila = value.toUtc().add(const Duration(hours: 8));
+
+  const months = <String>[
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  return '${months[manila.month - 1]} '
+      '${manila.day}, '
+      '${manila.year}';
+}
+
 String _humanize(String value) {
   final normalized = value.trim();
 
@@ -702,5 +785,5 @@ String _humanize(String value) {
 }
 
 String _pesoFromCentavos(int value) {
-  return '₱${(value / 100).toStringAsFixed(2)}';
+  return 'â‚±${(value / 100).toStringAsFixed(2)}';
 }

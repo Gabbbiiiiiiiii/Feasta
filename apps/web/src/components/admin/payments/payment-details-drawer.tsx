@@ -450,7 +450,9 @@ function PaymentDetailsContent({
         </div>
       </DetailsSection>
 
-      <DetailsSection
+            <ProviderFinanceDetails details={details} />
+
+<DetailsSection
         title="PayMongo webhook history"
       >
         {details.webhooks.length > 0 ? (
@@ -514,7 +516,7 @@ function PaymentDetailsContent({
                   </p>
 
                   <p className="mt-1 break-words text-sm text-muted-foreground">
-                    {entry.actorRole} ·{" "}
+                    {entry.actorRole} Ã‚Â·{" "}
                     {entry.actorId}
                   </p>
 
@@ -523,7 +525,7 @@ function PaymentDetailsContent({
                     <p className="mt-2 text-sm">
                       {entry.beforeStatus ??
                         "Unknown"}
-                      {" → "}
+                      {" Ã¢â€ â€™ "}
                       {entry.afterStatus ??
                         "Unknown"}
                     </p>
@@ -554,6 +556,511 @@ function PaymentDetailsContent({
   );
 }
 
+function ProviderFinanceDetails({
+  details,
+}: {
+  details: AdminPaymentDetails;
+}) {
+  const {
+    earning,
+    settlement,
+  } = details.providerFinance;
+
+  return (
+    <>
+      <DetailsSection
+        title="Provider earning"
+      >
+        {earning.recordState ===
+        "valid" ? (
+          <DetailsGrid>
+            <DetailField
+              label="Earning ID"
+              value={
+                earning.earningId ??
+                "Not recorded"
+              }
+              code
+            />
+
+            <DetailField
+              label="Status"
+              value={financeStatusLabel(
+                earning.status,
+              )}
+            />
+
+            <DetailField
+              label="Provider earning"
+              value={
+                earning.formattedEarningAmount ??
+                "Not recorded"
+              }
+            />
+
+            <DetailField
+              label="Pending"
+              value={
+                earning.formattedPendingAmount ??
+                "Not recorded"
+              }
+            />
+
+            <DetailField
+              label="Available for settlement"
+              value={
+                earning.formattedAvailableAmount ??
+                "Not recorded"
+              }
+            />
+
+            <DetailField
+              label="Paid out"
+              value={
+                earning.formattedPaidAmount ??
+                "Not recorded"
+              }
+            />
+
+            <DetailField
+              label="Reversed"
+              value={
+                earning.formattedReversedAmount ??
+                "Not recorded"
+              }
+            />
+
+            <DetailField
+              label="Last updated"
+              value={formatPaymentDate(
+                earning.updatedAt ??
+                  earning.createdAt,
+              )}
+            />
+          </DetailsGrid>
+        ) : (
+          <FinanceRecordNotice
+            kind={earning.recordState}
+            recordLabel="Provider earning"
+          />
+        )}
+      </DetailsSection>
+
+      <DetailsSection
+        title="Provider settlement"
+      >
+        {settlement.recordState ===
+        "valid" ? (
+          <div className="grid gap-3">
+            {settlement.reconciliationRequired ? (
+              <div
+                className="rounded-lg border border-warning/30 bg-warning-subtle p-4"
+                role="status"
+              >
+                <p className="font-bold text-warning">
+                  Reconciliation required
+                </p>
+
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                  Provider settlement requires review.
+                  This does not change the Customer
+                  payment status.
+                </p>
+
+                {settlement.reconciliationReason ? (
+                  <p className="mt-2 break-words text-sm font-semibold">
+                    Reason:{" "}
+                    {settlement.reconciliationReason}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            <DetailsGrid>
+              <DetailField
+                label="Settlement ID"
+                value={
+                  settlement.settlementId ??
+                  "Not recorded"
+                }
+                code
+              />
+
+              <DetailField
+                label="Settlement status"
+                value={financeStatusLabel(
+                  settlement.status,
+                )}
+              />
+
+              <DetailField
+                label="Net settlement"
+                value={
+                  settlement.formattedNetSettlementAmount ??
+                  "Not recorded"
+                }
+              />
+
+              <DetailField
+                label="Reserved"
+                value={
+                  settlement.formattedReservedAmount ??
+                  "Not recorded"
+                }
+              />
+
+              <DetailField
+                label="Provider paid out"
+                value={
+                  settlement.formattedPaidOutAmount ??
+                  "Not recorded"
+                }
+              />
+
+              <DetailField
+                label="Reconciliation"
+                value={
+                  settlement.reconciliationRequired
+                    ? "Required"
+                    : "Not required"
+                }
+              />
+
+              <DetailField
+                label="Active payout attempt"
+                value={
+                  settlement.activePayoutAttemptId ??
+                  "None"
+                }
+                code
+              />
+
+              <DetailField
+                label="Last payout attempt"
+                value={
+                  settlement.lastPayoutAttemptId ??
+                  "None"
+                }
+                code
+              />
+
+              <DetailField
+                label="Paid out at"
+                value={formatPaymentDate(
+                  settlement.paidOutAt,
+                )}
+              />
+
+              <DetailField
+                label="Last updated"
+                value={formatPaymentDate(
+                  settlement.updatedAt ??
+                    settlement.createdAt,
+                )}
+              />
+            </DetailsGrid>
+
+            <p className="text-xs leading-5 text-muted-foreground">
+              Customer collection and Provider
+              settlement are separate financial
+              states. A paid Customer transaction
+              does not by itself mean the Provider
+              has been paid.
+            </p>
+          </div>
+        ) : (
+          <FinanceRecordNotice
+            kind={settlement.recordState}
+            recordLabel="Provider settlement"
+          />
+        )}
+      </DetailsSection>
+      <PayoutAttemptEvidence details={details} />
+
+    </>
+  );
+}
+
+function PayoutAttemptEvidence({
+  details,
+}: {
+  details: AdminPaymentDetails;
+}) {
+  const {
+    active,
+    last,
+  } =
+    details.providerFinance
+      .payoutAttempts;
+
+  const hasActive =
+    active.recordState !==
+      "not_referenced";
+
+  const hasLast =
+    last.recordState !==
+      "not_referenced";
+
+  const sameAttempt =
+    active.payoutAttemptId !== null &&
+    active.payoutAttemptId ===
+      last.payoutAttemptId;
+
+  return (
+    <DetailsSection
+      title="Payout attempt evidence"
+    >
+      {!hasActive && !hasLast ? (
+        <EmptyDetailMessage>
+          No payout attempt is referenced by
+          this Provider settlement.
+        </EmptyDetailMessage>
+      ) : (
+        <div className="grid gap-3">
+          {hasActive ? (
+            <PayoutAttemptCard
+              title="Active payout attempt"
+              attempt={active}
+            />
+          ) : (
+            <EmptyDetailMessage>
+              No active payout attempt is
+              currently referenced.
+            </EmptyDetailMessage>
+          )}
+
+          {hasLast && !sameAttempt ? (
+            <PayoutAttemptCard
+              title="Last payout attempt"
+              attempt={last}
+            />
+          ) : null}
+
+          <p className="text-xs leading-5 text-muted-foreground">
+            This section is read-only reconciliation
+            evidence. Gateway evidence does not
+            change Customer payment truth.
+          </p>
+        </div>
+      )}
+    </DetailsSection>
+  );
+}
+
+function PayoutAttemptCard({
+  title,
+  attempt,
+}: {
+  title: string;
+
+  attempt:
+    AdminPaymentDetails[
+      "providerFinance"
+    ]["payoutAttempts"]["active"];
+}) {
+  if (
+    attempt.recordState ===
+      "not_found"
+  ) {
+    return (
+      <p
+        className="rounded-lg border border-warning/30 bg-warning-subtle p-4 text-sm font-semibold text-warning"
+        role="status"
+      >
+        {title}: the referenced payout
+        attempt record was not found.
+      </p>
+    );
+  }
+
+  if (
+    attempt.recordState ===
+      "invalid"
+  ) {
+    return (
+      <p
+        className="rounded-lg border border-destructive/30 bg-destructive-subtle p-4 text-sm font-semibold text-destructive"
+        role="alert"
+      >
+        {title}: the payout attempt
+        failed FEASTA&apos;s finance
+        validation.
+      </p>
+    );
+  }
+
+  if (
+    attempt.recordState !==
+      "valid"
+  ) {
+    return null;
+  }
+
+  return (
+    <div className="grid gap-3 rounded-lg border border-border p-4">
+      <p className="font-black">
+        {title}
+      </p>
+
+      <DetailsGrid>
+        <DetailField
+          label="Attempt ID"
+          value={
+            attempt.payoutAttemptId ??
+            "Not recorded"
+          }
+          code
+        />
+
+        <DetailField
+          label="Status"
+          value={financeStatusLabel(
+            attempt.status,
+          )}
+        />
+
+        <DetailField
+          label="Amount"
+          value={
+            attempt.formattedAmount ??
+            "Not recorded"
+          }
+        />
+
+        <DetailField
+          label="Gateway"
+          value={
+            attempt.gateway ===
+              "paymongo"
+              ? "PayMongo"
+              : "Not recorded"
+          }
+        />
+
+        <DetailField
+          label="Gateway reference"
+          value={
+            attempt.gatewayResourceId ??
+            "Not recorded"
+          }
+          code
+        />
+
+        <DetailField
+          label="Failure code"
+          value={
+            attempt.failureCode ??
+            "None"
+          }
+          code
+        />
+
+        <DetailField
+          label="Failure message"
+          value={
+            attempt.failureMessage ??
+            "None"
+          }
+        />
+
+        <DetailField
+          label="Created"
+          value={formatPaymentDate(
+            attempt.createdAt,
+          )}
+        />
+
+        <DetailField
+          label="Submitted"
+          value={formatPaymentDate(
+            attempt.submittedAt,
+          )}
+        />
+
+        <DetailField
+          label="Completed"
+          value={formatPaymentDate(
+            attempt.completedAt,
+          )}
+        />
+
+        <DetailField
+          label="Last updated"
+          value={formatPaymentDate(
+            attempt.updatedAt,
+          )}
+        />
+      </DetailsGrid>
+    </div>
+  );
+}
+function FinanceRecordNotice({
+  kind,
+  recordLabel,
+}: {
+  kind:
+    AdminPaymentDetails[
+      "providerFinance"
+    ]["earning"]["recordState"];
+  recordLabel: string;
+}) {
+  switch (kind) {
+    case "not_found":
+      return (
+        <EmptyDetailMessage>
+          No {recordLabel} record exists for
+          this payment. This can be expected
+          until a successful Customer payment
+          creates Provider finance records.
+        </EmptyDetailMessage>
+      );
+
+    case "ambiguous":
+      return (
+        <p
+          className="rounded-lg border border-warning/30 bg-warning-subtle p-4 text-sm font-semibold text-warning"
+          role="status"
+        >
+          Multiple {recordLabel.toLowerCase()} records
+          matched this payment. The financial state
+          is not being inferred automatically.
+        </p>
+      );
+
+    case "invalid":
+      return (
+        <p
+          className="rounded-lg border border-destructive/30 bg-destructive-subtle p-4 text-sm font-semibold text-destructive"
+          role="alert"
+        >
+          The {recordLabel.toLowerCase()} record
+          failed FEASTA&apos;s finance validation.
+          Review the canonical backend record.
+        </p>
+      );
+
+    case "valid":
+      return null;
+  }
+}
+
+function financeStatusLabel(
+  value: string | null,
+): string {
+  if (!value) {
+    return "Not recorded";
+  }
+
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map(
+      (part) =>
+        part.charAt(0).toUpperCase() +
+        part.slice(1),
+    )
+    .join(" ");
+}
 function DetailsSection({
   title,
   children,

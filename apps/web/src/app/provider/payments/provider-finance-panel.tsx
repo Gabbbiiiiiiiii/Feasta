@@ -22,6 +22,7 @@ import {
 import type {
   ProviderFinanceOverview,
   ProviderPayoutSetupStatus,
+  ProviderSettlementStatus,
 } from "@/lib/provider/payments/provider-finance-types";
 
 import {
@@ -130,13 +131,17 @@ export function ProviderFinancePanel({
             </div>
 
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Connect your PayMongo payout account before accepting new paid bookings.
-              FEASTA stores only payout status and safe account references.
+              Complete your PayMongo linked-account setup before accepting new paid
+              bookings. Account readiness and settlement transport readiness are
+              tracked separately.
             </p>
           </div>
 
           <PayoutReadyIndicator
-            ready={payout.payoutReady}
+            accountReady={payout.payoutReady}
+            transportReady={
+              payout.settlementTransportReady
+            }
           />
         </div>
 
@@ -179,6 +184,25 @@ export function ProviderFinancePanel({
                 )
                 : "Not available"
             }
+          />
+
+          <FinanceDetail
+            label="Relationship"
+            value={
+              payout.relationshipStatus
+                ? formatLabel(
+                  payout.relationshipStatus,
+                )
+                : "Not verified"
+            }
+          />
+
+          <FinanceDetail
+            label="Settlement transport"
+            value={formatSettlementTransport(
+              payout.settlementTransportMode,
+              payout.settlementTransportReady,
+            )}
           />
         </dl>
 
@@ -278,7 +302,7 @@ export function ProviderFinancePanel({
             )}
             trend={{
               label:
-                "Eligible for payout",
+                "Available for settlement",
               direction: "neutral",
             }}
             icon={
@@ -287,7 +311,7 @@ export function ProviderFinancePanel({
           />
 
           <SummaryCard
-            label="Paid"
+            label="Paid out"
             value={formatCentavos(
               finance.earningSummary
                 .paidAmountInCentavos,
@@ -437,6 +461,220 @@ export function ProviderFinancePanel({
         )}
       </section>
 
+      <section
+        className="grid gap-4"
+        aria-labelledby="provider-settlements-heading"
+      >
+        <div>
+          <h2
+            id="provider-settlements-heading"
+            className="text-xl font-bold"
+          >
+            Provider settlements
+          </h2>
+
+          <p className="mt-1 text-sm text-muted-foreground">
+            Settlement status is separate from customer payment status and
+            Provider earning availability. A customer may be fully paid while
+            Provider settlement is still pending.
+          </p>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard
+            label="Awaiting availability"
+            value={formatCentavos(
+              finance.settlementSummary
+                .awaitingAvailabilityAmountInCentavos,
+            )}
+            trend={{
+              label:
+                "Customer paid; settlement not released yet",
+              direction: "neutral",
+            }}
+            icon={
+              <Clock3 className="size-5" />
+            }
+          />
+
+          <SummaryCard
+            label="Ready for settlement"
+            value={formatCentavos(
+              finance.settlementSummary
+                .readyAmountInCentavos,
+            )}
+            trend={{
+              label:
+                "Earning cleared for settlement",
+              direction: "neutral",
+            }}
+            icon={
+              <CircleDollarSign className="size-5" />
+            }
+          />
+
+          <SummaryCard
+            label="Reserved / processing"
+            value={formatCentavos(
+              finance.settlementSummary
+                .reservedAmountInCentavos,
+            )}
+            trend={{
+              label:
+                "Locked by settlement state",
+              direction: "neutral",
+            }}
+            icon={
+              <WalletCards className="size-5" />
+            }
+          />
+
+          <SummaryCard
+            label="Paid out"
+            value={formatCentavos(
+              finance.settlementSummary
+                .paidOutAmountInCentavos,
+            )}
+            trend={{
+              label:
+                "Confirmed Provider settlement",
+              direction: "neutral",
+            }}
+            icon={
+              <BadgeCheck className="size-5" />
+            }
+          />
+        </div>
+
+        {finance.settlementSummary
+          .reconciliationRequiredCount > 0 ? (
+          <div
+            className="rounded-card border border-warning/30 bg-warning/5 p-4"
+            role="status"
+          >
+            <div className="flex items-start gap-3">
+              <CircleOff
+                aria-hidden="true"
+                className="mt-0.5 size-5 shrink-0 text-warning"
+              />
+
+              <div>
+                <p className="font-semibold">
+                  Settlement review required
+                </p>
+
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {
+                    finance.settlementSummary
+                      .reconciliationRequiredCount
+                  } settlement {
+                    finance.settlementSummary
+                      .reconciliationRequiredCount === 1
+                      ? "record requires"
+                      : "records require"
+                  } reconciliation before another payout or refund operation.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {finance.settlements.length === 0 ? (
+          <div className="rounded-card border border-border bg-card p-6 text-sm text-muted-foreground shadow-card">
+            No Provider settlement records have been created yet.
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-card border border-border bg-card shadow-card">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[880px] text-sm">
+                <thead className="border-b border-border bg-muted/40 text-left">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold">
+                      Created
+                    </th>
+
+                    <th className="px-4 py-3 font-semibold">
+                      Status
+                    </th>
+
+                    <th className="px-4 py-3 font-semibold">
+                      Settlement
+                    </th>
+
+                    <th className="px-4 py-3 font-semibold">
+                      Reserved
+                    </th>
+
+                    <th className="px-4 py-3 font-semibold">
+                      Paid out
+                    </th>
+
+                    <th className="px-4 py-3 font-semibold">
+                      Reconciliation
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-border">
+                  {finance.settlements.map(
+                    (settlement) => (
+                      <tr
+                        key={settlement.settlementId}
+                        className="align-top"
+                      >
+                        <td className="px-4 py-3">
+                          {formatDateTime(
+                            settlement.createdAt,
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          <SettlementStatus
+                            status={settlement.status}
+                          />
+                        </td>
+
+                        <td className="px-4 py-3 font-semibold">
+                          {formatCentavos(
+                            settlement
+                              .netSettlementAmountInCentavos,
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          {formatCentavos(
+                            settlement
+                              .reservedAmountInCentavos,
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          {formatCentavos(
+                            settlement
+                              .paidOutAmountInCentavos,
+                          )}
+                        </td>
+
+                        <td className="px-4 py-3">
+                          {settlement.reconciliationRequired ? (
+                            <span className="font-semibold text-warning">
+                              Review required
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">
+                              No issue
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ),
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </section>
       <div className="border-t border-border pt-6">
         <div className="flex items-center gap-2">
           <Banknote
@@ -480,19 +718,37 @@ function FinanceDetail({
 }
 
 function PayoutReadyIndicator({
-  ready,
+  accountReady,
+  transportReady,
 }: {
-  ready: boolean;
+  accountReady: boolean;
+  transportReady: boolean;
 }) {
-  return ready ? (
-    <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-success/10 px-3 py-1.5 text-sm font-semibold text-success">
-      <BadgeCheck
-        aria-hidden="true"
-        className="size-4"
-      />
-      Ready for payouts
-    </span>
-  ) : (
+  if (transportReady) {
+    return (
+      <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-success/10 px-3 py-1.5 text-sm font-semibold text-success">
+        <BadgeCheck
+          aria-hidden="true"
+          className="size-4"
+        />
+        Settlement transport verified
+      </span>
+    );
+  }
+
+  if (accountReady) {
+    return (
+      <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-warning/10 px-3 py-1.5 text-sm font-semibold text-warning">
+        <Clock3
+          aria-hidden="true"
+          className="size-4"
+        />
+        Account linked - settlement transport unavailable
+      </span>
+    );
+  }
+
+  return (
     <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-warning/10 px-3 py-1.5 text-sm font-semibold text-warning">
       <CircleOff
         aria-hidden="true"
@@ -519,6 +775,35 @@ function EarningStatus({
   );
 }
 
+function SettlementStatus({
+  status,
+}: {
+  status:
+    ProviderSettlementStatus;
+}) {
+  return (
+    <span className="inline-flex rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs font-semibold">
+      {formatLabel(status)}
+    </span>
+  );
+}
+
+function formatSettlementTransport(
+  mode:
+    "disabled" |
+    "wallet_transfer" |
+    "workflow",
+
+  ready: boolean,
+): string {
+  if (!ready) {
+    return mode === "disabled"
+      ? "Not configured"
+      : `${formatLabel(mode)} - not verified`;
+  }
+
+  return `${formatLabel(mode)} - verified`;
+}
 function setupButtonLabel(
   status: ProviderPayoutSetupStatus,
   loading: boolean,

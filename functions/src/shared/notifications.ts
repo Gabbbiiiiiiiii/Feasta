@@ -84,3 +84,42 @@ export function createNotificationInTransaction(
 
   return reference;
 }
+export function createNotificationWithIdInTransaction(
+  transaction: Transaction,
+  notificationId: string,
+  input: NotificationInput,
+): DocumentReference {
+  const id =
+    requireNotificationDocumentId(
+      notificationId,
+    );
+
+  const reference =
+    db
+      .collection("notifications")
+      .doc(id);
+
+  transaction.set(
+    reference,
+    buildNotificationData(input),
+  );
+
+  return reference;
+}
+
+function requireNotificationDocumentId(
+  value: string,
+): string {
+  if (
+    typeof value !== "string" ||
+    value.length < 1 ||
+    value.length > 200 ||
+    value.includes("/")
+  ) {
+    throw new Error(
+      "Notification document ID is invalid.",
+    );
+  }
+
+  return value;
+}

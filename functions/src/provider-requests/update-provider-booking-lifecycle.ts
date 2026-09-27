@@ -68,6 +68,10 @@ import {
 import {
   assertCanonicalProviderRequestCore,
 } from "./provider-request-integrity.js";
+import {
+  assertProviderRequestFullySettledForServiceStart,
+  releaseProviderRequestEarningsForSettlementInTransaction,
+} from "../provider-finance/provider-settlement-management.js";
 
 type LifecycleTarget =
   | "in_progress"
@@ -345,6 +349,17 @@ async function updateProviderBookingLifecycle(
         }
 
         if (targetStatus === "in_progress") {
+          /*
+           * Canonical P5 bookings cannot begin fulfillment with
+           * Customer money still outstanding.
+           *
+           * Legacy requests without settlementSchemaVersion=1 keep
+           * their historical lifecycle behavior.
+           */
+          assertProviderRequestFullySettledForServiceStart(
+            authorized.requestData,
+          );
+
   const currentSummary =
     calculateMainEventRequestSummary(
       allRequestsSnapshot.docs,
@@ -396,6 +411,33 @@ async function updateProviderBookingLifecycle(
         }
 
         const timestamp = serverTimestamp();
+
+        /*
+         * Provider completion is the P10 clearing boundary.
+         *
+         * Customer payment happened earlier. Only now do canonical
+         * Provider earnings become available for payout reservation.
+         */
+        if (targetStatus === "completed") {
+          await releaseProviderRequestEarningsForSettlementInTransaction({
+            transaction,
+
+            providerRequestId,
+
+            providerRequest:
+              authorized.requestData,
+
+            mainEventId,
+
+            providerId,
+
+            customerId:
+              authorized.customerId,
+
+            timestamp,
+          });
+        }
+
         const requestUpdate: Record<
           string,
           unknown

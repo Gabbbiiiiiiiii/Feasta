@@ -1052,3 +1052,7 @@ function normalizeNotificationText(
     ? normalized
     : fallback;
 }
+
+export {
+  reconcileRemainingBalanceLifecycle,
+} from "./payments/remaining-balance-lifecycle-scheduler.js";

@@ -45,6 +45,9 @@ class CustomerProviderPaymentRequest {
     required this.settlementStatus,
     required this.grossSettledAmountInCentavos,
     required this.outstandingAmountInCentavos,
+    this.remainingBalanceStatus,
+    this.remainingBalanceDueAt,
+    this.remainingBalanceGraceEndsAt,
     required this.checkoutOptions,
   });
 
@@ -58,6 +61,9 @@ class CustomerProviderPaymentRequest {
   final String? settlementStatus;
   final int? grossSettledAmountInCentavos;
   final int? outstandingAmountInCentavos;
+  final String? remainingBalanceStatus;
+  final DateTime? remainingBalanceDueAt;
+  final DateTime? remainingBalanceGraceEndsAt;
   final List<CustomerPaymentOption> checkoutOptions;
 
   bool get canStartCheckout => checkoutOptions.isNotEmpty;
@@ -84,9 +90,53 @@ class CustomerProviderPaymentRequest {
       outstandingAmountInCentavos: _centavos(
         data['outstandingAmountInCentavos'],
       ),
+      remainingBalanceStatus: _remainingBalanceStatus(
+        data['remainingBalanceStatus'],
+      ),
+      remainingBalanceDueAt: _timestampDate(data['remainingBalanceDueAt']),
+      remainingBalanceGraceEndsAt: _timestampDate(
+        data['remainingBalanceGraceEndsAt'],
+      ),
       checkoutOptions: _checkoutOptions(data, mainEventStatus: mainEventStatus),
     );
   }
+}
+
+const _remainingBalanceStatuses = <String>{
+  'not_applicable',
+  'not_due',
+  'due_soon',
+  'due',
+  'grace_period',
+  'overdue',
+  'paid',
+  'cancelled',
+};
+
+String? _remainingBalanceStatus(dynamic value) {
+  final normalized = _string(value);
+
+  if (normalized == null || !_remainingBalanceStatuses.contains(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+DateTime? _timestampDate(dynamic value) {
+  if (value is Timestamp) {
+    return value.toDate();
+  }
+
+  if (value is DateTime) {
+    return value;
+  }
+
+  if (value is String) {
+    return DateTime.tryParse(value);
+  }
+
+  return null;
 }
 
 const _retryPaymentStatuses = <String>{

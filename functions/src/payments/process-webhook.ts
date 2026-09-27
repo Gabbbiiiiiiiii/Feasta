@@ -62,6 +62,10 @@ import {
   buildSuccessfulPaymentProviderEarningPlan,
 } from "../provider-finance/provider-earning-domain.js";
 import {
+  buildProviderSettlementPlan,
+  settlementIdForEarning,
+} from "../provider-finance/provider-settlement-domain.js";
+import {
   customerNotificationMessageForPaymentLifecycle,
   customerNotificationTitleForPaymentLifecycle,
   paymentLifecycleChoice,
@@ -403,10 +407,28 @@ export async function processPayMongoWebhook(
               .doc(event.paymentId)
           : null;
 
+      const providerSettlementReference =
+        nextStatus === "paid"
+          ? db
+              .collection("providerSettlements")
+              .doc(
+                settlementIdForEarning(
+                  event.paymentId,
+                ),
+              )
+          : null;
+
       const providerEarningSnapshot =
         providerEarningReference
           ? await transaction.get(
               providerEarningReference,
+            )
+          : null;
+
+      const providerSettlementSnapshot =
+        providerSettlementReference
+          ? await transaction.get(
+              providerSettlementReference,
             )
           : null;
 
@@ -643,6 +665,31 @@ export async function processPayMongoWebhook(
             })
           : null;
 
+      /*
+       * P10 settlement truth is created from the canonical P9
+       * Provider earning, not from Customer payment status.
+       *
+       * A successful Customer payment can therefore coexist with:
+       *
+       *   Provider earning: pending
+       *   Provider settlement: awaiting_availability
+       *   Provider paid out: false
+       */
+      const providerSettlementPlan =
+        providerEarningPlan
+          ? buildProviderSettlementPlan({
+              earningId:
+                providerEarningPlan
+                  .earningId,
+
+              earning:
+                providerEarningPlan
+                  .earningRecord,
+
+              timestamp,
+            })
+          : null;
+
       if (
         financialLedgerPlan &&
         financialLedgerSnapshot?.exists
@@ -700,6 +747,36 @@ export async function processPayMongoWebhook(
           conflict: true,
           reason:
             "provider_earning_conflict",
+        };
+      }
+
+      if (
+        providerSettlementPlan &&
+        providerSettlementSnapshot?.exists
+      ) {
+        transaction.set(
+          eventReference,
+          webhookRecord(
+            event,
+            "processed_with_conflict",
+            "provider_settlement_conflict",
+            {
+              mainEventId:
+                bookingId,
+
+              providerRequestId,
+
+              providerId,
+            },
+          ),
+        );
+
+        return {
+          duplicate: false,
+          applied: false,
+          conflict: true,
+          reason:
+            "provider_settlement_conflict",
         };
       }
 
@@ -817,6 +894,17 @@ export async function processPayMongoWebhook(
             providerEarningReference,
             providerEarningPlan
               .earningRecord,
+          );
+        }
+
+        if (
+          providerSettlementPlan &&
+          providerSettlementReference
+        ) {
+          transaction.create(
+            providerSettlementReference,
+            providerSettlementPlan
+              .settlementRecord,
           );
         }
 
@@ -940,6 +1028,17 @@ export async function processPayMongoWebhook(
           providerEarningReference,
           providerEarningPlan
             .earningRecord,
+        );
+      }
+
+      if (
+        providerSettlementPlan &&
+        providerSettlementReference
+      ) {
+        transaction.create(
+          providerSettlementReference,
+          providerSettlementPlan
+            .settlementRecord,
         );
       }
 

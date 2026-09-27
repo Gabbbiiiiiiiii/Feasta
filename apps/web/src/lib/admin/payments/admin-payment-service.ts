@@ -25,6 +25,7 @@ import type {
   AdminPaymentDateFilter,
   AdminPaymentDetails,
   AdminPaymentDetailsResult,
+  AdminPaymentProviderFinance,
   AdminPaymentFilters,
   AdminPaymentIssue,
   AdminPaymentPage,
@@ -195,7 +196,7 @@ export async function getAdminPaymentDetails(
   const relations = await loadPaymentRelations([paymentSnapshot]);
   const payment = mapPaymentDocument(paymentSnapshot, relations);
 
-  const [webhookSnapshot, auditSnapshot] = await Promise.all([
+  const [webhookSnapshot, auditSnapshot, providerFinance] = await Promise.all([
     adminDb
       .collection(COLLECTIONS.webhookEvents)
       .where("paymentId", "==", payment.id)
@@ -210,6 +211,7 @@ export async function getAdminPaymentDetails(
       .orderBy("createdAt", "desc")
       .limit(DETAIL_HISTORY_LIMIT)
       .get(),
+      loadAdminPaymentProviderFinance(payment),
   ]);
 
   const bookingSnapshot = payment.mainEventId
@@ -244,6 +246,7 @@ export async function getAdminPaymentDetails(
         nullableString(providerRequestData.requestType) ??
         nullableString(providerRequestData.type),
     },
+    providerFinance,
     webhooks: webhookSnapshot.docs.map(mapWebhookEvent),
     auditHistory: auditSnapshot.docs.map(mapAuditEntry),
   };
@@ -251,6 +254,981 @@ export async function getAdminPaymentDetails(
   return {details};
 }
 
+const ADMIN_PROVIDER_EARNING_STATUSES =
+  new Set([
+    "pending",
+    "available",
+    "paid",
+    "reversed",
+  ]);
+
+const ADMIN_PROVIDER_SETTLEMENT_STATUSES =
+  new Set([
+    "awaiting_availability",
+    "ready",
+    "reserved",
+    "processing",
+    "paid",
+    "reconciliation_required",
+    "cancelled",
+  ]);
+
+const ADMIN_PROVIDER_PAYOUT_ATTEMPT_STATUSES =
+  new Set([
+    "reserved",
+    "dispatching",
+    "submitted",
+    "processing",
+    "succeeded",
+    "failed",
+    "ambiguous",
+  ]);
+async function loadAdminPaymentProviderFinance(
+  payment: AdminPayment,
+): Promise<AdminPaymentProviderFinance> {
+  const paymentIds =
+    [...new Set(
+      [
+        payment.id,
+        payment.paymentId,
+      ]
+        .map((value) =>
+          value.trim(),
+        )
+        .filter(Boolean),
+    )];
+
+  const earningsReference =
+    adminDb.collection(
+      "providerEarnings",
+    );
+
+  const settlementsReference =
+    adminDb.collection(
+      "providerSettlements",
+    );
+
+  const earningPromise =
+    paymentIds.length === 1
+      ? earningsReference
+          .where(
+            "paymentId",
+            "==",
+            paymentIds[0],
+          )
+          .limit(2)
+          .get()
+      : earningsReference
+          .where(
+            "paymentId",
+            "in",
+            paymentIds,
+          )
+          .limit(3)
+          .get();
+
+  const settlementPromise =
+    paymentIds.length === 1
+      ? settlementsReference
+          .where(
+            "paymentId",
+            "==",
+            paymentIds[0],
+          )
+          .limit(2)
+          .get()
+      : settlementsReference
+          .where(
+            "paymentId",
+            "in",
+            paymentIds,
+          )
+          .limit(3)
+          .get();
+
+  const [
+    earningSnapshot,
+    settlementSnapshot,
+  ] =
+    await Promise.all([
+      earningPromise,
+      settlementPromise,
+    ]);
+
+  const earning =
+    mapAdminProviderEarning(
+      earningSnapshot.docs,
+      payment,
+      paymentIds,
+    );
+
+  const settlement =
+    mapAdminProviderSettlement(
+      settlementSnapshot.docs,
+      payment,
+      paymentIds,
+      earning,
+    );
+
+  const payoutAttempts =
+    await loadAdminProviderPayoutAttempts({
+      settlement,
+      payment,
+    });
+
+  return {
+    earning,
+    settlement,
+    payoutAttempts,
+  };
+}
+
+async function loadAdminProviderPayoutAttempts(
+  input: {
+    settlement:
+      AdminPaymentProviderFinance[
+        "settlement"
+      ];
+    payment: AdminPayment;
+  },
+): Promise<
+  AdminPaymentProviderFinance[
+    "payoutAttempts"
+  ]
+> {
+  const settlement =
+    input.settlement;
+
+  if (
+    settlement.recordState !== "valid" ||
+    !settlement.settlementId ||
+    !settlement.earningId
+  ) {
+    return {
+      active:
+        emptyAdminProviderPayoutAttempt(
+          "not_referenced",
+          null,
+        ),
+
+      last:
+        emptyAdminProviderPayoutAttempt(
+          "not_referenced",
+          null,
+        ),
+    };
+  }
+
+  const activeId =
+    settlement.activePayoutAttemptId;
+
+  const lastId =
+    settlement.lastPayoutAttemptId;
+
+  const referencedIds =
+    [...new Set(
+      [
+        activeId,
+        lastId,
+      ].filter(
+        (value): value is string =>
+          Boolean(value),
+      ),
+    )];
+
+  const safeIds =
+    referencedIds.filter(
+      isAdminFinanceId,
+    );
+
+  const snapshots =
+    await Promise.all(
+      safeIds.map(
+        async (attemptId) => [
+          attemptId,
+          await adminDb
+            .collection(
+              "providerPayoutAttempts",
+            )
+            .doc(attemptId)
+            .get(),
+        ] as const,
+      ),
+    );
+
+  const byId =
+    new Map(snapshots);
+
+  const mapReference = (
+    attemptId: string | null,
+  ) => {
+    if (!attemptId) {
+      return emptyAdminProviderPayoutAttempt(
+        "not_referenced",
+        null,
+      );
+    }
+
+    if (!isAdminFinanceId(attemptId)) {
+      return emptyAdminProviderPayoutAttempt(
+        "invalid",
+        attemptId,
+      );
+    }
+
+    const document =
+      byId.get(attemptId);
+
+    if (!document?.exists) {
+      return emptyAdminProviderPayoutAttempt(
+        "not_found",
+        attemptId,
+      );
+    }
+
+    return mapAdminProviderPayoutAttempt(
+      document,
+      attemptId,
+      settlement,
+      input.payment,
+    );
+  };
+
+  return {
+    active:
+      mapReference(activeId),
+
+    last:
+      mapReference(lastId),
+  };
+}
+
+function mapAdminProviderPayoutAttempt(
+  document:
+    DocumentSnapshot<DocumentData>,
+
+  expectedAttemptId: string,
+
+  settlement:
+    AdminPaymentProviderFinance[
+      "settlement"
+    ],
+
+  payment: AdminPayment,
+): AdminPaymentProviderFinance[
+  "payoutAttempts"
+]["active"] {
+  const data =
+    document.data() ?? {};
+
+  const payoutAttemptId =
+    nullableString(
+      data.payoutAttemptId,
+    );
+
+  const settlementId =
+    nullableString(
+      data.settlementId,
+    );
+
+  const earningId =
+    nullableString(
+      data.earningId,
+    );
+
+  const providerId =
+    nullableString(
+      data.providerId,
+    );
+
+  const status =
+    nullableString(
+      data.status,
+    );
+
+  const amount =
+    adminCentavos(
+      data.amountInCentavos,
+    );
+
+  const gatewayResourceId =
+    adminOptionalFinanceText(
+      data.gatewayResourceId,
+    );
+
+  const failureCode =
+    adminOptionalFinanceText(
+      data.failureCode,
+    );
+
+  const failureMessage =
+    adminOptionalFinanceText(
+      data.failureMessage,
+    );
+
+  if (
+    data.schemaVersion !== 1 ||
+    data.currency !== "PHP" ||
+    data.gateway !== "paymongo" ||
+    document.id !==
+      expectedAttemptId ||
+    payoutAttemptId !==
+      expectedAttemptId ||
+    settlementId !==
+      settlement.settlementId ||
+    earningId !==
+      settlement.earningId ||
+    !payment.providerId ||
+    providerId !==
+      payment.providerId ||
+    amount === null ||
+    amount <= 0 ||
+    !status ||
+    !ADMIN_PROVIDER_PAYOUT_ATTEMPT_STATUSES
+      .has(status) ||
+    !gatewayResourceId.valid ||
+    !failureCode.valid ||
+    !failureMessage.valid
+  ) {
+    return emptyAdminProviderPayoutAttempt(
+      "invalid",
+      expectedAttemptId,
+    );
+  }
+
+  return {
+    recordState: "valid",
+
+    payoutAttemptId,
+    settlementId,
+    earningId,
+    providerId,
+
+    amountInCentavos:
+      amount,
+
+    formattedAmount:
+      formatCentavos(
+        amount,
+        "PHP",
+      ),
+
+    status:
+      status as
+        AdminPaymentProviderFinance[
+          "payoutAttempts"
+        ]["active"]["status"],
+
+    gateway: "paymongo",
+
+    gatewayResourceId:
+      gatewayResourceId.value,
+
+    failureCode:
+      failureCode.value,
+
+    failureMessage:
+      failureMessage.value,
+
+    createdAt:
+      isoDateValue(
+        data.createdAt,
+      ),
+
+    updatedAt:
+      isoDateValue(
+        data.updatedAt,
+      ),
+
+    submittedAt:
+      isoDateValue(
+        data.submittedAt,
+      ),
+
+    completedAt:
+      isoDateValue(
+        data.completedAt,
+      ),
+  };
+}
+
+function emptyAdminProviderPayoutAttempt(
+  recordState:
+    AdminPaymentProviderFinance[
+      "payoutAttempts"
+    ]["active"]["recordState"],
+
+  payoutAttemptId:
+    string | null,
+): AdminPaymentProviderFinance[
+  "payoutAttempts"
+]["active"] {
+  return {
+    recordState,
+
+    payoutAttemptId,
+    settlementId: null,
+    earningId: null,
+    providerId: null,
+
+    amountInCentavos: null,
+    formattedAmount: null,
+
+    status: null,
+
+    gateway: null,
+    gatewayResourceId: null,
+
+    failureCode: null,
+    failureMessage: null,
+
+    createdAt: null,
+    updatedAt: null,
+    submittedAt: null,
+    completedAt: null,
+  };
+}
+
+function adminOptionalFinanceText(
+  value: unknown,
+): {
+  valid: boolean;
+  value: string | null;
+} {
+  if (
+    value === null ||
+    value === undefined
+  ) {
+    return {
+      valid: true,
+      value: null,
+    };
+  }
+
+  if (typeof value !== "string") {
+    return {
+      valid: false,
+      value: null,
+    };
+  }
+
+  const normalized =
+    value.trim();
+
+  return {
+    valid: true,
+    value:
+      normalized.length > 0
+        ? normalized
+        : null,
+  };
+}
+
+function isAdminFinanceId(
+  value: string,
+): boolean {
+  return /^[A-Za-z0-9:_-]{1,220}$/u
+    .test(value);
+}
+function mapAdminProviderEarning(
+  documents:
+    readonly DocumentSnapshot<DocumentData>[],
+  payment: AdminPayment,
+  paymentIds: readonly string[],
+): AdminPaymentProviderFinance["earning"] {
+  if (documents.length === 0) {
+    return emptyAdminProviderEarning(
+      "not_found",
+    );
+  }
+
+  if (documents.length !== 1) {
+    return emptyAdminProviderEarning(
+      "ambiguous",
+    );
+  }
+
+  const document =
+    documents[0];
+
+  const data =
+    document.data() ?? {};
+
+  const paymentId =
+    nullableString(
+      data.paymentId,
+    );
+
+  const providerRequestId =
+    nullableString(
+      data.providerRequestId,
+    );
+
+  const mainEventId =
+    nullableString(
+      data.mainEventId,
+    );
+
+  const providerId =
+    nullableString(
+      data.providerId,
+    );
+
+  const status =
+    nullableString(
+      data.status,
+    );
+
+  if (
+    data.schemaVersion !== 1 ||
+    !paymentId ||
+    !paymentIds.includes(
+      paymentId,
+    ) ||
+    providerId !==
+      payment.providerId ||
+    (
+      payment.providerRequestId &&
+      providerRequestId !==
+        payment.providerRequestId
+    ) ||
+    (
+      payment.mainEventId &&
+      mainEventId !==
+        payment.mainEventId
+    ) ||
+    !status ||
+    !ADMIN_PROVIDER_EARNING_STATUSES
+      .has(status)
+  ) {
+    return emptyAdminProviderEarning(
+      "invalid",
+    );
+  }
+
+  const earningAmount =
+    adminCentavos(
+      data.earningAmountInCentavos,
+    );
+
+  const pendingAmount =
+    adminCentavos(
+      data.pendingAmountInCentavos,
+    );
+
+  const availableAmount =
+    adminCentavos(
+      data.availableAmountInCentavos,
+    );
+
+  const paidAmount =
+    adminCentavos(
+      data.paidAmountInCentavos,
+    );
+
+  const reversedAmount =
+    adminCentavos(
+      data.reversedAmountInCentavos,
+    );
+
+  if (
+    earningAmount === null ||
+    pendingAmount === null ||
+    availableAmount === null ||
+    paidAmount === null ||
+    reversedAmount === null
+  ) {
+    return emptyAdminProviderEarning(
+      "invalid",
+    );
+  }
+
+  const bucketTotal =
+    pendingAmount +
+    availableAmount +
+    paidAmount +
+    reversedAmount;
+
+  if (
+    !Number.isSafeInteger(
+      bucketTotal,
+    ) ||
+    bucketTotal !==
+      earningAmount
+  ) {
+    return emptyAdminProviderEarning(
+      "invalid",
+    );
+  }
+
+  return {
+    recordState: "valid",
+
+    earningId:
+      nullableString(
+        data.earningId,
+      ) ??
+      document.id,
+
+    paymentId,
+    providerRequestId,
+    mainEventId,
+
+    status:
+      status as
+        AdminPaymentProviderFinance[
+          "earning"
+        ]["status"],
+
+    earningAmountInCentavos:
+      earningAmount,
+
+    pendingAmountInCentavos:
+      pendingAmount,
+
+    availableAmountInCentavos:
+      availableAmount,
+
+    paidAmountInCentavos:
+      paidAmount,
+
+    reversedAmountInCentavos:
+      reversedAmount,
+
+    formattedEarningAmount:
+      formatCentavos(
+        earningAmount,
+        "PHP",
+      ),
+
+    formattedPendingAmount:
+      formatCentavos(
+        pendingAmount,
+        "PHP",
+      ),
+
+    formattedAvailableAmount:
+      formatCentavos(
+        availableAmount,
+        "PHP",
+      ),
+
+    formattedPaidAmount:
+      formatCentavos(
+        paidAmount,
+        "PHP",
+      ),
+
+    formattedReversedAmount:
+      formatCentavos(
+        reversedAmount,
+        "PHP",
+      ),
+
+    createdAt:
+      isoDateValue(
+        data.createdAt,
+      ),
+
+    updatedAt:
+      isoDateValue(
+        data.updatedAt,
+      ),
+  };
+}
+
+function mapAdminProviderSettlement(
+  documents:
+    readonly DocumentSnapshot<DocumentData>[],
+  payment: AdminPayment,
+  paymentIds: readonly string[],
+  earning:
+    AdminPaymentProviderFinance["earning"],
+): AdminPaymentProviderFinance["settlement"] {
+  if (documents.length === 0) {
+    return emptyAdminProviderSettlement(
+      "not_found",
+    );
+  }
+
+  if (documents.length !== 1) {
+    return emptyAdminProviderSettlement(
+      "ambiguous",
+    );
+  }
+
+  const document =
+    documents[0];
+
+  const data =
+    document.data() ?? {};
+
+  const paymentId =
+    nullableString(
+      data.paymentId,
+    );
+
+  const providerRequestId =
+    nullableString(
+      data.providerRequestId,
+    );
+
+  const mainEventId =
+    nullableString(
+      data.mainEventId,
+    );
+
+  const providerId =
+    nullableString(
+      data.providerId,
+    );
+
+  const earningId =
+    nullableString(
+      data.earningId,
+    );
+
+  const status =
+    nullableString(
+      data.status,
+    );
+
+  const reconciliationRequired =
+    typeof data.reconciliationRequired ===
+    "boolean"
+      ? data.reconciliationRequired
+      : null;
+
+  if (
+    data.schemaVersion !== 1 ||
+    data.currency !== "PHP" ||
+    !paymentId ||
+    !paymentIds.includes(
+      paymentId,
+    ) ||
+    providerId !==
+      payment.providerId ||
+    (
+      payment.providerRequestId &&
+      providerRequestId !==
+        payment.providerRequestId
+    ) ||
+    (
+      payment.mainEventId &&
+      mainEventId !==
+        payment.mainEventId
+    ) ||
+    (
+      earning.recordState ===
+        "valid" &&
+      earning.earningId &&
+      earningId !==
+        earning.earningId
+    ) ||
+    !status ||
+    !ADMIN_PROVIDER_SETTLEMENT_STATUSES
+      .has(status) ||
+    reconciliationRequired === null
+  ) {
+    return emptyAdminProviderSettlement(
+      "invalid",
+    );
+  }
+
+  const netAmount =
+    adminCentavos(
+      data.netSettlementAmountInCentavos,
+    );
+
+  const reservedAmount =
+    adminCentavos(
+      data.reservedAmountInCentavos,
+    );
+
+  const paidOutAmount =
+    adminCentavos(
+      data.paidOutAmountInCentavos,
+    );
+
+  if (
+    netAmount === null ||
+    reservedAmount === null ||
+    paidOutAmount === null ||
+    reservedAmount >
+      netAmount ||
+    paidOutAmount >
+      netAmount ||
+    reservedAmount +
+      paidOutAmount >
+      netAmount
+  ) {
+    return emptyAdminProviderSettlement(
+      "invalid",
+    );
+  }
+
+  return {
+    recordState: "valid",
+
+    settlementId:
+      nullableString(
+        data.settlementId,
+      ) ??
+      document.id,
+
+    earningId,
+    paymentId,
+    providerRequestId,
+    mainEventId,
+
+    status:
+      status as
+        AdminPaymentProviderFinance[
+          "settlement"
+        ]["status"],
+
+    netSettlementAmountInCentavos:
+      netAmount,
+
+    reservedAmountInCentavos:
+      reservedAmount,
+
+    paidOutAmountInCentavos:
+      paidOutAmount,
+
+    formattedNetSettlementAmount:
+      formatCentavos(
+        netAmount,
+        "PHP",
+      ),
+
+    formattedReservedAmount:
+      formatCentavos(
+        reservedAmount,
+        "PHP",
+      ),
+
+    formattedPaidOutAmount:
+      formatCentavos(
+        paidOutAmount,
+        "PHP",
+      ),
+
+    reconciliationRequired,
+
+    reconciliationReason:
+      nullableString(
+        data.reconciliationReason,
+      ),
+
+    activePayoutAttemptId:
+      nullableString(
+        data.activePayoutAttemptId,
+      ),
+
+    lastPayoutAttemptId:
+      nullableString(
+        data.lastPayoutAttemptId,
+      ),
+
+    createdAt:
+      isoDateValue(
+        data.createdAt,
+      ),
+
+    updatedAt:
+      isoDateValue(
+        data.updatedAt,
+      ),
+
+    paidOutAt:
+      isoDateValue(
+        data.paidOutAt,
+      ),
+  };
+}
+
+function emptyAdminProviderEarning(
+  recordState:
+    AdminPaymentProviderFinance[
+      "earning"
+    ]["recordState"],
+): AdminPaymentProviderFinance["earning"] {
+  return {
+    recordState,
+
+    earningId: null,
+    paymentId: null,
+    providerRequestId: null,
+    mainEventId: null,
+
+    status: null,
+
+    earningAmountInCentavos: null,
+    pendingAmountInCentavos: null,
+    availableAmountInCentavos: null,
+    paidAmountInCentavos: null,
+    reversedAmountInCentavos: null,
+
+    formattedEarningAmount: null,
+    formattedPendingAmount: null,
+    formattedAvailableAmount: null,
+    formattedPaidAmount: null,
+    formattedReversedAmount: null,
+
+    createdAt: null,
+    updatedAt: null,
+  };
+}
+
+function emptyAdminProviderSettlement(
+  recordState:
+    AdminPaymentProviderFinance[
+      "settlement"
+    ]["recordState"],
+): AdminPaymentProviderFinance["settlement"] {
+  return {
+    recordState,
+
+    settlementId: null,
+    earningId: null,
+    paymentId: null,
+    providerRequestId: null,
+    mainEventId: null,
+
+    status: null,
+
+    netSettlementAmountInCentavos: null,
+    reservedAmountInCentavos: null,
+    paidOutAmountInCentavos: null,
+
+    formattedNetSettlementAmount: null,
+    formattedReservedAmount: null,
+    formattedPaidOutAmount: null,
+
+    reconciliationRequired: null,
+    reconciliationReason: null,
+
+    activePayoutAttemptId: null,
+    lastPayoutAttemptId: null,
+
+    createdAt: null,
+    updatedAt: null,
+    paidOutAt: null,
+  };
+}
+
+function adminCentavos(
+  value: unknown,
+): number | null {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0
+  )
+    ? value
+    : null;
+}
 function normalizeFilters(input: AdminPaymentFilters): NormalizedFilters {
   const requestedSortField = isSortField(input.sortField)
     ? input.sortField

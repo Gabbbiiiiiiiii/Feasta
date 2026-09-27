@@ -51,6 +51,9 @@ const EMPTY_PROVIDER_FINANCE: ProviderFinanceOverview = {
     invitationStatus: null,
     activationStatus: null,
     payoutReady: false,
+    relationshipStatus: null,
+    settlementTransportMode: "disabled",
+    settlementTransportReady: false,
     paymongoAccountId: null,
     updatedAt: null,
   },
@@ -61,6 +64,14 @@ const EMPTY_PROVIDER_FINANCE: ProviderFinanceOverview = {
     reversedAmountInCentavos: 0,
   },
   earnings: [],
+  settlementSummary: {
+    awaitingAvailabilityAmountInCentavos: 0,
+    readyAmountInCentavos: 0,
+    reservedAmountInCentavos: 0,
+    paidOutAmountInCentavos: 0,
+    reconciliationRequiredCount: 0,
+  },
+  settlements: [],
 };
 
 const FIRST_PAGE_CURSOR = "__first_provider_payment_page__";

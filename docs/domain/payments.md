@@ -23,28 +23,35 @@ The exact payment lifecycle is:
 | `paid` | `refunded` |
 | `refunded` | none |
 
-`pending â†’ paid` is allowed because a fast webhook can arrive before the
+`pending ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ paid` is allowed because a fast webhook can arrive before the
 checkout-creation transaction records `processing`. No transition may move a
 confirmed payment back to a failed or processing state.
 
 ## Checkout
 
-`createPaymentSession` requires an authenticated, active customer and App Check
-outside emulators. It accepts only `bookingId` and an idempotency key. The server
-loads `mainEvents/{bookingId}`, verifies customer ownership, requires
-`waiting_for_down_payment`, verifies the linked approved provider, and derives
-the amount from `downPaymentAmount`. Currency is server-fixed to `PHP`.
+`createPaymentSession` requires an authenticated, active Customer and App Check outside emulators.
 
-The canonical document stores both the peso amount and integer centavos. The
-PayMongo Checkout Session receives server metadata containing `payment_id`,
-`booking_id`, and `customer_id`. PayMongo API requests use the deterministic
-payment ID as their idempotency key. The secret key is a Functions secret named
-`PAYMONGO_SECRET_KEY`; it is never returned or logged.
+The request identifies the canonical Provider request, a supported payment choice, and an idempotency key. The client does not provide the authoritative payable amount.
 
-The Flutter app opens the returned HTTPS checkout URL. It never creates a
-payment record or displays success based only on a redirect. Add-on checkout is
-disabled until it has an equivalent backend-derived amount and ownership flow.
+The trusted backend derives checkout options and exact PHP centavo amounts from the frozen Provider-request financial state.
 
+Depending on the canonical state, checkout may represent:
+
+- the required minimum or deposit payment;
+- the full booking amount; or
+- the exact remaining balance.
+
+A Customer may pay the exact remaining balance early when the backend checkout domain permits it.
+
+Remaining-balance due, grace-period, and overdue state are display and reminder truth. They do not replace checkout options as payment-action authority.
+
+Before creating a new remaining-balance checkout, the backend validates cancellation state, existing checkout recovery, duplicate checkout protection, and canonical financial state.
+
+Currency is server-fixed to `PHP` and payable amounts are server-derived integer centavos.
+
+Neither the web application nor the Flutter application treats a redirect as proof of payment. Successful Customer payment remains authoritative only after trusted gateway verification.
+
+Customer payment success is also separate from Provider settlement. A verified Customer payment may create Provider earning and settlement accounting without claiming that the Provider has been paid.
 ## Webhook
 
 `payMongoWebhook` is intentionally an HTTP endpoint without App Check because
@@ -73,7 +80,7 @@ full PayMongo error payloads are not stored or logged.
 `requestPaymentRefund` requires an active admin, App Check, a paid payment, and
 a gateway payment ID. It requests the refund using the backend secret but does
 not mark the payment refunded. Only a signed `payment.refunded` webhook performs
-`paid â†’ refunded`. The refund request and confirmed state change are both
+`paid ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ refunded`. The refund request and confirmed state change are both
 audited.
 
 Policy-backed cancellation refunds use
@@ -111,6 +118,23 @@ currently implemented. The initial production value must be `review_only` with
 automatic approval `off`. Firestore client rules deny changes to this document
 and to `appSettings/refundPolicyBookingAgreement` even for an Admin browser.
 
+## P10 remaining balance and Provider settlement
+
+P10 separates Customer payment truth from Provider settlement truth.
+
+Remaining-balance statuses are `not_applicable`, `not_due`, `due_soon`, `due`, `grace_period`, `overdue`, `paid`, and `cancelled`.
+
+Provider settlement statuses are `awaiting_availability`, `ready`, `reserved`, `processing`, `paid`, `reconciliation_required`, and `cancelled`.
+
+Payout-attempt statuses are `reserved`, `dispatching`, `submitted`, `processing`, `succeeded`, `failed`, and `ambiguous`.
+
+Refund and payout reservation paths check each other's canonical locks before external money movement.
+
+Ambiguous payout outcomes require reconciliation and must not automatically mark a Provider paid.
+
+Settlement transport remains independently gated from linked-account onboarding readiness and currently fails closed.
+
+See `provider-finance-and-payouts.md` for the complete P10 finance contract.
 ## Configuration and validation
 
 ```powershell

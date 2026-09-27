@@ -27,6 +27,15 @@ export type CustomerBookingPaymentOption = {
   amount: number;
 };
 
+export type CustomerRemainingBalanceStatus =
+  | "not_applicable"
+  | "not_due"
+  | "due_soon"
+  | "due"
+  | "grace_period"
+  | "overdue"
+  | "paid"
+  | "cancelled";
 export type CustomerBookingProviderRequest = {
   checkoutOptions: CustomerBookingPaymentOption[];
   id: string;
@@ -51,7 +60,15 @@ export type CustomerBookingProviderRequest = {
   status: ProviderRequestStatus;
   paymentStatus: string;
   paymentId: string | null;
+  settlementStatus: string | null;
+  grossSettledAmountInCentavos: number | null;
+  outstandingAmountInCentavos: number | null;
 
+  remainingBalanceStatus:
+    CustomerRemainingBalanceStatus | null;
+
+  remainingBalanceDueAt: string | null;
+  remainingBalanceGraceEndsAt: string | null;
   rejectionReason: string | null;
   cancellationReason: string | null;
 

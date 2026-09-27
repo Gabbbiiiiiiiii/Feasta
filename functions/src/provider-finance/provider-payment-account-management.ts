@@ -44,6 +44,7 @@ import {
 import {
   buildPayMongoLinkedAccountSignupUrl,
   createPayMongoLinkedAccountInvite,
+  findPayMongoLinkedAccountRelationship,
   PayMongoLinkedAccountRequestError,
   retrievePayMongoLinkedAccount,
   retrievePayMongoLinkedAccountInvitation,
@@ -51,6 +52,10 @@ import {
   type PayMongoInvitationStatus,
   type PayMongoLinkedAccountType,
 } from "./paymongo-linked-account-client.js";
+
+import {
+  providerPaymentRelationshipSnapshot,
+} from "./provider-payment-relationship-domain.js";
 
 const payMongoSecretKey =
   defineSecret(
@@ -240,6 +245,26 @@ export const startProviderPayoutOnboarding =
                   activationStatus:
                     null,
 
+                  /*
+                   * P10 settlement transport is intentionally disabled
+                   * until FEASTA has verified the PayMongo relationship
+                   * and selected an actual supported transport.
+                   */
+                  relationshipId:
+                    null,
+
+                  relationshipStatus:
+                    "unknown",
+
+                  relationshipLastCheckedAt:
+                    null,
+
+                  settlementTransportMode:
+                    "disabled",
+
+                  settlementTransportReady:
+                    false,
+
                   inviteCreationState:
                     "creating",
 
@@ -290,6 +315,21 @@ export const startProviderPayoutOnboarding =
 
                 activationStatus:
                   null,
+
+                relationshipId:
+                  null,
+
+                relationshipStatus:
+                  "unknown",
+
+                relationshipLastCheckedAt:
+                  null,
+
+                settlementTransportMode:
+                  "disabled",
+
+                settlementTransportReady:
+                  false,
 
                 inviteCreationState:
                   "creating",
@@ -745,6 +785,97 @@ export const refreshProviderPayoutAccount =
           account.activationStatus,
         );
 
+      let relationshipId:
+        string | null =
+          null;
+
+      let relationshipStatus:
+        "unknown" |
+        "enabled" |
+        "disabled" =
+          "unknown";
+
+      let relationshipVerificationStatus:
+        "not_checked" |
+        "verified" |
+        "not_found" |
+        "unavailable" =
+          "not_checked";
+
+      /*
+       * Relationship verification is relevant only once the child
+       * account itself is activated.
+       *
+       * Failure to read the relationship does NOT rewrite the
+       * canonical account activation result. It only keeps Provider
+       * settlement transport unavailable.
+       */
+      if (setup.payoutReady) {
+        try {
+          const relationship =
+            await findPayMongoLinkedAccountRelationship({
+              secretKey:
+                payMongoSecretKey.value(),
+
+              childAccountId:
+                account.accountId,
+
+              invitationId,
+            });
+
+          if (relationship) {
+            const verified =
+              providerPaymentRelationshipSnapshot({
+                storedAccount: {
+                  ...stored,
+
+                  invitationId,
+
+                  paymongoAccountId:
+                    account.accountId,
+                },
+
+                relationship,
+              });
+
+            relationshipId =
+              verified.relationshipId;
+
+            relationshipStatus =
+              verified.status;
+
+            relationshipVerificationStatus =
+              "verified";
+          } else {
+            relationshipVerificationStatus =
+              "not_found";
+          }
+        }
+        catch (error) {
+          if (
+            error instanceof
+              PayMongoLinkedAccountRequestError
+          ) {
+            relationshipVerificationStatus =
+              "unavailable";
+          } else {
+            /*
+             * A relationship returned by PayMongo but inconsistent
+             * with FEASTA's canonical Provider account is an
+             * integrity conflict, not a transient gateway failure.
+             */
+            throw new HttpsError(
+              "failed-precondition",
+              "The PayMongo relationship does not match this Provider payout account.",
+              {
+                reason:
+                  "provider_payment_relationship_conflict",
+              },
+            );
+          }
+        }
+      }
+
       await accountReference.update({
         setupStatus:
           setup.setupStatus,
@@ -761,6 +892,31 @@ export const refreshProviderPayoutAccount =
         activationStatus:
           account
             .activationStatus,
+
+        /*
+         * Account activation proves onboarding readiness only.
+         *
+         * Relationship verification is read-only and persists only
+         * the relationship identity/status required by FEASTA.
+         * No policies, account profile data or bank data are stored.
+         */
+        relationshipId,
+
+        relationshipStatus,
+
+        relationshipVerificationStatus,
+
+        relationshipLastCheckedAt:
+          setup.payoutReady
+            ? serverTimestamp()
+            : null,
+
+        /*
+         * C2B still does NOT choose or enable a money-movement
+         * transport. P10-C3 handles transport permissions separately.
+         */
+        settlementTransportReady:
+          false,
 
         gatewayLastCheckedAt:
           serverTimestamp(),

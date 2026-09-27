@@ -617,6 +617,12 @@ function providerRequestFixture(
     cancelledAt: null,
     expiresAt: "2026-08-10T01:00:00.000Z",
     reviewStatus: "unavailable",
+    settlementStatus: null,
+    grossSettledAmountInCentavos: null,
+    outstandingAmountInCentavos: null,
+    remainingBalanceStatus: null,
+    remainingBalanceDueAt: null,
+    remainingBalanceGraceEndsAt: null,
     ...overrides,
   };
 }

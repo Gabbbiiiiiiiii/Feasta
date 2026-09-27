@@ -1155,6 +1155,15 @@ service cloud.firestore {
     match /providerEarnings/{earningId} {
       allow read, write: if false;
     }
+    // P10 Provider settlements are canonical server-managed records.
+    match /providerSettlements/{settlementId} {
+      allow read, write: if false;
+    }
+
+    // P10 payout attempts are canonical server-managed finance records.
+    match /providerPayoutAttempts/{attemptId} {
+      allow read, write: if false;
+    }
 
     match /financialLedgerEntries/{ledgerEntryId} {
       /*

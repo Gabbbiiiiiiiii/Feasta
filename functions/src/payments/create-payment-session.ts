@@ -83,6 +83,9 @@ import {
 import {
   providerPayoutReadinessReason,
 } from "../provider-finance/provider-payment-account-domain.js";
+import {
+  remainingBalanceSchedule,
+} from "./remaining-balance-domain.js";
 
 const payMongoSecretKey = defineSecret(
   "PAYMONGO_SECRET_KEY",
@@ -645,6 +648,53 @@ export async function createPaymentSessionForCustomer(
         };
       }
 
+      /*
+       * P10 timing and cancellation checks are intentionally after
+       * existing checkout recovery.
+       *
+       * A previously created durable checkout remains recoverable.
+       * These checks control creation/reservation of a NEW balance
+       * checkout only.
+       */
+      if (paymentChoice === "remaining_balance") {
+        const refundPolicyEvidence =
+          classifyProviderRequestRefundPolicyEvidence(
+            providerRequest,
+          );
+
+        if (
+          refundPolicyEvidence.status ===
+            "invalid"
+        ) {
+          throw invalidLinkage();
+        }
+
+        const activeCancellationRequestId =
+          refundPolicyEvidence.status ===
+            "policy_backed"
+            ? requireRefundEligibilityState(
+                providerRequest,
+              ).activeCancellationRequestId
+            : legacyActiveCancellationRequestId(
+                providerRequest,
+              );
+
+        if (
+          activeCancellationRequestId !== null
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "The remaining balance cannot be paid while a cancellation request is active.",
+          );
+        }
+
+        validateRemainingBalanceTimingSnapshot({
+          providerRequest,
+          remainingBalanceInCentavos:
+            obligation.amountInCentavos,
+        });
+      }
+
       const payoutAccountSnapshot =
         await transaction.get(
           db
@@ -944,6 +994,160 @@ export async function createPaymentSessionForCustomer(
 
     throw checkoutUnavailable();
   }
+}
+
+function validateRemainingBalanceTimingSnapshot(
+  input: {
+    providerRequest:
+      Readonly<Record<string, unknown>>;
+
+    remainingBalanceInCentavos: number;
+  },
+): void {
+  const request =
+    input.providerRequest;
+
+  /*
+   * P10 is intentionally fail-closed for new canonical balance
+   * checkouts. Historical/legacy requests without an immutable
+   * timing snapshot require reconciliation rather than silently
+   * inventing a deadline from current package data.
+   */
+  if (
+    request.remainingBalanceTimingSchemaVersion !==
+      1 ||
+    !Number.isSafeInteger(
+      request.balanceDueDaysBeforeEvent,
+    ) ||
+    (request.balanceDueDaysBeforeEvent as number) <
+      0 ||
+    !Number.isSafeInteger(
+      request.remainingBalanceDueSoonWindowDays,
+    ) ||
+    !Number.isSafeInteger(
+      request.remainingBalanceGracePeriodDays,
+    )
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The remaining-balance schedule is unavailable or requires reconciliation.",
+    );
+  }
+
+  const eventDate =
+    timestampDate(
+      request.eventDate,
+    );
+
+  const storedDueAt =
+    timestampDate(
+      request.remainingBalanceDueAt,
+    );
+
+  const storedGraceEndsAt =
+    timestampDate(
+      request.remainingBalanceGraceEndsAt,
+    );
+
+  if (
+    !eventDate ||
+    !storedDueAt ||
+    !storedGraceEndsAt
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The remaining-balance schedule is invalid.",
+    );
+  }
+
+  const expected =
+    remainingBalanceSchedule({
+      eventDate,
+
+      balanceDueDaysBeforeEvent:
+        request
+          .balanceDueDaysBeforeEvent as number,
+
+      /*
+       * Timing validation does not determine Customer payment
+       * progress. P5's trusted payment set remains authoritative
+       * for outstanding money.
+       */
+      remainingBalanceInCentavos:
+        input.remainingBalanceInCentavos,
+
+      settledBalanceInCentavos: 0,
+
+      cancelled: false,
+
+      now: new Date(),
+
+      policy: {
+        dueSoonWindowDays:
+          request
+            .remainingBalanceDueSoonWindowDays as number,
+
+        gracePeriodDays:
+          request
+            .remainingBalanceGracePeriodDays as number,
+      },
+    });
+
+  if (
+    !expected.dueAt ||
+    !expected.graceEndsAt ||
+    expected.dueAt.getTime() !==
+      storedDueAt.getTime() ||
+    expected.graceEndsAt.getTime() !==
+      storedGraceEndsAt.getTime()
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The remaining-balance schedule changed and requires reconciliation.",
+    );
+  }
+
+  /*
+   * Early payment is deliberately allowed.
+   *
+   * due_soon, due, grace_period and overdue are all still payable
+   * here. P10-D owns reminder and post-grace cancellation policy.
+   */
+}
+
+function timestampDate(
+  value: unknown,
+): Date | null {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return null;
+  }
+
+  const candidate =
+    value as {
+      toDate?: unknown;
+    };
+
+  if (
+    typeof candidate.toDate !==
+      "function"
+  ) {
+    return null;
+  }
+
+  const result =
+    (
+      candidate.toDate as
+      () => unknown
+    )();
+
+  return result instanceof Date &&
+    Number.isFinite(result.getTime())
+    ? result
+    : null;
 }
 
 async function persistCheckout(

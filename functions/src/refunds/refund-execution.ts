@@ -31,6 +31,11 @@ import {
   buildProviderEarningRefundPlan,
 } from "../provider-finance/provider-earning-domain.js";
 import {
+  assertProviderSettlementRefundDispatchAllowed,
+  buildProviderSettlementRefundUpdate,
+  settlementIdForEarning,
+} from "../provider-finance/provider-settlement-domain.js";
+import {
   createPayMongoRefund,
   payMongoFailureCertainty,
   type PayMongoFailureCertainty,
@@ -1513,6 +1518,17 @@ export async function executeRefund(input: {
       );
     }
 
+    /*
+     * Final settlement check before the external refund request.
+     *
+     * The payment already carries refund reservation truth, so once
+     * this check passes a concurrent payout reservation will fail on
+     * that payment-level refund lock.
+     */
+    await assertRefundSettlementDispatchSafe(
+      prepared.paymentId,
+    );
+
     try {
       refund =
         await createPayMongoRefund({
@@ -1619,6 +1635,92 @@ export async function executeRefund(input: {
   }
 
   throw accountingInvalid();
+}
+
+async function assertRefundSettlementDispatchSafe(
+  paymentId: string,
+): Promise<void> {
+  const paymentReference =
+    db
+      .collection("payments")
+      .doc(paymentId);
+
+  await db.runTransaction(
+    async (transaction) => {
+      const paymentSnapshot =
+        await transaction.get(
+          paymentReference,
+        );
+
+      if (!paymentSnapshot.exists) {
+        throw operationNotFound();
+      }
+
+      const payment =
+        paymentSnapshot.data() ?? {};
+
+      /*
+       * Legacy payments without P9 earning truth retain their
+       * existing refund behavior.
+       */
+      if (
+        payment.providerEarningSchemaVersion !==
+          1
+      ) {
+        return;
+      }
+
+      const earningId =
+        storedId(
+          payment.providerEarningId,
+          "Provider earning",
+        );
+
+      const settlementReference =
+        db
+          .collection(
+            "providerSettlements",
+          )
+          .doc(
+            settlementIdForEarning(
+              earningId,
+            ),
+          );
+
+      const settlementSnapshot =
+        await transaction.get(
+          settlementReference,
+        );
+
+      /*
+       * Pre-P10/P9 historical earning records may not yet have a
+       * settlement document. Preserve legacy refund compatibility.
+       */
+      if (!settlementSnapshot.exists) {
+        return;
+      }
+
+      try {
+        assertProviderSettlementRefundDispatchAllowed({
+          settlement:
+            settlementSnapshot.data() ?? {},
+
+          earningId,
+
+          paymentId,
+        });
+      } catch {
+        throw refundAccountingError(
+          "failed-precondition",
+
+          REFUND_EXECUTION_ERROR_REASONS
+            .reconciliationRequired,
+
+          "Provider payout activity must be reconciled before this refund can be sent.",
+        );
+      }
+    },
+  );
 }
 
 type PreparedExecution = {
@@ -2648,6 +2750,26 @@ export async function reconcileGatewayRefund(input: {
             )
           : null;
 
+      const providerSettlementReference =
+        providerEarningReference
+          ? db
+              .collection(
+                "providerSettlements",
+              )
+              .doc(
+                settlementIdForEarning(
+                  providerEarningReference.id,
+                ),
+              )
+          : null;
+
+      const providerSettlementSnapshot =
+        providerSettlementReference
+          ? await transaction.get(
+              providerSettlementReference,
+            )
+          : null;
+
       if (
         providerEarningReference &&
         !providerEarningSnapshot?.exists
@@ -3169,6 +3291,40 @@ export async function reconcileGatewayRefund(input: {
         throw accountingInvalid();
       }
 
+      let providerSettlementRefundUpdate:
+        Record<string, unknown> |
+        null =
+          null;
+
+      if (
+        providerEarningRefundPlan &&
+        providerEarningReference &&
+        providerSettlementReference &&
+        providerSettlementSnapshot?.exists
+      ) {
+        try {
+          providerSettlementRefundUpdate =
+            buildProviderSettlementRefundUpdate({
+              settlement:
+                providerSettlementSnapshot
+                  .data() ?? {},
+
+              earningId:
+                providerEarningReference.id,
+
+              paymentId,
+
+              earningUpdate:
+                providerEarningRefundPlan
+                  .earningUpdate,
+
+              timestamp,
+            });
+        } catch {
+          throw accountingInvalid();
+        }
+      }
+
       const aggregateStatus =
         operationSetRecords === null
           ? "refund_completed" as const
@@ -3271,6 +3427,16 @@ export async function reconcileGatewayRefund(input: {
           providerEarningReference,
           providerEarningRefundPlan
             .earningUpdate,
+        );
+      }
+
+      if (
+        providerSettlementRefundUpdate &&
+        providerSettlementReference
+      ) {
+        transaction.update(
+          providerSettlementReference,
+          providerSettlementRefundUpdate,
         );
       }
 

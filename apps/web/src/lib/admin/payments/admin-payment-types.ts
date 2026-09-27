@@ -171,6 +171,144 @@ export type AdminPaymentAuditEntry = {
   createdAt: string | null;
 };
 
+export type AdminPaymentFinanceRecordState =
+  | "not_found"
+  | "valid"
+  | "invalid"
+  | "ambiguous";
+
+export type AdminPaymentProviderEarningStatus =
+  | "pending"
+  | "available"
+  | "paid"
+  | "reversed";
+
+export type AdminPaymentProviderSettlementStatus =
+  | "awaiting_availability"
+  | "ready"
+  | "reserved"
+  | "processing"
+  | "paid"
+  | "reconciliation_required"
+  | "cancelled";
+
+export type AdminPaymentProviderEarningDetails = {
+  recordState: AdminPaymentFinanceRecordState;
+
+  earningId: string | null;
+  paymentId: string | null;
+  providerRequestId: string | null;
+  mainEventId: string | null;
+
+  status:
+    AdminPaymentProviderEarningStatus | null;
+
+  earningAmountInCentavos: number | null;
+  pendingAmountInCentavos: number | null;
+  availableAmountInCentavos: number | null;
+  paidAmountInCentavos: number | null;
+  reversedAmountInCentavos: number | null;
+
+  formattedEarningAmount: string | null;
+  formattedPendingAmount: string | null;
+  formattedAvailableAmount: string | null;
+  formattedPaidAmount: string | null;
+  formattedReversedAmount: string | null;
+
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type AdminPaymentProviderSettlementDetails = {
+  recordState: AdminPaymentFinanceRecordState;
+
+  settlementId: string | null;
+  earningId: string | null;
+  paymentId: string | null;
+  providerRequestId: string | null;
+  mainEventId: string | null;
+
+  status:
+    AdminPaymentProviderSettlementStatus | null;
+
+  netSettlementAmountInCentavos: number | null;
+  reservedAmountInCentavos: number | null;
+  paidOutAmountInCentavos: number | null;
+
+  formattedNetSettlementAmount: string | null;
+  formattedReservedAmount: string | null;
+  formattedPaidOutAmount: string | null;
+
+  reconciliationRequired: boolean | null;
+  reconciliationReason: string | null;
+
+  activePayoutAttemptId: string | null;
+  lastPayoutAttemptId: string | null;
+
+  createdAt: string | null;
+  updatedAt: string | null;
+  paidOutAt: string | null;
+};
+
+export type AdminPaymentProviderPayoutAttemptStatus =
+  | "reserved"
+  | "dispatching"
+  | "submitted"
+  | "processing"
+  | "succeeded"
+  | "failed"
+  | "ambiguous";
+
+export type AdminPaymentPayoutAttemptRecordState =
+  | "not_referenced"
+  | "not_found"
+  | "valid"
+  | "invalid";
+
+export type AdminPaymentProviderPayoutAttemptDetails = {
+  recordState:
+    AdminPaymentPayoutAttemptRecordState;
+
+  payoutAttemptId: string | null;
+  settlementId: string | null;
+  earningId: string | null;
+  providerId: string | null;
+
+  amountInCentavos: number | null;
+  formattedAmount: string | null;
+
+  status:
+    AdminPaymentProviderPayoutAttemptStatus | null;
+
+  gateway: "paymongo" | null;
+  gatewayResourceId: string | null;
+
+  failureCode: string | null;
+  failureMessage: string | null;
+
+  createdAt: string | null;
+  updatedAt: string | null;
+  submittedAt: string | null;
+  completedAt: string | null;
+};
+
+export type AdminPaymentProviderPayoutAttempts = {
+  active:
+    AdminPaymentProviderPayoutAttemptDetails;
+
+  last:
+    AdminPaymentProviderPayoutAttemptDetails;
+};
+export type AdminPaymentProviderFinance = {
+  earning:
+    AdminPaymentProviderEarningDetails;
+
+  settlement:
+    AdminPaymentProviderSettlementDetails;
+
+  payoutAttempts:
+    AdminPaymentProviderPayoutAttempts;
+};
 export type AdminPaymentDetails = {
   payment: AdminPayment;
 
@@ -190,6 +328,8 @@ export type AdminPaymentDetails = {
     status: string | null;
     requestType: string | null;
   };
+
+  providerFinance: AdminPaymentProviderFinance;
 
   webhooks: AdminPaymentWebhookEvent[];
   auditHistory: AdminPaymentAuditEntry[];

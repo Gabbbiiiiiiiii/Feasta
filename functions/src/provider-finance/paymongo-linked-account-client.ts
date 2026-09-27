@@ -29,6 +29,21 @@ export type PayMongoLinkedAccountInvitation = {
     string | null;
 };
 
+export type PayMongoLinkedAccountRelationship = {
+  relationshipId: string;
+
+  linkingRequestId:
+    string | null;
+
+  enabled: boolean;
+
+  parentAccountId:
+    string;
+
+  childAccountId:
+    string;
+};
+
 export type PayMongoLinkedAccount = {
   accountId: string;
   accountType:
@@ -198,6 +213,203 @@ export async function retrievePayMongoLinkedAccount(
   return account;
 }
 
+/*
+ * Read-only PayMongo Relationship API integration.
+ *
+ * FEASTA discovers the relationship by the canonical child account
+ * and onboarding invitation, then retrieves the exact relationship
+ * again by ID before trusting it.
+ *
+ * No relationship mutation and no money movement happen here.
+ */
+export async function findPayMongoLinkedAccountRelationship(
+  input: {
+    secretKey: string;
+    childAccountId: string;
+    invitationId: string;
+  },
+): Promise<
+  PayMongoLinkedAccountRelationship |
+  null
+> {
+  const childAccountId =
+    requireAccountId(
+      input.childAccountId,
+    );
+
+  const invitationId =
+    requireInvitationId(
+      input.invitationId,
+    );
+
+  const query =
+    new URLSearchParams({
+      child_account_id:
+        childAccountId,
+
+      limit:
+        "100",
+    });
+
+  const response =
+    await payMongoLinkedAccountRequest(
+      input.secretKey,
+
+      `/v2/relationships?${query.toString()}`,
+
+      {
+        method: "GET",
+      },
+    );
+
+  const root =
+    asRecord(response);
+
+  if (!Array.isArray(root.data)) {
+    throw invalidResponse(
+      "PayMongo relationships response is invalid.",
+    );
+  }
+
+  if (
+    typeof root.has_more !==
+      "boolean"
+  ) {
+    throw invalidResponse(
+      "PayMongo relationships pagination state is invalid.",
+    );
+  }
+
+  /*
+   * FEASTA deliberately does not guess cursor semantics here.
+   *
+   * The request is already filtered to one child account and asks
+   * for the maximum documented page size. If PayMongo says another
+   * page exists, fail closed rather than risk selecting an incomplete
+   * relationship set.
+   */
+  if (root.has_more) {
+    throw new PayMongoLinkedAccountRequestError(
+      "PayMongo relationship discovery returned more than one page.",
+      "ambiguous",
+      null,
+    );
+  }
+
+  const matches:
+    PayMongoLinkedAccountRelationship[] =
+      [];
+
+  for (const value of root.data) {
+    const relationship =
+      parsePayMongoLinkedAccountRelationship(
+        value,
+      );
+
+    if (
+      relationship.childAccountId !==
+        childAccountId
+    ) {
+      throw invalidResponse(
+        "PayMongo relationship discovery returned an unexpected child account.",
+      );
+    }
+
+    if (
+      relationship.linkingRequestId ===
+        invitationId
+    ) {
+      matches.push(
+        relationship,
+      );
+    }
+  }
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  if (matches.length !== 1) {
+    throw new PayMongoLinkedAccountRequestError(
+      "PayMongo relationship discovery is ambiguous.",
+      "ambiguous",
+      null,
+    );
+  }
+
+  const discovered =
+    matches[0];
+
+  const relationship =
+    await retrievePayMongoLinkedAccountRelationship({
+      secretKey:
+        input.secretKey,
+
+      relationshipId:
+        discovered.relationshipId,
+    });
+
+  if (
+    relationship.childAccountId !==
+      childAccountId ||
+    relationship.linkingRequestId !==
+      invitationId
+  ) {
+    throw new PayMongoLinkedAccountRequestError(
+      "PayMongo relationship linkage changed during verification.",
+      "ambiguous",
+      null,
+    );
+  }
+
+  return relationship;
+}
+
+export async function retrievePayMongoLinkedAccountRelationship(
+  input: {
+    secretKey: string;
+    relationshipId: string;
+  },
+): Promise<
+  PayMongoLinkedAccountRelationship
+> {
+  const relationshipId =
+    requireRelationshipId(
+      input.relationshipId,
+    );
+
+  const response =
+    await payMongoLinkedAccountRequest(
+      input.secretKey,
+
+      `/v2/relationships/${encodeURIComponent(
+        relationshipId,
+      )}`,
+
+      {
+        method: "GET",
+      },
+    );
+
+  const relationship =
+    parsePayMongoLinkedAccountRelationship(
+      response,
+    );
+
+  if (
+    relationship.relationshipId !==
+      relationshipId
+  ) {
+    throw new PayMongoLinkedAccountRequestError(
+      "PayMongo relationship identity is inconsistent.",
+      "ambiguous",
+      null,
+    );
+  }
+
+  return relationship;
+}
+
 export function parsePayMongoLinkedAccountInviteResponse(
   value: unknown,
 ): PayMongoLinkedAccountInvitation {
@@ -298,6 +510,98 @@ export function parsePayMongoLinkedAccountResource(
         data.activation_status,
       ),
   };
+}
+
+/*
+ * Parse only the relationship fields FEASTA needs for settlement
+ * authorization.
+ *
+ * Never persist policy payloads, user details, bank information,
+ * or unrelated account attributes.
+ */
+export function parsePayMongoLinkedAccountRelationship(
+  value: unknown,
+): PayMongoLinkedAccountRelationship {
+  const root =
+    asRecord(value);
+
+  const data =
+    root.data !== undefined
+      ? asRecord(root.data)
+      : root;
+
+  const relationshipId =
+    requireRelationshipId(
+      data.id ??
+      data.relationship_id,
+    );
+
+  const enabled =
+    data.enabled;
+
+  if (typeof enabled !== "boolean") {
+    throw invalidResponse(
+      "PayMongo relationship enabled status is invalid.",
+    );
+  }
+
+  const parentAccount =
+    asRecord(
+      data.parent_account,
+    );
+
+  const childAccount =
+    asRecord(
+      data.child_account,
+    );
+
+  const parentAccountId =
+    requireAccountId(
+      parentAccount.id,
+    );
+
+  const childAccountId =
+    requireAccountId(
+      childAccount.id,
+    );
+
+  const linkingRequestId =
+    data.linking_request_id ===
+      null ||
+    data.linking_request_id ===
+      undefined
+      ? null
+      : requireInvitationId(
+          data.linking_request_id,
+        );
+
+  return {
+    relationshipId,
+
+    linkingRequestId,
+
+    enabled,
+
+    parentAccountId,
+
+    childAccountId,
+  };
+}
+
+function requireRelationshipId(
+  value: unknown,
+): string {
+  if (
+    typeof value !== "string" ||
+    !/^mr_[A-Za-z0-9]+$/u
+      .test(value)
+  ) {
+    throw invalidResponse(
+      "PayMongo relationship ID is invalid.",
+    );
+  }
+
+  return value;
 }
 
 export function buildPayMongoLinkedAccountSignupUrl(

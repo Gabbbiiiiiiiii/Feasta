@@ -117,3 +117,98 @@ P9 validation covers:
 - provider Payments & Payouts UI
 - Firestore client isolation
 - Firestore composite index validity
+
+## P10 settlement and remaining-balance contract
+
+P10 extends the P9 Provider-finance domain while keeping Customer payment, Provider earning, Provider settlement, and payout-attempt evidence as separate financial truths.
+
+A successful Customer payment does not by itself mean that the Provider has been paid.
+
+### Customer remaining balance
+
+Canonical remaining-balance statuses are:
+
+- `not_applicable`
+- `not_due`
+- `due_soon`
+- `due`
+- `grace_period`
+- `overdue`
+- `paid`
+- `cancelled`
+
+Authoritative Provider-request fields include:
+
+- `grossSettledAmountInCentavos`
+- `outstandingAmountInCentavos`
+- `remainingBalanceStatus`
+- `remainingBalanceDueAt`
+- `remainingBalanceGraceEndsAt`
+- `remainingBalancePaymentId`
+
+Clients display this server-owned lifecycle. They do not calculate overdue state locally. Checkout options remain the authority for whether a Customer may start a payment.
+
+The remaining-balance lifecycle scheduler runs hourly in `Asia/Manila`. It updates lifecycle state and deterministic reminders only. It does not move Customer or Provider money.
+
+### Provider settlement
+
+Canonical Provider settlement statuses are:
+
+- `awaiting_availability`
+- `ready`
+- `reserved`
+- `processing`
+- `paid`
+- `reconciliation_required`
+- `cancelled`
+
+Customer payment success creates Provider earning accounting but does not make the Provider paid.
+
+Provider service completion can release eligible pending earning into available earning and make the corresponding settlement ready.
+
+Payout reservation belongs to settlement truth. The Provider earning remains available until authoritative payout success.
+
+### Payout attempts
+
+Canonical payout-attempt statuses are:
+
+- `reserved`
+- `dispatching`
+- `submitted`
+- `processing`
+- `succeeded`
+- `failed`
+- `ambiguous`
+
+Payout-attempt evidence is stored in `providerPayoutAttempts` and includes bounded gateway evidence such as the gateway resource ID, failure code, failure message, and lifecycle timestamps.
+
+An ambiguous payout result retains reconciliation state instead of automatically retrying or marking the Provider paid.
+
+### Refund and payout exclusion
+
+Refund dispatch and Provider payout reservation protect each other before external money movement. A refund reservation blocks payout reservation, while payout activity that requires reconciliation blocks unsafe refund dispatch.
+
+### Settlement transport
+
+Provider onboarding readiness and actual settlement transport readiness remain separate.
+
+`settlementTransportReady` must be explicitly verified. A linked or activated PayMongo account alone does not enable settlement dispatch.
+
+The current P10 implementation remains fail-closed and does not introduce an unverified PayMongo wallet-transfer dispatch.
+
+### Admin reconciliation
+
+Admin Payment Monitoring exposes bounded read-only visibility for Provider earning, settlement, reconciliation state, and referenced payout-attempt evidence.
+
+The Admin interface does not expose payout mutation controls such as Retry payout, Force reconcile, Mark paid, Release settlement, Send payout, or Withdraw.
+
+### Security
+
+The following collections remain trusted backend-only finance records:
+
+- `providerPaymentAccounts`
+- `providerEarnings`
+- `providerSettlements`
+- `providerPayoutAttempts`
+
+Firestore client rules deny direct reads and writes to these collections. Provider and Admin views are projected through trusted server-side services.

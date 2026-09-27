@@ -109,6 +109,11 @@ function CustomerBookingProviderRequestCard({
         <FinancialMetric label="Remaining balance" value={formatCurrency(request.remainingBalance)} />
         <FinancialMetric label="Down payment rate" value={formatPercentage(request.downPaymentPercentage)} />
       </dl>
+      {request.remainingBalanceStatus ? (
+        <RemainingBalanceLifecycle
+          request={request}
+        />
+      ) : null}
 
       {durableConfirmation ? (
         <section
@@ -203,6 +208,170 @@ function CustomerBookingProviderRequestCard({
   );
 }
 
+const balanceDateFormatter =
+  new Intl.DateTimeFormat(
+    "en-PH",
+    {
+      dateStyle: "medium",
+      timeZone: "Asia/Manila",
+    },
+  );
+
+function RemainingBalanceLifecycle({
+  request,
+}: {
+  request: CustomerBookingProviderRequest;
+}) {
+  const status =
+    request.remainingBalanceStatus;
+
+  if (!status) {
+    return null;
+  }
+
+  const showOutstanding =
+    request.settlementStatus ===
+      "deposit_settled" ||
+    request.settlementStatus ===
+      "balance_payment_processing" ||
+    request.settlementStatus ===
+      "fully_settled";
+
+  return (
+    <section
+      aria-label={`Remaining balance for ${boundedText(
+        request.providerName,
+        "provider",
+        80,
+      )}`}
+      className="grid gap-3 rounded-xl border border-border bg-muted/25 p-3.5"
+    >
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h4 className="text-sm font-black">
+            Remaining balance
+          </h4>
+
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            FEASTA tracks this balance separately from Provider settlement.
+          </p>
+        </div>
+
+        <span className="inline-flex shrink-0 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-bold">
+          {remainingBalanceStatusLabel(status)}
+        </span>
+      </div>
+
+      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border lg:grid-cols-4">
+        <FinancialMetric
+          label="Balance status"
+          value={remainingBalanceStatusLabel(
+            status,
+          )}
+        />
+
+        {request.grossSettledAmountInCentavos !== null ? (
+          <FinancialMetric
+            label="Customer paid so far"
+            value={formatCurrency(
+              request.grossSettledAmountInCentavos /
+                100,
+            )}
+          />
+        ) : null}
+
+        {showOutstanding &&
+        request.outstandingAmountInCentavos !== null ? (
+          <FinancialMetric
+            label="Remaining to pay"
+            value={formatCurrency(
+              request.outstandingAmountInCentavos /
+                100,
+            )}
+          />
+        ) : null}
+
+        {request.remainingBalanceDueAt ? (
+          <FinancialMetric
+            label="Balance due"
+            value={formatBalanceDate(
+              request.remainingBalanceDueAt,
+            )}
+          />
+        ) : null}
+
+        {request.remainingBalanceGraceEndsAt &&
+        (
+          status === "grace_period" ||
+          status === "overdue"
+        ) ? (
+          <FinancialMetric
+            label="Overdue from"
+            value={formatBalanceDate(
+              request.remainingBalanceGraceEndsAt,
+            )}
+          />
+        ) : null}
+      </dl>
+
+      <p className="text-xs leading-5 text-muted-foreground">
+        Secure checkout availability is controlled separately by the
+        booking payment state. An overdue balance may still be payable.
+      </p>
+    </section>
+  );
+}
+
+function remainingBalanceStatusLabel(
+  status:
+    CustomerBookingProviderRequest[
+      "remainingBalanceStatus"
+    ],
+): string {
+  switch (status) {
+    case "not_applicable":
+      return "No balance due";
+
+    case "not_due":
+      return "Not due";
+
+    case "due_soon":
+      return "Due soon";
+
+    case "due":
+      return "Due today";
+
+    case "grace_period":
+      return "Grace period";
+
+    case "overdue":
+      return "Overdue";
+
+    case "paid":
+      return "Paid";
+
+    case "cancelled":
+      return "Cancelled";
+
+    default:
+      return "Unavailable";
+  }
+}
+
+function formatBalanceDate(
+  value: string,
+): string {
+  const date =
+    new Date(value);
+
+  return Number.isNaN(
+    date.getTime(),
+  )
+    ? "Date unavailable"
+    : balanceDateFormatter.format(
+        date,
+      );
+}
 function FinancialMetric({label, value}: {label: string; value: string}) {
   return (
     <div className="min-w-0 bg-card p-3">
