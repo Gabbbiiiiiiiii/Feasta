@@ -162,6 +162,8 @@ export async function checkMarketplaceProviderAvailabilityForInput(
           status: document.data().status,
           eventTime: document.data().eventTime,
           eventEndTime: document.data().eventEndTime,
+          expiresAt: document.data().expiresAt,
+          acceptedAt: document.data().acceptedAt,
         })) ?? [],
         now,
       });

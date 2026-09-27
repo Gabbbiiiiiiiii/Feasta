@@ -12,12 +12,35 @@ import {
   type ServiceCategoryCode,
 } from "../shared/service-category-code.js";
 
+/**
+ * Statuses that may occupy a slot and must be read with the event date.
+ * Occupancy is decided by providerRequestOccupiesAvailability, including
+ * hold expiry. A counted status is not itself a booking conflict.
+ */
 export const AVAILABILITY_COUNTED_REQUEST_STATUSES = [
   "accepted",
   "waiting_for_down_payment",
   "payment_processing",
   "confirmed",
   "in_progress",
+] as const satisfies readonly ProviderRequestStatus[];
+
+/**
+ * Same window acceptProviderRequest stores on expiresAt when payment
+ * becomes required. A lineup-incomplete accepted request has no
+ * expiresAt yet, so its hold ends this long after acceptedAt.
+ */
+export const PROVIDER_PAYMENT_HOLD_WINDOW_MS = 24 * 60 * 60 * 1_000;
+
+const COMMITTED_REQUEST_STATUSES = [
+  "confirmed",
+  "in_progress",
+] as const satisfies readonly ProviderRequestStatus[];
+
+const TEMPORARY_HOLD_REQUEST_STATUSES = [
+  "accepted",
+  "waiting_for_down_payment",
+  "payment_processing",
 ] as const satisfies readonly ProviderRequestStatus[];
 
 export type ProviderAvailabilityIssueCode =
@@ -60,7 +83,55 @@ export type ExistingProviderBooking = {
   status: unknown;
   eventTime: unknown;
   eventEndTime: unknown;
+  expiresAt?: unknown;
+  acceptedAt?: unknown;
 };
+
+/**
+ * Whether a stored provider request currently occupies its event slot.
+ *
+ * Pending, rejected, cancelled, expired, and completed requests do not.
+ * Confirmed and in-progress requests do. An accepted unpaid request
+ * occupies only while its stored expiresAt is still ahead of now. A
+ * lineup-incomplete accepted request has no expiresAt, so that hold
+ * instead ends one payment window after acceptedAt.
+ */
+export function providerRequestOccupiesAvailability(input: {
+  status: unknown;
+  expiresAt?: unknown;
+  acceptedAt?: unknown;
+  now: Date;
+}): boolean {
+  const status = parseProviderRequestStatus(input.status);
+  const nowMs = input.now.getTime();
+
+  if (!status || !Number.isFinite(nowMs)) return false;
+
+  if (COMMITTED_REQUEST_STATUSES.includes(
+    status as (typeof COMMITTED_REQUEST_STATUSES)[number],
+  )) {
+    return true;
+  }
+
+  if (!TEMPORARY_HOLD_REQUEST_STATUSES.includes(
+    status as (typeof TEMPORARY_HOLD_REQUEST_STATUSES)[number],
+  )) {
+    return false;
+  }
+
+  const explicitDeadline = timestampMillis(input.expiresAt);
+
+  if (explicitDeadline !== null) {
+    return explicitDeadline > nowMs;
+  }
+
+  if (status !== "accepted") return false;
+
+  const acceptedAt = timestampMillis(input.acceptedAt);
+
+  return acceptedAt !== null &&
+    acceptedAt + PROVIDER_PAYMENT_HOLD_WINDOW_MS > nowMs;
+}
 
 type ValidateProviderAvailabilityInput = {
   providerData: Readonly<Record<string, unknown>>;
@@ -84,7 +155,7 @@ export function validateProviderAvailability(
 ): ProviderAvailabilityResult {
   const issues: ProviderAvailabilityIssue[] = [];
   const providerCategories = providerServiceCategories(input.providerData);
-  const capabilities = providerCapacityCapabilitiesSnapshot(
+  const requiresGuestCapacity = providerRequiresGuestCapacity(
     input.providerData,
     providerCategories,
   );
@@ -180,7 +251,7 @@ export function validateProviderAvailability(
     ));
   }
 
-  if (capabilities.requiresGuestCapacity) {
+  if (requiresGuestCapacity) {
     validateGuestCapacity(
       input.providerData,
       input.request.guestCount,
@@ -188,32 +259,21 @@ export function validateProviderAvailability(
     );
   }
 
-  validateResourceConfiguration(
-    input.providerData,
-    capabilities,
-    issues,
-  );
-
-  const activeBookings = input.existingBookings.filter((booking) =>
+  const occupyingBookings = input.existingBookings.filter((booking) =>
     booking.providerRequestId !== input.request.providerRequestId &&
-    isCountedStatus(booking.status)
+    providerRequestOccupiesAvailability({
+      status: booking.status,
+      expiresAt: booking.expiresAt,
+      acceptedAt: booking.acceptedAt,
+      now,
+    })
   );
-  const maximumEvents = providerMaximumEvents(input.providerData);
 
-  if (maximumEvents === null) {
-    issues.push(issue(
-      "PROVIDER_SCHEDULE_INVALID",
-      "The provider schedule is not configured correctly.",
-      "maxEventsPerDay",
-    ));
-  } else if (activeBookings.length >= maximumEvents) {
-    issues.push(issue(
-      "MAX_EVENTS_REACHED",
-      "The provider has reached the event limit for this date.",
-      "eventDate",
-    ));
-  }
-
+  /*
+   * Callers load requests for one Asia/Manila event date. A conflict
+   * is an overlap of the stored HH:mm eventTime and eventEndTime.
+   * Touching endpoints do not overlap. Daily event counts are not used.
+   */
   const requestedRange = parseTimeRange(
     input.request.eventTime,
     input.request.eventEndTime,
@@ -225,7 +285,7 @@ export function validateProviderAvailability(
       "The event time range is invalid.",
       "eventTime",
     ));
-  } else if (activeBookings.some((booking) => {
+  } else if (occupyingBookings.some((booking) => {
     const existingRange = parseTimeRange(
       booking.eventTime,
       booking.eventEndTime,
@@ -323,37 +383,6 @@ function requestMatchesProviderCapabilities(
   );
 }
 
-function validateResourceConfiguration(
-  provider: Readonly<Record<string, unknown>>,
-  capabilities: {
-    usesStaffCapacity: boolean;
-    usesEquipmentCapacity: boolean;
-  },
-  issues: ProviderAvailabilityIssue[],
-): void {
-  if (
-    capabilities.usesStaffCapacity &&
-    boundedInteger(provider.availableStaffCount, 0, 100_000) === null
-  ) {
-    issues.push(issue(
-      "PROVIDER_SCHEDULE_INVALID",
-      "The provider capacity is not configured correctly.",
-      "availableStaffCount",
-    ));
-  }
-
-  if (
-    capabilities.usesEquipmentCapacity &&
-    boundedInteger(provider.availableEquipmentCount, 0, 100_000) === null
-  ) {
-    issues.push(issue(
-      "PROVIDER_SCHEDULE_INVALID",
-      "The provider capacity is not configured correctly.",
-      "availableEquipmentCount",
-    ));
-  }
-}
-
 function requestServiceCategories(value: unknown): ServiceCategoryCode[] {
   if (!Array.isArray(value)) return [];
 
@@ -396,14 +425,10 @@ function providerServiceCategories(
   ];
 }
 
-function providerCapacityCapabilitiesSnapshot(
+function providerRequiresGuestCapacity(
   provider: Readonly<Record<string, unknown>>,
   providerCategories: readonly ServiceCategoryCode[],
-): {
-  requiresGuestCapacity: boolean;
-  usesStaffCapacity: boolean;
-  usesEquipmentCapacity: boolean;
-} {
+): boolean {
   const value = provider.capacityCapabilities;
 
   if (
@@ -418,18 +443,12 @@ function providerCapacityCapabilitiesSnapshot(
       typeof record.usesStaffCapacity === "boolean" &&
       typeof record.usesEquipmentCapacity === "boolean"
     ) {
-      return {
-        requiresGuestCapacity:
-          record.requiresGuestCapacity,
-        usesStaffCapacity:
-          record.usesStaffCapacity,
-        usesEquipmentCapacity:
-          record.usesEquipmentCapacity,
-      };
+      return record.requiresGuestCapacity;
     }
   }
 
-  return providerCapacityCapabilities(providerCategories);
+  return providerCapacityCapabilities(providerCategories)
+    .requiresGuestCapacity;
 }
 
 function providerOperatingDays(value: unknown): string[] {
@@ -451,16 +470,6 @@ function providerUnavailableDates(value: unknown): string[] {
     (date): date is string =>
       typeof date === "string" && isIsoDate(date),
   ))];
-}
-
-function providerMaximumEvents(
-  provider: Readonly<Record<string, unknown>>,
-): number | null {
-  if (provider.acceptsMultipleEventsPerDay !== true) {
-    return provider.maxEventsPerDay === 1 ? 1 : null;
-  }
-
-  return boundedInteger(provider.maxEventsPerDay, 1, 100);
 }
 
 function validateGuestCapacity(
@@ -497,13 +506,38 @@ function validateGuestCapacity(
   }
 }
 
-function isCountedStatus(value: unknown): boolean {
-  const status = parseProviderRequestStatus(value);
+function timestampMillis(value: unknown): number | null {
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value.getTime() : null;
+  }
 
-  return status !== null &&
-    AVAILABILITY_COUNTED_REQUEST_STATUSES.includes(
-      status as (typeof AVAILABILITY_COUNTED_REQUEST_STATUSES)[number],
-    );
+  if (
+    value !== null &&
+    typeof value === "object"
+  ) {
+    const record = value as {
+      toMillis?: () => unknown;
+      toDate?: () => unknown;
+    };
+
+    if (typeof record.toMillis === "function") {
+      const millis = record.toMillis();
+
+      return typeof millis === "number" && Number.isFinite(millis)
+        ? millis
+        : null;
+    }
+
+    if (typeof record.toDate === "function") {
+      const date = record.toDate();
+
+      return date instanceof Date && Number.isFinite(date.getTime())
+        ? date.getTime()
+        : null;
+    }
+  }
+
+  return null;
 }
 
 function parseTimeRange(

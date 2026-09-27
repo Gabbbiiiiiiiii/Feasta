@@ -91,12 +91,21 @@ async function run() {
         ],
         unavailableDates: [],
         bookingLeadTimeDays: 0,
-        acceptsMultipleEventsPerDay: false,
-        maxEventsPerDay: 1,
+        acceptsMultipleEventsPerDay: true,
+        maxEventsPerDay: 50,
         minGuestsPerEvent: 1,
         maxGuestsPerEvent: 500,
-        availableStaffCount: 10,
-        availableEquipmentCount: 10,
+        availableStaffCount: 0,
+        availableEquipmentCount: 0,
+      }),
+      db.collection("providerPaymentAccounts").doc(providerId).set({
+        schemaVersion: 1,
+        providerId,
+        ownerId: owner.uid,
+        linkedAccountType: "merchant",
+        paymongoAccountId: "org_safe_provider_availability",
+        setupStatus: "ready",
+        payoutReady: true,
       }),
       seedRequest({
         providerId,
@@ -105,7 +114,7 @@ async function run() {
         customerId: "availability_customer_one",
         eventDate,
         eventTime: "10:00",
-        eventEndTime: "12:00",
+        eventEndTime: "13:00",
       }),
       seedRequest({
         providerId,
@@ -113,7 +122,7 @@ async function run() {
         mainEventId: "availability_event_two",
         customerId: "availability_customer_two",
         eventDate,
-        eventTime: "13:00",
+        eventTime: "12:00",
         eventEndTime: "15:00",
       }),
     ]);
@@ -162,6 +171,64 @@ async function run() {
     ).sort();
 
     assert.deepEqual(statuses, ["confirmed", "pending"]);
+
+    await Promise.all([
+      seedRequest({
+        providerId,
+        requestId: "availability_request_three",
+        mainEventId: "availability_event_three",
+        customerId: "availability_customer_three",
+        eventDate,
+        eventTime: "16:00",
+        eventEndTime: "18:00",
+      }),
+      seedRequest({
+        providerId,
+        requestId: "availability_request_four",
+        mainEventId: "availability_event_four",
+        customerId: "availability_customer_four",
+        eventDate,
+        eventTime: "18:00",
+        eventEndTime: "20:00",
+      }),
+    ]);
+
+    const openOutcomes = await Promise.allSettled([
+      callFunction(
+        "acceptProviderRequest",
+        owner,
+        {providerRequestId: "availability_request_three"},
+      ),
+      callFunction(
+        "acceptProviderRequest",
+        owner,
+        {providerRequestId: "availability_request_four"},
+      ),
+    ]);
+    const openSummary = openOutcomes.map((outcome) =>
+      outcome.status === "fulfilled"
+        ? "fulfilled"
+        : `rejected: ${outcome.reason?.message ?? "unknown"}`
+    );
+    assert.equal(
+      openOutcomes.filter((outcome) => outcome.status === "fulfilled").length,
+      2,
+      JSON.stringify(openSummary),
+    );
+
+    const openRequests = await Promise.all([
+      db.collection("providerRequests")
+        .doc("availability_request_three")
+        .get(),
+      db.collection("providerRequests")
+        .doc("availability_request_four")
+        .get(),
+    ]);
+    assert.deepEqual(
+      openRequests.map((snapshot) => snapshot.data()?.status).sort(),
+      ["confirmed", "confirmed"],
+    );
+
     console.log(
       "Provider availability concurrency integration passed.",
     );

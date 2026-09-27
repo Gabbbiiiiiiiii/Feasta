@@ -7,6 +7,8 @@ const {
   AVAILABILITY_COUNTED_REQUEST_STATUSES,
   isCanonicalEventTimeRange,
   manilaDateFromKey,
+  PROVIDER_PAYMENT_HOLD_WINDOW_MS,
+  providerRequestOccupiesAvailability,
   validateProviderAvailability,
 } = require(
   "../lib/provider-availability/validate-provider-availability.js",
@@ -115,35 +117,181 @@ test("uses deterministic Manila calendar dates for lead time", () => {
   assert.ok(codes(result).includes("LEAD_TIME_NOT_MET"));
 });
 
-test("single-event and configured daily limits reject overbooking", () => {
-  const existing = [{
+function overlappingBooking(overrides = {}) {
+  return {
     providerRequestId: "request_existing",
     status: "confirmed",
-    eventTime: "16:00",
-    eventEndTime: "18:00",
-  }];
-  const single = validate({existingBookings: existing});
-  assert.ok(codes(single).includes("MAX_EVENTS_REACHED"));
+    eventTime: "14:00",
+    eventEndTime: "16:00",
+    ...overrides,
+  };
+}
 
-  const multiple = validate({
+test("same-day non-overlapping HH:mm ranges do not conflict", () => {
+  const result = validate({
     providerData: provider({
-      acceptsMultipleEventsPerDay: true,
-      maxEventsPerDay: 2,
+      acceptsMultipleEventsPerDay: false,
+      maxEventsPerDay: 1,
+      availableStaffCount: 0,
+      availableEquipmentCount: 0,
     }),
-    existingBookings: [
-      ...existing,
-      {
-        providerRequestId: "request_existing_2",
-        status: "waiting_for_down_payment",
-        eventTime: "18:00",
-        eventEndTime: "20:00",
-      },
-    ],
+    existingBookings: [{
+      providerRequestId: "request_existing",
+      status: "confirmed",
+      eventTime: "16:00",
+      eventEndTime: "18:00",
+    }],
   });
-  assert.ok(codes(multiple).includes("MAX_EVENTS_REACHED"));
+
+  assert.equal(result.available, true);
+  assert.equal(codes(result).includes("MAX_EVENTS_REACHED"), false);
+  assert.equal(codes(result).includes("TIME_CONFLICT"), false);
 });
 
-test("counts only canonical active operational statuses", () => {
+test("occupancy follows status and the stored payment hold deadline", () => {
+  const now = new Date("2026-08-20T12:00:00+08:00");
+  const activeHold = new Date(now.getTime() + 60 * 60 * 1_000);
+  const expiredHold = new Date(now.getTime() - 60 * 1_000);
+  const recentAcceptance = new Date(
+    now.getTime() - 60 * 60 * 1_000,
+  );
+  const staleAcceptance = new Date(
+    now.getTime() - PROVIDER_PAYMENT_HOLD_WINDOW_MS - 1_000,
+  );
+
+  assert.equal(validate({
+    now,
+    existingBookings: [overlappingBooking({
+      status: "pending",
+      expiresAt: activeHold,
+    })],
+  }).available, true);
+
+  assert.ok(codes(validate({
+    now,
+    existingBookings: [overlappingBooking({
+      status: "waiting_for_down_payment",
+      expiresAt: activeHold,
+    })],
+  })).includes("TIME_CONFLICT"));
+
+  assert.equal(validate({
+    now,
+    existingBookings: [overlappingBooking({
+      status: "waiting_for_down_payment",
+      expiresAt: expiredHold,
+      acceptedAt: recentAcceptance,
+    })],
+  }).available, true);
+
+  assert.ok(codes(validate({
+    now,
+    existingBookings: [overlappingBooking({
+      status: "payment_processing",
+      expiresAt: activeHold,
+    })],
+  })).includes("TIME_CONFLICT"));
+
+  assert.equal(validate({
+    now,
+    existingBookings: [overlappingBooking({
+      status: "payment_processing",
+      expiresAt: expiredHold,
+    })],
+  }).available, true);
+
+  for (const status of ["confirmed", "in_progress"]) {
+    assert.ok(codes(validate({
+      now,
+      existingBookings: [overlappingBooking({
+        status,
+        expiresAt: expiredHold,
+      })],
+    })).includes("TIME_CONFLICT"), status);
+  }
+
+  assert.equal(validate({
+    now,
+    request: request({
+      eventDate: new Date("2026-09-24T04:00:00+08:00"),
+    }),
+    existingBookings: [overlappingBooking({status: "completed"})],
+  }).available, true);
+
+  for (const status of ["cancelled", "rejected", "expired", "completed"]) {
+    assert.equal(providerRequestOccupiesAvailability({
+      status,
+      expiresAt: activeHold,
+      now,
+    }), false, status);
+  }
+
+  assert.equal(validate({
+    now,
+    existingBookings: [overlappingBooking({
+      status: "accepted",
+      acceptedAt: recentAcceptance,
+    })],
+  }).available, false);
+
+  assert.equal(validate({
+    now,
+    existingBookings: [overlappingBooking({
+      status: "accepted",
+      acceptedAt: staleAcceptance,
+    })],
+  }).available, true);
+
+  assert.equal(providerRequestOccupiesAvailability({
+    status: "waiting_for_down_payment",
+    expiresAt: {toMillis: () => activeHold.getTime()},
+    now,
+  }), true);
+  assert.equal(providerRequestOccupiesAvailability({
+    status: "waiting_for_down_payment",
+    expiresAt: {toMillis: () => now.getTime()},
+    now,
+  }), false);
+});
+
+test("conflict authority ignores generic staff, equipment, and daily event caps", () => {
+  const now = new Date("2026-08-20T12:00:00+08:00");
+  const blocked = validate({
+    now,
+    providerData: provider({
+      acceptsMultipleEventsPerDay: true,
+      maxEventsPerDay: 50,
+      availableStaffCount: 0,
+      availableEquipmentCount: 0,
+    }),
+    existingBookings: [overlappingBooking({
+      status: "confirmed",
+    })],
+  });
+  const sameWithoutCapacity = validate({
+    now,
+    providerData: provider({
+      acceptsMultipleEventsPerDay: false,
+      maxEventsPerDay: 1,
+      availableStaffCount: 9_999,
+      availableEquipmentCount: 9_999,
+    }),
+    existingBookings: [overlappingBooking({
+      status: "confirmed",
+    })],
+  });
+
+  assert.deepEqual(codes(blocked), codes(sameWithoutCapacity));
+  assert.deepEqual(codes(blocked), ["TIME_CONFLICT"]);
+
+  const source = readFileSync(
+    join(sourceRoot, "provider-availability/validate-provider-availability.ts"),
+    "utf8",
+  );
+  assert.doesNotMatch(
+    source,
+    /maxEventsPerDay|acceptsMultipleEventsPerDay|availableStaffCount|availableEquipmentCount/u,
+  );
   assert.deepEqual(AVAILABILITY_COUNTED_REQUEST_STATUSES, [
     "accepted",
     "waiting_for_down_payment",
@@ -151,30 +299,6 @@ test("counts only canonical active operational statuses", () => {
     "confirmed",
     "in_progress",
   ]);
-
-  for (const status of AVAILABILITY_COUNTED_REQUEST_STATUSES) {
-    const result = validate({
-      existingBookings: [{
-        providerRequestId: `request_${status}`,
-        status,
-        eventTime: "16:00",
-        eventEndTime: "18:00",
-      }],
-    });
-    assert.ok(codes(result).includes("MAX_EVENTS_REACHED"), status);
-  }
-
-  const terminal = validate({
-    existingBookings: ["rejected", "cancelled", "expired"].map(
-      (status) => ({
-        providerRequestId: `request_${status}`,
-        status,
-        eventTime: "12:00",
-        eventEndTime: "15:00",
-      }),
-    ),
-  });
-  assert.equal(terminal.available, true);
 });
 
 test("guest capacity applies only to capability-requiring categories", () => {
@@ -221,10 +345,6 @@ test("rejects unsupported service capabilities and unapproved providers", () => 
 
 test("detects authoritative HH:mm overlaps and rejects malformed time ranges", () => {
   const overlap = validate({
-    providerData: provider({
-      acceptsMultipleEventsPerDay: true,
-      maxEventsPerDay: 3,
-    }),
     existingBookings: [{
       providerRequestId: "request_existing",
       status: "confirmed",
@@ -233,6 +353,16 @@ test("detects authoritative HH:mm overlaps and rejects malformed time ranges", (
     }],
   });
   assert.ok(codes(overlap).includes("TIME_CONFLICT"));
+
+  const touching = validate({
+    existingBookings: [{
+      providerRequestId: "request_existing",
+      status: "confirmed",
+      eventTime: "15:00",
+      eventEndTime: "18:00",
+    }],
+  });
+  assert.equal(touching.available, true);
 
   const malformed = validate({
     request: request({eventTime: "noon", eventEndTime: ""}),
@@ -251,6 +381,9 @@ test("acceptance re-reads ownership and availability in one transaction", () => 
   assert.match(acceptance, /authorizeProviderRequest/u);
   assert.match(acceptance, /validateProviderAvailability/u);
   assert.match(acceptance, /AVAILABILITY_COUNTED_REQUEST_STATUSES/u);
+  assert.match(acceptance, /PROVIDER_PAYMENT_HOLD_WINDOW_MS/u);
+  assert.match(acceptance, /expiresAt:/u);
+  assert.match(acceptance, /acceptedAt:/u);
   assert.match(acceptance, /"eventDate",\s*">="/u);
   assert.match(acceptance, /"eventDate",\s*"<"/u);
   assert.match(acceptance, /"failed-precondition",\s*"The provider is not available/u);
@@ -272,6 +405,19 @@ test("booking submission validates availability and remains a review flow", () =
 
   assert.match(submission, /validateProviderAvailability/u);
   assert.match(submission, /AVAILABILITY_COUNTED_REQUEST_STATUSES/u);
+  assert.match(submission, /expiresAt:/u);
+  assert.match(submission, /acceptedAt:/u);
+
+  for (const relativePath of [
+    "provider-availability/check-customer-provider-availability.ts",
+    "provider-availability/check-marketplace-provider-availability.ts",
+  ]) {
+    const checker = readFileSync(join(sourceRoot, relativePath), "utf8");
+    assert.match(checker, /validateProviderAvailability/u);
+    assert.match(checker, /AVAILABILITY_COUNTED_REQUEST_STATUSES/u);
+    assert.match(checker, /expiresAt: document\.data\(\)\.expiresAt/u);
+    assert.match(checker, /acceptedAt: document\.data\(\)\.acceptedAt/u);
+  }
   assert.match(submission, /transaction\.get\(/u);
   assert.match(submission, /status:\s*"pending"/u);
   assert.match(submission, /"New Booking Request"/u);

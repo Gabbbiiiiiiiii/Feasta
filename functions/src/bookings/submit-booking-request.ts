@@ -1084,6 +1084,12 @@ export const submitBookingRequest = onCall(
                         eventEndTime:
                           document.data()
                             .eventEndTime,
+                        expiresAt:
+                          document.data()
+                            .expiresAt,
+                        acceptedAt:
+                          document.data()
+                            .acceptedAt,
                       }),
                     ),
                   now: submissionTime,

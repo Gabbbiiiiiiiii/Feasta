@@ -67,10 +67,9 @@ import {
   AVAILABILITY_COUNTED_REQUEST_STATUSES,
   manilaDateKey,
   manilaDateRange,
+  PROVIDER_PAYMENT_HOLD_WINDOW_MS,
   validateProviderAvailability,
 } from "../provider-availability/validate-provider-availability.js";
-
-const PAYMENT_WINDOW_HOURS = 24;
 
 export const acceptProviderRequest = onCall(
   {
@@ -486,6 +485,12 @@ export const acceptProviderRequest = onCall(
                     eventEndTime:
                       document.data()
                         .eventEndTime,
+                    expiresAt:
+                      document.data()
+                        .expiresAt,
+                    acceptedAt:
+                      document.data()
+                        .acceptedAt,
                   })),
               now: acceptanceTime,
             });
@@ -515,7 +520,7 @@ export const acceptProviderRequest = onCall(
             `T${acceptanceSnapshot.eventTime}:00+08:00`,
           );
           const paymentDeadline = Timestamp.fromMillis(Math.min(
-            acceptanceTime.getTime() + PAYMENT_WINDOW_HOURS * 60 * 60 * 1_000,
+            acceptanceTime.getTime() + PROVIDER_PAYMENT_HOLD_WINDOW_MS,
             eventStart.getTime(),
           ));
 
