@@ -56,6 +56,9 @@ import {
   providerRequestSettlementUpdateForPaymentOutcome,
 } from "./payment-settlement.js";
 import {
+  buildSuccessfulPaymentFinancialLedgerPlan,
+} from "./financial-ledger.js";
+import {
   customerNotificationMessageForPaymentLifecycle,
   customerNotificationTitleForPaymentLifecycle,
   paymentLifecycleChoice,
@@ -376,6 +379,20 @@ export async function processPayMongoWebhook(
         transaction.get(paymentReference.collection("gatewayPayments")),
       ]);
 
+      const financialLedgerReference =
+        nextStatus === "paid"
+          ? db
+              .collection("financialLedgerEntries")
+              .doc(event.paymentId)
+          : null;
+
+      const financialLedgerSnapshot =
+        financialLedgerReference
+          ? await transaction.get(
+              financialLedgerReference,
+            )
+          : null;
+
       const paymentLinkageReason =
         canonicalPaymentLinkageReason({
           paymentId: event.paymentId,
@@ -547,6 +564,75 @@ export async function processPayMongoWebhook(
       const timestamp =
         serverTimestamp();
 
+      const paymentReadPlan =
+        nextStatus === "paid"
+          ? providerRequestPaymentReadPlan(
+              providerRequestId,
+              providerRequest,
+            )
+          : null;
+
+      const financialLedgerPlan =
+        nextStatus === "paid" &&
+        paymentReadPlan?.mode === "p5"
+          ? buildSuccessfulPaymentFinancialLedgerPlan({
+              paymentId:
+                event.paymentId,
+
+              mainEventId:
+                bookingId,
+
+              providerRequestId,
+
+              providerId,
+
+              customerId,
+
+              paymentChoice:
+                payment.paymentChoice,
+
+              paymentAmountInCentavos:
+                payment.amountInCentavos as number,
+
+              providerRequest,
+
+              webhookEventId:
+                event.eventId,
+
+              timestamp,
+            })
+          : null;
+
+      if (
+        financialLedgerPlan &&
+        financialLedgerSnapshot?.exists
+      ) {
+        transaction.set(
+          eventReference,
+          webhookRecord(
+            event,
+            "processed_with_conflict",
+            "financial_ledger_conflict",
+            {
+              mainEventId:
+                bookingId,
+
+              providerRequestId,
+
+              providerId,
+            },
+          ),
+        );
+
+        return {
+          duplicate: false,
+          applied: false,
+          conflict: true,
+          reason:
+            "financial_ledger_conflict",
+        };
+      }
+
       if (
         activeCancellationReference &&
         activeCancellationSnapshot?.exists &&
@@ -573,15 +659,26 @@ export async function processPayMongoWebhook(
         }
       }
 
-      transaction.update(
-        paymentReference,
+      const paymentUpdate =
         createPaymentUpdate(
           nextStatus,
           event.gatewayResourceId,
           event.eventId,
           timestamp,
           payment,
-        ),
+        );
+
+      if (financialLedgerPlan) {
+        Object.assign(
+          paymentUpdate,
+          financialLedgerPlan
+            .paymentUpdate,
+        );
+      }
+
+      transaction.update(
+        paymentReference,
+        paymentUpdate,
       );
 
       const lifecycleConflict =
@@ -617,6 +714,23 @@ export async function processPayMongoWebhook(
         operationalConflict;
 
       if (conflictReason) {
+        if (
+          financialLedgerPlan &&
+          financialLedgerReference
+        ) {
+          transaction.create(
+            financialLedgerReference,
+            financialLedgerPlan
+              .ledgerRecord,
+          );
+
+          transaction.update(
+            providerRequestReference,
+            financialLedgerPlan
+              .providerRequestUpdate,
+          );
+        }
+
         transaction.update(
           bookingReference,
           {
@@ -718,9 +832,28 @@ export async function processPayMongoWebhook(
           timestamp,
         );
 
+      if (
+        financialLedgerPlan &&
+        financialLedgerReference
+      ) {
+        transaction.create(
+          financialLedgerReference,
+          financialLedgerPlan
+            .ledgerRecord,
+        );
+      }
+
       transaction.update(
         providerRequestReference,
-        requestPaymentUpdate.update,
+        {
+          ...requestPaymentUpdate.update,
+
+          ...(
+            financialLedgerPlan
+              ?.providerRequestUpdate ??
+            {}
+          ),
+        },
       );
 
       const currentMainEventStatus =

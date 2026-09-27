@@ -145,3 +145,50 @@ PayMongo references used for the release audit:
 - [Refund guide](https://docs.paymongo.com/docs/payment-acceptance-refunds)
 - [Webhook event payloads](https://docs.paymongo.com/docs/developer-tools-webhooks-events)
 - [Webhook resource event names](https://docs.paymongo.com/reference/webhook-resource)
+## P8 commission, VAT, and financial ledger
+
+Every canonical successful P5 payment creates exactly one immutable
+`financialLedgerEntries/{paymentId}` record inside the same trusted Firestore
+transaction that records the payment outcome.
+
+The provider request stores cumulative accounting projections:
+
+- `commissionAccruedInCentavos`
+- `commissionReversedInCentavos`
+- `commissionEarnedInCentavos`
+- `providerVatAccruedInCentavos`
+- `providerVatReversedInCentavos`
+- `providerVatNetInCentavos`
+- `platformVatAccruedInCentavos`
+- `platformVatReversedInCentavos`
+- `platformVatNetInCentavos`
+- withholding-ready accrued/reversed/net fields, currently fixed to zero
+
+Commission uses the snapshotted booking commission rate and cumulative integer
+centavo allocation. This guarantees that deposit plus remaining balance produces
+the same final commission as one full payment, including centavo rounding.
+
+For a provider whose snapshotted tax profile is both `vat_registered` and
+`verified`, provider VAT is recorded as the VAT-inclusive component of the
+provider service gross. A Non-VAT or unverified provider receives no provider
+VAT component.
+
+FEASTA/platform VAT is calculated only when the snapshotted platform tax status
+is `vat_registered`, and its base is FEASTA's commission rather than the whole
+provider service amount.
+
+Withholding fields exist in the immutable calculation snapshots so later tax
+work can extend the accounting contract, but P8 does not automatically apply
+withholding.
+
+Completed canonical refunds do not modify or erase the original successful
+payment ledger entry. Each completed refund operation instead creates a separate
+immutable `refund_{refundOperationId}` ledger record. Commission, provider VAT,
+and platform VAT are reversed proportionally using cumulative deterministic
+rounding. A sequence of partial refunds therefore reconciles to the exact same
+final reversal as one full refund.
+
+Firestore client rules allow only Admin reads of raw
+`financialLedgerEntries`. Customer and Provider clients cannot read them, and
+no browser client, including Admin, can create, update, or delete ledger
+evidence. Ledger writes are Functions/Admin-SDK only.

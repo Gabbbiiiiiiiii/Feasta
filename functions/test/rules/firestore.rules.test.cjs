@@ -1262,6 +1262,125 @@ test("canonical payments are server-readable only and never client-written", asy
   }));
 });
 
+test("financial ledger entries are admin-readable and immutable to every client", async () => {
+  await seedDocuments(testEnv, {
+    "users/customer-one": userData("customer-one", "customer"),
+    "users/admin-one": userData("admin-one", "admin"),
+    "users/provider-owner": userData("provider-owner", "provider", {
+      providerId: "provider-one",
+    }),
+    "providers/provider-one": {
+      ownerId: "provider-owner",
+      verificationStatus: "approved",
+      isActive: true,
+    },
+    "financialLedgerEntries/payment-ledger-one": {
+      schemaVersion: 1,
+      entryType: "payment_settled",
+      paymentId: "payment-one",
+      providerRequestId: "request-one",
+      providerId: "provider-one",
+      customerId: "customer-one",
+      currency: "PHP",
+      grossAmountInCentavos: 100000,
+      commissionAccruedInCentavos: 10000,
+    },
+  });
+
+  const customer = authenticated(
+    testEnv,
+    "customer-one",
+    "customer",
+  ).firestore();
+
+  const provider = authenticated(
+    testEnv,
+    "provider-owner",
+    "provider",
+  ).firestore();
+
+  const admin = authenticated(
+    testEnv,
+    "admin-one",
+    "admin",
+  ).firestore();
+
+  const customerLedger = doc(
+    customer,
+    "financialLedgerEntries/payment-ledger-one",
+  );
+
+  const providerLedger = doc(
+    provider,
+    "financialLedgerEntries/payment-ledger-one",
+  );
+
+  const adminLedger = doc(
+    admin,
+    "financialLedgerEntries/payment-ledger-one",
+  );
+
+  await assertFails(
+    getDoc(customerLedger),
+  );
+
+  await assertFails(
+    getDoc(providerLedger),
+  );
+
+  await assertSucceeds(
+    getDoc(adminLedger),
+  );
+
+  await assertFails(
+    setDoc(
+      doc(
+        customer,
+        "financialLedgerEntries/forged-customer",
+      ),
+      {
+        schemaVersion: 1,
+        entryType: "payment_settled",
+      },
+    ),
+  );
+
+  await assertFails(
+    setDoc(
+      doc(
+        provider,
+        "financialLedgerEntries/forged-provider",
+      ),
+      {
+        schemaVersion: 1,
+        entryType: "payment_settled",
+      },
+    ),
+  );
+
+  await assertFails(
+    setDoc(
+      doc(
+        admin,
+        "financialLedgerEntries/forged-admin",
+      ),
+      {
+        schemaVersion: 1,
+        entryType: "payment_settled",
+      },
+    ),
+  );
+
+  await assertFails(
+    updateDoc(
+      adminLedger,
+      {
+        commissionAccruedInCentavos: 1,
+      },
+    ),
+  );
+});
+
 test("admin logs are admin-readable and immutable to all clients", async () => {
   await seedDocuments(testEnv, {
     "users/admin-one": userData("admin-one", "admin"),

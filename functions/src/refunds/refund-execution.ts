@@ -25,6 +25,9 @@ import {
   readTrustedProviderRequestPaymentSetInTransaction,
 } from "../payments/provider-request-payment-reader.js";
 import {
+  buildSuccessfulRefundFinancialLedgerPlan,
+} from "../payments/financial-ledger.js";
+import {
   createPayMongoRefund,
   payMongoFailureCertainty,
   type PayMongoFailureCertainty,
@@ -3052,6 +3055,60 @@ export async function reconcileGatewayRefund(input: {
             nextCompleted,
         });
 
+      const refundFinancialLedgerPlan =
+        payment
+          .financialLedgerSchemaVersion ===
+          1
+          ? buildSuccessfulRefundFinancialLedgerPlan({
+              paymentId,
+
+              refundOperationId:
+                operationId,
+
+              mainEventId,
+
+              providerRequestId,
+
+              providerId:
+                ids.providerId,
+
+              customerId:
+                ids.customerId,
+
+              refundAmountInCentavos:
+                amount,
+
+              refundedBeforeInCentavos:
+                accounting
+                  .refundedAmountInCentavos,
+
+              payment,
+
+              providerRequest,
+
+              source:
+                input.source,
+
+              webhookEventId:
+                input.webhookEventId ??
+                null,
+
+              timestamp,
+            })
+          : null;
+
+      const refundFinancialLedgerReference =
+        refundFinancialLedgerPlan
+          ? db
+              .collection(
+                "financialLedgerEntries",
+              )
+              .doc(
+                refundFinancialLedgerPlan
+                  .ledgerEntryId,
+              )
+          : null;
+
       const aggregateStatus =
         operationSetRecords === null
           ? "refund_completed" as const
@@ -3109,6 +3166,12 @@ export async function reconcileGatewayRefund(input: {
             timestamp,
 
           ...(
+            refundFinancialLedgerPlan
+              ?.paymentUpdate ??
+            {}
+          ),
+
+          ...(
             paymentStatus ===
               "refunded"
               ? {
@@ -3122,6 +3185,17 @@ export async function reconcileGatewayRefund(input: {
             timestamp,
         },
       );
+
+      if (
+        refundFinancialLedgerPlan &&
+        refundFinancialLedgerReference
+      ) {
+        transaction.create(
+          refundFinancialLedgerReference,
+          refundFinancialLedgerPlan
+            .ledgerRecord,
+        );
+      }
 
       const bookingPaymentStatus =
         operationSetRecords === null
@@ -3152,6 +3226,12 @@ export async function reconcileGatewayRefund(input: {
         transaction.update(
           requestReference,
           {
+            ...(
+              refundFinancialLedgerPlan
+                ?.providerRequestUpdate ??
+              {}
+            ),
+
             paymentStatus:
               bookingPaymentStatus,
 
@@ -3263,6 +3343,16 @@ export async function reconcileGatewayRefund(input: {
         );
       }
       else {
+        if (
+          refundFinancialLedgerPlan
+        ) {
+          transaction.update(
+            requestReference,
+            refundFinancialLedgerPlan
+              .providerRequestUpdate,
+          );
+        }
+
         updateCancellationRefundStatus(
           transaction,
           cancellationReference,

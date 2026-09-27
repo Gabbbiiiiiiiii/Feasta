@@ -1141,6 +1141,24 @@ service cloud.firestore {
     }
 
     // ============================================================
+    // financialLedgerEntries
+    // ============================================================
+
+    match /financialLedgerEntries/{ledgerEntryId} {
+      /*
+       * P8 financial-ledger entries are immutable accounting evidence.
+       *
+       * Successful-payment allocations and completed-refund reversals are
+       * created only by trusted backend transactions. Customers and
+       * Providers never read raw ledger records directly. Admin finance
+       * surfaces may read them, but even Admin clients cannot create,
+       * update, or delete ledger evidence.
+       */
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    // ============================================================
     // chatRooms and messages
     // ============================================================
 

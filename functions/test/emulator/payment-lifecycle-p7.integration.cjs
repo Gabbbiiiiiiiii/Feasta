@@ -1380,6 +1380,9 @@ async function seed(suffix) {
         currency:
           "PHP",
 
+        packagePaymentTerms:
+          null,
+
         grossAmountInCentavos:
           GROSS,
 
@@ -1388,6 +1391,27 @@ async function seed(suffix) {
 
         remainingBalanceInCentavos:
           BALANCE,
+
+        requiredUpfrontRateBps:
+          5_000,
+
+        platformCommissionRateBps:
+          1_000,
+
+        platformTaxStatus:
+          "non_vat",
+
+        platformVatRateBps:
+          1_200,
+
+        financialPolicyVersion:
+          1,
+
+        providerTaxType:
+          null,
+
+        providerTaxVerificationStatus:
+          null,
       },
 
       status:
