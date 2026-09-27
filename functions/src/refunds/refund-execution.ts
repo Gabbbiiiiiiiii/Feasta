@@ -28,6 +28,9 @@ import {
   buildSuccessfulRefundFinancialLedgerPlan,
 } from "../payments/financial-ledger.js";
 import {
+  buildProviderEarningRefundPlan,
+} from "../provider-finance/provider-earning-domain.js";
+import {
   createPayMongoRefund,
   payMongoFailureCertainty,
   type PayMongoFailureCertainty,
@@ -2624,6 +2627,34 @@ export async function reconcileGatewayRefund(input: {
         operationSnapshot.data() ??
         {};
 
+      const providerEarningReference =
+        payment
+          .providerEarningSchemaVersion ===
+          1
+          ? db
+              .collection("providerEarnings")
+              .doc(
+                storedId(
+                  payment.providerEarningId,
+                  "Provider earning",
+                ),
+              )
+          : null;
+
+      const providerEarningSnapshot =
+        providerEarningReference
+          ? await transaction.get(
+              providerEarningReference,
+            )
+          : null;
+
+      if (
+        providerEarningReference &&
+        !providerEarningSnapshot?.exists
+      ) {
+        throw accountingInvalid();
+      }
+
       const cancellationRequestId =
         storedId(
           operation
@@ -3109,6 +3140,35 @@ export async function reconcileGatewayRefund(input: {
               )
           : null;
 
+      const providerEarningRefundPlan =
+        refundFinancialLedgerPlan &&
+        providerEarningReference &&
+        providerEarningSnapshot?.exists
+          ? buildProviderEarningRefundPlan({
+              paymentId,
+
+              earningId:
+                providerEarningReference.id,
+
+              earning:
+                providerEarningSnapshot
+                  .data() ?? {},
+
+              refundFinancialLedgerRecord:
+                refundFinancialLedgerPlan
+                  .ledgerRecord,
+
+              timestamp,
+            })
+          : null;
+
+      if (
+        providerEarningReference &&
+        !providerEarningRefundPlan
+      ) {
+        throw accountingInvalid();
+      }
+
       const aggregateStatus =
         operationSetRecords === null
           ? "refund_completed" as const
@@ -3172,6 +3232,12 @@ export async function reconcileGatewayRefund(input: {
           ),
 
           ...(
+            providerEarningRefundPlan
+              ?.paymentUpdate ??
+            {}
+          ),
+
+          ...(
             paymentStatus ===
               "refunded"
               ? {
@@ -3194,6 +3260,17 @@ export async function reconcileGatewayRefund(input: {
           refundFinancialLedgerReference,
           refundFinancialLedgerPlan
             .ledgerRecord,
+        );
+      }
+
+      if (
+        providerEarningRefundPlan &&
+        providerEarningReference
+      ) {
+        transaction.update(
+          providerEarningReference,
+          providerEarningRefundPlan
+            .earningUpdate,
         );
       }
 

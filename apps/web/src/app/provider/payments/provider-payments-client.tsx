@@ -21,6 +21,9 @@ import {PageHeading} from "@/components/layout/page-heading";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
 import type {
+  ProviderFinanceOverview,
+} from "@/lib/provider/payments/provider-finance-types";
+import type {
   ProviderPayment,
   ProviderPaymentDetail,
   ProviderPaymentFilter,
@@ -32,11 +35,32 @@ import {
   loadProviderPaymentAction,
   loadProviderPaymentsAction,
 } from "./actions";
+import {ProviderFinancePanel} from "./provider-finance-panel";
 import {ProviderPaymentDetailDrawer} from "./provider-payment-detail-drawer";
 
 type ProviderPaymentsClientProps = {
   initialPage: ProviderPaymentPage;
   initialFilters: ProviderPaymentFilters;
+  initialFinance?: ProviderFinanceOverview;
+};
+
+const EMPTY_PROVIDER_FINANCE: ProviderFinanceOverview = {
+  payoutAccount: {
+    setupStatus: "not_started",
+    linkedAccountType: null,
+    invitationStatus: null,
+    activationStatus: null,
+    payoutReady: false,
+    paymongoAccountId: null,
+    updatedAt: null,
+  },
+  earningSummary: {
+    pendingAmountInCentavos: 0,
+    availableAmountInCentavos: 0,
+    paidAmountInCentavos: 0,
+    reversedAmountInCentavos: 0,
+  },
+  earnings: [],
 };
 
 const FIRST_PAGE_CURSOR = "__first_provider_payment_page__";
@@ -57,6 +81,7 @@ const filterOptions: readonly {
 export function ProviderPaymentsClient({
   initialPage,
   initialFilters,
+  initialFinance = EMPTY_PROVIDER_FINANCE,
 }: ProviderPaymentsClientProps) {
   const pathname = usePathname();
   const router = useRouter();
@@ -180,8 +205,12 @@ export function ProviderPaymentsClient({
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Provider finance"
-        title="Booking Payments"
-        description="Track customer payments associated with your FEASTA booking requests."
+        title="Payments & Payouts"
+        description="Manage payout readiness, provider earnings, and customer booking payment activity."
+      />
+
+      <ProviderFinancePanel
+        initialFinance={initialFinance}
       />
 
       <aside

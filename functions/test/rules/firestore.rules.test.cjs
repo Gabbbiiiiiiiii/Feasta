@@ -1262,6 +1262,135 @@ test("canonical payments are server-readable only and never client-written", asy
   }));
 });
 
+test("provider payout accounts and earnings are server-only finance records", async () => {
+  await seedDocuments(testEnv, {
+    "users/customer-one": userData("customer-one", "customer"),
+    "users/admin-one": userData("admin-one", "admin"),
+    "users/provider-owner": userData("provider-owner", "provider", {
+      providerId: "provider-one",
+    }),
+    "providers/provider-one": {
+      ownerId: "provider-owner",
+      verificationStatus: "approved",
+      isActive: true,
+    },
+    "providerPaymentAccounts/provider-one": {
+      schemaVersion: 1,
+      providerId: "provider-one",
+      ownerId: "provider-owner",
+      linkedAccountType: "merchant",
+      invitationId: "invite_safe_reference",
+      invitationStatus: "accepted",
+      paymongoAccountId: "org_safe_provider_one",
+      activationStatus: "activated",
+      setupStatus: "ready",
+      payoutReady: true,
+    },
+    "providerEarnings/payment-one": {
+      schemaVersion: 1,
+      earningId: "payment-one",
+      status: "pending",
+      providerId: "provider-one",
+      providerRequestId: "request-one",
+      mainEventId: "event-one",
+      customerId: "customer-one",
+      paymentId: "payment-one",
+      currency: "PHP",
+      earningAmountInCentavos: 90000,
+      pendingAmountInCentavos: 90000,
+      availableAmountInCentavos: 0,
+      paidAmountInCentavos: 0,
+      reversedAmountInCentavos: 0,
+      createdAt: new Date(),
+    },
+  });
+
+  const customer = authenticated(
+    testEnv,
+    "customer-one",
+    "customer",
+  ).firestore();
+
+  const provider = authenticated(
+    testEnv,
+    "provider-owner",
+    "provider",
+  ).firestore();
+
+  const admin = authenticated(
+    testEnv,
+    "admin-one",
+    "admin",
+  ).firestore();
+
+  for (const client of [customer, provider, admin]) {
+    await assertFails(getDoc(doc(
+      client,
+      "providerPaymentAccounts/provider-one",
+    )));
+
+    await assertFails(getDoc(doc(
+      client,
+      "providerEarnings/payment-one",
+    )));
+
+    await assertFails(getDocs(query(
+      collection(client, "providerEarnings"),
+      where("providerId", "==", "provider-one"),
+    )));
+
+    await assertFails(setDoc(doc(
+      client,
+      "providerPaymentAccounts/forged-provider",
+    ), {
+      schemaVersion: 1,
+      providerId: "forged-provider",
+      payoutReady: true,
+      setupStatus: "ready",
+    }));
+
+    await assertFails(setDoc(doc(
+      client,
+      "providerEarnings/forged-earning",
+    ), {
+      schemaVersion: 1,
+      providerId: "provider-one",
+      status: "paid",
+      earningAmountInCentavos: 99999999,
+    }));
+
+    await assertFails(updateDoc(
+      doc(
+        client,
+        "providerPaymentAccounts/provider-one",
+      ),
+      {
+        payoutReady: false,
+      },
+    ));
+
+    await assertFails(updateDoc(
+      doc(
+        client,
+        "providerEarnings/payment-one",
+      ),
+      {
+        paidAmountInCentavos: 90000,
+        status: "paid",
+      },
+    ));
+
+    await assertFails(deleteDoc(doc(
+      client,
+      "providerPaymentAccounts/provider-one",
+    )));
+
+    await assertFails(deleteDoc(doc(
+      client,
+      "providerEarnings/payment-one",
+    )));
+  }
+});
 test("financial ledger entries are admin-readable and immutable to every client", async () => {
   await seedDocuments(testEnv, {
     "users/customer-one": userData("customer-one", "customer"),

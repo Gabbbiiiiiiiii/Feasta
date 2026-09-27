@@ -1144,6 +1144,18 @@ service cloud.firestore {
     // financialLedgerEntries
     // ============================================================
 
+    // P9 provider payout accounts are trusted server-managed finance records.
+    // Browser clients, including admin clients, cannot read or mutate them.
+    match /providerPaymentAccounts/{providerId} {
+      allow read, write: if false;
+    }
+
+    // P9 provider earnings are canonical server-managed financial records.
+    // Providers consume a bounded view through the authenticated web server.
+    match /providerEarnings/{earningId} {
+      allow read, write: if false;
+    }
+
     match /financialLedgerEntries/{ledgerEntryId} {
       /*
        * P8 financial-ledger entries are immutable accounting evidence.

@@ -140,7 +140,7 @@ describe("provider booking payments workspace", () => {
   it("renders the provider finance heading, exact summary metrics, and centavo-safe PHP values", () => {
     renderWorkspace();
 
-    expect(screen.getByRole("heading", {level: 1, name: "Booking Payments"}))
+    expect(screen.getByRole("heading", {level: 1, name: "Payments & Payouts"}))
       .toBeVisible();
     expect(screen.getByText("Provider finance")).toBeVisible();
     expect(screen.getByLabelText("Confirmed Customer Payments"))

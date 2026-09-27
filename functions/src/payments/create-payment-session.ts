@@ -80,6 +80,9 @@ import {
   classifyProviderRequestRefundPolicyEvidence,
   requireRefundEligibilityState,
 } from "../bookings/booking-refund-policy.js";
+import {
+  providerPayoutReadinessReason,
+} from "../provider-finance/provider-payment-account-domain.js";
 
 const payMongoSecretKey = defineSecret(
   "PAYMONGO_SECRET_KEY",
@@ -640,6 +643,42 @@ export async function createPaymentSessionForCustomer(
           amountInCentavos,
           checkoutUrl: null,
         };
+      }
+
+      const payoutAccountSnapshot =
+        await transaction.get(
+          db
+            .collection(
+              "providerPaymentAccounts",
+            )
+            .doc(
+              providerId,
+            ),
+        );
+
+      const payoutReadinessReason =
+        providerPayoutReadinessReason({
+          payoutSetupRequired:
+            true,
+
+          providerId,
+
+          account:
+            payoutAccountSnapshot.exists
+              ? payoutAccountSnapshot.data() ??
+                {}
+              : null,
+        });
+
+      if (payoutReadinessReason) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Payment cannot start until the provider's payout setup is ready.",
+          {
+            reason:
+              payoutReadinessReason,
+          },
+        );
       }
 
       if (selectingInitialPayment) {

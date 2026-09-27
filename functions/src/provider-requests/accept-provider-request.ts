@@ -57,6 +57,9 @@ import {
   buildProviderRequestFinancialSnapshot,
 } from "./provider-request-financial-snapshot.js";
 import {
+  providerPayoutReadinessReason,
+} from "../provider-finance/provider-payment-account-domain.js";
+import {
   AVAILABILITY_COUNTED_REQUEST_STATUSES,
   manilaDateKey,
   manilaDateRange,
@@ -316,6 +319,43 @@ export const acceptProviderRequest = onCall(
           requireProviderResponseParentStatus(
             core.mainEventStatus,
           );
+
+          const payoutAccountSnapshot =
+            await transaction.get(
+              db
+                .collection(
+                  "providerPaymentAccounts",
+                )
+                .doc(
+                  authorized.providerId,
+                ),
+            );
+
+          const payoutReadinessReason =
+            providerPayoutReadinessReason({
+              payoutSetupRequired:
+                true,
+
+              providerId:
+                authorized.providerId,
+
+              account:
+                payoutAccountSnapshot.exists
+                  ? payoutAccountSnapshot.data() ??
+                    {}
+                  : null,
+            });
+
+          if (payoutReadinessReason) {
+            throw new HttpsError(
+              "failed-precondition",
+              "Complete payout setup before accepting new booking requests.",
+              {
+                reason:
+                  payoutReadinessReason,
+              },
+            );
+          }
 
           const acceptanceTime = new Date();
 

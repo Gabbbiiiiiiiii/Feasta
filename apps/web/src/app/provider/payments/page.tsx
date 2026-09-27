@@ -1,3 +1,4 @@
+import {getProviderFinanceOverview} from "@/lib/provider/payments/provider-finance-service";
 import {getProviderPaymentPage} from "@/lib/provider/payments/provider-payment-service";
 import type {ProviderPaymentFilter} from "@/lib/provider/payments/provider-payment-types";
 
@@ -34,12 +35,19 @@ export default async function ProviderPaymentsPage({
     pageSize: 10,
     cursor: null,
   } as const;
-  const initialPage = await getProviderPaymentPage(initialFilters);
+  const [
+    initialPage,
+    initialFinance,
+  ] = await Promise.all([
+    getProviderPaymentPage(initialFilters),
+    getProviderFinanceOverview(),
+  ]);
 
   return (
     <ProviderPaymentsClient
       initialFilters={initialFilters}
       initialPage={initialPage}
+      initialFinance={initialFinance}
     />
   );
 }

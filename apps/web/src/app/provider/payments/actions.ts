@@ -1,6 +1,13 @@
 "use server";
 
 import {
+  getProviderFinanceOverview,
+} from "@/lib/provider/payments/provider-finance-service";
+import type {
+  ProviderFinanceOverview,
+} from "@/lib/provider/payments/provider-finance-types";
+
+import {
   getProviderPayment,
   getProviderPaymentPage,
 } from "@/lib/provider/payments/provider-payment-service";
@@ -20,4 +27,9 @@ export async function loadProviderPaymentAction(
   paymentId: string,
 ): Promise<ProviderPaymentDetail> {
   return await getProviderPayment(paymentId);
+}
+
+export async function loadProviderFinanceOverviewAction():
+Promise<ProviderFinanceOverview> {
+  return await getProviderFinanceOverview();
 }

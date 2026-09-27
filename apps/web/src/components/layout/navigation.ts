@@ -148,7 +148,7 @@ const providerBusinessNavigation: readonly NavigationItem[] = [
   {
     kind: "link",
     section: "BUSINESS",
-    label: "Payments",
+    label: "Payments & Payouts",
     href: "/provider/payments",
     icon: WalletCards,
   },

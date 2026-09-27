@@ -59,6 +59,9 @@ import {
   buildSuccessfulPaymentFinancialLedgerPlan,
 } from "./financial-ledger.js";
 import {
+  buildSuccessfulPaymentProviderEarningPlan,
+} from "../provider-finance/provider-earning-domain.js";
+import {
   customerNotificationMessageForPaymentLifecycle,
   customerNotificationTitleForPaymentLifecycle,
   paymentLifecycleChoice,
@@ -393,6 +396,20 @@ export async function processPayMongoWebhook(
             )
           : null;
 
+      const providerEarningReference =
+        nextStatus === "paid"
+          ? db
+              .collection("providerEarnings")
+              .doc(event.paymentId)
+          : null;
+
+      const providerEarningSnapshot =
+        providerEarningReference
+          ? await transaction.get(
+              providerEarningReference,
+            )
+          : null;
+
       const paymentLinkageReason =
         canonicalPaymentLinkageReason({
           paymentId: event.paymentId,
@@ -603,6 +620,29 @@ export async function processPayMongoWebhook(
             })
           : null;
 
+      const providerEarningPlan =
+        financialLedgerPlan
+          ? buildSuccessfulPaymentProviderEarningPlan({
+              paymentId:
+                event.paymentId,
+
+              mainEventId:
+                bookingId,
+
+              providerRequestId,
+
+              providerId,
+
+              customerId,
+
+              financialLedgerRecord:
+                financialLedgerPlan
+                  .ledgerRecord,
+
+              timestamp,
+            })
+          : null;
+
       if (
         financialLedgerPlan &&
         financialLedgerSnapshot?.exists
@@ -630,6 +670,36 @@ export async function processPayMongoWebhook(
           conflict: true,
           reason:
             "financial_ledger_conflict",
+        };
+      }
+
+      if (
+        providerEarningPlan &&
+        providerEarningSnapshot?.exists
+      ) {
+        transaction.set(
+          eventReference,
+          webhookRecord(
+            event,
+            "processed_with_conflict",
+            "provider_earning_conflict",
+            {
+              mainEventId:
+                bookingId,
+
+              providerRequestId,
+
+              providerId,
+            },
+          ),
+        );
+
+        return {
+          duplicate: false,
+          applied: false,
+          conflict: true,
+          reason:
+            "provider_earning_conflict",
         };
       }
 
@@ -672,6 +742,14 @@ export async function processPayMongoWebhook(
         Object.assign(
           paymentUpdate,
           financialLedgerPlan
+            .paymentUpdate,
+        );
+      }
+
+      if (providerEarningPlan) {
+        Object.assign(
+          paymentUpdate,
+          providerEarningPlan
             .paymentUpdate,
         );
       }
@@ -728,6 +806,17 @@ export async function processPayMongoWebhook(
             providerRequestReference,
             financialLedgerPlan
               .providerRequestUpdate,
+          );
+        }
+
+        if (
+          providerEarningPlan &&
+          providerEarningReference
+        ) {
+          transaction.create(
+            providerEarningReference,
+            providerEarningPlan
+              .earningRecord,
           );
         }
 
@@ -840,6 +929,17 @@ export async function processPayMongoWebhook(
           financialLedgerReference,
           financialLedgerPlan
             .ledgerRecord,
+        );
+      }
+
+      if (
+        providerEarningPlan &&
+        providerEarningReference
+      ) {
+        transaction.create(
+          providerEarningReference,
+          providerEarningPlan
+            .earningRecord,
         );
       }
 

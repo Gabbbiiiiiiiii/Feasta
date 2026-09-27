@@ -185,6 +185,10 @@ export {
   checkMarketplaceProviderAvailability,
 } from "./provider-availability/check-marketplace-provider-availability.js";
 export {createPaymentSession} from "./payments/create-payment-session.js";
+export {
+  refreshProviderPayoutAccount,
+  startProviderPayoutOnboarding,
+} from "./provider-finance/provider-payment-account-management.js";
 export {payMongoWebhook} from "./payments/paymongo-webhook.js";
 export {requestPaymentRefund} from "./payments/request-refund.js";
 export {approveProviderRequestCancellationRefund} from
