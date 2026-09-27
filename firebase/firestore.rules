@@ -938,7 +938,8 @@ service cloud.firestore {
             'providerPayoutAt',
             'paymongoCheckoutId',
             'paymongoPaymentIntentId',
-            'paymongoReferenceNumber'
+            'paymongoReferenceNumber',
+            'packagePaymentTerms'
           ]);
 
       allow read: if (
@@ -968,6 +969,7 @@ service cloud.firestore {
             'cateringAddOnsTotal', 'marketplaceAddOnsTotal',
             'cateringSubtotal', 'estimatedEventTotal', 'addOnsTotal',
             'downPaymentPercentage',
+            'packagePaymentTerms',
             'status', 'paymentStatus', 'paymentId', 'paidAt', 'paidAmount',
             'totalAmount', 'downPaymentAmount', 'remainingBalance', 'currency',
             'providerPayoutStatus', 'providerPayoutAt', 'providerPayoutAmount',
@@ -1005,6 +1007,7 @@ service cloud.firestore {
             'cateringAddOnsTotal', 'marketplaceAddOnsTotal',
             'cateringSubtotal', 'estimatedEventTotal', 'addOnsTotal',
             'downPaymentPercentage',
+            'packagePaymentTerms',
             'status', 'paymentStatus', 'paymentId', 'paidAt', 'paidAmount',
             'totalAmount', 'downPaymentAmount', 'remainingBalance', 'currency',
             'providerPayoutStatus', 'providerPayoutAt', 'providerPayoutAmount',

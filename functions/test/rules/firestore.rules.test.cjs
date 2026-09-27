@@ -1064,6 +1064,179 @@ test("canonical provider requests are server-created and main-event trust fields
   }));
 });
 
+test("P13 financial and availability authority stays server-owned", async () => {
+  const eventId = "event-p13-authority";
+  const requestId = "request-p13-authority";
+  const packagePaymentTerms = {
+    schemaVersion: 1,
+    source: "package",
+    paymentPolicy: "full_payment",
+    depositRateBps: 10000,
+    balanceDueDaysBeforeEvent: null,
+    usesLegacyPaymentTerms: false,
+  };
+  const financialSnapshot = {
+    schemaVersion: 1,
+    currency: "PHP",
+    grossAmountInCentavos: 1_000_000,
+    requiredUpfrontAmountInCentavos: 1_000_000,
+    remainingBalanceInCentavos: 0,
+  };
+
+  await seedDocuments(testEnv, {
+    "users/customer-one": userData("customer-one", "customer"),
+    "users/customer-other": userData("customer-other", "customer"),
+    "users/provider-owner": userData("provider-owner", "provider", {
+      providerId: "provider-one",
+    }),
+    "users/admin-one": userData("admin-one", "admin"),
+    "providers/provider-one": publicProviderData("provider-owner"),
+    "packages/public-p13-package": {
+      providerId: "provider-one",
+      name: "Published package",
+      status: "published",
+      isActive: true,
+      isPublished: true,
+      providerPubliclyVisible: true,
+      publishedAt: new Date(),
+      isDeleted: false,
+      createdAt: new Date(),
+    },
+    [`mainEvents/${eventId}`]: {
+      customerId: "customer-one",
+      providerId: "provider-one",
+      status: "pending_provider_approval",
+      paymentStatus: "unpaid",
+      eventAddress: "123 Trusted Street",
+      packagePrice: 10000,
+      downPaymentPercentage: 20,
+      downPaymentAmount: 2000,
+      remainingBalance: 8000,
+      totalAmount: 10000,
+      packagePaymentTerms,
+      serviceTier: "buffet_setup",
+      packageThemeId: "theme_garden",
+      updatedAt: new Date(),
+    },
+    [`providerRequests/${requestId}`]: {
+      customerId: "customer-one",
+      providerId: "provider-one",
+      mainEventId: eventId,
+      status: "pending",
+      paymentStatus: "unpaid",
+      amount: 10000,
+      downPaymentAmount: 2000,
+      remainingBalance: 8000,
+      packagePaymentTerms,
+      financialSnapshot,
+      acceptedAt: null,
+      expiresAt: null,
+      confirmedAt: null,
+      providerNotes: null,
+      adminNotes: null,
+      updatedAt: new Date(),
+    },
+    "payments/legacy-down-payment": {
+      customerId: "customer-one",
+      providerId: "provider-one",
+      providerRequestId: requestId,
+      type: "provider_down_payment",
+      status: "paid",
+      amount: 2000,
+      currency: "PHP",
+    },
+    "providerSettlements/settlement-one": {
+      providerId: "provider-one",
+      status: "pending",
+      amountInCentavos: 800000,
+    },
+  });
+
+  const customer = authenticated(testEnv, "customer-one", "customer")
+    .firestore();
+  const unrelated = authenticated(testEnv, "customer-other", "customer")
+    .firestore();
+  const provider = authenticated(testEnv, "provider-owner", "provider")
+    .firestore();
+  const admin = authenticated(testEnv, "admin-one", "admin").firestore();
+  const guest = testEnv.unauthenticatedContext().firestore();
+
+  await assertSucceeds(getDoc(doc(customer, `mainEvents/${eventId}`)));
+  await assertSucceeds(getDoc(doc(customer, `providerRequests/${requestId}`)));
+  await assertSucceeds(getDoc(doc(provider, `providerRequests/${requestId}`)));
+  await assertFails(getDoc(doc(unrelated, `mainEvents/${eventId}`)));
+  await assertFails(getDoc(doc(unrelated, `providerRequests/${requestId}`)));
+  await assertSucceeds(getDoc(doc(guest, "packages/public-p13-package")));
+
+  await assertFails(updateDoc(doc(customer, `providerRequests/${requestId}`), {
+    status: "confirmed",
+  }));
+  await assertFails(updateDoc(doc(customer, `providerRequests/${requestId}`), {
+    financialSnapshot: {
+      ...financialSnapshot,
+      grossAmountInCentavos: 1,
+    },
+  }));
+  await assertFails(updateDoc(doc(customer, `providerRequests/${requestId}`), {
+    paymentStatus: "paid",
+    paidAt: new Date(),
+  }));
+  await assertFails(updateDoc(doc(provider, `providerRequests/${requestId}`), {
+    status: "confirmed",
+    acceptedAt: new Date(),
+    expiresAt: new Date(),
+    updatedAt: new Date(),
+  }));
+  await assertFails(updateDoc(doc(provider, `providerRequests/${requestId}`), {
+    financialSnapshot: {
+      ...financialSnapshot,
+      grossAmountInCentavos: 1,
+    },
+    paymentStatus: "paid",
+  }));
+  await assertSucceeds(updateDoc(doc(provider, `providerRequests/${requestId}`), {
+    providerNotes: "Kitchen notes only.",
+    updatedAt: new Date(),
+  }));
+
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    packagePaymentTerms: {
+      ...packagePaymentTerms,
+      paymentPolicy: "deposit_then_balance",
+      depositRateBps: 2000,
+    },
+  }));
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    status: "confirmed",
+    paymentStatus: "paid",
+  }));
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    downPaymentAmount: 1,
+    remainingBalance: 9999,
+  }));
+  await assertSucceeds(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    eventAddress: "456 Customer Editable Street",
+    updatedAt: new Date(),
+  }));
+
+  await assertFails(setDoc(doc(customer, "payments/forged-paid"), {
+    customerId: "customer-one",
+    type: "provider_down_payment",
+    status: "paid",
+    amount: 1,
+  }));
+  await assertFails(updateDoc(doc(provider, "payments/legacy-down-payment"), {
+    status: "refunded",
+  }));
+  await assertFails(getDoc(doc(customer, "payments/legacy-down-payment")));
+  await assertSucceeds(getDoc(doc(admin, "payments/legacy-down-payment")));
+  await assertFails(setDoc(doc(provider, "providerSettlements/forged-settlement"), {
+    providerId: "provider-one",
+    status: "settled",
+    amountInCentavos: 1,
+  }));
+});
+
 test("cancellation workflow documents are Functions-only", async () => {
   const cancellationPath =
     "providerRequestCancellationRequests/cancellation-security-one";
