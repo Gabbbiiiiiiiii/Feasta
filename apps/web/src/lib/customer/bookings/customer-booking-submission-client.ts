@@ -22,6 +22,7 @@ export type SubmitBookingRequestInput = {
   packageId: string;
 
   eventType: string;
+  customEventType?: string;
   eventDate: string;
   eventTime: string;
   eventEndTime: string;

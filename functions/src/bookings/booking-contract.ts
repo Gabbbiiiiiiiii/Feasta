@@ -95,22 +95,27 @@ export function validateBookingPackage(
     };
   }
 
-  const packageEventType =
-    canonicalEventType(
+  const packageEventTypes =
+    canonicalEventTypes(
+      packageData.eventTypes,
       packageData.eventType,
     );
 
-  if (!packageEventType) {
+  if (packageEventTypes.length === 0) {
     return {
       valid: false,
       code: "PACKAGE_CONDITIONS_INVALID",
     };
   }
 
-  if (
+  const eventType =
     canonicalEventType(
       submittedEventType,
-    ) !== packageEventType
+    );
+
+  if (
+    !eventType ||
+    !packageEventTypes.includes(eventType)
   ) {
     return {
       valid: false,
@@ -120,10 +125,34 @@ export function validateBookingPackage(
 
   return {
     valid: true,
-    eventType: packageEventType,
+    eventType,
     minimumGuests,
     maximumGuests,
   };
+}
+
+function canonicalEventTypes(
+  value: unknown,
+  legacyValue: unknown,
+): readonly string[] {
+  const values = Array.isArray(value)
+    ? value
+    : typeof legacyValue === "string"
+      ? [legacyValue]
+      : [];
+
+  return [
+    ...new Set(
+      values.flatMap((item) => {
+        const eventType =
+          canonicalEventType(item);
+
+        return eventType
+          ? [eventType]
+          : [];
+      }),
+    ),
+  ];
 }
 
 function canonicalEventType(

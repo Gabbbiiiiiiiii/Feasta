@@ -49,6 +49,7 @@ export type CustomerProviderAvailability = {
 export type CustomerProviderAvailabilityInput = {
   packageId: string;
   addonIds: readonly string[];
+  eventType: string;
   eventDate: string;
   eventTime: string;
   eventEndTime: string;

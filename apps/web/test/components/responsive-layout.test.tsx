@@ -48,12 +48,28 @@ describe.each(webAuthenticationWidths)("responsive authentication layout at %i p
     );
 
     const main = screen.getByRole("main");
-    expect(main).toHaveClass("min-w-0", "overflow-x-clip", "max-w-lg");
-    expect(screen.getAllByRole("heading", {level: 1})).toHaveLength(1);
-    expect(screen.getByText("Provider portal").closest("section")).toHaveAttribute(
+    expect(main).toHaveClass(
+      "min-w-0",
+      "overflow-x-clip",
+    );
+    expect(main).not.toHaveClass("max-w-lg");
+
+    const portal = main.querySelector(
+      'section[data-auth-portal="provider"]',
+    );
+
+    expect(portal).toHaveAttribute(
       "data-auth-portal",
       "provider",
     );
+    expect(portal).toHaveClass(
+      "w-full",
+      "max-w-[1040px]",
+    );
+
+    expect(
+      screen.getAllByRole("heading", {level: 1}),
+    ).toHaveLength(1);
     expect(screen.getByRole("button", {name: "Continue securely"})).toHaveClass(
       "min-h-12",
       "w-full",

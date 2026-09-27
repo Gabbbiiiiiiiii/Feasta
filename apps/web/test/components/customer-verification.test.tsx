@@ -26,6 +26,10 @@ vi.mock("@/lib/auth/client-session", () => ({
   logoutWebSession: mocks.logout,
 }));
 
+vi.mock("@/components/auth/use-current-user-email", () => ({
+  useCurrentUserEmail: () => mocks.email,
+}));
+
 import VerifyEmailPage from "@/app/verify-email/page";
 
 describe("customer email verification", () => {

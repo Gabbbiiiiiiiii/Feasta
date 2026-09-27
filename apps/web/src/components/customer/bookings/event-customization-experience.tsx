@@ -65,6 +65,8 @@ type EventCustomizationExperienceProps = {
 };
 
 type EventDetailsDraft = {
+  eventType: string;
+  customEventType: string;
   eventDate: string;
   eventTime: string;
   eventEndTime: string;
@@ -132,6 +134,8 @@ export function EventCustomizationExperience({
 
   const [draft, setDraft] =
     useState<EventDetailsDraft>({
+      eventType: "",
+      customEventType: "",
       eventDate: initialEventContext?.eventDate ?? "",
       eventTime: initialEventContext?.eventTime ?? "",
       eventEndTime: initialEventContext?.eventEndTime ?? "",
@@ -279,6 +283,7 @@ const submissionIdentityRef =
 
   const availabilityParameters = useMemo(
     () => availabilityInputForDraft({
+      eventType: draft.eventType,
       eventDate: draft.eventDate,
       eventTime: draft.eventTime,
       eventEndTime: draft.eventEndTime,
@@ -289,6 +294,7 @@ const submissionIdentityRef =
       maximumGuests: packageRecord.maximumGuests,
     }),
     [
+      draft.eventType,
       draft.eventDate,
       draft.eventEndTime,
       draft.eventTime,
@@ -414,6 +420,7 @@ const submissionIdentityRef =
     value: string,
   ) {
     if (
+      field === "eventType" ||
       field === "eventDate" ||
       field === "eventTime" ||
       field === "eventEndTime" ||
@@ -534,11 +541,34 @@ function buildSubmissionInput(
   policyAcknowledgements: SubmitBookingRequestInput["policyAcknowledgements"],
 ): SubmitBookingRequestInput {
   const eventType =
-    packageRecord.eventType?.trim();
+    draft.eventType.trim();
 
-  if (!eventType) {
+  if (
+    !eventType ||
+    !(packageRecord.eventTypes as readonly string[]).includes(
+      eventType,
+    )
+  ) {
     throw new Error(
-      "This package does not have a valid event type. Return to the package and choose another option.",
+      "Choose an event type available for this package.",
+    );
+  }
+
+  const customEventType =
+    (draft.customEventType ?? "").trim();
+
+  if (
+    eventType === "other" &&
+    !customEventType
+  ) {
+    throw new Error(
+      "Specify your event type before submitting.",
+    );
+  }
+
+  if (customEventType.length > 80) {
+    throw new Error(
+      "Event type must be 80 characters or fewer.",
     );
   }
 
@@ -568,6 +598,11 @@ function buildSubmissionInput(
     packageId: packageRecord.id,
 
     eventType,
+
+    ...(eventType === "other"
+      ? {customEventType}
+      : {}),
+
     eventDate: draft.eventDate,
     eventTime: draft.eventTime,
     eventEndTime: draft.eventEndTime,
@@ -618,7 +653,12 @@ function currentSubmissionDraftKey(): string {
     packageId: packageRecord.id,
 
     eventType:
-      packageRecord.eventType ?? "",
+      draft.eventType,
+
+    customEventType:
+      draft.eventType === "other"
+        ? (draft.customEventType ?? "").trim()
+        : "",
 
     eventDate: draft.eventDate,
     eventTime: draft.eventTime,
@@ -720,6 +760,7 @@ async function handleSubmitBooking() {
       draft,
       packageRecord.minimumGuests,
       packageRecord.maximumGuests,
+      packageRecord.eventTypes,
     );
 
   if (
@@ -791,6 +832,7 @@ async function handleSubmitBooking() {
         {
           packageId: input.packageId,
           addonIds: input.addonIds,
+          eventType: input.eventType,
           eventDate: input.eventDate,
           eventTime: input.eventTime,
           eventEndTime: input.eventEndTime,
@@ -853,6 +895,7 @@ async function handleSubmitBooking() {
         draft,
         packageRecord.minimumGuests,
         packageRecord.maximumGuests,
+        packageRecord.eventTypes,
       );
 
     setErrors(nextErrors);
@@ -1042,7 +1085,7 @@ async function handleSubmitBooking() {
       <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_19rem] lg:items-start">
         <main className="min-w-0">
           {/* ========================================================
-              STEP 1 — EVENT DETAILS
+              STEP 1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â EVENT DETAILS
              ======================================================== */}
 
           {step === 1 ? (
@@ -1068,22 +1111,83 @@ async function handleSubmitBooking() {
               </p>
 
               <div className="mt-7 grid gap-5">
-                <ReadOnlyField
-                  icon={
-                    <CalendarDays
-                      aria-hidden="true"
-                    />
-                  }
-                  label="Event type"
-                  value={
-                    packageRecord.eventType
-                      ? humanizeProviderValue(
-                          packageRecord.eventType,
+                <Field
+                  label="Event type *"
+                  error={errors.eventType}
+                >
+                  <select
+                    value={draft.eventType}
+                    onChange={(event) => {
+                      const value =
+                        event.currentTarget.value;
+
+                      updateDraft(
+                        "eventType",
+                        value,
+                      );
+
+                      if (value !== "other") {
+                        updateDraft(
+                          "customEventType",
+                          "",
+                        );
+                      }
+                    }}
+                    aria-invalid={Boolean(
+                      errors.eventType,
+                    )}
+                    className="min-h-11 w-full rounded-xl border border-input bg-background px-3 text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  >
+                    <option value="">
+                      Choose an event type
+                    </option>
+
+                    {packageRecord.eventTypes.map(
+                      (eventType) => (
+                        <option
+                          key={eventType}
+                          value={eventType}
+                        >
+                          {humanizeProviderValue(
+                            eventType,
+                          )}
+                        </option>
+                      ),
+                    )}
+                  </select>
+
+                  <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+                    Choose one of the event types available for this package.
+                  </p>
+                </Field>
+
+                {draft.eventType === "other" ? (
+                  <Field
+                    label="Specify event type *"
+                    error={errors.customEventType}
+                  >
+                    <Input
+                      value={
+                        draft.customEventType ?? ""
+                      }
+                      onChange={(event) =>
+                        updateDraft(
+                          "customEventType",
+                          event.currentTarget.value,
                         )
-                      : "Package event"
-                  }
-                  description="Based on the selected package."
-                />
+                      }
+                      maxLength={80}
+                      placeholder="Baby shower, seminar, family gathering"
+                      aria-invalid={Boolean(
+                        errors.customEventType,
+                      )}
+                    />
+
+                    <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
+                      Enter the type of event you&apos;re planning.
+                    </p>
+                  </Field>
+                ) : null}
 
                 <Field
                   label="Event date"
@@ -1300,7 +1404,7 @@ async function handleSubmitBooking() {
           ) : null}
 
           {/* ========================================================
-              STEP 2 — PACKAGE CUSTOMIZATION
+              STEP 2 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â PACKAGE CUSTOMIZATION
              ======================================================== */}
 
           {step === 2 ? (
@@ -1473,7 +1577,7 @@ async function handleSubmitBooking() {
           ) : null}
 
           {/* ========================================================
-              STEP 3 — EVENT SERVICES
+              STEP 3 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â EVENT SERVICES
             ======================================================== */}
 
           {step === 3 ? (
@@ -1813,7 +1917,7 @@ async function handleSubmitBooking() {
           ) : null}
 
           {/* ========================================================
-              STEP 4 — REVIEW PLACEHOLDER
+              STEP 4 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â REVIEW PLACEHOLDER
             ======================================================== */}
 
           {step === 4 ? (
@@ -1949,7 +2053,7 @@ async function handleSubmitBooking() {
                     label="Time"
                     value={
                       draft.eventEndTime
-                        ? `${draft.eventTime} – ${draft.eventEndTime}`
+                        ? `${draft.eventTime} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ ${draft.eventEndTime}`
                         : draft.eventTime
                     }
                   />
@@ -2623,7 +2727,7 @@ function BookingReview({
               label="Event time"
               value={`${formatEventTime(
                 eventDraft.eventTime,
-              )} – ${formatEventTime(
+              )} ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ ${formatEventTime(
                 eventDraft.eventEndTime,
               )}`}
             />
@@ -2684,11 +2788,14 @@ function BookingReview({
                 {providerName}
               </p>
 
-              {packageRecord.eventType ? (
+              {eventDraft.eventType ? (
                 <p className="mt-2 text-xs font-semibold text-feasta-text-secondary">
-                  {humanizeProviderValue(
-                    packageRecord.eventType,
-                  )}
+                  {eventDraft.eventType === "other" &&
+                  eventDraft.customEventType?.trim()
+                    ? `Other: ${eventDraft.customEventType.trim()}`
+                    : humanizeProviderValue(
+                        eventDraft.eventType,
+                      )}
                 </p>
               ) : null}
             </div>
@@ -3238,7 +3345,7 @@ function RefundPolicyReview({
         {status === "loading" || status === "idle" ? (
           <div role="status" className="grid gap-3">
             <p className="text-sm font-semibold text-feasta-text-secondary">
-              Loading current Provider refund policies…
+              Loading current Provider refund policiesÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦
             </p>
             <div className="h-36 animate-pulse rounded-[16px] bg-feasta-surface-muted motion-reduce:animate-none" />
           </div>
@@ -3383,7 +3490,7 @@ function ProviderAvailabilityPanel({
         aria-live="polite"
       >
         <p className="text-sm font-extrabold text-info">
-          Checking provider availability…
+          Checking provider availabilityÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦
         </p>
         <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
           FEASTA is checking the selected schedule with each provider.
@@ -3611,6 +3718,7 @@ function SelectionSummary({
    ================================================================== */
 
 function availabilityInputForDraft(input: {
+  eventType: string;
   eventDate: string;
   eventTime: string;
   eventEndTime: string;
@@ -3623,6 +3731,7 @@ function availabilityInputForDraft(input: {
   const guestCount = Number(input.guestCount);
 
   if (
+    !input.eventType.trim() ||
     !isCanonicalDateValue(input.eventDate) ||
     input.eventDate < tomorrowDateValue() ||
     !/^([01]\d|2[0-3]):[0-5]\d$/u.test(input.eventTime) ||
@@ -3646,6 +3755,7 @@ function availabilityInputForDraft(input: {
   return {
     packageId: input.packageId,
     addonIds: input.addonIds,
+    eventType: input.eventType.trim(),
     eventDate: input.eventDate,
     eventTime: input.eventTime,
     eventEndTime: input.eventEndTime,
@@ -3675,8 +3785,32 @@ function validateEventDetails(
   draft: EventDetailsDraft,
   minimumGuests: number | null,
   maximumGuests: number | null,
+  availableEventTypes: readonly string[],
 ): EventDetailsErrors {
   const errors: EventDetailsErrors = {};
+
+  const eventType = draft.eventType.trim();
+
+  if (!eventType) {
+    errors.eventType =
+      "Choose an event type.";
+  } else if (!availableEventTypes.includes(eventType)) {
+    errors.eventType =
+      "This event type is not available for this package.";
+  }
+
+  if (eventType === "other") {
+    const customEventType =
+      (draft.customEventType ?? "").trim();
+
+    if (!customEventType) {
+      errors.customEventType =
+        "Specify your event type.";
+    } else if (customEventType.length > 80) {
+      errors.customEventType =
+        "Event type must be 80 characters or fewer.";
+    }
+  }
 
   if (!draft.eventDate) {
     errors.eventDate =
@@ -3785,7 +3919,7 @@ function packageGuestGuidance(
     return minimumGuests ===
       maximumGuests
       ? `${minimumGuests.toLocaleString("en-PH")} guests`
-      : `${minimumGuests.toLocaleString("en-PH")}–${maximumGuests.toLocaleString("en-PH")} guests`;
+      : `${minimumGuests.toLocaleString("en-PH")}ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“${maximumGuests.toLocaleString("en-PH")} guests`;
   }
 
   if (minimumGuests !== null) {

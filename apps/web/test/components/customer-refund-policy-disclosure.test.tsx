@@ -79,7 +79,7 @@ describe("Customer booking refund policy disclosure and agreement", () => {
     expect(within(refundSection).getByText("50.25%")).toBeVisible();
     expect(within(refundSection).getByText("Written notice is appreciated."))
       .toBeVisible();
-    expect(within(refundSection).queryByText(/₱|PHP|estimated refund/iu))
+    expect(within(refundSection).queryByText(/â‚±|PHP|estimated refund/iu))
       .not.toBeInTheDocument();
 
     const submit = screen.getByRole("button", {name: "Submit booking request"});
@@ -209,9 +209,79 @@ describe("Customer booking refund policy disclosure and agreement", () => {
         effectivePolicyKey: "provider_default:primary:v5",
       }]);
   });
+
+  it("reviews and submits Other using the customer's custom event type", async () => {
+    const user = userEvent.setup();
+
+    renderExperience(["other"]);
+
+    await reachReview({
+      eventType: "other",
+      customEventType: "  Baby Shower  ",
+    });
+
+    expect(
+      screen.getByText("Other: Baby Shower"),
+    ).toBeVisible();
+
+    expect(mocks.checkAvailability).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "other",
+      }),
+      [PRIMARY_PROVIDER_ID, ADDON_PROVIDER_ID],
+    );
+
+    const refundSection =
+      await screen.findByRole("region", {
+        name: "Refund Policy",
+      });
+
+    await user.click(
+      within(refundSection).getByRole("checkbox", {
+        name: /I have reviewed Maria's Catering's refund policy/iu,
+      }),
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Submit booking request",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.submitBooking)
+        .toHaveBeenCalledTimes(1),
+    );
+
+    expect(
+      mocks.submitBooking.mock.calls[0][0],
+    ).toEqual(
+      expect.objectContaining({
+        eventType: "other",
+        customEventType: "Baby Shower",
+      }),
+    );
+  });
 });
 
-async function reachReview({selectAddon = false}: {selectAddon?: boolean} = {}) {
+async function reachReview({
+  selectAddon = false,
+  eventType = "wedding",
+  customEventType = "",
+}: {
+  selectAddon?: boolean;
+  eventType?: "wedding" | "other";
+  customEventType?: string;
+} = {}) {
+  fireEvent.change(screen.getByLabelText(/^Event type/iu), {
+    target: {value: eventType},
+  });
+
+  if (eventType === "other" && customEventType) {
+    fireEvent.change(screen.getByLabelText(/^Specify event type/iu), {
+      target: {value: customEventType},
+    });
+  }
   fireEvent.change(screen.getByLabelText("Event date"), {target: {value: "2026-09-20"}});
   fireEvent.change(screen.getByLabelText("Start time"), {target: {value: "18:00"}});
   fireEvent.change(screen.getByLabelText("End time"), {target: {value: "22:00"}});
@@ -266,16 +336,16 @@ function addonPolicy(): CustomerRefundPolicyDisclosure {
   };
 }
 
-function renderExperience() {
+function renderExperience(eventTypes: Array<"wedding" | "other"> = ["wedding"]) {
   return render(
     <EventCustomizationExperience
-      detail={detailFixture()}
+      detail={detailFixture(eventTypes)}
       eventServices={serviceFixtures()}
     />,
   );
 }
 
-function detailFixture(): PublicPackageDetail {
+function detailFixture(eventTypes: Array<"wedding" | "other"> = ["wedding"]): PublicPackageDetail {
   return {
     packageRecord: {
       id: "package_wedding_12345678",
@@ -283,7 +353,7 @@ function detailFixture(): PublicPackageDetail {
       providerName: "Maria's Catering",
       name: "Wedding celebration",
       description: "Complete package",
-      eventType: "wedding",
+      eventTypes,
       price: 100_000,
       imageUrl: null,
       minimumGuests: 50,
@@ -299,7 +369,7 @@ function detailFixture(): PublicPackageDetail {
       categories: ["catering_service"],
       location: "Ormoc City",
       serviceAreas: ["Ormoc City"],
-      eventTypes: ["wedding"],
+      eventTypes,
       operatingDays: ["sunday"],
       bookingLeadTimeDays: 7,
       minimumGuests: 50,

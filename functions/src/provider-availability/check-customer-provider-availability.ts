@@ -34,6 +34,7 @@ const MAX_ADDON_IDS = 20;
 const INPUT_FIELDS = [
   "packageId",
   "addonIds",
+  "eventType",
   "eventDate",
   "eventTime",
   "eventEndTime",
@@ -44,6 +45,7 @@ const SAFE_DOCUMENT_ID = /^[A-Za-z0-9_-]{8,160}$/u;
 type CustomerAvailabilityInput = {
   packageId: string;
   addonIds: string[];
+  eventType: string;
   eventDate: Date;
   eventTime: string;
   eventEndTime: string;
@@ -127,7 +129,7 @@ export async function checkCustomerProviderAvailabilityForInput(
   const packageValidation = validateBookingPackage({
     packageData,
     expectedProviderId: cateringProviderId,
-    submittedEventType: stringValue(packageData.eventType),
+    submittedEventType: input.eventType,
     guestCount: input.guestCount,
   });
 
@@ -442,6 +444,10 @@ export function parseCustomerAvailabilityInput(
 
   const packageId = customerDocumentId(input.packageId, "packageId");
   const addonIds = customerDocumentIdList(input.addonIds, "addonIds");
+  const eventType = requireString(input.eventType, "eventType", {
+    minLength: 1,
+    maxLength: 80,
+  }).trim().toLowerCase();
   const eventDateKey = requireString(input.eventDate, "eventDate", {
     minLength: 10,
     maxLength: 10,
@@ -478,6 +484,7 @@ export function parseCustomerAvailabilityInput(
   return {
     packageId,
     addonIds,
+    eventType,
     eventDate,
     eventTime,
     eventEndTime,

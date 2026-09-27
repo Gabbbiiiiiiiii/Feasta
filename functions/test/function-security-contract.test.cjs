@@ -363,8 +363,14 @@ test("PayMongo webhook records gateway truth without resurrecting booking state"
 
 test("refund adjudication and execution never accept browser money authority", () => {
   const execution = source("refunds/refund-execution.ts");
-  assert.ok(execution.includes('"cancellationRequestId",\n      "idempotencyKey"'));
-  assert.ok(execution.includes('"cancellationRequestId",\n      "reason",\n      "idempotencyKey"'));
+  assert.match(
+    execution,
+    /exactInput\(request,\s*\[\s*"cancellationRequestId",\s*"idempotencyKey",?\s*\]\s*\)/u,
+  );
+  assert.match(
+    execution,
+    /exactInput\(request,\s*\[\s*"cancellationRequestId",\s*"reason",\s*"idempotencyKey",?\s*\]\s*\)/u,
+  );
   assert.ok(execution.includes("calculateCancellationRefund({"));
   assert.ok(execution.includes("amountInCentavos: prepared.amountInCentavos"));
   assert.equal(execution.includes("input.refundAmount"), false);

@@ -122,13 +122,18 @@ export function PackageDetail({
 
           <div className="absolute inset-x-0 bottom-0 p-5 sm:p-7">
             <div className="flex flex-wrap items-center gap-2">
-              {packageRecord.eventType ? (
-                <span className="rounded-full border border-white/70 bg-white/95 px-3 py-1.5 text-xs font-extrabold text-primary-strong shadow-sm backdrop-blur">
-                  {humanizeProviderValue(
-                    packageRecord.eventType,
-                  )}
-                </span>
-              ) : null}
+              {packageRecord.eventTypes.map(
+                (eventType) => (
+                  <span
+                    key={eventType}
+                    className="rounded-full border border-white/70 bg-white/95 px-3 py-1.5 text-xs font-extrabold text-primary-strong shadow-sm backdrop-blur"
+                  >
+                    {humanizeProviderValue(
+                      eventType,
+                    )}
+                  </span>
+                ),
+              )}
 
               <span className="rounded-full border border-white/20 bg-black/20 px-3 py-1.5 text-xs font-bold text-white backdrop-blur">
                 Published package
@@ -245,18 +250,18 @@ export function PackageDetail({
         </h2>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          {packageRecord.eventType ? (
+          {packageRecord.eventTypes.length > 0 ? (
             <DetailFact
               icon={
                 <CalendarDays
                   aria-hidden="true"
                 />
               }
-              label="Event type"
-              value={humanizeProviderValue(
-                packageRecord.eventType,
-              )}
-              description="The event category this package is published for."
+              label="Event types"
+              value={packageRecord.eventTypes
+                .map(humanizeProviderValue)
+                .join(", ")}
+              description="The event categories this package can be booked for."
             />
           ) : null}
 
@@ -603,7 +608,7 @@ function packageGuestRange(
       ? `${minimumGuests.toLocaleString("en-PH")} guests`
       : `${minimumGuests.toLocaleString(
           "en-PH",
-        )}–${maximumGuests.toLocaleString(
+        )}â€“${maximumGuests.toLocaleString(
           "en-PH",
         )} guests`;
   }

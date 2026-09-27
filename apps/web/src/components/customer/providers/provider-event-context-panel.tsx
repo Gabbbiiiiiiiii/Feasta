@@ -21,9 +21,11 @@ import type {ProviderDiscoveryFilters} from "@/lib/customer/providers/provider-t
 const EVENT_TYPE_LABELS = {
   birthday: "Birthday",
   wedding: "Wedding",
-  debut: "Debut",
-  corporate: "Corporate",
   anniversary: "Anniversary",
+  reunion: "Reunion",
+  corporate: "Corporate",
+  baptism: "Baptism",
+  graduation: "Graduation",
   other: "Other",
 } satisfies Record<(typeof CUSTOMER_PLANNING_EVENT_TYPES)[number], string>;
 

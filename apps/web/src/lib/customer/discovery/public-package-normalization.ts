@@ -1,9 +1,63 @@
+import {
+  PROVIDER_EVENT_TYPES,
+  type ProviderEventType,
+} from "@feasta/shared-types";
+
 import type {
   PublicPackage,
   PublicPackageCustomization,
 } from "./marketplace-types";
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
+
+function normalizePackageEventTypes(
+  value: unknown,
+  legacyValue: unknown,
+): readonly ProviderEventType[] {
+  if (
+    Array.isArray(value) &&
+    value.length > 0
+  ) {
+    const normalized =
+      value.flatMap((item) => {
+        if (typeof item !== "string") {
+          return [];
+        }
+
+        const eventType =
+          item.trim().toLowerCase();
+
+        return (
+          PROVIDER_EVENT_TYPES as
+            readonly string[]
+        ).includes(eventType)
+          ? [eventType as ProviderEventType]
+          : [];
+      });
+
+    if (normalized.length === value.length) {
+      return [...new Set(normalized)];
+    }
+  }
+
+  if (typeof legacyValue === "string") {
+    const legacyEventType =
+      legacyValue.trim().toLowerCase();
+
+    if (
+      (
+        PROVIDER_EVENT_TYPES as
+          readonly string[]
+      ).includes(legacyEventType)
+    ) {
+      return [
+        legacyEventType as ProviderEventType,
+      ];
+    }
+  }
+
+  return [];
+}
 
 export function normalizePublicPackageCustomization(
   value: UnknownRecord,
@@ -67,7 +121,11 @@ export function normalizePublicPackage(
     providerName: providerNames.get(providerId)!,
     name,
     description: safeText(value.description, 600),
-    eventType: safeText(value.eventType, 80),
+    eventTypes:
+      normalizePackageEventTypes(
+        value.eventTypes,
+        value.eventType,
+      ),
     price: safeMoney(value.price),
     imageUrl: safeHttpsUrl(value.imageUrl),
     minimumGuests: validGuestRange ? minimumGuests : null,

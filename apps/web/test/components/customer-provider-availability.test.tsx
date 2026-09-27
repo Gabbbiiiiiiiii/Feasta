@@ -88,6 +88,7 @@ describe("customer provider availability planning", () => {
     expect(mocks.checkAvailability).toHaveBeenCalledWith({
       packageId: "package_wedding_12345678",
       addonIds: ["addon_photo_12345678"],
+      eventType: "wedding",
       eventDate: "2026-09-10",
       eventTime: "18:00",
       eventEndTime: "22:00",
@@ -106,6 +107,8 @@ describe("customer provider availability planning", () => {
       serviceType: "catering",
     });
 
+    selectEventType();
+
     expect(screen.getByLabelText("Event date")).toHaveValue("2026-09-10");
     expect(screen.getByLabelText("Start time")).toHaveValue("18:00");
     expect(screen.getByLabelText("End time")).toHaveValue("22:00");
@@ -113,6 +116,7 @@ describe("customer provider availability planning", () => {
     await waitFor(() => expect(mocks.checkAvailability).toHaveBeenCalledTimes(1));
     expect(mocks.checkAvailability).toHaveBeenCalledWith(expect.objectContaining({
       packageId: "package_wedding_12345678",
+      eventType: "wedding",
       eventDate: "2026-09-10",
       eventTime: "18:00",
       eventEndTime: "22:00",
@@ -267,6 +271,7 @@ describe("customer provider availability planning", () => {
       new Error("Provider availability could not be checked. Please try again."),
     ).mockResolvedValueOnce(availableResults());
     renderExperience();
+    selectEventType();
 
     fireEvent.change(screen.getByLabelText("Event date"), {
       target: {value: "2026-09-10"},
@@ -303,7 +308,14 @@ function renderExperience(initialEventContext?: {
   );
 }
 
+function selectEventType() {
+  fireEvent.change(screen.getByLabelText(/^Event type/iu), {
+    target: {value: "wedding"},
+  });
+}
+
 function fillAvailabilityFields(eventDate: string) {
+  selectEventType();
   fireEvent.change(screen.getByLabelText("Event date"), {target: {value: eventDate}});
   fireEvent.change(screen.getByLabelText("Start time"), {target: {value: "18:00"}});
   fireEvent.change(screen.getByLabelText("End time"), {target: {value: "22:00"}});
@@ -328,7 +340,7 @@ function detailFixture(): PublicPackageDetail {
       providerName: "Maria's Catering",
       name: "Wedding celebration",
       description: "A complete celebration package.",
-      eventType: "wedding",
+      eventTypes: ["wedding"],
       price: 100_000,
       imageUrl: null,
       minimumGuests: 50,

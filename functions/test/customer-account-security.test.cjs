@@ -48,7 +48,7 @@ test("provider and admin account management preserve trusted fields", () => {
 
 test("shared preference and session mutations require trusted roles", () => {
   const content = source("auth/manage-role-account.ts");
-  assert.ok(content.includes('"customer",\n      "provider",\n      "admin"'));
+  assert.match(content, /requireRole\(actor\.uid,\s*\[\s*"customer",\s*"provider",\s*"admin",?\s*\]\s*\)/u);
   assert.ok(content.includes("requireRecentAuthentication"));
   assert.ok(content.includes("revokeRefreshTokens(actor.uid)"));
   assert.ok(content.includes("account_sessions_revoked"));

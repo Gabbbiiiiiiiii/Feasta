@@ -10,6 +10,7 @@ import {
 import {
   httpsCallable,
 } from "firebase/functions";
+import {PROVIDER_EVENT_TYPES} from "@feasta/shared-types";
 
 import {
   WebAuthenticationError,
@@ -20,6 +21,9 @@ import {
   functions,
 } from "@/lib/firebase/client";
 
+type ProviderEventType =
+  (typeof PROVIDER_EVENT_TYPES)[number];
+
 export type ProviderPackageStatus =
   | "draft"
   | "published"
@@ -28,7 +32,7 @@ export type ProviderPackageStatus =
 export type ProviderPackageInput = {
   name: string;
   description: string;
-  eventType: string;
+  eventTypes: ProviderEventType[];
 
   price: number;
   downPaymentPercentage: number;
@@ -50,7 +54,7 @@ export type ProviderPackage = {
 
   name: string;
   description: string;
-  eventType: string;
+  eventTypes: ProviderEventType[];
 
   price: number;
   downPaymentPercentage: number;
@@ -190,8 +194,17 @@ function normalizePackageInput(
     description:
       input.description.trim(),
 
-    eventType:
-      input.eventType.trim(),
+    eventTypes: [
+      ...new Set(
+        input.eventTypes.filter(
+          (eventType) =>
+            (
+              PROVIDER_EVENT_TYPES as
+                readonly string[]
+            ).includes(eventType),
+        ),
+      ),
+    ],
 
     price:
       input.price,
@@ -230,6 +243,55 @@ function normalizePackageInput(
   };
 }
 
+function normalizePackageEventTypes(
+  value: unknown,
+  legacyValue: unknown,
+): ProviderEventType[] {
+  if (
+    Array.isArray(value) &&
+    value.length > 0
+  ) {
+    const normalized =
+      value.flatMap((item) => {
+        if (typeof item !== "string") {
+          return [];
+        }
+
+        const eventType =
+          item.trim().toLowerCase();
+
+        return (
+          PROVIDER_EVENT_TYPES as
+            readonly string[]
+        ).includes(eventType)
+          ? [eventType as ProviderEventType]
+          : [];
+      });
+
+    if (normalized.length === value.length) {
+      return [...new Set(normalized)];
+    }
+  }
+
+  if (typeof legacyValue === "string") {
+    const legacyEventType =
+      legacyValue.trim().toLowerCase();
+
+    if (
+      (
+        PROVIDER_EVENT_TYPES as
+          readonly string[]
+      ).includes(legacyEventType)
+    ) {
+      return [
+        legacyEventType as ProviderEventType,
+      ];
+    }
+  }
+
+  return [];
+}
+
 function parseProviderPackage(
   id: string,
   value: unknown,
@@ -262,10 +324,10 @@ function parseProviderPackage(
         data.description,
       ),
 
-    eventType:
-      requiredString(
+    eventTypes:
+      normalizePackageEventTypes(
+        data.eventTypes,
         data.eventType,
-        "eventType",
       ),
 
     price:

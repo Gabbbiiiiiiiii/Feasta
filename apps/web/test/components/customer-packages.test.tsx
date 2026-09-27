@@ -30,7 +30,7 @@ const packageRecord: PublicPackage = {
   providerName: "A Very Long FEASTA Catering Provider Name",
   name: "An Extensive Wedding Celebration Package Name That Wraps Safely",
   description: "A real published package description for customer comparison.",
-  eventType: "wedding",
+  eventTypes: ["wedding"],
   price: 45000,
   imageUrl: "https://images.example.test/package.webp",
   minimumGuests: 50,
@@ -147,7 +147,7 @@ describe("customer package marketplace", () => {
     expect(screen.getByAltText(
       `${packageRecord.name} package from ${packageRecord.providerName}`,
     )).toBeInTheDocument();
-    expect(screen.getByText("50–150 guests")).toBeVisible();
+    expect(screen.getByText("50â€“150 guests")).toBeVisible();
     expect(screen.getByText("Buffet menu")).toBeVisible();
     expect(screen.queryByText(packageRecord.description!)).not.toBeInTheDocument();
     expect(screen.getAllByText("Wedding")).toHaveLength(1);
@@ -184,14 +184,14 @@ describe("customer package marketplace", () => {
     // One event badge on the card; the results header also shows the active filter.
     expect(screen.getByRole("article")).not.toHaveTextContent("EventWedding");
     expect(screen.getByRole("article").parentElement).toHaveClass("grid-cols-[repeat(auto-fill,minmax(min(100%,17.5rem),1fr))]");
-    expect(screen.getByText("50–150 guests")).toBeVisible();
+    expect(screen.getByText("50â€“150 guests")).toBeVisible();
     expect(screen.getByText("Buffet menu")).toBeVisible();
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
     expect(screen.getByText("Event styling")).toBeVisible();
     expect(screen.getByText("+2 more")).toBeVisible();
     expect(screen.queryByText("Service staff")).not.toBeInTheDocument();
     expect(screen.queryByText("Venue setup")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Price: ₱45,000")).toBeVisible();
+    expect(screen.getByLabelText(/Price:\s*\u20B145,000/iu)).toBeVisible();
     expect(screen.getByRole("link", {name: `View ${packageRecord.name} package details`})).toHaveAttribute("href", "/customer/packages/package-one");
     expect(screen.getByText("View package")).toBeVisible();
     expect(screen.queryByText(packageRecord.description!)).not.toBeInTheDocument();

@@ -4,6 +4,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import {PROVIDER_EVENT_TYPES} from "@feasta/shared-types";
 
 import {
   FormField,
@@ -21,16 +22,8 @@ import {
   type ProviderPackageInput,
 } from "@/lib/provider/provider-package-client";
 
-const EVENT_TYPES = [
-  "birthday",
-  "wedding",
-  "anniversary",
-  "reunion",
-  "corporate",
-  "baptism",
-  "graduation",
-  "other",
-] as const;
+type ProviderEventType =
+  (typeof PROVIDER_EVENT_TYPES)[number];
 
 type ProviderPackageFormProps = {
   eventTypesSupported: string[];
@@ -56,7 +49,7 @@ export function ProviderPackageForm({
   const availableEventTypes =
     useMemo(
         () =>
-        EVENT_TYPES.filter(
+        PROVIDER_EVENT_TYPES.filter(
             (eventType) =>
             eventTypesSupported.includes(
                 eventType,
@@ -76,12 +69,43 @@ export function ProviderPackageForm({
     initialPackage?.description ?? "",
   );
 
-  const [eventType, setEventType] =
-    useState<string>(
-      initialPackage?.eventType ??
-        availableEventTypes[0] ??
-        "",
+  const [eventTypes, setEventTypes] =
+    useState<ProviderEventType[]>(() =>
+      initialPackage?.eventTypes.filter(
+        (eventType) =>
+          availableEventTypes.includes(
+            eventType,
+          ),
+      ) ?? [],
     );
+
+  const allEventTypesSelected =
+    availableEventTypes.length > 0 &&
+    availableEventTypes.every(
+      (eventType) =>
+        eventTypes.includes(eventType),
+    );
+
+  function toggleEventType(
+    eventType: ProviderEventType,
+  ) {
+    setEventTypes((current) =>
+      current.includes(eventType)
+        ? current.filter(
+            (value) =>
+              value !== eventType,
+          )
+        : [...current, eventType],
+    );
+  }
+
+  function toggleAllEventTypes() {
+    setEventTypes(
+      allEventTypesSelected
+        ? []
+        : [...availableEventTypes],
+    );
+  }
 
   const [price, setPrice] =
     useState(
@@ -191,13 +215,16 @@ export function ProviderPackageForm({
       }
 
       if (
-        !availableEventTypes.includes(
-            eventType as
-            typeof EVENT_TYPES[number],
+        eventTypes.length === 0 ||
+        eventTypes.some(
+          (eventType) =>
+            !availableEventTypes.includes(
+              eventType,
+            ),
         )
-        ) {
-        return "Choose an event type supported by your business.";
-        }
+      ) {
+        return "Choose at least one event type supported by your business.";
+      }
 
       if (
         !Number.isFinite(parsedPrice) ||
@@ -245,7 +272,7 @@ export function ProviderPackageForm({
     }, [
       name,
       description,
-      eventType,
+      eventTypes,
       parsedPrice,
       parsedDownPayment,
       parsedMinimumGuests,
@@ -275,7 +302,7 @@ export function ProviderPackageForm({
         name: name.trim(),
         description:
           description.trim(),
-        eventType,
+        eventTypes,
         price: parsedPrice,
         downPaymentPercentage:
           parsedDownPayment,
@@ -381,33 +408,72 @@ export function ProviderPackageForm({
           />
         </FormField>
 
-        <FormField
-          label="Event type"
-          required
-        >
-          <select
-            value={eventType}
-            onChange={(event) =>
-              setEventType(
-                event.target.value,
-              )
-            }
-            className="min-h-10 w-full rounded-md border bg-background px-3 text-sm"
-          >
+        <fieldset className="grid gap-3">
+          <div>
+            <legend className="text-sm font-medium text-foreground">
+              Event types{" "}
+              <span aria-hidden="true" className="text-destructive">
+                *
+              </span>
+            </legend>
+
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              Choose every event type this package can be booked for.
+            </p>
+          </div>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border bg-muted/30 p-3">
+            <input
+              type="checkbox"
+              checked={allEventTypesSelected}
+              onChange={toggleAllEventTypes}
+              disabled={submitting}
+              className="mt-0.5 h-4 w-4 accent-primary"
+            />
+
+            <span>
+              <span className="block text-sm font-medium text-foreground">
+                All supported event types
+              </span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                Select every event type your business supports for this package.
+              </span>
+            </span>
+          </label>
+
+          <div className="grid gap-2 sm:grid-cols-2">
             {availableEventTypes.map(
-            (value) => (
-                <option
+              (value) => (
+                <label
                   key={value}
-                  value={value}
+                  className="flex cursor-pointer items-center gap-3 rounded-md border border-border bg-background px-3 py-2.5 text-sm hover:bg-muted/30"
                 >
-                  {formatEventType(
-                    value,
-                  )}
-                </option>
+                  <input
+                    type="checkbox"
+                    checked={eventTypes.includes(
+                      value,
+                    )}
+                    onChange={() =>
+                      toggleEventType(value)
+                    }
+                    disabled={submitting}
+                    className="h-4 w-4 accent-primary"
+                  />
+
+                  <span className="font-medium text-foreground">
+                    {formatEventType(value)}
+                  </span>
+                </label>
               ),
             )}
-          </select>
-        </FormField>
+          </div>
+
+          {eventTypes.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Select at least one event type.
+            </p>
+          ) : null}
+        </fieldset>
       </div>
 
       <FormField
@@ -513,7 +579,7 @@ export function ProviderPackageForm({
       <p className="-mt-2 text-xs text-muted-foreground">
         Your business is configured for{" "}
         <span className="font-medium text-foreground">
-            {minGuestsPerEvent}–
+            {minGuestsPerEvent}â€“
             {maxGuestsPerEvent} guests
         </span>{" "}
         per event.

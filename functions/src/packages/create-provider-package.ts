@@ -30,7 +30,7 @@ import {
 const ALLOWED_FIELDS = [
   "name",
   "description",
-  "eventType",
+  "eventTypes",
   "price",
   "downPaymentPercentage",
   "minimumGuests",
@@ -150,8 +150,8 @@ export const createProviderPackage = onCall(
             description:
               validated.description,
 
-            eventType:
-              validated.eventType,
+            eventTypes:
+              validated.eventTypes,
 
             price:
               validated.price,

@@ -179,7 +179,9 @@ describe("provider messages route and security contract", () => {
     expect(sharedClient).toContain("limit(CHAT_REALTIME_MESSAGE_LIMIT)");
     expect(sharedClient).toContain('functions, "sendChatMessage"');
     expect(sharedClient).toContain('functions, "markChatRoomRead"');
-    expect(sharedClient).toContain("callable({\n      chatRoomId: roomId,\n      message: normalizedMessage,");
+    expect(sharedClient).toMatch(
+      /callable\(\{\s*chatRoomId:\s*roomId,\s*message:\s*normalizedMessage,\s*\}\)/u,
+    );
     expect(sharedClient).toContain("callable({chatRoomId: roomId})");
     expect(sharedClient).not.toMatch(/callable\(\{[^}]*providerId|callable\(\{[^}]*senderId|callable\(\{[^}]*senderRole/u);
     expect(sharedClient).not.toMatch(/addDoc|setDoc|updateDoc|deleteDoc|writeBatch/u);

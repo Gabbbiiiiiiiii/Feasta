@@ -155,6 +155,16 @@ export const submitBookingRequest = onCall(
         "eventType",
       );
 
+      const customEventType =
+        eventType === "other"
+          ? requireText(
+              input,
+              "customEventType",
+              1,
+              80,
+            )
+          : null;
+
       const eventTime = requireText(
         input,
         "eventTime",
@@ -277,6 +287,9 @@ export const submitBookingRequest = onCall(
           cateringProviderId,
           packageId,
           eventType,
+          ...(customEventType
+            ? {customEventType}
+            : {}),
           eventDate:
             eventDate.toISOString(),
           eventTime,
@@ -1137,6 +1150,9 @@ export const submitBookingRequest = onCall(
                 ),
 
               eventType,
+              ...(customEventType
+                ? {customEventType}
+                : {}),
               eventDate:
                 Timestamp.fromDate(
                   eventDate,
@@ -1285,6 +1301,9 @@ export const submitBookingRequest = onCall(
               paymentStatus: "unpaid",
 
               eventType,
+              ...(customEventType
+                ? {customEventType}
+                : {}),
               eventDate:
                 Timestamp.fromDate(
                   eventDate,
@@ -1444,6 +1463,9 @@ export const submitBookingRequest = onCall(
                 paymentStatus: "unpaid",
 
                 eventType,
+                ...(customEventType
+                  ? {customEventType}
+                  : {}),
                 eventDate:
                   Timestamp.fromDate(
                     eventDate,

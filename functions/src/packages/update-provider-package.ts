@@ -1,4 +1,7 @@
 import {
+  FieldValue,
+} from "firebase-admin/firestore";
+import {
   HttpsError,
   onCall,
 } from "firebase-functions/v2/https";
@@ -33,7 +36,7 @@ const ALLOWED_FIELDS = [
   "packageId",
   "name",
   "description",
-  "eventType",
+  "eventTypes",
   "price",
   "downPaymentPercentage",
   "minimumGuests",
@@ -85,7 +88,7 @@ export const updateProviderPackage = onCall(
     const validated = parsePackageInput({
       name: input.name,
       description: input.description,
-      eventType: input.eventType,
+      eventTypes: input.eventTypes,
       price: input.price,
       downPaymentPercentage:
         input.downPaymentPercentage,
@@ -194,8 +197,11 @@ export const updateProviderPackage = onCall(
             description:
               validated.description,
 
+            eventTypes:
+              validated.eventTypes,
+
             eventType:
-              validated.eventType,
+              FieldValue.delete(),
 
             price:
               validated.price,

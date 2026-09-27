@@ -9,7 +9,7 @@ export type PublicPackage = {
   providerName: string;
   name: string;
   description: string | null;
-  eventType: string | null;
+  eventTypes: readonly ProviderEventType[];
   price: number | null;
   imageUrl: string | null;
   minimumGuests: number | null;

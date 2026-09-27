@@ -179,7 +179,12 @@ describe("availability-aware marketplace", () => {
   it("renders a compact event summary with editable labelled fields", () => {
     render(<ProviderEventContextPanel filters={filters(context)} />);
     expect(screen.getByText("Sep 10, 2026")).toBeVisible();
-    expect(screen.getByText(/6:00 PM–10:00 PM/iu)).toBeVisible();
+    const timeSummary = screen.getByText((_, element) =>
+      element?.tagName === "DD" &&
+      element.textContent?.includes("6:00 PM") === true &&
+      element.textContent?.includes("10:00 PM") === true
+    );
+    expect(timeSummary).toBeVisible();
     expect(screen.getByText("100 guests")).toBeVisible();
     expect(screen.getByLabelText("Date")).toHaveValue("2026-09-10");
     expect(screen.getByRole("button", {name: "Update details"})).toBeVisible();
@@ -287,7 +292,7 @@ describe("availability-aware marketplace", () => {
         providerName: provider.businessName,
         name: "Wedding feast",
         description: null,
-        eventType: "wedding",
+        eventTypes: ["wedding"],
         price: 50_000,
         minimumGuests: 20,
         maximumGuests: 200,
@@ -310,7 +315,7 @@ describe("availability-aware marketplace", () => {
           providerName: provider.businessName,
           name: "Wedding feast",
           description: "A complete event package.",
-          eventType: "wedding",
+          eventTypes: ["wedding"],
           price: 50_000,
           minimumGuests: 20,
           maximumGuests: 200,

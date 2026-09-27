@@ -203,9 +203,15 @@ export function ProviderPackagesClient({
           item.name
             .toLowerCase()
             .includes(term) ||
-          item.eventType
-            .toLowerCase()
-            .includes(term) ||
+          item.eventTypes.some(
+            (eventType) =>
+              eventType
+                .toLowerCase()
+                .includes(term) ||
+              formatEventType(eventType)
+                .toLowerCase()
+                .includes(term),
+          ) ||
           item.description
             .toLowerCase()
             .includes(term),
@@ -252,9 +258,11 @@ export function ProviderPackagesClient({
               </span>
 
               <span className="text-sm text-muted-foreground">
-                {formatEventType(
-                  row.eventType,
-                )}
+                {row.eventTypes.length > 0
+                  ? row.eventTypes
+                    .map(formatEventType)
+                    .join(", ")
+                  : "No event types"}
               </span>
             </div>
           ),
@@ -264,7 +272,7 @@ export function ProviderPackagesClient({
           header: "Guests",
           cell: (row) => (
             <span className="whitespace-nowrap">
-              {row.minimumGuests}–
+              {row.minimumGuests}â€“
               {row.maximumGuests}
             </span>
           ),
@@ -505,7 +513,7 @@ export function ProviderPackagesClient({
               className="size-4 animate-spin"
             />
 
-            Loading packages…
+            Loading packagesâ€¦
           </div>
         </div>
       ) : (

@@ -1,18 +1,13 @@
 import {
+  PROVIDER_EVENT_TYPES,
   PROVIDER_SERVICE_TYPES,
   type ProviderServiceType,
 } from "@feasta/shared-types";
 
 export const MAX_EVENT_GUESTS = 10_000;
 
-export const CUSTOMER_PLANNING_EVENT_TYPES = [
-  "birthday",
-  "wedding",
-  "debut",
-  "corporate",
-  "anniversary",
-  "other",
-] as const;
+export const CUSTOMER_PLANNING_EVENT_TYPES =
+  PROVIDER_EVENT_TYPES;
 
 export type CustomerPlanningEventType =
   (typeof CUSTOMER_PLANNING_EVENT_TYPES)[number];

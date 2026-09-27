@@ -18,10 +18,13 @@ export const PACKAGE_STATUSES = [
 export type PackageStatus =
   (typeof PACKAGE_STATUSES)[number];
 
+type ProviderEventType =
+  (typeof PROVIDER_EVENT_TYPES)[number];
+
 export type PackageInput = {
   name: string;
   description: string;
-  eventType: string;
+  eventTypes: readonly ProviderEventType[];
   price: number;
   downPaymentPercentage: number;
   minimumGuests: number;
@@ -190,13 +193,16 @@ export function assertPackageMatchesProviderCapabilities(
     : [];
 
   if (
-    !supportedEventTypes.includes(
-      packageInput.eventType,
+    packageInput.eventTypes.some(
+      (eventType) =>
+        !supportedEventTypes.includes(
+          eventType,
+        ),
     )
   ) {
     throw new HttpsError(
       "failed-precondition",
-      "This event type is not enabled for the provider.",
+      "One or more package event types are not enabled for the provider.",
     );
   }
 
@@ -252,7 +258,8 @@ export function parsePackageInput(
     MAX_PACKAGE_DESCRIPTION_LENGTH,
   );
 
-  const eventType = requiredEventType(
+  const eventTypes = requiredEventTypes(
+    data.eventTypes,
     data.eventType,
   );
 
@@ -305,7 +312,7 @@ export function parsePackageInput(
   return {
     name,
     description,
-    eventType,
+    eventTypes,
     price,
     downPaymentPercentage,
     minimumGuests,
@@ -476,31 +483,116 @@ function optionalString(
   return normalized;
 }
 
-function requiredEventType(
+function requiredEventTypes(
   value: unknown,
-): string {
-  if (typeof value !== "string") {
-    throw new HttpsError(
-      "invalid-argument",
-      "Event type is required.",
-    );
+  legacyValue: unknown,
+): readonly ProviderEventType[] {
+  if (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.length <=
+      PROVIDER_EVENT_TYPES.length
+  ) {
+    const normalized =
+      value.flatMap((item) => {
+        if (typeof item !== "string") {
+          return [];
+        }
+
+        const eventType =
+          item.trim().toLowerCase();
+
+        return (
+          PROVIDER_EVENT_TYPES as
+            readonly string[]
+        ).includes(eventType)
+          ? [eventType as ProviderEventType]
+          : [];
+      });
+
+    if (normalized.length === value.length) {
+      return [...new Set(normalized)];
+    }
   }
 
-  const normalized =
-    value.trim().toLowerCase();
+  if (typeof legacyValue === "string") {
+    const legacyEventType =
+      legacyValue.trim().toLowerCase();
+
+    if (
+      (
+        PROVIDER_EVENT_TYPES as
+          readonly string[]
+      ).includes(legacyEventType)
+    ) {
+      return [
+        legacyEventType as ProviderEventType,
+      ];
+    }
+  }
 
   if (
-    !(
-      PROVIDER_EVENT_TYPES as readonly string[]
-    ).includes(normalized)
+    value === undefined ||
+    value === null
   ) {
     throw new HttpsError(
       "invalid-argument",
-      "Event type is not supported.",
+      "Choose at least one event type.",
     );
   }
 
-  return normalized;
+  if (!Array.isArray(value)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Event types must be a list.",
+    );
+  }
+
+  if (value.length < 1) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Choose at least one event type.",
+    );
+  }
+
+  if (
+    value.length >
+      PROVIDER_EVENT_TYPES.length
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Too many event types were provided.",
+    );
+  }
+
+  value.forEach((item, index) => {
+    if (typeof item !== "string") {
+      throw new HttpsError(
+        "invalid-argument",
+        `Event type ${index + 1} is invalid.`,
+      );
+    }
+
+    const eventType =
+      item.trim().toLowerCase();
+
+    if (
+      !(
+        PROVIDER_EVENT_TYPES as
+          readonly string[]
+      ).includes(eventType)
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Event type is not supported.",
+      );
+    }
+  });
+
+  throw new HttpsError(
+    "invalid-argument",
+    "Event types are invalid.",
+  );
 }
 
 function requiredMoney(

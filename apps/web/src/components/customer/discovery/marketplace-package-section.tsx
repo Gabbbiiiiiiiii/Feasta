@@ -258,7 +258,7 @@ export function MarketplacePackageSection({
                     pt-4
                   "
                 >
-                  {packageRecord.eventType ? (
+                  {packageRecord.eventTypes.length > 0 ? (
                     <p
                       className="
                         flex min-w-0
@@ -275,10 +275,9 @@ export function MarketplacePackageSection({
                       />
 
                       <span className="truncate">
-                        {humanizeProviderValue(
-                          packageRecord.eventType,
-                        )}{" "}
-                        events
+                        {packageRecord.eventTypes
+                          .map(humanizeProviderValue)
+                          .join(", ")}
                       </span>
                     </p>
                   ) : (

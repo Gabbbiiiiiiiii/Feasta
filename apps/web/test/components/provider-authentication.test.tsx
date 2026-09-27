@@ -946,7 +946,7 @@ describe("provider authentication and onboarding", () => {
     render(<ProviderRegistrationPage />);
     const loginLink = screen.getByRole("link", {name: "Log in"});
     expect(loginLink).toHaveAttribute("href", "/provider-login");
-    expect(loginLink).toHaveClass("rounded-[10px]", "bg-primary", "min-h-11");
+    expect(loginLink).toHaveClass("font-bold", "text-primary-strong", "underline", "underline-offset-4");
     expect(loginLink).not.toHaveClass("rounded-pill");
     expect(loginLink.querySelector("svg")).toBeNull();
   });

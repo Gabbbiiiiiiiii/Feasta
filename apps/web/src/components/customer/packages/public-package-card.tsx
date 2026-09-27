@@ -89,9 +89,14 @@ export function PublicPackageCard({
           />
         ) : null}
 
-        {packageRecord.eventType ? (
+        {packageRecord.eventTypes.length > 0 ? (
           <span className="absolute left-3 top-3 rounded-full border border-white/70 bg-white/95 px-3 py-1.5 text-[11px] font-extrabold text-primary-strong shadow-sm backdrop-blur">
-            {humanizeProviderValue(packageRecord.eventType)}
+            {humanizeProviderValue(
+              packageRecord.eventTypes[0],
+            )}
+            {packageRecord.eventTypes.length > 1
+              ? ` +${packageRecord.eventTypes.length - 1}`
+              : ""}
           </span>
         ) : null}
       </div>
@@ -148,9 +153,9 @@ export function PublicPackageCard({
 
         {/* Planning information */}
 
-        {(!compactPreview && packageRecord.eventType) || guestRange ? (
+        {(!compactPreview && packageRecord.eventTypes.length > 0) || guestRange ? (
           <dl className={`mt-3 grid min-w-0 gap-3 border-t border-feasta-divider pt-3 ${compactPreview ? "" : "sm:grid-cols-2"}`}>
-            {!compactPreview && packageRecord.eventType ? (
+            {!compactPreview && packageRecord.eventTypes.length > 0 ? (
               <div className="flex min-w-0 items-start gap-2">
                 <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-secondary text-primary-strong">
                   <CalendarDays
@@ -161,13 +166,13 @@ export function PublicPackageCard({
 
                 <div className="min-w-0">
                   <dt className="text-[11px] font-bold uppercase tracking-[0.07em] text-feasta-text-tertiary">
-                    Event
+                    Event types
                   </dt>
 
                   <dd className="mt-0.5 break-words text-xs font-bold leading-5 text-foreground">
-                    {humanizeProviderValue(
-                      packageRecord.eventType,
-                    )}
+                    {packageRecord.eventTypes
+                      .map(humanizeProviderValue)
+                      .join(", ")}
                   </dd>
                 </div>
               </div>
@@ -284,7 +289,7 @@ function packageGuestRange(
       ? `${minimumGuests.toLocaleString("en-PH")} guests`
       : `${minimumGuests.toLocaleString(
           "en-PH",
-        )}–${maximumGuests.toLocaleString(
+        )}â€“${maximumGuests.toLocaleString(
           "en-PH",
         )} guests`;
   }

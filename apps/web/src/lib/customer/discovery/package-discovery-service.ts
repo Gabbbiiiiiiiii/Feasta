@@ -3,6 +3,7 @@ import "server-only";
 import {FIRESTORE_COLLECTIONS} from "@feasta/shared-types";
 import {
   FieldPath,
+  Filter,
   Timestamp,
   type DocumentData,
   type Query,
@@ -42,7 +43,20 @@ export async function getPublicPackagePage(
     .where("isDeleted", "==", false);
 
   if (filters.eventType !== "all") {
-    query = query.where("eventType", "==", filters.eventType);
+    query = query.where(
+      Filter.or(
+        Filter.where(
+          "eventTypes",
+          "array-contains",
+          filters.eventType,
+        ),
+        Filter.where(
+          "eventType",
+          "==",
+          filters.eventType,
+        ),
+      ),
+    );
   }
 
   query = query
