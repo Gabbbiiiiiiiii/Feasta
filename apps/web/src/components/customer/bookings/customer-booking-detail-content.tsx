@@ -169,7 +169,7 @@ function CustomerBookingDetailContent({
         </div>
         <p className="mt-3 flex min-w-0 items-start gap-2 text-xs leading-5 text-muted-foreground">
           <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-          <span>Payments, down payments, and remaining balances are handled per provider request.</span>
+          <span>Payments and any remaining balances are handled per provider request.</span>
         </p>
       </DetailSection>
 
@@ -511,7 +511,7 @@ function paymentActionForRequest({
         onClick={() => void onPay(request.providerRequestId)}
       >
         <CreditCard aria-hidden="true" className="size-5" />
-        Pay {formatCurrency(request.downPaymentAmount)} down payment
+        Pay {formatCurrency(request.downPaymentAmount)}
       </Button>
       <p className="text-xs leading-5 text-muted-foreground">
         You’ll continue to PayMongo. FEASTA updates this request only after trusted payment confirmation.

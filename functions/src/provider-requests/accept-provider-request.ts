@@ -435,7 +435,7 @@ export const acceptProviderRequest = onCall(
                   ? "A provider accepted the request. Waiting for the remaining required providers."
                   : summary.status ===
                   "waiting_for_down_payment"
-                  ? "All required providers accepted. Down payment is now available."
+                  ? "All required providers accepted. Required payment is now available."
                   : "All required providers accepted and the booking is confirmed.",
 
               providerRequestId,
@@ -463,7 +463,7 @@ export const acceptProviderRequest = onCall(
                     "Payment stays locked until all required providers are ready."
                   : summary.status ===
                   "waiting_for_down_payment"
-                  ? "All required providers accepted. Complete the required down payments."
+                  ? "All required providers accepted. Complete the required payments."
                   : "All required providers accepted and your booking is confirmed.",
 
               type: "booking",

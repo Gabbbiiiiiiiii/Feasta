@@ -4,7 +4,7 @@ const {parsePackageInput, assertPackagePublishable} = require("../lib/packages/p
 
 const input = {
   name: "Birthday package", description: "A birthday celebration package.",
-  eventType: "birthday", price: 10000, downPaymentPercentage: 20,
+  eventType: "birthday", price: 10000, downPaymentPercentage: 100,
   minimumGuests: 10, maximumGuests: 50, imageUrl: "",
   foodInclusions: [], decorInclusions: [], furnitureInclusions: [], serviceInclusions: [],
 };
@@ -33,7 +33,7 @@ for (const field of ["foodInclusions", "decorInclusions", "furnitureInclusions",
 test("optional inclusions do not bypass required package field validation", () => {
   for (const invalid of [
     {name: ""}, {description: "short"}, {eventType: "unsupported"},
-    {price: -1}, {price: NaN}, {downPaymentPercentage: 101},
+    {price: -1}, {price: NaN}, {downPaymentPercentage: 99}, {downPaymentPercentage: 101}, {downPaymentPercentage: undefined},
     {minimumGuests: 0}, {maximumGuests: 0}, {minimumGuests: 51},
     {maximumGuests: 10.5},
   ]) assert.throws(() => assertPackagePublishable({...input, ...invalid}), {code: "invalid-argument"});

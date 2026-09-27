@@ -220,6 +220,12 @@ function mapProviderRequest(
           40,
         ),
 
+      eventEndTime:
+        optionalText(
+          data.eventEndTime,
+          20,
+        ),
+
       guestCount:
         optionalInteger(
           data.guestCount,

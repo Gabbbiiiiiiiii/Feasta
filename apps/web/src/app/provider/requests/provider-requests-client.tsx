@@ -488,7 +488,7 @@ export function ProviderRequestsClient({
         title="Accept this request?"
         description={
           selectedRequest?.downPaymentAmount
-            ? "The customer will be asked to complete the required down payment after you accept."
+            ? "If all required providers accept, FEASTA will then make the required payment available to the customer."
             : "This request will be confirmed after you accept it."
         }
         confirmLabel={

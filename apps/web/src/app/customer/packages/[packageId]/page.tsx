@@ -3,7 +3,10 @@ import {notFound} from "next/navigation";
 
 import {PackageDetail} from "@/components/customer/packages/package-detail";
 import {getPublicPackageDetail} from "@/lib/customer/discovery/package-detail-service";
-import {parseCustomerEventContext} from "@/lib/customer/planning/event-planning-context";
+import {
+  parseCustomerEventContext,
+  parseCustomerPlanningContext,
+} from "@/lib/customer/planning/event-planning-context";
 import {getServiceCategoryOptions} from "@/lib/service-categories/service-category-service";
 
 type CustomerPackageDetailPageProps = {
@@ -60,6 +63,7 @@ export default async function CustomerPackageDetailPage({
     <PackageDetail
       detail={detail}
       eventContext={parseCustomerEventContext(query)}
+      planningContext={parseCustomerPlanningContext(query)}
       serviceCategoryOptions={serviceCategoryOptions}
     />
   );

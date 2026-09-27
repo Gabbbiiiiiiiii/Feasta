@@ -77,8 +77,10 @@ export function ProviderEventContextPanel({
               ) : null}
               {availability ? (
                 <ContextItem icon={Clock3} label="Time">
-                  {formatCustomerEventTime(availability.eventTime)}–{formatCustomerEventTime(availability.eventEndTime)}
-                </ContextItem>
+                <span className="whitespace-nowrap">
+                  {`${formatCustomerEventTime(availability.eventTime)}–${formatCustomerEventTime(availability.eventEndTime)}`}
+                </span>
+              </ContextItem>
               ) : null}
               {guestCount ? (
                 <ContextItem icon={UsersRound} label="Guests">

@@ -274,7 +274,7 @@ export function validateAcceptanceProviderRequest(
   );
   const downPaymentAmount = money(
     requestData.downPaymentAmount,
-    "Provider-request down payment",
+    "Provider-request payment",
   );
   const remainingBalance = money(
     requestData.remainingBalance,
@@ -319,7 +319,7 @@ export function validateAcceptanceProviderRequest(
   const effectivePercentage =
     percentage(
       requestData.downPaymentPercentage,
-      "Provider-request down-payment percentage",
+      "Provider-request payment percentage",
     );
   const expectedPercentage =
     amount === 0 ?
@@ -355,7 +355,7 @@ export function validateAcceptanceProviderRequest(
         downPaymentAmount,
         money(
           mainEventData.downPaymentAmount,
-          "Main-event provider down payment",
+          "Main-event provider payment",
         ),
       ) ||
       !sameMoney(
@@ -369,7 +369,7 @@ export function validateAcceptanceProviderRequest(
         effectivePercentage,
         percentage(
           mainEventData.downPaymentPercentage,
-          "Main-event provider down-payment percentage",
+          "Main-event provider payment percentage",
         ),
       )
     )
@@ -579,11 +579,11 @@ function providerRequestServices(
       const downPaymentPercentage =
         percentage(
           service.downPaymentPercentage,
-          "Provider-request service down-payment percentage",
+          "Provider-request service payment percentage",
         );
       const downPaymentAmount = money(
         service.downPaymentAmount,
-        "Provider-request service down payment",
+        "Provider-request service payment",
       );
 
       if (
@@ -681,7 +681,7 @@ function selectedServiceSnapshots(
         downPaymentPercentage:
           percentage(
             service.downPaymentPercentage,
-            "Selected service down-payment percentage",
+            "Selected service payment percentage",
           ),
       };
     },

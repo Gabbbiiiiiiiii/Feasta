@@ -3,6 +3,8 @@ export type CustomizationDraft = {
     eventLocation: string; eventAddress: string; specialRequest: string};
   customization: {selectedFoods: string[]; selectedDecorations: string[]; selectedFurniture: string[]};
   addonIds: string[];
+  serviceTier?: "drop_off" | "buffet_setup" | "full_service" | null;
+  packageThemeId?: string | null;
   ownAddons?: boolean;
   ownAddonsNote?: string;
   submission?: {fingerprint: string; clientRequestId: string};
@@ -27,6 +29,20 @@ export function parseCustomizationDraft(value: unknown): CustomizationDraft | nu
   const event = record.event as CustomizationDraft["event"] | undefined;
   const customization = record.customization as CustomizationDraft["customization"] | undefined;
   if (!event || !customization || typeof event !== "object" || typeof customization !== "object") return null;
+  if (
+    record.serviceTier !== undefined &&
+    record.serviceTier !== null &&
+    record.serviceTier !== "drop_off" &&
+    record.serviceTier !== "buffet_setup" &&
+    record.serviceTier !== "full_service"
+  ) return null;
+  if (
+    record.packageThemeId !== undefined &&
+    record.packageThemeId !== null &&
+    (typeof record.packageThemeId !== "string" ||
+      record.packageThemeId.length === 0 ||
+      record.packageThemeId.length > 160)
+  ) return null;
   if (record.ownAddons !== undefined && typeof record.ownAddons !== "boolean") return null;
   if (record.ownAddonsNote !== undefined && (typeof record.ownAddonsNote !== "string" || record.ownAddonsNote.length > 1000)) return null;
   const limits = {eventDate: 10, eventTime: 5, eventEndTime: 5, guestCount: 8, eventLocation: 500, eventAddress: 500, specialRequest: 1000};
@@ -42,6 +58,16 @@ export function parseCustomizationDraft(value: unknown): CustomizationDraft | nu
     event: Object.fromEntries(Object.keys(limits).map((key) => [key, event[key as keyof typeof event]])) as typeof event,
     customization: {selectedFoods: [...customization.selectedFoods], selectedDecorations: [...customization.selectedDecorations], selectedFurniture: [...customization.selectedFurniture]},
     addonIds: [...new Set(record.addonIds)],
+    serviceTier:
+      record.serviceTier === "drop_off" ||
+      record.serviceTier === "buffet_setup" ||
+      record.serviceTier === "full_service"
+        ? record.serviceTier
+        : null,
+    packageThemeId:
+      typeof record.packageThemeId === "string"
+        ? record.packageThemeId
+        : null,
     ownAddons: record.ownAddons === true,
     ownAddonsNote: typeof record.ownAddonsNote === "string" ? record.ownAddonsNote : "",
     ...(record.submission && typeof record.submission === "object" &&

@@ -50,8 +50,8 @@ export type ProviderAvailabilityRequest = {
   type: ProviderRequestType;
   eventDate: Date;
   eventTime: string;
-  eventEndTime: string;
-  guestCount: number;
+  eventEndTime: string | null;
+  guestCount: number | null;
   services?: unknown;
 };
 
@@ -180,7 +180,10 @@ export function validateProviderAvailability(
     ));
   }
 
-  if (capabilities.requiresGuestCapacity) {
+  if (
+    capabilities.requiresGuestCapacity &&
+    input.request.guestCount !== null
+  ) {
     validateGuestCapacity(
       input.providerData,
       input.request.guestCount,
@@ -214,32 +217,60 @@ export function validateProviderAvailability(
     ));
   }
 
-  const requestedRange = parseTimeRange(
-    input.request.eventTime,
-    input.request.eventEndTime,
-  );
-
-  if (!requestedRange) {
-    issues.push(issue(
-      "EVENT_TIME_INVALID",
-      "The event time range is invalid.",
-      "eventTime",
-    ));
-  } else if (activeBookings.some((booking) => {
-    const existingRange = parseTimeRange(
-      booking.eventTime,
-      booking.eventEndTime,
+    const requestedStartMinutes =
+    parseTime(
+      input.request.eventTime,
     );
 
-    return existingRange !== null &&
-      requestedRange.startMinutes < existingRange.endMinutes &&
-      requestedRange.endMinutes > existingRange.startMinutes;
-  })) {
+  if (requestedStartMinutes === null) {
     issues.push(issue(
-      "TIME_CONFLICT",
-      "The event time overlaps another active booking.",
+      "EVENT_TIME_INVALID",
+      "The requested time is invalid.",
       "eventTime",
     ));
+  }
+  else if (
+    input.request.eventEndTime !==
+      null
+  ) {
+    const requestedRange =
+      parseTimeRange(
+        input.request.eventTime,
+        input.request.eventEndTime,
+      );
+
+    if (!requestedRange) {
+      issues.push(issue(
+        "EVENT_TIME_INVALID",
+        "The event time range is invalid.",
+        "eventTime",
+      ));
+    }
+    else if (
+      activeBookings.some(
+        (booking) => {
+          const existingRange =
+            parseTimeRange(
+              booking.eventTime,
+              booking.eventEndTime,
+            );
+
+          return (
+            existingRange !== null &&
+            requestedRange.startMinutes <
+              existingRange.endMinutes &&
+            requestedRange.endMinutes >
+              existingRange.startMinutes
+          );
+        },
+      )
+    ) {
+      issues.push(issue(
+        "TIME_CONFLICT",
+        "The event time overlaps another active booking.",
+        "eventTime",
+      ));
+    }
   }
 
   return result(issues);

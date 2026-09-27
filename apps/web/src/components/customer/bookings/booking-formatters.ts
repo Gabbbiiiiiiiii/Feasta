@@ -167,7 +167,7 @@ function bookingNextStep(
         "At least one provider declined. Review the affected request while other providers respond." :
         "At least one provider declined. Review the affected provider request.";
     case "waiting_for_down_payment":
-      return "Accepted provider requests require a down payment. Review each request's payment status.";
+      return "Accepted provider requests require payment. Review each request's payment status.";
     case "confirmed":
       return "Your event booking is confirmed. Review the schedule and provider requests.";
     case "in_progress":
@@ -247,7 +247,7 @@ function providerRequestOutcomeLabel(
     case "accepted":
       return "Accepted — confirmation pending";
     case "waiting_for_down_payment":
-      return "Accepted — down payment required";
+      return "Accepted — payment required";
     case "payment_processing":
       return "Accepted — payment processing";
     case "confirmed":

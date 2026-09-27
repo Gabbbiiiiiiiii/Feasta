@@ -413,15 +413,15 @@ function CancellationPolicyPanel({
           {preview.paidAmountInCentavos !== undefined && preview.nonRefundableAmountInCentavos !== undefined ? (
             <>
               <dl className="mt-3 grid gap-2 text-sm">
-                <div className="flex justify-between gap-3"><dt>Down payment paid</dt><dd>{formatCentavos(preview.paidAmountInCentavos)}</dd></div>
+                <div className="flex justify-between gap-3"><dt>Payment recorded</dt><dd>{formatCentavos(preview.paidAmountInCentavos)}</dd></div>
                 <div className="flex justify-between gap-3"><dt>Refundable amount</dt><dd>{formatCentavos(preview.refundAmountInCentavos)}</dd></div>
                 <div className="flex justify-between gap-3"><dt>Non-refundable amount</dt><dd>{formatCentavos(preview.nonRefundableAmountInCentavos)}</dd></div>
               </dl>
               <p className="mt-3 text-sm font-semibold">
                 {preview.paidAmountInCentavos === 0
-                  ? "No settled down payment is recorded for this service."
+                  ? "No settled payment is recorded for this service."
                   : preview.refundAmountInCentavos === 0
-                    ? "You may request cancellation of this service, but the down payment is non-refundable under the policy you accepted."
+                    ? "You may request cancellation of this service, but the recorded payment is non-refundable under the policy you accepted."
                     : preview.nonRefundableAmountInCentavos === 0
                       ? "Your cancellation is eligible for a full refund, subject to review."
                       : "Your cancellation is eligible for a partial refund, subject to review."}

@@ -192,7 +192,7 @@ function refundStatusLabel(status: NonNullable<ProviderPaymentDetail["payment"][
 
 function formatPaymentType(type: ProviderPaymentDetail["payment"]["paymentType"]): string {
   const labels = {
-    provider_down_payment: "Provider request down payment",
+    provider_down_payment: "Provider request payment",
     provider_balance: "Provider request balance payment",
     refund: "Refund",
     adjustment: "Payment adjustment",

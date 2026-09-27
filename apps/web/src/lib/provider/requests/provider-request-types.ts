@@ -8,6 +8,7 @@ export type ProviderRequestEvent = {
   eventType: string;
   eventDate: string | null;
   eventTime: string | null;
+  eventEndTime: string | null;
   guestCount: number | null;
   venueAddress: string | null;
   city: string | null;

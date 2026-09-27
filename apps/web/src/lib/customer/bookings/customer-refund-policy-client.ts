@@ -40,11 +40,24 @@ export type BookingRefundPolicyAcknowledgement = {
   effectivePolicyKey: string;
 };
 
-type DisclosureInput = {
+type DisclosureBaseInput = {
   providerId: string;
-  packageId: string;
   addonIds: readonly string[];
 };
+
+type DisclosureInput =
+  | (
+      DisclosureBaseInput & {
+        cateringSelectionType?: "package";
+        packageId: string;
+      }
+    )
+  | (
+      DisclosureBaseInput & {
+        cateringSelectionType: "custom_menu";
+        packageId?: never;
+      }
+    );
 
 type DisclosureResponse = {
   rolloutMode?: unknown;
@@ -70,11 +83,43 @@ export async function getCustomerBookingRefundPolicyDisclosures(
       "getBookingRefundPolicyDisclosures",
       {timeout: 30_000},
     );
-    return parseDisclosureResponse((await callable({
-      providerId: requireDocumentId(input.providerId),
-      packageId: requireDocumentId(input.packageId),
-      addonIds: input.addonIds.map(requireDocumentId),
-    })).data);
+    const payload: DisclosureInput =
+      input.cateringSelectionType ===
+      "custom_menu"
+        ? {
+            cateringSelectionType:
+              "custom_menu",
+            providerId:
+              requireDocumentId(
+                input.providerId,
+              ),
+            addonIds:
+              input.addonIds.map(
+                requireDocumentId,
+              ),
+          }
+        : {
+            providerId:
+              requireDocumentId(
+                input.providerId,
+              ),
+            packageId:
+              requireDocumentId(
+                input.packageId,
+              ),
+            addonIds:
+              input.addonIds.map(
+                requireDocumentId,
+              ),
+          };
+
+    return parseDisclosureResponse(
+      (
+        await callable(
+          payload,
+        )
+      ).data,
+    );
   } catch (error) {
     throw normalizeDisclosureError(error);
   }

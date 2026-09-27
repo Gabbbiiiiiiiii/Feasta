@@ -37,7 +37,7 @@ export const PROVIDER_AGREEMENT_SECTIONS = [
   {
     title: "6. Pricing and charges",
     paragraphs: [
-      "Prices, required down payments, package inclusions, add-on charges, and other customer-facing amounts must be stated accurately before a customer commits to a booking.",
+      "Prices, required payments, package inclusions, add-on charges, and other customer-facing amounts must be stated accurately before a customer commits to a booking.",
       "You must not intentionally use misleading prices, hidden provider charges, or materially inaccurate service descriptions. Any price adjustment or additional charge must follow the booking terms presented to the customer and applicable FEASTA policies.",
     ],
   },

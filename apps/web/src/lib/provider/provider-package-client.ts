@@ -1,6 +1,12 @@
 "use client";
 
 import {
+  normalizePackageServiceOptions,
+  normalizePackageThemeOptions,
+  type PackageServiceOptions,
+  type PackageThemeOption,
+} from "@/lib/catering/package-offer-configuration";
+import {
   collection,
   getDocs,
   orderBy,
@@ -19,6 +25,10 @@ import {
   db,
   functions,
 } from "@/lib/firebase/client";
+import {
+  normalizeCateringPackageServiceTier,
+  type CateringPackageServiceTier,
+} from "@/lib/catering/catering-service-tier";
 
 export type ProviderPackageStatus =
   | "draft"
@@ -29,6 +39,9 @@ export type ProviderPackageInput = {
   name: string;
   description: string;
   eventType: string;
+  serviceTier?: CateringPackageServiceTier | null;
+  serviceOptions: PackageServiceOptions;
+  themeOptions: PackageThemeOption[];
 
   price: number;
   downPaymentPercentage: number;
@@ -52,6 +65,9 @@ export type ProviderPackage = {
   name: string;
   description: string;
   eventType: string;
+  serviceTier?: CateringPackageServiceTier | null;
+  serviceOptions?: PackageServiceOptions;
+  themeOptions?: PackageThemeOption[];
 
   price: number;
   downPaymentPercentage: number;
@@ -195,11 +211,20 @@ function normalizePackageInput(
     eventType:
       input.eventType.trim(),
 
+    serviceTier:
+      input.serviceTier,
+
+    serviceOptions:
+      input.serviceOptions,
+    themeOptions:
+      input.themeOptions,
+
+
+
     price:
       input.price,
 
-    downPaymentPercentage:
-      input.downPaymentPercentage,
+    downPaymentPercentage: 100,
 
     minimumGuests:
       input.minimumGuests,
@@ -270,6 +295,22 @@ function parseProviderPackage(
         data.eventType,
         "eventType",
       ),
+
+    serviceTier:
+      normalizeCateringPackageServiceTier(
+        data.serviceTier,
+      ),
+
+    serviceOptions:
+      normalizePackageServiceOptions(
+        data.serviceOptions,
+      ),
+    themeOptions:
+      normalizePackageThemeOptions(
+        data.themeOptions,
+      ),
+
+
 
     price:
       requiredNonNegativeNumber(

@@ -390,7 +390,7 @@ export async function createPaymentSessionForCustomer(
       ) {
         throw new HttpsError(
           "failed-precondition",
-          "Down payment is unavailable until every " +
+          "Payment is unavailable until every " +
           "assigned provider has accepted the booking request.",
         );
       }
@@ -566,7 +566,7 @@ export async function createPaymentSessionForCustomer(
         foundation.amountInCentavos,
       currency: PAYMENT_CURRENCY,
       description:
-        "FEASTA provider down payment",
+        "FEASTA provider payment",
       successUrl: input.successUrl,
       cancelUrl: input.cancelUrl,
     }, createCheckout);

@@ -1,4 +1,5 @@
 import {ImageGallery} from "@/components/customer/discovery/image-gallery";
+import {ExpandablePackageDescription} from "@/components/customer/packages/expandable-package-description";
 import {
   ArrowLeft,
   ArrowRight,
@@ -16,7 +17,11 @@ import type {ReactNode} from "react";
 
 import {CustomerAuthLink} from "@/components/customer/layout/customer-auth-provider";
 import {PriceDisplay} from "@/components/shared/price-display";
-import type {
+import {
+  CATERING_PACKAGE_SERVICE_TIERS,
+  cateringPackageServiceTierDescription,
+  cateringPackageServiceTierLabel,
+} from "@/lib/catering/catering-service-tier";import type {
   PublicPackageDetail,
 } from "@/lib/customer/discovery/marketplace-types";
 import {
@@ -24,12 +29,15 @@ import {
   providerServiceTypeLabel,
 } from "@/lib/customer/providers/provider-catalog";
 import {providerProfileHref} from "@/lib/customer/providers/provider-query";
+import {VisualStyleImageCarousel} from "@/components/customer/packages/visual-style-image-carousel";
 import {
   PUBLIC_PACKAGE_MARKETPLACE_PATH,
 } from "@/lib/customer/providers/provider-route-policy";
 import {
+  appendCustomerPlanningContext,
   customerEventContextQuery,
   type CustomerEventContext,
+  type CustomerPlanningContext,
 } from "@/lib/customer/planning/event-planning-context";
 import {
   serviceCategoryName,
@@ -39,10 +47,12 @@ import {
 export function PackageDetail({
   detail,
   eventContext = null,
+  planningContext = null,
   serviceCategoryOptions = [],
 }: {
   detail: PublicPackageDetail;
   eventContext?: CustomerEventContext | null;
+  planningContext?: CustomerPlanningContext | null;
   serviceCategoryOptions?: readonly ServiceCategoryOption[];
 }) {
   const {
@@ -56,16 +66,39 @@ export function PackageDetail({
   const packageImages = packageRecord.imageUrls?.length ? packageRecord.imageUrls : packageRecord.imageUrl ? [packageRecord.imageUrl] : [];
   const primaryImage = packageImages[0];
   const inclusionGroups = [
-    {label: "Food inclusions", items: detail.customization.foods},
-    {label: "Decor inclusions", items: detail.customization.decorations},
-    {label: "Furniture inclusions", items: detail.customization.furniture},
-    {label: "Service inclusions", items: detail.customization.services},
-  ].filter((group) => group.items.length > 0);
+    {
+      label: "Food inclusions",
+      items: detail.customization.foods,
+    },
+  ].filter(
+    (group) => group.items.length > 0,
+  );
+  const publicServiceOptions =
+    CATERING_PACKAGE_SERVICE_TIERS.flatMap(
+      (tier) => {
+        const option =
+          packageRecord.serviceOptions?.[tier];
 
-  const bookingPath = `/customer/packages/${encodeURIComponent(
+        return option
+          ? [{tier, option}]
+          : [];
+      },
+    );
+
+  const publicVisualStyles =
+    packageRecord.themeOptions ?? [];
+
+  const hasStructuredServiceOptions =
+    publicServiceOptions.length > 0;
+
+  const packagePath = `/customer/packages/${encodeURIComponent(
     packageRecord.id,
-  )}/book`;
-  const eventContextQuery = customerEventContextQuery(eventContext);
+  )}`;
+  const bookingPath = `${packagePath}/book`;
+  const eventContextQuery = appendCustomerPlanningContext(
+    new URLSearchParams(customerEventContextQuery(eventContext)),
+    planningContext,
+  ).toString();
   const bookingHref = eventContextQuery
     ? `${bookingPath}?${eventContextQuery}`
     : bookingPath;
@@ -194,9 +227,11 @@ export function PackageDetail({
             ) : null}
 
             {packageRecord.description ? (
-              <p className="mt-5 max-w-3xl whitespace-pre-line break-words text-sm leading-7 text-feasta-text-secondary sm:text-base">
-                {packageRecord.description}
-              </p>
+              <ExpandablePackageDescription
+                description={
+                  packageRecord.description
+                }
+              />
             ) : (
               <p className="mt-5 rounded-xl border border-dashed border-feasta-border-strong bg-feasta-canvas p-4 text-sm leading-6 text-feasta-text-secondary">
                 This package does not currently have a public description.
@@ -206,7 +241,9 @@ export function PackageDetail({
 
           <aside className="rounded-[20px] border border-feasta-border-soft bg-feasta-canvas p-5">
             <p className="text-[11px] font-extrabold uppercase tracking-[0.09em] text-feasta-text-tertiary">
-              Package price
+              {hasStructuredServiceOptions
+                ? "Starting from"
+                : "Package price"}
             </p>
 
             <PriceDisplay
@@ -234,7 +271,7 @@ export function PackageDetail({
                 "motion-reduce:transform-none",
               ].join(" ")}
             >
-              Customize & request
+              Customize Package
 
               <ArrowRight
                 aria-hidden="true"
@@ -294,6 +331,131 @@ export function PackageDetail({
           ) : null}
         </div>
       </section>
+
+      {publicServiceOptions.length > 0 ? (
+        <section
+          aria-labelledby="package-service-options"
+          className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(43_33_29/0.035)] sm:p-6 lg:p-7"
+        >
+          <div className="max-w-3xl">
+            <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
+              Catering service options
+            </p>
+
+            <h2
+              id="package-service-options"
+              className="mt-2 text-2xl font-extrabold tracking-[-0.035em] text-foreground"
+            >
+              Choose the level of service that fits your event.
+            </h2>
+
+            <p className="mt-3 text-sm leading-6 text-feasta-text-secondary sm:text-base sm:leading-7">
+              Each option uses the same package food offering but may include
+              a different level of delivery, setup, staffing, and event service.
+            </p>
+          </div>
+
+          <div className="mt-6 grid gap-4 lg:grid-cols-3">
+            {publicServiceOptions.map(
+              ({tier, option}) => (
+                <article
+                  key={tier}
+                  className="flex min-w-0 flex-col rounded-[20px] border border-feasta-border-soft bg-feasta-canvas p-5"
+                >
+                  <div>
+                    <p className="text-xs font-extrabold uppercase tracking-[0.09em] text-primary-strong">
+                      Service option
+                    </p>
+
+                    <h3 className="mt-2 text-lg font-extrabold text-foreground">
+                      {cateringPackageServiceTierLabel(
+                        tier,
+                      )}
+                    </h3>
+
+                    <p className="mt-2 text-sm leading-6 text-feasta-text-secondary">
+                      {cateringPackageServiceTierDescription(
+                        tier,
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="mt-5 border-t border-feasta-divider pt-4">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
+                      Price
+                    </p>
+
+                    <PriceDisplay
+                      amount={option.price}
+                      className="mt-1"
+                    />
+                  </div>
+
+                  {option.includedServices.length > 0 ? (
+                    <div className="mt-5 border-t border-feasta-divider pt-4">
+                      <p className="text-xs font-extrabold text-foreground">
+                        Included with this service
+                      </p>
+
+                      <ul className="mt-3 grid gap-2">
+                        {option.includedServices.map(
+                          (service) => (
+                            <li
+                              key={service}
+                              className="flex min-w-0 items-start gap-2 text-sm leading-6 text-feasta-text-secondary"
+                            >
+                              <span className="mt-1 grid size-5 shrink-0 place-items-center rounded-full bg-white text-primary-strong shadow-sm">
+                                <Check
+                                  aria-hidden="true"
+                                  className="size-3"
+                                />
+                              </span>
+
+                              <span className="min-w-0 break-words">
+                                {service}
+                              </span>
+                            </li>
+                          ),
+                        )}
+                      </ul>
+                    </div>
+                  ) : null}
+                </article>
+              ),
+            )}
+          </div>
+
+          <p className="mt-5 rounded-[16px] border border-feasta-border-soft bg-secondary/40 px-4 py-3 text-xs leading-5 text-feasta-text-secondary">
+            You will choose one available service option while customizing
+            this package.
+          </p>
+        </section>
+      ) : null}
+
+      {publicVisualStyles.length > 0 ? (
+        <section aria-labelledby="package-visual-styles" className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(43_33_29/0.035)] sm:p-6 lg:p-7">
+          <div className="max-w-3xl">
+            <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">Visual styles</p>
+            <h2 id="package-visual-styles" className="mt-2 text-2xl font-extrabold tracking-[-0.035em] text-foreground">See the look included with setup-based catering.</h2>
+            <p className="mt-3 text-sm leading-6 text-feasta-text-secondary sm:text-base sm:leading-7">Each style includes reference photos so you can compare tables, buffet presentation, and decor before customizing your event.</p>
+          </div>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {publicVisualStyles.map((style) => (
+              <article key={style.id} className="overflow-hidden rounded-[20px] border border-feasta-border-soft bg-feasta-canvas">
+                <VisualStyleImageCarousel imageUrls={style.imageUrls} styleName={style.name} compact />
+                <div className="p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <h3 className="min-w-0 break-words text-base font-extrabold text-foreground">{style.name}</h3>
+                    <span className="shrink-0 rounded-full bg-secondary px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-[0.07em] text-primary-strong">Included</span>
+                  </div>
+                  <p className="mt-3 break-words text-sm leading-6 text-feasta-text-secondary">{style.description || "Visual style from this provider."}</p>
+                  <p className="mt-3 text-xs font-semibold text-feasta-text-tertiary">{style.imageUrls.length} reference {style.imageUrls.length === 1 ? "photo" : "photos"}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {/* ================================================================
           INCLUSIONS
@@ -503,20 +665,19 @@ export function PackageDetail({
             <p className="mt-3 max-w-2xl text-sm leading-7 text-feasta-text-secondary sm:text-base">
               Continue to enter your event details,
               customize the package, choose optional
-              FEASTA event services, and review your
-              complete request before submitting it
-              to the selected providers.
+              FEASTA event services, and review the
+              configuration before adding it to your
+              Event List.
             </p>
 
             <div className="mt-5 rounded-[16px] border border-feasta-border-soft bg-feasta-canvas px-4 py-3.5">
               <p className="text-xs leading-5 text-feasta-text-secondary">
-                Continuing does not immediately
-                confirm your booking or charge you.
-                Your request is submitted to the
-                selected providers for review first.
-                Payment becomes available only when
-                the applicable provider requests
-                reach the required acceptance stage.
+                Continuing does not send a Provider
+                request or charge you. Configure the
+                package first, then add it to your
+                Event List. Provider requests are
+                sent later after you review your
+                complete event.
               </p>
             </div>
           </div>
@@ -537,7 +698,7 @@ export function PackageDetail({
                 "motion-reduce:transform-none",
               ].join(" ")}
             >
-              Customize & request
+              Customize Package
 
               <ArrowRight
                 aria-hidden="true"

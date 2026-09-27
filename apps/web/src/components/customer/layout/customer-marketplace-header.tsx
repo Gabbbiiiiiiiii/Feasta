@@ -19,6 +19,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import {CustomerEventListMenu} from "@/components/customer/event-list/customer-event-list-menu";
 import {CustomerLoginModal, type CustomerAuthMode} from "@/components/customer/providers/customer-login-modal";
 import {LogoutButton} from "@/components/auth/logout-button";
 import {NotificationMenu} from "@/components/layout/notification-menu";
@@ -87,13 +88,14 @@ export function CustomerMarketplaceHeader({
 
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-feasta-border-soft bg-white/95 shadow-[0_6px_24px_rgb(43_33_29/0.04)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/90">
+      <header className="sticky top-0 z-40 border-b border-feasta-border-soft bg-white shadow-[0_6px_24px_rgb(43_33_29/0.04)]">
         <div className="mx-auto w-full max-w-[90rem] px-4 sm:px-6 lg:px-8">
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] grid-rows-[4rem_auto_auto] items-center gap-x-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:grid-rows-[4rem_auto] md:gap-x-4">
             <MarketplaceBrand pathname={pathname} />
 
             {authenticated && accountLabel ? (
               <div className="col-start-2 row-start-1 ml-auto flex shrink-0 items-center gap-1 md:col-start-3">
+                <CustomerEventListMenu />
                 <Link
                   href={CUSTOMER_FAVORITES_PATH}
                   aria-label="Favorites"
@@ -287,6 +289,7 @@ function GuestAccountActions({
       aria-label="Guest marketplace account"
       className="col-start-2 row-start-1 ml-auto flex shrink-0 items-center gap-1 sm:gap-2 md:col-start-3"
     >
+      <CustomerEventListMenu />
       <button
         type="button"
         onClick={onLogin}

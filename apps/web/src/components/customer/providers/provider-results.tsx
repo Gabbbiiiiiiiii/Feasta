@@ -26,7 +26,8 @@ import {
   type ServiceCategoryOption,
 } from "@/lib/service-categories/service-category-types";
 
-import {ProviderCard} from "./provider-card";
+import {ProviderIndustrySelector} from "./provider-industry-selector";
+import {ProviderLogoCard} from "./provider-logo-card";
 
 export function ProviderResults({
   page,
@@ -140,76 +141,136 @@ export function ProviderResults({
         ? {...filters.eventContext, serviceType: "all"}
         : null,
     });
+
     return (
       <section
-        aria-label="Provider results"
-        className="relative grid min-h-[360px] place-items-center overflow-hidden rounded-[26px] border border-feasta-border-soft bg-white px-6 py-12 text-center shadow-[0_8px_28px_rgb(43_33_29/0.035)]"
+        className="grid min-w-0 gap-5"
+        aria-labelledby="provider-results-title"
       >
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -right-24 -top-28 size-72 rounded-full bg-primary/[0.045] blur-3xl"
+        <ProviderIndustrySelector
+          filters={filters}
+          serviceCategoryOptions={serviceCategoryOptions}
         />
 
-        <div className="relative grid max-w-md justify-items-center">
-          <span className="grid size-14 place-items-center rounded-2xl bg-secondary text-primary-strong">
-            {filtered ? (
-              <SearchX
-                aria-hidden="true"
-                className="size-6"
-              />
-            ) : (
-              <Store
-                aria-hidden="true"
-                className="size-6"
-              />
-            )}
-          </span>
+        <div
+          aria-label="Provider results"
+          className={[
+            "relative grid min-h-[360px]",
+            "place-items-center overflow-hidden",
+            "rounded-[26px]",
+            "border border-feasta-border-soft",
+            "bg-white px-6 py-12 text-center",
+            "shadow-[0_8px_28px_rgb(43_33_29/0.035)]",
+          ].join(" ")}
+        >
+          <div
+            aria-hidden="true"
+            className={[
+              "pointer-events-none absolute",
+              "-right-24 -top-28 size-72",
+              "rounded-full",
+              "bg-primary/[0.045]",
+              "blur-3xl",
+            ].join(" ")}
+          />
 
-          <p className="mt-5 text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
-            Marketplace results
-          </p>
-
-          <h1 id="provider-results-title" tabIndex={-1} className="mt-2 text-2xl font-extrabold tracking-[-0.035em] text-foreground">
-            {filtered
-              ? "No providers match those filters."
-              : "No public providers yet."}
-          </h1>
-
-          <p className="mt-3 max-w-sm text-sm leading-6 text-feasta-text-secondary">
-            {filtered
-              ? "Try broadening your search or removing one of the active filters."
-              : "Approved public event providers will appear here when they become available."}
-          </p>
-
-          {filtered ? (
-            <Link
-              href={allProvidersHref}
+          <div className="relative grid max-w-md justify-items-center">
+            <span
               className={[
-                "mt-6 inline-flex min-h-11 items-center justify-center",
-                "gap-2 rounded-full bg-primary px-5",
-                "text-sm font-bold text-primary-foreground",
-                "shadow-brand-soft",
-                "transition-[transform,background-color]",
-                "duration-normal",
-                "hover:-translate-y-0.5 hover:bg-primary-hover",
-                "focus-visible:outline-none focus-visible:ring-2",
-                "focus-visible:ring-primary focus-visible:ring-offset-2",
-                "motion-reduce:transform-none",
+                "grid size-14 place-items-center",
+                "rounded-2xl bg-secondary",
+                "text-primary-strong",
               ].join(" ")}
             >
-              <Search
-                aria-hidden="true"
-                className="size-4"
-              />
+              {filtered ? (
+                <SearchX
+                  aria-hidden="true"
+                  className="size-6"
+                />
+              ) : (
+                <Store
+                  aria-hidden="true"
+                  className="size-6"
+                />
+              )}
+            </span>
 
-              View all providers
-            </Link>
-          ) : null}
+            <p
+              className={[
+                "mt-5 text-xs font-extrabold",
+                "uppercase tracking-[0.13em]",
+                "text-primary-strong",
+              ].join(" ")}
+            >
+              Marketplace results
+            </p>
+
+            <h1
+              id="provider-results-title"
+              tabIndex={-1}
+              className={[
+                "mt-2 text-2xl font-extrabold",
+                "tracking-[-0.035em]",
+                "text-foreground",
+              ].join(" ")}
+            >
+              {filtered
+                ? "No providers match those filters."
+                : "No public providers yet."}
+            </h1>
+
+            <p
+              className={[
+                "mt-3 max-w-sm",
+                "text-sm leading-6",
+                "text-feasta-text-secondary",
+              ].join(" ")}
+            >
+              {filtered
+                ? "Try broadening your search or removing one of the active filters."
+                : "Approved public event providers will appear here when they become available."}
+            </p>
+
+            {filtered ? (
+              <>
+                <Link
+                  href={allProvidersHref}
+                  className={[
+                    "mt-6 inline-flex min-h-11",
+                    "items-center justify-center gap-2",
+                    "rounded-full bg-primary px-5",
+                    "text-sm font-bold",
+                    "text-primary-foreground",
+                    "shadow-brand-soft",
+                    "transition-[transform,background-color]",
+                    "duration-normal",
+                    "hover:-translate-y-0.5",
+                    "hover:bg-primary-hover",
+                    "focus-visible:outline-none",
+                    "focus-visible:ring-2",
+                    "focus-visible:ring-primary",
+                    "focus-visible:ring-offset-2",
+                    "motion-reduce:transform-none",
+                  ].join(" ")}
+                >
+                  <Search
+                    aria-hidden="true"
+                    className="size-4"
+                  />
+
+                  View all providers
+                </Link>
+
+                <p className="mt-3 text-xs font-semibold text-feasta-text-tertiary">
+                  Or choose another industry above.
+                </p>
+              </>
+            ) : null}
+          </div>
         </div>
       </section>
     );
   }
-
   const marketplaceHref = providerDiscoveryHref(
     filters,
     filters.cursor,
@@ -222,9 +283,9 @@ export function ProviderResults({
 
   function providerGrid(providers: readonly PublicProvider[]) {
     return (
-      <div className="grid min-w-0 auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-4">
+      <div className="grid min-w-0 auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,12rem),1fr))] gap-4">
         {providers.map((provider) => (
-          <ProviderCard
+          <ProviderLogoCard
             key={provider.id}
             provider={provider}
             marketplaceHref={marketplaceHref}
@@ -248,6 +309,10 @@ export function ProviderResults({
       className="grid min-w-0 gap-5"
       aria-labelledby="provider-results-title"
     >
+      <ProviderIndustrySelector
+        filters={filters}
+        serviceCategoryOptions={serviceCategoryOptions}
+      />
       {/* ================================================================
           RESULT HEADER
          ================================================================ */}

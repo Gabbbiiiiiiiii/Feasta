@@ -35,6 +35,7 @@ import {
 type UnknownRecord = Record<string, unknown>;
 
 const INPUT_FIELDS = new Set([
+  "cateringSelectionType",
   "providerId",
   "packageId",
   "addonIds",
@@ -66,50 +67,71 @@ export const getBookingRefundPolicyDisclosures = onCall(
     );
 
     const input = requireInput(request.data);
+
+    const cateringSelectionType =
+      parseCateringSelectionType(
+        input.cateringSelectionType,
+      );
+
     const providerId = safeId(
       input.providerId,
       "Provider",
     );
-    const packageId = safeId(
-      input.packageId,
-      "Package",
-    );
+
+    const packageId =
+      cateringSelectionType === "package"
+        ? safeId(
+            input.packageId,
+            "Package",
+          )
+        : null;
+
     const addonIds = safeIdList(
       input.addonIds,
     );
 
     return db.runTransaction(
       async (transaction) => {
-        const packageReference = db
-          .collection("packages")
-          .doc(packageId);
         const rolloutReference = db
           .collection("appSettings")
           .doc(
             REFUND_POLICY_ROLLOUT_DOCUMENT_ID,
           );
+
         const addonReferences = addonIds.map(
           (addonId) =>
             db.collection("addons").doc(addonId),
         );
-        const [
-          packageSnapshot,
-          rolloutSnapshot,
-          ...addonSnapshots
-        ] = await Promise.all([
-          transaction.get(packageReference),
-          transaction.get(rolloutReference),
-          ...addonReferences.map(
-            (reference) =>
-              transaction.get(reference),
-          ),
-        ]);
+
+        const packageSnapshot =
+          packageId
+            ? await transaction.get(
+                db
+                  .collection("packages")
+                  .doc(packageId),
+              )
+            : null;
+
+        const rolloutSnapshot =
+          await transaction.get(
+            rolloutReference,
+          );
+
+        const addonSnapshots =
+          await Promise.all(
+            addonReferences.map(
+              (reference) =>
+                transaction.get(reference),
+            ),
+          );
 
         const packageData =
-          requirePublicPackage(
-            packageSnapshot,
-            providerId,
-          );
+          packageSnapshot
+            ? requirePublicPackage(
+                packageSnapshot,
+                providerId,
+              )
+            : null;
         const addons = addonSnapshots.map(
           (snapshot) =>
             requirePublicAddon(snapshot),
@@ -208,7 +230,9 @@ export const getBookingRefundPolicyDisclosures = onCall(
                 ),
               providerData: provider,
               packageRecord:
-                id === providerId
+                id === providerId &&
+                packageId &&
+                packageData
                   ? {
                       packageId,
                       data: packageData,
@@ -249,22 +273,70 @@ function requireInput(
     throw invalidInput();
   }
 
-  const input = value as UnknownRecord;
+  const input =
+    value as UnknownRecord;
+
+  const fields =
+    Object.keys(input);
 
   if (
-    Object.keys(input).length !==
-      INPUT_FIELDS.size ||
-    Object.keys(input).some(
-      (field) => !INPUT_FIELDS.has(field),
-    ) ||
-    [...INPUT_FIELDS].some(
-      (field) => !Object.hasOwn(input, field),
+    fields.some(
+      (field) =>
+        !INPUT_FIELDS.has(field),
     )
   ) {
     throw invalidInput();
   }
 
+  const cateringSelectionType =
+    parseCateringSelectionType(
+      input.cateringSelectionType,
+    );
+
+  if (
+    !("providerId" in input) ||
+    !("addonIds" in input)
+  ) {
+    throw invalidInput();
+  }
+
+  if (
+    cateringSelectionType ===
+    "package"
+  ) {
+    if (
+      !("packageId" in input)
+    ) {
+      throw invalidInput();
+    }
+  } else if (
+    "packageId" in input
+  ) {
+    throw invalidInput();
+  }
+
   return input;
+}
+
+function parseCateringSelectionType(
+  value: unknown,
+): "package" | "custom_menu" {
+  /*
+   * Preserve compatibility with existing
+   * package disclosure callers.
+   */
+  if (
+    value === undefined ||
+    value === "package"
+  ) {
+    return "package";
+  }
+
+  if (value === "custom_menu") {
+    return "custom_menu";
+  }
+
+  throw invalidInput();
 }
 
 function safeId(

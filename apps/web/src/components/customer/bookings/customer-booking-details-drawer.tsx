@@ -232,7 +232,7 @@ function BookingDetailsContent({
         </div>
         <p className="flex min-w-0 items-start gap-2 text-xs leading-5 text-muted-foreground">
           <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-          <span>Payments, down payments, and remaining balances are handled per provider request.</span>
+          <span>Payments and any remaining balances are handled per provider request.</span>
         </p>
       </section>
 

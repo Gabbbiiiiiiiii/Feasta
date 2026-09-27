@@ -178,6 +178,10 @@ export function useCustomizationDraft({
                 saved.ownAddons ?? false,
               ownAddonsNote:
                 saved.ownAddonsNote ?? "",
+              serviceTier:
+                saved.serviceTier ?? null,
+              packageThemeId:
+                saved.packageThemeId ?? null,
             });
 
           lastSaved.current =
@@ -633,6 +637,10 @@ export function useCustomizationDraft({
           ownAddonsNote:
             current.ownAddonsNote ??
             "",
+          serviceTier:
+            current.serviceTier ?? null,
+          packageThemeId:
+            current.packageThemeId ?? null,
         });
 
       lastSaved.current =

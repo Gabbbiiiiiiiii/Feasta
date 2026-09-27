@@ -1,7 +1,7 @@
 import {ArrowRight} from "lucide-react";
 import Link from "next/link";
 
-import {ProviderCard} from "@/components/customer/providers/provider-card";
+import {ProviderLogoCard} from "@/components/customer/providers/provider-logo-card";
 import {ApplicationEmptyState} from "@/components/feedback/application-states";
 import {Button} from "@/components/ui/button";
 import type {PublicProvider} from "@/lib/customer/providers/provider-types";
@@ -26,9 +26,9 @@ export function MarketplaceProviderSection({
         </Button>
       </div>
       {providers.length > 0 ? (
-        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {providers.map((provider) => (
-            <ProviderCard
+            <ProviderLogoCard
               key={provider.id}
               provider={provider}
               favoriteState={{

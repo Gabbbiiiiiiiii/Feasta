@@ -12,8 +12,10 @@ import type {PublicPackage} from "@/lib/customer/discovery/marketplace-types";
 import {humanizeProviderValue} from "@/lib/customer/providers/provider-catalog";
 import {providerProfileHref} from "@/lib/customer/providers/provider-query";
 import {
+  appendCustomerPlanningContext,
   customerEventContextFromHref,
   customerEventContextQuery,
+  parseCustomerPlanningContext,
 } from "@/lib/customer/planning/event-planning-context";
 
 export function PublicPackageCard({
@@ -31,10 +33,22 @@ export function PublicPackageCard({
   compactPreview?: boolean;
   layout?: "marketplace" | "provider-profile";
 }) {
-  const eventContextQuery = customerEventContextQuery(
-    // Preserve supplied context across hydration; destination queries validate dates.
-    customerEventContextFromHref(marketplaceHref, ""),
+  const planningParameters = new URLSearchParams(
+    marketplaceHref.split("?")[1] ?? "",
   );
+  // Preserve supplied dates across hydration; destination routes validate them.
+  const planningContext = parseCustomerPlanningContext(
+    Object.fromEntries(planningParameters),
+    "",
+  );
+  const eventContextQuery = appendCustomerPlanningContext(
+    new URLSearchParams(
+      customerEventContextQuery(
+        customerEventContextFromHref(marketplaceHref, ""),
+      ),
+    ),
+    planningContext,
+  ).toString();
   const packagePath = `/customer/packages/${encodeURIComponent(packageRecord.id)}`;
   const packageHref = eventContextQuery
     ? `${packagePath}?${eventContextQuery}`
@@ -44,6 +58,10 @@ export function PublicPackageCard({
   const guestRange = packageGuestRange(packageRecord);
   const compact = compactPreview || layout === "provider-profile";
   const inclusionLimit = 3;
+  const serviceOptionCount =
+    Object.keys(
+      packageRecord.serviceOptions ?? {},
+    ).length;
 
   return (
     <article
@@ -94,7 +112,7 @@ export function PublicPackageCard({
         ) : null}
 
         {packageRecord.eventType ? (
-          <span className="absolute left-3 right-3 top-3 w-fit max-w-[calc(100%-1.5rem)] break-words rounded-full border border-white/70 bg-white/95 px-3 py-1.5 text-[11px] font-extrabold text-primary-strong shadow-sm backdrop-blur">
+          <span className="absolute left-3 right-3 top-3 w-fit max-w-[calc(100%-1.5rem)] break-words rounded-full border border-white/70bg-white/95 px-3 py-1.5 text-[11px] font-extrabold text-primary-strong shadow-sm backdrop-blur">
             {humanizeProviderValue(packageRecord.eventType)}
           </span>
         ) : null}
@@ -150,6 +168,14 @@ export function PublicPackageCard({
           </p>
         ) : null}
 
+        {serviceOptionCount > 0 ? (
+          <p className="mt-3 w-fit rounded-full bg-secondary px-3 py-1.5 text-[11px] font-extrabold text-primary-strong">
+            {serviceOptionCount}{" "}
+            {serviceOptionCount === 1
+              ? "service option"
+              : "service options"}
+          </p>
+        ) : null}
         {/* Planning information */}
 
         {(!compact && packageRecord.eventType) || guestRange ? (
@@ -245,7 +271,9 @@ export function PublicPackageCard({
           <div className="flex flex-wrap items-end justify-between gap-3 border-t border-feasta-divider pt-3">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
-                Package price
+                {serviceOptionCount > 0
+                  ? "Starting from"
+                  : "Package price"}
               </p>
 
               <PriceDisplay

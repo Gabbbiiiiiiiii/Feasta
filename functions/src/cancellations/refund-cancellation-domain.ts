@@ -226,7 +226,7 @@ export function assertPreparationReady(input: {
     throw cancellationError(
       "failed-precondition",
       REFUND_CANCELLATION_ERROR_REASONS.transitionInvalid,
-      "The required down payment must be confirmed before preparation begins.",
+      "The required payment must be confirmed before preparation begins.",
     );
   }
 }

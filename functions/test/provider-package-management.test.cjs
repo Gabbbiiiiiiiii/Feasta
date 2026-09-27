@@ -178,12 +178,13 @@ test(
 );
 
 test(
-  "draft updates preserve server-owned private lifecycle state",
+  "package updates allow editable packages and return them to private draft state",
   () => {
     assert.ok(
       updatePackage.includes(
-        "assertDraftPackage",
+        "assertEditablePackage",
       ),
+      "updateProviderPackage must enforce editable package status",
     );
 
     for (const projection of [
@@ -198,9 +199,52 @@ test(
         updatePackage.includes(
           projection,
         ),
-        `draft update must preserve ${projection}`,
+        `package update must reset ${projection}`,
       );
     }
+  },
+);
+
+test(
+  "package domain allows draft and published packages to be edited",
+  () => {
+    const editablePackageBlock =
+      domain.slice(
+        domain.indexOf(
+          "export function assertEditablePackage",
+        ),
+        domain.indexOf(
+          "export function assertPublishedPackage",
+        ),
+      );
+
+    assert.ok(
+      editablePackageBlock.includes(
+        "export function assertEditablePackage",
+      ),
+      "package domain must expose assertEditablePackage",
+    );
+
+    assert.ok(
+      editablePackageBlock.includes(
+        'packageRecord.status !== "draft"',
+      ),
+      "editable package rule must allow draft packages",
+    );
+
+    assert.ok(
+      editablePackageBlock.includes(
+        'packageRecord.status !== "published"',
+      ),
+      "editable package rule must allow published packages",
+    );
+
+    assert.ok(
+      editablePackageBlock.includes(
+        "Only draft or published packages can be edited.",
+      ),
+      "editable package rule must reject archived packages",
+    );
   },
 );
 
@@ -288,7 +332,7 @@ test(
 
     assert.ok(
       domain.includes(
-        "requiredPercentage",
+        "requiredFullPaymentPercentage",
       ),
     );
 

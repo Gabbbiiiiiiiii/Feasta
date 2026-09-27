@@ -30,7 +30,7 @@ export function cancellationPaymentState(
     throw cancellationError(
       "failed-precondition",
       REFUND_CANCELLATION_ERROR_REASONS.paymentResolutionRequired,
-      "The recorded down payment must be reconciled before cancellation.",
+      "The recorded payment must be reconciled before cancellation.",
     );
   }
   return request.status === "payment_processing" ||

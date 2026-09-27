@@ -150,7 +150,7 @@ function CustomerPaymentReturnPanel({
             value={payment.requestAmountFormatted}
           />
           <ReturnDetail
-            label="Down payment"
+            label="Payment amount"
             value={payment.downPaymentAmountFormatted}
           />
         </dl>

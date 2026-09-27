@@ -25,8 +25,8 @@ const records: ProviderPackage[] = [base,
   {...base, id: "oldest", name: "Beta reunion", eventType: "reunion", price: 5000, status: "archived", imageUrls: [], imageUrl: ""},
 ];
 const menu = {revision: 3, images: [
-  {id: "chicken", title: "Chicken", url: "https://example.com/chicken.png", isPublished: true},
-  {id: "pasta", title: "Pasta", url: "https://example.com/pasta.png", isPublished: false},
+  {id: "chicken", title: "Chicken", url: "https://example.com/chicken.png", isPublished: true, category: "Chicken"},
+  {id: "pasta", title: "Pasta", url: "https://example.com/pasta.png", isPublished: false, category: "Pasta"},
   {id: "untitled", title: "", url: "https://example.com/menu.png", isPublished: false},
 ]};
 beforeEach(() => {
@@ -45,11 +45,12 @@ it("renders real package metrics, media, prices, guests and lifecycle actions", 
   expect(within(draft).getByRole("img")).toHaveAttribute("src", base.imageUrls![0]);
   expect(within(draft).getByText("20–80 guests")).toBeVisible();
   expect(within(draft).getByText(/12,000/)).toBeVisible();
-  expect(within(draft).getByText("20% down payment")).toBeVisible();
+  expect(within(draft).getByText("Full payment required")).toBeVisible();
   expect(within(draft).getByRole("button", {name: `Edit ${base.name}`})).toBeEnabled();
   const published = screen.getByRole("article", {name: "Alpha wedding"});
   expect(within(published).getByRole("img")).toHaveAttribute("src", base.imageUrl);
-  expect(within(published).queryByRole("button", {name: /Edit|Publish/})).not.toBeInTheDocument();
+  expect(within(published).getByRole("button", {name: "Edit Alpha wedding"})).toBeEnabled();
+  expect(within(published).queryByRole("button", {name: "Publish Alpha wedding"})).not.toBeInTheDocument();
   expect(within(published).getByRole("button", {name: "Archive Alpha wedding"})).toBeEnabled();
   const archived = screen.getByRole("article", {name: "Beta reunion"});
   expect(within(archived).getByRole("img", {name: "No package image"})).toBeVisible();
@@ -124,10 +125,10 @@ it("uses real catalog images, publication flags, and saved title/category filter
   expect(within(chicken).getByLabelText("Status: Published")).toBeVisible();
   expect(within(screen.getByRole("article", {name: "Pasta"})).getByLabelText("Status: Draft")).toBeVisible();
   expect(screen.queryByRole("option", {name: "Seafood"})).not.toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText("Title / category"), {target: {value: "Pasta"}});
+  fireEvent.change(screen.getByLabelText("Category"), {target: {value: "Pasta"}});
   expect(cardNames()).toEqual(["Pasta"]);
-  fireEvent.change(screen.getByLabelText("Search menu images"), {target: {value: "chicken"}});
-  expect(screen.getByText("No menu images match your filters.")).toBeVisible();
+  fireEvent.change(screen.getByLabelText("Search menu items"), {target: {value: "chicken"}});
+  expect(screen.getByText("No menu items match your filters.")).toBeVisible();
   fireEvent.click(screen.getByRole("button", {name: "Clear menu filters"}));
   expect(cardNames()).toEqual(["Chicken", "Pasta", "Menu image 3"]);
 });

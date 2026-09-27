@@ -13,7 +13,7 @@ const image = (owner, asset = "poster") =>
 const legacy = "https://images.example.test/old-package.png";
 const input = {
   name: "Birthday package", description: "A birthday celebration package.",
-  eventType: "birthday", price: 10000, downPaymentPercentage: 20,
+  eventType: "birthday", price: 10000, downPaymentPercentage: 100,
   minimumGuests: 10, maximumGuests: 50, imageUrl: legacy,
   foodInclusions: [], decorInclusions: [], furnitureInclusions: [], serviceInclusions: [],
 };

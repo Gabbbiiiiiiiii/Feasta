@@ -31,6 +31,10 @@ export function PublicProviderMarketplaceShell({
         serviceCategoryOptions={serviceCategoryOptions}
       />
 
+      <div
+        data-customer-marketplace-content
+        className="transition-[padding] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+      >
       <main
         id="main-content"
         tabIndex={-1}
@@ -38,6 +42,7 @@ export function PublicProviderMarketplaceShell({
       >
         {children}
       </main>
+      </div>
     </div>
     </CustomerAuthProvider>
   );

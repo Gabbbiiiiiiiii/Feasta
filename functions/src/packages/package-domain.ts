@@ -19,10 +19,41 @@ export const PACKAGE_STATUSES = [
 export type PackageStatus =
   (typeof PACKAGE_STATUSES)[number];
 
+export const CATERING_PACKAGE_SERVICE_TIERS = [
+  "drop_off",
+  "buffet_setup",
+  "full_service",
+] as const;
+
+export type CateringPackageServiceTier =
+  (typeof CATERING_PACKAGE_SERVICE_TIERS)[number];
+export type PackageServiceOption = {
+  price: number;
+  includedServices: readonly string[];
+};
+
+export type PackageServiceOptions =
+  Partial<
+    Record<
+      CateringPackageServiceTier,
+      PackageServiceOption
+    >
+  >;
+
+export type PackageThemeOption = {
+  id: string;
+  name: string;
+  description: string;
+  imageUrls: string[];
+};
+
 export type PackageInput = {
   name: string;
   description: string;
   eventType: string;
+  serviceTier: CateringPackageServiceTier | null;
+  serviceOptions: PackageServiceOptions;
+  themeOptions: readonly PackageThemeOption[];
   price: number;
   downPaymentPercentage: number;
   minimumGuests: number;
@@ -258,15 +289,76 @@ export function parsePackageInput(
     data.eventType,
   );
 
+  const serviceTier =
+    optionalPackageServiceTier(
+      data.serviceTier,
+    );
+  const serviceOptions =
+    parsePackageServiceOptions(
+      data.serviceOptions,
+    );
+
+  const themeOptions =
+    parsePackageThemeOptions(
+      data.themeOptions,
+    );
+
   const price = requiredMoney(
     data.price,
     "Package price",
   );
+  const serviceOptionPrices =
+    Object.values(serviceOptions)
+      .map((option) => option?.price)
+      .filter(
+        (value): value is number =>
+          typeof value === "number",
+      );
+
+  if (serviceOptionPrices.length > 0) {
+    const startingPrice =
+      Math.min(...serviceOptionPrices);
+
+    if (
+      Math.abs(price - startingPrice) >
+        0.009
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Package price must equal the lowest enabled service option price.",
+      );
+    }
+
+    if (
+      serviceTier &&
+      !serviceOptions[serviceTier]
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "The compatibility service tier must also be enabled in the package service options.",
+      );
+    }
+
+    const supportsThemes =
+      serviceOptions.buffet_setup !==
+        undefined ||
+      serviceOptions.full_service !==
+        undefined;
+
+    if (
+      themeOptions.length > 0 &&
+      !supportsThemes
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Theme options require Buffet Setup or Full-Service Catering.",
+      );
+    }
+  }
 
   const downPaymentPercentage =
-    requiredPercentage(
+    requiredFullPaymentPercentage(
       data.downPaymentPercentage,
-      "Down-payment percentage",
     );
 
   const minimumGuests =
@@ -310,6 +402,9 @@ export function parsePackageInput(
     name,
     description,
     eventType,
+    serviceTier,
+    serviceOptions,
+    themeOptions,
     price,
     downPaymentPercentage,
     minimumGuests,
@@ -348,6 +443,253 @@ export function assertPackagePublishable(
 
 }
 
+function parsePackageServiceOptions(
+  value: unknown,
+): PackageServiceOptions {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return {};
+  }
+
+  if (
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Package service options are invalid.",
+    );
+  }
+
+  const data =
+    value as Record<string, unknown>;
+
+  const allowed =
+    new Set<string>(
+      CATERING_PACKAGE_SERVICE_TIERS,
+    );
+
+  if (
+    Object.keys(data).some(
+      (key) => !allowed.has(key),
+    )
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Package service options contain an unsupported service type.",
+    );
+  }
+
+  const result: PackageServiceOptions = {};
+
+  for (
+    const tier of
+      CATERING_PACKAGE_SERVICE_TIERS
+  ) {
+    const raw = data[tier];
+
+    if (raw === undefined) {
+      continue;
+    }
+
+    if (
+      !raw ||
+      typeof raw !== "object" ||
+      Array.isArray(raw)
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        `${tier} service option is invalid.`,
+      );
+    }
+
+    const option =
+      raw as Record<string, unknown>;
+
+    if (
+      Object.keys(option).some(
+        (key) =>
+          key !== "price" &&
+          key !== "includedServices",
+      )
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        `${tier} service option contains unsupported fields.`,
+      );
+    }
+
+    result[tier] = {
+      price: requiredMoney(
+        option.price,
+        `${tier} price`,
+      ),
+      includedServices:
+        serviceOptionInclusionArray(
+          option.includedServices,
+          `${tier} included services`,
+        ),
+    };
+  }
+
+  return result;
+}
+
+function parsePackageThemeOptions(
+  value: unknown,
+): PackageThemeOption[] {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return [];
+  }
+
+  if (
+    !Array.isArray(value) ||
+    value.length > 12
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Package theme options are invalid.",
+    );
+  }
+
+  return value.map(
+    (raw, index) => {
+      if (
+        !raw ||
+        typeof raw !== "object" ||
+        Array.isArray(raw)
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          `Theme option ${index + 1} is invalid.`,
+        );
+      }
+
+      const theme =
+        raw as Record<string, unknown>;
+
+      /*
+       * Legacy fields remain accepted so existing package documents
+       * can still be parsed/published during migration, but they are
+       * deliberately ignored and are not returned in new writes.
+       */
+      const allowed =
+        new Set([
+          "id",
+          "name",
+          "description",
+          "imageUrls",
+          "furnitureInclusions",
+          "setupInclusions",
+          "additionalPrice",
+        ]);
+
+      if (
+        Object.keys(theme).some(
+          (key) => !allowed.has(key),
+        )
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          `Theme option ${index + 1} contains unsupported fields.`,
+        );
+      }
+
+      const id =
+        requiredString(
+          theme.id,
+          `Theme option ${index + 1} ID`,
+          2,
+          80,
+        );
+
+      if (
+        !/^[A-Za-z0-9_-]+$/u.test(id)
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          `Theme option ${index + 1} ID is invalid.`,
+        );
+      }
+
+      const name =
+        requiredString(
+          theme.name,
+          `Theme option ${index + 1} name`,
+          2,
+          80,
+        );
+
+      const description =
+        typeof theme.description ===
+          "string"
+          ? theme.description
+              .trim()
+              .replace(/\s+/gu, " ")
+          : "";
+
+      if (description.length > 500) {
+        throw new HttpsError(
+          "invalid-argument",
+          `${name} description cannot exceed 500 characters.`,
+        );
+      }
+
+      const imageUrls = parsePackageImageUrls(theme.imageUrls) ?? [];
+
+      if (imageUrls.length !== 0 && (imageUrls.length < 3 || imageUrls.length > 4)) {
+        throw new HttpsError("invalid-argument", `${name} must have 3 to 4 reference photos.`);
+      }
+
+      return {
+        id,
+        name,
+        description,
+        imageUrls,
+      };
+    },
+  );
+}
+function optionalPackageServiceTier(
+  value: unknown,
+): CateringPackageServiceTier | null {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw new HttpsError(
+      "invalid-argument",
+      "Catering service level is invalid.",
+    );
+  }
+
+  const normalized =
+    value.trim().toLowerCase();
+
+  if (
+    !(
+      CATERING_PACKAGE_SERVICE_TIERS as
+        readonly string[]
+    ).includes(normalized)
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Choose Drop-Off, Buffet Setup, or Full-Service Catering.",
+    );
+  }
+
+  return normalized as CateringPackageServiceTier;
+}
 export function parsePackageStatus(
   value: unknown,
 ): PackageStatus | null {
@@ -368,10 +710,25 @@ export function parsePackageStatus(
 export function assertDraftPackage(
   packageRecord: AuthorizedPackage,
 ): void {
+
   if (packageRecord.status !== "draft") {
     throw new HttpsError(
       "failed-precondition",
       "Only draft packages can be edited using this operation.",
+    );
+  }
+}
+
+export function assertEditablePackage(
+  packageRecord: AuthorizedPackage,
+): void {
+  if (
+    packageRecord.status !== "draft" &&
+    packageRecord.status !== "published"
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Only draft or published packages can be edited.",
     );
   }
 }
@@ -520,25 +877,22 @@ function normalizeMoney(
   ) / 100;
 }
 
-function requiredPercentage(
+
+function requiredFullPaymentPercentage(
   value: unknown,
-  label: string,
 ): number {
   if (
     typeof value !== "number" ||
     !Number.isFinite(value) ||
-    value < 0 ||
-    value > 100
+    value !== 100
   ) {
     throw new HttpsError(
       "invalid-argument",
-      `${label} must be between 0 and 100.`,
+      "Full payment must be exactly 100%.",
     );
   }
 
-  return Math.round(
-    (value + Number.EPSILON) * 100,
-  ) / 100;
+  return 100;
 }
 
 function requiredPositiveInteger(
@@ -558,6 +912,69 @@ function requiredPositiveInteger(
   return value as number;
 }
 
+function serviceOptionInclusionArray(
+  value: unknown,
+  label: string,
+): readonly string[] {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} must be a list.`,
+    );
+  }
+
+  if (
+    value.length >
+    MAX_INCLUSIONS_PER_GROUP
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} contains too many items.`,
+    );
+  }
+
+  let totalCharacters = 0;
+
+  const normalized = value.map(
+    (item, index) => {
+      if (typeof item !== "string") {
+        throw new HttpsError(
+          "invalid-argument",
+          `${label} item ${index + 1} is invalid.`,
+        );
+      }
+
+      const inclusion = item.trim();
+
+      if (inclusion.length < 1) {
+        throw new HttpsError(
+          "invalid-argument",
+          `${label} item ${index + 1} cannot be empty.`,
+        );
+      }
+
+      totalCharacters += inclusion.length;
+
+      if (totalCharacters > 10_000) {
+        throw new HttpsError(
+          "invalid-argument",
+          `${label} is too long.`,
+        );
+      }
+
+      return inclusion;
+    },
+  );
+
+  return [...new Set(normalized)];
+}
 function inclusionArray(
   value: unknown,
   label: string,
@@ -647,11 +1064,25 @@ export async function verifyPackageImages(
   ownerId: string,
   previous: Readonly<Record<string, unknown>> = {},
 ): Promise<void> {
+  const previousVisualStyleImages = Array.isArray(previous.themeOptions)
+    ? previous.themeOptions.flatMap((raw) => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+        const record = raw as Record<string, unknown>;
+        return Array.isArray(record.imageUrls)
+          ? record.imageUrls.filter((url): url is string => typeof url === "string")
+          : [];
+      })
+    : [];
+
   const retained = new Set([
     ...(Array.isArray(previous.imageUrls) ? previous.imageUrls : []),
     previous.imageUrl,
+    ...previousVisualStyleImages,
   ]);
-  const images = input.imageUrls ?? (input.imageUrl ? [input.imageUrl] : []);
+  const images = [
+    ...(input.imageUrls ?? (input.imageUrl ? [input.imageUrl] : [])),
+    ...input.themeOptions.flatMap((style) => style.imageUrls),
+  ];
   await Promise.all(images.map(async (url) => {
     if (retained.has(url)) return;
     // Legacy callers must pass the same checks for newly supplied assets.

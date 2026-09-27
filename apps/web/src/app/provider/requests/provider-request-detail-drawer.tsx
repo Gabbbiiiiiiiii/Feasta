@@ -91,11 +91,17 @@ export function ProviderRequestDetailDrawer({
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm text-muted-foreground">
-                Request
+                Booking
               </p>
 
               <p className="font-semibold">
-                {request.id}
+                {formatBookingCode(
+                  request.mainEventId,
+                )}
+              </p>
+
+              <p className="mt-1 break-all text-xs text-muted-foreground">
+                Request ID: {request.id}
               </p>
             </div>
 
@@ -172,8 +178,10 @@ export function ProviderRequestDetailDrawer({
             }
             label="Event time"
             value={
-              request.event.eventTime ??
-              "Not provided"
+              formatEventTimeRange(
+                request.event.eventTime,
+                request.event.eventEndTime,
+              )
             }
           />
 
@@ -267,7 +275,7 @@ export function ProviderRequestDetailDrawer({
         </Section>
 
         <Section
-          title="Payment"
+          title="Payment terms"
         >
           <div className="grid gap-3 rounded-lg border border-border p-4">
             <AmountRow
@@ -276,7 +284,7 @@ export function ProviderRequestDetailDrawer({
             />
 
             <AmountRow
-              label="Required down payment"
+              label="Required payment"
               amount={
                 request.downPaymentAmount
               }
@@ -286,7 +294,7 @@ export function ProviderRequestDetailDrawer({
             null ? (
               <div className="flex items-center justify-between gap-4 text-sm">
                 <span className="text-muted-foreground">
-                  Down payment rate
+                  Payment rate
                 </span>
 
                 <span className="font-medium">
@@ -430,12 +438,122 @@ function AmountRow({
 function formatVenue(
   request: ProviderRequestListItem,
 ): string {
-  return [
+  const parts = [
     request.event.venueAddress,
     request.event.city,
   ]
-    .filter(Boolean)
-    .join(", ") || "Not provided";
+    .flatMap((value) =>
+      value
+        ? value
+            .split(",")
+            .map((part) =>
+              part.trim(),
+            )
+            .filter(Boolean)
+        : [],
+    );
+
+  const uniqueParts: string[] = [];
+  const seen =
+    new Set<string>();
+
+  for (const part of parts) {
+    const normalized =
+      part.toLowerCase();
+
+    if (seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    uniqueParts.push(part);
+  }
+
+  return (
+    uniqueParts.join(", ") ||
+    "Not provided"
+  );
+}
+
+function formatBookingCode(
+  mainEventId: string,
+): string {
+  const normalized =
+    mainEventId.trim();
+
+  if (
+    /^[A-Za-z0-9_-]{10,160}$/u.test(
+      normalized,
+    )
+  ) {
+    return `BK-${normalized
+      .slice(0, 10)
+      .toUpperCase()}`;
+  }
+
+  return "Booking";
+}
+
+
+function formatEventTimeRange(
+  start: string | null,
+  end: string | null,
+): string {
+  const startLabel =
+    formatClockTime(start);
+
+  const endLabel =
+    formatClockTime(end);
+
+  if (
+    startLabel &&
+    endLabel
+  ) {
+    return `${startLabel} – ${endLabel}`;
+  }
+
+  return (
+    startLabel ??
+    endLabel ??
+    "Not provided"
+  );
+}
+
+
+function formatClockTime(
+  value: string | null,
+): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized =
+    value.trim();
+
+  const match =
+    /^([01]?\d|2[0-3]):([0-5]\d)$/u.exec(
+      normalized,
+    );
+
+  if (!match) {
+    return normalized || null;
+  }
+
+  const hour =
+    Number(match[1]);
+
+  const minute =
+    match[2];
+
+  const suffix =
+    hour >= 12
+      ? "PM"
+      : "AM";
+
+  const hour12 =
+    hour % 12 || 12;
+
+  return `${hour12}:${minute} ${suffix}`;
 }
 
 function formatLabel(

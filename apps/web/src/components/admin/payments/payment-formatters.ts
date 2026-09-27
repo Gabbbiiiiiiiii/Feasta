@@ -15,7 +15,7 @@ const paymentTypeLabels: Record<
   string
 > = {
   provider_down_payment:
-    "Provider down payment",
+    "Provider payment",
   provider_balance:
     "Provider balance",
   refund:

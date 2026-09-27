@@ -20,8 +20,10 @@ import {
   getPublicPackageDetail,
 } from "@/lib/customer/discovery/package-detail-service";
 import {
+  appendCustomerPlanningContext,
   customerEventContextQuery,
   parseCustomerEventContext,
+  parseCustomerPlanningContext,
 } from "@/lib/customer/planning/event-planning-context";
 
 type CustomerPackageBookingPageProps = {
@@ -37,7 +39,7 @@ export const metadata: Metadata = {
       "Plan Your Event | FEASTA",
   },
   description:
-    "Customize your event details before reviewing and submitting your FEASTA booking request.",
+    "Customize your event details, review your selections, and save the configured package to your FEASTA Event List.",
 };
 
 export default async function CustomerPackageBookingPage({
@@ -59,9 +61,17 @@ export default async function CustomerPackageBookingPage({
 
   const [{packageId}, query] = await Promise.all([
     params,
-    searchParams ?? Promise.resolve({}),
+    searchParams ?? Promise.resolve<Record<string, string | string[] | undefined>>({}),
   ]);
+  const reviewListValue =
+    Array.isArray(query.reviewList)
+      ? query.reviewList[0]
+      : query.reviewList;
+
+  const reviewListMode =
+    reviewListValue === "1";
   const initialEventContext = parseCustomerEventContext(query);
+  const initialPlanningContext = parseCustomerPlanningContext(query);
 
   /*
    * Build the trusted customer booking destination ourselves.
@@ -71,7 +81,10 @@ export default async function CustomerPackageBookingPage({
   const bookingBasePath = `/customer/packages/${encodeURIComponent(
     packageId,
   )}/book`;
-  const eventContextQuery = customerEventContextQuery(initialEventContext);
+  const eventContextQuery = appendCustomerPlanningContext(
+    new URLSearchParams(customerEventContextQuery(initialEventContext)),
+    initialPlanningContext,
+  ).toString();
   const bookingPath = eventContextQuery
     ? `${bookingBasePath}?${eventContextQuery}`
     : bookingBasePath;
@@ -113,13 +126,16 @@ export default async function CustomerPackageBookingPage({
 
   return (
     <EventCustomizationExperience
-      key={`${account.uid}:${packageId}:${eventContextQuery}`}
+      key={`${account.uid}:${packageId}:${eventContextQuery}:${reviewListMode ? "review" : "customize"}`}
       draftOwner={`customer:${account.uid}`}
+      eventListMode={!reviewListMode}
+      submitFromEventList={reviewListMode}
       detail={detail}
       eventServices={
         eventServices.services
       }
       initialEventContext={initialEventContext}
+      initialPlanningContext={initialPlanningContext}
     />
   );
 }

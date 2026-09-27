@@ -448,7 +448,7 @@ function paymentTypeLabel(
 ): string {
   switch (value) {
     case "provider_down_payment":
-      return "Booking down payment";
+      return "Booking payment";
 
     case "provider_balance":
       return "Remaining booking balance";

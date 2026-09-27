@@ -630,7 +630,7 @@ const handleRefundRequested =
                 All payment types
               </option>
               <option value="provider_down_payment">
-                Provider down payment
+                Provider payment
               </option>
               <option value="provider_balance">
                 Provider balance

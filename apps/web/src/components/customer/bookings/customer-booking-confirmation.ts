@@ -120,7 +120,7 @@ export function bookingConfirmationPresentation(
       eyebrow: "Booking progress",
       title: "Some provider services are confirmed",
       description:
-        "Provider services progress independently. Review each request for outstanding responses, payment verification, or down-payment steps.",
+        "Provider services progress independently. Review each request for outstanding responses or payment verification.",
       tone: "info",
     };
   }
@@ -128,9 +128,9 @@ export function bookingConfirmationPresentation(
   if (hasWaitingPayment || booking.status === "waiting_for_down_payment") {
     return {
       eyebrow: "Payment needed",
-      title: "A provider service requires a down payment",
+      title: "A provider service requires payment",
       description:
-        "Review each provider request and complete only the eligible required down payments shown below.",
+        "Review each provider request and complete only the eligible required payments shown below.",
       tone: "warning",
     };
   }
@@ -169,10 +169,10 @@ export function providerPaymentPresentation(
 ): CustomerProviderPaymentPresentation {
   if (request.paymentStatus === "refunded") {
     return {
-      label: "Down payment refunded",
+      label: "Payment refunded",
       status: "refunded",
       description:
-        "The recorded provider down payment was refunded. No cancellation is implied by this payment state.",
+        "The recorded provider payment was refunded. No cancellation is implied by this payment state.",
       showPaidAt: false,
       showRefundedAt: true,
     };
@@ -197,10 +197,10 @@ export function providerPaymentPresentation(
     ["confirmed", "in_progress", "completed"].includes(request.status)
   ) {
     return {
-      label: "No down payment required",
+      label: "No online payment required",
       status: request.status,
       description:
-        "This provider service was confirmed without an online down payment.",
+        "This provider service was confirmed without an online payment.",
       showPaidAt: false,
       showRefundedAt: false,
     };
@@ -208,10 +208,10 @@ export function providerPaymentPresentation(
 
   if (request.paymentStatus === "paid") {
     return {
-      label: "Down payment confirmed",
+      label: "Payment confirmed",
       status: "paid",
       description:
-        "FEASTA has authoritative confirmation of this provider down payment.",
+        "FEASTA has authoritative confirmation of this provider payment.",
       showPaidAt: true,
       showRefundedAt: false,
     };
@@ -222,7 +222,7 @@ export function providerPaymentPresentation(
       label: "Payment failed",
       status: "failed",
       description:
-        "The provider down payment was not confirmed. Use the available secure action when you are ready to retry.",
+        "The provider payment was not confirmed. Use the available secure action when you are ready to retry.",
       showPaidAt: false,
       showRefundedAt: false,
     };
@@ -241,10 +241,10 @@ export function providerPaymentPresentation(
 
   if (request.status === "waiting_for_down_payment") {
     return {
-      label: "Down payment required",
+      label: "Payment required",
       status: "waiting_for_down_payment",
       description:
-        "Complete the required down payment using the secure action for this provider request.",
+        "Complete the required payment using the secure action for this provider request.",
       showPaidAt: false,
       showRefundedAt: false,
     };
@@ -255,7 +255,7 @@ export function providerPaymentPresentation(
       label: "No active payment",
       status: request.status,
       description:
-        "No provider down-payment action is available for this request.",
+        "No provider payment action is available for this request.",
       showPaidAt: false,
       showRefundedAt: false,
     };
@@ -265,7 +265,7 @@ export function providerPaymentPresentation(
     label: "Payment not yet required",
     status: request.status,
     description:
-      "No confirmed provider down payment is recorded for this request.",
+      "No confirmed provider payment is recorded for this request.",
     showPaidAt: false,
     showRefundedAt: false,
   };

@@ -57,7 +57,11 @@ export function StartYourEventForm() {
       const normalized = typeof value === "string" ? value.trim() : "";
       if (normalized) parameters.set(name, normalized);
     }
-    router.push(providerDiscoveryHref(parseProviderDiscoveryFilters(Object.fromEntries(parameters))));
+   const destination = providerDiscoveryHref(
+  parseProviderDiscoveryFilters(Object.fromEntries(parameters)),
+);
+
+router.push(`/login?next=${encodeURIComponent(destination)}`);
   }
 
   return (
@@ -65,7 +69,7 @@ export function StartYourEventForm() {
       action={PUBLIC_PROVIDER_MARKETPLACE_PATH}
       method="get"
       onSubmit={submit}
-      className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.05fr_0.9fr_0.7fr_1.45fr_auto]"
+      className="grid gap-3 sm:grid-cols-2"
     >
       <label className="group">
         <span className="mb-2 block text-xs font-bold text-feasta-text-secondary">
@@ -168,10 +172,7 @@ export function StartYourEventForm() {
 
       <EventVenueInput />
 
-      <div className="sm:col-span-2 xl:col-span-1">
-        <span aria-hidden="true" className="mb-2 hidden text-xs font-bold xl:block">
-          &nbsp;
-        </span>
+      <div className="sm:col-span-2">
         <button
           type="submit"
           className={[
@@ -183,7 +184,7 @@ export function StartYourEventForm() {
             "motion-reduce:transform-none",
           ].join(" ")}
         >
-          Explore
+          Book Now
           <ArrowRight
             aria-hidden="true"
             className="size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transform-none"

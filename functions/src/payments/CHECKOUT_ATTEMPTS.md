@@ -6,7 +6,7 @@ amount, confirmation and non-revival checks remain authoritative.
 
 ## Stored contract
 
-`payments/{paymentId}` remains one logical required provider down payment. It adds
+`payments/{paymentId}` remains one logical required provider payment. It adds
 `attemptSchemaVersion: 1`, `attemptCount`, and `currentCheckoutAttemptId`. Existing
 checkout/resource identifiers remain compatibility fields, not complete history.
 

@@ -105,9 +105,9 @@ function CustomerBookingProviderRequestCard({
         !compact && "xl:grid-cols-4",
       )}>
         <FinancialMetric label="Service amount" value={formatCurrency(request.amount)} />
-        <FinancialMetric label="Required down payment" value={formatCurrency(request.downPaymentAmount)} />
+        <FinancialMetric label="Required payment" value={formatCurrency(request.downPaymentAmount)} />
         <FinancialMetric label="Remaining balance" value={formatCurrency(request.remainingBalance)} />
-        <FinancialMetric label="Down payment rate" value={formatPercentage(request.downPaymentPercentage)} />
+        <FinancialMetric label="Payment rate" value={formatPercentage(request.downPaymentPercentage)} />
       </dl>
 
       {durableConfirmation ? (

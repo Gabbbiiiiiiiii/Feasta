@@ -264,7 +264,13 @@ export function ProviderPackagesClient({
         onPointerDownOutside={(event) => event.preventDefault()}>
         <DialogHeader className="shrink-0 border-b border-border px-5 py-4 pr-16 sm:pl-6">
           <DialogTitle>{editingPackage ? "Edit package" : "Create package"}</DialogTitle>
-          <DialogDescription>{editingPackage ? "Update your draft package. Changes take effect when you save." : "Save a draft to review before publishing. Cancel discards unsaved changes."}</DialogDescription>
+          <DialogDescription>
+            {editingPackage?.status === "published"
+              ? "Editing a published package will move it back to Draft when you save. It will be temporarily hidden from customers until you publish it again."
+              : editingPackage
+                ? "Update your draft package. Changes take effect when you save."
+                : "Save a draft to review before publishing. Cancel discards unsaved changes."}
+          </DialogDescription>
         </DialogHeader>
         <ProviderPackageForm
           key={editingPackage?.id ?? "create"}

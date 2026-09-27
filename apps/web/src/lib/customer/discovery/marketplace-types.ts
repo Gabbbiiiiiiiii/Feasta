@@ -1,3 +1,8 @@
+import type {
+  PackageServiceOptions,
+  PackageThemeOption,
+} from "@/lib/catering/package-offer-configuration";
+import type {CateringPackageServiceTier} from "@/lib/catering/catering-service-tier";
 import type {ProviderEventType} from "@feasta/shared-types";
 
 import type {PublicProvider} from "@/lib/customer/providers/provider-types";
@@ -10,6 +15,9 @@ export type PublicPackage = {
   name: string;
   description: string | null;
   eventType: string | null;
+  serviceTier?: CateringPackageServiceTier | null;
+  serviceOptions?: PackageServiceOptions;
+  themeOptions?: readonly PackageThemeOption[];
   price: number | null;
   imageUrl: string | null;
   imageUrls?: readonly string[];

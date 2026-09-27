@@ -1,3 +1,8 @@
+import {
+  normalizePackageServiceOptions,
+  normalizePackageThemeOptions,
+} from "@/lib/catering/package-offer-configuration";
+import {normalizeCateringPackageServiceTier} from "@/lib/catering/catering-service-tier";
 import type {
   PublicPackage,
   PublicPackageCustomization,
@@ -74,6 +79,20 @@ export function normalizePublicPackage(
     name,
     description: safeText(value.description, 600),
     eventType: safeText(value.eventType, 80),
+    serviceTier:
+      normalizeCateringPackageServiceTier(
+        value.serviceTier,
+      ),
+    serviceOptions:
+      normalizePackageServiceOptions(
+        value.serviceOptions,
+      ),
+    themeOptions:
+      normalizePackageThemeOptions(
+        value.themeOptions,
+      ),
+
+
     price: safeMoney(value.price),
     imageUrl: imageUrls[0] ?? null,
     imageUrls,

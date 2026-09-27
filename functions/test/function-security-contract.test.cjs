@@ -4,7 +4,12 @@ const path = require("node:path");
 const test = require("node:test");
 
 const root = path.resolve(__dirname, "../src");
-const source = (relative) => readFileSync(path.join(root, relative), "utf8");
+
+const source = (relative) =>
+  readFileSync(
+    path.join(root, relative),
+    "utf8",
+  ).replace(/\r\n/g, "\n");
 
 const policies = [
   ["ensureUserProfile", "auth/ensure-user-profile.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions"]],

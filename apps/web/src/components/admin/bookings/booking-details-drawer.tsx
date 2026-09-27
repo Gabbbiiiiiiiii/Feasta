@@ -387,7 +387,7 @@ function ProviderRequestCard({
 
         <div className="min-w-0">
           <dt className="text-muted-foreground">
-            Down payment
+            Required payment
           </dt>
 
           <dd className="mt-1 truncate font-semibold">

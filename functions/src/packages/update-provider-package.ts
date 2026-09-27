@@ -23,7 +23,7 @@ import {
 } from "../shared/timestamps.js";
 
 import {
-  assertDraftPackage,
+  assertEditablePackage,
   assertPackageMatchesProviderCapabilities,
   authorizeOwnedPackage,
   authorizeProviderForPackageManagement,
@@ -36,7 +36,10 @@ const ALLOWED_FIELDS = [
   "name",
   "description",
   "eventType",
-  "price",
+    "serviceTier",
+  "serviceOptions",
+  "themeOptions",
+"price",
   "downPaymentPercentage",
   "minimumGuests",
   "maximumGuests",
@@ -90,6 +93,11 @@ export const updateProviderPackage = onCall(
       name: input.name,
       description: input.description,
       eventType: input.eventType,
+      serviceTier: input.serviceTier,
+      serviceOptions:
+        input.serviceOptions,
+      themeOptions:
+        input.themeOptions,
       price: input.price,
       downPaymentPercentage:
         input.downPaymentPercentage,
@@ -108,6 +116,18 @@ export const updateProviderPackage = onCall(
       serviceInclusions:
         input.serviceInclusions,
     });
+
+    if (
+      !validated.serviceTier &&
+      Object.keys(
+        validated.serviceOptions,
+      ).length === 0
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Choose Drop-Off, Buffet Setup, or Full-Service Catering before saving the package.",
+      );
+    }
 
     const userReference = db
       .collection("users")
@@ -181,10 +201,9 @@ export const updateProviderPackage = onCall(
             packageSnapshot,
           });
 
-        assertDraftPackage(
-          packageRecord,
-        );
-
+        assertEditablePackage(
+            packageRecord,
+          );
         assertPackageMatchesProviderCapabilities(
           provider.providerData,
           validated,
@@ -204,7 +223,16 @@ export const updateProviderPackage = onCall(
             eventType:
               validated.eventType,
 
-            price:
+            serviceTier:
+              validated.serviceTier,
+
+                        serviceOptions:
+              validated.serviceOptions,
+
+            themeOptions:
+              validated.themeOptions,
+
+price:
               validated.price,
 
             downPaymentPercentage:

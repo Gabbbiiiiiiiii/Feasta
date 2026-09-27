@@ -717,7 +717,7 @@ function titleCase(value: string) {
 
 function paymentTypeLabel(value: string) {
   const labels: Record<string, string> = {
-    provider_down_payment: "Provider down payment",
+    provider_down_payment: "Provider payment",
     provider_balance: "Provider remaining balance",
     refund: "Refund record",
     adjustment: "Payment adjustment",

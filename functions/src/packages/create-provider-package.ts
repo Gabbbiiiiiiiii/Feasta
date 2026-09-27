@@ -33,7 +33,10 @@ const ALLOWED_FIELDS = [
   "name",
   "description",
   "eventType",
-  "price",
+    "serviceTier",
+  "serviceOptions",
+  "themeOptions",
+"price",
   "downPaymentPercentage",
   "minimumGuests",
   "maximumGuests",
@@ -80,6 +83,18 @@ export const createProviderPackage = onCall(
 
     const validated =
       parsePackageInput(input);
+
+    if (
+      !validated.serviceTier &&
+      Object.keys(
+        validated.serviceOptions,
+      ).length === 0
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Choose Drop-Off, Buffet Setup, or Full-Service Catering before saving the package.",
+      );
+    }
 
     const userReference = db
       .collection("users")
@@ -159,7 +174,16 @@ export const createProviderPackage = onCall(
             eventType:
               validated.eventType,
 
-            price:
+            serviceTier:
+              validated.serviceTier,
+
+                        serviceOptions:
+              validated.serviceOptions,
+
+            themeOptions:
+              validated.themeOptions,
+
+price:
               validated.price,
 
             downPaymentPercentage:

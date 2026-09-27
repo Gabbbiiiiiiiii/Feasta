@@ -100,6 +100,27 @@ type ProviderRequestService = {
   downPaymentAmount: number;
 };
 
+type CateringSelectionType =
+  | "package"
+  | "custom_menu";
+
+type CustomMenuSelectionInput = {
+  menuItemId: string;
+  servingOptionId: string;
+};
+
+type ResolvedCustomMenuSelection = {
+  menuItemId: string;
+  menuItemName: string;
+  category: string;
+  servingOptionId: string;
+  servingOptionName: string;
+  servingDescription: string;
+  minimumGuests: number;
+  maximumGuests: number;
+  price: number;
+};
+
 const COLLECTIONS = {
   users: "users",
   customers: "customers",
@@ -147,10 +168,45 @@ export const submitBookingRequest = onCall(
         "providerId",
       );
 
-      const packageId = requireId(
+      const cateringSelectionType =
+        parseCateringSelectionType(
+          input.cateringSelectionType,
+        );
+
+      assertCateringSelectionShape(
         input,
-        "packageId",
+        cateringSelectionType,
       );
+
+      const packageId =
+        cateringSelectionType === "package"
+          ? requireId(
+              input,
+              "packageId",
+            )
+          : null;
+
+      const serviceTier =
+        cateringSelectionType === "package"
+          ? parseCateringPackageServiceTier(
+              input.serviceTier,
+            )
+          : null;
+
+      const packageThemeId =
+        cateringSelectionType === "package"
+          ? parsePackageThemeId(
+              input.packageThemeId,
+            )
+          : null;
+
+      const menuSelections =
+        cateringSelectionType ===
+          "custom_menu"
+          ? requireCustomMenuSelections(
+              input.menuSelections,
+            )
+          : [];
 
       const eventType = requireEventType(
         input,
@@ -163,13 +219,16 @@ export const submitBookingRequest = onCall(
         1,
         40,
       );
-
-      const eventEndTime = requireText(
-        input,
-        "eventEndTime",
-        1,
-        40,
-      );
+      const eventEndTime =
+        cateringSelectionType ===
+        "package"
+          ? requireText(
+              input,
+              "eventEndTime",
+              1,
+              40,
+            )
+          : null;
 
       const eventLocation = requireText(
         input,
@@ -197,13 +256,16 @@ export const submitBookingRequest = onCall(
           "customerArrangedAddOnsNote",
           500,
         );
-
-      const guestCount = requireInteger(
-        input,
-        "guestCount",
-        1,
-        10_000,
-      );
+      const guestCount =
+        cateringSelectionType ===
+        "package"
+          ? requireInteger(
+              input,
+              "guestCount",
+              1,
+              10_000,
+            )
+          : null;
 
       const eventDate = requireFutureDate(
         input.eventDate,
@@ -211,28 +273,35 @@ export const submitBookingRequest = onCall(
 
       const submissionTime = new Date();
 
-      const selectedFoods = requireStringList(
-        input,
-        "selectedFoods",
-        50,
-        120,
-      );
+      const selectedFoods =
+        cateringSelectionType === "package"
+          ? requireStringList(
+              input,
+              "selectedFoods",
+              50,
+              120,
+            )
+          : [];
 
       const selectedDecorations =
-        requireStringList(
-          input,
-          "selectedDecorations",
-          50,
-          120,
-        );
+        cateringSelectionType === "package"
+          ? requireStringList(
+              input,
+              "selectedDecorations",
+              50,
+              120,
+            )
+          : [];
 
       const selectedFurniture =
-        requireStringList(
-          input,
-          "selectedFurniture",
-          50,
-          120,
-        );
+        cateringSelectionType === "package"
+          ? requireStringList(
+              input,
+              "selectedFurniture",
+              50,
+              120,
+            )
+          : [];
 
       const addonIds = [
         ...new Set(
@@ -277,7 +346,11 @@ export const submitBookingRequest = onCall(
         createSubmissionFingerprint({
           customerId: actor.uid,
           cateringProviderId,
+          cateringSelectionType,
           packageId,
+          serviceTier,
+          packageThemeId,
+          menuSelections,
           eventType,
           eventDate:
             eventDate.toISOString(),
@@ -311,9 +384,16 @@ export const submitBookingRequest = onCall(
         .collection(COLLECTIONS.providers)
         .doc(cateringProviderId);
 
-      const packageReference = db
-        .collection(COLLECTIONS.packages)
-        .doc(packageId);
+      const cateringSelectionReference =
+        cateringSelectionType === "package"
+          ? db
+              .collection(
+                COLLECTIONS.packages,
+              )
+              .doc(packageId!)
+          : cateringProviderReference
+              .collection("catalog")
+              .doc("menu");
 
       const refundPolicyRolloutReference = db
         .collection(COLLECTIONS.appSettings)
@@ -335,7 +415,7 @@ export const submitBookingRequest = onCall(
             userSnapshot,
             customerSnapshot,
             cateringProviderSnapshot,
-            packageSnapshot,
+            cateringSelectionSnapshot,
             refundPolicyRolloutSnapshot,
             ...addonSnapshots
           ] = await Promise.all([
@@ -345,7 +425,9 @@ export const submitBookingRequest = onCall(
             transaction.get(
               cateringProviderReference,
             ),
-            transaction.get(packageReference),
+            transaction.get(
+              cateringSelectionReference,
+            ),
             transaction.get(
               refundPolicyRolloutReference,
             ),
@@ -472,57 +554,140 @@ export const submitBookingRequest = onCall(
             );
           }
 
-          if (!packageSnapshot.exists) {
-            throw new HttpsError(
-              "failed-precondition",
-              "Package is unavailable.",
+          let packageData:
+            UnknownRecord | null =
+              null;
+
+          let packageName =
+            "Custom menu";
+
+          let packagePrice = 0;
+
+          let resolvedCateringServiceTier:
+            CateringPackageServiceTier | null = null;
+
+          let resolvedCateringServiceIncludedServices:
+            string[] = [];
+
+          let resolvedPackageTheme:
+            ResolvedPackageTheme | null = null;
+
+          let resolvedMenuSelections:
+            ResolvedCustomMenuSelection[] =
+              [];
+
+          if (
+            cateringSelectionType ===
+              "package"
+          ) {
+            if (
+              !cateringSelectionSnapshot
+                .exists
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "Package is unavailable.",
+              );
+            }
+
+            const currentPackageData =
+              cateringSelectionSnapshot
+                .data() ?? {};
+
+            assertBookingPackageValid(
+              validateBookingPackage({
+                packageData:
+                  currentPackageData,
+
+                expectedProviderId:
+                  cateringProviderId,
+
+                submittedEventType:
+                  eventType,
+
+                guestCount: requirePackageGuestCount(guestCount),
+              }),
             );
+
+            validatePackageSelections(
+              selectedFoods,
+              currentPackageData
+                .foodInclusions,
+              "selectedFoods",
+            );
+
+            validatePackageSelections(
+              selectedDecorations,
+              currentPackageData
+                .decorInclusions,
+              "selectedDecorations",
+            );
+
+            validatePackageSelections(
+              selectedFurniture,
+              currentPackageData
+                .furnitureInclusions,
+              "selectedFurniture",
+            );
+
+            packageData =
+              currentPackageData;
+
+            packageName =
+              stringValue(
+                currentPackageData.name,
+              ) || "Catering package";
+
+            const resolvedPackageService =
+              resolvePackageServiceOption(
+                currentPackageData,
+                serviceTier,
+              );
+
+            packagePrice =
+              resolvedPackageService.price;
+
+            resolvedCateringServiceTier =
+              resolvedPackageService.tier;
+
+            resolvedCateringServiceIncludedServices =
+              resolvedPackageService.includedServices;
+
+            resolvedPackageTheme =
+              resolvePackageTheme(
+                currentPackageData,
+                resolvedCateringServiceTier,
+                packageThemeId,
+              );
+          }
+          else {
+            if (
+              !cateringSelectionSnapshot
+                .exists
+            ) {
+              throw new HttpsError(
+                "failed-precondition",
+                "Provider menu is unavailable.",
+              );
+            }
+
+            const menuData =
+              cateringSelectionSnapshot
+                .data() ?? {};
+
+            resolvedMenuSelections =
+              resolveCustomMenuSelections(
+                menuData.images,
+                menuSelections,
+              );
+
+            packagePrice =
+              calculateCustomMenuTotal(
+                resolvedMenuSelections,
+              );
           }
 
-          const packageData =
-            packageSnapshot.data() ?? {};
-
-          assertBookingPackageValid(
-            validateBookingPackage({
-              packageData,
-              expectedProviderId:
-                cateringProviderId,
-              submittedEventType:
-                eventType,
-              guestCount,
-            }),
-          );
-
-          validatePackageSelections(
-            selectedFoods,
-            packageData.foodInclusions,
-            "selectedFoods",
-          );
-
-          validatePackageSelections(
-            selectedDecorations,
-            packageData.decorInclusions,
-            "selectedDecorations",
-          );
-
-          validatePackageSelections(
-            selectedFurniture,
-            packageData.furnitureInclusions,
-            "selectedFurniture",
-          );
-
-          const packagePrice =
-            requireStoredMoney(
-              packageData.price,
-              "Package price",
-            );
-
-          const packageDownPaymentPercentage =
-            requireStoredPercentage(
-              packageData.downPaymentPercentage,
-              "Package down-payment percentage",
-              0,
-            );
+          const packageDownPaymentPercentage = 100;
 
           const selectedAddOns =
             addonSnapshots.map(
@@ -592,16 +757,7 @@ export const submitBookingRequest = onCall(
                       addon.category,
                     ) || "event_service",
                   price,
-                  downPaymentPercentage:
-                    requireStoredPercentage(
-                      addon
-                        .downPaymentPercentage,
-                      "Add-on down-payment percentage",
-                      source ===
-                        "catering_provider"
-                        ? packageDownPaymentPercentage
-                        : 100,
-                    ),
+                  downPaymentPercentage: 100,
                   source,
                 };
               },
@@ -821,10 +977,15 @@ export const submitBookingRequest = onCall(
                     ),
                   providerData:
                     cateringProvider,
-                  packageRecord: {
-                    packageId,
-                    data: packageData,
-                  },
+                  packageRecord:
+                    packageData &&
+                    packageId
+                      ? {
+                          packageId,
+                          data:
+                            packageData,
+                        }
+                      : null,
                 },
                 ...[
                   ...marketplaceProviders
@@ -869,29 +1030,50 @@ export const submitBookingRequest = onCall(
 
           const cateringServices:
             ProviderRequestService[] = [
-              {
-                serviceId: packageId,
-                name:
-                  stringValue(
-                    packageData.name,
-                  ) || "Catering package",
-                category:
-                  "catering_package",
-                price: packagePrice,
-                downPaymentPercentage:
-                  packageDownPaymentPercentage,
-                downPaymentAmount:
-                  calculateDownPayment(
-                    packagePrice,
-                    packageDownPaymentPercentage,
-                  ),
-              },
+              ...(
+                cateringSelectionType ===
+                  "package"
+                  ? [
+                      {
+                        serviceId:
+                          packageId!,
+
+                        name:
+                          packageName,
+
+                        category:
+                          "catering_package",
+
+                        price:
+                          packagePrice,
+
+                        downPaymentPercentage:
+                          packageDownPaymentPercentage,
+
+                        downPaymentAmount:
+                          calculateDownPayment(
+                            packagePrice,
+                            packageDownPaymentPercentage,
+                          ),
+                      },
+                    ]
+                  : resolvedMenuSelections.map(
+                      (
+                        selection,
+                      ) =>
+                        customMenuSelectionService(
+                          selection,
+                        ),
+                    )
+              ),
+
               ...cateringAddOns.map(
                 (addon) =>
-                  serviceFromAddOn(addon),
+                  serviceFromAddOn(
+                    addon,
+                  ),
               ),
             ];
-
           const cateringSubtotal =
             calculateServiceTotal(
               cateringServices,
@@ -1128,11 +1310,27 @@ export const submitBookingRequest = onCall(
                     .businessName,
                 ),
 
+              cateringSelectionType,
               packageId,
-              packageName:
-                stringValue(
-                  packageData.name,
-                ),
+              packageName,
+              selectedCateringServiceTier:
+                resolvedCateringServiceTier,
+              selectedCateringServiceIncludedServices:
+                resolvedCateringServiceIncludedServices,
+              selectedPackageThemeId:
+                resolvedPackageTheme?.id ?? null,
+              selectedPackageThemeName:
+                resolvedPackageTheme?.name ?? null,
+              selectedPackageThemeDescription:
+                resolvedPackageTheme?.description ?? null,
+              selectedPackageThemeImageUrls:
+                resolvedPackageTheme?.imageUrls ?? [],
+
+              menuSelections:
+                cateringSelectionType ===
+                  "custom_menu"
+                  ? resolvedMenuSelections
+                  : [],
 
               eventType,
               eventDate:
@@ -1260,11 +1458,27 @@ export const submitBookingRequest = onCall(
 
               type: "catering",
 
+              cateringSelectionType,
               packageId,
-              packageName:
-                stringValue(
-                  packageData.name,
-                ),
+              packageName,
+              selectedCateringServiceTier:
+                resolvedCateringServiceTier,
+              selectedCateringServiceIncludedServices:
+                resolvedCateringServiceIncludedServices,
+              selectedPackageThemeId:
+                resolvedPackageTheme?.id ?? null,
+              selectedPackageThemeName:
+                resolvedPackageTheme?.name ?? null,
+              selectedPackageThemeDescription:
+                resolvedPackageTheme?.description ?? null,
+              selectedPackageThemeImageUrls:
+                resolvedPackageTheme?.imageUrls ?? [],
+
+              menuSelections:
+                cateringSelectionType ===
+                  "custom_menu"
+                  ? resolvedMenuSelections
+                  : [],
 
               services: cateringServices,
 
@@ -1748,6 +1962,522 @@ function requireFutureDate(
   return parsed;
 }
 
+function parseCateringSelectionType(
+  value: unknown,
+): CateringSelectionType {
+  if (
+    value === undefined ||
+    value === "package"
+  ) {
+    return "package";
+  }
+
+  if (value === "custom_menu") {
+    return "custom_menu";
+  }
+
+  throw new HttpsError(
+    "invalid-argument",
+    "Catering selection type is invalid.",
+  );
+}
+
+function assertCateringSelectionShape(
+  input: UnknownRecord,
+  type: CateringSelectionType,
+): void {
+  if (type === "package") {
+    if ("menuSelections" in input) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Package booking data is invalid.",
+      );
+    }
+
+    return;
+  }
+
+  if (
+    "packageId" in input ||
+    "selectedFoods" in input ||
+    "selectedDecorations" in input ||
+    "selectedFurniture" in input
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Custom menu booking data is invalid.",
+    );
+  }
+}
+
+function requireCustomMenuSelections(
+  value: unknown,
+): CustomMenuSelectionInput[] {
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > 24
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Menu selections are invalid.",
+    );
+  }
+
+  const seenMenuItems =
+    new Set<string>();
+
+  return value.map(
+    (
+      candidate,
+      index,
+    ): CustomMenuSelectionInput => {
+      if (
+        !candidate ||
+        typeof candidate !==
+          "object" ||
+        Array.isArray(candidate)
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          `Menu selection ${index + 1} is invalid.`,
+        );
+      }
+
+      const record =
+        candidate as UnknownRecord;
+
+      const keys =
+        Object.keys(record)
+          .sort();
+
+      if (
+        keys.length !== 2 ||
+        keys[0] !== "menuItemId" ||
+        keys[1] !== "servingOptionId"
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          `Menu selection ${index + 1} is invalid.`,
+        );
+      }
+
+      const menuItemId =
+        requireMenuIdentifier(
+          record.menuItemId,
+          `Menu selection ${index + 1}`,
+        );
+
+      const servingOptionId =
+        requireMenuIdentifier(
+          record.servingOptionId,
+          `Menu selection ${index + 1}`,
+        );
+
+      if (
+        seenMenuItems.has(
+          menuItemId,
+        )
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "A menu item can only be selected once.",
+        );
+      }
+
+      seenMenuItems.add(
+        menuItemId,
+      );
+
+      return {
+        menuItemId,
+        servingOptionId,
+      };
+    },
+  );
+}
+
+function requireMenuIdentifier(
+  value: unknown,
+  label: string,
+): string {
+  if (
+    typeof value !== "string"
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} is invalid.`,
+    );
+  }
+
+  const normalized =
+    value.trim();
+
+  if (
+    !/^[a-zA-Z0-9_-]{1,128}$/u.test(
+      normalized,
+    )
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} is invalid.`,
+    );
+  }
+
+  return normalized;
+}
+
+function resolveCustomMenuSelections(
+  imagesValue: unknown,
+  requested:
+    readonly CustomMenuSelectionInput[],
+): ResolvedCustomMenuSelection[] {
+  if (!Array.isArray(imagesValue)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Provider menu is unavailable.",
+    );
+  }
+
+  return requested.map(
+    (selection) => {
+      const rawMenuItem =
+        imagesValue.find(
+          (candidate) =>
+            candidate !== null &&
+            typeof candidate ===
+              "object" &&
+            !Array.isArray(candidate) &&
+            (
+              candidate as UnknownRecord
+            ).id ===
+              selection.menuItemId,
+        );
+
+      if (
+        !rawMenuItem ||
+        typeof rawMenuItem !==
+          "object" ||
+        Array.isArray(rawMenuItem)
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "A selected menu item is no longer available.",
+          {
+            reason:
+              "menu-item-unavailable",
+          },
+        );
+      }
+
+      const menuItem =
+        rawMenuItem as UnknownRecord;
+
+      if (
+        menuItem.isPublished !==
+          true
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "A selected menu item is no longer published.",
+          {
+            reason:
+              "menu-item-unavailable",
+          },
+        );
+      }
+
+      const menuItemName =
+        stringValue(
+          menuItem.title,
+        );
+
+      if (
+        !menuItemName ||
+        menuItemName.length > 80
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "A selected menu item is invalid.",
+        );
+      }
+
+      const category =
+        menuItem.category ===
+          undefined
+          ? ""
+          : stringValue(
+              menuItem.category,
+            );
+
+      if (
+        category.length > 80
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "A selected menu item is invalid.",
+        );
+      }
+
+      if (
+        !Array.isArray(
+          menuItem.servingOptions,
+        )
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "A selected menu item has no available serving sizes.",
+          {
+            reason:
+              "serving-option-unavailable",
+          },
+        );
+      }
+
+      const rawOption =
+        menuItem.servingOptions.find(
+          (candidate) =>
+            candidate !== null &&
+            typeof candidate ===
+              "object" &&
+            !Array.isArray(candidate) &&
+            (
+              candidate as UnknownRecord
+            ).id ===
+              selection.servingOptionId,
+        );
+
+      if (
+        !rawOption ||
+        typeof rawOption !==
+          "object" ||
+        Array.isArray(rawOption)
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "A selected serving size is no longer available.",
+          {
+            reason:
+              "serving-option-unavailable",
+          },
+        );
+      }
+
+      const option =
+        rawOption as UnknownRecord;
+
+      const servingOptionName =
+        stringValue(
+          option.name,
+        );
+
+      if (
+        !servingOptionName ||
+        servingOptionName.length >
+          80
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "A selected serving size is invalid.",
+        );
+      }
+
+      if (
+        typeof option.description !==
+          "string" ||
+        option.description.length >
+          160
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "A selected serving size is invalid.",
+        );
+      }
+
+      const servingDescription =
+        option.description
+          .trim();
+
+      const range =
+        resolveServingGuestRange(
+          option,
+        );
+
+      const price =
+        requireStoredMoney(
+          option.price,
+          "Menu serving price",
+        );
+
+      if (
+        price <= 0 ||
+        price > 100_000_000
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Menu serving price is invalid.",
+        );
+      }
+
+      return {
+        menuItemId:
+          selection.menuItemId,
+
+        menuItemName,
+
+        category,
+
+        servingOptionId:
+          selection.servingOptionId,
+
+        servingOptionName,
+
+        servingDescription,
+
+        minimumGuests:
+          range.minimumGuests,
+
+        maximumGuests:
+          range.maximumGuests,
+
+        price,
+      };
+    },
+  );
+}
+
+function resolveServingGuestRange(
+  option: UnknownRecord,
+): {
+  minimumGuests: number;
+  maximumGuests: number;
+} {
+  const hasMinimum =
+    "minimumGuests" in option;
+
+  const hasMaximum =
+    "maximumGuests" in option;
+
+  const hasLegacy =
+    "guestCount" in option;
+
+  let minimumGuests: number;
+  let maximumGuests: number;
+
+  if (
+    hasMinimum ||
+    hasMaximum
+  ) {
+    if (
+      !hasMinimum ||
+      !hasMaximum ||
+      hasLegacy ||
+      typeof option.minimumGuests !==
+        "number" ||
+      typeof option.maximumGuests !==
+        "number" ||
+      !Number.isSafeInteger(
+        option.minimumGuests,
+      ) ||
+      !Number.isSafeInteger(
+        option.maximumGuests,
+      )
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "A selected serving size has an invalid guest range.",
+      );
+    }
+
+    minimumGuests =
+      option.minimumGuests;
+
+    maximumGuests =
+      option.maximumGuests;
+  }
+  else {
+    if (
+      typeof option.guestCount !==
+        "number" ||
+      !Number.isSafeInteger(
+        option.guestCount,
+      )
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "A selected serving size has an invalid guest range.",
+      );
+    }
+
+    minimumGuests =
+      option.guestCount;
+
+    maximumGuests =
+      option.guestCount;
+  }
+
+  if (
+    minimumGuests < 1 ||
+    maximumGuests <
+      minimumGuests ||
+    maximumGuests > 1_000_000
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "A selected serving size has an invalid guest range.",
+    );
+  }
+
+  return {
+    minimumGuests,
+    maximumGuests,
+  };
+}
+
+function customMenuSelectionService(
+  selection:
+    ResolvedCustomMenuSelection,
+): ProviderRequestService {
+  return {
+    serviceId:
+      `menu:${selection.menuItemId}:${selection.servingOptionId}`,
+
+    name:
+      `${selection.menuItemName} - ${selection.servingOptionName}`,
+
+    /*
+     * Keep the existing catering availability contract.
+     * Exact menu identity remains in menuSelections.
+     */
+    category:
+      "catering_package",
+
+    price:
+      selection.price,
+
+    downPaymentPercentage:
+      100,
+
+    downPaymentAmount:
+      roundCurrency(
+        selection.price,
+      ),
+  };
+}
+
+function calculateCustomMenuTotal(
+  selections:
+    readonly ResolvedCustomMenuSelection[],
+): number {
+  return roundCurrency(
+    selections.reduce(
+      (total, selection) =>
+        total +
+        selection.price,
+      0,
+    ),
+  );
+}
 function requireStringList(
   data: UnknownRecord,
   field: string,
@@ -1930,29 +2660,6 @@ function requireStoredMoney(
   return roundCurrency(value);
 }
 
-function requireStoredPercentage(
-  value: unknown,
-  label: string,
-  fallback: number,
-): number {
-  if (value == null) {
-    return fallback;
-  }
-
-  if (
-    typeof value !== "number" ||
-    !Number.isFinite(value) ||
-    value < 0 ||
-    value > 100
-  ) {
-    throw new HttpsError(
-      "failed-precondition",
-      `${label} is invalid.`,
-    );
-  }
-
-  return value;
-}
 
 function roundCurrency(
   value: number,
@@ -1979,13 +2686,8 @@ function serviceFromAddOn(
     name: addon.name,
     category: addon.category,
     price: addon.price,
-    downPaymentPercentage:
-      addon.downPaymentPercentage,
-    downPaymentAmount:
-      calculateDownPayment(
-        addon.price,
-        addon.downPaymentPercentage,
-      ),
+    downPaymentPercentage: 100,
+    downPaymentAmount: roundCurrency(addon.price),
   };
 }
 
@@ -2063,12 +2765,306 @@ function createProviderRequestId(
     .slice(0, 40);
 }
 
+function requirePackageGuestCount(
+  value: number | null,
+): number {
+  if (value === null) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Package guest count is required.",
+    );
+  }
+
+  return value;
+}
+
 function createSubmissionFingerprint(
   value: UnknownRecord,
 ): string {
   return createHash("sha256")
     .update(JSON.stringify(value))
     .digest("hex");
+}
+
+type CateringPackageServiceTier =
+  | "drop_off"
+  | "buffet_setup"
+  | "full_service";
+
+const CATERING_PACKAGE_SERVICE_TIERS:
+  readonly CateringPackageServiceTier[] = [
+    "drop_off",
+    "buffet_setup",
+    "full_service",
+  ];
+
+function parseCateringPackageServiceTier(
+  value: unknown,
+): CateringPackageServiceTier | null {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  if (
+    typeof value === "string" &&
+    CATERING_PACKAGE_SERVICE_TIERS.includes(
+      value as CateringPackageServiceTier,
+    )
+  ) {
+    return value as CateringPackageServiceTier;
+  }
+
+  throw new HttpsError(
+    "invalid-argument",
+    "Catering service option is invalid.",
+  );
+}
+
+function resolvePackageServiceOption(
+  packageData: UnknownRecord,
+  submittedTier: CateringPackageServiceTier | null,
+): {
+  tier: CateringPackageServiceTier | null;
+  price: number;
+  includedServices: string[];
+} {
+  const rawOptions =
+    packageData.serviceOptions;
+
+  const options =
+    rawOptions &&
+    typeof rawOptions === "object" &&
+    !Array.isArray(rawOptions)
+      ? rawOptions as UnknownRecord
+      : null;
+
+  const configuredTiers =
+    options
+      ? CATERING_PACKAGE_SERVICE_TIERS.filter(
+          (tier) => {
+            const candidate =
+              options[tier];
+
+            return Boolean(
+              candidate &&
+              typeof candidate === "object" &&
+              !Array.isArray(candidate),
+            );
+          },
+        )
+      : [];
+
+  if (configuredTiers.length > 0) {
+    if (!submittedTier) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Choose a catering service option.",
+      );
+    }
+
+    const rawOption =
+      options?.[submittedTier];
+
+    if (
+      !rawOption ||
+      typeof rawOption !== "object" ||
+      Array.isArray(rawOption)
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "The selected catering service option is no longer available.",
+      );
+    }
+
+    const option =
+      rawOption as UnknownRecord;
+
+    return {
+      tier: submittedTier,
+      price: requireStoredMoney(
+        option.price,
+        "Catering service option price",
+      ),
+      includedServices:
+        normalizeStringArray(
+          option.includedServices,
+        ),
+    };
+  }
+
+  const storedTier =
+    typeof packageData.serviceTier === "string" &&
+    CATERING_PACKAGE_SERVICE_TIERS.includes(
+      packageData.serviceTier as CateringPackageServiceTier,
+    )
+      ? packageData.serviceTier as CateringPackageServiceTier
+      : null;
+
+  if (
+    submittedTier &&
+    storedTier &&
+    submittedTier !== storedTier
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The catering service option changed. Review the package again.",
+    );
+  }
+
+  if (
+    submittedTier &&
+    !storedTier
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "This package does not currently support the selected catering service option.",
+    );
+  }
+
+  return {
+    tier: storedTier,
+    price: requireStoredMoney(
+      packageData.price,
+      "Package price",
+    ),
+    includedServices: [],
+  };
+}
+
+type ResolvedPackageTheme = {
+  id: string;
+  name: string;
+  description: string;
+  imageUrls: string[];
+};
+
+function parsePackageThemeId(
+  value: unknown,
+): string | null {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw new HttpsError(
+      "invalid-argument",
+      "Package theme is invalid.",
+    );
+  }
+
+  const normalized = value.trim();
+
+  if (
+    normalized.length === 0 ||
+    normalized.length > 160
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Package theme is invalid.",
+    );
+  }
+
+  return normalized;
+}
+
+function resolvePackageTheme(
+  packageData: UnknownRecord,
+  serviceTier: CateringPackageServiceTier | null,
+  submittedThemeId: string | null,
+): ResolvedPackageTheme | null {
+  const setupBased =
+    serviceTier === "buffet_setup" ||
+    serviceTier === "full_service";
+
+  const rawThemes =
+    Array.isArray(packageData.themeOptions)
+      ? packageData.themeOptions
+      : [];
+
+  const themes = rawThemes.flatMap(
+    (candidate): ResolvedPackageTheme[] => {
+      if (
+        !candidate ||
+        typeof candidate !== "object" ||
+        Array.isArray(candidate)
+      ) {
+        return [];
+      }
+
+      const record =
+        candidate as UnknownRecord;
+
+      const id = stringValue(record.id);
+      const name = stringValue(record.name);
+
+      if (!id || !name) {
+        return [];
+      }
+
+      return [{
+        id,
+        name,
+        description:
+          stringValue(record.description),
+        imageUrls:
+          Array.isArray(record.imageUrls)
+            ? record.imageUrls.filter((url): url is string => typeof url === "string").slice(0, 4)
+            : [],
+      }];
+    },
+  );
+
+  if (!setupBased) {
+    if (submittedThemeId) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Package themes are not available for Drop-Off Catering.",
+      );
+    }
+
+    return null;
+  }
+
+  if (themes.length === 0) {
+    if (submittedThemeId) {
+      throw new HttpsError(
+        "failed-precondition",
+        "This package no longer has selectable themes.",
+      );
+    }
+
+    return null;
+  }
+
+  if (!submittedThemeId) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Choose an included package theme.",
+    );
+  }
+
+  const selectedTheme =
+    themes.find(
+      (theme) =>
+        theme.id === submittedThemeId,
+    );
+
+  if (!selectedTheme) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The selected package theme is no longer available. Review the package again.",
+    );
+  }
+
+  return selectedTheme;
 }
 
 function normalizeStringArray(

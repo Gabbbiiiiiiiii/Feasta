@@ -7,10 +7,16 @@ const {requireRecentAuthentication} = require(
   "../lib/shared/recent-auth.js",
 );
 
-const source = (relative) => readFileSync(
-  path.resolve(__dirname, "../src", relative),
-  "utf8",
+const root = path.resolve(
+  __dirname,
+  "../src",
 );
+
+const source = (relative) =>
+  readFileSync(
+    path.join(root, relative),
+    "utf8",
+  ).replace(/\r\n/g, "\n");
 
 test("profile callable accepts an explicit safe-field allowlist", () => {
   const content = source("auth/manage-customer-account.ts");

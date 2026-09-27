@@ -161,7 +161,7 @@ export function authorizeProviderRequest(
     );
     nonNegativeNumber(
       requestData.downPaymentAmount,
-      "Provider-request down payment",
+      "Provider-request payment",
     );
     nonNegativeInteger(
       requestData.guestCount,

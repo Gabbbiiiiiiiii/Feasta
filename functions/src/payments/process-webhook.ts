@@ -1112,13 +1112,13 @@ function timelineMessageForStatus(
   switch (status) {
     case "paid":
       return (
-        "The provider down payment " +
+        "The provider payment " +
         "was successfully confirmed."
       );
 
     case "failed":
       return (
-        "The provider down payment " +
+        "The provider payment " +
         "failed and may be retried."
       );
 
