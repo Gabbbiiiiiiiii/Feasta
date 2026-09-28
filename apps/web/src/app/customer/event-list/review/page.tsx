@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     absolute: "Review Event List | FEASTA",
   },
   description:
-    "Review packages saved to your FEASTA planning list. This page does not submit a booking.",
+    "Review your selected FEASTA providers, packages, menu items, and event services before booking.",
 };
 
 export default function CustomerEventListReviewPage() {

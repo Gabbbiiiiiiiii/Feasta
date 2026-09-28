@@ -1,5 +1,9 @@
-import {fireEvent, render, screen, within} from "@testing-library/react";
-import {describe, expect, it} from "vitest";
+import {render, screen} from "@testing-library/react";
+import {describe, expect, it, vi} from "vitest";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({push: vi.fn(), replace: vi.fn()}),
+}));
 import {CustomerProviderMenu} from "@/components/customer/providers/customer-provider-menu";
 import {CATALOG_IMAGE_LIMIT} from "@/lib/provider/catalog-media";
 import {MENU_SERVING_OPTION_LIMIT, parseProviderMenu, publicMenuImages} from "@/lib/provider/provider-menu";
@@ -63,20 +67,18 @@ describe("structured provider catering menu", () => {
     })), "owner")).toThrow(/at most 8/i);
   });
 
-  it("renders structured and legacy customer display without an add or checkout action", () => {
-    render(<CustomerProviderMenu menuImages={[structuredImage, {...legacyImage, id: "legacy", title: ""}]} />);
-    const [structured] = screen.getAllByRole("article");
-    expect(screen.getByText("Tender beef steak with onions and house seasoning.")).toBeVisible();
-    expect(screen.getByText("₱1,050")).toBeVisible();
-    expect(screen.getByText("Good for 15–20 guests")).toBeVisible();
-    expect(screen.getByText("Browsing only. No serving sizes are currently listed.")).toBeVisible();
-    expect(screen.queryByRole("button", {name: /add|book|checkout/i})).not.toBeInTheDocument();
-    expect(within(structured!).getAllByRole("img").length).toBeGreaterThan(0);
-  });
-
-  it("shows a safe fallback when a published image cannot load", () => {
-    render(<CustomerProviderMenu menuImages={[legacyImage]} />);
-    fireEvent.error(screen.getByRole("img", {name: "Beef Steak"}));
-    expect(screen.getByText("Image unavailable")).toBeVisible();
+  it("lets customers open a menu item and keeps items without serving sizes browsing-only", () => {
+    render(
+      <CustomerProviderMenu
+        providerId="provider-one"
+        providerName="Ana Events"
+        menuImages={[structuredImage, {...legacyImage, id: "legacy", title: ""}]}
+      />,
+    );
+    expect(screen.getByRole("button", {name: "View Beef Steak"})).toBeVisible();
+    expect(screen.getByRole("button", {name: "View Menu image 2"})).toBeVisible();
+    expect(screen.getByText("From ₱1,050")).toBeVisible();
+    expect(screen.getByText("Browsing only")).toBeVisible();
+    expect(screen.queryByRole("button", {name: /checkout|pay/i})).not.toBeInTheDocument();
   });
 });

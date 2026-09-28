@@ -421,11 +421,6 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
-}
-
 button:not(:disabled),
 [role="button"]:not([aria-disabled="true"]) {
   cursor: pointer;
@@ -437,6 +432,15 @@ button:not(:disabled),
    ========================================================================== */
 
 @layer base {
+  /*
+    Stay in the base layer so text utilities can override link color.
+    An unlayered rule beats those utilities and leaves dark text on red.
+  */
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
   h1,
   h2,
   h3,

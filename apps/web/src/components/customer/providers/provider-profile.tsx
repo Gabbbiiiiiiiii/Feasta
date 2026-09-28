@@ -552,8 +552,12 @@ export function ProviderProfile({
 
       {capabilities.catering && detail.menuImages && detail.menuImages.length > 0 ? <section aria-labelledby="provider-menu" className="rounded-[24px] border border-feasta-border-soft bg-card p-5 sm:p-6">
         <h2 id="provider-menu" className="text-2xl font-extrabold text-foreground">Menu & catalog</h2>
-        <p className="mb-4 mt-2 text-sm text-feasta-text-secondary">Browse published menu items, serving sizes, and display prices.</p>
-        <CustomerProviderMenu menuImages={detail.menuImages} />
+        <p className="mb-4 mt-2 text-sm text-feasta-text-secondary">Choose a menu item and select the serving size that fits your event.</p>
+        <CustomerProviderMenu
+          providerId={provider.id}
+          providerName={provider.businessName}
+          menuImages={detail.menuImages}
+        />
       </section> : null}
 
       {capabilities.catering && detail.setups && detail.setups.length > 0 ? <ProviderSetupGallery setups={detail.setups} /> : null}

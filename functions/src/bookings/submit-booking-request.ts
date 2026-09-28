@@ -60,6 +60,7 @@ import {
 } from "./booking-package-offer.js";
 import {
   FULL_PAYMENT_PERCENTAGE,
+  FULL_PAYMENT_RATE_BPS,
   requireNewBookingFullPaymentTerms,
 } from "./full-payment-booking-policy.js";
 import {
@@ -113,6 +114,25 @@ type ProviderRequestService = {
   downPaymentAmount: number;
 };
 
+type CateringSelectionType = "package" | "custom_menu";
+
+type CustomMenuSelectionInput = {
+  menuItemId: string;
+  servingOptionId: string;
+};
+
+type ResolvedCustomMenuSelection = {
+  menuItemId: string;
+  menuItemName: string;
+  category: string;
+  servingOptionId: string;
+  servingOptionName: string;
+  servingDescription: string;
+  minimumGuests: number;
+  maximumGuests: number;
+  price: number;
+};
+
 const COLLECTIONS = {
   users: "users",
   customers: "customers",
@@ -154,12 +174,27 @@ export const submitBookingRequest = onCall(
         input,
       );
 
+      const cateringSelectionType =
+        parseCateringSelectionType(
+          input.cateringSelectionType,
+        );
+
+      assertCateringSelectionShape(
+        input,
+        cateringSelectionType,
+      );
+
       const {
         serviceTier,
         packageThemeId,
-      } = parseBookingPackageOfferInput(
-        input,
-      );
+      } = cateringSelectionType === "package"
+        ? parseBookingPackageOfferInput(
+            input,
+          )
+        : {
+            serviceTier: null,
+            packageThemeId: null,
+          };
 
       const clientRequestId = requireId(
         input,
@@ -171,10 +206,18 @@ export const submitBookingRequest = onCall(
         "providerId",
       );
 
-      const packageId = requireId(
-        input,
-        "packageId",
-      );
+      const packageId = cateringSelectionType === "package"
+        ? requireId(
+            input,
+            "packageId",
+          )
+        : null;
+
+      const menuSelections = cateringSelectionType === "custom_menu"
+        ? requireCustomMenuSelections(
+            input.menuSelections,
+          )
+        : [];
 
       const eventType = requireEventType(
         input,
@@ -188,12 +231,14 @@ export const submitBookingRequest = onCall(
         40,
       );
 
-      const eventEndTime = requireText(
-        input,
-        "eventEndTime",
-        1,
-        40,
-      );
+      const eventEndTime = cateringSelectionType === "package"
+        ? requireText(
+            input,
+            "eventEndTime",
+            1,
+            40,
+          )
+        : customMenuEventEndTime(eventTime);
 
       const eventLocation = requireText(
         input,
@@ -222,12 +267,14 @@ export const submitBookingRequest = onCall(
           500,
         );
 
-      const guestCount = requireInteger(
-        input,
-        "guestCount",
-        1,
-        10_000,
-      );
+      const guestCount = cateringSelectionType === "package"
+        ? requireInteger(
+            input,
+            "guestCount",
+            1,
+            10_000,
+          )
+        : null;
 
       const eventDate = requireFutureDate(
         input.eventDate,
@@ -235,28 +282,32 @@ export const submitBookingRequest = onCall(
 
       const submissionTime = new Date();
 
-      const selectedFoods = requireStringList(
-        input,
-        "selectedFoods",
-        50,
-        120,
-      );
+      const selectedFoods = cateringSelectionType === "package"
+        ? requireStringList(
+            input,
+            "selectedFoods",
+            50,
+            120,
+          )
+        : [];
 
-      const selectedDecorations =
-        requireStringList(
-          input,
-          "selectedDecorations",
-          50,
-          120,
-        );
+      const selectedDecorations = cateringSelectionType === "package"
+        ? requireStringList(
+            input,
+            "selectedDecorations",
+            50,
+            120,
+          )
+        : [];
 
-      const selectedFurniture =
-        requireStringList(
-          input,
-          "selectedFurniture",
-          50,
-          120,
-        );
+      const selectedFurniture = cateringSelectionType === "package"
+        ? requireStringList(
+            input,
+            "selectedFurniture",
+            50,
+            120,
+          )
+        : [];
 
       const addonIds = [
         ...new Set(
@@ -317,10 +368,15 @@ export const submitBookingRequest = onCall(
           specialRequest,
           willArrangeOwnAddOns,
           customerArrangedAddOnsNote,
-          ...bookingOfferFingerprintFields({
-            serviceTier,
-            packageThemeId,
-          }),
+          ...(cateringSelectionType === "package"
+            ? bookingOfferFingerprintFields({
+                serviceTier,
+                packageThemeId,
+              })
+            : {
+                cateringSelectionType,
+                menuSelections,
+              }),
         });
 
       const bookingReference = db
@@ -339,9 +395,13 @@ export const submitBookingRequest = onCall(
         .collection(COLLECTIONS.providers)
         .doc(cateringProviderId);
 
-      const packageReference = db
-        .collection(COLLECTIONS.packages)
-        .doc(packageId);
+      const packageReference = packageId
+        ? db
+            .collection(COLLECTIONS.packages)
+            .doc(packageId)
+        : cateringProviderReference
+            .collection("catalog")
+            .doc("menu");
 
       const refundPolicyRolloutReference = db
         .collection(COLLECTIONS.appSettings)
@@ -500,59 +560,133 @@ export const submitBookingRequest = onCall(
             );
           }
 
-          if (!packageSnapshot.exists) {
-            throw new HttpsError(
-              "failed-precondition",
-              "Package is unavailable.",
+          let packageData: UnknownRecord | null = null;
+          let storedPackageName = "Custom menu";
+          let packagePrice = 0;
+          let resolvedMenuSelections:
+            ResolvedCustomMenuSelection[] = [];
+          let resolvedPackageOffer:
+            ReturnType<typeof resolveBookingPackageOffer>;
+          let packagePaymentTerms:
+            ReturnType<typeof requireNewBookingFullPaymentTerms>;
+
+          if (cateringSelectionType === "package") {
+            if (!packageSnapshot.exists) {
+              throw new HttpsError(
+                "failed-precondition",
+                "Package is unavailable.",
+              );
+            }
+
+            if (guestCount === null) {
+              throw new HttpsError(
+                "invalid-argument",
+                "Guest count is invalid.",
+              );
+            }
+
+            packageData =
+              packageSnapshot.data() ?? {};
+
+            assertBookingPackageValid(
+              validateBookingPackage({
+                packageData,
+                expectedProviderId:
+                  cateringProviderId,
+                submittedEventType:
+                  eventType,
+                guestCount,
+              }),
             );
+
+            validatePackageSelections(
+              selectedFoods,
+              packageData.foodInclusions,
+              "selectedFoods",
+            );
+
+            validatePackageSelections(
+              selectedDecorations,
+              packageData.decorInclusions,
+              "selectedDecorations",
+            );
+
+            validatePackageSelections(
+              selectedFurniture,
+              packageData.furnitureInclusions,
+              "selectedFurniture",
+            );
+
+            storedPackageName = stringValue(
+              packageData.name,
+            );
+
+            resolvedPackageOffer =
+              resolveBookingPackageOffer({
+                packageData,
+                serviceTier,
+                packageThemeId,
+              });
+
+            packagePrice =
+              resolvedPackageOffer.basePrice;
+
+            packagePaymentTerms =
+              requireNewBookingFullPaymentTerms(
+                buildPackagePaymentTermsSnapshot(
+                  packageData,
+                ),
+              );
+          } else {
+            if (!packageSnapshot.exists) {
+              throw new HttpsError(
+                "failed-precondition",
+                "Provider menu is unavailable.",
+              );
+            }
+
+            resolvedMenuSelections =
+              resolveCustomMenuSelections(
+                packageSnapshot.data()?.images,
+                menuSelections,
+              );
+
+            packagePrice = calculateCustomMenuTotal(
+              resolvedMenuSelections,
+            );
+
+            resolvedPackageOffer = {
+              basePrice: packagePrice,
+              selection: {
+                serviceTier: null,
+                serviceTierLabel: null,
+                serviceTierIncludedServices: [],
+                packageThemeId: null,
+                packageThemeName: null,
+                packageThemeDescription: null,
+                packageThemeImageUrls: [],
+              },
+            };
+
+            // Menu bookings have no package terms. They still
+            // follow the current full-payment booking policy.
+            packagePaymentTerms =
+              requireNewBookingFullPaymentTerms({
+                schemaVersion: 1,
+                source: "canonical_package",
+                paymentPolicy: "full_payment",
+                depositRateBps:
+                  FULL_PAYMENT_RATE_BPS,
+                balanceDueDaysBeforeEvent: null,
+                usesLegacyPaymentTerms: false,
+              });
           }
 
-          const packageData =
-            packageSnapshot.data() ?? {};
-
-          assertBookingPackageValid(
-            validateBookingPackage({
-              packageData,
-              expectedProviderId:
-                cateringProviderId,
-              submittedEventType:
-                eventType,
-              guestCount,
-            }),
-          );
-
-          validatePackageSelections(
-            selectedFoods,
-            packageData.foodInclusions,
-            "selectedFoods",
-          );
-
-          validatePackageSelections(
-            selectedDecorations,
-            packageData.decorInclusions,
-            "selectedDecorations",
-          );
-
-          validatePackageSelections(
-            selectedFurniture,
-            packageData.furnitureInclusions,
-            "selectedFurniture",
-          );
-
-          const resolvedPackageOffer =
-            resolveBookingPackageOffer({
-              packageData,
-              serviceTier,
-              packageThemeId,
-            });
-
-          const packagePrice =
-            resolvedPackageOffer.basePrice;
-
-          const packagePaymentTerms =
-            requireNewBookingFullPaymentTerms(
-              buildPackagePaymentTermsSnapshot(
-                packageData,
+          const resolvedGuestCount = guestCount ??
+            Math.max(
+              ...resolvedMenuSelections.map(
+                (selection) =>
+                  selection.maximumGuests,
               ),
             );
 
@@ -848,10 +982,13 @@ export const submitBookingRequest = onCall(
                     ),
                   providerData:
                     cateringProvider,
-                  packageRecord: {
-                    packageId,
-                    data: packageData,
-                  },
+                  packageRecord:
+                    packageId && packageData
+                      ? {
+                          packageId,
+                          data: packageData,
+                        }
+                      : null,
                 },
                 ...[
                   ...marketplaceProviders
@@ -896,23 +1033,26 @@ export const submitBookingRequest = onCall(
 
           const cateringServices:
             ProviderRequestService[] = [
-              {
-                serviceId: packageId,
-                name:
-                  stringValue(
-                    packageData.name,
-                  ) || "Catering package",
-                category:
-                  "catering_package",
-                price: packagePrice,
-                downPaymentPercentage:
-                  packageDownPaymentPercentage,
-                downPaymentAmount:
-                  calculateDownPayment(
-                    packagePrice,
-                    packageDownPaymentPercentage,
-                  ),
-              },
+              ...(cateringSelectionType === "package"
+                ? [{
+                    serviceId: packageId ?? "",
+                    name:
+                      storedPackageName ||
+                      "Catering package",
+                    category:
+                      "catering_package",
+                    price: packagePrice,
+                    downPaymentPercentage:
+                      packageDownPaymentPercentage,
+                    downPaymentAmount:
+                      calculateDownPayment(
+                        packagePrice,
+                        packageDownPaymentPercentage,
+                      ),
+                  }]
+                : resolvedMenuSelections.map(
+                    customMenuSelectionService,
+                  )),
               ...cateringAddOns.map(
                 (addon) =>
                   serviceFromAddOn(addon),
@@ -1091,7 +1231,8 @@ export const submitBookingRequest = onCall(
                     eventDate,
                     eventTime,
                     eventEndTime,
-                    guestCount,
+                    guestCount:
+                      resolvedGuestCount,
                     services:
                       candidate.services,
                   },
@@ -1155,15 +1296,19 @@ export const submitBookingRequest = onCall(
                     .businessName,
                 ),
 
+              cateringSelectionType,
               packageId,
-              packageName:
-                stringValue(
-                  packageData.name,
-                ),
+              packageName: storedPackageName,
 
               ...resolvedPackageOffer.selection,
 
               packagePaymentTerms,
+
+              menuSelections:
+                cateringSelectionType ===
+                  "custom_menu"
+                  ? resolvedMenuSelections
+                  : [],
 
               eventType,
               eventDate:
@@ -1172,7 +1317,7 @@ export const submitBookingRequest = onCall(
                 ),
               eventTime,
               eventEndTime,
-              guestCount,
+              guestCount: resolvedGuestCount,
               eventLocation,
               eventAddress,
 
@@ -1291,15 +1436,19 @@ export const submitBookingRequest = onCall(
 
               type: "catering",
 
+              cateringSelectionType,
               packageId,
-              packageName:
-                stringValue(
-                  packageData.name,
-                ),
+              packageName: storedPackageName,
 
               ...resolvedPackageOffer.selection,
 
               packagePaymentTerms,
+
+              menuSelections:
+                cateringSelectionType ===
+                  "custom_menu"
+                  ? resolvedMenuSelections
+                  : [],
 
               services: cateringServices,
 
@@ -1326,7 +1475,7 @@ export const submitBookingRequest = onCall(
               eventEndTime,
               eventLocation,
               eventAddress,
-              guestCount,
+              guestCount: resolvedGuestCount,
 
               rejectionReason: null,
               cancellationReason: null,
@@ -1482,7 +1631,7 @@ export const submitBookingRequest = onCall(
                 eventEndTime,
                 eventLocation,
                 eventAddress,
-                guestCount,
+                guestCount: resolvedGuestCount,
 
                 rejectionReason: null,
                 cancellationReason: null,
@@ -1586,6 +1735,379 @@ export const submitBookingRequest = onCall(
     }
   },
 );
+
+function parseCateringSelectionType(
+  value: unknown,
+): CateringSelectionType {
+  if (
+    value === undefined ||
+    value === "package"
+  ) {
+    return "package";
+  }
+
+  if (value === "custom_menu") {
+    return "custom_menu";
+  }
+
+  throw new HttpsError(
+    "invalid-argument",
+    "Catering selection type is invalid.",
+  );
+}
+
+function assertCateringSelectionShape(
+  input: UnknownRecord,
+  type: CateringSelectionType,
+): void {
+  if (type === "package") {
+    if ("menuSelections" in input) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Package booking data is invalid.",
+      );
+    }
+
+    return;
+  }
+
+  if (
+    "packageId" in input ||
+    "selectedFoods" in input ||
+    "selectedDecorations" in input ||
+    "selectedFurniture" in input ||
+    "serviceTier" in input ||
+    "packageThemeId" in input ||
+    "eventEndTime" in input ||
+    "guestCount" in input
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Custom menu booking data is invalid.",
+    );
+  }
+}
+
+function customMenuEventEndTime(
+  eventTime: string,
+): string {
+  // The event list records a start time only. Occupy the
+  // rest of the day so the booking still conflicts with
+  // later events on the same date.
+  if (
+    !/^([01]\d|2[0-3]):[0-5]\d$/u.test(eventTime) ||
+    eventTime >= "23:59"
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "The requested time is invalid.",
+    );
+  }
+
+  return "23:59";
+}
+
+function requireCustomMenuSelections(
+  value: unknown,
+): CustomMenuSelectionInput[] {
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > 24
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Menu selections are invalid.",
+    );
+  }
+
+  const seenMenuItems = new Set<string>();
+
+  return value.map((candidate, index): CustomMenuSelectionInput => {
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      Array.isArray(candidate)
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        `Menu selection ${index + 1} is invalid.`,
+      );
+    }
+
+    const record = candidate as UnknownRecord;
+    const keys = Object.keys(record).sort();
+
+    if (
+      keys.length !== 2 ||
+      keys[0] !== "menuItemId" ||
+      keys[1] !== "servingOptionId"
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        `Menu selection ${index + 1} is invalid.`,
+      );
+    }
+
+    const menuItemId = requireMenuIdentifier(
+      record.menuItemId,
+      `Menu selection ${index + 1}`,
+    );
+    const servingOptionId = requireMenuIdentifier(
+      record.servingOptionId,
+      `Menu selection ${index + 1}`,
+    );
+
+    if (seenMenuItems.has(menuItemId)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "A menu item can only be selected once.",
+      );
+    }
+
+    seenMenuItems.add(menuItemId);
+
+    return {menuItemId, servingOptionId};
+  });
+}
+
+function requireMenuIdentifier(
+  value: unknown,
+  label: string,
+): string {
+  if (typeof value !== "string") {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} is invalid.`,
+    );
+  }
+
+  const normalized = value.trim();
+
+  if (!/^[a-zA-Z0-9_-]{1,128}$/u.test(normalized)) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} is invalid.`,
+    );
+  }
+
+  return normalized;
+}
+
+function resolveCustomMenuSelections(
+  imagesValue: unknown,
+  requested: readonly CustomMenuSelectionInput[],
+): ResolvedCustomMenuSelection[] {
+  if (!Array.isArray(imagesValue)) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Provider menu is unavailable.",
+    );
+  }
+
+  return requested.map((selection) => {
+    const rawMenuItem = imagesValue.find((candidate) =>
+      candidate !== null &&
+      typeof candidate === "object" &&
+      !Array.isArray(candidate) &&
+      (candidate as UnknownRecord).id === selection.menuItemId
+    );
+
+    if (
+      !rawMenuItem ||
+      typeof rawMenuItem !== "object" ||
+      Array.isArray(rawMenuItem)
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "A selected menu item is no longer available.",
+        {reason: "menu-item-unavailable"},
+      );
+    }
+
+    const menuItem = rawMenuItem as UnknownRecord;
+
+    if (menuItem.isPublished !== true) {
+      throw new HttpsError(
+        "failed-precondition",
+        "A selected menu item is no longer published.",
+        {reason: "menu-item-unavailable"},
+      );
+    }
+
+    const menuItemName = stringValue(menuItem.title);
+
+    if (!menuItemName || menuItemName.length > 80) {
+      throw new HttpsError(
+        "failed-precondition",
+        "A selected menu item is invalid.",
+      );
+    }
+
+    const category = menuItem.category === undefined
+      ? ""
+      : stringValue(menuItem.category);
+
+    if (category.length > 80) {
+      throw new HttpsError(
+        "failed-precondition",
+        "A selected menu item is invalid.",
+      );
+    }
+
+    if (!Array.isArray(menuItem.servingOptions)) {
+      throw new HttpsError(
+        "failed-precondition",
+        "A selected menu item has no available serving sizes.",
+        {reason: "serving-option-unavailable"},
+      );
+    }
+
+    const rawOption = menuItem.servingOptions.find((candidate) =>
+      candidate !== null &&
+      typeof candidate === "object" &&
+      !Array.isArray(candidate) &&
+      (candidate as UnknownRecord).id === selection.servingOptionId
+    );
+
+    if (
+      !rawOption ||
+      typeof rawOption !== "object" ||
+      Array.isArray(rawOption)
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "A selected serving size is no longer available.",
+        {reason: "serving-option-unavailable"},
+      );
+    }
+
+    const option = rawOption as UnknownRecord;
+    const servingOptionName = stringValue(option.name);
+
+    if (!servingOptionName || servingOptionName.length > 80) {
+      throw new HttpsError(
+        "failed-precondition",
+        "A selected serving size is invalid.",
+      );
+    }
+
+    if (
+      typeof option.description !== "string" ||
+      option.description.length > 160
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "A selected serving size is invalid.",
+      );
+    }
+
+    const range = resolveServingGuestRange(option);
+    const price = requireStoredMoney(
+      option.price,
+      "Menu serving price",
+    );
+
+    if (price <= 0 || price > 100_000_000) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Menu serving price is invalid.",
+      );
+    }
+
+    return {
+      menuItemId: selection.menuItemId,
+      menuItemName,
+      category,
+      servingOptionId: selection.servingOptionId,
+      servingOptionName,
+      servingDescription: option.description.trim(),
+      minimumGuests: range.minimumGuests,
+      maximumGuests: range.maximumGuests,
+      price,
+    };
+  });
+}
+
+function resolveServingGuestRange(
+  option: UnknownRecord,
+): {minimumGuests: number; maximumGuests: number} {
+  const hasMinimum = "minimumGuests" in option;
+  const hasMaximum = "maximumGuests" in option;
+  const hasLegacy = "guestCount" in option;
+  let minimumGuests: number;
+  let maximumGuests: number;
+
+  if (hasMinimum || hasMaximum) {
+    if (
+      !hasMinimum ||
+      !hasMaximum ||
+      hasLegacy ||
+      typeof option.minimumGuests !== "number" ||
+      typeof option.maximumGuests !== "number" ||
+      !Number.isSafeInteger(option.minimumGuests) ||
+      !Number.isSafeInteger(option.maximumGuests)
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "A selected serving size has an invalid guest range.",
+      );
+    }
+
+    minimumGuests = option.minimumGuests;
+    maximumGuests = option.maximumGuests;
+  } else if (
+    typeof option.guestCount !== "number" ||
+    !Number.isSafeInteger(option.guestCount)
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "A selected serving size has an invalid guest range.",
+    );
+  } else {
+    minimumGuests = option.guestCount;
+    maximumGuests = option.guestCount;
+  }
+
+  if (
+    minimumGuests < 1 ||
+    maximumGuests < minimumGuests ||
+    maximumGuests > 1_000_000
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "A selected serving size has an invalid guest range.",
+    );
+  }
+
+  return {minimumGuests, maximumGuests};
+}
+
+function customMenuSelectionService(
+  selection: ResolvedCustomMenuSelection,
+): ProviderRequestService {
+  return {
+    serviceId:
+      `menu:${selection.menuItemId}:${selection.servingOptionId}`,
+    name:
+      `${selection.menuItemName} - ${selection.servingOptionName}`,
+    category: "catering_package",
+    price: selection.price,
+    downPaymentPercentage: FULL_PAYMENT_PERCENTAGE,
+    downPaymentAmount: roundCurrency(selection.price),
+  };
+}
+
+function calculateCustomMenuTotal(
+  selections: readonly ResolvedCustomMenuSelection[],
+): number {
+  return roundCurrency(
+    selections.reduce(
+      (total, selection) => total + selection.price,
+      0,
+    ),
+  );
+}
 
 function asRecord(
   value: unknown,

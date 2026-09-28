@@ -193,6 +193,7 @@ describe("ApplicationShell", () => {
     expect(within(desktopNav).getByRole("link", {name: "Dashboard"})).not.toHaveAttribute(
       "aria-current",
     );
+    expect(within(desktopNav).getByRole("link", {name: "Dashboard"})).toHaveClass("h-10");
     expect(within(mobileNav).getAllByRole("link")).toHaveLength(3);
     expect(within(mobileNav).getByRole("button", {
       name: "More provider navigation",
@@ -250,7 +251,7 @@ describe("ApplicationShell", () => {
     expect(
       within(
         screen.getByRole("navigation", {name: "Provider primary navigation"}),
-      ).getByRole("link", {name: "Payments"}),
+      ).getByRole("link", {name: "Payments & Payouts"}),
     ).toHaveAttribute("href", "/provider/payments");
   });
 
@@ -291,10 +292,69 @@ describe("ApplicationShell", () => {
       }),
     ]));
 
-    expect(roleNavigation.admin[0]).toMatchObject({
-      kind: "link",
-      href: "/admin",
+    expect(roleNavigation.admin.map((item) => item.kind === "link" ? item.href : item.label)).toEqual([
+      "/admin",
+      "/admin/users",
+      "/admin/providers",
+      "/admin/bookings",
+      "/admin/payments",
+      "/admin/reviews",
+      "/admin/complaints",
+      "/admin/announcements",
+      "/admin/reports",
+      "/admin/audit-logs",
+      "/admin/file-maintenance",
+      "/admin/settings",
+    ]);
+    expect(roleNavigation.admin.map((item) => item.section)).toEqual([
+      "Overview",
+      "People",
+      "People",
+      "Transactions",
+      "Transactions",
+      "Support",
+      "Support",
+      "Support",
+      "System",
+      "System",
+      "System",
+      "System",
+    ]);
+  });
+
+  it("renders the admin sidebar in workflow order with compact rows", () => {
+    render(
+      <ApplicationShell role="admin" accountLabel="admin@feasta.test">
+        <p>Admin content</p>
+      </ApplicationShell>,
+    );
+
+    const desktopNav = screen.getByRole("navigation", {
+      name: "Admin primary navigation",
     });
+    const headings = within(desktopNav).getAllByRole("heading").map((heading) => heading.textContent);
+    expect(headings).toEqual([
+      "Overview",
+      "People",
+      "Transactions",
+      "Support",
+      "System",
+    ]);
+    expect(within(desktopNav).getAllByRole("link").map((link) => link.textContent)).toEqual([
+      "Dashboard",
+      "Users",
+      "Provider Verification",
+      "Bookings",
+      "Payments",
+      "Reviews",
+      "Complaints",
+      "Announcements",
+      "Reports",
+      "Audit Logs",
+      "File Maintenance",
+      "Settings",
+    ]);
+    expect(within(desktopNav).getByRole("link", {name: "Dashboard"})).toHaveClass("h-10");
   });
 
   it("closes the account disclosure with Escape and restores focus", async () => {

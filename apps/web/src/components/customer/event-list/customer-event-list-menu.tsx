@@ -1,81 +1,252 @@
 "use client";
 
-import {ArrowRight, Plus, StickyNote, Trash2, X} from "lucide-react";
+import {
+  ArrowRight,
+  PackageOpen,
+  Plus,
+  StickyNote,
+  Trash2,
+  X,
+} from "lucide-react";
 import Link from "next/link";
-import {useEffect, useMemo, useRef, useState} from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
+import {createPortal} from "react-dom";
 
-import {PriceDisplay} from "@/components/shared/price-display";
 import {
   CUSTOMER_EVENT_LIST_OPEN_EVENT,
   customerEventListItemKey,
   useCustomerEventList,
-  type CustomerEventListItem,
 } from "@/lib/customer/event-list/customer-event-list";
 import {menuServingGuestLabel} from "@/lib/provider/provider-menu";
 import {cn} from "@/lib/utils";
 
 export function CustomerEventListMenu() {
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
-  const {items, removeItem, removeService, clearItems} = useCustomerEventList();
-  const reviewHref = items.length > 0 ? "/customer/event-list/review" : null;
-  const {selectionCount, knownTotal, pricedSelectionCount} = useMemo(
-    () => summarizeEventList(items),
-    [items],
-  );
+  const [open, setOpen] =
+    useState(false);
+  const mounted =
+    useSyncExternalStore(
+      subscribeToNothing,
+      () => true,
+      () => false,
+    );
 
-  function closeDrawer(restoreFocus = true) {
+  const triggerRef =
+    useRef<HTMLButtonElement>(null);
+
+  const closeRef =
+    useRef<HTMLButtonElement>(null);
+
+  const {
+    items,
+    removeItem,
+    removeService,
+    clearItems,
+  } = useCustomerEventList();
+
+  const hasEventListItems =
+    items.length > 0;
+
+  const reviewListHref =
+    hasEventListItems
+      ? "/customer/event-list/review"
+      : null;
+
+  const {
+    selectionCount,
+    knownTotal,
+    pricedSelectionCount,
+  } = useMemo(() => {
+    let selections = 0;
+    let total = 0;
+    let priced = 0;
+
+    for (const item of items) {
+      selections += 1;
+
+      if (item.price !== null) {
+        total += item.price;
+        priced += 1;
+      }
+
+      if (item.type === "custom_menu") continue;
+
+      for (
+        const service of
+        item.configuration
+          ?.selectedEventServices ?? []
+      ) {
+        selections += 1;
+
+        if (service.price !== null) {
+          total += service.price;
+          priced += 1;
+        }
+      }
+    }
+
+    return {
+      selectionCount: selections,
+      knownTotal: total,
+      pricedSelectionCount: priced,
+    };
+  }, [items]);
+
+  function openDrawer() {
+    setOpen(true);
+  }
+
+  function closeDrawer({
+    restoreFocus = true,
+  }: {
+    restoreFocus?: boolean;
+  } = {}) {
+    /*
+     * Keep the drawer mounted while closing.
+     * This allows translate-x-full to animate
+     * before it becomes non-interactive.
+     */
     setOpen(false);
+
     if (restoreFocus) {
-      window.setTimeout(() => triggerRef.current?.focus(), 320);
+      window.setTimeout(() => {
+        triggerRef.current?.focus();
+      }, 320);
     }
   }
 
   useEffect(() => {
-    const openDrawer = () => setOpen(true);
-    window.addEventListener(CUSTOMER_EVENT_LIST_OPEN_EVENT, openDrawer);
-    return () => window.removeEventListener(CUSTOMER_EVENT_LIST_OPEN_EVENT, openDrawer);
+    function handleOpenRequest() {
+      openDrawer();
+    }
+
+    window.addEventListener(
+      CUSTOMER_EVENT_LIST_OPEN_EVENT,
+      handleOpenRequest,
+    );
+
+
+
+  return () => {
+      window.removeEventListener(
+        CUSTOMER_EVENT_LIST_OPEN_EVENT,
+        handleOpenRequest,
+      );
+    };
   }, []);
 
   useEffect(() => {
-    if (!open) return undefined;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
+    if (!open) {
+      return undefined;
+    }
+
+    function handleKeyDown(
+      event: KeyboardEvent,
+    ) {
+      if (event.key !== "Escape") {
+        return;
+      }
+
       closeDrawer();
+    }
+
+    window.addEventListener(
+      "keydown",
+      handleKeyDown,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "keydown",
+        handleKeyDown,
+      );
     };
-    window.addEventListener("keydown", handleKeyDown);
-    closeRef.current?.focus();
-    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [open]);
 
   useEffect(() => {
-    const shell = triggerRef.current?.closest<HTMLElement>(
-      "[data-customer-marketplace-shell], [data-public-provider-marketplace-shell]",
-    );
-    const content = shell?.querySelector<HTMLElement>("[data-customer-marketplace-content]");
-    if (!content || typeof window.matchMedia !== "function") return undefined;
-    const desktopLayout = window.matchMedia("(min-width: 1024px)");
-    const synchronizeLayout = () => {
-      content.style.paddingRight = open && desktopLayout.matches ? "410px" : "";
-    };
+    const shell =
+      triggerRef.current?.closest(
+        "[data-customer-marketplace-shell], [data-public-provider-marketplace-shell]",
+      );
+
+    if (!(shell instanceof HTMLElement)) {
+      return undefined;
+    }
+
+    const content =
+      shell.querySelector<HTMLElement>(
+        "[data-customer-marketplace-content]",
+      );
+
+    if (!content) {
+      return undefined;
+    }
+
+    /*
+     * Keep a non-null reference for the event callback.
+     * This also preserves TypeScript narrowing.
+     */
+    const contentElement =
+      content;
+
+    const desktopLayout =
+      window.matchMedia(
+        "(min-width: 1024px)",
+      );
+
+    function synchronizeLayout() {
+      /*
+       * On desktop, reserve the same width as the
+       * Event List panel so it never covers the page.
+       *
+       * The global header is outside this wrapper,
+       * therefore it always remains full-width.
+       */
+      contentElement.style.paddingRight =
+        open && desktopLayout.matches
+          ? "410px"
+          : "";
+    }
+
     synchronizeLayout();
-    desktopLayout.addEventListener("change", synchronizeLayout);
+
+    desktopLayout.addEventListener(
+      "change",
+      synchronizeLayout,
+    );
+
     return () => {
-      desktopLayout.removeEventListener("change", synchronizeLayout);
-      content.style.paddingRight = "";
+      desktopLayout.removeEventListener(
+        "change",
+        synchronizeLayout,
+      );
+
+      contentElement.style.paddingRight =
+        "";
     };
   }, [open]);
 
   return (
     <>
+      {/* =====================================================
+          EVENT LIST HEADER ICON
+         ===================================================== */}
+
       <button
         ref={triggerRef}
         type="button"
         aria-label={
           selectionCount > 0
-            ? `Open Event List, ${selectionCount} ${selectionCount === 1 ? "planned item" : "planned items"}`
+            ? `Open Event List, ${selectionCount} ${
+                selectionCount === 1
+                  ? "selected service"
+                  : "selected services"
+              }`
             : "Open Event List"
         }
         aria-haspopup="dialog"
@@ -83,28 +254,84 @@ export function CustomerEventListMenu() {
         aria-controls="customer-event-list-panel"
         title="Event List"
         onClick={() => {
-          if (open) closeDrawer(false);
-          else setOpen(true);
+          if (open) {
+            closeDrawer({
+              restoreFocus: false,
+            });
+
+            return;
+          }
+
+          openDrawer();
         }}
-        className={cn(
-          "relative grid size-10 shrink-0 place-items-center rounded-full outline-none transition-colors duration-200",
-          "hover:bg-feasta-surface-soft hover:text-primary-strong focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
-          items.length > 0 ? "text-primary-strong" : "text-feasta-text-tertiary",
-        )}
+        className={[
+          "relative z-50 grid size-10",
+          "shrink-0 place-items-center",
+          "rounded-full",
+          "outline-none",
+          "transition-[color,background-color,transform]",
+          "duration-200",
+          hasEventListItems
+            ? "text-primary-strong"
+            : "text-feasta-text-tertiary",
+          "hover:bg-feasta-surface-soft",
+          "hover:text-primary-strong",
+          "focus-visible:ring-2",
+          "focus-visible:ring-ring",
+          "motion-reduce:transform-none",
+          "motion-reduce:transition-none",
+        ].join(" ")}
       >
-        <StickyNote aria-hidden="true" className="size-[19px]" strokeWidth={items.length > 0 ? 2.3 : 1.7} />
+        <StickyNote
+          aria-hidden="true"
+          strokeWidth={
+            hasEventListItems
+              ? 2.3
+              : 1.7
+          }
+          className="size-[19px]"
+        />
+
         {selectionCount > 0 ? (
           <span
             aria-hidden="true"
-            className="absolute -right-0.5 -top-0.5 grid min-h-[18px] min-w-[18px] place-items-center rounded-full border-2 border-white bg-primary px-1 text-[9px] font-semibold leading-none text-white"
+            className={[
+              "absolute -right-0.5 -top-0.5",
+              "grid min-h-[18px]",
+              "min-w-[18px]",
+              "place-items-center",
+              "rounded-full",
+              "border-2 border-white",
+              "bg-primary",
+              "px-1",
+              "text-[9px]",
+              "font-semibold",
+              "leading-none",
+              "text-white",
+            ].join(" ")}
           >
-            {selectionCount > 99 ? "99+" : selectionCount}
+            {selectionCount > 99
+              ? "99+"
+              : selectionCount}
           </span>
         ) : null}
       </button>
 
+      {/* =====================================================
+          DRAWER CONTAINER
+          Portaled to the document body so the header's
+          backdrop-filter does not trap this fixed panel.
+         ===================================================== */}
+
+      {mounted
+        ? createPortal(
       <div
-        className="pointer-events-none fixed bottom-0 right-0 top-[var(--feasta-marketplace-header-height,7.25rem)] z-30 w-full max-w-[410px]"
+        className={[
+          "pointer-events-none",
+          "fixed bottom-0 right-0",
+          "top-[72px] z-30",
+          "w-full max-w-[410px]",
+        ].join(" ")}
         aria-hidden={!open}
       >
         <aside
@@ -113,195 +340,872 @@ export function CustomerEventListMenu() {
           aria-modal="false"
           aria-labelledby="customer-event-list-title"
           className={cn(
-            "absolute inset-y-0 right-0 flex h-full w-full max-w-[410px] flex-col overflow-hidden border-l border-feasta-border-soft bg-white shadow-[-8px_0_26px_rgb(43_33_29/0.07)] transition-transform duration-300 motion-reduce:transition-none",
-            open ? "pointer-events-auto translate-x-0" : "pointer-events-none translate-x-full",
+            [
+              "absolute inset-y-0 right-0",
+              "flex h-full w-full",
+              "max-w-[410px] flex-col",
+              "overflow-hidden",
+              "border-l",
+              "border-feasta-border-soft",
+              "bg-white",
+              "shadow-[-8px_0_26px_rgb(43_33_29/0.07)]",
+              "transition-transform",
+              "duration-300",
+              "ease-[cubic-bezier(0.22,1,0.36,1)]",
+              "will-change-transform",
+              "motion-reduce:transition-none",
+            ].join(" "),
+            open
+              ? [
+                  "pointer-events-auto",
+                  "translate-x-0",
+                ].join(" ")
+              : [
+                  "pointer-events-none",
+                  "translate-x-full",
+                ].join(" "),
           )}
         >
-          <div className="flex shrink-0 items-start justify-between gap-3 border-b border-feasta-divider px-5 py-4">
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-primary-strong">
-                Planning list
-              </p>
-              <h2 id="customer-event-list-title" className="mt-1 text-[23px] font-bold leading-none tracking-[-0.025em]">
-                Event List
-              </h2>
-              <p className="mt-2 text-xs leading-5 text-feasta-text-secondary">
-                Saved in this browser for planning. This is not a confirmed booking or payment.
-              </p>
+          {/* =================================================
+              HEADER
+             ================================================= */}
+
+          <div
+            className={[
+              "shrink-0",
+              "border-b",
+              "border-feasta-divider",
+              "bg-white",
+              "px-5 py-4",
+            ].join(" ")}
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <div
+                  className={[
+                    "grid size-12 shrink-0",
+                    "place-items-center",
+                    "rounded-[14px]",
+                    "bg-[#FFF1EC]",
+                    "text-primary-strong",
+                  ].join(" ")}
+                >
+                  <StickyNote
+                    aria-hidden="true"
+                    strokeWidth={1.9}
+                    className="size-5"
+                  />
+                </div>
+
+                <div className="min-w-0">
+                  <p
+                    className={[
+                      "text-[11px]",
+                      "font-semibold",
+                      "uppercase",
+                      "tracking-[0.12em]",
+                      "text-primary-strong",
+                    ].join(" ")}
+                  >
+                    Your selections
+                  </p>
+
+                  <div className="mt-1 flex items-center gap-3">
+                    <h2
+                      id="customer-event-list-title"
+                      className={[
+                        "truncate",
+                        "text-[23px]",
+                        "font-bold",
+                        "leading-none",
+                        "tracking-[-0.025em]",
+                        "text-foreground",
+                      ].join(" ")}
+                    >
+                      Event List
+                    </h2>
+
+
+                  </div>
+                </div>
+              </div>
+
+              <button
+                ref={closeRef}
+                type="button"
+                onClick={() =>
+                  closeDrawer()
+                }
+                aria-label="Close Event List"
+                title="Close Event List"
+                className={[
+                  "grid size-9 shrink-0",
+                  "place-items-center",
+                  "rounded-full",
+                  "text-feasta-text-secondary",
+                  "outline-none",
+                  "transition-[background-color,color,transform]",
+                  "duration-200",
+                  "hover:bg-feasta-canvas",
+                  "hover:text-foreground",
+                  "active:scale-95",
+                  "focus-visible:ring-2",
+                  "focus-visible:ring-ring",
+                  "motion-reduce:transform-none",
+                ].join(" ")}
+              >
+                <X
+                  aria-hidden="true"
+                  className="size-[18px]"
+                  strokeWidth={1.8}
+                />
+              </button>
             </div>
-            <button
-              ref={closeRef}
-              type="button"
-              aria-label="Close Event List"
-              onClick={() => closeDrawer()}
-              className="grid size-10 shrink-0 place-items-center rounded-full text-feasta-text-secondary outline-none hover:bg-feasta-surface-soft focus-visible:ring-2 focus-visible:ring-primary"
-            >
-              <X aria-hidden="true" className="size-4" />
-            </button>
           </div>
 
-          {items.length === 0 ? (
-            <div className="grid flex-1 content-center gap-3 px-5 py-8 text-center">
-              <p className="text-base font-bold">Your Event List is empty.</p>
-              <p className="text-sm leading-6 text-feasta-text-secondary">
-                Add packages while you browse. You can review them later without submitting a request.
-              </p>
-              <Link
-                href="/customer/packages"
-                onClick={() => closeDrawer(false)}
-                className="mx-auto inline-flex min-h-11 items-center justify-center rounded-full bg-primary px-5 text-sm font-bold text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
-              >
-                Browse packages
-              </Link>
+          {/* =================================================
+              EMPTY STATE
+             ================================================= */}
+
+          {!hasEventListItems ? (
+            <div
+              className={[
+                "flex min-h-0 flex-1",
+                "items-center justify-center",
+                "overflow-y-auto",
+                "px-6 py-10",
+              ].join(" ")}
+            >
+              <div className="mx-auto max-w-xs text-center">
+                <div
+                  className={[
+                    "mx-auto grid size-14",
+                    "place-items-center",
+                    "rounded-[14px]",
+                    "bg-[#FFF1EC]",
+                    "text-primary-strong",
+                  ].join(" ")}
+                >
+                  <PackageOpen
+                    aria-hidden="true"
+                    className="size-6"
+                  />
+                </div>
+
+                <h3 className="mt-4 text-base font-semibold text-foreground">
+                  Your Event List is empty
+                </h3>
+
+                <p className="mt-2 text-sm leading-6 text-feasta-text-secondary">
+                  Customize a package or add an
+                  event service to begin planning
+                  your event.
+                </p>
+
+                <Link
+                  href="/customer/providers"
+                  onClick={() =>
+                    closeDrawer({
+                      restoreFocus: false,
+                    })
+                  }
+                  className={[
+                    "mt-5 inline-flex",
+                    "min-h-11",
+                    "items-center",
+                    "justify-center",
+                    "gap-2",
+                    "rounded-full",
+                    "bg-primary",
+                    "px-5",
+                    "text-sm",
+                    "font-semibold",
+                    "!text-white",
+                    "outline-none",
+                    "transition-[background-color,transform]",
+                    "hover:bg-primary-hover",
+                    "focus-visible:ring-2",
+                    "focus-visible:ring-primary",
+                    "focus-visible:ring-offset-2",
+                  ].join(" ")}
+                  style={{
+                    color: "#ffffff",
+                  }}
+                >
+                  Browse services
+
+                  <ArrowRight
+                    aria-hidden="true"
+                    className="size-4"
+                  />
+                </Link>
+              </div>
             </div>
           ) : (
             <>
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-                <div className="mb-3 flex justify-end">
+              {/* =============================================
+                  SELECTED SERVICES
+                 ============================================= */}
+
+              <div
+                className={[
+                  "min-h-0 flex-1",
+                  "overflow-y-auto",
+                  "overscroll-contain",
+                  "px-5 py-5",
+                  "[scrollbar-width:thin]",
+                ].join(" ")}
+              >
+                <div className="mb-4 flex items-start justify-between gap-4">
+                  <div>
+                    <h3
+                      className={[
+                        "text-[15px]",
+                        "font-semibold",
+                        "text-foreground",
+                      ].join(" ")}
+                    >
+                      Your selections
+                    </h3>
+
+                    <p className="mt-0.5 text-xs text-feasta-text-secondary">
+                      Items saved for your event
+                    </p>
+                  </div>
+
                   <button
                     type="button"
                     onClick={clearItems}
-                    className="inline-flex min-h-10 items-center gap-2 rounded-full px-3 text-sm font-bold text-feasta-text-secondary outline-none hover:bg-feasta-surface-soft hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary"
+                    className={[
+                      "inline-flex min-h-9",
+                      "shrink-0",
+                      "items-center gap-1.5",
+                      "rounded-lg",
+                      "px-2",
+                      "text-sm",
+                      "font-normal",
+                      "text-feasta-text-secondary",
+                      "outline-none",
+                      "transition-colors",
+                      "hover:bg-red-50",
+                      "hover:text-red-700",
+                      "focus-visible:ring-2",
+                      "focus-visible:ring-primary",
+                    ].join(" ")}
                   >
-                    <Trash2 aria-hidden="true" className="size-4" />
-                    Clear list
+                    <Trash2
+                      aria-hidden="true"
+                      className="size-3.5"
+                      strokeWidth={1.8}
+                    />
+
+                    Clear
                   </button>
                 </div>
-                <ul className="grid gap-3">
-                  {items.map((item) => (
-                    <EventListMenuItem
+
+                <div className="grid gap-3">
+                  {items.map((item) => item.type === "custom_menu" ? (
+                    <article key={customerEventListItemKey(item)} className="grid grid-cols-[4rem_minmax(0,1fr)_auto] gap-3 rounded-[16px] border border-feasta-border-soft bg-white p-3">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={item.imageUrl} alt="" className="size-16 rounded-xl object-cover" />
+                      <div className="min-w-0">
+                        <Link href={item.providerHref} onClick={() => closeDrawer({restoreFocus: false})} className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                          <h4 className="text-[15px] font-semibold">{item.menuItemName}</h4>
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+                     <span className="inline-flex rounded-full bg-secondary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-primary-strong">
+                       Provider
+                     </span>
+                     <span className="font-medium text-feasta-text-secondary">
+                       {item.providerName}
+                     </span>
+                   </div>
+                        </Link>
+                        <p className="mt-2 text-xs text-feasta-text-secondary">
+                     {item.servingOptionName} &middot;{" "}
+                     {menuServingGuestLabel(
+                       item.servingMinimumGuests,
+                       item.servingMaximumGuests,
+                     )}
+                   </p>
+                        <p className="mt-2 text-[15px] font-semibold text-primary-strong">{formatPrice(item.price)}</p>
+                      </div>
+                      <button type="button" onClick={() => removeItem(customerEventListItemKey(item))} aria-label={`Remove ${item.menuItemName} from Event List`} className="grid size-8 place-items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                        <X aria-hidden="true" className="size-3.5" />
+                      </button>
+                    </article>
+                  ) : (
+                    <div
                       key={customerEventListItemKey(item)}
-                      item={item}
-                      onRemove={() => removeItem(customerEventListItemKey(item))}
-                      onRemoveService={removeService}
-                      onNavigate={() => closeDrawer(false)}
-                    />
+                      className="grid gap-3"
+                    >
+                      {/* =====================================
+                          PACKAGE
+                         ===================================== */}
+
+                      <article
+                        className={[
+                          "grid min-w-0",
+                          "grid-cols-[5.25rem_minmax(0,1fr)_auto]",
+                          "gap-3",
+                          "rounded-[18px]",
+                          "border",
+                          "border-feasta-border-soft",
+                          "bg-white",
+                          "p-3.5",
+                          "shadow-[0_2px_10px_rgb(43_33_29/0.035)]",
+                        ].join(" ")}
+                      >
+                        <Link
+                          href={item.packageHref}
+                          onClick={() =>
+                            closeDrawer({
+                              restoreFocus: false,
+                            })
+                          }
+                          className={[
+                            "relative grid",
+                            "aspect-square",
+                            "size-[84px]",
+                            "shrink-0",
+                            "place-items-center",
+                            "overflow-hidden",
+                            "rounded-[14px]",
+                            "bg-[#FFF3EE]",
+                            "outline-none",
+                            "focus-visible:ring-2",
+                            "focus-visible:ring-primary",
+                          ].join(" ")}
+                        >
+                          {item.imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={
+                                item.imageUrl
+                              }
+                              alt=""
+                              className="size-full object-cover"
+                            />
+                          ) : (
+                            <PackageOpen
+                              aria-hidden="true"
+                              className="size-6 text-primary-strong"
+                            />
+                          )}
+                        </Link>
+
+                        <div className="min-w-0 self-center">
+                          <Link
+                            href={
+                              item.packageHref
+                            }
+                            onClick={() =>
+                              closeDrawer({
+                                restoreFocus:
+                                  false,
+                              })
+                            }
+                            className={[
+                              "block rounded-md",
+                              "outline-none",
+                              "focus-visible:ring-2",
+                              "focus-visible:ring-primary",
+                            ].join(" ")}
+                          >
+                            <h4
+                              className={[
+                                "line-clamp-2",
+                                "text-[15px]",
+                                "font-semibold",
+                                "leading-5",
+                                "text-foreground",
+                              ].join(" ")}
+                            >
+                              {
+                                item.packageName
+                              }
+                            </h4>
+
+                            <p
+                              className={[
+                                "mt-1 truncate",
+                                "text-xs",
+                                "font-normal",
+                                "text-feasta-text-secondary",
+                              ].join(" ")}
+                            >
+                              {
+                                item.providerName
+                              }
+                            </p>
+                          </Link>
+
+                          <p
+                            className={[
+                              "mt-2.5",
+                              "text-[15px]",
+                              "font-semibold",
+                              "text-primary-strong",
+                            ].join(" ")}
+                          >
+                            {formatPrice(
+                              item.price,
+                            )}
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            removeItem(
+                              customerEventListItemKey(item),
+                            )
+                          }
+                          aria-label={`Remove ${item.packageName} from Event List`}
+                          title="Remove from Event List"
+                          className={[
+                            "grid size-8",
+                            "shrink-0",
+                            "place-items-center",
+                            "rounded-full",
+                            "text-feasta-text-tertiary",
+                            "outline-none",
+                            "transition-colors",
+                            "hover:bg-red-50",
+                            "hover:text-red-700",
+                            "focus-visible:ring-2",
+                            "focus-visible:ring-primary",
+                          ].join(" ")}
+                        >
+                          <X
+                            aria-hidden="true"
+                            className="size-3.5"
+                            strokeWidth={1.8}
+                          />
+                        </button>
+                      </article>
+
+                      {/* =====================================
+                          EVENT SERVICES
+                         ===================================== */}
+
+                      {item.configuration
+                        ?.selectedEventServices
+                        .map((service) => (
+                          <article
+                            key={`${item.packageId}:${service.id}`}
+                            className={[
+                              "grid min-w-0",
+                              "grid-cols-[5.25rem_minmax(0,1fr)_auto]",
+                              "gap-3",
+                              "rounded-[18px]",
+                              "border",
+                              "border-feasta-border-soft",
+                              "bg-white",
+                              "p-3.5",
+                              "shadow-[0_2px_10px_rgb(43_33_29/0.035)]",
+                            ].join(
+                              " ",
+                            )}
+                          >
+                            <div
+                              className={[
+                                "grid aspect-square",
+                                "size-[84px]",
+                                "shrink-0",
+                                "place-items-center",
+                                "rounded-[14px]",
+                                "bg-[#FFF3EE]",
+                                "text-primary-strong",
+                              ].join(
+                                " ",
+                              )}
+                            >
+                              <StickyNote
+                                aria-hidden="true"
+                                strokeWidth={
+                                  1.9
+                                }
+                                className="size-6"
+                              />
+                            </div>
+
+                            <div className="min-w-0 self-center">
+                              <h4
+                                className={[
+                                  "line-clamp-2",
+                                  "text-[15px]",
+                                  "font-semibold",
+                                  "leading-5",
+                                  "text-foreground",
+                                ].join(
+                                  " ",
+                                )}
+                              >
+                                {
+                                  service.name
+                                }
+                              </h4>
+
+                              <p
+                                className={[
+                                  "mt-1 truncate",
+                                  "text-xs",
+                                  "font-normal",
+                                  "text-feasta-text-secondary",
+                                ].join(
+                                  " ",
+                                )}
+                              >
+                                {
+                                  service.providerName
+                                }
+                              </p>
+
+                              {service.category ? (
+                                <p
+                                  className={[
+                                    "mt-1 truncate",
+                                    "text-xs",
+                                    "font-normal",
+                                    "text-feasta-text-tertiary",
+                                  ].join(
+                                    " ",
+                                  )}
+                                >
+                                  {humanize(
+                                    service.category,
+                                  )}
+                                </p>
+                              ) : null}
+
+                              <p
+                                className={[
+                                  "mt-2.5",
+                                  "text-[15px]",
+                                  "font-semibold",
+                                  "text-primary-strong",
+                                ].join(
+                                  " ",
+                                )}
+                              >
+                                {formatPrice(
+                                  service.price,
+                                )}
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                removeService(
+                                  item.packageId,
+                                  service.id,
+                                )
+                              }
+                              aria-label={`Remove ${service.name} from Event List`}
+                              title="Remove from Event List"
+                              className={[
+                                "grid size-8",
+                                "shrink-0",
+                                "place-items-center",
+                                "rounded-full",
+                                "text-feasta-text-tertiary",
+                                "outline-none",
+                                "transition-colors",
+                                "hover:bg-red-50",
+                                "hover:text-red-700",
+                                "focus-visible:ring-2",
+                                "focus-visible:ring-primary",
+                              ].join(
+                                " ",
+                              )}
+                            >
+                              <X
+                                aria-hidden="true"
+                                className="size-3.5"
+                                strokeWidth={1.8}
+                              />
+                            </button>
+                          </article>
+                        ))}
+                    </div>
                   ))}
-                </ul>
+                </div>
+
+                {/* ===========================================
+                    ADD MORE SERVICES
+                   =========================================== */}
+
                 <Link
                   href="/customer/providers"
-                  onClick={() => closeDrawer(false)}
-                  className="mt-5 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-[16px] border border-dashed border-primary/30 bg-[#FFF9F7] px-5 text-sm font-semibold outline-none hover:border-primary/50 hover:text-primary-strong focus-visible:ring-2 focus-visible:ring-primary"
+                  onClick={() =>
+                    closeDrawer({
+                      restoreFocus: false,
+                    })
+                  }
+                  className={[
+                    "mt-5 flex",
+                    "min-h-[52px]",
+                    "w-full",
+                    "items-center",
+                    "justify-center",
+                    "gap-2",
+                    "rounded-[16px]",
+                    "border",
+                    "border-dashed",
+                    "border-primary/30",
+                    "bg-[#FFF9F7]",
+                    "px-5",
+                    "text-sm",
+                    "font-semibold",
+                    "text-foreground",
+                    "outline-none",
+                    "transition-[border-color,background-color,color]",
+                    "hover:border-primary/50",
+                    "hover:bg-[#FFF3EE]",
+                    "hover:text-primary-strong",
+                    "focus-visible:ring-2",
+                    "focus-visible:ring-primary",
+                  ].join(" ")}
                 >
-                  <Plus aria-hidden="true" className="size-[18px]" />
-                  Browse more
+                  <Plus
+                    aria-hidden="true"
+                    className="size-[18px]"
+                    strokeWidth={1.8}
+                  />
+
+                  Browse More
                 </Link>
               </div>
-              <div className="shrink-0 border-t border-feasta-divider px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-feasta-text-tertiary">
-                  {pricedSelectionCount === selectionCount
-                    ? "Displayed planning total"
-                    : "Displayed prices on file"}
-                </p>
-                <p className="mt-1 text-[11px] leading-4 text-feasta-text-secondary">
-                  These amounts are saved display snapshots, not a booking quote.
-                </p>
-                <PriceDisplay amount={knownTotal} className="mt-2" />
-                {reviewHref ? (
-                  <Link
-                    href={reviewHref}
-                    onClick={() => closeDrawer(false)}
-                    className="mt-4 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-primary-foreground outline-none hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+
+              {/* =============================================
+                  FOOTER
+                 ============================================= */}
+
+              <div
+                className={[
+                  "shrink-0",
+                  "border-t",
+                  "border-feasta-divider",
+                  "bg-white",
+                  "px-5",
+                  "pb-[max(1.25rem,env(safe-area-inset-bottom))]",
+                  "pt-6",
+                ].join(" ")}
+              >
+                <div className="flex items-end justify-between gap-5">
+                  <div className="min-w-0">
+                    <p
+                      className={[
+                        "text-[11px]",
+                        "font-semibold",
+                        "uppercase",
+                        "tracking-[0.09em]",
+                        "text-feasta-text-tertiary",
+                      ].join(" ")}
+                    >
+                      {pricedSelectionCount ===
+                      selectionCount
+                        ? "Estimated event total"
+                        : "Known event total"}
+                    </p>
+
+                    {pricedSelectionCount !==
+                    selectionCount ? (
+                      <p className="mt-1 max-w-[12rem] text-[11px] leading-4 text-feasta-text-secondary">
+                        Some selected services
+                        do not have a published
+                        price yet.
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <p
+                    className={[
+                      "shrink-0",
+                      "text-[24px]",
+                      "font-bold",
+                      "leading-none",
+                      "tracking-[-0.025em]",
+                      "text-foreground",
+                    ].join(" ")}
                   >
-                    Review List
-                    <ArrowRight aria-hidden="true" className="size-4" />
+                    {formatPrice(
+                      knownTotal,
+                    )}
+                  </p>
+                </div>
+
+                {/* ===========================================
+                    REVIEW LIST
+                   =========================================== */}
+
+                {reviewListHref ? (
+                  <Link
+                    href={
+                      reviewListHref
+                    }
+                    onClick={() =>
+                      closeDrawer({
+                        restoreFocus:
+                          false,
+                      })
+                    }
+                    className={[
+                      "mt-6 flex",
+                      "min-h-[52px]",
+                      "w-full",
+                      "items-center",
+                      "justify-center",
+                      "gap-2.5",
+                      "rounded-full",
+                      "bg-primary",
+                      "px-6",
+                      "text-sm",
+                      "font-semibold",
+                      "!text-white",
+                      "shadow-[0_8px_20px_rgb(176_47_0/0.14)]",
+                      "outline-none",
+                      "transition-[transform,background-color,box-shadow]",
+                      "duration-200",
+                      "hover:-translate-y-0.5",
+                      "hover:bg-primary-hover",
+                      "hover:shadow-[0_10px_24px_rgb(176_47_0/0.18)]",
+                      "focus-visible:ring-2",
+                      "focus-visible:ring-primary",
+                      "focus-visible:ring-offset-2",
+                      "motion-reduce:transform-none",
+                      "[&_svg]:!text-white",
+                      "[&_span]:!text-white",
+                    ].join(" ")}
+                    style={{
+                      color: "#ffffff",
+                    }}
+                  >
+                    <span
+                      className="!text-white"
+                      style={{
+                        color:
+                          "#ffffff",
+                      }}
+                    >
+                      Review List
+                    </span>
+
+                    <ArrowRight
+                      aria-hidden="true"
+                      className="size-4 !text-white"
+                      strokeWidth={2}
+                      style={{
+                        color:
+                          "#ffffff",
+                      }}
+                    />
                   </Link>
                 ) : null}
+
+                {/* ===========================================
+                    SAVED NOTICE
+                   =========================================== */}
+
+                <div
+                  className={[
+                    "mt-4 flex",
+                    "items-center",
+                    "gap-2.5",
+                    "rounded-xl",
+                    "bg-[#FFF9F7]",
+                    "px-3.5 py-3",
+                  ].join(" ")}
+                >
+                  <StickyNote
+                    aria-hidden="true"
+                    className={[
+                      "size-4",
+                      "shrink-0",
+                      "text-primary-strong",
+                    ].join(" ")}
+                    strokeWidth={1.8}
+                  />
+
+                  <p className="min-w-0 flex-1 text-xs leading-5 text-feasta-text-secondary">
+                    Your Event List is saved
+                    while you continue browsing.
+                  </p>
+
+                  <ArrowRight
+                    aria-hidden="true"
+                    className={[
+                      "size-4",
+                      "shrink-0",
+                      "text-primary-strong",
+                    ].join(" ")}
+                    strokeWidth={1.8}
+                  />
+                </div>
               </div>
             </>
           )}
         </aside>
-      </div>
+      </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }
 
-function EventListMenuItem({
-  item,
-  onRemove,
-  onRemoveService,
-  onNavigate,
-}: {
-  item: CustomerEventListItem;
-  onRemove: () => void;
-  onRemoveService: (packageId: string, serviceId: string) => void;
-  onNavigate: () => void;
-}) {
-  const title = item.type === "custom_menu" ? item.menuItemName : item.packageName;
-  const href = item.type === "custom_menu" ? item.providerHref : item.packageHref;
-  const label = item.type === "custom_menu"
-    ? `Remove ${item.menuItemName} from Event List`
-    : `Remove ${item.packageName} from Event List`;
-
-  return (
-    <li className="rounded-[16px] border border-feasta-border-soft bg-feasta-canvas p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <Link
-            href={href}
-            onClick={onNavigate}
-            className="break-words text-sm font-bold text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          >
-            {title}
-          </Link>
-          <p className="mt-1 break-words text-xs text-feasta-text-secondary">{item.providerName}</p>
-          {item.type === "custom_menu" ? (
-            <p className="mt-1 text-xs text-feasta-text-secondary">
-              {item.servingOptionName} · {menuServingGuestLabel(item.servingMinimumGuests, item.servingMaximumGuests)}
-            </p>
-          ) : null}
-          <PriceDisplay amount={item.price} className="mt-2" />
-        </div>
-        <button
-          type="button"
-          aria-label={label}
-          onClick={onRemove}
-          className="grid size-8 shrink-0 place-items-center rounded-full text-feasta-text-tertiary outline-none hover:bg-red-50 hover:text-red-700 focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          <X aria-hidden="true" className="size-3.5" />
-        </button>
-      </div>
-      {item.type !== "custom_menu" && item.configuration?.selectedEventServices.length ? (
-        <ul className="mt-3 grid gap-2">
-          {item.configuration.selectedEventServices.map((service) => (
-            <li key={service.id} className="flex items-center justify-between gap-2 rounded-xl bg-white px-3 py-2">
-              <span className="min-w-0 break-words text-xs font-semibold">{service.name}</span>
-              <button
-                type="button"
-                aria-label={`Remove ${service.name} from Event List`}
-                onClick={() => onRemoveService(item.packageId, service.id)}
-                className="grid size-8 shrink-0 place-items-center rounded-full text-feasta-text-tertiary outline-none hover:bg-red-50 hover:text-red-700 focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                <X aria-hidden="true" className="size-3.5" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </li>
-  );
+function subscribeToNothing() {
+  return () => {};
 }
 
-function summarizeEventList(items: readonly CustomerEventListItem[]) {
-  let selectionCount = 0;
-  let knownTotal = 0;
-  let pricedSelectionCount = 0;
+function buildReviewListHref(
+  href: string,
+): string {
+  const [pathname, query = ""] =
+    href.split("?", 2);
 
-  for (const item of items) {
-    selectionCount += 1;
-    if (item.price !== null) {
-      knownTotal += item.price;
-      pricedSelectionCount += 1;
-    }
-    if (item.type === "custom_menu") continue;
-    for (const service of item.configuration?.selectedEventServices ?? []) {
-      selectionCount += 1;
-      if (service.price !== null) {
-        knownTotal += service.price;
-        pricedSelectionCount += 1;
-      }
-    }
+  const parameters =
+    new URLSearchParams(query);
+
+  parameters.set(
+    "reviewList",
+    "1",
+  );
+
+  const serialized =
+    parameters.toString();
+
+  return serialized
+    ? `${pathname}?${serialized}`
+    : pathname;
+}
+
+function humanize(
+  value: string,
+): string {
+  return value
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replace(
+      /\b\w/g,
+      (character) =>
+        character.toUpperCase(),
+    );
+}
+
+function formatPrice(
+  price: number | null,
+): string {
+  if (price === null) {
+    return "Price unavailable";
   }
 
-  return {selectionCount, knownTotal, pricedSelectionCount};
+  return new Intl.NumberFormat(
+    "en-PH",
+    {
+      style: "currency",
+      currency: "PHP",
+    },
+  ).format(price);
 }

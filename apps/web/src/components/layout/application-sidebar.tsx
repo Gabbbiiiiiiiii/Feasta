@@ -38,6 +38,7 @@ type SidebarNavigationItemProps = {
   item: NavigationLinkItem;
   active: boolean;
   collapsed: boolean;
+  compact: boolean;
   onPrefetch: (href: string) => void;
 };
 
@@ -46,6 +47,7 @@ const SidebarNavigationItem = memo(
     item,
     active,
     collapsed,
+    compact,
     onPrefetch,
   }: SidebarNavigationItemProps) {
     const Icon = item.icon;
@@ -61,13 +63,16 @@ const SidebarNavigationItem = memo(
           onMouseEnter={() => onPrefetch(item.href)}
           onFocus={() => onPrefetch(item.href)}
           className={cn(
-            "group relative flex h-13 items-center rounded-xl",
+            "group relative flex items-center",
             "transition-colors duration-150",
             "focus-visible:outline-none",
             "focus-visible:ring-2 focus-visible:ring-primary/40",
+            compact ? "h-10 rounded-lg" : "h-13 rounded-xl",
             collapsed
               ? "justify-center px-2"
-              : "gap-3 px-3",
+              : compact
+                ? "gap-2.5 px-2.5"
+                : "gap-3 px-3",
             active
               ? "bg-primary-tint text-primary-strong"
               : "text-slate-600 hover:bg-slate-50 hover:text-slate-950",
@@ -77,16 +82,17 @@ const SidebarNavigationItem = memo(
             <span
               aria-hidden="true"
               className={cn(
-                "absolute inset-y-3 left-0",
-                "w-0.75 rounded-r-full bg-primary",
+                "absolute left-0 w-0.75 rounded-r-full bg-primary",
+                compact ? "inset-y-2" : "inset-y-3",
               )}
             />
           )}
 
           <span
             className={cn(
-              "grid size-9 shrink-0 place-items-center rounded-lg",
+              "grid shrink-0 place-items-center rounded-lg",
               "transition-colors duration-150",
+              compact ? "size-7" : "size-9",
               active
                 ? "bg-primary-tint-strong text-primary"
                 : [
@@ -98,7 +104,7 @@ const SidebarNavigationItem = memo(
           >
             <Icon
               aria-hidden="true"
-              className="size-4.75"
+              className={compact ? "size-4" : "size-4.75"}
               strokeWidth={1.9}
             />
           </span>
@@ -121,9 +127,11 @@ const SidebarDisabledNavigationItem = memo(
   function SidebarDisabledNavigationItem({
     item,
     collapsed,
+    compact,
   }: {
     item: NavigationDisabledItem;
     collapsed: boolean;
+    compact: boolean;
   }) {
     const Icon = item.icon;
     const accessibleLabel = `${item.label} - ${item.disabledReason}`;
@@ -135,14 +143,24 @@ const SidebarDisabledNavigationItem = memo(
           aria-label={accessibleLabel}
           title={collapsed ? accessibleLabel : undefined}
           className={cn(
-            "flex h-13 cursor-not-allowed items-center rounded-xl text-slate-400",
-            collapsed ? "justify-center px-2" : "gap-3 px-3",
+            "flex cursor-not-allowed items-center text-slate-400",
+            compact ? "h-10 rounded-lg" : "h-13 rounded-xl",
+            collapsed
+              ? "justify-center px-2"
+              : compact
+                ? "gap-2.5 px-2.5"
+                : "gap-3 px-3",
           )}
         >
-          <span className="grid size-9 shrink-0 place-items-center rounded-lg text-slate-400">
+          <span
+            className={cn(
+              "grid shrink-0 place-items-center rounded-lg text-slate-400",
+              compact ? "size-7" : "size-9",
+            )}
+          >
             <Icon
               aria-hidden="true"
-              className="size-4.75"
+              className={compact ? "size-4" : "size-4.75"}
               strokeWidth={1.9}
             />
           </span>
@@ -178,6 +196,8 @@ function ApplicationSidebarComponent({
 }: ApplicationSidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+
+  const compact = role === "admin" || role === "provider";
 
   const navigationGroups = useMemo(() => {
     return groupNavigationItems(
@@ -232,11 +252,18 @@ function ApplicationSidebarComponent({
 
       <nav
         aria-label={`${roleLabels[role]} primary navigation`}
-        className="min-h-0 flex-1 overflow-y-auto px-3 py-4"
+        className={cn(
+          "min-h-0 flex-1 overflow-y-auto",
+          compact ? "px-2.5 py-3" : "px-3 py-4",
+        )}
       >
         <div
           className={cn(
-            collapsed ? "space-y-2" : "space-y-5",
+            collapsed
+              ? "space-y-2"
+              : compact
+                ? "space-y-3"
+                : "space-y-5",
           )}
         >
           {navigationGroups.map((group, groupIndex) => {
@@ -254,8 +281,10 @@ function ApplicationSidebarComponent({
                   <h2
                     id={headingId}
                     className={cn(
-                      "mb-2 px-3 text-[0.6875rem] font-bold",
-                      "uppercase tracking-[0.14em] text-slate-400",
+                      "font-bold uppercase text-slate-400",
+                      compact
+                        ? "mb-1 px-2.5 text-[0.6875rem] tracking-[0.08em]"
+                        : "mb-2 px-3 text-[0.6875rem] tracking-[0.14em]",
                       collapsed && "sr-only",
                     )}
                   >
@@ -263,13 +292,14 @@ function ApplicationSidebarComponent({
                   </h2>
                 ) : null}
 
-                <ul className="space-y-1">
+                <ul className={compact ? "space-y-0.5" : "space-y-1"}>
                   {group.items.map((item) => (
                     item.kind === "link" ? (
                       <SidebarNavigationItem
                         key={item.href}
                         item={item}
                         collapsed={collapsed}
+                        compact={compact}
                         active={isNavigationItemActive(
                           pathname,
                           item,
@@ -281,6 +311,7 @@ function ApplicationSidebarComponent({
                         key={`${item.section}-${item.label}`}
                         item={item}
                         collapsed={collapsed}
+                        compact={compact}
                       />
                     )
                   ))}
@@ -291,7 +322,12 @@ function ApplicationSidebarComponent({
         </div>
       </nav>
 
-      <footer className="shrink-0 border-t border-slate-200/80 p-3">
+      <footer
+        className={cn(
+          "shrink-0 border-t border-slate-200/80",
+          compact ? "p-2" : "p-3",
+        )}
+      >
         <button
           type="button"
           onClick={handleToggle}
@@ -302,26 +338,29 @@ function ApplicationSidebarComponent({
           }
           aria-expanded={!collapsed}
           className={cn(
-            "flex h-11 w-full items-center rounded-xl",
+            "flex w-full items-center",
             "text-sm font-medium text-slate-500",
             "transition-colors duration-150",
             "hover:bg-slate-100 hover:text-slate-900",
             "focus-visible:outline-none",
             "focus-visible:ring-2 focus-visible:ring-primary/40",
+            compact ? "h-10 rounded-lg" : "h-11 rounded-xl",
             collapsed
               ? "justify-center"
-              : "gap-3 px-3",
+              : compact
+                ? "gap-2.5 px-2.5"
+                : "gap-3 px-3",
           )}
         >
           {collapsed ? (
             <PanelLeftOpen
               aria-hidden="true"
-              className="size-4.75"
+              className={compact ? "size-4" : "size-4.75"}
             />
           ) : (
             <PanelLeftClose
               aria-hidden="true"
-              className="size-4.75"
+              className={compact ? "size-4" : "size-4.75"}
             />
           )}
 

@@ -19,34 +19,56 @@ import type {
    TYPES
    ================================================================== */
 
-export type SubmitBookingRequestInput = {
+export type BookingMenuSelectionInput = {
+  menuItemId: string;
+  servingOptionId: string;
+};
+
+type SubmitBookingRequestBase = {
   clientRequestId: string;
   providerId: string;
-  packageId: string;
 
   eventType: string;
   eventDate: string;
   eventTime: string;
-  eventEndTime: string;
 
   eventLocation: string;
   eventAddress: string;
-  guestCount: number;
-
-  selectedFoods: readonly string[];
-  selectedDecorations: readonly string[];
-  selectedFurniture: readonly string[];
 
   addonIds: readonly string[];
-
-  serviceTier?: CateringPackageServiceTier;
-  packageThemeId?: string;
 
   specialRequest?: string;
   willArrangeOwnAddOns: boolean;
   customerArrangedAddOnsNote?: string;
   policyAcknowledgements: readonly BookingRefundPolicyAcknowledgement[];
 };
+
+export type SubmitPackageBookingRequestInput =
+  SubmitBookingRequestBase & {
+    cateringSelectionType?: "package";
+    packageId: string;
+    serviceTier?: CateringPackageServiceTier;
+    packageThemeId?: string;
+
+    eventEndTime: string;
+    guestCount: number;
+
+    selectedFoods: readonly string[];
+    selectedDecorations: readonly string[];
+    selectedFurniture: readonly string[];
+  };
+
+export type SubmitCustomMenuBookingRequestInput =
+  SubmitBookingRequestBase & {
+    cateringSelectionType: "custom_menu";
+    eventEndTime?: never;
+    guestCount?: never;
+    menuSelections: readonly BookingMenuSelectionInput[];
+  };
+
+export type SubmitBookingRequestInput =
+  | SubmitPackageBookingRequestInput
+  | SubmitCustomMenuBookingRequestInput;
 
 export type SubmitBookingRequestResult = {
   bookingId: string;

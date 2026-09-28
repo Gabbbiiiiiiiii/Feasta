@@ -265,8 +265,10 @@ describe("customer event list planning UI", () => {
   it("opens an empty planning menu for guests and routes review through the protected page", () => {
     render(<CustomerMarketplaceHeader authReturnTo="/customer/packages" />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event List"}));
-    expect(screen.getByRole("dialog", {name: "Event List"})).toHaveTextContent("not a confirmed booking");
-    expect(screen.getByText("Your Event List is empty.")).toBeVisible();
+    expect(screen.getByRole("dialog", {name: "Event List"})).toHaveTextContent(
+      "Customize a package or add an event service to begin planning your event.",
+    );
+    expect(screen.getByText("Your Event List is empty")).toBeVisible();
 
     const response = proxy(new NextRequest("https://feasta.test/customer/event-list/review"));
     expect(response.status).toBe(307);
@@ -274,42 +276,28 @@ describe("customer event list planning UI", () => {
       .toBe("/customer/event-list/review");
   });
 
-  it("keeps custom-menu planning off booking submission", () => {
+  it("asks for event details before a custom-menu booking can be submitted", () => {
     addCustomerEventListItem(customItem);
     render(<CustomerEventListReview />);
     expect(screen.getByText("Chicken")).toBeVisible();
-    expect(screen.getByText(/Submitting a booking from this list is not available yet/u)).toBeVisible();
-    expect(screen.getByRole("link", {name: "View provider"})).toHaveAttribute(
-      "href",
-      "/customer/providers/provider-one",
-    );
-    expect(screen.queryByRole("button", {name: /submit booking|checkout|pay/iu})).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", {name: /book|checkout|pay/iu})).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", {name: "Ana Events"})).toBeVisible();
+    expect(screen.getByRole("button", {name: "Complete Event Details"})).toBeVisible();
+    expect(screen.queryByRole("button", {name: "Submit Booking"})).not.toBeInTheDocument();
   });
 
-  it("reviews saved planning items and does not expose booking submission", async () => {
+  it("reviews saved packages and removes them from the list", async () => {
     addCustomerEventListItem(packageItem);
     render(<CustomerEventListReview />);
-    expect(screen.getByRole("heading", {name: "Review Event List"})).toBeVisible();
-    expect(screen.getByText("Garden Celebration")).toBeVisible();
-    expect(screen.getByRole("link", {name: "View package"})).toHaveAttribute(
+    expect(screen.getByRole("heading", {name: "Review List"})).toBeVisible();
+    expect(screen.getByRole("link", {name: "Garden Celebration"})).toHaveAttribute(
       "href",
       "/customer/packages/package-one",
     );
-    expect(screen.getByText(/This saved snapshot does not choose them/u)).toBeVisible();
-    expect(screen.queryByRole("button", {name: /submit booking|continue to submit/iu})).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", {name: "Continue to Submit Booking"})).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByLabelText("Event date"), {target: {value: "2026-12-12"}});
-    fireEvent.change(screen.getByLabelText("Start time"), {target: {value: "10:00"}});
-    fireEvent.click(screen.getByRole("button", {name: "Save event context"}));
-    await waitFor(() => expect(readCustomerEventListSchedule()).toMatchObject({
-      eventDate: "2026-12-12",
-      eventTime: "10:00",
-    }));
-
-    fireEvent.click(screen.getByRole("button", {name: "Remove"}));
+    fireEvent.click(screen.getByRole("button", {name: "Remove Garden Celebration from Event List"}));
     await waitFor(() => expect(readCustomerEventList()).toEqual([]));
-    expect(screen.getByText("Your Event List is empty.")).toBeVisible();
+    expect(screen.getByText("Your Event List is empty")).toBeVisible();
   });
 
   it("shows a saved package as already added", () => {
@@ -318,7 +306,7 @@ describe("customer event list planning UI", () => {
     expect(screen.getByRole("button", {name: "Added to List"})).toBeDisabled();
   });
 
-  it("keeps event-list modules free of booking and payment submission", () => {
+  it("submits custom-menu bookings only from review and only after refund acknowledgement", () => {
     const root = join(process.cwd(), "src");
     const sources = [
       "lib/customer/event-list/customer-event-list.ts",
@@ -329,9 +317,25 @@ describe("customer event list planning UI", () => {
       "app/customer/event-list/review/page.tsx",
     ].map((relative) => readFileSync(join(root, relative), "utf8")).join("\n");
 
-    expect(sources).not.toMatch(/submitBookingRequest|submitCustomerBookingRequest|createPaymentSession/u);
-    expect(readFileSync(join(root, "components/customer/event-list/customer-event-list-menu.tsx"), "utf8"))
-      .toContain("not a confirmed booking");
+    const reviewSource = readFileSync(
+      join(root, "components/customer/event-list/customer-event-list-review.tsx"),
+      "utf8",
+    );
+    const otherSources = [
+      "lib/customer/event-list/customer-event-list.ts",
+      "components/customer/event-list/customer-event-list-menu.tsx",
+      "components/customer/event-list/add-to-event-list-button.tsx",
+      "components/customer/event-list/package-event-list-action.tsx",
+      "app/customer/event-list/review/page.tsx",
+    ].map((relative) => readFileSync(join(root, relative), "utf8")).join("\n");
+
+    expect(reviewSource).toContain("submitCustomerBookingRequest");
+    expect(reviewSource).toContain(
+      "Review and acknowledge the Provider refund policy before submitting.",
+    );
+    expect(reviewSource).not.toMatch(/createPaymentSession/u);
+    expect(otherSources).not.toMatch(/submitBookingRequest|submitCustomerBookingRequest|createPaymentSession/u);
+    expect(sources).toContain("Event List");
   });
 
   it("removes a planned item from the menu", async () => {

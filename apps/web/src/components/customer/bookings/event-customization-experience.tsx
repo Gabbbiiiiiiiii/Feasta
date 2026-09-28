@@ -48,7 +48,7 @@ import {
 import {
   bookingSubmissionRequiresRefundPolicyRefresh,
   submitCustomerBookingRequest,
-  type SubmitBookingRequestInput,
+  type SubmitPackageBookingRequestInput,
   type SubmitBookingRequestResult,
 } from "@/lib/customer/bookings/customer-booking-submission-client";
 import {
@@ -613,8 +613,8 @@ function continueFromEventServices() {
 
 function buildSubmissionInput(
   clientRequestId: string,
-  policyAcknowledgements: SubmitBookingRequestInput["policyAcknowledgements"],
-): SubmitBookingRequestInput {
+  policyAcknowledgements: SubmitPackageBookingRequestInput["policyAcknowledgements"],
+): SubmitPackageBookingRequestInput {
   const eventType =
     packageRecord.eventType?.trim();
 

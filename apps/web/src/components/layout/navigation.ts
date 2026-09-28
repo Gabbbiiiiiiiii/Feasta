@@ -213,17 +213,17 @@ const providerLinkedRestrictedNavigation: readonly NavigationItem[] = [
 
 const adminNavigation: readonly NavigationItem[] = [
   {kind: "link", section: "Overview", label: "Dashboard", href: "/admin", icon: LayoutDashboard},
-  {kind: "link", section: "Platform Operations", label: "Users", href: "/admin/users", icon: Users},
-  {kind: "link", section: "Platform Operations", label: "Provider Verification", href: "/admin/providers", icon: ShieldCheck},
-  {kind: "link", section: "Platform Operations", label: "Bookings", href: "/admin/bookings", icon: CalendarDays},
-  {kind: "link", section: "Platform Operations", label: "Payments", href: "/admin/payments", icon: CreditCard},
-  {kind: "link", section: "Trust & Communications", label: "Reviews", href: "/admin/reviews", icon: MessageSquareText},
-  {kind: "link", section: "Trust & Communications", label: "Complaints", href: "/admin/complaints", icon: MessageSquareWarning},
-  {kind: "link", section: "Trust & Communications", label: "Announcements", href: "/admin/announcements", icon: Megaphone},
-  {kind: "link", section: "System & Insights", label: "Reports", href: "/admin/reports", icon: ChartNoAxesCombined},
-  {kind: "link", section: "System & Insights", label: "Audit Logs", href: "/admin/audit-logs", icon: ScrollText},
-  {kind: "link", section: "System & Insights", label: "File Maintenance", href: "/admin/file-maintenance", icon: FolderCog},
-  {kind: "link", section: "System & Insights", label: "Settings", href: "/admin/settings", icon: Settings2},
+  {kind: "link", section: "People", label: "Users", href: "/admin/users", icon: Users},
+  {kind: "link", section: "People", label: "Provider Verification", href: "/admin/providers", icon: ShieldCheck},
+  {kind: "link", section: "Transactions", label: "Bookings", href: "/admin/bookings", icon: CalendarDays},
+  {kind: "link", section: "Transactions", label: "Payments", href: "/admin/payments", icon: CreditCard},
+  {kind: "link", section: "Support", label: "Reviews", href: "/admin/reviews", icon: MessageSquareText},
+  {kind: "link", section: "Support", label: "Complaints", href: "/admin/complaints", icon: MessageSquareWarning},
+  {kind: "link", section: "Support", label: "Announcements", href: "/admin/announcements", icon: Megaphone},
+  {kind: "link", section: "System", label: "Reports", href: "/admin/reports", icon: ChartNoAxesCombined},
+  {kind: "link", section: "System", label: "Audit Logs", href: "/admin/audit-logs", icon: ScrollText},
+  {kind: "link", section: "System", label: "File Maintenance", href: "/admin/file-maintenance", icon: FolderCog},
+  {kind: "link", section: "System", label: "Settings", href: "/admin/settings", icon: Settings2},
 ];
 
 /** Static navigation for callers without provider context. */
