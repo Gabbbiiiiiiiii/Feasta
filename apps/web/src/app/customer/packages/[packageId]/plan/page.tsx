@@ -3,6 +3,7 @@ import {EventCustomizationExperience} from "@/components/customer/bookings/event
 import {getOptionalAccountContext} from "@/lib/auth/session";
 import {getPublicPackageDetail} from "@/lib/customer/discovery/package-detail-service";
 import {getPublicEventServices} from "@/lib/customer/discovery/event-service-discovery-service";
+import {readPublishedProviderSetups} from "@/lib/provider/provider-setup-gallery-service";
 import {customerEventContextQuery, parseCustomerEventContext} from "@/lib/customer/planning/event-planning-context";
 
 export default async function CustomerPackagePlanPage({params, searchParams}: {
@@ -17,7 +18,11 @@ export default async function CustomerPackagePlanPage({params, searchParams}: {
   }
   const detail = await getPublicPackageDetail(packageId);
   if (!detail) notFound();
-  const services = await getPublicEventServices(detail.provider.id);
+  const [services, publishedSetups] = await Promise.all([
+    getPublicEventServices(detail.provider.id),
+    readPublishedProviderSetups(detail.provider.id),
+  ]);
   return <EventCustomizationExperience key={`${packageId}:${contextQuery}`} detail={detail}
-    eventServices={services.services} initialEventContext={context} draftOwner="guest" planningOnly />;
+    eventServices={services.services} initialEventContext={context} draftOwner="guest" planningOnly
+    publishedSetups={publishedSetups} />;
 }

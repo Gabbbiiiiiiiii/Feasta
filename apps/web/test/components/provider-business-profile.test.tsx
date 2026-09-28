@@ -65,6 +65,7 @@ function profile(
       url: "https://res.cloudinary.com/demo/image/upload/v1/feasta/providers/owner-one/onboarding/cover.jpg",
       publicId: "feasta/providers/owner-one/onboarding/cover",
     },
+    businessRegistrationType: "individual",
     updatedAt: "2026-08-22T01:00:00.000Z",
     ...overrides,
   };
@@ -129,6 +130,9 @@ describe("provider Business Profile workspace", () => {
       .not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", {name: "Service categories"}))
       .not.toBeInTheDocument();
+    expect(screen.getByText("Individual / freelance provider")).toBeVisible();
+    expect(screen.queryByRole("radio", {name: /Individual \/ freelance provider/i}))
+      .not.toBeInTheDocument();
     expect(container.firstElementChild).toHaveClass("min-w-0");
     expect(screen.getByText(/read-only here/i)).toBeVisible();
   });
@@ -159,6 +163,61 @@ describe("provider Business Profile workspace", () => {
     expect(await screen.findByText("Business profile saved.")).toBeVisible();
     expect(save).toBeDisabled();
     expect(mocks.refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires a legacy provider to choose a registration type before saving", async () => {
+    const user = userEvent.setup();
+    render(<ProviderBusinessProfileClient initialProfile={profile({
+      businessRegistrationType: null,
+    })} />);
+    const individual = screen.getByRole("radio", {
+      name: /Individual \/ freelance provider/i,
+    });
+    const registered = screen.getByRole("radio", {
+      name: /Registered business \/ organization/i,
+    });
+    expect(individual).not.toBeChecked();
+    expect(registered).not.toBeChecked();
+    expect(screen.getByText(
+      "Select how your business is legally registered. This is required before payout setup.",
+    )).toBeVisible();
+
+    const city = screen.getByLabelText(/^City/i);
+    await user.clear(city);
+    await user.type(city, "Tacloban City");
+    await user.click(screen.getByRole("button", {name: "Save Business Profile"}));
+    expect(await screen.findByText(
+      "Select how your business is legally registered.",
+    )).toBeVisible();
+    expect(mocks.update).not.toHaveBeenCalled();
+
+    await user.click(individual);
+    await user.click(screen.getByRole("button", {name: "Save Business Profile"}));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({
+      city: "Tacloban City",
+      businessRegistrationType: "individual",
+    }));
+    expect(screen.queryByRole("radio", {name: /Individual \/ freelance provider/i}))
+      .not.toBeInTheDocument();
+    expect(screen.getByText("Individual / freelance provider")).toBeVisible();
+  });
+
+  it("saves registered business for a legacy provider without preselecting it", async () => {
+    const user = userEvent.setup();
+    render(<ProviderBusinessProfileClient initialProfile={profile({
+      businessRegistrationType: null,
+    })} />);
+    const registered = screen.getByRole("radio", {
+      name: /Registered business \/ organization/i,
+    });
+    expect(registered).not.toBeChecked();
+    await user.click(registered);
+    await user.click(screen.getByRole("button", {name: "Save Business Profile"}));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith({
+      businessRegistrationType: "registered_business",
+    }));
+    expect(screen.getByText("Registered business / organization")).toBeVisible();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
   });
 
   it("preserves user input and announces a normalized failure", async () => {

@@ -60,9 +60,9 @@ describe("public landing event discovery", () => {
 
   it("opens the general Provider marketplace when no filters are selected", () => {
     render(<StartYourEventForm />);
-    fireEvent.click(screen.getByRole("button", {name: "Explore"}));
+    fireEvent.click(screen.getByRole("button", {name: "Book Now"}));
     expect(mocks.push).toHaveBeenCalledWith("/customer/providers");
-    expect(screen.getByRole("button", {name: "Explore"}).closest("form")).toHaveAttribute("action", "/customer/providers");
+    expect(screen.getByRole("button", {name: "Book Now"}).closest("form")).toHaveAttribute("action", "/customer/providers");
   });
 
   it("hands off only non-empty event type and guest context", () => {
@@ -73,7 +73,7 @@ describe("public landing event discovery", () => {
     fireEvent.change(screen.getByLabelText("Guests"), {
       target: {value: "50"},
     });
-    fireEvent.click(screen.getByRole("button", {name: "Explore"}));
+    fireEvent.click(screen.getByRole("button", {name: "Book Now"}));
     expect(mocks.push).toHaveBeenCalledWith(
       "/customer/providers?eventType=birthday&guestCount=50",
     );
@@ -84,7 +84,7 @@ describe("public landing event discovery", () => {
     fireEvent.change(screen.getByLabelText("Guests"), {
       target: {value: "0"},
     });
-    const form = screen.getByRole("button", {name: "Explore"}).closest("form");
+    const form = screen.getByRole("button", {name: "Book Now"}).closest("form");
     if (!form) throw new Error("Expected the Start Your Event form.");
     fireEvent.submit(form);
     expect(screen.getByText(/whole number from 1/iu)).toBeVisible();
@@ -103,7 +103,7 @@ describe("public landing event discovery", () => {
     await waitFor(() => expect(
       document.querySelector('input[name="eventVenuePlaceId"]'),
     ).toHaveValue(venueQuery.eventVenuePlaceId));
-    fireEvent.click(screen.getByRole("button", {name: "Explore"}));
+    fireEvent.click(screen.getByRole("button", {name: "Book Now"}));
 
     const href = mocks.push.mock.calls.at(-1)?.[0] as string;
     const url = new URL(href, "https://feasta.test");
@@ -130,7 +130,7 @@ describe("public landing event discovery", () => {
       document.querySelector('input[name="eventVenuePlaceId"]'),
     ).toHaveValue(venueQuery.eventVenuePlaceId));
     fireEvent.click(screen.getByRole("button", {name: "Clear event venue"}));
-    fireEvent.click(screen.getByRole("button", {name: "Explore"}));
+    fireEvent.click(screen.getByRole("button", {name: "Book Now"}));
     expect(mocks.push).toHaveBeenLastCalledWith("/customer/providers");
   });
 
@@ -146,7 +146,7 @@ describe("public landing event discovery", () => {
       target: {value: "Unknown venue"},
     });
     expect(await screen.findByText(/temporarily unavailable/iu)).toBeVisible();
-    fireEvent.click(screen.getByRole("button", {name: "Explore"}));
+    fireEvent.click(screen.getByRole("button", {name: "Book Now"}));
     expect(mocks.push).toHaveBeenLastCalledWith(
       "/customer/providers?eventType=wedding",
     );
@@ -196,7 +196,7 @@ describe("public landing event discovery", () => {
 
   it("keeps the marketing page and opens public marketplace routes from its entry links", async () => {
     render(await HomePage());
-    expect(screen.getByRole("button", {name: "Explore"})).toBeVisible();
+    expect(screen.getByRole("button", {name: "Book Now"})).toBeVisible();
     expect(screen.getAllByRole("link", {name: /How It Works/i}).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", {name: /About/i}).length).toBeGreaterThan(0);
     expect(screen.getByRole("link", {name: "Browse Providers"})).toHaveAttribute("href", "/customer/providers");

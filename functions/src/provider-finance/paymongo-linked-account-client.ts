@@ -44,12 +44,33 @@ export type PayMongoLinkedAccountRelationship = {
     string;
 };
 
+export type PayMongoIdentityVerificationStatus =
+  | "pending"
+  | "processing"
+  | "for_review"
+  | "passed"
+  | "passed_attestation_form"
+  | "passed_kyc_reliance"
+  | "failed";
+
 export type PayMongoLinkedAccount = {
   accountId: string;
   accountType:
     PayMongoLinkedAccountType;
   activationStatus:
     PayMongoAccountActivationStatus;
+  identityVerificationStatus:
+    PayMongoIdentityVerificationStatus |
+    null;
+  relationshipId:
+    string | null;
+  legalIdentityPresent:
+    boolean;
+};
+
+export type PayMongoIdentityVerificationSession = {
+  verificationId: string;
+  hostedUrl: string;
 };
 
 export class PayMongoLinkedAccountRequestError
@@ -61,6 +82,9 @@ export class PayMongoLinkedAccountRequestError
   readonly statusCode:
     number | null;
 
+  readonly missingPointers:
+    readonly string[];
+
   constructor(
     message: string,
     certainty:
@@ -68,6 +92,8 @@ export class PayMongoLinkedAccountRequestError
       "ambiguous",
     statusCode:
       number | null,
+    missingPointers:
+      readonly string[] = [],
   ) {
     super(message);
 
@@ -79,6 +105,9 @@ export class PayMongoLinkedAccountRequestError
 
     this.statusCode =
       statusCode;
+
+    this.missingPointers =
+      missingPointers;
   }
 }
 
@@ -205,6 +234,161 @@ export async function retrievePayMongoLinkedAccount(
   ) {
     throw new PayMongoLinkedAccountRequestError(
       "PayMongo linked-account identity is inconsistent.",
+      "ambiguous",
+      null,
+    );
+  }
+
+  return account;
+}
+
+export async function createPayMongoChildAccount(
+  input: {
+    secretKey: string;
+    accountType:
+      PayMongoLinkedAccountType;
+    emailAddress: string;
+    mobileNumber: string;
+  },
+): Promise<PayMongoLinkedAccount> {
+  const response =
+    await payMongoLinkedAccountRequest(
+      input.secretKey,
+      "/v2/accounts",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          type: input.accountType,
+          person: {
+            email_address:
+              normalizeEmail(
+                input.emailAddress,
+              ),
+            mobile_number:
+              requireMobileNumber(
+                input.mobileNumber,
+              ),
+          },
+        }),
+      },
+    );
+
+  const account =
+    parsePayMongoLinkedAccountResource(
+      response,
+    );
+
+  if (
+    account.accountType !==
+      input.accountType
+  ) {
+    throw new PayMongoLinkedAccountRequestError(
+      "PayMongo child-account type is inconsistent.",
+      "ambiguous",
+      null,
+    );
+  }
+
+  return account;
+}
+
+export async function createPayMongoIdentityVerificationSession(
+  input: {
+    secretKey: string;
+    accountId: string;
+  },
+): Promise<PayMongoIdentityVerificationSession> {
+  const accountId =
+    requireAccountId(
+      input.accountId,
+    );
+
+  const response =
+    await payMongoLinkedAccountRequest(
+      input.secretKey,
+      `/v2/accounts/${encodeURIComponent(accountId)}/identity_verification`,
+      {
+        method: "POST",
+      },
+    );
+
+  return parsePayMongoIdentityVerificationSession(
+    response,
+    accountId,
+  );
+}
+
+export async function updatePayMongoChildAccount(
+  input: {
+    secretKey: string;
+    accountId: string;
+    body: {
+      person: Record<string, unknown>;
+      business?: Record<string, unknown>;
+    };
+  },
+): Promise<PayMongoLinkedAccount> {
+  const accountId =
+    requireAccountId(
+      input.accountId,
+    );
+
+  const response =
+    await payMongoLinkedAccountRequest(
+      input.secretKey,
+      `/v2/accounts/${encodeURIComponent(accountId)}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(
+          input.body,
+        ),
+      },
+    );
+
+  const account =
+    parsePayMongoLinkedAccountResource(
+      response,
+    );
+
+  if (account.accountId !== accountId) {
+    throw new PayMongoLinkedAccountRequestError(
+      "PayMongo child-account identity is inconsistent.",
+      "ambiguous",
+      null,
+    );
+  }
+
+  return account;
+}
+
+export async function activatePayMongoChildAccount(
+  input: {
+    secretKey: string;
+    accountId: string;
+  },
+): Promise<PayMongoLinkedAccount> {
+  const accountId =
+    requireAccountId(
+      input.accountId,
+    );
+
+  const response =
+    await payMongoLinkedAccountRequest(
+      input.secretKey,
+      `/v2/accounts/${encodeURIComponent(accountId)}/activate`,
+      {
+        method: "POST",
+      },
+    );
+
+  const account =
+    parsePayMongoLinkedAccountResource(
+      response,
+    );
+
+  if (account.accountId !== accountId) {
+    throw new PayMongoLinkedAccountRequestError(
+      "PayMongo child-account identity is inconsistent.",
       "ambiguous",
       null,
     );
@@ -494,6 +678,20 @@ export function parsePayMongoLinkedAccountResource(
    * bank account numbers. FEASTA does not return
    * or persist those fields.
    */
+  const person =
+    data.person &&
+    typeof data.person === "object" &&
+    !Array.isArray(data.person)
+      ? data.person as Record<string, unknown>
+      : null;
+
+  const relationship =
+    data.relationship &&
+    typeof data.relationship === "object" &&
+    !Array.isArray(data.relationship)
+      ? data.relationship as Record<string, unknown>
+      : null;
+
   return {
     accountId:
       requireAccountId(
@@ -508,6 +706,71 @@ export function parsePayMongoLinkedAccountResource(
     activationStatus:
       parseActivationStatus(
         data.activation_status,
+      ),
+
+    identityVerificationStatus:
+      person
+        ? parseOptionalIdentityStatus(
+          person.identity_verification_status,
+        )
+        : null,
+
+    relationshipId:
+      relationship
+        ? optionalRelationshipId(
+          relationship.id,
+        )
+        : null,
+
+    legalIdentityPresent:
+      legalIdentityIsPresent(
+        person,
+      ),
+  };
+}
+
+export function parsePayMongoIdentityVerificationSession(
+  value: unknown,
+  expectedAccountId: string,
+): PayMongoIdentityVerificationSession {
+  const data =
+    unwrapDataRecord(
+      value,
+    );
+
+  const attributes =
+    data.attributes &&
+    typeof data.attributes === "object" &&
+    !Array.isArray(data.attributes)
+      ? data.attributes as Record<string, unknown>
+      : null;
+
+  const accountId =
+    optionalExternalId(
+      data.account_id,
+    );
+
+  if (
+    accountId &&
+    accountId !== expectedAccountId
+  ) {
+    throw invalidResponse(
+      "PayMongo identity-verification account is inconsistent.",
+    );
+  }
+
+  return {
+    verificationId:
+      requireVerificationId(
+        data.id,
+      ),
+
+    hostedUrl:
+      requireHostedVerificationUrl(
+        data.url ??
+        data.hosted_url ??
+        attributes?.hosted_url ??
+        attributes?.url,
       ),
   };
 }
@@ -728,7 +991,13 @@ async function payMongoLinkedAccountRequest(
     /*
      * Never expose or log the PayMongo response
      * body. It may contain account/person data.
+     * Field pointers are safe category names.
      */
+    const missingPointers =
+      await readMissingPointers(
+        response,
+      );
+
     const rejected =
       response.status >= 400 &&
       response.status < 500 &&
@@ -743,6 +1012,7 @@ async function payMongoLinkedAccountRequest(
         ? "gateway_rejected"
         : "ambiguous",
       response.status,
+      missingPointers,
     );
   }
 
@@ -788,6 +1058,168 @@ function parseInvitationStatus(
   throw invalidResponse(
     "PayMongo invitation status is invalid.",
   );
+}
+
+function parseOptionalIdentityStatus(
+  value: unknown,
+): PayMongoIdentityVerificationStatus | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (
+    value === "pending" ||
+    value === "processing" ||
+    value === "for_review" ||
+    value === "passed" ||
+    value === "passed_attestation_form" ||
+    value === "passed_kyc_reliance" ||
+    value === "failed"
+  ) {
+    return value;
+  }
+
+  throw invalidResponse(
+    "PayMongo identity verification status is invalid.",
+  );
+}
+
+function legalIdentityIsPresent(
+  person: Record<string, unknown> | null,
+): boolean {
+  if (!person) return false;
+  const birth =
+    person.date_of_birth &&
+    typeof person.date_of_birth === "object" &&
+    !Array.isArray(person.date_of_birth)
+      ? person.date_of_birth as Record<string, unknown>
+      : null;
+
+  return (
+    nonEmpty(person.first_name) &&
+    nonEmpty(person.last_name) &&
+    typeof birth?.day === "number" &&
+    typeof birth.month === "number" &&
+    typeof birth.year === "number"
+  );
+}
+
+function nonEmpty(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function optionalRelationshipId(
+  value: unknown,
+): string | null {
+  if (value === undefined || value === null) return null;
+  if (
+    typeof value !== "string" ||
+    !/^mr_[A-Za-z0-9]+$/u.test(value)
+  ) {
+    throw invalidResponse(
+      "PayMongo relationship ID is invalid.",
+    );
+  }
+  return value;
+}
+
+function requireVerificationId(
+  value: unknown,
+): string {
+  if (
+    typeof value !== "string" ||
+    !/^verif_[A-Za-z0-9]+$/u.test(value)
+  ) {
+    throw invalidResponse(
+      "PayMongo identity-verification ID is invalid.",
+    );
+  }
+  return value;
+}
+
+function requireHostedVerificationUrl(
+  value: unknown,
+): string {
+  if (typeof value !== "string") {
+    throw invalidResponse(
+      "PayMongo identity-verification URL is invalid.",
+    );
+  }
+
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw invalidResponse(
+      "PayMongo identity-verification URL is invalid.",
+    );
+  }
+
+  const host = url.hostname.toLowerCase();
+  if (
+    url.protocol !== "https:" ||
+    (
+      host !== "paymongo.com" &&
+      !host.endsWith(".paymongo.com")
+    )
+  ) {
+    throw invalidResponse(
+      "PayMongo identity-verification URL is invalid.",
+    );
+  }
+
+  return url.toString();
+}
+
+function requireMobileNumber(
+  value: unknown,
+): string {
+  if (
+    typeof value !== "string" ||
+    !/^\+[1-9]\d{4,15}$/u.test(value)
+  ) {
+    throw invalidResponse(
+      "PayMongo mobile number is invalid.",
+    );
+  }
+  return value;
+}
+
+async function readMissingPointers(
+  response: Response,
+): Promise<string[]> {
+  try {
+    const body: unknown = await response.json();
+    if (
+      !body ||
+      typeof body !== "object" ||
+      !("errors" in body) ||
+      !Array.isArray(body.errors)
+    ) {
+      return [];
+    }
+
+    const pointers: string[] = [];
+    for (const error of body.errors) {
+      if (!error || typeof error !== "object") continue;
+      const source =
+        "source" in error &&
+        error.source &&
+        typeof error.source === "object"
+          ? error.source as Record<string, unknown>
+          : null;
+      const pointer = source?.pointer;
+      if (
+        typeof pointer === "string" &&
+        /^[A-Za-z0-9_./]{1,120}$/u.test(pointer)
+      ) {
+        pointers.push(pointer);
+      }
+    }
+    return pointers;
+  } catch {
+    return [];
+  }
 }
 
 function parseActivationStatus(

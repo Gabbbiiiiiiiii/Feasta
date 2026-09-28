@@ -31,11 +31,38 @@ export const PACKAGE_PAYMENT_POLICIES = [
 export type PackagePaymentPolicy =
   (typeof PACKAGE_PAYMENT_POLICIES)[number];
 
+export const CATERING_PACKAGE_SERVICE_TIERS = [
+  "drop_off",
+  "buffet_setup",
+  "full_service",
+] as const;
+
+export type CateringPackageServiceTier =
+  (typeof CATERING_PACKAGE_SERVICE_TIERS)[number];
+
+export type PackageServiceOption = {
+  price: number;
+  includedServices: readonly string[];
+};
+
+export type PackageServiceOptions = Partial<
+  Record<CateringPackageServiceTier, PackageServiceOption>
+>;
+
+export type PackageThemeOption = {
+  id: string;
+  name: string;
+  description: string;
+  imageUrls: readonly string[];
+};
+
 export type PackageInput = {
   name: string;
   description: string;
   eventType: string;
   price: number;
+  serviceOptions: PackageServiceOptions;
+  themeOptions: readonly PackageThemeOption[];
 
   paymentPolicy:
     PackagePaymentPolicy | null;
@@ -84,6 +111,10 @@ const MAX_PACKAGE_DESCRIPTION_LENGTH = 2000;
 const MAX_IMAGE_URL_LENGTH = 2048;
 const MAX_INCLUSION_LENGTH = 160;
 const MAX_INCLUSIONS_PER_GROUP = 50;
+const MAX_THEME_OPTIONS = 12;
+const MAX_THEME_IMAGES = 4;
+const MAX_THEME_NAME_LENGTH = 80;
+const MAX_THEME_DESCRIPTION_LENGTH = 500;
 
 const MAX_PACKAGE_PRICE = 10_000_000;
 const MAX_GUEST_COUNT = 100_000;
@@ -300,6 +331,48 @@ export function parsePackageInput(
     "Package price",
   );
 
+  const serviceOptions =
+    parsePackageServiceOptions(
+      data.serviceOptions,
+    );
+
+  const themeOptions =
+    parsePackageThemeOptions(
+      data.themeOptions,
+    );
+
+  const serviceOptionPrices =
+    Object.values(serviceOptions).flatMap(
+      (option) =>
+        option ? [option.price] : [],
+    );
+
+  if (serviceOptionPrices.length > 0) {
+    const startingPrice =
+      Math.min(...serviceOptionPrices);
+
+    if (price !== startingPrice) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Package price must equal the lowest enabled service-option price.",
+      );
+    }
+
+    const supportsThemes =
+      serviceOptions.buffet_setup !== undefined ||
+      serviceOptions.full_service !== undefined;
+
+    if (
+      themeOptions.length > 0 &&
+      !supportsThemes
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Theme options require Buffet Setup or Full-Service Catering.",
+      );
+    }
+  }
+
   const paymentTerms =
     parsePackagePaymentTerms(
       data,
@@ -347,6 +420,8 @@ export function parsePackageInput(
     description,
     eventType,
     price,
+    serviceOptions,
+    themeOptions,
 
     ...paymentTerms,
 
@@ -391,6 +466,21 @@ export function assertCanonicalPackagePaymentTerms(
     throw new HttpsError(
       "invalid-argument",
       "New and edited packages must use Full Payment.",
+    );
+  }
+}
+
+export function assertPackageOfferConfigured(
+  packageInput: PackageInput,
+): void {
+  if (
+    Object.keys(
+      packageInput.serviceOptions,
+    ).length === 0
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Enable at least one catering service tier.",
     );
   }
 }
@@ -643,6 +733,226 @@ function normalizeMoney(
   return Math.round(
     (value + Number.EPSILON) * 100,
   ) / 100;
+}
+
+function parsePackageServiceOptions(
+  value: unknown,
+): PackageServiceOptions {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return {};
+  }
+
+  if (
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Package service options are invalid.",
+    );
+  }
+
+  const data =
+    value as Record<string, unknown>;
+  const allowed = new Set<string>(
+    CATERING_PACKAGE_SERVICE_TIERS,
+  );
+
+  if (
+    Object.keys(data).some(
+      (key) => !allowed.has(key),
+    )
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Package service options contain an unsupported tier.",
+    );
+  }
+
+  const result: PackageServiceOptions = {};
+
+  for (
+    const tier of
+      CATERING_PACKAGE_SERVICE_TIERS
+  ) {
+    const raw = data[tier];
+    if (raw === undefined) {
+      continue;
+    }
+
+    if (
+      !raw ||
+      typeof raw !== "object" ||
+      Array.isArray(raw)
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        `${tier} service option is invalid.`,
+      );
+    }
+
+    const option =
+      raw as Record<string, unknown>;
+
+    if (
+      Object.keys(option).some(
+        (key) =>
+          key !== "price" &&
+          key !== "includedServices",
+      )
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        `${tier} service option contains unsupported fields.`,
+      );
+    }
+
+    result[tier] = {
+      price: requiredPreciseMoney(
+        option.price,
+        `${tier} price`,
+      ),
+      includedServices: inclusionArray(
+        option.includedServices,
+        `${tier} included services`,
+      ),
+    };
+  }
+
+  return result;
+}
+
+function parsePackageThemeOptions(
+  value: unknown,
+): PackageThemeOption[] {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return [];
+  }
+
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_THEME_OPTIONS
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Choose at most ${MAX_THEME_OPTIONS} theme options.`,
+    );
+  }
+
+  const ids = new Set<string>();
+
+  return value.map((raw, index) => {
+    if (
+      !raw ||
+      typeof raw !== "object" ||
+      Array.isArray(raw)
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        `Theme option ${index + 1} is invalid.`,
+      );
+    }
+
+    const theme =
+      raw as Record<string, unknown>;
+
+    if (
+      Object.keys(theme).some(
+        (key) =>
+          key !== "id" &&
+          key !== "name" &&
+          key !== "description" &&
+          key !== "imageUrls",
+      )
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        `Theme option ${index + 1} contains unsupported fields.`,
+      );
+    }
+
+    const id = requiredString(
+      theme.id,
+      `Theme option ${index + 1} ID`,
+      2,
+      80,
+    );
+
+    if (
+      !/^[A-Za-z0-9_-]+$/u.test(id)
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        `Theme option ${index + 1} ID is invalid.`,
+      );
+    }
+
+    if (ids.has(id)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Theme option IDs must be unique.",
+      );
+    }
+    ids.add(id);
+
+    const name = requiredString(
+      theme.name,
+      `Theme option ${index + 1} name`,
+      2,
+      MAX_THEME_NAME_LENGTH,
+    );
+
+    const description = optionalString(
+      theme.description,
+      `${name} description`,
+      MAX_THEME_DESCRIPTION_LENGTH,
+    ).replace(/\s+/gu, " ");
+
+    const imageUrls =
+      parsePackageImageUrls(
+        theme.imageUrls,
+        MAX_THEME_IMAGES,
+        `${name} theme images`,
+      ) ?? [];
+
+    return {
+      id,
+      name,
+      description,
+      imageUrls,
+    };
+  });
+}
+
+function requiredPreciseMoney(
+  value: unknown,
+  label: string,
+): number {
+  const money = requiredMoney(
+    value,
+    label,
+  );
+
+  if (
+    typeof value !== "number" ||
+    Math.abs(
+      value * 100 -
+      Math.round(value * 100),
+    ) > 1e-8
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} must use at most two decimal places.`,
+    );
+  }
+
+  return money;
 }
 
 function parsePackagePaymentTerms(
@@ -957,10 +1267,17 @@ function stringValue(
     value.trim() :
     "";
 }
-export function parsePackageImageUrls(value: unknown): string[] | undefined {
+export function parsePackageImageUrls(
+  value: unknown,
+  maximumImages = 8,
+  label = "package images",
+): string[] | undefined {
   if (value === undefined) return undefined;
-  if (!Array.isArray(value) || value.length > 8) {
-    throw new HttpsError("invalid-argument", "Choose at most 8 package images.");
+  if (!Array.isArray(value) || value.length > maximumImages) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Choose at most ${maximumImages} ${label}.`,
+    );
   }
   return value.map((entry) => {
     if (typeof entry !== "string" || entry.length > MAX_IMAGE_URL_LENGTH) {
@@ -982,12 +1299,48 @@ export async function verifyPackageImages(
   ownerId: string,
   previous: Readonly<Record<string, unknown>> = {},
 ): Promise<void> {
+  const previousThemeImages =
+    Array.isArray(previous.themeOptions)
+      ? previous.themeOptions.flatMap(
+          (raw) => {
+            if (
+              !raw ||
+              typeof raw !== "object" ||
+              Array.isArray(raw)
+            ) {
+              return [];
+            }
+
+            const imageUrls =
+              (raw as Record<string, unknown>)
+                .imageUrls;
+
+            return Array.isArray(imageUrls)
+              ? imageUrls.filter(
+                  (url): url is string =>
+                    typeof url === "string",
+                )
+              : [];
+          },
+        )
+      : [];
+
   const retained = new Set([
     ...(Array.isArray(previous.imageUrls) ? previous.imageUrls : []),
     previous.imageUrl,
+    ...previousThemeImages,
   ]);
   const images = input.imageUrls ?? (input.imageUrl ? [input.imageUrl] : []);
-  await Promise.all(images.map(async (url) => {
+  const themeImages =
+    Array.isArray(input.themeOptions)
+      ? input.themeOptions.flatMap(
+          (theme) =>
+            Array.isArray(theme.imageUrls)
+              ? [...theme.imageUrls]
+              : [],
+        )
+      : [];
+  await Promise.all([...images, ...themeImages].map(async (url) => {
     if (retained.has(url)) return;
     // Legacy callers must pass the same checks for newly supplied assets.
     parsePackageImageUrls([url]);

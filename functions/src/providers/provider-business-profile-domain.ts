@@ -1,10 +1,19 @@
 import {HttpsError} from "firebase-functions/v2/https";
 
 import {
+  requireEnum,
   requireObject,
   requirePhilippinePhone,
   requireString,
 } from "../shared/validation.js";
+
+export const PROVIDER_BUSINESS_REGISTRATION_TYPES = [
+  "individual",
+  "registered_business",
+] as const;
+
+export type ProviderBusinessRegistrationType =
+  (typeof PROVIDER_BUSINESS_REGISTRATION_TYPES)[number];
 
 export const PROVIDER_BUSINESS_PROFILE_EDITABLE_FIELDS = [
   "businessPhone",
@@ -14,6 +23,7 @@ export const PROVIDER_BUSINESS_PROFILE_EDITABLE_FIELDS = [
   "province",
   "logo",
   "coverImage",
+  "businessRegistrationType",
 ] as const;
 
 export type ProviderBusinessMediaUpdate = {
@@ -29,7 +39,60 @@ export type ValidatedProviderBusinessProfileUpdate = {
   province?: string;
   logo?: ProviderBusinessMediaUpdate | null;
   coverImage?: ProviderBusinessMediaUpdate | null;
+  businessRegistrationType?: ProviderBusinessRegistrationType;
 };
+
+export function storedBusinessRegistrationType(
+  value: unknown,
+): ProviderBusinessRegistrationType | null {
+  return value === "individual" || value === "registered_business" ?
+    value :
+    null;
+}
+
+/**
+ * One-time legacy backfill. A missing registration type may be set once.
+ * A stored type is preserved, including when a payout account already exists.
+ */
+export function resolveLegacyBusinessRegistrationBackfill(input: {
+  actorUid: string;
+  providerOwnerId: unknown;
+  storedBusinessRegistrationType: unknown;
+  submittedBusinessRegistrationType: ProviderBusinessRegistrationType;
+  paymentAccountExists: boolean;
+}): ProviderBusinessRegistrationType | null {
+  if (
+    typeof input.providerOwnerId !== "string" ||
+    input.providerOwnerId !== input.actorUid
+  ) {
+    throw new HttpsError(
+      "permission-denied",
+      "Provider business profile ownership could not be verified.",
+    );
+  }
+
+  const stored = storedBusinessRegistrationType(
+    input.storedBusinessRegistrationType,
+  );
+  if (stored) {
+    if (stored !== input.submittedBusinessRegistrationType) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Business registration status cannot be changed from Business Profile.",
+      );
+    }
+    return null;
+  }
+
+  if (input.paymentAccountExists) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Business registration status cannot be changed after payout setup has started.",
+    );
+  }
+
+  return input.submittedBusinessRegistrationType;
+}
 
 export function validateProviderBusinessProfileUpdate(
   value: unknown,
@@ -74,6 +137,13 @@ export function validateProviderBusinessProfileUpdate(
   }
   if ("coverImage" in input) {
     output.coverImage = providerMedia(input.coverImage, "coverImage");
+  }
+  if ("businessRegistrationType" in input) {
+    output.businessRegistrationType = requireEnum(
+      input.businessRegistrationType,
+      "businessRegistrationType",
+      PROVIDER_BUSINESS_REGISTRATION_TYPES,
+    );
   }
 
   if (Object.keys(output).length === 0) {

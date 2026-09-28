@@ -29,6 +29,13 @@ import {type ProviderPackagePaymentPolicyBounds} from "@/lib/provider/provider-p
 
 import {Textarea} from "@/components/ui/textarea";
 import {Select} from "@/components/ui/select";
+import {
+  ProviderPackageOfferBuilder,
+  createProviderPackageOfferDraft,
+  serializeProviderPackageOfferDraft,
+  uploadProviderPackageThemeImages,
+  type ProviderPackageOfferDraft,
+} from "./provider-package-offer-builder";
 
 const EVENT_TYPES = [
   "birthday",
@@ -106,13 +113,6 @@ export function ProviderPackageForm({
         "",
     );
 
-  const [price, setPrice] =
-    useState(
-      initialPackage
-        ? String(initialPackage.price)
-        : "",
-    );
-
   const [
     minimumGuests,
     setMinimumGuests,
@@ -172,6 +172,15 @@ export function ProviderPackageForm({
   );
 
   const [images, setImages] = useState(() => packageImageDrafts(initialPackage?.imageUrls, initialPackage?.imageUrl));
+  const [offerDraft, setOfferDraft] =
+    useState<ProviderPackageOfferDraft>(
+      () =>
+        createProviderPackageOfferDraft(
+          initialPackage,
+        ),
+    );
+  const [offerInteracted, setOfferInteracted] =
+    useState(false);
 
   const [submitting, setSubmitting] =
     useState(false);
@@ -179,7 +188,13 @@ export function ProviderPackageForm({
   const [error, setError] =
     useState<string | null>(null);
 
-  const parsedPrice = Number(price);
+  const offerConfiguration =
+    serializeProviderPackageOfferDraft(
+      offerDraft,
+    );
+  const parsedPrice =
+    offerConfiguration.startingPrice ??
+    Number.NaN;
 
   const parsedMinimumGuests =
     Number(minimumGuests);
@@ -210,6 +225,16 @@ export function ProviderPackageForm({
         ) {
         return {field: "eventType", message: "Choose an event type supported by your business."};
         }
+
+      if (
+        offerConfiguration.error
+      ) {
+        return {
+          field: "serviceOptions",
+          message:
+            offerConfiguration.error,
+        };
+      }
 
       if (
         !Number.isFinite(parsedPrice) ||
@@ -248,6 +273,7 @@ export function ProviderPackageForm({
       name,
       description,
       eventType,
+      offerConfiguration.error,
       parsedPrice,
       parsedMinimumGuests,
       parsedMaximumGuests,
@@ -271,12 +297,36 @@ export function ProviderPackageForm({
 
     try {
       const uploaded = await uploadCatalogImages(images, (saved) => setImages((current) => current.map((image) => image.id === saved.id ? saved : image)));
+      const uploadedThemes =
+        await uploadProviderPackageThemeImages(
+          offerDraft,
+          offerConfiguration,
+          (themeId, uploadedImages) =>
+            setOfferDraft((current) => ({
+              ...current,
+              themeOptions:
+                current.themeOptions.map(
+                  (theme) =>
+                    theme.id === themeId
+                      ? {
+                          ...theme,
+                          images:
+                            uploadedImages,
+                        }
+                      : theme,
+                ),
+            })),
+        );
       const input: ProviderPackageInput = {
         name: name.trim(),
         description:
           description.trim(),
         eventType,
         price: parsedPrice,
+        serviceOptions:
+          offerConfiguration.serviceOptions,
+        themeOptions:
+          uploadedThemes,
 
         paymentPolicy: "full_payment",
         depositPercentage: 100,
@@ -453,22 +503,26 @@ export function ProviderPackageForm({
       <h3 className="text-sm font-bold uppercase text-primary-strong">Pricing &amp; capacity</h3>
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField
-          label="Package price"
+          label="Starting price"
           error={validationError?.field === "price" ? validationError.message : undefined}
           required
         >
           <Input
             type="number"
-            min="0"
-            max="10000000"
-            step="0.01"
-            value={price}
-            onChange={(event) =>
-              setPrice(
-                event.target.value,
-              )
+            value={
+              Number.isFinite(parsedPrice)
+                ? parsedPrice
+                : ""
             }
+            readOnly
+            aria-describedby="package-starting-price-help"
           />
+          <p
+            id="package-starting-price-help"
+            className="text-xs text-muted-foreground"
+          >
+            Automatically set to the lowest enabled service-tier price.
+          </p>
         </FormField>
 
         <div className="grid gap-2 sm:col-span-2">
@@ -489,6 +543,8 @@ export function ProviderPackageForm({
             </p>
           ) : null}
         </div>
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField
           label="Minimum guests"
@@ -546,6 +602,30 @@ export function ProviderPackageForm({
       <section aria-label="Images" className="grid gap-3"><h3 className="text-sm font-bold uppercase text-primary-strong">Images</h3>
         <CatalogImageUploader images={images} onChange={setImages} disabled={submitting} />
       </section>
+
+      <ProviderPackageOfferBuilder
+        value={offerDraft}
+        onChange={(next) => {
+          setOfferInteracted(true);
+          setOfferDraft(next);
+        }}
+        disabled={submitting}
+        error={
+          offerInteracted &&
+          validationError?.field ===
+            "serviceOptions"
+            ? validationError.message
+            : undefined
+        }
+        legacyNotice={
+          editing &&
+          Object.keys(
+            initialPackage.serviceOptions,
+          ).length === 0
+            ? "This legacy package remains readable, but you must configure at least one service tier before saving changes."
+            : undefined
+        }
+      />
 
       <section aria-label="Optional inclusions" className="grid gap-4 sm:grid-cols-2">
       <div className="sm:col-span-2"><h3 className="text-sm font-bold uppercase text-primary-strong">Optional inclusions</h3>

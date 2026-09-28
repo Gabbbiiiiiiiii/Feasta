@@ -31,6 +31,14 @@ export async function updateProviderBusinessProfile(
   }
 }
 
+function callableMessage(error: unknown): string {
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = String(error.message).trim();
+    return message.length <= 240 ? message : "";
+  }
+  return "";
+}
+
 function normalizeBusinessProfileError(error: unknown): Error {
   const code = typeof error === "object" && error !== null && "code" in error
     ? String(error.code)
@@ -43,6 +51,19 @@ function normalizeBusinessProfileError(error: unknown): Error {
     );
   }
   if (code.includes("permission-denied") || code.includes("failed-precondition")) {
+    const message = callableMessage(error);
+    if (message.includes("after payout setup has started")) {
+      return new WebAuthenticationError(
+        "Business registration status cannot be changed after payout setup has started.",
+        "forbidden",
+      );
+    }
+    if (message.includes("Business registration status cannot be changed")) {
+      return new WebAuthenticationError(
+        "Business registration status cannot be changed from Business Profile.",
+        "forbidden",
+      );
+    }
     return new WebAuthenticationError(
       "Your provider business profile is not available for editing.",
       "forbidden",

@@ -26,7 +26,8 @@ import {
   type ServiceCategoryOption,
 } from "@/lib/service-categories/service-category-types";
 
-import {ProviderCard} from "./provider-card";
+import {ProviderIndustrySelector} from "./provider-industry-selector";
+import {ProviderLogoCard} from "./provider-logo-card";
 
 export function ProviderResults({
   page,
@@ -140,11 +141,19 @@ export function ProviderResults({
         ? {...filters.eventContext, serviceType: "all"}
         : null,
     });
+    const hasIndustryChoices = serviceCategoryOptions.some(
+      (option) => option.status === "active",
+    );
     return (
-      <section
-        aria-label="Provider results"
-        className="relative grid min-h-[360px] place-items-center overflow-hidden rounded-[26px] border border-feasta-border-soft bg-white px-6 py-12 text-center shadow-[0_8px_28px_rgb(43_33_29/0.035)]"
-      >
+      <section className="grid min-w-0 gap-5" aria-labelledby="provider-results-title">
+        <ProviderIndustrySelector
+          filters={filters}
+          serviceCategoryOptions={serviceCategoryOptions}
+        />
+        <section
+          aria-label="Provider results"
+          className="relative grid min-h-[360px] place-items-center overflow-hidden rounded-[26px] border border-feasta-border-soft bg-white px-6 py-12 text-center shadow-[0_8px_28px_rgb(43_33_29/0.035)]"
+        >
         <div
           aria-hidden="true"
           className="pointer-events-none absolute -right-24 -top-28 size-72 rounded-full bg-primary/[0.045] blur-3xl"
@@ -205,7 +214,13 @@ export function ProviderResults({
               View all providers
             </Link>
           ) : null}
+          {filtered && hasIndustryChoices ? (
+            <p className="mt-3 text-xs font-semibold text-feasta-text-tertiary">
+              Or choose another industry above.
+            </p>
+          ) : null}
         </div>
+        </section>
       </section>
     );
   }
@@ -224,7 +239,7 @@ export function ProviderResults({
     return (
       <div className="grid min-w-0 auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-4">
         {providers.map((provider) => (
-          <ProviderCard
+          <ProviderLogoCard
             key={provider.id}
             provider={provider}
             marketplaceHref={marketplaceHref}
@@ -248,6 +263,10 @@ export function ProviderResults({
       className="grid min-w-0 gap-5"
       aria-labelledby="provider-results-title"
     >
+      <ProviderIndustrySelector
+        filters={filters}
+        serviceCategoryOptions={serviceCategoryOptions}
+      />
       {/* ================================================================
           RESULT HEADER
          ================================================================ */}

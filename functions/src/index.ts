@@ -187,6 +187,7 @@ export {
 export {createPaymentSession} from "./payments/create-payment-session.js";
 export {
   refreshProviderPayoutAccount,
+  saveProviderPayoutActivationProfile,
   startProviderPayoutOnboarding,
 } from "./provider-finance/provider-payment-account-management.js";
 export {payMongoWebhook} from "./payments/paymongo-webhook.js";

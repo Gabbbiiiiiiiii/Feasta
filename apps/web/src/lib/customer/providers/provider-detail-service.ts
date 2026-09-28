@@ -6,6 +6,7 @@ import {normalizePublicPackage} from "@/lib/customer/discovery/public-package-no
 import {adminDb} from "@/lib/firebase/admin";
 import {providerContentCapabilities} from "@/lib/provider/provider-content-capabilities";
 import {publicMenuImages} from "@/lib/provider/provider-menu";
+import {publicProviderSetups} from "@/lib/provider/provider-setup-gallery";
 
 import {normalizePublicProvider} from "./provider-normalization";
 import {isPublicProviderId} from "./provider-route-policy";
@@ -65,6 +66,10 @@ export async function getPublicProviderDetail(
     ? await providerSnapshot.ref.collection("catalog").doc("menu").get()
     : null;
   const menuImages = publicMenuImages(menuSnapshot?.data()?.images, ownerId);
+  const setupSnapshot = capabilities.catering
+    ? await providerSnapshot.ref.collection("catalog").doc("setups").get()
+    : null;
+  const setups = publicProviderSetups(setupSnapshot?.data()?.setups, ownerId);
   const services = [] as {id: string; name: string; description: string | null}[];
   if (provider.serviceType === "addon" || provider.serviceType === "both") {
     const offerings = await adminDb.collection(FIRESTORE_COLLECTIONS.addons)
@@ -78,7 +83,7 @@ export async function getPublicProviderDetail(
         description: typeof data.description === "string" ? data.description.trim().slice(0, 600) : null});
     }
   }
-  return {provider, packages, menuImages, services};
+  return {provider, packages, menuImages, setups, services};
 }
 
 function safeDocumentId(value: unknown): string | null {

@@ -1,12 +1,35 @@
+import type {CateringPackageServiceTier} from "@/lib/catering/catering-service-tier";
+import {
+  emptyBookingThemeInspiration,
+  parseStoredBookingCustomization,
+  type BookingThemeInspiration,
+} from "@/lib/customer/bookings/booking-customization-selection";
+
 export type CustomizationDraft = {
   event: {eventDate: string; eventTime: string; eventEndTime: string; guestCount: string;
     eventLocation: string; eventAddress: string; specialRequest: string};
   customization: {selectedFoods: string[]; selectedDecorations: string[]; selectedFurniture: string[]};
   addonIds: string[];
+  serviceTier?: CateringPackageServiceTier | null;
+  packageThemeId?: string | null;
+  themeInspiration?: BookingThemeInspiration;
   ownAddons?: boolean;
   ownAddonsNote?: string;
   submission?: {fingerprint: string; clientRequestId: string};
 };
+
+export function customizationDraftEditSignature(value: CustomizationDraft) {
+  return {
+    event: value.event,
+    customization: value.customization,
+    addonIds: value.addonIds,
+    ownAddons: value.ownAddons ?? false,
+    ownAddonsNote: value.ownAddonsNote ?? "",
+    serviceTier: value.serviceTier ?? null,
+    packageThemeId: value.packageThemeId ?? null,
+    themeInspiration: value.themeInspiration ?? emptyBookingThemeInspiration(),
+  };
+}
 
 const PREFIX = "feasta:customization:v1:";
 const TTL = 30 * 24 * 60 * 60 * 1000;
@@ -27,6 +50,8 @@ export function parseCustomizationDraft(value: unknown): CustomizationDraft | nu
   const event = record.event as CustomizationDraft["event"] | undefined;
   const customization = record.customization as CustomizationDraft["customization"] | undefined;
   if (!event || !customization || typeof event !== "object" || typeof customization !== "object") return null;
+  const storedOffer = parseStoredBookingCustomization(record);
+  if (!storedOffer) return null;
   if (record.ownAddons !== undefined && typeof record.ownAddons !== "boolean") return null;
   if (record.ownAddonsNote !== undefined && (typeof record.ownAddonsNote !== "string" || record.ownAddonsNote.length > 1000)) return null;
   const limits = {eventDate: 10, eventTime: 5, eventEndTime: 5, guestCount: 8, eventLocation: 500, eventAddress: 500, specialRequest: 1000};
@@ -42,6 +67,9 @@ export function parseCustomizationDraft(value: unknown): CustomizationDraft | nu
     event: Object.fromEntries(Object.keys(limits).map((key) => [key, event[key as keyof typeof event]])) as typeof event,
     customization: {selectedFoods: [...customization.selectedFoods], selectedDecorations: [...customization.selectedDecorations], selectedFurniture: [...customization.selectedFurniture]},
     addonIds: [...new Set(record.addonIds)],
+    serviceTier: storedOffer.serviceTier,
+    packageThemeId: storedOffer.packageThemeId,
+    themeInspiration: storedOffer.themeInspiration,
     ownAddons: record.ownAddons === true,
     ownAddonsNote: typeof record.ownAddonsNote === "string" ? record.ownAddonsNote : "",
     ...(record.submission && typeof record.submission === "object" &&

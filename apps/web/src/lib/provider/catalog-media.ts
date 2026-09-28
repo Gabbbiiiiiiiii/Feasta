@@ -9,8 +9,14 @@ export type CatalogImageDraft = {
   file?: File;
 };
 
-export function validateCatalogFiles(files: readonly File[], existingCount: number): void {
-  if (existingCount + files.length > CATALOG_IMAGE_LIMIT) throw new Error("Choose at most 8 images.");
+export function validateCatalogFiles(
+  files: readonly File[],
+  existingCount: number,
+  maximumImages = CATALOG_IMAGE_LIMIT,
+): void {
+  if (existingCount + files.length > maximumImages) {
+    throw new Error(`Choose at most ${maximumImages} images.`);
+  }
   for (const file of files) {
     if (!CATALOG_IMAGE_TYPES.includes(file.type)) throw new Error("Use JPEG, PNG, or WebP images.");
     if (file.size === 0 || file.size > CATALOG_IMAGE_BYTES) throw new Error("Each image must be between 1 byte and 5 MB.");

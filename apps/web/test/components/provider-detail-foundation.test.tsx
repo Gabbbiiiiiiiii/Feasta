@@ -426,7 +426,7 @@ describe("public provider detail security contracts", () => {
       "!data.name.trim()",
     ]);
     expect(offerings).toMatch(/continue;\s*services\.push\(/u);
-    expect(service).toContain("return {provider, packages, menuImages, services}");
+    expect(service).toContain("return {provider, packages, menuImages, setups, services}");
   });
 
   it("uses FEASTA breakpoints without viewport-breaking profile dimensions", () => {

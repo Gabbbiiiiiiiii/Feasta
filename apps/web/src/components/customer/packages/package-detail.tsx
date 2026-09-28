@@ -1,4 +1,6 @@
 import {ImageGallery} from "@/components/customer/discovery/image-gallery";
+import {ExpandablePackageDescription} from "@/components/customer/packages/expandable-package-description";
+import {VisualStyleImageCarousel} from "@/components/customer/packages/visual-style-image-carousel";
 import {
   ArrowLeft,
   ArrowRight,
@@ -14,8 +16,14 @@ import {
 import Link from "next/link";
 import type {ReactNode} from "react";
 
+import {PackageEventListAction} from "@/components/customer/event-list/package-event-list-action";
 import {CustomerAuthLink} from "@/components/customer/layout/customer-auth-provider";
 import {PriceDisplay} from "@/components/shared/price-display";
+import {
+  CATERING_PACKAGE_SERVICE_TIERS,
+  cateringPackageServiceTierDescription,
+  cateringPackageServiceTierLabel,
+} from "@/lib/catering/catering-service-tier";
 import type {
   PublicPackageDetail,
 } from "@/lib/customer/discovery/marketplace-types";
@@ -61,6 +69,16 @@ export function PackageDetail({
     {label: "Furniture inclusions", items: detail.customization.furniture},
     {label: "Service inclusions", items: detail.customization.services},
   ].filter((group) => group.items.length > 0);
+  const serviceOptions =
+    CATERING_PACKAGE_SERVICE_TIERS.flatMap(
+      (tier) => {
+        const option =
+          packageRecord.serviceOptions?.[tier];
+        return option ? [{tier, option}] : [];
+      },
+    );
+  const themeOptions =
+    packageRecord.themeOptions ?? [];
 
   const bookingPath = `/customer/packages/${encodeURIComponent(
     packageRecord.id,
@@ -194,9 +212,9 @@ export function PackageDetail({
             ) : null}
 
             {packageRecord.description ? (
-              <p className="mt-5 max-w-3xl whitespace-pre-line break-words text-sm leading-7 text-feasta-text-secondary sm:text-base">
-                {packageRecord.description}
-              </p>
+              <ExpandablePackageDescription
+                description={packageRecord.description}
+              />
             ) : (
               <p className="mt-5 rounded-xl border border-dashed border-feasta-border-strong bg-feasta-canvas p-4 text-sm leading-6 text-feasta-text-secondary">
                 This package does not currently have a public description.
@@ -206,7 +224,9 @@ export function PackageDetail({
 
           <aside className="rounded-[20px] border border-feasta-border-soft bg-feasta-canvas p-5">
             <p className="text-[11px] font-extrabold uppercase tracking-[0.09em] text-feasta-text-tertiary">
-              Package price
+              {serviceOptions.length > 0
+                ? "Starting from"
+                : "Package price"}
             </p>
 
             <PriceDisplay
@@ -244,6 +264,7 @@ export function PackageDetail({
                 className="size-4 transition-transform duration-normal group-hover:translate-x-0.5 motion-reduce:transform-none"
               />
             </CustomerAuthLink>
+            <PackageEventListAction packageRecord={packageRecord} />
           </aside>
         </div>
       </section>
@@ -297,6 +318,104 @@ export function PackageDetail({
           ) : null}
         </div>
       </section>
+
+      {serviceOptions.length > 0 ? (
+        <section
+          aria-labelledby="package-service-options"
+          className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(43_33_29/0.035)] sm:p-6 lg:p-7"
+        >
+          <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
+            Catering service tiers
+          </p>
+          <h2
+            id="package-service-options"
+            className="mt-2 text-2xl font-extrabold tracking-[-0.035em] text-foreground"
+          >
+            Available service levels
+          </h2>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-feasta-text-secondary">
+            Compare the published prices and included services. Selection is
+            completed later in the booking flow.
+          </p>
+
+          <div className="mt-6 grid gap-4 lg:grid-cols-3">
+            {serviceOptions.map(({tier, option}) => (
+              <article
+                key={tier}
+                className="rounded-[20px] border border-feasta-border-soft bg-feasta-canvas p-5"
+              >
+                <h3 className="text-lg font-extrabold text-foreground">
+                  {cateringPackageServiceTierLabel(tier)}
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-feasta-text-secondary">
+                  {cateringPackageServiceTierDescription(tier)}
+                </p>
+                <PriceDisplay
+                  amount={option.price}
+                  className="mt-4 border-t border-feasta-divider pt-4"
+                />
+                {option.includedServices.length > 0 ? (
+                  <ul className="mt-4 grid gap-2">
+                    {option.includedServices.map((service) => (
+                      <li
+                        key={service}
+                        className="flex items-start gap-2 text-sm text-feasta-text-secondary"
+                      >
+                        <Check
+                          aria-hidden="true"
+                          className="mt-0.5 size-4 shrink-0 text-primary"
+                        />
+                        <span>{service}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {themeOptions.length > 0 ? (
+        <section
+          aria-labelledby="package-theme-options"
+          className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(43_33_29/0.035)] sm:p-6 lg:p-7"
+        >
+          <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
+            Theme options
+          </p>
+          <h2
+            id="package-theme-options"
+            className="mt-2 text-2xl font-extrabold tracking-[-0.035em] text-foreground"
+          >
+            Explore the available visual styles
+          </h2>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {themeOptions.map((theme) => (
+              <article
+                key={theme.id}
+                className="overflow-hidden rounded-[20px] border border-feasta-border-soft bg-feasta-canvas"
+              >
+                <VisualStyleImageCarousel
+                  imageUrls={theme.imageUrls}
+                  styleName={theme.name}
+                />
+                <div className="p-5">
+                  <h3 className="break-words text-base font-extrabold text-foreground">
+                    {theme.name}
+                  </h3>
+                  {theme.description ? (
+                    <p className="mt-3 break-words text-sm leading-6 text-feasta-text-secondary">
+                      {theme.description}
+                    </p>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {/* ================================================================
           INCLUSIONS

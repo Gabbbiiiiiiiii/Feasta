@@ -8,6 +8,10 @@ import {
 import Link from "next/link";
 
 import {PriceDisplay} from "@/components/shared/price-display";
+import {
+  CATERING_PACKAGE_SERVICE_TIERS,
+  cateringPackageServiceTierLabel,
+} from "@/lib/catering/catering-service-tier";
 import type {PublicPackage} from "@/lib/customer/discovery/marketplace-types";
 import {humanizeProviderValue} from "@/lib/customer/providers/provider-catalog";
 import {providerProfileHref} from "@/lib/customer/providers/provider-query";
@@ -44,6 +48,12 @@ export function PublicPackageCard({
   const guestRange = packageGuestRange(packageRecord);
   const compact = compactPreview || layout === "provider-profile";
   const inclusionLimit = 3;
+  const serviceTiers =
+    CATERING_PACKAGE_SERVICE_TIERS.filter(
+      (tier) =>
+        packageRecord.serviceOptions?.[tier] !==
+        undefined,
+    );
 
   return (
     <article
@@ -242,10 +252,24 @@ export function PublicPackageCard({
         {/* Price */}
 
         <div className="mt-auto pt-3">
+          {!compact && serviceTiers.length > 0 ? (
+            <ul className="mb-3 flex flex-wrap gap-1.5">
+              {serviceTiers.map((tier) => (
+                <li
+                  key={tier}
+                  className="rounded-full bg-secondary px-2.5 py-1 text-[11px] font-bold text-primary-strong"
+                >
+                  {cateringPackageServiceTierLabel(tier)}
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <div className="flex flex-wrap items-end justify-between gap-3 border-t border-feasta-divider pt-3">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
-                Package price
+                {serviceTiers.length > 0
+                  ? "Starting from"
+                  : "Package price"}
               </p>
 
               <PriceDisplay

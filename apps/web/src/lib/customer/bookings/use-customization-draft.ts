@@ -3,6 +3,7 @@
 import {useEffect, useRef, useState} from "react";
 
 import {
+  customizationDraftEditSignature,
   customizationDraftKey,
   listCustomizationDrafts,
   readCustomizationDraft,
@@ -169,16 +170,11 @@ export function useCustomizationDraft({
           latest.current = saved;
 
           const restoredSignature =
-            JSON.stringify({
-              event: saved.event,
-              customization:
-                saved.customization,
-              addonIds: saved.addonIds,
-              ownAddons:
-                saved.ownAddons ?? false,
-              ownAddonsNote:
-                saved.ownAddonsNote ?? "",
-            });
+            JSON.stringify(
+              customizationDraftEditSignature(
+                saved,
+              ),
+            );
 
           lastSaved.current =
             restoredSignature;
@@ -621,19 +617,11 @@ export function useCustomizationDraft({
       }
 
       const signature =
-        JSON.stringify({
-          event: current.event,
-          customization:
-            current.customization,
-          addonIds:
-            current.addonIds,
-          ownAddons:
-            current.ownAddons ??
-            false,
-          ownAddonsNote:
-            current.ownAddonsNote ??
-            "",
-        });
+        JSON.stringify(
+          customizationDraftEditSignature(
+            current,
+          ),
+        );
 
       lastSaved.current =
         signature;

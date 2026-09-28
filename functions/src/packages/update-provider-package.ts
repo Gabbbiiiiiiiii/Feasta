@@ -26,6 +26,7 @@ import {
   assertCanonicalPackagePaymentTerms,
   assertDraftPackage,
   assertPackageMatchesProviderCapabilities,
+  assertPackageOfferConfigured,
   assertPackagePaymentTermsWithinPolicy,
   authorizeOwnedPackage,
   authorizeProviderForPackageManagement,
@@ -43,6 +44,8 @@ const ALLOWED_FIELDS = [
   "description",
   "eventType",
   "price",
+  "serviceOptions",
+  "themeOptions",
   "paymentPolicy",
   "depositPercentage",
   "balanceDueDaysBeforeEvent",
@@ -100,6 +103,10 @@ export const updateProviderPackage = onCall(
       description: input.description,
       eventType: input.eventType,
       price: input.price,
+      serviceOptions:
+        input.serviceOptions,
+      themeOptions:
+        input.themeOptions,
 
       paymentPolicy:
         input.paymentPolicy,
@@ -134,6 +141,9 @@ export const updateProviderPackage = onCall(
     });
 
     assertCanonicalPackagePaymentTerms(
+      validated,
+    );
+    assertPackageOfferConfigured(
       validated,
     );
 
@@ -253,6 +263,12 @@ export const updateProviderPackage = onCall(
 
             price:
               validated.price,
+
+            serviceOptions:
+              validated.serviceOptions,
+
+            themeOptions:
+              validated.themeOptions,
 
             paymentPolicy:
               validated.paymentPolicy,

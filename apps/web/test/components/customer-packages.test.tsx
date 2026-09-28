@@ -259,4 +259,153 @@ describe("customer package marketplace", () => {
       "/customer/packages?event=wedding&cursor=next_cursor",
     );
   });
+
+  it("normalizes service tiers and themes without trusting mismatched prices", () => {
+    const names = new Map([["provider-one", "Ana Events"]]);
+    const published = {
+      providerId: "provider-one",
+      name: "Wedding package",
+      description: "Published package",
+      eventType: "wedding",
+      price: 45000,
+      serviceOptions: {
+        drop_off: {price: 45000, includedServices: ["Packed meals"]},
+        full_service: {price: 62000, includedServices: ["On-site staff"]},
+        express: {price: 1000, includedServices: ["Ignored"]},
+      },
+      themeOptions: [
+        {
+          id: "garden",
+          name: "Garden",
+          description: "Outdoor styling",
+          imageUrls: ["https://images.example.test/garden.webp"],
+        },
+        {
+          id: "garden",
+          name: "Duplicate",
+          description: "Should be dropped",
+          imageUrls: ["https://images.example.test/duplicate.webp"],
+        },
+      ],
+      imageUrl: "https://images.example.test/package.webp",
+      minimumGuests: 50,
+      maximumGuests: 150,
+      isActive: true,
+      isPublished: true,
+      providerPubliclyVisible: true,
+      status: "published",
+      isDeleted: false,
+    };
+    expect(normalizePublicPackage("package-one", published, names)).toMatchObject({
+      price: 45000,
+      serviceOptions: {
+        drop_off: {price: 45000, includedServices: ["Packed meals"]},
+        full_service: {price: 62000, includedServices: ["On-site staff"]},
+      },
+      themeOptions: [
+        {
+          id: "garden",
+          name: "Garden",
+          description: "Outdoor styling",
+          imageUrls: ["https://images.example.test/garden.webp"],
+        },
+      ],
+    });
+    expect(normalizePublicPackage(
+      "package-one",
+      {...published, price: 44000},
+      names,
+    )?.price).toBeNull();
+    expect(normalizePublicPackage(
+      "package-one",
+      {
+        ...published,
+        serviceOptions: undefined,
+        themeOptions: undefined,
+        price: 45000,
+      },
+      names,
+    )).toMatchObject({
+      price: 45000,
+      serviceOptions: {},
+      themeOptions: [],
+    });
+  });
+
+  it("renders published service tiers and themes without making a booking selection", () => {
+    const provider = normalizePublicProvider("provider-one", {
+      ownerId: "owner", businessName: "Provider", providerServiceType: "catering",
+      verificationStatus: "approved", publiclyVisible: true, isActive: true,
+    }, {role: "provider", providerId: "provider-one", accountStatus: "active"})!;
+    const themed = {
+      ...packageRecord,
+      serviceOptions: {
+        drop_off: {price: 45000, includedServices: ["Packed meals"]},
+        buffet_setup: {price: 52000, includedServices: []},
+      },
+      themeOptions: [
+        {
+          id: "garden",
+          name: "Garden",
+          description: "Outdoor styling",
+          imageUrls: ["https://images.example.test/garden.webp"],
+        },
+        {
+          id: "classic",
+          name: "Classic",
+          description: "",
+          imageUrls: [],
+        },
+      ],
+    };
+    render(
+      <PackageDetail
+        detail={{
+          provider,
+          packageRecord: themed,
+          customization: {foods: [], decorations: [], furniture: [], services: []},
+        }}
+      />,
+    );
+    expect(screen.getByText("Starting from")).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Available service levels"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Drop-Off Catering"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Buffet Setup"})).toBeVisible();
+    expect(screen.getByText("Packed meals")).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Explore the available visual styles"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Garden"})).toBeVisible();
+    expect(screen.getByText("No reference images available.")).toBeVisible();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("keeps legacy package cards readable when no service tiers exist", () => {
+    render(
+      <PublicPackageCard
+        packageRecord={packageRecord}
+        marketplaceHref="/customer/packages"
+      />,
+    );
+    expect(screen.getByText("Package price")).toBeVisible();
+    expect(screen.queryByText("Starting from")).not.toBeInTheDocument();
+    expect(screen.queryByText("Drop-Off Catering")).not.toBeInTheDocument();
+  });
+
+  it("shows published service-tier labels on marketplace cards", () => {
+    render(
+      <PublicPackageCard
+        packageRecord={{
+          ...packageRecord,
+          serviceOptions: {
+            drop_off: {price: 45000, includedServices: []},
+            full_service: {price: 62000, includedServices: []},
+          },
+        }}
+        marketplaceHref="/customer/packages"
+      />,
+    );
+    expect(screen.getByText("Starting from")).toBeVisible();
+    expect(screen.getByText("Drop-Off Catering")).toBeVisible();
+    expect(screen.getByText("Full-Service Catering")).toBeVisible();
+  });
 });

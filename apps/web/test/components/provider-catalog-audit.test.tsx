@@ -28,7 +28,7 @@ it("does not claim a menu is empty when its load failed", async () => {
   actions.load.mockRejectedValue(new Error("Offline"));
   render(<ProviderMenuManager />);
   expect(await screen.findByRole("alert")).toHaveTextContent("could not be loaded");
-  expect(screen.queryByText(/No menu images yet/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/No menu items yet/)).not.toBeInTheDocument();
 });
 
 it("keeps removal local until Save and persists the revised catalog", async () => {
@@ -43,7 +43,7 @@ it("keeps removal local until Save and persists the revised catalog", async () =
   await user.click(screen.getByRole("button", {name: "Save menu"}));
   await waitFor(() => expect(actions.save).toHaveBeenCalledWith({revision: 4, images: []}));
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  expect(screen.getByText(/No menu images yet/)).toBeVisible();
+  expect(screen.getByText(/No menu items yet/)).toBeVisible();
 });
 
 it("keeps publication with its image through reordering and removal", async () => {
@@ -62,7 +62,7 @@ it("keeps publication with its image through reordering and removal", async () =
   expect(within(within(dialog).getByRole("group", {name: "Selected image 1"})).getByRole("checkbox", {name: "Publish Desserts"})).toBeChecked();
   await user.click(within(dialog).getByRole("button", {name: "Remove image 2"}));
   expect(actions.save).not.toHaveBeenCalled();
-  expect(within(screen.getByRole("region", {name: "Menu image details"})).queryByRole("button", {name: "Save menu"})).not.toBeInTheDocument();
+  expect(within(screen.getByRole("region", {name: "Menu item details"})).queryByRole("button", {name: "Save menu"})).not.toBeInTheDocument();
   await user.click(within(dialog).getByRole("button", {name: "Save menu"}));
   await waitFor(() => expect(actions.save).toHaveBeenCalledWith({revision: 4, images: [{...second, isPublished: true}]}));
 });
@@ -80,6 +80,29 @@ it("keeps a configuration failure visible and retains menu changes for retry", a
   expect(screen.getByLabelText("Title / category 1")).toHaveValue("Chicken menu");
 });
 
+it("edits and saves structured menu details with stable serving identifiers", async () => {
+  actions.load.mockResolvedValue({revision: 4, images: [image]});
+  actions.save.mockResolvedValue({ok: true, menu: {revision: 5, images: [image]}});
+  vi.spyOn(crypto, "randomUUID").mockReturnValue("00000000-0000-4000-8000-000000000001");
+  const user = userEvent.setup();
+  render(<ProviderMenuManager />);
+  await user.click(await screen.findByRole("button", {name: "Edit Chicken menu"}));
+  await user.type(screen.getByRole("textbox", {name: "Category"}), "Chicken");
+  await user.type(screen.getByRole("textbox", {name: "Description"}), "House specialty");
+  await user.click(screen.getByRole("button", {name: "Add serving size"}));
+  await user.type(screen.getByRole("textbox", {name: "Serving size name"}), "Family tray");
+  await user.type(screen.getByRole("spinbutton", {name: "Minimum guests"}), "10");
+  await user.type(screen.getByRole("spinbutton", {name: "Maximum guests"}), "15");
+  await user.type(screen.getByRole("spinbutton", {name: "Price (₱)"}), "1250.50");
+  await user.click(screen.getByRole("button", {name: "Save menu"}));
+  await waitFor(() => expect(actions.save).toHaveBeenCalledWith({revision: 4, images: [{
+    ...image, category: "Chicken", description: "House specialty", servingOptions: [{
+      id: "00000000-0000-4000-8000-000000000001", name: "Family tray", description: "", minimumGuests: 10, maximumGuests: 15, price: 1250.5,
+    }],
+  }]}));
+  vi.restoreAllMocks();
+});
+
 it.each([
   ["catering", "catering_service", true], ["both", "catering_event_styling", true],
   ["addon", "photographer", false], ["addon", "event_coordinator", false],
@@ -91,6 +114,9 @@ it.each([
   }, {role: "provider", providerId: "provider-one", accountStatus: "active"})!;
   render(<ProviderProfile detail={{provider, packages: [], menuImages: [image]}} />);
   expect(screen.getByText("No public packages currently listed.")).toBeVisible();
-  if (hasMenu) expect(screen.getByRole("button", {name: "View Chicken menu"})).toBeVisible();
+  if (hasMenu) {
+    expect(screen.getByRole("img", {name: "Chicken menu"})).toBeVisible();
+    expect(screen.getByText("Browsing only. No serving sizes are currently listed.")).toBeVisible();
+  }
   else expect(screen.queryByRole("heading", {name: "Menu & catalog"})).not.toBeInTheDocument();
 });

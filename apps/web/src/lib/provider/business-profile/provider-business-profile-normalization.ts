@@ -4,6 +4,7 @@ import {
   isServiceCategoryCode,
   normalizePhilippinePhone,
   normalizeProviderEmail,
+  type ProviderBusinessRegistrationType,
   type ServiceCategoryCode,
 } from "@feasta/shared-types";
 
@@ -104,8 +105,19 @@ export function normalizeProviderBusinessProfile(input: {
     maxServiceDistanceKm: optionalNumber(data.maxServiceDistanceKm, 1, 1000),
     logo,
     coverImage,
+    businessRegistrationType: businessRegistrationType(
+      data.businessRegistrationType,
+    ),
     updatedAt: timestampIso(data.updatedAt),
   };
+}
+
+function businessRegistrationType(
+  value: unknown,
+): ProviderBusinessRegistrationType | null {
+  return value === "individual" || value === "registered_business" ?
+    value :
+    null;
 }
 
 function providerMedia(

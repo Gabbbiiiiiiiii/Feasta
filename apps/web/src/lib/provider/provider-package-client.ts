@@ -15,6 +15,12 @@ import {
   WebAuthenticationError,
 } from "@/lib/auth/client-session";
 import {
+  normalizePackageServiceOptions,
+  normalizePackageThemeOptions,
+  type PackageServiceOptions,
+  type PackageThemeOption,
+} from "@/lib/catering/package-offer-configuration";
+import {
   auth,
   db,
   functions,
@@ -35,6 +41,8 @@ export type ProviderPackageInput = {
   eventType: string;
 
   price: number;
+  serviceOptions: PackageServiceOptions;
+  themeOptions: PackageThemeOption[];
 
   paymentPolicy:
     ProviderPackagePaymentPolicy;
@@ -65,6 +73,8 @@ export type ProviderPackage = {
   eventType: string;
 
   price: number;
+  serviceOptions: PackageServiceOptions;
+  themeOptions: PackageThemeOption[];
 
   paymentPolicy:
     ProviderPackagePaymentPolicy | null;
@@ -223,6 +233,12 @@ function normalizePackageInput(
     price:
       input.price,
 
+    serviceOptions:
+      input.serviceOptions,
+
+    themeOptions:
+      input.themeOptions,
+
     paymentPolicy:
       input.paymentPolicy,
 
@@ -372,6 +388,16 @@ function parseProviderPackage(
       requiredNonNegativeNumber(
         data.price,
         "price",
+      ),
+
+    serviceOptions:
+      normalizePackageServiceOptions(
+        data.serviceOptions,
+      ),
+
+    themeOptions:
+      normalizePackageThemeOptions(
+        data.themeOptions,
       ),
 
     paymentPolicy,

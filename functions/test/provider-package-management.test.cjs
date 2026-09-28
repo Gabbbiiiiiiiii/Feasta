@@ -174,6 +174,20 @@ test(
         "rejectUnknownFields",
       ),
     );
+
+    assert.ok(
+      allowedFields.includes(
+        '"serviceOptions"',
+      ),
+      "createProviderPackage must accept serviceOptions",
+    );
+
+    assert.ok(
+      allowedFields.includes(
+        '"themeOptions"',
+      ),
+      "createProviderPackage must accept themeOptions",
+    );
   },
 );
 

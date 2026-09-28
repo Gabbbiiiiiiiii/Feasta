@@ -9,6 +9,7 @@ import {beforeEach, describe, expect, it, vi} from "vitest";
 import {CustomerMarketplaceShell} from "@/components/customer/layout/customer-marketplace-shell";
 import {CustomerMarketplaceHeader} from "@/components/customer/layout/customer-marketplace-header";
 import {PublicProviderMarketplaceShell} from "@/components/customer/layout/public-provider-marketplace-shell";
+import {ProviderIndustrySelector} from "@/components/customer/providers/provider-industry-selector";
 import {TEST_SERVICE_CATEGORY_OPTIONS} from "../fixtures/service-category-options";
 
 const mocks = vi.hoisted(() => ({push: vi.fn(), searchEventVenues: vi.fn(), getEventVenueDetails: vi.fn()}));
@@ -328,5 +329,85 @@ describe("customer marketplace header", () => {
       .toHaveAttribute("href", "/customer/bookings");
     expect(within(mobileNavigation).getByRole("link", {name: "Favorites"}))
       .toHaveAttribute("href", "/customer/favorites");
+  });
+
+  it("sticks provider industries below the measured header in both event-finder states", () => {
+    const heights = {header: 96};
+    const notifications: Array<() => void> = [];
+    const rect = (height: number): DOMRect => ({
+      x: 0,
+      y: 0,
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: height,
+      width: 0,
+      height,
+      toJSON() {
+        return {};
+      },
+    });
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        return rect(this.tagName === "HEADER" ? heights.header : 0);
+      });
+
+    class HeaderResizeObserver {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe() {
+        const notify = () => this.callback([], this as unknown as ResizeObserver);
+        notifications.push(notify);
+        notify();
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", HeaderResizeObserver);
+
+    try {
+      render(
+        <PublicProviderMarketplaceShell
+          authReturnTo="/customer/providers"
+          serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+        >
+          <ProviderIndustrySelector
+            filters={{
+              search: "",
+              serviceType: "all",
+              category: "all",
+              cursor: null,
+            }}
+            serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+          />
+        </PublicProviderMarketplaceShell>,
+      );
+
+      const shell = document.querySelector<HTMLElement>(
+        "[data-public-provider-marketplace-shell]",
+      );
+      expect(shell).not.toBeNull();
+      expect(shell).toHaveStyle({"--feasta-marketplace-header-height": "96px"});
+      const industries = screen.getByRole("navigation", {name: "Provider industries"});
+      expect(industries).toHaveClass("sticky");
+      expect(industries).toHaveStyle({
+        top: "var(--feasta-marketplace-header-height, 0px)",
+      });
+      expect(industries.className).not.toContain("4.75rem");
+      expect(screen.getByRole("link", {name: "All services"})).toHaveAttribute("aria-current", "page");
+
+      fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+      expect(screen.getByRole("button", {name: "Close Event Finder"}))
+        .toHaveAttribute("aria-expanded", "true");
+      heights.header = 247.2;
+      act(() => {
+        for (const notify of notifications) notify();
+      });
+      expect(shell).toHaveStyle({"--feasta-marketplace-header-height": "248px"});
+      expect(screen.getByRole("navigation", {name: "Provider industries"}))
+        .toHaveStyle({top: "var(--feasta-marketplace-header-height, 0px)"});
+    } finally {
+      rectSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -33,6 +33,7 @@ export function PublicProviderMarketplaceShell({
 
       <main
         id="main-content"
+        data-customer-marketplace-content
         tabIndex={-1}
         className="mx-auto min-h-[calc(100dvh-7.25rem)] w-full max-w-[80rem] px-4 py-6 pb-10 sm:px-6 lg:min-h-[calc(100dvh-4rem)] lg:px-8"
       >

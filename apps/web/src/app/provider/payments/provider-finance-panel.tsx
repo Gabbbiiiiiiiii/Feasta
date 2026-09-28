@@ -21,6 +21,7 @@ import {
   refreshProviderPayoutSetup,
   startProviderPayoutSetup,
 } from "@/lib/provider/payments/provider-payout-client";
+import {ProviderPayoutActivationForm} from "./provider-payout-activation-form";
 import type {
   ProviderFinanceOverview,
   ProviderPayoutSetupStatus,
@@ -214,6 +215,28 @@ export function ProviderFinancePanel({
             role="alert"
           >
             {error}
+          </p>
+        ) : null}
+
+        {payout.childAccountPresent &&
+        !payout.activationProfileComplete &&
+        !payout.payoutReady &&
+        payout.linkedAccountType ? (
+          <ProviderPayoutActivationForm
+            linkedAccountType={payout.linkedAccountType}
+            onSaved={async () => {
+              await reload();
+              setError(null);
+            }}
+          />
+        ) : null}
+
+        {payout.childAccountPresent &&
+        payout.activationProfileComplete &&
+        !payout.payoutReady ? (
+          <p className="mt-4 text-sm text-muted-foreground">
+            Activation details are saved. Refresh status to continue
+            verification and activation.
           </p>
         ) : null}
 

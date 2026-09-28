@@ -14,6 +14,7 @@ import Link from "next/link";
 import {usePathname, useSearchParams} from "next/navigation";
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -33,9 +34,12 @@ import {cn} from "@/lib/utils";
 
 import {useCustomerAuth} from "./customer-auth-provider";
 
+import {CustomerEventListMenu} from "@/components/customer/event-list/customer-event-list-menu";
+
 import {EventFinder} from "./event-finder";
 
 const CUSTOMER_HOME_PATH = "/customer";
+const MARKETPLACE_HEADER_HEIGHT = "--feasta-marketplace-header-height";
 const CUSTOMER_FAVORITES_PATH = "/customer/favorites";
 const CUSTOMER_BOOKINGS_PATH = "/customer/bookings";
 const CUSTOMER_MESSAGES_PATH = "/customer/messages";
@@ -61,6 +65,7 @@ export function CustomerMarketplaceHeader({
   const [authMode, setAuthMode] = useState<CustomerAuthMode | null>(null);
   const accountDetails = useRef<HTMLDetailsElement>(null);
   const accountSummary = useRef<HTMLElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
   const authenticated = Boolean(accountLabel?.trim());
   const query = searchParameters.toString();
   const currentReturnTo = pathname + (query ? '?' + query : '');
@@ -72,6 +77,33 @@ export function CustomerMarketplaceHeader({
     if (requestAuth) requestAuth({mode, returnTo: safeReturnTo});
     else setAuthMode(mode);
   }
+
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    const shell = header?.closest<HTMLElement>(
+      "[data-customer-marketplace-shell], [data-public-provider-marketplace-shell]",
+    );
+    if (!header || !shell) return undefined;
+
+    // --feasta-header-height is a static scroll-padding token. The visible
+    // marketplace header also includes the section row and, when open, the
+    // event-finder row, so consumers follow the measured border box instead.
+    const publish = () => {
+      shell.style.setProperty(
+        MARKETPLACE_HEADER_HEIGHT,
+        `${Math.ceil(header.getBoundingClientRect().height)}px`,
+      );
+    };
+    publish();
+    const observer = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(publish);
+    observer?.observe(header);
+    return () => {
+      observer?.disconnect();
+      shell.style.removeProperty(MARKETPLACE_HEADER_HEIGHT);
+    };
+  }, []);
 
   useEffect(() => {
     const closeOutside = (event: PointerEvent) => {
@@ -87,13 +119,14 @@ export function CustomerMarketplaceHeader({
 
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-feasta-border-soft bg-white/95 shadow-[0_6px_24px_rgb(43_33_29/0.04)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/90">
+      <header ref={headerRef} className="sticky top-0 z-40 border-b border-feasta-border-soft bg-white/95 shadow-[0_6px_24px_rgb(43_33_29/0.04)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/90">
         <div className="mx-auto w-full max-w-[90rem] px-4 sm:px-6 lg:px-8">
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] grid-rows-[4rem_auto_auto] items-center gap-x-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:grid-rows-[4rem_auto] md:gap-x-4">
             <MarketplaceBrand pathname={pathname} />
 
             {authenticated && accountLabel ? (
               <div className="col-start-2 row-start-1 ml-auto flex shrink-0 items-center gap-1 md:col-start-3">
+                <CustomerEventListMenu />
                 <Link
                   href={CUSTOMER_FAVORITES_PATH}
                   aria-label="Favorites"
@@ -287,6 +320,7 @@ function GuestAccountActions({
       aria-label="Guest marketplace account"
       className="col-start-2 row-start-1 ml-auto flex shrink-0 items-center gap-1 sm:gap-2 md:col-start-3"
     >
+      <CustomerEventListMenu />
       <button
         type="button"
         onClick={onLogin}

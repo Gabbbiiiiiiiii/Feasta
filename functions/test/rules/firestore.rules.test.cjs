@@ -1064,6 +1064,70 @@ test("canonical provider requests are server-created and main-event trust fields
   }));
 });
 
+test("booking-offer snapshots on main events stay immutable for customers and browser admins", async () => {
+  const eventId = "event-offer-snapshot";
+  await seedDocuments(testEnv, {
+    "users/customer-one": userData("customer-one", "customer"),
+    "users/admin-one": userData("admin-one", "admin"),
+    [`mainEvents/${eventId}`]: {
+      customerId: "customer-one",
+      status: "pending_provider_approval",
+      eventAddress: "123 Trusted Street",
+      serviceTier: "buffet_setup",
+      serviceTierLabel: "Buffet Setup",
+      serviceTierIncludedServices: ["Chafing dishes"],
+      packageThemeId: "theme_garden",
+      packageThemeName: "Garden",
+      packageThemeDescription: "Greenery",
+      packageThemeImageUrls: ["https://images.example.com/garden.jpg"],
+      updatedAt: new Date(),
+    },
+  });
+
+  const customer = authenticated(testEnv, "customer-one", "customer")
+    .firestore();
+  const admin = authenticated(testEnv, "admin-one", "admin")
+    .firestore();
+  const forged = {
+    serviceTier: "full_service",
+    serviceTierLabel: "Forged label",
+    serviceTierIncludedServices: ["Forged service"],
+    packageThemeId: "theme_forged",
+    packageThemeName: "Forged theme",
+    packageThemeDescription: "Forged description",
+    packageThemeImageUrls: ["https://images.example.com/forged.jpg"],
+  };
+
+  for (const [field, value] of Object.entries(forged)) {
+    await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+      [field]: value,
+    }));
+  }
+
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    serviceTier: "drop_off",
+    serviceTierLabel: "Drop-Off Catering",
+    packageThemeId: "theme_forged",
+    packageThemeName: "Forged theme",
+    packageThemeDescription: "Forged description",
+    packageThemeImageUrls: ["https://images.example.com/forged.jpg"],
+  }));
+  await assertSucceeds(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    eventAddress: "456 Customer Editable Street",
+    updatedAt: new Date(),
+  }));
+
+  for (const [field, value] of Object.entries(forged)) {
+    await assertFails(updateDoc(doc(admin, `mainEvents/${eventId}`), {
+      [field]: value,
+    }));
+  }
+  await assertSucceeds(updateDoc(doc(admin, `mainEvents/${eventId}`), {
+    eventAddress: "789 Admin Editable Street",
+    updatedAt: new Date(),
+  }));
+});
+
 test("P13 financial and availability authority stays server-owned", async () => {
   const eventId = "event-p13-authority";
   const requestId = "request-p13-authority";
@@ -1234,6 +1298,10 @@ test("P13 financial and availability authority stays server-owned", async () => 
     providerId: "provider-one",
     status: "settled",
     amountInCentavos: 1,
+  }));
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+    serviceTier: "full_service",
+    packageThemeId: "theme_forged",
   }));
 });
 

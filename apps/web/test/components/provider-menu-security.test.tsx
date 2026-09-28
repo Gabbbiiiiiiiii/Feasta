@@ -56,6 +56,23 @@ describe("provider menu server authorization", () => {
     }));
   });
 
+  it("validates structured serving data before the trusted write", async () => {
+    const structured = {...image, description: " House special ", category: " Mains ", servingOptions: [{
+      id: "family", name: " Family Size ", description: "", minimumGuests: 10, maximumGuests: 15, price: 1250.5,
+    }]};
+    await saveProviderMenu({revision: 1, images: [structured]});
+    expect(state.set).toHaveBeenCalledWith(expect.objectContaining({path: menuPath}), expect.objectContaining({
+      images: [{...structured, description: "House special", category: "Mains", servingOptions: [{
+        ...structured.servingOptions[0], name: "Family Size",
+      }]}],
+    }));
+    state.set.mockClear();
+    await expect(saveProviderMenu({revision: 1, images: [{...structured, servingOptions: [
+      structured.servingOptions[0], {...structured.servingOptions[0]},
+    ]}]})).rejects.toThrow(/identifier/i);
+    expect(state.set).not.toHaveBeenCalled();
+  });
+
   it("requires an approved session and canonical catering capability", async () => {
     state.auth.mockRejectedValueOnce(new Error("Sign in"));
     await expect(loadProviderMenu()).rejects.toThrow("Sign in");
@@ -86,6 +103,7 @@ describe("provider menu server authorization", () => {
   it("rejects other-owner assets before accessing Cloudinary", async () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
     await expect(saveProviderMenu({revision: 1, images: [{...image, url: image.url.replace("/owner/", "/other/")}]})).rejects.toThrow(/Invalid menu/);
+    await expect(saveProviderMenu({revision: 1, images: [{...image, id: "different-asset"}]})).rejects.toThrow(/Invalid menu/);
     expect(fetch).not.toHaveBeenCalled(); expect(state.set).not.toHaveBeenCalled();
   });
 

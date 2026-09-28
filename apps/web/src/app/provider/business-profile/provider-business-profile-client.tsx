@@ -13,7 +13,10 @@ import {
 import {useRouter} from "next/navigation";
 import {useMemo, useRef, useState} from "react";
 
-import {normalizePhilippinePhone} from "@feasta/shared-types";
+import {
+  normalizePhilippinePhone,
+  type ProviderBusinessRegistrationType,
+} from "@feasta/shared-types";
 
 import {AuthStatus} from "@/components/auth/auth-status";
 import {feastaToast} from "@/components/feedback/toast";
@@ -48,11 +51,15 @@ type ProfileForm = {
   address: string;
   city: string;
   province: string;
+  businessRegistrationType: ProviderBusinessRegistrationType | null;
 };
 
-type ProfileField = keyof ProfileForm;
+type ProfileField = Exclude<keyof ProfileForm, "businessRegistrationType">;
 type MediaType = "logo" | "cover";
-type FormErrors = Partial<Record<ProfileField | MediaType, string>>;
+type FormErrors = Partial<Record<
+  ProfileField | MediaType | "businessRegistrationType",
+  string
+>>;
 
 type MediaDraft = {
   file: File | null;
@@ -195,6 +202,20 @@ export function ProviderBusinessProfileClient({
     }
   }
 
+  function updateRegistrationType(
+    value: ProviderBusinessRegistrationType,
+  ) {
+    setForm((current) => ({
+      ...current,
+      businessRegistrationType: value,
+    }));
+    setErrors((current) => ({
+      ...current,
+      businessRegistrationType: undefined,
+    }));
+    clearStatus();
+  }
+
   function clearStatus() {
     setErrorMessage(null);
     setSuccessMessage(null);
@@ -328,6 +349,15 @@ export function ProviderBusinessProfileClient({
             label="Service categories"
             value={categories.map(serviceCategoryName).join(", ") || "Not available"}
           />
+          {canonicalForm.businessRegistrationType ? (
+            <ReadOnlyDetail
+              icon={BadgeCheck}
+              label="Business registration status"
+              value={registrationStatusLabel(
+                canonicalForm.businessRegistrationType,
+              )}
+            />
+          ) : null}
         </dl>
       </section>
 
@@ -341,6 +371,42 @@ export function ProviderBusinessProfileClient({
         }}
         noValidate
       >
+        {canonicalForm.businessRegistrationType === null ? (
+          <section className="grid gap-5 rounded-card border border-border bg-card p-5 shadow-card sm:p-6">
+            <FormField
+              label="Business registration status"
+              description="Select how your business is legally registered. This is required before payout setup."
+              error={errors.businessRegistrationType}
+              required
+              disabled={saving}
+            >
+              <div
+                className="grid gap-3 sm:grid-cols-2"
+                role="radiogroup"
+                aria-label="Business registration status"
+                aria-required="true"
+              >
+                <RegistrationOption
+                  value="individual"
+                  title="Individual / freelance provider"
+                  description="I provide services independently and am not registering a separate business entity with FEASTA."
+                  checked={form.businessRegistrationType === "individual"}
+                  disabled={saving}
+                  onSelect={() => updateRegistrationType("individual")}
+                />
+                <RegistrationOption
+                  value="registered_business"
+                  title="Registered business / organization"
+                  description="My service operates as a registered business or organization."
+                  checked={form.businessRegistrationType === "registered_business"}
+                  disabled={saving}
+                  onSelect={() => updateRegistrationType("registered_business")}
+                />
+              </div>
+            </FormField>
+          </section>
+        ) : null}
+
         <section className="grid gap-5 rounded-card border border-border bg-card p-5 shadow-card sm:p-6" aria-labelledby="description-title">
           <SectionHeading icon={Building2} id="description-title" title="Business Description" description="Tell customers what your business offers and what makes your service a good fit for their event." />
           <FormField
@@ -500,7 +566,16 @@ function profileForm(profile: ProviderBusinessProfile): ProfileForm {
     address: profile.address,
     city: profile.city,
     province: profile.province,
+    businessRegistrationType: profile.businessRegistrationType,
   };
+}
+
+function registrationStatusLabel(
+  value: ProviderBusinessRegistrationType,
+): string {
+  return value === "individual" ?
+    "Individual / freelance provider" :
+    "Registered business / organization";
 }
 
 function serializeForm(form: ProfileForm): string {
@@ -525,10 +600,24 @@ function validateForm(form: ProfileForm): {
   validateText(errors, "address", address, 3, 250, "Address");
   validateText(errors, "city", city, 2, 100, "City");
   validateText(errors, "province", province, 2, 100, "Province");
+  if (
+    form.businessRegistrationType !== "individual" &&
+    form.businessRegistrationType !== "registered_business"
+  ) {
+    errors.businessRegistrationType =
+      "Select how your business is legally registered.";
+  }
 
   return {
     value: Object.keys(errors).length === 0 && businessPhone
-      ? {businessPhone, description, address, city, province}
+      ? {
+        businessPhone,
+        description,
+        address,
+        city,
+        province,
+        businessRegistrationType: form.businessRegistrationType,
+      }
       : null,
     errors,
   };
@@ -576,7 +665,50 @@ function changedInput(
   }
   if (logo !== undefined) input.logo = logo;
   if (coverImage !== undefined) input.coverImage = coverImage;
+  if (
+    canonical.businessRegistrationType === null &&
+    (next.businessRegistrationType === "individual" ||
+      next.businessRegistrationType === "registered_business")
+  ) {
+    input.businessRegistrationType = next.businessRegistrationType;
+  }
   return input;
+}
+
+function RegistrationOption({
+  value,
+  title,
+  description,
+  checked,
+  disabled,
+  onSelect,
+}: {
+  value: ProviderBusinessRegistrationType;
+  title: string;
+  description: string;
+  checked: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-4">
+      <input
+        className="mt-1"
+        type="radio"
+        name="businessRegistrationType"
+        value={value}
+        checked={checked}
+        disabled={disabled}
+        onChange={onSelect}
+      />
+      <span>
+        <span className="block font-medium">{title}</span>
+        <span className="mt-1 block text-sm text-muted-foreground">
+          {description}
+        </span>
+      </span>
+    </label>
+  );
 }
 
 function safeErrorMessage(error: unknown, fallback: string): string {

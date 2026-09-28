@@ -1,4 +1,5 @@
 import type {
+  ProviderBusinessRegistrationType,
   ProviderEventType,
   ProviderServiceType,
   ServiceCategoryCode,
@@ -26,6 +27,7 @@ export type ProviderBusinessProfile = {
   maxServiceDistanceKm: number | null;
   logo: ProviderBusinessMedia | null;
   coverImage: ProviderBusinessMedia | null;
+  businessRegistrationType: ProviderBusinessRegistrationType | null;
   updatedAt: string | null;
 };
 
@@ -37,6 +39,7 @@ export type UpdateProviderBusinessProfileInput = {
   province?: string;
   logo?: ProviderBusinessMedia | null;
   coverImage?: ProviderBusinessMedia | null;
+  businessRegistrationType?: ProviderBusinessRegistrationType;
 };
 
 export type UpdateProviderBusinessProfileResult = {

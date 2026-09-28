@@ -13,6 +13,7 @@ import {
 } from "@/lib/firebase/client";
 
 import type {
+  ProviderPayoutActivationInput,
   ProviderPayoutOnboardingResult,
   ProviderPayoutRefreshResult,
 } from "./provider-finance-types";
@@ -31,8 +32,18 @@ Promise<ProviderPayoutRefreshResult> {
   );
 }
 
+export async function saveProviderPayoutActivationProfile(
+  input: ProviderPayoutActivationInput,
+): Promise<{saved: boolean}> {
+  return callProviderFinance(
+    "saveProviderPayoutActivationProfile",
+    input,
+  );
+}
+
 async function callProviderFinance<T>(
   functionName: string,
+  data: object = {},
 ): Promise<T> {
   if (!auth.currentUser) {
     throw new WebAuthenticationError(
@@ -45,7 +56,7 @@ async function callProviderFinance<T>(
   try {
     const response =
       await httpsCallable<
-        Record<string, never>,
+        object,
         T
       >(
         functions,
@@ -53,7 +64,7 @@ async function callProviderFinance<T>(
         {
           timeout: 30_000,
         },
-      )({});
+      )(data);
 
     return response.data;
   } catch (error) {

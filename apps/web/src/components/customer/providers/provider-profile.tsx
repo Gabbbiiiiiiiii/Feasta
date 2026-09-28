@@ -12,7 +12,8 @@ import Link from "next/link";
 import type {ReactNode} from "react";
 
 import {PublicPackageCard} from "@/components/customer/packages/public-package-card";
-import {ImageGallery} from "@/components/customer/discovery/image-gallery";
+import {CustomerProviderMenu} from "@/components/customer/providers/customer-provider-menu";
+import {ProviderSetupGallery} from "@/components/customer/providers/provider-setup-gallery";
 import {providerContentCapabilities} from "@/lib/provider/provider-content-capabilities";
 import {ProviderFavoriteControl} from "@/components/customer/favorites/provider-favorite-control";
 import {Badge} from "@/components/ui/badge";
@@ -551,9 +552,11 @@ export function ProviderProfile({
 
       {capabilities.catering && detail.menuImages && detail.menuImages.length > 0 ? <section aria-labelledby="provider-menu" className="rounded-[24px] border border-feasta-border-soft bg-card p-5 sm:p-6">
         <h2 id="provider-menu" className="text-2xl font-extrabold text-foreground">Menu & catalog</h2>
-        <p className="mb-4 mt-2 text-sm text-feasta-text-secondary">Browse menu posters and food photos. Open an image to read the details.</p>
-        <ImageGallery label="Menu & catalog" images={detail.menuImages.map((image, index) => ({url: image.url, title: image.title || `Menu image ${index + 1}`}))} />
+        <p className="mb-4 mt-2 text-sm text-feasta-text-secondary">Browse published menu items, serving sizes, and display prices.</p>
+        <CustomerProviderMenu menuImages={detail.menuImages} />
       </section> : null}
+
+      {capabilities.catering && detail.setups && detail.setups.length > 0 ? <ProviderSetupGallery setups={detail.setups} /> : null}
 
       <section
         className="relative min-w-0 overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white shadow-[0_10px_34px_rgb(43_33_29/0.055)]"

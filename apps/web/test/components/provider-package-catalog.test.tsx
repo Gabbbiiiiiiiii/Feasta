@@ -23,6 +23,10 @@ const image = "https://res.cloudinary.com/feasta/image/upload/v1/feasta/provider
 const record: ProviderPackage = {
   id: "package-one", providerId: "provider-one", name: "Party package", description: "A celebration package.", eventType: "birthday",
   price: 10000,
+  serviceOptions: {
+    drop_off: {price: 10000, includedServices: []},
+  },
+  themeOptions: [],
   paymentPolicy: "deposit_then_balance",
   depositPercentage: 20,
   balanceDueDaysBeforeEvent: 7,
@@ -92,7 +96,7 @@ describe("provider package modal and media", () => {
     const dialog = screen.getByRole("dialog", {name: "Edit package"});
     expect(within(dialog).getByRole("textbox", {name: /Package name/})).toHaveValue(record.name);
     expect(within(dialog).getByRole("textbox", {name: /Description/})).toHaveValue(record.description);
-    expect(within(dialog).getByRole("spinbutton", {name: /Package price/})).toHaveValue(record.price);
+    expect(within(dialog).getByRole("spinbutton", {name: /Starting price/})).toHaveValue(record.price);
     expect(within(dialog).getByRole("textbox", {name: "Food inclusions"})).toHaveValue("Rice");
     expect(within(dialog).getAllByRole("img").map((img) => img.getAttribute("src"))).toEqual([image, image.replace("asset", "second")]);
     expect(document.querySelector('section[aria-label="Provider package results"]')).toBeInTheDocument();
@@ -238,6 +242,63 @@ describe("provider package modal and media", () => {
     expect(screen.queryByLabelText("Furniture inclusions")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Service inclusions")).not.toBeRequired();
   });
+
+  it("derives the starting price from enabled service tiers and saves full payment", async () => {
+    render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByRole("checkbox", {name: /Drop-Off Catering/})).toBeChecked();
+    expect(screen.getByRole("spinbutton", {name: /Drop-Off Catering price/})).toHaveValue(10000);
+    fireEvent.click(screen.getByRole("checkbox", {name: /Buffet Setup/}));
+    fireEvent.change(screen.getByRole("spinbutton", {name: /Buffet Setup price/}), {target: {value: "8500.5"}});
+    expect(screen.getByRole("spinbutton", {name: /Starting price/})).toHaveValue(8500.5);
+    fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({
+      price: 8500.5,
+      serviceOptions: {
+        drop_off: {price: 10000, includedServices: []},
+        buffet_setup: {price: 8500.5, includedServices: []},
+      },
+      themeOptions: [],
+      paymentPolicy: "full_payment",
+      depositPercentage: 100,
+      balanceDueDaysBeforeEvent: null,
+    })));
+  });
+
+  it("blocks themes on drop-off-only offers and requires a setup tier first", () => {
+    render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.queryByRole("button", {name: "Add theme"})).not.toBeInTheDocument();
+    expect(screen.getByText("Enable Buffet Setup or Full-Service Catering to add themes.")).toBeVisible();
+    fireEvent.click(screen.getByRole("checkbox", {name: /Full-Service Catering/}));
+    fireEvent.change(screen.getByRole("spinbutton", {name: /Full-Service Catering price/}), {target: {value: "15000"}});
+    fireEvent.click(screen.getByRole("button", {name: "Add theme"}));
+    expect(screen.getByLabelText("Theme name")).toBeVisible();
+  });
+
+  it("shows a legacy-package notice and requires a service tier before saving", async () => {
+    render(
+      <ProviderPackageForm
+        {...props}
+        initialPackage={{...record, serviceOptions: {}}}
+        onSaved={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/This legacy package remains readable/)).toBeVisible();
+    expect(screen.getByRole("button", {name: "Save changes"})).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", {name: /Drop-Off Catering/}));
+    fireEvent.change(screen.getByRole("spinbutton", {name: /Drop-Off Catering price/}), {target: {value: "10000"}});
+    expect(screen.getByRole("button", {name: "Save changes"})).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({
+      price: 10000,
+      serviceOptions: {
+        drop_off: {price: 10000, includedServices: []},
+      },
+      paymentPolicy: "full_payment",
+      depositPercentage: 100,
+      balanceDueDaysBeforeEvent: null,
+    })));
+  });
 });
 
 describe("catalog validation and customer gallery", () => {
@@ -258,6 +319,7 @@ describe("catalog validation and customer gallery", () => {
     const menuImage = {id: "asset", title: "Chicken", url: image, isPublished: true};
     expect(parseProviderMenu([menuImage], "owner")).toEqual([menuImage]);
     expect(() => parseProviderMenu([menuImage], "other-owner")).toThrow();
+    expect(() => parseProviderMenu([{...menuImage, id: "different-asset"}], "owner")).toThrow();
     expect(() => parseProviderMenu([menuImage, menuImage], "owner")).toThrow();
     expect(publicMenuImages([{...menuImage, isPublished: false}], "owner")).toEqual([]);
     expect(publicMenuImages([{...menuImage, url: "javascript:alert(1)"}], "owner")).toEqual([]);

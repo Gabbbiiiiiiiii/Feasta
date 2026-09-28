@@ -275,6 +275,7 @@ const policies = [
   ["updateProviderAvailability", "providers/update-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "isApprovedProviderForOperations", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["updateProviderAvailabilitySettings", "providers/update-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "isApprovedProviderForOperations", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["updateProviderBusinessProfile", "providers/update-provider-business-profile.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "isApprovedProviderForOperations", "isProviderOwnerAccountActive", "validateProviderBusinessProfileUpdate", "verifyProviderMedia", "runTransaction", "writeAuditLogInTransaction", "appCheckCallableOptions", "cloudinarySecrets"]],
+  ["saveProviderPayoutActivationProfile", "provider-finance/provider-payment-account-management.ts", ["requireAuth(", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "validateProviderPayoutActivationProfile", "rejectBrowserPayoutAuthority"]],
   ["requestPaymentRefund", "payments/request-refund.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "executeIdempotently", "defineSecret", "writeAuditLog"]],
   ["payMongoWebhook", "payments/paymongo-webhook.ts", ["defineSecret", "verifyPayMongoSignature", "rawBody", "processPayMongoWebhook"]],
 ];
@@ -503,6 +504,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
     "revokeAllAccountSessions",
     "revokeAllCustomerSessions",
     "saveProviderOnboardingDraft",
+    "saveProviderPayoutActivationProfile",
     "searchPlaces",
     "sendChatMessage",
     "setPackageRefundPolicyOverride",

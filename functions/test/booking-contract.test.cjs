@@ -218,9 +218,20 @@ test(
       source,
       /providerId:\s*cateringProviderId/u,
     );
+    const offerSource = readFileSync(
+      join(
+        __dirname,
+        "../src/bookings/booking-package-offer.ts",
+      ),
+      "utf8",
+    );
+    assert.match(
+      offerSource,
+      /requireStoredMoney\(\s*input\.packageData\.price/u,
+    );
     assert.match(
       source,
-      /requireStoredMoney\(\s*packageData\.price/u,
+      /resolvedPackageOffer\.basePrice/u,
     );
     assert.match(
       source,

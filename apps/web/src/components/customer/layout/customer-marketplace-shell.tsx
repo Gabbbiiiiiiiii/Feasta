@@ -53,6 +53,7 @@ export function CustomerMarketplaceShell({
 
       <main
         id="main-content"
+        data-customer-marketplace-content
         tabIndex={-1}
         className="
           mx-auto min-h-[calc(100dvh-7.25rem)]

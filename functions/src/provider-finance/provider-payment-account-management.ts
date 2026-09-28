@@ -37,19 +37,36 @@ import {
 } from "../shared/timestamps.js";
 
 import {
+  normalizePhilippineMobile,
+} from "../shared/validation.js";
+
+import {
   linkedAccountTypeForBusinessRegistration,
   PROVIDER_PAYMENT_ACCOUNT_SCHEMA_VERSION,
 } from "./provider-payment-account-domain.js";
 
 import {
+  payMongoActivationUpdateBody,
+  readStoredPayoutActivationProfile,
+  rejectBrowserPayoutAuthority,
+  validateProviderPayoutActivationProfile,
+} from "./provider-payout-activation-profile.js";
+
+import {
+  activatePayMongoChildAccount,
   buildPayMongoLinkedAccountSignupUrl,
-  createPayMongoLinkedAccountInvite,
+  createPayMongoChildAccount,
+  createPayMongoIdentityVerificationSession,
   findPayMongoLinkedAccountRelationship,
   PayMongoLinkedAccountRequestError,
   retrievePayMongoLinkedAccount,
   retrievePayMongoLinkedAccountInvitation,
+  retrievePayMongoLinkedAccountRelationship,
+  updatePayMongoChildAccount,
   type PayMongoAccountActivationStatus,
+  type PayMongoIdentityVerificationStatus,
   type PayMongoInvitationStatus,
+  type PayMongoLinkedAccount,
   type PayMongoLinkedAccountType,
 } from "./paymongo-linked-account-client.js";
 
@@ -79,6 +96,9 @@ type ProviderFinanceContext = {
   providerId: string;
   ownerId: string;
   ownerEmail: string;
+  ownerMobile: string | null;
+  businessName: string;
+  businessDescription: string;
 
   linkedAccountType:
     PayMongoLinkedAccountType;
@@ -115,6 +135,10 @@ export const startProviderPayoutOnboarding =
     callableOptions,
 
     async (request) => {
+      rejectBrowserPayoutAuthority(
+        request.data,
+      );
+
       const actor =
         requireAuth(
           request,
@@ -177,17 +201,12 @@ export const startProviderPayoutOnboarding =
                   existing.setupStatus,
                 );
 
-              const invitationStatus =
-                storedInvitationStatus(
-                  existing.invitationStatus,
+              const orgAccountId =
+                storedOrgAccountId(
+                  existing.paymongoAccountId,
                 );
 
-              if (
-                status === "ready" ||
-                status === "onboarding" ||
-                status ===
-                  "action_required"
-              ) {
+              if (orgAccountId) {
                 return {
                   createInvite:
                     false,
@@ -197,11 +216,10 @@ export const startProviderPayoutOnboarding =
               }
 
               if (
-                status === "unavailable" &&
-                invitationStatus !==
-                  "declined" &&
-                invitationStatus !==
-                  "cancelled"
+                status === "ready" ||
+                status === "onboarding" ||
+                status ===
+                  "action_required"
               ) {
                 return {
                   createInvite:
@@ -233,12 +251,6 @@ export const startProviderPayoutOnboarding =
                   payoutReady:
                     false,
 
-                  invitationId:
-                    null,
-
-                  invitationStatus:
-                    null,
-
                   paymongoAccountId:
                     null,
 
@@ -246,9 +258,9 @@ export const startProviderPayoutOnboarding =
                     null,
 
                   /*
-                   * P10 settlement transport is intentionally disabled
-                   * until FEASTA has verified the PayMongo relationship
-                   * and selected an actual supported transport.
+                   * Historical invitation fields stay untouched.
+                   * P10 settlement transport stays disabled until a
+                   * verified PayMongo relationship selects a transport.
                    */
                   relationshipId:
                     null,
@@ -264,9 +276,6 @@ export const startProviderPayoutOnboarding =
 
                   settlementTransportReady:
                     false,
-
-                  inviteCreationState:
-                    "creating",
 
                   updatedAt:
                     serverTimestamp(),
@@ -356,24 +365,51 @@ export const startProviderPayoutOnboarding =
         !reservation.createInvite &&
         reservation.existing
       ) {
+        const existingOrgAccountId =
+          storedOrgAccountId(
+            reservation.existing
+              .paymongoAccountId,
+          );
+
+        if (existingOrgAccountId) {
+          return resumeChildAccountOnboarding({
+            accountReference,
+            context,
+            accountId:
+              existingOrgAccountId,
+          });
+        }
+
         return resultFromStoredAccount(
           reservation.existing,
           context.ownerEmail,
         );
       }
 
+      let createdAccountId:
+        string | null =
+          null;
+
       try {
-        const invitation =
-          await createPayMongoLinkedAccountInvite({
+        const created =
+          await createPayMongoChildAccount({
             secretKey:
               payMongoSecretKey.value(),
 
-            email:
-              context.ownerEmail,
-
             accountType:
               context.linkedAccountType,
+
+            emailAddress:
+              context.ownerEmail,
+
+            mobileNumber:
+              requireOwnerMobile(
+                context,
+              ),
           });
+
+        createdAccountId =
+          created.accountId;
 
         await accountReference.update({
           setupStatus:
@@ -382,20 +418,18 @@ export const startProviderPayoutOnboarding =
           payoutReady:
             false,
 
-          invitationId:
-            invitation.invitationId,
-
-          invitationStatus:
-            invitation.status,
-
           paymongoAccountId:
-            invitation.childAccountId,
+            created.accountId,
+
+          relationshipId:
+            created.relationshipId,
 
           activationStatus:
-            null,
+            created.activationStatus,
 
-          inviteCreationState:
-            "created",
+          identityVerificationStatus:
+            created
+              .identityVerificationStatus,
 
           gatewayLastCheckedAt:
             serverTimestamp(),
@@ -403,6 +437,15 @@ export const startProviderPayoutOnboarding =
           updatedAt:
             serverTimestamp(),
         });
+
+        const session =
+          await createPayMongoIdentityVerificationSession({
+            secretKey:
+              payMongoSecretKey.value(),
+
+            accountId:
+              created.accountId,
+          });
 
         return {
           setupStatus:
@@ -415,19 +458,13 @@ export const startProviderPayoutOnboarding =
             context.linkedAccountType,
 
           invitationStatus:
-            invitation.status,
-
-          activationStatus:
             null,
 
-          onboardingUrl:
-            buildPayMongoLinkedAccountSignupUrl({
-              email:
-                context.ownerEmail,
+          activationStatus:
+            created.activationStatus,
 
-              invitationId:
-                invitation.invitationId,
-            }),
+          onboardingUrl:
+            session.hostedUrl,
         };
       }
       catch (error) {
@@ -437,23 +474,17 @@ export const startProviderPayoutOnboarding =
             ? error
             : null;
 
-        const setupStatus =
-          gatewayError?.certainty ===
-            "gateway_rejected"
-            ? "unavailable"
-            : "action_required";
-
         await accountReference.update({
-          setupStatus,
+          setupStatus:
+            createdAccountId
+              ? "action_required"
+              : gatewayError?.certainty ===
+                "gateway_rejected"
+                ? "unavailable"
+                : "action_required",
 
           payoutReady:
             false,
-
-          inviteCreationState:
-            gatewayError?.certainty ===
-              "gateway_rejected"
-              ? "rejected"
-              : "ambiguous",
 
           gatewayLastStatusCode:
             gatewayError
@@ -467,20 +498,23 @@ export const startProviderPayoutOnboarding =
             serverTimestamp(),
         });
 
-        if (
-          setupStatus ===
-            "unavailable"
-        ) {
+        if (createdAccountId) {
           throw new HttpsError(
             "failed-precondition",
-            "PayMongo Linked Accounts onboarding is not available for this provider right now.",
+            "The payout account was created, but identity verification could not be started.",
           );
         }
 
         throw new HttpsError(
-          "unavailable",
-          "The PayMongo onboarding request could not be confirmed. " +
-          "FEASTA will not create another invitation automatically.",
+          gatewayError?.certainty ===
+            "gateway_rejected"
+            ? "failed-precondition"
+            : "unavailable",
+          gatewayError?.certainty ===
+            "gateway_rejected"
+            ? "PayMongo could not create the payout account."
+            : "The PayMongo account request could not be confirmed. " +
+              "FEASTA will not create another account automatically.",
         );
       }
     },
@@ -491,6 +525,10 @@ export const refreshProviderPayoutAccount =
     callableOptions,
 
     async (request) => {
+      rejectBrowserPayoutAuthority(
+        request.data,
+      );
+
       const actor =
         requireAuth(
           request,
@@ -548,6 +586,21 @@ export const refreshProviderPayoutAccount =
         stored,
         context,
       );
+
+      const orgAccountId =
+        storedOrgAccountId(
+          stored.paymongoAccountId,
+        );
+
+      if (orgAccountId) {
+        return refreshChildAccount({
+          accountReference,
+          context,
+          stored,
+          accountId:
+            orgAccountId,
+        });
+      }
 
       const invitationId =
         storedInvitationId(
@@ -1029,9 +1082,128 @@ async function requireProviderFinanceContext(
 
     ownerEmail,
 
+    ownerMobile:
+      normalizePhilippineMobile(
+        provider.ownerPhone,
+      ) ??
+      normalizePhilippineMobile(
+        provider.businessPhone,
+      ),
+
+    businessName:
+      typeof provider.businessName ===
+        "string"
+        ? provider.businessName
+        : "",
+
+    businessDescription:
+      typeof provider.description ===
+        "string"
+        ? provider.description
+        : "",
+
     linkedAccountType,
   };
 }
+
+export const saveProviderPayoutActivationProfile =
+  onCall(
+    callableOptions,
+
+    async (request) => {
+      rejectBrowserPayoutAuthority(
+        request.data,
+      );
+
+      const actor =
+        requireAuth(
+          request,
+        );
+
+      await requireRole(
+        actor.uid,
+        [
+          USER_ROLES.provider,
+        ],
+      );
+
+      await enforceCallableRateLimit(
+        request,
+        {
+          scope:
+            "providerFinance.savePayoutActivationProfile",
+
+          limit: 8,
+
+          windowSeconds:
+            10 * 60,
+        },
+      );
+
+      const context =
+        await requireProviderFinanceContext(
+          actor.uid,
+        );
+
+      const profile =
+        validateProviderPayoutActivationProfile(
+          request.data,
+          context.linkedAccountType,
+        );
+
+      const accountReference =
+        db
+          .collection(
+            "providerPaymentAccounts",
+          )
+          .doc(
+            context.providerId,
+          );
+
+      const snapshot =
+        await accountReference.get();
+
+      if (!snapshot.exists) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Start payout setup before submitting activation details.",
+        );
+      }
+
+      const stored =
+        snapshot.data() ??
+        {};
+
+      assertStoredAccountOwnership(
+        stored,
+        context,
+      );
+
+      if (
+        !storedOrgAccountId(
+          stored.paymongoAccountId,
+        )
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Create the payout account before submitting activation details.",
+        );
+      }
+
+      await accountReference.update({
+        activationProfile:
+          profile,
+
+        updatedAt:
+          serverTimestamp(),
+      });
+
+      return {
+        saved:
+          true,
+      };
+    },
+  );
 
 function assertStoredAccountOwnership(
   account: UnknownRecord,
@@ -1231,6 +1403,509 @@ function storedActivationStatus(
     "failed-precondition",
     "Stored PayMongo activation status is invalid.",
   );
+}
+
+function storedOrgAccountId(
+  value: unknown,
+): string | null {
+  if (
+    typeof value !== "string" ||
+    !/^org_[A-Za-z0-9_-]{3,200}$/u
+      .test(value)
+  ) {
+    return null;
+  }
+
+  return value;
+}
+
+function storedRelationshipId(
+  value: unknown,
+): string | null {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return null;
+  }
+
+  if (
+    typeof value === "string" &&
+    /^mr_[A-Za-z0-9]+$/u
+      .test(value)
+  ) {
+    return value;
+  }
+
+  return null;
+}
+
+function requireOwnerMobile(
+  context: ProviderFinanceContext,
+): string {
+  if (!context.ownerMobile) {
+    throw new HttpsError(
+      "failed-precondition",
+      "A valid provider mobile number is required before payout setup.",
+    );
+  }
+
+  return context.ownerMobile;
+}
+
+function identityVerificationPassed(
+  status:
+    PayMongoIdentityVerificationStatus |
+    null,
+): boolean {
+  return (
+    status === "passed" ||
+    status === "passed_attestation_form" ||
+    status === "passed_kyc_reliance"
+  );
+}
+
+async function resumeChildAccountOnboarding(input: {
+  accountReference: {
+    update: (data: object) => Promise<unknown>;
+  };
+  context: ProviderFinanceContext;
+  accountId: string;
+}): Promise<ProviderPaymentAccountResult> {
+  const account =
+    await retrieveTrustedChildAccount(
+      input.accountId,
+      input.context,
+    );
+
+  if (
+    identityVerificationPassed(
+      account.identityVerificationStatus,
+    )
+  ) {
+    await input.accountReference.update({
+      setupStatus:
+        "action_required",
+
+      payoutReady:
+        false,
+
+      identityVerificationStatus:
+        account.identityVerificationStatus,
+
+      activationStatus:
+        account.activationStatus,
+
+      relationshipId:
+        account.relationshipId,
+
+      updatedAt:
+        serverTimestamp(),
+    });
+
+    return accountsResult(
+      input.context,
+      "action_required",
+      false,
+      account.activationStatus,
+      null,
+    );
+  }
+
+  const session =
+    await createPayMongoIdentityVerificationSession({
+      secretKey:
+        payMongoSecretKey.value(),
+
+      accountId:
+        account.accountId,
+    });
+
+  await input.accountReference.update({
+    setupStatus:
+      "onboarding",
+
+    payoutReady:
+      false,
+
+    identityVerificationStatus:
+      account.identityVerificationStatus,
+
+    activationStatus:
+      account.activationStatus,
+
+    updatedAt:
+      serverTimestamp(),
+  });
+
+  return accountsResult(
+    input.context,
+    "onboarding",
+    false,
+    account.activationStatus,
+    session.hostedUrl,
+  );
+}
+
+async function refreshChildAccount(input: {
+  accountReference: {
+    update: (data: object) => Promise<unknown>;
+  };
+  context: ProviderFinanceContext;
+  stored: UnknownRecord;
+  accountId: string;
+}): Promise<ProviderPaymentAccountResult> {
+  let account =
+    await retrieveTrustedChildAccount(
+      input.accountId,
+      input.context,
+    );
+
+  if (
+    account.activationStatus !==
+      "activated" &&
+    identityVerificationPassed(
+      account.identityVerificationStatus,
+    ) &&
+    account.legalIdentityPresent
+  ) {
+    const profile =
+      readStoredPayoutActivationProfile(
+        input.stored.activationProfile,
+        input.context.linkedAccountType,
+      );
+
+    if (!profile) {
+      await input.accountReference.update(
+        childAccountUpdate(
+          account,
+          "action_required",
+          false,
+        ),
+      );
+
+      return accountsResult(
+        input.context,
+        "action_required",
+        false,
+        account.activationStatus,
+        null,
+      );
+    }
+
+    try {
+      await updatePayMongoChildAccount({
+        secretKey:
+          payMongoSecretKey.value(),
+
+        accountId:
+          account.accountId,
+
+        body:
+          payMongoActivationUpdateBody({
+            profile,
+
+            emailAddress:
+              input.context.ownerEmail,
+
+            mobileNumber:
+              requireOwnerMobile(
+                input.context,
+              ),
+
+            tradeName:
+              input.context.businessName,
+
+            description:
+              input.context
+                .businessDescription,
+          }),
+      });
+
+      await activatePayMongoChildAccount({
+        secretKey:
+          payMongoSecretKey.value(),
+
+        accountId:
+          account.accountId,
+      });
+
+      account =
+        await retrieveTrustedChildAccount(
+          account.accountId,
+          input.context,
+        );
+    }
+    catch (error) {
+      await input.accountReference.update(
+        childAccountUpdate(
+          account,
+          "action_required",
+          false,
+          error,
+        ),
+      );
+
+      throw new HttpsError(
+        "failed-precondition",
+        activationFailureMessage(
+          error,
+        ),
+      );
+    }
+  }
+
+  const setup =
+    account.activationStatus ===
+      "activated"
+      ? setupForActivation(
+        account.activationStatus,
+      )
+      : {
+        setupStatus:
+          identityVerificationPassed(
+            account.identityVerificationStatus,
+          )
+            ? "action_required" as const
+            : "onboarding" as const,
+
+        payoutReady:
+          false,
+      };
+
+  if (
+    !identityVerificationPassed(
+      account.identityVerificationStatus,
+    ) &&
+    account.activationStatus !==
+      "activated" &&
+    account.activationStatus !==
+      "declined"
+  ) {
+    setup.setupStatus = "onboarding";
+    setup.payoutReady = false;
+  }
+
+  if (
+    account.activationStatus ===
+      "declined"
+  ) {
+    setup.setupStatus = "unavailable";
+    setup.payoutReady = false;
+  }
+
+  let relationshipId =
+    account.relationshipId ??
+    storedRelationshipId(
+      input.stored.relationshipId,
+    );
+
+  let relationshipStatus:
+    "unknown" | "enabled" | "disabled" =
+      "unknown";
+
+  let relationshipVerificationStatus:
+    "not_checked" | "verified" | "not_found" | "unavailable" =
+      "not_checked";
+
+  if (setup.payoutReady && relationshipId) {
+    try {
+      const relationship =
+        await retrievePayMongoLinkedAccountRelationship({
+          secretKey:
+            payMongoSecretKey.value(),
+
+          relationshipId,
+        });
+
+      if (
+        relationship.childAccountId !==
+          account.accountId
+      ) {
+        throw new HttpsError(
+          "failed-precondition",
+          "The PayMongo relationship does not match this Provider payout account.",
+        );
+      }
+
+      const verified =
+        providerPaymentRelationshipSnapshot({
+          storedAccount: {
+            ...input.stored,
+            paymongoAccountId:
+              account.accountId,
+          },
+          relationship,
+        });
+
+      relationshipId =
+        verified.relationshipId;
+      relationshipStatus =
+        verified.status;
+      relationshipVerificationStatus =
+        "verified";
+    }
+    catch (error) {
+      if (
+        error instanceof
+          PayMongoLinkedAccountRequestError
+      ) {
+        relationshipVerificationStatus =
+          "unavailable";
+      } else if (
+        error instanceof HttpsError
+      ) {
+        throw error;
+      } else {
+        throw new HttpsError(
+          "failed-precondition",
+          "The PayMongo relationship does not match this Provider payout account.",
+        );
+      }
+    }
+  }
+
+  await input.accountReference.update({
+    ...childAccountUpdate(
+      account,
+      setup.setupStatus,
+      setup.payoutReady,
+    ),
+
+    relationshipId,
+
+    relationshipStatus,
+
+    relationshipVerificationStatus,
+
+    relationshipLastCheckedAt:
+      setup.payoutReady
+        ? serverTimestamp()
+        : null,
+
+    settlementTransportReady:
+      false,
+  });
+
+  return accountsResult(
+    input.context,
+    setup.setupStatus,
+    setup.payoutReady,
+    account.activationStatus,
+    null,
+  );
+}
+
+async function retrieveTrustedChildAccount(
+  accountId: string,
+  context: ProviderFinanceContext,
+): Promise<PayMongoLinkedAccount> {
+  let account: PayMongoLinkedAccount;
+
+  try {
+    account =
+      await retrievePayMongoLinkedAccount({
+        secretKey:
+          payMongoSecretKey.value(),
+
+        accountId,
+      });
+  }
+  catch {
+    throw new HttpsError(
+      "unavailable",
+      "The linked PayMongo account status could not be retrieved.",
+    );
+  }
+
+  if (
+    account.accountId !== accountId ||
+    account.accountType !==
+      context.linkedAccountType
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The linked PayMongo account type does not match this provider.",
+    );
+  }
+
+  return account;
+}
+
+function childAccountUpdate(
+  account: PayMongoLinkedAccount,
+  setupStatus:
+    ProviderPaymentAccountResult["setupStatus"],
+  payoutReady: boolean,
+  error: unknown = null,
+): Record<string, unknown> {
+  const gatewayError =
+    error instanceof
+      PayMongoLinkedAccountRequestError
+      ? error
+      : null;
+
+  return {
+    setupStatus,
+
+    payoutReady,
+
+    paymongoAccountId:
+      account.accountId,
+
+    activationStatus:
+      account.activationStatus,
+
+    identityVerificationStatus:
+      account.identityVerificationStatus,
+
+    gatewayLastStatusCode:
+      gatewayError?.statusCode ??
+      null,
+
+    gatewayLastCheckedAt:
+      serverTimestamp(),
+
+    updatedAt:
+      serverTimestamp(),
+  };
+}
+
+function accountsResult(
+  context: ProviderFinanceContext,
+  setupStatus:
+    ProviderPaymentAccountResult["setupStatus"],
+  payoutReady: boolean,
+  activationStatus:
+    PayMongoAccountActivationStatus |
+    null,
+  onboardingUrl: string | null,
+): ProviderPaymentAccountResult {
+  return {
+    setupStatus,
+    payoutReady,
+    linkedAccountType:
+      context.linkedAccountType,
+    invitationStatus:
+      null,
+    activationStatus,
+    onboardingUrl,
+  };
+}
+
+function activationFailureMessage(
+  error: unknown,
+): string {
+  if (
+    error instanceof
+      PayMongoLinkedAccountRequestError &&
+    error.missingPointers.length > 0
+  ) {
+    return "PayMongo still needs activation details: " +
+      error.missingPointers.join(", ");
+  }
+
+  return "PayMongo could not activate the payout account yet.";
 }
 
 function storedInvitationId(

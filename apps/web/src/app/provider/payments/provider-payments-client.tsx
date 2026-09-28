@@ -55,6 +55,9 @@ const EMPTY_PROVIDER_FINANCE: ProviderFinanceOverview = {
     settlementTransportMode: "disabled",
     settlementTransportReady: false,
     paymongoAccountId: null,
+    childAccountPresent: false,
+    activationProfileComplete: false,
+    identityVerificationStatus: null,
     updatedAt: null,
   },
   earningSummary: {

@@ -19,6 +19,7 @@ import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {
+  resolveLegacyBusinessRegistrationBackfill,
   validateProviderBusinessProfileUpdate,
   type ValidatedProviderBusinessProfileUpdate,
 } from "./provider-business-profile-domain.js";
@@ -79,10 +80,18 @@ export const updateProviderBusinessProfile = onCall(
 
     await verifySubmittedMedia(actor.uid, input);
 
+    const paymentAccountReference = db
+      .collection("providerPaymentAccounts")
+      .doc(providerId);
     const result = await db.runTransaction(async (transaction) => {
-      const [currentUserSnapshot, providerSnapshot] = await transaction.getAll(
+      const [
+        currentUserSnapshot,
+        providerSnapshot,
+        paymentAccountSnapshot,
+      ] = await transaction.getAll(
         userReference,
         providerReference,
+        paymentAccountReference,
       );
       const currentUser = currentUserSnapshot.data() ?? {};
       const provider = providerSnapshot.data() ?? {};
@@ -111,6 +120,21 @@ export const updateProviderBusinessProfile = onCall(
       }
 
       const requested = firestoreUpdates(input);
+      if (input.businessRegistrationType) {
+        const registrationBackfill =
+          resolveLegacyBusinessRegistrationBackfill({
+            actorUid: actor.uid,
+            providerOwnerId: provider.ownerId,
+            storedBusinessRegistrationType:
+              provider.businessRegistrationType,
+            submittedBusinessRegistrationType:
+              input.businessRegistrationType,
+            paymentAccountExists: paymentAccountSnapshot.exists,
+          });
+        if (registrationBackfill) {
+          requested.businessRegistrationType = registrationBackfill;
+        }
+      }
       const changedFields = Object.keys(requested).filter(
         (field) => !sameValue(provider[field], requested[field]),
       );

@@ -285,6 +285,15 @@ function normalizePayoutAccount(
       paymongoAccountId:
         null,
 
+      childAccountPresent:
+        false,
+
+      activationProfileComplete:
+        false,
+
+      identityVerificationStatus:
+        null,
+
       updatedAt:
         null,
     };
@@ -365,11 +374,113 @@ function normalizePayoutAccount(
         data.paymongoAccountId,
       ),
 
+    childAccountPresent:
+      typeof data.paymongoAccountId ===
+        "string" &&
+      /^org_[A-Za-z0-9_-]{3,200}$/u
+        .test(
+          data.paymongoAccountId,
+        ),
+
+    activationProfileComplete:
+      activationProfileComplete(
+        data.activationProfile,
+        linkedAccountType,
+      ),
+
+    identityVerificationStatus:
+      optionalIdentityStatus(
+        data.identityVerificationStatus,
+      ),
+
     updatedAt:
       dateString(
         data.updatedAt,
       ),
   };
+}
+
+function activationProfileComplete(
+  value: unknown,
+  linkedAccountType:
+    ProviderLinkedAccountType |
+    null,
+): boolean {
+  if (
+    !linkedAccountType ||
+    !value ||
+    typeof value !== "object"
+  ) {
+    return false;
+  }
+
+  const profile =
+    value as Record<string, unknown>;
+
+  const personReady =
+    [
+      "nationality",
+      "placeOfBirthCity",
+      "placeOfBirthCountry",
+      "natureOfWork",
+      "sourceOfFunds",
+      "personTin",
+    ].every((key) =>
+      typeof profile[key] === "string" &&
+      profile[key].length > 0,
+    ) &&
+    profile.currentAddress !==
+      null &&
+    typeof profile.currentAddress ===
+      "object";
+
+  if (!personReady) return false;
+
+  if (linkedAccountType === "consumer") {
+    return profile.business == null;
+  }
+
+  if (
+    !profile.business ||
+    typeof profile.business !== "object"
+  ) {
+    return false;
+  }
+
+  const business =
+    profile.business as Record<string, unknown>;
+
+  return [
+    "legalType",
+    "industry",
+    "age",
+    "size",
+    "estimatedMonthlyVolume",
+    "tin",
+  ].every((key) =>
+    typeof business[key] === "string" &&
+    business[key].length > 0,
+  ) &&
+  business.address !== null &&
+  typeof business.address === "object";
+}
+
+function optionalIdentityStatus(
+  value: unknown,
+): string | null {
+  if (
+    value === "pending" ||
+    value === "processing" ||
+    value === "for_review" ||
+    value === "passed" ||
+    value === "passed_attestation_form" ||
+    value === "passed_kyc_reliance" ||
+    value === "failed"
+  ) {
+    return value;
+  }
+
+  return null;
 }
 
 function normalizeEarning(

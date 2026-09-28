@@ -9,6 +9,9 @@ import {
   initializeBrowserAppCheck,
 } from "@/lib/firebase/client";
 import type {
+  CateringPackageServiceTier,
+} from "@/lib/catering/catering-service-tier";
+import type {
   BookingRefundPolicyAcknowledgement,
 } from "@/lib/customer/bookings/customer-refund-policy-client";
 
@@ -35,6 +38,9 @@ export type SubmitBookingRequestInput = {
   selectedFurniture: readonly string[];
 
   addonIds: readonly string[];
+
+  serviceTier?: CateringPackageServiceTier;
+  packageThemeId?: string;
 
   specialRequest?: string;
   willArrangeOwnAddOns: boolean;

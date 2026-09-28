@@ -53,6 +53,12 @@ import {
   type BookingPackageValidation,
 } from "./booking-contract.js";
 import {
+  bookingOfferFingerprintFields,
+  parseBookingPackageOfferInput,
+  rejectClientBookingFinancialAuthority,
+  resolveBookingPackageOffer,
+} from "./booking-package-offer.js";
+import {
   FULL_PAYMENT_PERCENTAGE,
   requireNewBookingFullPaymentTerms,
 } from "./full-payment-booking-policy.js";
@@ -143,6 +149,17 @@ export const submitBookingRequest = onCall(
 
     try {
       const input = asRecord(request.data);
+
+      rejectClientBookingFinancialAuthority(
+        input,
+      );
+
+      const {
+        serviceTier,
+        packageThemeId,
+      } = parseBookingPackageOfferInput(
+        input,
+      );
 
       const clientRequestId = requireId(
         input,
@@ -300,6 +317,10 @@ export const submitBookingRequest = onCall(
           specialRequest,
           willArrangeOwnAddOns,
           customerArrangedAddOnsNote,
+          ...bookingOfferFingerprintFields({
+            serviceTier,
+            packageThemeId,
+          }),
         });
 
       const bookingReference = db
@@ -518,11 +539,15 @@ export const submitBookingRequest = onCall(
             "selectedFurniture",
           );
 
+          const resolvedPackageOffer =
+            resolveBookingPackageOffer({
+              packageData,
+              serviceTier,
+              packageThemeId,
+            });
+
           const packagePrice =
-            requireStoredMoney(
-              packageData.price,
-              "Package price",
-            );
+            resolvedPackageOffer.basePrice;
 
           const packagePaymentTerms =
             requireNewBookingFullPaymentTerms(
@@ -1136,6 +1161,8 @@ export const submitBookingRequest = onCall(
                   packageData.name,
                 ),
 
+              ...resolvedPackageOffer.selection,
+
               packagePaymentTerms,
 
               eventType,
@@ -1269,6 +1296,8 @@ export const submitBookingRequest = onCall(
                 stringValue(
                   packageData.name,
                 ),
+
+              ...resolvedPackageOffer.selection,
 
               packagePaymentTerms,
 

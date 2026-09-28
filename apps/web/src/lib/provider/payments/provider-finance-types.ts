@@ -35,6 +35,9 @@ export type ProviderPayoutAccountView = {
   settlementTransportReady: boolean;
 
   paymongoAccountId: string | null;
+  childAccountPresent: boolean;
+  activationProfileComplete: boolean;
+  identityVerificationStatus: string | null;
   updatedAt: string | null;
 };
 
@@ -121,6 +124,36 @@ export type ProviderFinanceOverview = {
 
   settlements: ProviderSettlementView[];
   settlementSummary: ProviderSettlementSummary;
+};
+
+export type ProviderPayoutActivationAddressInput = {
+  line1: string;
+  line2: string | null;
+  city: string;
+  state: string;
+  country: "PH";
+  postalCode: string;
+};
+
+export type ProviderPayoutActivationInput = {
+  nationality: string;
+  placeOfBirthCity: string;
+  placeOfBirthCountry: string;
+  natureOfWork: string;
+  sourceOfFunds: string;
+  sourceOfFundsSalary: string | null;
+  sourceOfFundsOther: string | null;
+  personTin: string;
+  currentAddress: ProviderPayoutActivationAddressInput;
+  business: {
+    legalType: string;
+    address: ProviderPayoutActivationAddressInput;
+    industry: string;
+    age: string;
+    size: string;
+    estimatedMonthlyVolume: string;
+    tin: string;
+  } | null;
 };
 
 export type ProviderPayoutOnboardingResult = {

@@ -9,6 +9,7 @@ import {
 import {
   EventCustomizationExperience,
 } from "@/components/customer/bookings/event-customization-experience";
+import {PackageEventListAction} from "@/components/customer/event-list/package-event-list-action";
 import {
   requireCustomer,
   requireVerifiedEmail,
@@ -19,6 +20,9 @@ import {
 import {
   getPublicPackageDetail,
 } from "@/lib/customer/discovery/package-detail-service";
+import {
+  readPublishedProviderSetups,
+} from "@/lib/provider/provider-setup-gallery-service";
 import {
   customerEventContextQuery,
   parseCustomerEventContext,
@@ -106,20 +110,29 @@ export default async function CustomerPackageBookingPage({
     notFound();
   }
 
-  const eventServices =
-    await getPublicEventServices(
+  const [eventServices, publishedSetups] = await Promise.all([
+    getPublicEventServices(
       detail.provider.id,
-    );
+    ),
+    readPublishedProviderSetups(detail.provider.id),
+  ]);
 
   return (
-    <EventCustomizationExperience
-      key={`${account.uid}:${packageId}:${eventContextQuery}`}
-      draftOwner={`customer:${account.uid}`}
-      detail={detail}
-      eventServices={
-        eventServices.services
-      }
-      initialEventContext={initialEventContext}
-    />
+    <div className="grid gap-4">
+      <PackageEventListAction
+        packageRecord={detail.packageRecord}
+        layout="banner"
+      />
+      <EventCustomizationExperience
+        key={`${account.uid}:${packageId}:${eventContextQuery}`}
+        draftOwner={`customer:${account.uid}`}
+        detail={detail}
+        eventServices={
+          eventServices.services
+        }
+        initialEventContext={initialEventContext}
+        publishedSetups={publishedSetups}
+      />
+    </div>
   );
 }

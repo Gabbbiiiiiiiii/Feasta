@@ -9,6 +9,10 @@ import type {ProviderPackage} from "@/lib/provider/provider-package-client";
 const mocks = vi.hoisted(() => ({list: vi.fn(), publish: vi.fn(), archive: vi.fn(), load: vi.fn(), account: vi.fn()}));
 vi.mock("@/lib/provider/provider-package-client", () => ({listProviderPackages: mocks.list, publishProviderPackage: mocks.publish, archiveProviderPackage: mocks.archive, createProviderPackage: vi.fn(), updateProviderPackage: vi.fn()}));
 vi.mock("@/app/provider/packages/menu-actions", () => ({loadProviderMenuAction: mocks.load, saveProviderMenuAction: vi.fn()}));
+vi.mock("@/app/provider/packages/setup-gallery-actions", () => ({
+  loadProviderSetupGalleryAction: vi.fn().mockResolvedValue({revision: 0, setups: []}),
+  saveProviderSetupGalleryAction: vi.fn(),
+}));
 vi.mock("@/lib/provider/provider-media-client", () => ({uploadProviderServiceImage: vi.fn()}));
 vi.mock("@/lib/auth/session", () => ({requireProviderCatalogAccess: mocks.account}));
 vi.mock(
@@ -35,6 +39,10 @@ const props = {providerId: "provider-one", eventTypesSupported: ["birthday", "we
 const base: ProviderPackage = {
   id: "newest", providerId: props.providerId, name: "Zeta celebration", description: "Family gathering",
   eventType: "birthday", price: 12000,
+  serviceOptions: {
+    drop_off: {price: 12000, includedServices: []},
+  },
+  themeOptions: [],
   paymentPolicy: "deposit_then_balance",
   depositPercentage: 20,
   balanceDueDaysBeforeEvent: 7,
@@ -45,8 +53,31 @@ const base: ProviderPackage = {
   foodInclusions: [], decorInclusions: [], furnitureInclusions: [], serviceInclusions: [],
 };
 const records: ProviderPackage[] = [base,
-  {...base, id: "middle", name: "Alpha wedding", eventType: "wedding", price: 20000, status: "published", imageUrls: undefined},
-  {...base, id: "oldest", name: "Beta reunion", eventType: "reunion", price: 5000, status: "archived", imageUrls: [], imageUrl: ""},
+  {
+    ...base,
+    id: "middle",
+    name: "Alpha wedding",
+    eventType: "wedding",
+    price: 20000,
+    serviceOptions: {
+      drop_off: {price: 20000, includedServices: []},
+    },
+    status: "published",
+    imageUrls: undefined,
+  },
+  {
+    ...base,
+    id: "oldest",
+    name: "Beta reunion",
+    eventType: "reunion",
+    price: 5000,
+    serviceOptions: {
+      drop_off: {price: 5000, includedServices: []},
+    },
+    status: "archived",
+    imageUrls: [],
+    imageUrl: "",
+  },
 ];
 const menu = {revision: 3, images: [
   {id: "chicken", title: "Chicken", url: "https://example.com/chicken.png", isPublished: true},
@@ -152,10 +183,10 @@ it("uses real catalog images, publication flags, and saved title/category filter
   expect(within(chicken).getByLabelText("Status: Published")).toBeVisible();
   expect(within(screen.getByRole("article", {name: "Pasta"})).getByLabelText("Status: Draft")).toBeVisible();
   expect(screen.queryByRole("option", {name: "Seafood"})).not.toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText("Title / category"), {target: {value: "Pasta"}});
+  fireEvent.change(screen.getByLabelText("Search menu images"), {target: {value: "Pasta"}});
   expect(cardNames()).toEqual(["Pasta"]);
   fireEvent.change(screen.getByLabelText("Search menu images"), {target: {value: "chicken"}});
-  expect(screen.getByText("No menu images match your filters.")).toBeVisible();
+  expect(cardNames()).toEqual(["Chicken"]);
   fireEvent.click(screen.getByRole("button", {name: "Clear menu filters"}));
   expect(cardNames()).toEqual(["Chicken", "Pasta", "Menu image 3"]);
 });

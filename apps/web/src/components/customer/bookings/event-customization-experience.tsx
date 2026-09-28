@@ -19,7 +19,18 @@ import {
 } from "lucide-react";
 
 import {useRouter} from "next/navigation";
+import {BookingOfferSelection} from "@/components/customer/bookings/booking-offer-selection";
 import {useCustomizationDraft} from "@/lib/customer/bookings/use-customization-draft";
+import {
+  bookingCustomizationReviewLabel,
+  clearStaleSetupReference,
+  emptyBookingThemeInspiration,
+  omitUntrustedBookingCustomization,
+  reconcileBookingCustomization,
+  type BookingThemeInspiration,
+} from "@/lib/customer/bookings/booking-customization-selection";
+import type {ProviderSetup} from "@/lib/provider/provider-setup-gallery";
+import type {CateringPackageServiceTier} from "@/lib/catering/catering-service-tier";
 import {CustomerAuthLink} from "@/components/customer/layout/customer-auth-provider";
 import {
   useCallback,
@@ -68,6 +79,7 @@ type EventCustomizationExperienceProps = {
   detail: PublicPackageDetail;
   eventServices: readonly PublicEventService[];
   initialEventContext?: CustomerEventContext | null;
+  publishedSetups?: readonly ProviderSetup[];
 };
 
 type EventDetailsDraft = {
@@ -127,6 +139,7 @@ export function EventCustomizationExperience({
   initialEventContext = null,
   draftOwner = "guest",
   planningOnly = false,
+  publishedSetups,
 }: EventCustomizationExperienceProps) {
   const {
     packageRecord,
@@ -194,13 +207,34 @@ const submissionIdentityRef =
 
   const [willArrangeOwnAddOns, setWillArrangeOwnAddOns] = useState(false);
   const [customerArrangedAddOnsNote, setCustomerArrangedAddOnsNote] = useState("");
+  const [serviceTier, setServiceTier] = useState<CateringPackageServiceTier | null>(null);
+  const [packageThemeId, setPackageThemeId] = useState<string | null>(null);
+  const [themeInspiration, setThemeInspiration] = useState<BookingThemeInspiration>(
+    emptyBookingThemeInspiration(),
+  );
+  const [offerSelectionError, setOfferSelectionError] = useState<string | null>(null);
+  const offerSelection = useMemo(() => reconcileBookingCustomization({
+    packageSource: packageRecord,
+    serviceTier,
+    packageThemeId,
+    themeInspiration,
+  }), [packageRecord, serviceTier, packageThemeId, themeInspiration]);
 
   const savedDraft = useCustomizationDraft({
     owner: draftOwner, providerId: provider.id, packageId: packageRecord.id,
     context: JSON.stringify(initialEventContext),
     value: {event: draft, customization: customizationDraft, addonIds: selectedEventServiceIds,
-      ownAddons: willArrangeOwnAddOns, ownAddonsNote: customerArrangedAddOnsNote},
+      ownAddons: willArrangeOwnAddOns, ownAddonsNote: customerArrangedAddOnsNote,
+      serviceTier: offerSelection.serviceTier,
+      packageThemeId: offerSelection.packageThemeId,
+      themeInspiration: offerSelection.themeInspiration},
     restore: (saved) => {
+      const restoredOffer = reconcileBookingCustomization({
+        packageSource: packageRecord,
+        serviceTier: saved.serviceTier,
+        packageThemeId: saved.packageThemeId,
+        themeInspiration: saved.themeInspiration,
+      });
       setDraft(saved.event);
       setWillArrangeOwnAddOns(saved.ownAddons ?? false);
       setCustomerArrangedAddOnsNote(saved.ownAddonsNote ?? "");
@@ -210,6 +244,12 @@ const submissionIdentityRef =
         selectedFurniture: saved.customization.selectedFurniture.filter((item) => customization.furniture.includes(item)),
       });
       setSelectedEventServiceIds(saved.addonIds.filter((id) => eventServices.some((service) => service.id === id)));
+      setServiceTier(restoredOffer.serviceTier);
+      setPackageThemeId(restoredOffer.packageThemeId);
+      setThemeInspiration(publishedSetups
+        ? clearStaleSetupReference(restoredOffer.themeInspiration, publishedSetups.map((setup) => setup.id))
+        : restoredOffer.themeInspiration);
+      setOfferSelectionError(null);
     },
   });
 
@@ -219,6 +259,9 @@ const submissionIdentityRef =
     addonIds: selectedEventServiceIds,
     ownAddons: willArrangeOwnAddOns,
     ownAddonsNote: customerArrangedAddOnsNote,
+    serviceTier: offerSelection.serviceTier,
+    packageThemeId: offerSelection.packageThemeId,
+    themeInspiration: offerSelection.themeInspiration,
   });
 
   const [initialCustomizationSignature] =
@@ -600,7 +643,7 @@ function buildSubmissionInput(
   const ownAddOnsNote =
     customerArrangedAddOnsNote.trim();
 
-  return {
+  return omitUntrustedBookingCustomization({
     clientRequestId,
 
     providerId: provider.id,
@@ -631,6 +674,14 @@ function buildSubmissionInput(
     addonIds:
       selectedEventServiceIds,
 
+    ...(offerSelection.serviceTier
+      ? {serviceTier: offerSelection.serviceTier}
+      : {}),
+
+    ...(offerSelection.packageThemeId
+      ? {packageThemeId: offerSelection.packageThemeId}
+      : {}),
+
     policyAcknowledgements,
 
     ...(specialRequest
@@ -648,7 +699,7 @@ function buildSubmissionInput(
             ownAddOnsNote,
         }
       : {}),
-  };
+  });
 }
 
 function currentSubmissionDraftKey(): string {
@@ -686,6 +737,12 @@ function currentSubmissionDraftKey(): string {
 
     addonIds:
       selectedEventServiceIds,
+
+    serviceTier:
+      offerSelection.serviceTier,
+
+    packageThemeId:
+      offerSelection.packageThemeId,
 
     specialRequest:
       draft.specialRequest.trim(),
@@ -922,17 +979,46 @@ async function handleSubmitBooking() {
     setStep(2);
   }
 
+  function selectServiceTier(nextTier: CateringPackageServiceTier) {
+    const next = reconcileBookingCustomization({
+      packageSource: packageRecord,
+      serviceTier: nextTier,
+      packageThemeId,
+      themeInspiration,
+    });
+    setServiceTier(next.serviceTier);
+    setPackageThemeId(next.packageThemeId);
+    setThemeInspiration(next.themeInspiration);
+    setOfferSelectionError(null);
+  }
+
+  function selectPackageTheme(nextThemeId: string | null) {
+    const next = reconcileBookingCustomization({
+      packageSource: packageRecord,
+      serviceTier,
+      packageThemeId: nextThemeId,
+      themeInspiration,
+    });
+    setPackageThemeId(next.packageThemeId);
+    setThemeInspiration(next.themeInspiration);
+  }
+
   function continueFromCustomization() {
     /*
-     * There is intentionally no minimum
-     * selection requirement here because
-     * submitBookingRequest currently permits
-     * empty customization arrays.
-     *
-     * The Cloud Function independently checks
-     * that every submitted value belongs to
-     * the selected package.
+     * Food, decor, and furniture selections stay optional because
+     * submitBookingRequest currently permits empty customization arrays.
+     * A published service level is required only when this package offers one.
+     * The selected tier and theme ids are submitted for server validation.
+     * Inspiration notes and setup references stay on this device.
      */
+    if (offerSelection.availableTiers.length > 0 && !offerSelection.serviceTier) {
+      setOfferSelectionError(
+        "Choose a catering service level offered by this package.",
+      );
+      return;
+    }
+
+    setOfferSelectionError(null);
     setStep(3);
   }
 
@@ -1490,6 +1576,31 @@ function discardAndLeave() {
               </div>
 
               <div className="mt-7 grid gap-6">
+                <BookingOfferSelection
+                  availableTiers={offerSelection.availableTiers}
+                  serviceOptions={packageRecord.serviceOptions}
+                  themesApplicable={offerSelection.themesApplicable}
+                  hasThemeOptions={(packageRecord.themeOptions?.length ?? 0) > 0}
+                  serviceTier={offerSelection.serviceTier}
+                  packageThemeId={offerSelection.packageThemeId}
+                  availableThemes={offerSelection.availableThemes}
+                  themeInspiration={offerSelection.themeInspiration}
+                  publishedSetups={publishedSetups}
+                  error={offerSelectionError}
+                  onServiceTierChange={selectServiceTier}
+                  onPackageThemeChange={selectPackageTheme}
+                  onThemeInspirationChange={(nextInspiration) => {
+                    const next = reconcileBookingCustomization({
+                      packageSource: packageRecord,
+                      serviceTier,
+                      packageThemeId,
+                      themeInspiration: nextInspiration,
+                    });
+                    setThemeInspiration(next.themeInspiration);
+                    setPackageThemeId(next.packageThemeId);
+                  }}
+                />
+
                 <CustomizationGroup
                   title="Food selections"
                   description="Choose from the food options published with this package."
@@ -1983,6 +2094,14 @@ function discardAndLeave() {
               customerArrangedAddOnsNote={
                 customerArrangedAddOnsNote
               }
+              serviceTierLabel={bookingCustomizationReviewLabel(offerSelection.serviceTier)}
+              displayedServicePrice={offerSelection.displayedServicePrice}
+              packageThemeName={
+                offerSelection.availableThemes.find(
+                  (theme) => theme.id === offerSelection.packageThemeId,
+                )?.name ?? null
+              }
+              themeNotes={offerSelection.themeInspiration.notes}
               isSubmitting={
                 isSubmitting
               }
@@ -2074,6 +2193,13 @@ function discardAndLeave() {
                   }
                   className="mt-1"
                 />
+
+                {offerSelection.serviceTier ? (
+                  <p className="mt-3 text-xs leading-5 text-feasta-text-secondary">
+                    Selected service level: {bookingCustomizationReviewLabel(offerSelection.serviceTier)}.
+                    The service price on that choice is display-only and is not the booking total.
+                  </p>
+                ) : null}
               </div>
 
               <div className="mt-4 grid gap-3 border-t border-feasta-divider pt-4">
@@ -2740,6 +2866,10 @@ function BookingReview({
   selectedEventServicesSubtotal,
   willArrangeOwnAddOns,
   customerArrangedAddOnsNote,
+  serviceTierLabel,
+  displayedServicePrice,
+  packageThemeName,
+  themeNotes,
   isSubmitting,
   submissionError,
   submissionResult,
@@ -2778,6 +2908,14 @@ function BookingReview({
 
   customerArrangedAddOnsNote:
     string;
+
+  serviceTierLabel: string | null;
+
+  displayedServicePrice: number | null;
+
+  packageThemeName: string | null;
+
+  themeNotes: string;
 
   isSubmitting:
     boolean;
@@ -2956,6 +3094,37 @@ function BookingReview({
             </div>
           </div>
         </ReviewSection>
+
+        {serviceTierLabel ? (
+          <ReviewSection
+            title="Service level"
+            description="Your selected catering service level stays in this draft until FEASTA validates it."
+          >
+            <ReviewValue
+              label="Selected service level"
+              value={serviceTierLabel}
+            />
+            <div className="mt-4">
+              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
+                Displayed service price
+              </p>
+              <PriceDisplay amount={displayedServicePrice} className="mt-1" />
+              <p className="mt-2 text-xs leading-5 text-feasta-text-secondary">
+                This is the published price already loaded with the package. It is not submitted as the booking total.
+              </p>
+            </div>
+            {packageThemeName ? (
+              <div className="mt-4">
+                <ReviewValue label="Visual style" value={packageThemeName} />
+              </div>
+            ) : null}
+            {themeNotes ? (
+              <div className="mt-4">
+                <ReviewValue label="Visual notes" value={themeNotes} />
+              </div>
+            ) : null}
+          </ReviewSection>
+        ) : null}
 
         {/* ==========================================================
             CUSTOMIZATION

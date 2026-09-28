@@ -61,6 +61,7 @@ describe("provider business profile normalization", () => {
       maxServiceDistanceKm: 75,
       logo: null,
       coverImage: null,
+      businessRegistrationType: null,
       updatedAt: "2026-08-22T01:00:00.000Z",
     });
   });
@@ -91,6 +92,24 @@ describe("provider business profile normalization", () => {
         data: provider(item),
       })?.serviceCategories).toEqual(item.serviceCategories);
     }
+  });
+
+  it("keeps a stored registration type and treats a missing type as unset", () => {
+    expect(normalizeProviderBusinessProfile({
+      providerId: "provider-one",
+      trustedOwnerId: "owner-one",
+      data: provider({businessRegistrationType: "individual"}),
+    })?.businessRegistrationType).toBe("individual");
+    expect(normalizeProviderBusinessProfile({
+      providerId: "provider-one",
+      trustedOwnerId: "owner-one",
+      data: provider({businessRegistrationType: "registered_business"}),
+    })?.businessRegistrationType).toBe("registered_business");
+    expect(normalizeProviderBusinessProfile({
+      providerId: "provider-one",
+      trustedOwnerId: "owner-one",
+      data: provider({businessRegistrationType: "consumer"}),
+    })?.businessRegistrationType).toBeNull();
   });
 
   it("fails closed on ownership, approval, and capability inconsistencies", () => {

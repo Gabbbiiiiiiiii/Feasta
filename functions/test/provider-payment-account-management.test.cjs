@@ -135,6 +135,52 @@ test(
 );
 
 test(
+  "invalid registration type is rejected before any PayMongo invite",
+  () => {
+    const domain =
+      readFileSync(
+        path.resolve(
+          __dirname,
+          "../src/provider-finance/provider-payment-account-domain.ts",
+        ),
+        "utf8",
+      );
+    const contextStart =
+      management.indexOf(
+        "async function requireProviderFinanceContext",
+      );
+    const contextEnd =
+      management.indexOf(
+        "function assertStoredAccountOwnership",
+      );
+    const context =
+      management.slice(
+        contextStart,
+        contextEnd,
+      );
+
+    assert.ok(contextStart >= 0);
+    assert.ok(contextEnd > contextStart);
+    assert.match(
+      context,
+      /linkedAccountTypeForBusinessRegistration\(\s*provider\.businessRegistrationType/u,
+    );
+    assert.doesNotMatch(
+      context,
+      /createPayMongoLinkedAccountInvite|paymongo\.com|fetch\(/u,
+    );
+    assert.match(
+      domain,
+      /new HttpsError\(\s*"failed-precondition",\s*"Complete your business registration type before setting up payouts\."/u,
+    );
+    assert.doesNotMatch(
+      domain,
+      /createPayMongoLinkedAccountInvite|api\.paymongo\.com/u,
+    );
+  },
+);
+
+test(
   "provider payout onboarding callables are exported",
   () => {
     assert.match(
@@ -145,6 +191,68 @@ test(
     assert.match(
       index,
       /refreshProviderPayoutAccount/u,
+    );
+
+    assert.match(
+      index,
+      /saveProviderPayoutActivationProfile/u,
+    );
+  },
+);
+
+test(
+  "Accounts API onboarding does not require an invitation id",
+  () => {
+    const refreshExport =
+      management.indexOf(
+        "export const refreshProviderPayoutAccount",
+      );
+    const refreshStart =
+      management.indexOf(
+        "async function refreshChildAccount",
+      );
+    const refreshCallable =
+      management.slice(
+        refreshExport,
+        refreshStart,
+      );
+    const refresh =
+      management.slice(refreshStart);
+
+    assert.match(
+      management,
+      /createPayMongoChildAccount/u,
+    );
+    assert.match(
+      management,
+      /createPayMongoIdentityVerificationSession/u,
+    );
+    assert.match(
+      management,
+      /rejectBrowserPayoutAuthority/u,
+    );
+    assert.match(
+      refreshCallable,
+      /if \(orgAccountId\)/u,
+    );
+    assert.match(
+      refreshCallable,
+      /refreshChildAccount/u,
+    );
+    assert.doesNotMatch(
+      refresh.slice(
+        0,
+        refresh.indexOf("activatePayMongoChildAccount"),
+      ),
+      /storedInvitationId/u,
+    );
+    assert.ok(
+      refresh.indexOf("if (!profile)") <
+      refresh.indexOf("activatePayMongoChildAccount"),
+    );
+    assert.match(
+      management,
+      /payoutReady:\s*false/u,
     );
   },
 );

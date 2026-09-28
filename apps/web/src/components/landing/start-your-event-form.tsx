@@ -183,7 +183,7 @@ export function StartYourEventForm() {
             "motion-reduce:transform-none",
           ].join(" ")}
         >
-          Explore
+          Book Now
           <ArrowRight
             aria-hidden="true"
             className="size-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transform-none"

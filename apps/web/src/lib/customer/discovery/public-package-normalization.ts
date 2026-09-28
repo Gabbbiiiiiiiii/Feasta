@@ -2,6 +2,11 @@ import type {
   PublicPackage,
   PublicPackageCustomization,
 } from "./marketplace-types";
+import {
+  normalizePackageServiceOptions,
+  normalizePackageThemeOptions,
+  packageStartingPrice,
+} from "@/lib/catering/package-offer-configuration";
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -67,6 +72,17 @@ export function normalizePublicPackage(
   const legacyImage = safeHttpsUrl(value.imageUrl);
   if (imageUrls.length === 0 && legacyImage) imageUrls.push(legacyImage);
 
+  const serviceOptions =
+    normalizePackageServiceOptions(
+      value.serviceOptions,
+    );
+  const startingPrice =
+    packageStartingPrice(
+      serviceOptions,
+    );
+  const legacyPrice =
+    safeMoney(value.price);
+
   return {
     id,
     providerId,
@@ -74,7 +90,19 @@ export function normalizePublicPackage(
     name,
     description: safeText(value.description, 600),
     eventType: safeText(value.eventType, 80),
-    price: safeMoney(value.price),
+    price:
+      startingPrice !== null &&
+      legacyPrice === startingPrice
+        ? startingPrice
+        : Object.keys(serviceOptions)
+            .length === 0
+          ? legacyPrice
+          : null,
+    serviceOptions,
+    themeOptions:
+      normalizePackageThemeOptions(
+        value.themeOptions,
+      ),
     imageUrl: imageUrls[0] ?? null,
     imageUrls,
     minimumGuests: validGuestRange ? minimumGuests : null,

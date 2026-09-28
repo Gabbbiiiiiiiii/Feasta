@@ -5,6 +5,7 @@ const test = require("node:test");
 
 const {
   PROVIDER_BUSINESS_PROFILE_EDITABLE_FIELDS,
+  resolveLegacyBusinessRegistrationBackfill,
   validateProviderBusinessProfileUpdate,
 } = require("../lib/providers/provider-business-profile-domain.js");
 
@@ -35,6 +36,7 @@ test("business profile update allowlist contains public editable fields only", (
     "province",
     "logo",
     "coverImage",
+    "businessRegistrationType",
   ]);
 
   for (const forbidden of [
@@ -155,6 +157,128 @@ test("onboarding media clearing permits only unlinked or editable linked applica
   assert.match(
     providerMedia,
     /Provider application media is locked after submission/u,
+  );
+});
+
+test("approved legacy provider can set a missing registration type once", () => {
+  for (const registrationType of ["individual", "registered_business"]) {
+    assert.deepEqual(validateProviderBusinessProfileUpdate({
+      businessRegistrationType: registrationType,
+    }), {
+      businessRegistrationType: registrationType,
+    });
+    assert.equal(resolveLegacyBusinessRegistrationBackfill({
+      actorUid: "owner-one",
+      providerOwnerId: "owner-one",
+      storedBusinessRegistrationType: undefined,
+      submittedBusinessRegistrationType: registrationType,
+      paymentAccountExists: false,
+    }), registrationType);
+  }
+});
+
+test("blank or invalid registration type is rejected", () => {
+  for (const registrationType of ["", "   ", null, "consumer", "merchant", "unknown"]) {
+    assert.throws(
+      () => validateProviderBusinessProfileUpdate({
+        description: "A complete public description for event customers.",
+        businessRegistrationType: registrationType,
+      }),
+      (error) => error.code === "invalid-argument",
+      String(registrationType),
+    );
+  }
+});
+
+test("stored registration type cannot be switched", () => {
+  assert.throws(
+    () => resolveLegacyBusinessRegistrationBackfill({
+      actorUid: "owner-one",
+      providerOwnerId: "owner-one",
+      storedBusinessRegistrationType: "individual",
+      submittedBusinessRegistrationType: "registered_business",
+      paymentAccountExists: false,
+    }),
+    (error) => error.code === "failed-precondition",
+  );
+  assert.throws(
+    () => resolveLegacyBusinessRegistrationBackfill({
+      actorUid: "owner-one",
+      providerOwnerId: "owner-one",
+      storedBusinessRegistrationType: "registered_business",
+      submittedBusinessRegistrationType: "individual",
+      paymentAccountExists: false,
+    }),
+    (error) => error.code === "failed-precondition",
+  );
+  assert.equal(resolveLegacyBusinessRegistrationBackfill({
+    actorUid: "owner-one",
+    providerOwnerId: "owner-one",
+    storedBusinessRegistrationType: "individual",
+    submittedBusinessRegistrationType: "individual",
+    paymentAccountExists: true,
+  }), null);
+});
+
+test("unrelated provider cannot set business registration type", () => {
+  assert.throws(
+    () => resolveLegacyBusinessRegistrationBackfill({
+      actorUid: "owner-one",
+      providerOwnerId: "owner-two",
+      storedBusinessRegistrationType: undefined,
+      submittedBusinessRegistrationType: "individual",
+      paymentAccountExists: false,
+    }),
+    (error) => error.code === "permission-denied",
+  );
+  assert.match(callable, /provider\.ownerId !== actor\.uid/u);
+  assert.match(callable, /actorUid: actor\.uid/u);
+  assert.match(callable, /providerOwnerId: provider\.ownerId/u);
+  assert.doesNotMatch(callable, /input\.providerId/u);
+  assert.doesNotMatch(callable, /request\.data\.ownerId/u);
+});
+
+test("existing business profile updates still omit registration type", () => {
+  assert.deepEqual(validateProviderBusinessProfileUpdate({
+    city: "Tacloban City",
+  }), {
+    city: "Tacloban City",
+  });
+  assert.doesNotMatch(
+    callable,
+    /verificationStatus\s*[:=]/u,
+  );
+});
+
+test("registration backfill reads current provider and payout account in the transaction", () => {
+  const transactionStart = callable.indexOf("db.runTransaction");
+  assert.ok(transactionStart >= 0);
+  const transactionBody = callable.slice(transactionStart);
+  assert.match(callable, /collection\("providerPaymentAccounts"\)/u);
+  assert.match(transactionBody, /transaction\.getAll\(/u);
+  assert.match(transactionBody, /paymentAccountReference/u);
+  assert.match(transactionBody, /paymentAccountSnapshot\.exists/u);
+  assert.match(
+    transactionBody,
+    /resolveLegacyBusinessRegistrationBackfill\(\{/u,
+  );
+  assert.match(
+    callable,
+    /requested\.businessRegistrationType = registrationBackfill/u,
+  );
+  assert.doesNotMatch(
+    callable,
+    /requested\.businessRegistrationType = input\.businessRegistrationType/u,
+  );
+  assert.throws(
+    () => resolveLegacyBusinessRegistrationBackfill({
+      actorUid: "owner-one",
+      providerOwnerId: "owner-one",
+      storedBusinessRegistrationType: undefined,
+      submittedBusinessRegistrationType: "individual",
+      paymentAccountExists: true,
+    }),
+    (error) => error.code === "failed-precondition",
   );
 });
 
