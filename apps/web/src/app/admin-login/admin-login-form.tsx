@@ -411,7 +411,7 @@ function adminLoginError(caught: unknown): string {
       case "auth/invalid-login-credentials":
       case "auth/user-not-found":
       case "auth/wrong-password":
-        return "Incorrect email or password.";
+        return "Incorrect email or password. Please try again.";
 
       case "auth/user-disabled":
         return "This administrator account has been disabled.";

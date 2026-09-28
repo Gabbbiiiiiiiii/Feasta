@@ -95,7 +95,7 @@ describe("admin authentication", () => {
     await user.click(screen.getByRole("button", {name: /sign in as admin/i}));
     const generic = await screen.findByRole("alert");
     expect(generic).toHaveTextContent(
-      "Incorrect email or password.",
+      "Incorrect email or password. Please try again.",
     );
     expect(generic).not.toHaveTextContent(/user-not-found|firebase/i);
 
