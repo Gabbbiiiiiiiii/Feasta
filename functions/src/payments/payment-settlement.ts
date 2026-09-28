@@ -379,15 +379,24 @@ export function resolveProviderRequestSettlement(
     throw settlementInvalid();
   }
 
+  /*
+   * A full-payment snapshot has no balance
+   * obligation. Asking for one throws and
+   * would make a valid zero-balance request
+   * unreadable.
+   */
   const balanceObligation =
-    providerPaymentObligationForChoice({
-      financialSnapshot:
-        providerRequest
-          .financialSnapshot,
+    financial
+      .remainingBalanceInCentavos > 0
+      ? providerPaymentObligationForChoice({
+          financialSnapshot:
+            providerRequest
+              .financialSnapshot,
 
-      paymentChoice:
-        "remaining_balance",
-    });
+          paymentChoice:
+            "remaining_balance",
+        })
+      : null;
 
   let grossSettledAmountInCentavos =
     initialState === "settled"
@@ -925,6 +934,7 @@ function requireFinancialSnapshot(
     UnknownRecord,
 ): {
   grossAmountInCentavos: number;
+  remainingBalanceInCentavos: number;
 } {
   const value =
     providerRequest
@@ -978,6 +988,9 @@ function requireFinancialSnapshot(
   return {
     grossAmountInCentavos:
       gross as number,
+
+    remainingBalanceInCentavos:
+      remaining as number,
   };
 }
 
