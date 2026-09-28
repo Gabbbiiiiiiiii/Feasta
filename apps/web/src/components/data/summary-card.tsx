@@ -6,13 +6,14 @@ import {cn} from "@/lib/utils";
 type SummaryCardProps = {
   label: string;
   value?: ReactNode;
+  supportingMetric?: ReactNode;
   trend?: {label: string; direction: "up" | "down" | "neutral"};
   icon?: ReactNode;
   loading?: boolean;
   className?: string;
 };
 
-function SummaryCard({label, value, trend, icon, loading = false, className}: SummaryCardProps) {
+function SummaryCard({label, value, supportingMetric, trend, icon, loading = false, className}: SummaryCardProps) {
   return (
     <section className={cn("min-w-0 max-w-full overflow-hidden rounded-card border border-border bg-card p-4 shadow-card sm:p-5", className)} aria-label={label}>
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -24,6 +25,9 @@ function SummaryCard({label, value, trend, icon, loading = false, className}: Su
       ) : (
         <p className="mt-3 min-w-0 break-words text-2xl font-black tracking-tight sm:text-3xl">{value ?? "—"}</p>
       )}
+      {!loading && supportingMetric != null ? (
+        <p className="mt-3 break-words text-sm text-muted-foreground">{supportingMetric}</p>
+      ) : null}
       {!loading && trend ? (
         <p className={cn(
           "mt-3 text-sm font-semibold",

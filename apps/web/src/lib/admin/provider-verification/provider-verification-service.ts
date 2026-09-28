@@ -16,6 +16,7 @@ import {
 
 import { requireAdmin } from "@/lib/auth/session";
 import { adminDb } from "@/lib/firebase/admin";
+import { verificationQueueStatuses } from "./provider-verification-types";
 import type {
   ProviderVerificationApplication,
   ProviderVerificationQueueFilters,
@@ -35,7 +36,7 @@ import type {
 
 const applicationLimit = 50;
 export const verificationQueuePageSize = 20;
-const queueStatuses = ["pending", "submitted", "under_review"] as const;
+const queueStatuses = verificationQueueStatuses.filter((status) => status !== "all");
 
 function normalizeSearchToken(value: string): string {
   return value

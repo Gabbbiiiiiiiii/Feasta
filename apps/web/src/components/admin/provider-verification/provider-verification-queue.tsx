@@ -129,7 +129,7 @@ function ProviderVerificationQueue({
       <PageHeading
         eyebrow="administration"
         title="Provider verification queue"
-        description="Review submitted provider applications using bounded, server-filtered results."
+        description="View provider applications across all verification statuses and review those awaiting approval."
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -201,6 +201,8 @@ function ProviderVerificationQueue({
                 })}
               >
                 <option value="all">All verification statuses</option>
+                <option value="pending">Pending</option>
+                <option value="draft">Draft</option>
                 <option value="submitted">Submitted</option>
                 <option value="under_review">Under review</option>
                 <option value="approved">Approved</option>
@@ -267,7 +269,7 @@ function ProviderVerificationQueue({
         caption="Provider verification queue"
         loading={isPending}
         emptyTitle="No verification applications"
-        emptyDescription="No applications match the current server-side filters."
+        emptyDescription="No applications match the selected filters."
         rowActions={(item) => (
           <Button
             variant="secondary"

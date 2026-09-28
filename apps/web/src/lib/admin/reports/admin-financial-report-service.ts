@@ -434,7 +434,7 @@ async function queryAdminFinancialReport(
   };
 }
 
-function normalizeLedgerRow(
+export function normalizeLedgerRow(
   document:
     QueryDocumentSnapshot<
       DocumentData

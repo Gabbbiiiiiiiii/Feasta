@@ -19,21 +19,21 @@ import {
 } from "./chart-container";
 import {cn} from "@/lib/utils";
 
-type PaymentVolumeRange =
+type RevenueRange =
   | "7D"
   | "1M"
   | "3M"
   | "1Y";
 
-type PaymentVolumePoint = {
+type RevenuePoint = {
   label: string;
-  volumeInCentavos: number;
+  revenueInCentavos: number;
 };
 
-type ConfirmedPaymentVolumeChartProps = {
+type FeastaRevenueChartProps = {
   data: Record<
-    PaymentVolumeRange,
-    PaymentVolumePoint[]
+    RevenueRange,
+    RevenuePoint[]
   >;
   loading?: boolean;
   error?: string;
@@ -41,7 +41,7 @@ type ConfirmedPaymentVolumeChartProps = {
   className?: string;
 };
 
-const ranges: PaymentVolumeRange[] = [
+const ranges: RevenueRange[] = [
   "7D",
   "1M",
   "3M",
@@ -52,7 +52,8 @@ const pesoFormatter =
   new Intl.NumberFormat("en-PH", {
     style: "currency",
     currency: "PHP",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   });
 
 function formatCentavos(
@@ -72,13 +73,13 @@ function formatYAxis(
     return "₱0";
   }
 
-  if (pesos >= 1_000_000) {
+  if (Math.abs(pesos) >= 1_000_000) {
     return `₱${(
       pesos / 1_000_000
     ).toFixed(1)}M`;
   }
 
-  if (pesos >= 1_000) {
+  if (Math.abs(pesos) >= 1_000) {
     return `₱${Math.round(
       pesos / 1_000,
     )}K`;
@@ -87,39 +88,39 @@ function formatYAxis(
   return `₱${Math.round(pesos)}`;
 }
 
-function ConfirmedPaymentVolumeChart({
+function FeastaRevenueChart({
   data,
   loading = false,
   error,
   onRetry,
   className,
-}: ConfirmedPaymentVolumeChartProps) {
+}: FeastaRevenueChartProps) {
   const [selectedRange, setSelectedRange] =
-    useState<PaymentVolumeRange>("1M");
+    useState<RevenueRange>("1M");
 
   const chartData = useMemo(
     () => data[selectedRange] ?? [],
     [data, selectedRange],
   );
 
-  const totalVolumeInCentavos =
+  const totalRevenueInCentavos =
     useMemo(
       () =>
         chartData.reduce(
           (total, point) =>
             total +
-            point.volumeInCentavos,
+            point.revenueInCentavos,
           0,
         ),
       [chartData],
     );
 
-  const maximumVolumeInCentavos =
+  const maximumRevenueInCentavos =
     useMemo(() => {
       const largestValue = Math.max(
         ...chartData.map(
           (point) =>
-            point.volumeInCentavos,
+            point.revenueInCentavos,
         ),
         0,
       );
@@ -140,15 +141,25 @@ function ConfirmedPaymentVolumeChart({
       );
     }, [chartData]);
 
+  // Completed reversals can make a reporting bucket negative.
+  const minimumRevenueInCentavos = Math.min(
+    0,
+    ...chartData.map((point) => point.revenueInCentavos),
+  );
+  const axisMinimumInCentavos = minimumRevenueInCentavos < 0
+    ? Math.floor(minimumRevenueInCentavos / 2_500_000) * 2_500_000
+    : 0;
+  const axisSpanInCentavos = maximumRevenueInCentavos - axisMinimumInCentavos;
+
   return (
     <ChartContainer
-      title="Confirmed Payment Volume"
+      title="FEASTA Revenue"
       fallbackSummary={
-        `Total confirmed payment volume for this range is ${
+        `Total FEASTA revenue for this range is ${
           formatCentavos(
-            totalVolumeInCentavos,
+            totalRevenueInCentavos,
           )
-        }. This is provider-associated payment volume, not FEASTA-owned revenue.`
+        }. Platform and service fees earned through eligible FEASTA transactions.`
       }
       loading={loading}
       error={error}
@@ -166,7 +177,7 @@ function ConfirmedPaymentVolumeChart({
       rangeControls={
         <div
           className="flex items-center gap-1"
-          aria-label="Payment volume chart range"
+          aria-label="FEASTA revenue chart range"
         >
           {ranges.map((range) => {
             const selected =
@@ -227,19 +238,12 @@ function ConfirmedPaymentVolumeChart({
 
             <YAxis
               domain={[
-                0,
-                maximumVolumeInCentavos,
+                axisMinimumInCentavos,
+                maximumRevenueInCentavos,
               ]}
-              ticks={[
-                0,
-                maximumVolumeInCentavos *
-                  0.25,
-                maximumVolumeInCentavos *
-                  0.5,
-                maximumVolumeInCentavos *
-                  0.75,
-                maximumVolumeInCentavos,
-              ]}
+              ticks={[0, 0.25, 0.5, 0.75, 1].map(
+                (fraction) => axisMinimumInCentavos + axisSpanInCentavos * fraction,
+              )}
               axisLine={false}
               tickLine={false}
               tickFormatter={formatYAxis}
@@ -259,7 +263,7 @@ function ConfirmedPaymentVolumeChart({
                 formatCentavos(
                   Number(value),
                 ),
-                "Confirmed payment volume",
+                "FEASTA Revenue",
               ]}
               contentStyle={{
                 padding: "12px",
@@ -279,8 +283,8 @@ function ConfirmedPaymentVolumeChart({
 
             <Line
               type="monotone"
-              dataKey="volumeInCentavos"
-              name="Confirmed payment volume"
+              dataKey="revenueInCentavos"
+              name="FEASTA Revenue"
               stroke="#111827"
               strokeWidth={2.5}
               dot={false}
@@ -300,8 +304,8 @@ function ConfirmedPaymentVolumeChart({
 }
 
 export {
-  ConfirmedPaymentVolumeChart,
-  type ConfirmedPaymentVolumeChartProps,
-  type PaymentVolumePoint,
-  type PaymentVolumeRange,
+  FeastaRevenueChart,
+  type FeastaRevenueChartProps,
+  type RevenuePoint,
+  type RevenueRange,
 };

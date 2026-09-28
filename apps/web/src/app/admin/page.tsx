@@ -3,8 +3,8 @@ import {
   ChevronRight,
   ClipboardList,
   CreditCard,
+  CircleAlert,
   MessageSquareText,
-  Settings,
   ShieldCheck,
   Store,
   Users,
@@ -14,17 +14,18 @@ import { PhilippinePeso } from "lucide-react";
 
 import { SummaryCard } from "@/components/data";
 import {
-  ConfirmedPaymentVolumeChart,
-} from "@/components/data/confirmed-payment-volume-chart";
+  FeastaRevenueChart,
+} from "@/components/data/feasta-revenue-chart";
 import { PageHeading } from "@/components/layout/page-heading";
 import { Button } from "@/components/ui/button";
 import { requireRole } from "@/lib/auth/session";
-import { getAdminDashboardData } from "../../lib/admin/dashboard/admin-dashboard-data";
+import { getAdminDashboardData, type AdminDashboardData } from "../../lib/admin/dashboard/admin-dashboard-data";
 
 const pesoFormatter = new Intl.NumberFormat("en-PH", {
   style: "currency",
   currency: "PHP",
-  maximumFractionDigits: 0,
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 });
 
 function formatCentavos(
@@ -153,54 +154,66 @@ export default async function AdminPage() {
         className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Platform summary"
       >
-        <SummaryCard
-          label="Confirmed payment volume"
-          value={formatCentavos(
-            dashboard.statistics
-              .confirmedPaymentVolumeInCentavos,
-          )}
-          icon={
-            <PhilippinePeso
-              aria-hidden="true"
-              className="size-6"
-            />
-          }
-        />
+        <Link href="/admin/payments" className="grid min-w-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <SummaryCard
+            label="Feasta Revenue"
+            supportingMetric={formatCentavos(dashboard.statistics.revenueLast30DaysInCentavos) + " in the last 30 days"}
+            value={formatCentavos(
+              dashboard.statistics
+                .feastaRevenueInCentavos,
+            )}
+            icon={
+              <PhilippinePeso
+                aria-hidden="true"
+                className="size-6"
+              />
+            }
+          />
+        </Link>
 
-        <SummaryCard
-          label="Active accounts"
-          value={numberFormatter.format(
-            dashboard.statistics.activeAccounts,
-          )}
-          icon={<Users aria-hidden="true" className="size-6" />}
-        />
+        <Link href="/admin/users" className="grid min-w-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <SummaryCard
+            label="Total Users"
+            supportingMetric={numberFormatter.format(dashboard.statistics.customerAccounts) + " customers / " + numberFormatter.format(dashboard.statistics.providerAccounts) + " providers"}
+            value={numberFormatter.format(
+              dashboard.statistics.totalUsers,
+            )}
+            icon={<Users aria-hidden="true" className="size-6" />}
+          />
+        </Link>
 
-        <SummaryCard
-          label="Active bookings"
-          value={numberFormatter.format(
-            dashboard.statistics.activeBookings,
-          )}
-          icon={
-            <CalendarDays aria-hidden="true" className="size-6" />
-          }
-        />
+        <Link href="/admin/bookings" className="grid min-w-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <SummaryCard
+            label="Total Bookings"
+            supportingMetric={numberFormatter.format(dashboard.statistics.activeBookings) + " active / " + numberFormatter.format(dashboard.statistics.completedBookings) + " completed"}
+            value={numberFormatter.format(
+              dashboard.statistics.totalBookings,
+            )}
+            icon={
+              <CalendarDays aria-hidden="true" className="size-6" />
+            }
+          />
+        </Link>
 
-        <SummaryCard
-          label="Verification queue"
-          value={numberFormatter.format(
-            dashboard.statistics.verificationQueue,
-          )}
-          icon={
-            <ShieldCheck aria-hidden="true" className="size-6" />
-          }
-        />
+        <Link href="/admin/providers" className="grid min-w-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <SummaryCard
+            label="Pending Accounts for Approval"
+            supportingMetric={numberFormatter.format(dashboard.statistics.submittedApprovals) + " submitted / " + numberFormatter.format(dashboard.statistics.underReviewApprovals) + " under review"}
+            value={numberFormatter.format(
+              dashboard.statistics.verificationQueue,
+            )}
+            icon={
+              <ShieldCheck aria-hidden="true" className="size-6" />
+            }
+          />
+        </Link>
       </section>
 
       <section className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(300px,1fr)]">
         <div className="grid min-w-0 content-start gap-6">
-          <ConfirmedPaymentVolumeChart
+          <FeastaRevenueChart
             data={
-              dashboard.paymentVolumeByRange
+              dashboard.revenueByRange
             }
           />
 
@@ -216,13 +229,9 @@ export default async function AdminPage() {
             providers={dashboard.topProviders}
           />
 
-          <QuickActions
-            title={dashboard.settings.quickActionsTitle}
-          />
-
-          <PlatformHealth
-            title={dashboard.settings.platformHealthTitle}
-            health={dashboard.platformHealth}
+          <OperationsOverview
+            title={dashboard.settings.operationsOverviewTitle}
+            overview={dashboard.operationsOverview}
           />
         </aside>
       </section>
@@ -238,6 +247,7 @@ type TopProvidersProps = {
     businessName: string;
     serviceType: string;
     completedBookings: number;
+    href: string;
   }>;
 };
 
@@ -270,9 +280,7 @@ function TopProviders({
           {providers.map((provider, index) => (
             <li key={provider.id}>
               <Link
-                href={`/admin/providers?selected=${encodeURIComponent(
-                  provider.id,
-                )}`}
+                href={provider.href}
                 className="flex items-center gap-3 rounded-xl border border-border p-3 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
@@ -318,178 +326,47 @@ function TopProviders({
   );
 }
 
-function QuickActions({
+function OperationsOverview({
   title,
+  overview,
 }: {
   title: string;
+  overview: AdminDashboardData["operationsOverview"];
 }) {
-  const actions = [
-    {
-      label: "Review providers",
-      description:
-        "Process pending provider verification applications.",
-      href: "/admin/providers",
-      icon: ShieldCheck,
-    },
-    {
-      label: "Monitor bookings",
-      description:
-        "Review active and upcoming event bookings.",
-      href: "/admin/bookings",
-      icon: CalendarDays,
-    },
-    {
-      label: "Investigate payments",
-      description:
-        "Review processing, failed, expired, and refundable payments.",
-      href: "/admin/payments",
-      icon: CreditCard,
-    },
-    {
-      label: "Moderate reviews",
-      description:
-        "Review reported feedback and moderation decisions.",
-      href: "/admin/reviews",
-      icon: MessageSquareText,
-    },
-    {
-      label: "Manage accounts",
-      description:
-        "Review customer and provider account status.",
-      href: "/admin/users",
-      icon: Users,
-    },
+  const metrics = [
+    { label: "Pending / processing payments", value: overview.pendingProcessingPayments, href: "/admin/payments", icon: CreditCard },
+    { label: "Failed / expired payments", value: overview.failedExpiredPayments, href: "/admin/payments", icon: CircleAlert },
+    { label: "Reported reviews", value: overview.reportedReviews, href: "/admin/reviews", icon: MessageSquareText },
+    { label: "Open complaints", value: overview.openComplaints, href: "/admin/complaints", icon: MessageSquareText },
   ];
 
   return (
-    <section className="rounded-card border border-border bg-card p-5 shadow-card">
-      <h2 className="text-lg font-bold">
-        {title}
-      </h2>
-
+    <section aria-label={title} className="rounded-card border border-border bg-card p-5 shadow-card">
+      <h2 className="text-lg font-bold">{title}</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        Frequently used administration tools.
+        Payments, reviews, and complaints needing attention.
       </p>
-
-      <div className="mt-5 grid gap-2">
-        {actions.map((action) => {
-          const Icon = action.icon;
-
+      <ul className="mt-5 grid gap-2">
+        {metrics.map((metric) => {
+          const Icon = metric.icon;
           return (
-            <Link
-              key={action.href}
-              href={action.href}
-              className="group flex items-start gap-3 rounded-xl p-3 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Icon
-                  aria-hidden="true"
-                  className="size-5"
-                />
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold">
-                  {action.label}
-                </p>
-
-                <p className="mt-0.5 text-sm text-muted-foreground">
-                  {action.description}
-                </p>
-              </div>
-
-              <ChevronRight
-                aria-hidden="true"
-                className="mt-2 size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5"
-              />
-            </Link>
+            <li key={metric.label}>
+              <Link
+                href={metric.href}
+                aria-label={metric.label + ": " + numberFormatter.format(metric.value)}
+                className="group flex items-center gap-3 rounded-xl p-3 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                  <Icon aria-hidden="true" className="size-5" />
+                </div>
+                <span className="min-w-0 flex-1 font-semibold">{metric.label}</span>
+                <span className="font-bold">{numberFormatter.format(metric.value)}</span>
+                <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+              </Link>
+            </li>
           );
         })}
-      </div>
-    </section>
-  );
-}
-
-type PlatformHealthProps = {
-  title: string;
-  health: {
-    activeCustomerAccounts: number;
-    activeProviderAccounts: number;
-    bookingsNeedingAttention: number;
-    pendingProcessingPayments: number;
-    failedExpiredPayments: number;
-    openComplaints: number;
-  };
-};
-
-function PlatformHealth({
-  title,
-  health,
-}: PlatformHealthProps) {
-  const metrics = [
-    {
-      label: "Active customers",
-      value:
-        health.activeCustomerAccounts,
-    },
-    {
-      label: "Active providers",
-      value:
-        health.activeProviderAccounts,
-    },
-    {
-      label: "Active bookings",
-      value:
-        health.bookingsNeedingAttention,
-    },
-    {
-      label: "Pending / processing payments",
-      value:
-        health.pendingProcessingPayments,
-    },
-    {
-      label: "Failed / expired payments",
-      value:
-        health.failedExpiredPayments,
-    },
-    {
-      label: "Open complaints",
-      value:
-        health.openComplaints,
-    },
-  ];
-
-  return (
-    <section className="rounded-card border border-border bg-card p-5 shadow-card">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-bold">{title}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Current operational indicators.
-          </p>
-        </div>
-
-        <Settings
-          aria-hidden="true"
-          className="size-5 text-muted-foreground"
-        />
-      </div>
-
-      <dl className="mt-5 divide-y divide-border">
-        {metrics.map((metric) => (
-          <div
-            key={metric.label}
-            className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0"
-          >
-            <dt className="text-sm text-muted-foreground">
-              {metric.label}
-            </dt>
-            <dd className="font-bold">
-              {numberFormatter.format(metric.value)}
-            </dd>
-          </div>
-        ))}
-      </dl>
+      </ul>
     </section>
   );
 }

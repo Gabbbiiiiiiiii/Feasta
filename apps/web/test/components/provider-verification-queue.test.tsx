@@ -177,9 +177,8 @@ describe("provider verification queue", () => {
     expect(screen.getByRole("combobox", {
       name: "Verification status",
     })).toBeInTheDocument();
-    expect(screen.queryByRole("option", {
-      name: "Draft",
-    })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Draft" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Pending" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", {
       name: "Provider service type",
     })).toBeInTheDocument();
@@ -227,6 +226,25 @@ describe("provider verification queue", () => {
     expect(push).toHaveBeenCalledWith(
       expect.stringContaining("from=2026-07-01"),
     );
+  });
+
+  it("offers every verification status and clears the status and cursor when returning to all", () => {
+    query = "status=approved&cursor=old-page&direction=next&selected=verification-one";
+    render(<ProviderVerificationQueue
+      page={page} filters={{...filters, status: "approved", cursor: "old-page"}}
+      summary={{submitted: 2, underReview: 3, approvedToday: 1, needsResubmission: 1}}
+      selected={null} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+    />);
+    const statusSelect = screen.getByRole("combobox", { name: "Verification status" });
+    expect(within(statusSelect).getAllByRole("option").map((option) => (option as HTMLOptionElement).value)).toEqual([
+      "all", "pending", "draft", "submitted", "under_review", "approved", "resubmission_required", "rejected", "suspended",
+    ]);
+    fireEvent.change(statusSelect, { target: { value: "all" } });
+    expect(push).toHaveBeenLastCalledWith("/admin/providers?");
+    fireEvent.change(statusSelect, { target: { value: "draft" } });
+    expect(push).toHaveBeenLastCalledWith("/admin/providers?status=draft");
+    fireEvent.change(statusSelect, { target: { value: "pending" } });
+    expect(push).toHaveBeenLastCalledWith("/admin/providers?status=pending");
   });
 
   it("provides a mobile-safe card and focus-managed detail drawer", () => {
