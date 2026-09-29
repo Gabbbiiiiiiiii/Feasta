@@ -2,10 +2,9 @@ import { type ProviderServiceType, type ProviderVerificationStatus, type Verific
 import { type ServiceCategoryCode } from "./service-category.js";
 export declare const REQUIRED_VERIFICATION_DOCUMENT_TYPES: readonly ["business_permit", "dti_registration", "bir_registration", "valid_id"];
 export declare const FOOD_SERVICE_CATEGORIES: readonly ["catering_service", "food_trays_packed_meals", "catering_event_styling", "cake_provider"];
-export declare const FOOD_PERMIT_ALTERNATIVES: readonly ["sanitary_permit", "mayors_permit"];
 export interface ProviderVerificationDocumentPolicy {
-    requiredAll: readonly VerificationDocumentType[];
-    requiredOneOf: readonly (readonly VerificationDocumentType[])[];
+    requiredAll: readonly string[];
+    requiredOneOf: readonly (readonly string[])[];
 }
 export declare const UNVERSIONED_POLICY_VERSION: "unversioned";
 export declare const PROVIDER_AGREEMENT_VERSION: "2026-09-27";
@@ -179,7 +178,7 @@ export declare function providerVerificationDocumentPolicy(input: {
     serviceCategories?: readonly string[];
     businessRegistrationType?: ProviderBusinessRegistrationType;
 }): ProviderVerificationDocumentPolicy;
-export declare function verificationDocumentRequirement(documentType: VerificationDocumentType, policy: ProviderVerificationDocumentPolicy): "required" | "one_of" | "optional";
+export declare function verificationDocumentRequirement(documentType: string, policy: ProviderVerificationDocumentPolicy): "required" | "one_of" | "optional";
 export declare function verificationDocumentsSatisfyPolicy(documentTypes: ReadonlySet<string>, policy: ProviderVerificationDocumentPolicy): boolean;
 export interface ProviderVerificationHistoryEntry {
     actorId: string;
@@ -217,7 +216,7 @@ export declare function normalizeProviderEmail(value: unknown): string | null;
  */
 export declare function normalizePhilippinePhone(value: unknown): string | null;
 export declare function normalizePhilippineMobile(value: unknown): string | null;
-export declare function parseVerificationDocumentType(value: unknown): VerificationDocumentType | null;
+export declare function parseVerificationDocumentType(value: unknown): string | null;
 export declare function parseVerificationDocumentStatus(value: unknown): VerificationDocumentStatus | null;
 export declare function parseProviderVerificationStatusStrict(value: unknown): ProviderVerificationStatus | null;
 /**

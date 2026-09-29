@@ -10,6 +10,7 @@ import {
 import {useRouter} from "next/navigation";
 import {useEffect, useRef, useState, type FormEvent, type ReactNode} from "react";
 
+import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {Button} from "@/components/ui/button";
 import {PROVIDER_SERVICE_TYPE_OPTIONS} from "@/lib/customer/providers/provider-catalog";
 import {providerDiscoveryHref} from "@/lib/customer/providers/provider-query";
@@ -91,14 +92,15 @@ export function MarketplaceSearch() {
         </PlanningField>
 
         <PlanningField id="home-event-date" label="Event date" error={errors.eventDate} icon={<CalendarDays aria-hidden="true" />}>
-          <input
+          <PhilippineDateInput
+            plain
             id="home-event-date"
-            type="date"
             ref={dateInput}
             value={draft.eventDate}
             onChange={(event) => updateDraft("eventDate", event.target.value)}
             aria-invalid={Boolean(errors.eventDate)}
             aria-describedby={errors.eventDate ? "home-event-date-error" : undefined}
+            displayClassName="left-3 right-10 text-sm font-semibold"
             className={controlClass}
           />
         </PlanningField>

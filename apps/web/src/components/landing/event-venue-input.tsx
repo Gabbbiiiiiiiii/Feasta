@@ -1,8 +1,9 @@
 "use client";
 
 import {LoaderCircle, MapPin, X} from "lucide-react";
-import {useEffect, useId, useRef, useState} from "react";
+import {useEffect, useId, useMemo, useRef, useState} from "react";
 
+import {ProviderBusinessLocationMap} from "@/components/provider/provider-business-location-map";
 import type {CustomerEventVenue} from "@/lib/customer/planning/event-planning-context";
 import {
   getEventVenueDetails,
@@ -14,10 +15,12 @@ export function EventVenueInput({
   initialVenue = null,
   label = "Location",
   placeholder = "Search event venue or address",
+  enableMap = false,
 }: {
   initialVenue?: CustomerEventVenue | null;
   label?: string;
   placeholder?: string;
+  enableMap?: boolean;
 }) {
   const inputId = useId();
   const listboxId = `${inputId}-suggestions`;
@@ -29,6 +32,14 @@ export function EventVenueInput({
   const [activeIndex, setActiveIndex] = useState(-1);
   const [status, setStatus] = useState<"idle" | "searching" | "resolving">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [showMap, setShowMap] = useState(false);
+  const mapCoordinates = useMemo(
+    () =>
+      selectedVenue
+        ? {latitude: selectedVenue.latitude, longitude: selectedVenue.longitude}
+        : null,
+    [selectedVenue],
+  );
 
   useEffect(() => {
   if (skipNextSearch.current) {
@@ -145,7 +156,44 @@ export function EventVenueInput({
     }
   }
 
-  return (
+  function confirmMapLocation(location: {
+    address: string;
+    city: string;
+    province: string;
+    latitude: number;
+    longitude: number;
+  }) {
+    const labelText = (location.city.trim() || location.address.split(",")[0]?.trim() || location.address)
+      .replace(/\s+/gu, " ")
+      .slice(0, 120);
+    requestId.current += 1;
+    skipNextSearch.current = true;
+    setSelectedVenue({
+      label: labelText,
+      address: location.address,
+      city: location.city,
+      province: location.province,
+      placeId: mapPinPlaceId(location.latitude, location.longitude),
+      latitude: location.latitude,
+      longitude: location.longitude,
+    });
+    setQuery(location.address);
+    setSuggestions([]);
+    setActiveIndex(-1);
+    setStatus("idle");
+    setError(null);
+    setShowMap(false);
+  }
+
+  function toggleMap() {
+    requestId.current += 1;
+    setSuggestions([]);
+    setActiveIndex(-1);
+    setError(null);
+    setShowMap((current) => !current);
+  }
+
+  const field = (
     <div className="relative min-w-0">
       <label htmlFor={inputId} className="mb-2 block text-xs font-bold text-feasta-text-secondary">
         {label}
@@ -254,6 +302,46 @@ export function EventVenueInput({
           <input type="hidden" name="eventVenueLng" value={selectedVenue.longitude} />
         </>
       ) : null}
+
+      {enableMap ? (
+        <button
+          type="button"
+          onClick={toggleMap}
+          aria-expanded={showMap}
+          className="mt-1.5 inline-flex min-h-8 items-center gap-1.5 rounded-lg px-1 text-xs font-bold text-primary-strong hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <MapPin aria-hidden="true" className="size-3.5" />
+          {showMap ? "Close map" : selectedVenue ? "Adjust on map" : "Choose on map"}
+        </button>
+      ) : null}
     </div>
   );
+
+  if (!enableMap) return field;
+
+  return (
+    <>
+      {field}
+      {showMap ? (
+        <div className="col-span-full min-w-0 max-w-full">
+          <ProviderBusinessLocationMap
+            compact
+            initialCoordinates={mapCoordinates}
+            disabled={false}
+            ariaLabel="Adjust event location map"
+            markerTitle="Event location"
+            pinHint="Tap the map to place the pin."
+            onCancel={() => setShowMap(false)}
+            onConfirm={confirmMapLocation}
+          />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function mapPinPlaceId(latitude: number, longitude: number): string {
+  const latitudeMicros = Math.round(latitude * 1_000_000);
+  const longitudeMicros = Math.round(longitude * 1_000_000);
+  return `map_${latitudeMicros}_${longitudeMicros}`;
 }

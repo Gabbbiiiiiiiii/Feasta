@@ -32,14 +32,11 @@ export const FOOD_SERVICE_CATEGORIES = [
   "cake_provider",
 ] as const satisfies readonly ServiceCategoryCode[];
 
-export const FOOD_PERMIT_ALTERNATIVES = [
-  "sanitary_permit",
-  "mayors_permit",
-] as const satisfies readonly VerificationDocumentType[];
+
 
 export interface ProviderVerificationDocumentPolicy {
-  requiredAll: readonly VerificationDocumentType[];
-  requiredOneOf: readonly (readonly VerificationDocumentType[])[];
+  requiredAll: readonly string[];
+  requiredOneOf: readonly (readonly string[])[];
 }
 
 export const UNVERSIONED_POLICY_VERSION = "unversioned" as const;
@@ -403,16 +400,22 @@ export function providerVerificationDocumentPolicy(input: {
     requiredAll.push("mayors_permit");
   }
 
+  if (requiresFoodPermit) {
+    requiredAll.push("sanitary_permit");
+  }
+
+  if (requiresMayorsPermit) {
+    requiredAll.push("mayors_permit");
+  }
+
   return {
     requiredAll,
-    requiredOneOf: requiresFoodPermit && !requiresMayorsPermit
-      ? [FOOD_PERMIT_ALTERNATIVES]
-      : [],
+    requiredOneOf: [],
   };
 }
 
 export function verificationDocumentRequirement(
-  documentType: VerificationDocumentType,
+  documentType: string,
   policy: ProviderVerificationDocumentPolicy,
 ): "required" | "one_of" | "optional" {
   if (policy.requiredAll.includes(documentType)) return "required";
@@ -552,17 +555,20 @@ export function normalizePhilippineMobile(value: unknown): string | null {
     : null;
 }
 
+const DOCUMENT_CODE_PATTERN =
+  /^[a-z0-9]+(?:_[a-z0-9]+)*$/u;
+
 export function parseVerificationDocumentType(
   value: unknown,
-): VerificationDocumentType | null {
+): string | null {
   const normalized = normalize(value, {
     mayor_permit: "mayors_permit",
     validid: "valid_id",
   });
-  return VERIFICATION_DOCUMENT_TYPES.includes(
-    normalized as VerificationDocumentType,
-  )
-    ? normalized as VerificationDocumentType
+  return normalized.length >= 2 &&
+    normalized.length <= 100 &&
+    DOCUMENT_CODE_PATTERN.test(normalized)
+    ? normalized
     : null;
 }
 

@@ -103,7 +103,7 @@ export default function AboutPage() {
         <section className="bg-secondary py-14 sm:py-16 lg:py-20">
           <div className={landingContainerClassName}>
             <div className="max-w-3xl">
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
+              <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 Who Feasta serves
               </p>
               <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-5xl">
@@ -122,7 +122,7 @@ export default function AboutPage() {
                     <UsersRound aria-hidden="true" className="size-5" />
                   </span>
                   <div>
-                    <p className="text-sm font-bold uppercase tracking-[0.14em] text-primary-strong">
+                    <p className="font-serif text-sm font-semibold uppercase tracking-[0.14em] text-primary-strong">
                       Planning an event
                     </p>
                     <h3 className="mt-1 text-2xl font-bold">Customers</h3>
@@ -151,7 +151,7 @@ export default function AboutPage() {
                     <Store aria-hidden="true" className="size-5" />
                   </span>
                   <div>
-                    <p className="text-sm font-bold uppercase tracking-[0.14em] text-primary-strong">
+                    <p className="font-serif text-sm font-semibold uppercase tracking-[0.14em] text-primary-strong">
                       Offering event services
                     </p>
                     <h3 className="mt-1 text-2xl font-bold">Providers</h3>
@@ -181,7 +181,7 @@ export default function AboutPage() {
         <section className="py-14 sm:py-16 lg:py-20">
           <div className={`${landingContainerClassName} grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:gap-20`}>
             <div className="max-w-xl">
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
+              <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 Why Feasta exists
               </p>
               <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-5xl">
@@ -213,7 +213,7 @@ export default function AboutPage() {
         <section className="bg-foreground py-14 text-white sm:py-16 lg:py-20">
           <div className={landingContainerClassName}>
             <div className="mx-auto max-w-3xl text-center">
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-white/70">
+              <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-white/70">
                 One connected marketplace
               </p>
               <h2 className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-5xl">
@@ -287,7 +287,7 @@ export default function AboutPage() {
               <MapPin aria-hidden="true" className="size-6" />
             </span>
             <div>
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
+              <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 Ormoc City, Leyte
               </p>
               <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">

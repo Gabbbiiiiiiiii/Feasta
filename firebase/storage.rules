@@ -228,16 +228,21 @@ service firebase.storage {
         ownsProvider(complaintData(complaintId).providerId);
     }
 
-    function isVerificationDocumentType(documentType) {
-      return documentType in [
-        'business_permit',
-        'dti_registration',
-        'bir_registration',
-        'valid_id',
-        'sanitary_permit',
-        'mayors_permit',
-        'other'
-      ];
+    function isDocumentCode(documentType) {
+      return documentType is string &&
+        documentType.matches('^[a-z0-9]+(?:_[a-z0-9]+)*$') &&
+        documentType.size() >= 2 &&
+        documentType.size() <= 100;
+    }
+
+    function isActiveBusinessDocumentType(documentType) {
+      return isDocumentCode(documentType) &&
+        firestore.exists(
+          /databases/(default)/documents/businessDocumentTypes/$(documentType)
+        ) &&
+        firestore.get(
+          /databases/(default)/documents/businessDocumentTypes/$(documentType)
+        ).data.status == 'active';
     }
 
     function isUnderSize(maxBytes) {
@@ -307,7 +312,7 @@ service firebase.storage {
 
       allow create, update: if ownsProvider(providerId) &&
         providerVerificationIsEditable(providerId) &&
-        isVerificationDocumentType(documentType) &&
+        isActiveBusinessDocumentType(documentType) &&
         hasNoSpoofedOwnershipMetadata() &&
         isAllowedVerificationFile(fileName) &&
         isUnderSize(10 * 1024 * 1024);

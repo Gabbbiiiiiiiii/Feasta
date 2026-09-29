@@ -1239,6 +1239,24 @@ describe("provider authentication and onboarding", () => {
       <ProviderVerificationActions
         providerId="provider-one"
         verificationId="verification-one"
+        documentCatalog={[
+          {code: "business_permit", name: "Business permit"},
+          {code: "dti_registration", name: "DTI or SEC registration"},
+          {code: "bir_registration", name: "BIR documentation"},
+          {code: "valid_id", name: "Valid government ID"},
+          {code: "sanitary_permit", name: "Sanitary permit"},
+          {code: "mayors_permit", name: "Mayor's permit"},
+          {code: "other", name: "Other supporting document"},
+        ]}
+        policy={{
+          requiredAll: [
+            "business_permit",
+            "dti_registration",
+            "bir_registration",
+            "valid_id",
+          ],
+          requiredOneOf: [],
+        }}
         canSubmit={false}
       />,
     );
@@ -1265,6 +1283,24 @@ describe("provider authentication and onboarding", () => {
       <ProviderVerificationActions
         providerId="provider-one"
         verificationId="verification-one"
+        documentCatalog={[
+          {code: "business_permit", name: "Business permit"},
+          {code: "dti_registration", name: "DTI or SEC registration"},
+          {code: "bir_registration", name: "BIR documentation"},
+          {code: "valid_id", name: "Valid government ID"},
+          {code: "sanitary_permit", name: "Sanitary permit"},
+          {code: "mayors_permit", name: "Mayor's permit"},
+          {code: "other", name: "Other supporting document"},
+        ]}
+        policy={{
+          requiredAll: [
+            "business_permit",
+            "dti_registration",
+            "bir_registration",
+            "valid_id",
+          ],
+          requiredOneOf: [],
+        }}
         canSubmit={false}
       />,
     );
@@ -1294,6 +1330,24 @@ describe("provider authentication and onboarding", () => {
       <ProviderVerificationActions
         providerId="provider-one"
         verificationId="verification-one"
+        documentCatalog={[
+          {code: "business_permit", name: "Business permit"},
+          {code: "dti_registration", name: "DTI or SEC registration"},
+          {code: "bir_registration", name: "BIR documentation"},
+          {code: "valid_id", name: "Valid government ID"},
+          {code: "sanitary_permit", name: "Sanitary permit"},
+          {code: "mayors_permit", name: "Mayor's permit"},
+          {code: "other", name: "Other supporting document"},
+        ]}
+        policy={{
+          requiredAll: [
+            "business_permit",
+            "dti_registration",
+            "bir_registration",
+            "valid_id",
+          ],
+          requiredOneOf: [],
+        }}
         canSubmit={false}
         documents={[{
           id: "business_permit",
@@ -1331,6 +1385,24 @@ describe("provider authentication and onboarding", () => {
       <ProviderVerificationActions
         providerId="provider-one"
         verificationId="verification-one"
+        documentCatalog={[
+          {code: "business_permit", name: "Business permit"},
+          {code: "dti_registration", name: "DTI or SEC registration"},
+          {code: "bir_registration", name: "BIR documentation"},
+          {code: "valid_id", name: "Valid government ID"},
+          {code: "sanitary_permit", name: "Sanitary permit"},
+          {code: "mayors_permit", name: "Mayor's permit"},
+          {code: "other", name: "Other supporting document"},
+        ]}
+        policy={{
+          requiredAll: [
+            "business_permit",
+            "dti_registration",
+            "bir_registration",
+            "valid_id",
+          ],
+          requiredOneOf: [],
+        }}
         canSubmit={false}
         documents={[{
           id: "valid_id",
@@ -1375,6 +1447,24 @@ describe("provider authentication and onboarding", () => {
       <ProviderVerificationActions
         providerId="provider-one"
         verificationId="verification-one"
+        documentCatalog={[
+          {code: "business_permit", name: "Business permit"},
+          {code: "dti_registration", name: "DTI or SEC registration"},
+          {code: "bir_registration", name: "BIR documentation"},
+          {code: "valid_id", name: "Valid government ID"},
+          {code: "sanitary_permit", name: "Sanitary permit"},
+          {code: "mayors_permit", name: "Mayor's permit"},
+          {code: "other", name: "Other supporting document"},
+        ]}
+        policy={{
+          requiredAll: [
+            "business_permit",
+            "dti_registration",
+            "bir_registration",
+            "valid_id",
+          ],
+          requiredOneOf: [],
+        }}
         canSubmit
         reviewMode
       />,
@@ -1396,6 +1486,24 @@ describe("provider authentication and onboarding", () => {
       <ProviderVerificationActions
         providerId="provider-one"
         verificationId="verification-one"
+        documentCatalog={[
+          {code: "business_permit", name: "Business permit"},
+          {code: "dti_registration", name: "DTI or SEC registration"},
+          {code: "bir_registration", name: "BIR documentation"},
+          {code: "valid_id", name: "Valid government ID"},
+          {code: "sanitary_permit", name: "Sanitary permit"},
+          {code: "mayors_permit", name: "Mayor's permit"},
+          {code: "other", name: "Other supporting document"},
+        ]}
+        policy={{
+          requiredAll: [
+            "business_permit",
+            "dti_registration",
+            "bir_registration",
+            "valid_id",
+          ],
+          requiredOneOf: [],
+        }}
         canSubmit
         reviewMode
       />,
@@ -1420,6 +1528,24 @@ describe("provider authentication and onboarding", () => {
       <ProviderVerificationActions
         providerId="provider-one"
         verificationId="verification-one"
+        documentCatalog={[
+          {code: "business_permit", name: "Business permit"},
+          {code: "dti_registration", name: "DTI or SEC registration"},
+          {code: "bir_registration", name: "BIR documentation"},
+          {code: "valid_id", name: "Valid government ID"},
+          {code: "sanitary_permit", name: "Sanitary permit"},
+          {code: "mayors_permit", name: "Mayor's permit"},
+          {code: "other", name: "Other supporting document"},
+        ]}
+        policy={{
+          requiredAll: [
+            "business_permit",
+            "dti_registration",
+            "bir_registration",
+            "valid_id",
+          ],
+          requiredOneOf: [],
+        }}
         canSubmit={false}
         reviewMode
         consent={{

@@ -194,6 +194,10 @@ export function CustomerEventListMenu() {
     const contentElement =
       content;
 
+    if (typeof window.matchMedia !== "function") {
+      return undefined;
+    }
+
     const desktopLayout =
       window.matchMedia(
         "(min-width: 1024px)",
@@ -265,31 +269,21 @@ export function CustomerEventListMenu() {
           openDrawer();
         }}
         className={[
-          "relative z-50 grid size-10",
-          "shrink-0 place-items-center",
-          "rounded-full",
+          "relative inline-flex size-12",
+          "shrink-0 items-center justify-center",
+          "rounded-xl border border-transparent",
           "outline-none",
-          "transition-[color,background-color,transform]",
-          "duration-200",
-          hasEventListItems
-            ? "text-primary-strong"
-            : "text-feasta-text-tertiary",
-          "hover:bg-feasta-surface-soft",
-          "hover:text-primary-strong",
+          "transition-colors",
+          "hover:border-border hover:bg-card",
+          hasEventListItems ? "text-primary-strong" : "text-foreground",
           "focus-visible:ring-2",
           "focus-visible:ring-ring",
-          "motion-reduce:transform-none",
-          "motion-reduce:transition-none",
         ].join(" ")}
       >
         <StickyNote
           aria-hidden="true"
-          strokeWidth={
-            hasEventListItems
-              ? 2.3
-              : 1.7
-          }
-          className="size-[19px]"
+          strokeWidth={2}
+          className="size-5"
         />
 
         {selectionCount > 0 ? (
@@ -1157,28 +1151,6 @@ export function CustomerEventListMenu() {
 
 function subscribeToNothing() {
   return () => {};
-}
-
-function buildReviewListHref(
-  href: string,
-): string {
-  const [pathname, query = ""] =
-    href.split("?", 2);
-
-  const parameters =
-    new URLSearchParams(query);
-
-  parameters.set(
-    "reviewList",
-    "1",
-  );
-
-  const serialized =
-    parameters.toString();
-
-  return serialized
-    ? `${pathname}?${serialized}`
-    : pathname;
 }
 
 function humanize(

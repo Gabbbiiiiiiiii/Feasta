@@ -16,13 +16,18 @@ import {requireRole} from "../shared/authorization.js";
 import {
   isProviderVerificationTransitionAllowed,
   MAX_VERIFICATION_DOCUMENT_SIZE_BYTES,
-  providerVerificationDocumentPolicy,
   shouldPublishProvider,
   type ProviderVerificationStatus,
   USER_ROLES,
   VERIFICATION_DOCUMENT_CONTENT_TYPES,
   verificationDocumentsSatisfyPolicy,
 } from "../shared/constants.js";
+import {
+  loadBusinessDocumentCatalog,
+  providerDocumentContext,
+  resolveVerificationDocumentPolicy,
+  type BusinessDocumentCatalogRecord,
+} from "../shared/document-catalog.js";
 import {db} from "../shared/firestore.js";
 import {
   beginIdempotentOperation,
@@ -150,10 +155,13 @@ export const reviewProviderVerification = onCall(
     }
 
     try {
+      const documentCatalog = action === "approve" ?
+        await loadBusinessDocumentCatalog() :
+        [];
       const [storageValidatedDocuments, approvalOwnerAuth] = action ===
         "approve" ?
         await Promise.all([
-          validateApprovalStorageEvidence(verificationId),
+          validateApprovalStorageEvidence(verificationId, documentCatalog),
           loadApprovalOwnerAuth(verificationReference),
         ]) :
         [null, null];
@@ -297,6 +305,7 @@ export const reviewProviderVerification = onCall(
               verificationReference,
               providerId,
               providerData: providerData ?? {},
+              documentCatalog,
               storageValidatedDocuments:
                 storageValidatedDocuments ?? new Map(),
             }) :
@@ -836,6 +845,7 @@ type ApprovalDocument = {
 
 async function validateApprovalStorageEvidence(
   verificationId: string,
+  documentCatalog: readonly BusinessDocumentCatalogRecord[],
 ): Promise<ReadonlyMap<string, string>> {
   const verificationReference = db
     .collection("providerVerifications")
@@ -870,6 +880,7 @@ async function validateApprovalStorageEvidence(
     documentsSnapshot.docs.map((document) =>
       approvalDocument(document.id, document.ref, document.data())
     ),
+    documentCatalog,
   );
 
   try {
@@ -910,12 +921,14 @@ async function validateApprovalDocumentsInTransaction({
   verificationReference,
   providerId,
   providerData,
+  documentCatalog,
   storageValidatedDocuments,
 }: {
   transaction: Transaction;
   verificationReference: DocumentReference<DocumentData>;
   providerId: string;
   providerData: DocumentData;
+  documentCatalog: readonly BusinessDocumentCatalogRecord[];
   storageValidatedDocuments: ReadonlyMap<string, string>;
 }): Promise<readonly DocumentReference<DocumentData>[]> {
   const documentsSnapshot = await transaction.get(
@@ -927,6 +940,7 @@ async function validateApprovalDocumentsInTransaction({
     documentsSnapshot.docs.map((document) =>
       approvalDocument(document.id, document.ref, document.data())
     ),
+    documentCatalog,
   );
   if (requiredDocuments.some((document) =>
     storageValidatedDocuments.get(document.id) !== document.storagePath
@@ -959,6 +973,7 @@ function selectRequiredApprovalDocuments(
   providerId: string,
   providerData: DocumentData,
   documents: readonly ApprovalDocument[],
+  documentCatalog: readonly BusinessDocumentCatalogRecord[],
 ): readonly ApprovalDocument[] {
   const eligibleByType = new Map(documents.flatMap((document) => {
     const expectedPrefix =
@@ -968,7 +983,10 @@ function selectRequiredApprovalDocuments(
       document.storagePath.startsWith(expectedPrefix)
     ) ? [[document.documentType, document] as const] : [];
   }));
-  const policy = providerVerificationDocumentPolicy(providerData);
+  const policy = resolveVerificationDocumentPolicy(
+    documentCatalog,
+    providerDocumentContext(providerData),
+  );
   if (!verificationDocumentsSatisfyPolicy(
     new Set(eligibleByType.keys()),
     policy,

@@ -92,13 +92,16 @@ describe("provider availability workspace", () => {
       name: "Availability & Scheduling",
     })).toBeVisible();
     expect(screen.getByRole("heading", {name: "Operating Days"})).toBeVisible();
-    expect(screen.getByRole("heading", {name: "Booking Lead Time"})).toBeVisible();
-    expect(screen.getByRole("heading", {name: "Daily Booking Capacity"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Minimum booking notice (days)"})).toBeVisible();
+    expect(screen.queryByRole("heading", {name: "Daily Booking Capacity"})).not.toBeInTheDocument();
     expect(screen.getByRole("heading", {name: "Event Capacity"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Unavailable Dates"})).toBeVisible();
     expect(screen.getByRole("checkbox", {name: "Monday"})).toBeChecked();
-    expect(screen.getByLabelText("Lead time in days")).toHaveValue(3);
+    expect(screen.getByRole("spinbutton", {name: /^Minimum booking notice/u})).toHaveValue(3);
     expect(screen.getByText("September 10, 2099")).toBeVisible();
+    expect(screen.queryByRole("checkbox", {name: "Accept multiple events per day"})).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Available staff")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Available equipment")).not.toBeInTheDocument();
   });
 
   it("tracks operating-day and lead-time edits as unsaved changes", async () => {
@@ -111,23 +114,22 @@ describe("provider availability workspace", () => {
     expect(save).toBeEnabled();
     expect(screen.getByText("You have unsaved settings changes.")).toBeVisible();
 
-    const leadTime = screen.getByLabelText("Lead time in days");
+    const leadTime = screen.getByRole("spinbutton", {name: /^Minimum booking notice/u});
     await user.clear(leadTime);
     await user.type(leadTime, "5");
     expect(leadTime).toHaveValue(5);
   });
 
-  it("shows the max-events control only when multiple daily events are enabled", async () => {
-    const user = userEvent.setup();
+  it("does not offer multiple daily events, staff, or equipment controls", () => {
     render(<ProviderAvailabilityClient initialSettings={settings()} />);
 
-    expect(screen.queryByLabelText("Maximum events per day")).not.toBeInTheDocument();
-    expect(screen.getByText("Daily limit: 1 active event")).toBeVisible();
-
-    await user.click(screen.getByRole("checkbox", {
+    expect(screen.queryByRole("checkbox", {
       name: "Accept multiple events per day",
-    }));
-    expect(screen.getByLabelText("Maximum events per day")).toHaveValue(1);
+    })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Maximum events per day")).not.toBeInTheDocument();
+    expect(screen.queryByText("Daily limit: 1 active event")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Available staff")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Available equipment")).not.toBeInTheDocument();
   });
 
   it("renders only capacity fields enabled by canonical capabilities", () => {
@@ -137,10 +139,8 @@ describe("provider availability workspace", () => {
 
     expect(screen.getByLabelText("Minimum guests")).toBeVisible();
     expect(screen.getByLabelText("Maximum guests")).toBeVisible();
-    expect(screen.getByLabelText("Available staff")).toBeVisible();
-    expect(screen.getByLabelText("Available equipment")).toBeVisible();
-    expect(screen.getByText(/does not allocate those resources per booking yet/u))
-      .toBeVisible();
+    expect(screen.queryByLabelText("Available staff")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Available equipment")).not.toBeInTheDocument();
 
     rerender(
       <ProviderAvailabilityClient
@@ -160,7 +160,8 @@ describe("provider availability workspace", () => {
 
     expect(screen.queryByLabelText("Minimum guests")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Maximum guests")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Available staff")).toBeVisible();
+    expect(screen.getByText(/do not require additional capacity settings/u)).toBeVisible();
+    expect(screen.queryByLabelText("Available staff")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Available equipment")).not.toBeInTheDocument();
   });
 
@@ -168,7 +169,7 @@ describe("provider availability workspace", () => {
     const user = userEvent.setup();
     render(<ProviderAvailabilityClient initialSettings={settings()} />);
 
-    const leadTime = screen.getByLabelText("Lead time in days");
+    const leadTime = screen.getByRole("spinbutton", {name: /^Minimum booking notice/u});
     await user.clear(leadTime);
     await user.type(leadTime, "7");
     await user.click(screen.getByRole("button", {name: "Save Availability Settings"}));
@@ -180,6 +181,8 @@ describe("provider availability workspace", () => {
           operatingDays: ["monday", "tuesday", "wednesday"],
           acceptsMultipleEventsPerDay: false,
           maxEventsPerDay: 1,
+          availableStaffCount: 10,
+          availableEquipmentCount: 8,
         }),
       );
       expect(mocks.refresh).toHaveBeenCalled();
@@ -195,7 +198,7 @@ describe("provider availability workspace", () => {
     const user = userEvent.setup();
     render(<ProviderAvailabilityClient initialSettings={settings()} />);
 
-    const leadTime = screen.getByLabelText("Lead time in days");
+    const leadTime = screen.getByRole("spinbutton", {name: /^Minimum booking notice/u});
     await user.clear(leadTime);
     await user.type(leadTime, "9");
     await user.click(screen.getByRole("button", {name: "Save Availability Settings"}));

@@ -127,20 +127,6 @@ export function CustomerMarketplaceHeader({
             {authenticated && accountLabel ? (
               <div className="col-start-2 row-start-1 ml-auto flex shrink-0 items-center gap-1 md:col-start-3">
                 <CustomerEventListMenu />
-                <Link
-                  href={CUSTOMER_FAVORITES_PATH}
-                  aria-label="Favorites"
-                  aria-current={isNavigationItemActive(pathname, CUSTOMER_FAVORITES_PATH) ? "page" : undefined}
-                  className="hidden size-10 items-center justify-center rounded-full text-feasta-text-secondary transition-colors duration-200 hover:bg-feasta-surface-soft hover:text-primary-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none md:inline-flex"
-                >
-                  <Heart
-                    aria-hidden="true"
-                    className={cn(
-                      "size-[19px]",
-                      isNavigationItemActive(pathname, CUSTOMER_FAVORITES_PATH) && "fill-current text-primary-strong",
-                    )}
-                  />
-                </Link>
                 <NotificationMenu role="customer" />
                 <CustomerAccountMenu
                   accountLabel={accountLabel}
@@ -284,8 +270,8 @@ function MarketplaceNavigationContent({
           open ? "visible grid-rows-[1fr] opacity-100" : "invisible grid-rows-[0fr] opacity-0",
         )}
       >
-        <div className={cn("min-h-0 overflow-hidden", open && "sm:overflow-visible")}>
-          <div className="mx-auto max-h-[calc(100dvh-9rem)] max-w-6xl overflow-y-auto px-1 pb-4 pt-2 sm:overflow-visible sm:pb-3">
+        <div className="min-h-0 overflow-hidden">
+          <div className="mx-auto max-h-[calc(100dvh-9rem)] max-w-6xl overflow-y-auto overscroll-contain px-1 pb-4 pt-2">
             <EventFinder
               query={query}
               onFind={close}
@@ -395,6 +381,7 @@ function CustomerAccountMenu({
         </div>
         <CustomerMenuLink href="/customer/account" label="Account Settings" icon={<Settings aria-hidden="true" />} detailsRef={detailsRef} />
         <CustomerMenuLink href={CUSTOMER_BOOKINGS_PATH} label="My Bookings" icon={<CalendarDays aria-hidden="true" />} detailsRef={detailsRef} />
+        <CustomerMenuLink href={CUSTOMER_FAVORITES_PATH} label="Favorites" icon={<Heart aria-hidden="true" />} detailsRef={detailsRef} />
         <CustomerMenuLink href={CUSTOMER_MESSAGES_PATH} label="Messages" icon={<MessageSquareText aria-hidden="true" />} detailsRef={detailsRef} />
         <div className="mt-1 border-t border-feasta-divider pt-1">
           <LogoutButton destination="/customer/providers" />

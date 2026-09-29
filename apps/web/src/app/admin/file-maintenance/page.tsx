@@ -1,20 +1,30 @@
-﻿import {
-  ServiceCategoryManagementClient,
-} from "@/components/admin/file-maintenance/service-category-management-client";
+﻿import {FileMaintenanceClient} from "@/components/admin/file-maintenance/file-maintenance-client";
 import {
-  getAdminServiceCategories,
-} from "@/lib/admin/file-maintenance/admin-service-category-service";
+  ensureDocumentCatalog,
+  getAdminAgreementTemplates,
+  getAdminBusinessDocumentTypes,
+} from "@/lib/documents/document-catalog-service";
+import {getAdminServiceCategories} from "@/lib/admin/file-maintenance/admin-service-category-service";
 import {requireAdmin} from "@/lib/auth/session";
 
 export default async function AdminFileMaintenancePage() {
   await requireAdmin();
-
-  const categories =
-    await getAdminServiceCategories();
+  await ensureDocumentCatalog();
+  const [
+    categories,
+    agreements,
+    businessDocuments,
+  ] = await Promise.all([
+    getAdminServiceCategories(),
+    getAdminAgreementTemplates(),
+    getAdminBusinessDocumentTypes(),
+  ]);
 
   return (
-    <ServiceCategoryManagementClient
+    <FileMaintenanceClient
       initialCategories={categories}
+      initialAgreements={agreements}
+      initialBusinessDocuments={businessDocuments}
     />
   );
 }

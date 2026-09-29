@@ -127,6 +127,9 @@ function venueError(error: unknown): Error {
     if (code === "invalid-argument") {
       return new Error("Enter a valid event venue or address.");
     }
+    if (code === "unauthenticated" || code === "permission-denied") {
+      return new Error("Sign in to confirm a map pin, or search for the venue by name.");
+    }
   }
   return new Error(
     "Event venue search is temporarily unavailable. You can still explore without a location.",

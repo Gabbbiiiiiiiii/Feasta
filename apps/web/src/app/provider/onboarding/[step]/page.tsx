@@ -14,6 +14,7 @@ import {
   providerOnboardingPath,
 } from "@/lib/provider/onboarding";
 
+import {getProviderOnboardingAgreement} from "@/lib/documents/document-catalog-service";
 import {
   getActiveServiceCategoryOptions,
 } from "@/lib/service-categories/service-category-service";
@@ -42,6 +43,9 @@ export default async function ProviderOnboardingStepPage({
     needsServiceCategories
       ? await getActiveServiceCategoryOptions()
       : [];
+  const agreement = requestedStep?.number === 6
+    ? await getProviderOnboardingAgreement()
+    : null;
 
   if (account.providerId) {
     const editableApplication =
@@ -84,6 +88,7 @@ export default async function ProviderOnboardingStepPage({
           serviceCategories={
             serviceCategories
           }
+          agreement={agreement}
           editingExistingApplication
         />
       </ProviderOnboardingShell>
@@ -117,6 +122,7 @@ export default async function ProviderOnboardingStepPage({
         step={requestedStep}
         draft={draft}
         serviceCategories={serviceCategories}
+        agreement={agreement}
       />
     </ProviderOnboardingShell>
   );

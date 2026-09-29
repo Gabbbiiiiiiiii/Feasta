@@ -123,7 +123,7 @@ export default function ProviderLoginPage() {
 
             {/* Main left content */}
             <div className="my-auto max-w-[500px] py-14">
-              <p className="text-sm font-bold uppercase tracking-[0.18em] text-primary">
+              <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-tint">
                 Feasta Provider
               </p>
 
@@ -155,7 +155,7 @@ export default function ProviderLoginPage() {
                       >
                         <Icon
                           aria-hidden="true"
-                          className="size-5 text-primary"
+                          className="size-5 text-primary-tint"
                         />
                       </div>
 
@@ -209,7 +209,7 @@ export default function ProviderLoginPage() {
 
             {/* Heading */}
             <div>
-              <p className="text-sm font-bold uppercase tracking-[0.18em] text-primary-strong">
+              <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 Feasta Provider
               </p>
 

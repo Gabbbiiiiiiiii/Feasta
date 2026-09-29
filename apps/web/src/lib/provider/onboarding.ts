@@ -2,6 +2,8 @@ import type {
   ProviderOnboardingInput,
 } from "@feasta/shared-types";
 
+import type {ProviderAgreementSnapshot} from "@/lib/provider/provider-agreement-record";
+
 export const PROVIDER_ONBOARDING_STEPS = [
   {number: 1, slug: "owner", label: "Owner information"},
   {number: 2, slug: "business", label: "Business information"},
@@ -25,6 +27,7 @@ export interface ProviderOnboardingDraft
   ownerEmail: string;
   providerAgreementAccepted: boolean;
   providerAgreementVersion: string;
+  providerAgreementSnapshot?: ProviderAgreementSnapshot | null;
   completedSteps: readonly number[];
 }
 

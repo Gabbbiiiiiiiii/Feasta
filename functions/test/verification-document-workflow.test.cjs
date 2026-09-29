@@ -20,7 +20,9 @@ test("document registration validates real private Storage metadata", () => {
     "VERIFICATION_DOCUMENT_CONTENT_TYPES",
     "fileNameMatchesContentType",
     "expectedTypePrefix",
-    "providerVerificationDocumentPolicy",
+    "await loadBusinessDocumentCatalog()",
+    "resolveVerificationDocumentPolicy(",
+    "providerDocumentContext(providerData)",
   ]) {
     assert.ok(register.includes(contract), contract);
   }
@@ -46,7 +48,9 @@ test("provider removal is callable-owned, audited, and editable-state only", () 
 });
 
 test("submission uses the dynamic server policy rather than client flags", () => {
-  assert.ok(submit.includes("providerVerificationDocumentPolicy"));
+  assert.ok(submit.includes("await loadBusinessDocumentCatalog()"));
+  assert.ok(submit.includes("resolveVerificationDocumentPolicy("));
+  assert.ok(submit.includes("providerDocumentContext(providerData ?? {})"));
   assert.ok(submit.includes("verificationDocumentsSatisfyPolicy"));
   assert.ok(submit.includes("missingAlternativeGroups"));
   assert.equal(submit.includes("input.isRequired"), false);

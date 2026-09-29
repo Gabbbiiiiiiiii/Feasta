@@ -34,8 +34,8 @@
      WARM NEUTRALS
 
      Instead of a cold gray application, FEASTA uses slightly warm neutrals.
-     This keeps event photography, food, flowers, decor and orange branding
-     visually connected.
+     This keeps event photography, food, flowers, decor and deep cherry
+     branding visually connected.
      ------------------------------------------------------------------------ */
 
   --feasta-cream-50: #fffdfb;
@@ -68,13 +68,13 @@
   --card: #ffffff;
   --card-foreground: #2b211d;
 
-  --primary: #b02f00;
+  --primary: #550b14;
   --primary-foreground: #ffffff;
-  --primary-hover: #9c2a00;
-  --primary-pressed: #862400;
-  --primary-strong: #862200;
-  --primary-tint: #fff1ed;
-  --primary-tint-strong: #fee2db;
+  --primary-hover: #450910;
+  --primary-pressed: #36070c;
+  --primary-strong: #450910;
+  --primary-tint: #f7f0f2;
+  --primary-tint-strong: #eddde0;
 
   --secondary: var(--primary-tint);
   --secondary-foreground: #2b211d;
@@ -84,7 +84,7 @@
 
   --border: #e8e1dc;
   --input: #8c817a;
-  --ring: #b02f00;
+  --ring: #550b14;
 
   /* ------------------------------------------------------------------------
      PUBLIC / CELEBRATION SURFACES
@@ -199,16 +199,16 @@
     0 8px 24px rgb(43 33 29 / 8%);
 
   --feasta-shadow-brand-subtle:
-    0 3px 12px rgb(176 47 0 / 6%);
+    0 3px 12px rgb(85 11 20 / 6%);
 
   --feasta-shadow-brand-soft:
-    0 7px 18px rgb(176 47 0 / 16%);
+    0 7px 18px rgb(85 11 20 / 16%);
 
   --feasta-shadow-brand:
-    0 10px 28px rgb(176 47 0 / 20%);
+    0 10px 28px rgb(85 11 20 / 20%);
 
   --feasta-shadow-brand-strong:
-    0 14px 34px rgb(176 47 0 / 28%);
+    0 14px 34px rgb(85 11 20 / 28%);
 
   /* ------------------------------------------------------------------------
      MOTION
@@ -344,15 +344,26 @@
   --breakpoint-lg: 80rem;
   --breakpoint-xl: 96rem;
 
-  /* Typography */
+  /* Typography
+     Plus Jakarta Sans: headlines, hero titles, buttons, inputs, navigation,
+     badge tags, and body text.
+     Playfair Display: quote callouts, section badges, and stylized subheadings.
+  */
   --font-sans:
-    Inter,
+    var(--font-plus-jakarta),
     ui-sans-serif,
     system-ui,
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
+
+  --font-serif:
+    var(--font-playfair),
+    ui-serif,
+    Georgia,
+    "Times New Roman",
+    serif;
 
   --font-mono:
     "Cascadia Mono",
@@ -387,7 +398,7 @@ body {
   color: var(--foreground);
 
   font-family:
-    Inter,
+    var(--font-plus-jakarta),
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -557,8 +568,9 @@ textarea::placeholder {
 
   color: var(--primary-strong);
 
+  font-family: var(--font-playfair), ui-serif, Georgia, "Times New Roman", serif;
   font-size: 0.75rem;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1.3;
 
   letter-spacing: 0.16em;
@@ -611,6 +623,20 @@ textarea::placeholder {
   line-height: 1.75;
 
   text-wrap: pretty;
+}
+
+.feasta-quote {
+  margin: 0;
+
+  color: var(--primary-strong);
+
+  font-family: var(--font-playfair), ui-serif, Georgia, "Times New Roman", serif;
+  font-size: clamp(1.35rem, 2vw, 1.75rem);
+  font-style: italic;
+  font-weight: 500;
+  line-height: 1.35;
+
+  text-wrap: balance;
 }
 
 
@@ -676,12 +702,12 @@ textarea::placeholder {
   background:
     radial-gradient(
       circle at 92% 4%,
-      rgb(176 47 0 / 8%),
+      rgb(85 11 20 / 8%),
       transparent 28rem
     ),
     radial-gradient(
       circle at 8% 42%,
-      rgb(254 226 219 / 35%),
+      rgb(237 221 224 / 45%),
       transparent 26rem
     ),
     var(--feasta-canvas);
@@ -718,7 +744,7 @@ textarea::placeholder {
   background:
     radial-gradient(
       circle at 20% 10%,
-      rgb(176 47 0 / 18%),
+      rgb(85 11 20 / 18%),
       transparent 38%
     );
 }

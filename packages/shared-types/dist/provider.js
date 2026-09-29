@@ -1,4 +1,4 @@
-import { PROVIDER_SERVICE_TYPES, PROVIDER_VERIFICATION_STATUSES, VERIFICATION_DOCUMENT_STATUSES, VERIFICATION_DOCUMENT_TYPES, } from "./enums.js";
+import { PROVIDER_SERVICE_TYPES, PROVIDER_VERIFICATION_STATUSES, VERIFICATION_DOCUMENT_STATUSES, } from "./enums.js";
 import { PROVIDER_SERVICE_AREAS, normalizeProviderServiceArea, } from "./provider-service-area.js";
 import { isServiceCategoryCode, } from "./service-category.js";
 export const REQUIRED_VERIFICATION_DOCUMENT_TYPES = [
@@ -12,10 +12,6 @@ export const FOOD_SERVICE_CATEGORIES = [
     "food_trays_packed_meals",
     "catering_event_styling",
     "cake_provider",
-];
-export const FOOD_PERMIT_ALTERNATIVES = [
-    "sanitary_permit",
-    "mayors_permit",
 ];
 export const UNVERSIONED_POLICY_VERSION = "unversioned";
 export const PROVIDER_AGREEMENT_VERSION = "2026-09-27";
@@ -191,11 +187,15 @@ export function providerVerificationDocumentPolicy(input) {
     if (requiresMayorsPermit) {
         requiredAll.push("mayors_permit");
     }
+    if (requiresFoodPermit) {
+        requiredAll.push("sanitary_permit");
+    }
+    if (requiresMayorsPermit) {
+        requiredAll.push("mayors_permit");
+    }
     return {
         requiredAll,
-        requiredOneOf: requiresFoodPermit && !requiresMayorsPermit
-            ? [FOOD_PERMIT_ALTERNATIVES]
-            : [],
+        requiredOneOf: [],
     };
 }
 export function verificationDocumentRequirement(documentType, policy) {
@@ -289,12 +289,15 @@ export function normalizePhilippineMobile(value) {
         ? normalized
         : null;
 }
+const DOCUMENT_CODE_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/u;
 export function parseVerificationDocumentType(value) {
     const normalized = normalize(value, {
         mayor_permit: "mayors_permit",
         validid: "valid_id",
     });
-    return VERIFICATION_DOCUMENT_TYPES.includes(normalized)
+    return normalized.length >= 2 &&
+        normalized.length <= 100 &&
+        DOCUMENT_CODE_PATTERN.test(normalized)
         ? normalized
         : null;
 }

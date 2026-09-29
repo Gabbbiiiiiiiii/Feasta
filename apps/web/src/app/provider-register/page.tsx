@@ -98,7 +98,7 @@ export default function ProviderRegistrationPage() {
           </section>
 
           <div className="order-1 max-w-xl text-white lg:order-2">
-            <p className="text-sm font-black uppercase tracking-[0.2em] text-primary">
+            <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-tint">
               Become a FEASTA provider
             </p>
 
@@ -144,7 +144,7 @@ export default function ProviderRegistrationPage() {
       <section className="bg-card px-4 py-16 sm:px-8 sm:py-20 lg:px-10">
         <div className="mx-auto w-full max-w-[1200px]">
           <div className="mx-auto max-w-2xl text-center">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-primary-strong">
+            <p className="font-serif text-xs font-semibold uppercase tracking-[0.16em] text-primary-strong">
               Provider benefits
             </p>
             <h2 className="mt-3 text-3xl font-black tracking-[-0.03em] sm:text-4xl">
@@ -178,7 +178,7 @@ export default function ProviderRegistrationPage() {
       <section className="border-t border-border bg-secondary px-4 py-16 sm:px-8 sm:py-20 lg:px-10">
         <div className="mx-auto w-full max-w-[1200px]">
           <div className="max-w-3xl">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-primary-strong">
+            <p className="font-serif text-xs font-semibold uppercase tracking-[0.16em] text-primary-strong">
               Provider journey
             </p>
             <h2 className="mt-3 text-3xl font-black tracking-[-0.03em] sm:text-4xl">

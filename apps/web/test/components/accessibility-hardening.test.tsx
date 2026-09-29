@@ -82,11 +82,11 @@ describe("basic automated accessibility audit", () => {
 
   it("keeps primary semantic text pairs at WCAG AA contrast", () => {
     const pairs = [
-      ["#ffffff", "#b02f00"],
-      ["#ffffff", "#9c2a00"],
-      ["#ffffff", "#862400"],
+      ["#ffffff", "#550b14"],
+      ["#ffffff", "#450910"],
+      ["#ffffff", "#36070c"],
       ["#6b625d", "#f8f6f3"],
-      ["#862200", "#fff1ed"],
+      ["#450910", "#f7f0f2"],
       ["#166534", "#ecfdf3"],
       ["#92400e", "#fff7e6"],
       ["#b42318", "#fff1f0"],

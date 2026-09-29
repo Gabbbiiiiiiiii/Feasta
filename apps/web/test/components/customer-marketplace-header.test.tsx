@@ -94,7 +94,8 @@ describe("customer marketplace header", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(within(finder).queryByLabelText("Service Type")).not.toBeInTheDocument();
     expect(within(finder).getByRole("option", {name: "What service do you need?"})).toHaveValue("all");
-    expect(within(finder).getByRole("combobox", {name: "Location"})).toHaveAttribute("placeholder", "Ormoc City, Leyte");
+    expect(within(finder).getByRole("combobox", {name: "Location"})).toHaveAttribute("placeholder", "Select your location and where you want the event held");
+    expect(within(finder).getByRole("button", {name: "Choose on map"})).toHaveAttribute("aria-expanded", "false");
     expect(within(finder).getByLabelText("Event Date")).toHaveAttribute("type", "date");
     expect(within(finder).getByText("Select event date")).toBeVisible();
     expect(within(finder).getByRole("combobox", {name: "Service Category"})).toHaveValue("all");
@@ -104,6 +105,19 @@ describe("customer marketplace header", () => {
     expect(screen.queryByRole("search", {name: "Event Finder"})).not.toBeInTheDocument();
     expect(trigger).toHaveAttribute("aria-expanded", "false");
     expect(trigger).toHaveFocus();
+  });
+
+  it("opens the existing map picker for the event location", () => {
+    render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
+    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+    fireEvent.click(screen.getByRole("button", {name: "Choose on map"}));
+    expect(screen.getByRole("button", {name: "Close map"})).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByLabelText("Adjust event location map")).toBeVisible();
+    expect(screen.getByRole("button", {name: "Locate me"})).toBeVisible();
+    expect(screen.getByRole("button", {name: "Confirm this location"})).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
+    expect(screen.queryByLabelText("Adjust event location map")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "Choose on map"})).toHaveAttribute("aria-expanded", "false");
   });
 
   it.each(["guest", "customer"] as const)("hydrates deterministic %s header markup without attribute warnings", async (account) => {
@@ -265,18 +279,21 @@ describe("customer marketplace header", () => {
     fireEvent.click(accountSummary);
     expect(screen.getByText("Sophia R.")).toBeVisible();
     expect(screen.getByText("sophiaranalan16@gmail.com")).toBeVisible();
-    expect(screen.getByRole("link", {name: "Favorites"}))
-      .toHaveAttribute("href", "/customer/favorites");
-    expect(screen.getAllByRole("link", {name: "Favorites"})).toHaveLength(1);
+    expect(screen.queryByRole("link", {name: "Favorites"})).not.toBeInTheDocument();
     expect(screen.getByRole("menuitem", {name: "Account Settings"}))
       .toHaveAttribute("href", "/customer/account");
     expect(screen.getByRole("menuitem", {name: "My Bookings"}))
       .toHaveAttribute("href", "/customer/bookings");
+    expect(screen.getByRole("menuitem", {name: "Favorites"}))
+      .toHaveAttribute("href", "/customer/favorites");
     expect(screen.getByRole("menuitem", {name: "Messages"}))
       .toHaveAttribute("href", "/customer/messages");
     const menuItems = screen.getAllByRole("menuitem");
+    const bookingsIndex = menuItems.indexOf(screen.getByRole("menuitem", {name: "My Bookings"}));
+    expect(menuItems.indexOf(screen.getByRole("menuitem", {name: "Favorites"})))
+      .toBe(bookingsIndex + 1);
     expect(menuItems.indexOf(screen.getByRole("menuitem", {name: "Messages"})))
-      .toBe(menuItems.indexOf(screen.getByRole("menuitem", {name: "My Bookings"})) + 1);
+      .toBe(bookingsIndex + 2);
     expect(screen.getByRole("button", {name: "Sign Out"})).toBeInTheDocument();
     expect(screen.getByRole("link", {name: "Notifications"}))
       .toHaveAttribute("href", "/customer/notifications");

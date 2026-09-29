@@ -34,6 +34,7 @@ import {
 import {
   SummaryCard,
 } from "@/components/data/summary-card";
+import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {
   PageHeading,
 } from "@/components/layout/page-heading";
@@ -575,12 +576,13 @@ function ReportDateInput({
   return (
     <div className="grid gap-2">
       <label htmlFor={id} className="text-sm font-bold">{label}</label>
-      <input
+      <PhilippineDateInput
+        plain
         id={id}
-        type="date"
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
+        displayClassName="left-3 right-10 text-sm"
         className="min-h-12 w-full rounded-lg border border-input bg-card px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
       />
     </div>

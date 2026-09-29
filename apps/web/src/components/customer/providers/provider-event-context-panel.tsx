@@ -7,6 +7,7 @@ import {
   UsersRound,
 } from "lucide-react";
 
+import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {EventVenueInput} from "@/components/landing/event-venue-input";
 import {
   CUSTOMER_PLANNING_EVENT_TYPES,
@@ -128,11 +129,12 @@ export function ProviderEventContextPanel({
             </select>
           </EventControl>
           <EventControl label="Date">
-            <input
+            <PhilippineDateInput
+              plain
               name="eventDate"
-              type="date"
               min={manilaDateValue()}
               defaultValue={eventDate ?? ""}
+              displayClassName="left-2.5 right-8 text-xs font-semibold"
               className={controlClass}
             />
           </EventControl>

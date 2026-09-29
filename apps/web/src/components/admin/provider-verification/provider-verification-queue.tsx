@@ -21,8 +21,8 @@ import {
 import {PageHeading} from "@/components/layout/page-heading";
 import {ProviderVerificationReviewPanel} from "@/components/admin/provider-verification/provider-verification-review-panel";
 import {StatusBadge} from "@/components/shared/status-badge";
+import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {Button} from "@/components/ui/button";
-import {Input} from "@/components/ui/input";
 import {Select} from "@/components/ui/select";
 import type {
   ProviderVerificationQueueFilters,
@@ -234,8 +234,7 @@ function ProviderVerificationQueue({
             </label>
             <label className="grid gap-1 text-sm font-semibold">
               Application from
-              <Input
-                type="date"
+              <PhilippineDateInput
                 aria-label="Application from"
                 value={filters.from}
                 disabled={isPending}
@@ -247,8 +246,7 @@ function ProviderVerificationQueue({
             </label>
             <label className="grid gap-1 text-sm font-semibold">
               Application to
-              <Input
-                type="date"
+              <PhilippineDateInput
                 aria-label="Application to"
                 value={filters.to}
                 disabled={isPending}

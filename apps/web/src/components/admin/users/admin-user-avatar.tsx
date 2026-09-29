@@ -33,7 +33,7 @@ function AdminUserAvatar({
         "relative grid shrink-0 place-items-center overflow-hidden rounded-full font-bold",
         sizeClasses[size],
         user.role === "provider"
-          ? "bg-orange-100 text-orange-700"
+          ? "bg-primary-tint text-primary-strong"
           : "bg-blue-100 text-blue-700",
       )}
     >

@@ -11,7 +11,9 @@ import {
   useMemo,
   useState,
   useTransition,
+  type Dispatch,
   type FormEvent,
+  type SetStateAction,
 } from "react";
 
 import {DataTable, type DataTableColumn} from "@/components/data/data-table";
@@ -46,9 +48,17 @@ import type {
   AdminServiceCategoryServiceType,
   AdminServiceCategoryStatus,
 } from "@/lib/admin/file-maintenance/admin-service-category-types";
+import {
+  FileMaintenanceRecordActions,
+  type FileMaintenanceLifecycleAction,
+} from "@/components/admin/file-maintenance/file-maintenance-record-actions";
 
 type Props = {
-  initialCategories: AdminServiceCategory[];
+  categories: AdminServiceCategory[];
+  setCategories: Dispatch<
+    SetStateAction<AdminServiceCategory[]>
+  >;
+  embedded?: boolean;
 };
 
 type StatusFilter =
@@ -74,10 +84,10 @@ const EMPTY_DRAFT: EditorDraft = {
 };
 
 function ServiceCategoryManagementClient({
-  initialCategories,
+  categories,
+  setCategories,
+  embedded = false,
 }: Props) {
-  const [categories, setCategories] =
-    useState(initialCategories);
   const [searchValue, setSearchValue] =
     useState("");
   const [search, setSearch] =
@@ -99,12 +109,7 @@ function ServiceCategoryManagementClient({
   const [confirmCategory, setConfirmCategory] =
     useState<AdminServiceCategory | null>(null);
   const [confirmAction, setConfirmAction] =
-    useState<
-      "discontinue" |
-      "reactivate" |
-      "delete" |
-      null
-    >(null);
+    useState<CategoryAction | null>(null);
 
   const [isPending, startTransition] =
     useTransition();
@@ -461,11 +466,16 @@ function ServiceCategoryManagementClient({
 
   return (
     <div className="grid min-w-0 gap-6">
-      <PageHeading
-        eyebrow="File Maintenance"
-        title="Service Categories"
-        description="Manage the service categories providers can select across FEASTA. Discontinued categories remain available for existing records but cannot be newly selected."
-        actions={
+      {embedded ? (
+        <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="text-2xl font-black tracking-tight">
+              Service categories
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+              Manage the service categories providers can select across FEASTA. Discontinued categories remain available for existing records but cannot be newly selected.
+            </p>
+          </div>
           <Button onClick={openCreate}>
             <Plus
               aria-hidden="true"
@@ -473,8 +483,23 @@ function ServiceCategoryManagementClient({
             />
             Add Service Category
           </Button>
-        }
-      />
+        </div>
+      ) : (
+        <PageHeading
+          eyebrow="File Maintenance"
+          title="Service Categories"
+          description="Manage the service categories providers can select across FEASTA. Discontinued categories remain available for existing records but cannot be newly selected."
+          actions={
+            <Button onClick={openCreate}>
+              <Plus
+                aria-hidden="true"
+                className="size-5"
+              />
+              Add Service Category
+            </Button>
+          }
+        />
+      )}
 
       <FilterToolbar
         searchValue={searchValue}
@@ -553,12 +578,10 @@ function ServiceCategoryManagementClient({
         emptyTitle="No service categories found"
         emptyDescription="No service categories match the current filters."
         rowActions={(category) => (
-          <CategoryActions
-            category={category}
+          <FileMaintenanceRecordActions
+            status={category.status}
             disabled={isPending}
-            onEdit={() =>
-              openEdit(category)
-            }
+            onEdit={() => openEdit(category)}
             onAction={(action) => {
               setConfirmCategory(category);
               setConfirmAction(action);
@@ -820,9 +843,7 @@ function ServiceCategoryManagementClient({
 }
 
 type CategoryAction =
-  "discontinue" |
-  "reactivate" |
-  "delete";
+  FileMaintenanceLifecycleAction;
 
 type CategoryActionProps = {
   category: AdminServiceCategory;
@@ -833,78 +854,7 @@ type CategoryActionProps = {
   ) => void;
 };
 
-function CategoryActions({
-  category,
-  disabled,
-  onEdit,
-  onAction,
-}: CategoryActionProps) {
-  return (
-    <div className="flex justify-end gap-1">
-      <Button
-        variant="ghost"
-        size="compact"
-        disabled={disabled}
-        onClick={onEdit}
-      >
-        <Pencil
-          aria-hidden="true"
-          className="size-4"
-        />
-        Edit
-      </Button>
 
-      {category.status === "active" ? (
-        <Button
-          variant="ghost"
-          size="compact"
-          disabled={disabled}
-          onClick={() =>
-            onAction("discontinue")
-          }
-        >
-          <PowerOff
-            aria-hidden="true"
-            className="size-4"
-          />
-          Discontinue
-        </Button>
-      ) : (
-        <>
-          <Button
-            variant="ghost"
-            size="compact"
-            disabled={disabled}
-            onClick={() =>
-              onAction("reactivate")
-            }
-          >
-            <Power
-              aria-hidden="true"
-              className="size-4"
-            />
-            Reactivate
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="compact"
-            disabled={disabled}
-            onClick={() =>
-              onAction("delete")
-            }
-          >
-            <Trash2
-              aria-hidden="true"
-              className="size-4"
-            />
-            Delete
-          </Button>
-        </>
-      )}
-    </div>
-  );
-}
 
 function CategoryMobileCard({
   category,

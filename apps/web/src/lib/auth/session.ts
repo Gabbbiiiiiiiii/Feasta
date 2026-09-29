@@ -13,7 +13,6 @@ import {
   PROVIDER_OPERATING_DAYS,
   isServiceCategoryCode,
   parseProviderServiceType,
-  providerVerificationDocumentPolicy,
   verificationDocumentsSatisfyPolicy,
   type ProviderEventType,
   type ProviderOperatingDay,
@@ -33,6 +32,11 @@ import {
   type AccountContextFailureReason,
   type ServerAccountContext,
 } from "@/lib/auth/account-policy";
+import {
+  ensureDocumentCatalog,
+  getAdminBusinessDocumentTypes,
+} from "@/lib/documents/document-catalog-service";
+import {resolveVerificationDocumentPolicy} from "@/lib/documents/verification-document-policy";
 import {adminAuth, adminDb} from "@/lib/firebase/admin";
 import {logWebSecurityEvent} from "@/lib/security/logging";
 import {
@@ -42,6 +46,7 @@ import {
 } from "@/lib/security/policy";
 import {CSRF_COOKIE_NAME} from "@/lib/security/request";
 import type {ProviderOnboardingDraft} from "@/lib/provider/onboarding";
+import {parseProviderAgreementSnapshot} from "@/lib/provider/provider-agreement-record";
 import {requireServerPhoneIdentityOwnership} from "@/lib/auth/phone-identity-server";
 
 export const SESSION_COOKIE_NAME = "feasta_session";
@@ -365,6 +370,10 @@ export async function loadOwnedProviderVerification(
     requiredAll: readonly string[];
     requiredOneOf: readonly (readonly string[])[];
   };
+  documentCatalog: Array<{
+    code: string;
+    name: string;
+  }>;
   consent: {
     termsPolicyVersion: string;
     privacyPolicyVersion: string;
@@ -425,11 +434,19 @@ export async function loadOwnedProviderVerification(
           data.businessRegistrationType === "registered_business"
         ? data.businessRegistrationType
         : undefined;
-  const policy = providerVerificationDocumentPolicy({
+  await ensureDocumentCatalog();
+  const businessDocuments = await getAdminBusinessDocumentTypes();
+  const policy = resolveVerificationDocumentPolicy(businessDocuments, {
     providerServiceType,
     serviceCategories,
     businessRegistrationType,
   });
+  const documentCatalog = businessDocuments
+    .filter((documentType) => documentType.status === "active")
+    .map((documentType) => ({
+      code: documentType.code,
+      name: documentType.name,
+    }));
   const safeText = (value: unknown) => typeof value === "string"
     ? value.slice(0, 2000)
     : null;
@@ -468,6 +485,7 @@ export async function loadOwnedProviderVerification(
     requiredDocumentsReady:
       verificationDocumentsSatisfyPolicy(readyTypes, policy),
     policy,
+    documentCatalog,
     consent: {
       termsPolicyVersion: safeText(data.termsPolicyVersion) ?? "unversioned",
       privacyPolicyVersion:
@@ -620,6 +638,9 @@ export async function loadProviderOnboardingDraft(
     providerAgreementVersion: text(
       draft.providerAgreementVersion,
       PROVIDER_AGREEMENT_VERSION,
+    ),
+    providerAgreementSnapshot: parseProviderAgreementSnapshot(
+      draft.providerAgreementSnapshot,
     ),
     completedSteps: Array.isArray(draft.completedSteps)
       ? draft.completedSteps.filter(
@@ -959,6 +980,11 @@ export async function loadProviderOnboardingReview(
         verification
           .providerAgreementVersion,
         PROVIDER_AGREEMENT_VERSION,
+      ),
+
+    providerAgreementSnapshot:
+      parseProviderAgreementSnapshot(
+        verification.providerAgreementSnapshot,
       ),
 
     completedSteps: [

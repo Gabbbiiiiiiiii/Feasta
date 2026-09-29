@@ -173,6 +173,22 @@ export {
   reactivateServiceCategory,
   updateServiceCategory,
 } from "./admin/service-category-management.js";
+export {
+  createAgreementTemplate,
+  createAgreementVersion,
+  createBusinessDocumentType,
+  deleteAgreementTemplate,
+  deleteAgreementVersion,
+  deleteBusinessDocumentType,
+  discontinueAgreementTemplate,
+  discontinueBusinessDocumentType,
+  publishAgreementVersion,
+  reactivateAgreementTemplate,
+  reactivateBusinessDocumentType,
+  updateAgreementTemplate,
+  updateAgreementVersion,
+  updateBusinessDocumentType,
+} from "./admin/document-catalog-management.js";
 export {createComplaint} from "./content/create-complaint.js";
 export {submitBookingRequest} from "./bookings/submit-booking-request.js";
 export {

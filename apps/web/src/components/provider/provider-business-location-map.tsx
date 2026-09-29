@@ -1,5 +1,6 @@
 "use client";
 
+import {LocateFixed} from "lucide-react";
 import {useEffect, useRef, useState} from "react";
 
 import {Button} from "@/components/ui/button";
@@ -32,11 +33,19 @@ export function ProviderBusinessLocationMap({
   disabled,
   onConfirm,
   onCancel,
+  ariaLabel = "Adjust business location map",
+  markerTitle = "Business location",
+  pinHint = "Click the map to place the red pin on your exact business location. Click another point to adjust it.",
+  compact = false,
 }: {
   initialCoordinates: Coordinates | null;
   disabled: boolean;
   onConfirm: (location: ResolvedLocation) => void;
   onCancel: () => void;
+  ariaLabel?: string;
+  markerTitle?: string;
+  pinHint?: string;
+  compact?: boolean;
 }) {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
@@ -61,6 +70,7 @@ export function ProviderBusinessLocationMap({
 
   useEffect(() => {
     let cancelled = false;
+    let resizeObserver: ResizeObserver | null = null;
 
     async function initializeMap() {
       const apiKey =
@@ -112,9 +122,9 @@ export function ProviderBusinessLocationMap({
           center,
           zoom: initialCoordinates ? 17 : 13,
           clickableIcons: false,
-          fullscreenControl: true,
+          fullscreenControl: !compact,
           gestureHandling: "greedy",
-          mapTypeControl: true,
+          mapTypeControl: !compact,
           mapTypeControlOptions: {
             mapTypeIds: [
               google.maps.MapTypeId.ROADMAP,
@@ -122,8 +132,8 @@ export function ProviderBusinessLocationMap({
             ],
             style: google.maps.MapTypeControlStyle.HORIZONTAL_BAR,
           },
-          streetViewControl: true,
-          zoomControl: true,
+          streetViewControl: !compact,
+          zoomControl: !compact,
         });
 
         mapRef.current = map;
@@ -219,7 +229,7 @@ export function ProviderBusinessLocationMap({
             businessLocationMarkerRef.current = new Marker({
               map,
               position,
-              title: "Business location",
+              title: markerTitle,
               zIndex: 3,
             });
           }
@@ -250,6 +260,13 @@ export function ProviderBusinessLocationMap({
 
         if (initialCoordinates) {
           setBusinessLocation(center);
+        }
+
+        if (mapElementRef.current && typeof ResizeObserver !== "undefined") {
+          resizeObserver = new ResizeObserver(() => {
+            google.maps.event.trigger(map, "resize");
+          });
+          resizeObserver.observe(mapElementRef.current);
         }
 
         mapClickListenerRef.current = map.addListener(
@@ -287,6 +304,8 @@ export function ProviderBusinessLocationMap({
         window.clearTimeout(reverseTimerRef.current);
       }
 
+      resizeObserver?.disconnect();
+
       mapClickListenerRef.current?.remove();
       mapClickListenerRef.current = null;
 
@@ -298,7 +317,7 @@ export function ProviderBusinessLocationMap({
 
       mapRef.current = null;
     };
-  }, [disabled, initialCoordinates]);
+  }, [compact, disabled, initialCoordinates, markerTitle]);
 
   function locateCurrentPosition() {
     if (disabled || locating) {
@@ -397,40 +416,55 @@ export function ProviderBusinessLocationMap({
     );
   }
 
+  const locateDisabled = disabled || locating || mapStatus !== "ready";
+
   return (
-    <div className="grid gap-4">
-      <div className="flex flex-col gap-3 rounded-xl border border-input bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-bold text-foreground">
-            Use your current location
-          </p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            FEASTA can center the map on your device location.
-            You can adjust the pin before confirming.
-          </p>
+    <div className={compact ? "grid min-w-0 gap-1.5" : "grid min-w-0 gap-3 sm:gap-4"}>
+      {compact ? null : (
+        <div className="flex flex-col gap-3 rounded-xl border border-input bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-bold text-foreground">
+              Use your current location
+            </p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              FEASTA can center the map on your device location.
+              You can adjust the pin before confirming.
+            </p>
+          </div>
+
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={locateDisabled}
+            onClick={locateCurrentPosition}
+            className="shrink-0"
+          >
+            {locating ? "Locating..." : "Locate me"}
+          </Button>
         </div>
+      )}
 
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={
-            disabled ||
-            locating ||
-            mapStatus !== "ready"
-          }
-          onClick={locateCurrentPosition}
-          className="shrink-0"
-        >
-          {locating ? "Locating..." : "Locate me"}
-        </Button>
-      </div>
-
-      <div className="relative overflow-hidden rounded-xl border border-input bg-secondary">
+      <div className="relative min-w-0 overflow-hidden rounded-xl border border-input bg-secondary">
         <div
           ref={mapElementRef}
-          className="h-[360px] w-full"
-          aria-label="Adjust business location map"
+          className={compact
+            ? "h-32 w-full max-w-full overflow-hidden sm:h-36"
+            : "h-[clamp(15rem,34dvh,22.5rem)] w-full max-w-full overflow-hidden"}
+          aria-label={ariaLabel}
         />
+
+        {compact ? (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={locateDisabled}
+            onClick={locateCurrentPosition}
+            className="absolute right-2 top-2 z-10 h-8 min-h-8 rounded-full px-3 text-xs shadow"
+          >
+            <LocateFixed aria-hidden="true" className="size-3.5" />
+            {locating ? "Locating..." : "Locate me"}
+          </Button>
+        ) : null}
 
         {mapStatus === "loading" ? (
           <div className="absolute inset-0 grid place-items-center bg-background/80">
@@ -440,14 +474,18 @@ export function ProviderBusinessLocationMap({
           </div>
         ) : null}
 
-        {mapStatus === "ready" ? (
-          <div className="pointer-events-none absolute inset-x-3 bottom-3">
-            <div className="mx-auto max-w-md rounded-lg bg-background/95 px-3 py-2 text-center text-xs font-semibold text-foreground shadow">
-              Click the map to place the red pin on your exact business location. Click another point to adjust it.
+        {!compact && mapStatus === "ready" ? (
+          <div className="pointer-events-none absolute bottom-8 left-2 right-14 sm:bottom-10 sm:left-3 sm:right-16">
+            <div className="mx-auto max-w-md rounded-lg bg-background/95 px-3 py-2 text-center text-xs font-semibold leading-5 text-foreground shadow">
+              {pinHint}
             </div>
           </div>
         ) : null}
       </div>
+
+      {compact ? (
+        <p className="text-[11px] leading-4 text-muted-foreground">{pinHint}</p>
+      ) : null}
 
       {resolveStatus === "resolving" ? (
         <p
@@ -459,19 +497,25 @@ export function ProviderBusinessLocationMap({
       ) : null}
 
       {resolvedLocation ? (
-        <div className="rounded-xl border border-input bg-card p-4">
-          <p className="text-sm font-bold text-foreground">
-            Location found
-          </p>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+        compact ? (
+          <p className="truncate text-xs font-semibold text-foreground">
             {resolvedLocation.address}
           </p>
-          <p className="text-sm font-semibold text-foreground">
-            {[resolvedLocation.city, resolvedLocation.province]
-              .filter(Boolean)
-              .join(", ")}
-          </p>
-        </div>
+        ) : (
+          <div className="rounded-xl border border-input bg-card p-4">
+            <p className="text-sm font-bold text-foreground">
+              Location found
+            </p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
+              {resolvedLocation.address}
+            </p>
+            <p className="text-sm font-semibold text-foreground">
+              {[resolvedLocation.city, resolvedLocation.province]
+                .filter(Boolean)
+                .join(", ")}
+            </p>
+          </div>
+        )
       ) : null}
 
       {error ? (
@@ -483,18 +527,24 @@ export function ProviderBusinessLocationMap({
         </p>
       ) : null}
 
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+      <div className={compact
+        ? "flex flex-row justify-end gap-2"
+        : "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"}
+      >
         <Button
           type="button"
           variant="secondary"
+          size={compact ? "compact" : "default"}
           disabled={disabled}
           onClick={onCancel}
+          className={compact ? "h-8 min-h-8 px-3 text-xs" : undefined}
         >
           Cancel
         </Button>
 
         <Button
           type="button"
+          size={compact ? "compact" : "default"}
           disabled={
             disabled ||
             mapStatus !== "ready" ||
@@ -506,6 +556,7 @@ export function ProviderBusinessLocationMap({
               onConfirm(resolvedLocation);
             }
           }}
+          className={compact ? "h-8 min-h-8 px-3 text-xs" : undefined}
         >
           Confirm this location
         </Button>

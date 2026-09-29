@@ -181,7 +181,8 @@ test("provider onboarding parsers align and fail closed", () => {
   assert.equal(parseProviderServiceType("add-on"), "addon");
   assert.equal(parseProviderServiceType("venue"), null);
   assert.equal(parseVerificationDocumentType("mayor_permit"), "mayors_permit");
-  assert.equal(parseVerificationDocumentType("passport"), null);
+  assert.equal(parseVerificationDocumentType("passport"), "passport");
+  assert.equal(parseVerificationDocumentType("not a type"), null);
   assert.equal(parseVerificationDocumentStatus("verified"), "verified");
   assert.equal(parseVerificationDocumentStatus("approved"), null);
 });

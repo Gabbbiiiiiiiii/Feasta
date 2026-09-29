@@ -79,17 +79,16 @@ export function ProviderLogoCard({
         href={profileHref}
         aria-label={`View ${provider.businessName} public provider profile`}
         className={[
-          "relative flex h-full min-w-0 flex-col rounded-[22px]",
+          "relative flex h-full min-w-0 flex-col overflow-hidden rounded-2xl",
           "border border-feasta-border-soft bg-white",
-          "shadow-[0_4px_18px_rgb(43_33_29/0.035)] outline-none",
-          "transition-[transform,border-color,box-shadow] duration-normal",
-          "hover:-translate-y-1 hover:border-primary/25",
-          "hover:shadow-[0_16px_38px_rgb(43_33_29/0.10)]",
+          "shadow-[0_1px_2px_rgb(0_0_0/0.08),0_4px_12px_rgb(0_0_0/0.05)] outline-none",
+          "transition-[box-shadow] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
+          "hover:shadow-[0_6px_16px_rgb(0_0_0/0.12)]",
           "focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
-          "motion-reduce:transform-none",
+          "motion-reduce:transition-none",
         ].join(" ")}
       >
-        <div className="relative grid aspect-square w-full shrink-0 place-items-center overflow-hidden rounded-t-[21px] bg-feasta-canvas">
+        <div className="relative grid aspect-[4/3] w-full shrink-0 place-items-center overflow-hidden bg-feasta-canvas">
           {imageUrl ? (
             // Verified public FEASTA media URL.
             // eslint-disable-next-line @next/next/no-img-element
@@ -99,10 +98,10 @@ export function ProviderLogoCard({
               loading="lazy"
               decoding="async"
               className={cn(
-                "absolute inset-0 size-full transition-transform duration-slow motion-reduce:transform-none",
+                "absolute inset-0 size-full origin-center transition-transform duration-500 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transform-none motion-reduce:transition-none",
                 usingLogo
-                  ? "object-contain p-6 sm:p-7"
-                  : "object-cover group-hover:scale-[1.035]",
+                  ? "object-contain p-5 group-hover:scale-[1.045]"
+                  : "object-cover group-hover:scale-[1.08]",
               )}
             />
           ) : (
@@ -124,7 +123,7 @@ export function ProviderLogoCard({
           </Badge>
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col p-3.5 text-center">
+        <div className="flex min-w-0 flex-1 flex-col p-3 text-center">
           {availabilityLoading ? (
             <div
               className="mb-3 flex items-start gap-2 rounded-xl border border-feasta-border-soft bg-feasta-canvas px-3 py-2.5 text-left text-xs font-bold text-feasta-text-secondary"
@@ -211,26 +210,6 @@ export function ProviderLogoCard({
           </div>
         </div>
       </Link>
-
-      {provider.description ? (
-        <div
-          className={[
-            "pointer-events-none absolute left-1/2 top-[calc(100%-0.35rem)] z-50 hidden",
-            "w-[min(20rem,calc(100vw-2rem))] -translate-x-1/2 translate-y-2",
-            "rounded-[20px] border border-feasta-border-soft bg-white p-4 text-left",
-            "opacity-0 invisible shadow-[0_20px_55px_rgb(43_33_29/0.16)]",
-            "transition-[opacity,transform,visibility] duration-normal",
-            "md:block md:group-hover:visible md:group-hover:translate-y-0 md:group-hover:opacity-100",
-            "md:group-focus-within:visible md:group-focus-within:translate-y-0 md:group-focus-within:opacity-100",
-            "motion-reduce:transform-none",
-          ].join(" ")}
-          aria-hidden="true"
-        >
-          <p className="line-clamp-3 break-words text-sm leading-6 text-feasta-text-secondary">
-            {provider.description}
-          </p>
-        </div>
-      ) : null}
     </article>
   );
 }

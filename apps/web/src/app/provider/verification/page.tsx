@@ -58,6 +58,7 @@ export default async function ProviderVerificationPage({
         editable={verification.editable}
         documents={verification.documents}
         policy={verification.policy}
+        documentCatalog={verification.documentCatalog}
         consent={verification.consent}
         reviewMode={reviewing}
       />

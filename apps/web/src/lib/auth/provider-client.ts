@@ -527,7 +527,7 @@ export async function saveProviderOnboardingDraft(
 export async function uploadVerificationDocument(input: {
   providerId: string;
   verificationId: string;
-  documentType: VerificationDocumentType;
+  documentType: string;
   file: File;
   onProgress?: (percent: number) => void;
 }): Promise<void> {
@@ -592,7 +592,7 @@ export async function uploadVerificationDocument(input: {
 
 export async function removeVerificationDocument(input: {
   verificationId: string;
-  documentType: VerificationDocumentType;
+  documentType: string;
 }): Promise<{removed: boolean}> {
   return call("removeVerificationDocument", input);
 }
@@ -688,7 +688,7 @@ function safeExtension(name: string, contentType: string): string {
   return extension ?? expected[contentType];
 }
 
-function documentLabel(type: VerificationDocumentType): string {
+function documentLabel(type: string): string {
   return type.split("_").map(
     (part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`,
   ).join(" ");

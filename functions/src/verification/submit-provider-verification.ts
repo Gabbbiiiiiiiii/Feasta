@@ -6,13 +6,17 @@ import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
 import {
-  providerVerificationDocumentPolicy,
   providerSubmissionProfileIssues,
   USER_ROLES,
   VERIFICATION_DOCUMENT_CONTENT_TYPES,
   MAX_VERIFICATION_DOCUMENT_SIZE_BYTES,
   verificationDocumentsSatisfyPolicy,
 } from "../shared/constants.js";
+import {
+  loadBusinessDocumentCatalog,
+  providerDocumentContext,
+  resolveVerificationDocumentPolicy,
+} from "../shared/document-catalog.js";
 import {db} from "../shared/firestore.js";
 import {
   beginIdempotentOperation,
@@ -115,6 +119,7 @@ export const submitProviderVerification = onCall(
     }
 
     try {
+      const documentCatalog = await loadBusinessDocumentCatalog();
       const result = await db.runTransaction(
         async (transaction) => {
           const [providerSnapshot, userSnapshot] =
@@ -269,8 +274,9 @@ export const submitProviderVerification = onCall(
             );
           }
 
-          const policy = providerVerificationDocumentPolicy(
-            providerData ?? {},
+          const policy = resolveVerificationDocumentPolicy(
+            documentCatalog,
+            providerDocumentContext(providerData ?? {}),
           );
           const readyDocumentTypes = new Set(
             documentsSnapshot.docs.flatMap((document) => {

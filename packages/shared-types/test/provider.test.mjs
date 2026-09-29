@@ -277,7 +277,8 @@ test("safe parsers accept explicit compatibility aliases and reject unknowns", (
   assert.equal(parseProviderVerificationStatusStrict("verified"), null);
   assert.equal(parseVerificationDocumentType("mayor_permit"),
     "mayors_permit");
-  assert.equal(parseVerificationDocumentType("passport"), null);
+  assert.equal(parseVerificationDocumentType("passport"), "passport");
+  assert.equal(parseVerificationDocumentType("not a type"), null);
   assert.equal(parseVerificationDocumentStatus("verified"), "verified");
   assert.equal(parseVerificationDocumentStatus("approved"), null);
 });
@@ -294,21 +295,49 @@ test("required verification policy remains server-aligned", () => {
   );
 });
 
-test("provider document policy dynamically requires food permits", () => {
+test("provider document policy requires sanitary permit for catering providers", () => {
   const catering = providerVerificationDocumentPolicy({
     providerServiceType: "catering",
     serviceCategories: ["catering_service"],
   });
-  assert.deepEqual(catering.requiredOneOf, [[
+
+  assert.ok(
+    catering.requiredAll.includes(
+      "sanitary_permit",
+    ),
+  );
+
+  assert.ok(
+    !catering.requiredAll.includes(
+      "mayors_permit",
+    ),
+  );
+
+  assert.deepEqual(
+    catering.requiredOneOf,
+    [],
+  );
+
+  assert.equal(
+    verificationDocumentsSatisfyPolicy(
+      new Set(catering.requiredAll),
+      catering,
+    ),
+    true,
+  );
+
+  const missingSanitaryPermit =
+    new Set(catering.requiredAll);
+
+  missingSanitaryPermit.delete(
     "sanitary_permit",
-    "mayors_permit",
-  ]]);
-  assert.equal(verificationDocumentsSatisfyPolicy(new Set([
-    ...catering.requiredAll,
-    "mayors_permit",
-  ]), catering), true);
-  assert.equal(verificationDocumentsSatisfyPolicy(
-    new Set(catering.requiredAll),
-    catering,
-  ), false);
+  );
+
+  assert.equal(
+    verificationDocumentsSatisfyPolicy(
+      missingSanitaryPermit,
+      catering,
+    ),
+    false,
+  );
 });

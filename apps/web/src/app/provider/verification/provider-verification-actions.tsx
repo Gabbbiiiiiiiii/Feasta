@@ -1,9 +1,9 @@
 "use client";
 
-import {
-  PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS,
-  type VerificationDocumentType,
-} from "@feasta/shared-types";
+type DocumentCatalogItem = {
+  code: string;
+  name: string;
+};
 import {FormEvent, useRef, useState} from "react";
 import {useRouter} from "next/navigation";
 
@@ -38,9 +38,10 @@ export function ProviderVerificationActions({
   editable = true,
   documents = [],
   policy = {
-    requiredAll: ["business_permit", "dti_registration", "bir_registration", "valid_id"],
+    requiredAll: [],
     requiredOneOf: [],
   },
+  documentCatalog = [],
   consent,
   reviewMode = false,
 }: {
@@ -53,6 +54,7 @@ export function ProviderVerificationActions({
     requiredAll: readonly string[];
     requiredOneOf: readonly (readonly string[])[];
   };
+  documentCatalog?: readonly DocumentCatalogItem[];
   consent?: {
     termsPolicyVersion: string;
     privacyPolicyVersion: string;
@@ -67,32 +69,24 @@ export function ProviderVerificationActions({
   const busy = useRef(false);
   const documentFileInputRef = useRef<HTMLInputElement>(null);
 
-  const requiredDefinitions =
-    PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS.filter(
-      (definition) =>
-        policy.requiredAll.includes(definition.type) ||
-        policy.requiredOneOf.some((group) =>
-          group.includes(definition.type),
-        ),
-    );
+  const requiredDefinitions = documentCatalog.filter((definition) =>
+    policy.requiredAll.includes(definition.code) ||
+    policy.requiredOneOf.some((group) => group.includes(definition.code)),
+  );
 
-  const optionalDefinitions =
-    PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS.filter(
-      (definition) =>
-        !policy.requiredAll.includes(definition.type) &&
-        !policy.requiredOneOf.some((group) =>
-          group.includes(definition.type),
-        ),
-    );
+  const optionalDefinitions = documentCatalog.filter((definition) =>
+    !policy.requiredAll.includes(definition.code) &&
+    !policy.requiredOneOf.some((group) => group.includes(definition.code)),
+  );
 
   const initialDocumentType =
-    requiredDefinitions[0]?.type ?? "valid_id";
+    requiredDefinitions[0]?.code ?? documentCatalog[0]?.code ?? "";
 
   const requiredRequirementCount =
     policy.requiredAll.length + policy.requiredOneOf.length;
 
   function prepareDocumentReplacement(
-    nextDocumentType: VerificationDocumentType,
+    nextDocumentType: string,
   ) {
     setDocumentType(nextDocumentType);
     setFile(null);
@@ -109,7 +103,7 @@ export function ProviderVerificationActions({
   }
   const submitKey = useRef(globalThis.crypto.randomUUID());
   const [documentType, setDocumentType] =
-    useState<VerificationDocumentType>(initialDocumentType);
+    useState(initialDocumentType);
   const [file, setFile] = useState<File | null>(null);
   const [action, setAction] = useState<"upload" | "remove" | "submit" | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -156,7 +150,7 @@ export function ProviderVerificationActions({
     try {
       await removeVerificationDocument({
         verificationId,
-        documentType: document.documentType as VerificationDocumentType,
+        documentType: document.documentType,
       });
       setMessage(`${document.displayName} was removed.`);
       router.refresh();
@@ -226,17 +220,15 @@ export function ProviderVerificationActions({
             <Select
               value={documentType}
               onChange={(event) =>
-                setDocumentType(
-                  event.target.value as VerificationDocumentType,
-                )
+                setDocumentType(event.target.value)
               }
             >
               {requiredDefinitions.length > 0 ? (
                 <optgroup label="Required documents">
                   {requiredDefinitions.map((definition) => (
-                    <option key={definition.type} value={definition.type}>
-                      {definition.label}
-                      {requirementLabel(definition.type, policy)}
+                    <option key={definition.code} value={definition.code}>
+                      {definition.name}
+                      {requirementLabel(definition.code, policy)}
                     </option>
                   ))}
                 </optgroup>
@@ -245,8 +237,8 @@ export function ProviderVerificationActions({
               {optionalDefinitions.length > 0 ? (
                 <optgroup label="Optional supporting documents">
                   {optionalDefinitions.map((definition) => (
-                    <option key={definition.type} value={definition.type}>
-                      {definition.label}
+                    <option key={definition.code} value={definition.code}>
+                      {definition.name}
                     </option>
                   ))}
                 </optgroup>
@@ -440,11 +432,7 @@ function DocumentSection({
   verificationId: string;
   title: string;
   description: string;
-  definitions: readonly {
-    type: VerificationDocumentType;
-    label: string;
-    required: boolean;
-  }[];
+  definitions: readonly DocumentCatalogItem[];
   documents: VerificationDocumentSummary[];
   policy: {
     requiredAll: readonly string[];
@@ -453,7 +441,7 @@ function DocumentSection({
   editable: boolean;
   reviewMode: boolean;
   action: "upload" | "remove" | "submit" | null;
-  onPrepareReplacement: (type: VerificationDocumentType) => void;
+  onPrepareReplacement: (type: string) => void;
   onRemove: (document: VerificationDocumentSummary) => Promise<void>;
 }) {
   if (definitions.length === 0) return null;
@@ -470,7 +458,7 @@ function DocumentSection({
       <div className="grid gap-3">
         {definitions.map((definition) => {
           const document = documents.find(
-            (candidate) => candidate.documentType === definition.type,
+            (candidate) => candidate.documentType === definition.code,
           );
 
           const previewUrl = document
@@ -481,14 +469,14 @@ function DocumentSection({
 
           return (
             <article
-              key={definition.type}
+              key={definition.code}
               className="grid min-w-0 gap-3 rounded-lg border border-border p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
             >
               <div className="min-w-0">
-                <h4 className="font-semibold">{definition.label}</h4>
+                <h4 className="font-semibold">{definition.name}</h4>
 
                 <p className="text-sm text-muted-foreground">
-                  {requirementDescription(definition.type, policy)}
+                  {requirementDescription(definition.code, policy, definitions)}
                   {document?.fileSize != null
                     ? ` · ${formatFileSize(document.fileSize)}`
                     : ""}
@@ -531,7 +519,7 @@ function DocumentSection({
                     disabled={action !== null}
                     onClick={() =>
                       onPrepareReplacement(
-                        definition.type,
+                        definition.code,
                       )
                     }
                   >
@@ -546,7 +534,7 @@ function DocumentSection({
                       size="compact"
                       disabled={action !== null}
                       onClick={() => {
-                        onPrepareReplacement(definition.type);
+                        onPrepareReplacement(definition.code);
                       }}
                     >
                       Replace
@@ -600,19 +588,16 @@ function requirementDescription(
     requiredAll: readonly string[];
     requiredOneOf: readonly (readonly string[])[];
   },
+  catalog: readonly DocumentCatalogItem[],
 ): string {
   if (policy.requiredAll.includes(type)) return "Required for your current verification profile";
   const alternative = policy.requiredOneOf.find((group) => group.includes(type));
   if (alternative) {
-    return `One required: ${alternative.map(documentLabel).join(" or ")}`;
+    return `One required: ${alternative.map((code) =>
+      catalog.find((item) => item.code === code)?.name ?? code
+    ).join(" or ")}`;
   }
   return "Optional supporting document";
-}
-
-function documentLabel(type: string): string {
-  return PROVIDER_VERIFICATION_DOCUMENT_DEFINITIONS.find(
-    (definition) => definition.type === type,
-  )?.label ?? type.replaceAll("_", " ");
 }
 
 function formatFileSize(bytes: number): string {

@@ -5,6 +5,9 @@ export const FIRESTORE_COLLECTIONS = {
   providerVerifications: "providerVerifications",
   providerTaxProfiles: "providerTaxProfiles",
   serviceCategories: "serviceCategories",
+  documentCategories: "documentCategories",
+  agreementTemplates: "agreementTemplates",
+  businessDocumentTypes: "businessDocumentTypes",
 
   packages: "packages",
   menuItems: "menuItems",

@@ -60,10 +60,12 @@ import {
   type CustomerRefundPolicyDisclosureResult,
 } from "@/lib/customer/bookings/customer-refund-policy-client";
 
+import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {PriceDisplay} from "@/components/shared/price-display";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {Textarea} from "@/components/ui/textarea";
+import {formatPhilippineDate} from "@/lib/dates/philippine-date";
 import type {
   PublicEventService,
   PublicPackageDetail,
@@ -1120,7 +1122,7 @@ function discardAndLeave() {
       </div>
       {savedDraft.choices.length ? <div className="flex flex-wrap gap-2" aria-label="Saved event plans">
         {savedDraft.choices.map((choice) => <Button key={choice.key} variant="secondary" onClick={() => savedDraft.resume(choice)}>
-          Continue draft{choice.value.event.eventDate ? ` for ${choice.value.event.eventDate}` : " without a date"}
+          Continue draft{choice.value.event.eventDate ? ` for ${formatPhilippineDate(choice.value.event.eventDate)}` : " without a date"}
         </Button>)}
       </div> : null}
       {planningOnly ? <p className="text-sm text-muted-foreground">Plan your event here. Sign in to check availability, review refund policies, and submit a booking. Nothing is reserved yet.</p> : null}
@@ -1317,8 +1319,7 @@ function discardAndLeave() {
                   label="Event date"
                   error={errors.eventDate}
                 >
-                  <Input
-                    type="date"
+                  <PhilippineDateInput
                     ref={eventDateInput}
                     value={draft.eventDate}
                     onChange={(event) =>
@@ -2211,7 +2212,7 @@ function discardAndLeave() {
                       />
                     }
                     label="Date"
-                    value={draft.eventDate}
+                    value={formatPhilippineDate(draft.eventDate)}
                   />
                 ) : null}
 
@@ -4220,47 +4221,7 @@ function packageGuestGuidance(
 function formatEventDate(
   value: string,
 ): string {
-  const parts =
-    value.split("-");
-
-  if (parts.length !== 3) {
-    return value;
-  }
-
-  const year = Number(parts[0]);
-  const month = Number(parts[1]);
-  const day = Number(parts[2]);
-
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(day)
-  ) {
-    return value;
-  }
-
-  const date = new Date(
-    year,
-    month - 1,
-    day,
-  );
-
-  if (
-    !Number.isFinite(
-      date.getTime(),
-    )
-  ) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat(
-    "en-PH",
-    {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    },
-  ).format(date);
+  return formatPhilippineDate(value);
 }
 
 function formatEventTime(

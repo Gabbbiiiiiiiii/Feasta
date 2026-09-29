@@ -79,7 +79,7 @@ export default async function ServicesPage() {
         <section className="bg-secondary px-5 py-16 sm:px-8 sm:py-20 lg:py-24">
           <div className="mx-auto grid max-w-[1180px] items-center gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16">
             <div className="max-w-2xl">
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
+              <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 Event Services
               </p>
               <h1 className="mt-4 text-4xl font-bold leading-tight tracking-[-0.035em] sm:text-5xl lg:text-6xl">
@@ -109,7 +109,7 @@ export default async function ServicesPage() {
         <section className="px-5 py-16 sm:px-8 sm:py-20 lg:py-24" aria-labelledby="service-categories-title">
           <div className="mx-auto max-w-[1180px]">
             <div className="max-w-3xl">
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
+              <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 Explore by service
               </p>
               <h2 id="service-categories-title" className="mt-3 text-3xl font-bold tracking-tight sm:text-5xl">
@@ -154,7 +154,7 @@ export default async function ServicesPage() {
         <section className="bg-secondary px-5 py-20 sm:px-8 lg:py-28">
           <div className="mx-auto grid max-w-[1180px] gap-12 lg:grid-cols-[0.85fr_1.15fr] lg:gap-20">
             <div className="max-w-xl">
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
+              <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 Compare thoughtfully
               </p>
               <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-5xl">
@@ -190,7 +190,7 @@ export default async function ServicesPage() {
         <section className="bg-secondary px-5 py-20 sm:px-8 lg:py-24">
           <div className="mx-auto max-w-[1180px]">
             <div className="mx-auto max-w-3xl text-center">
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
+              <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 Why discover with Feasta
               </p>
               <h2 className="mt-3 text-3xl font-bold tracking-tight sm:text-5xl">

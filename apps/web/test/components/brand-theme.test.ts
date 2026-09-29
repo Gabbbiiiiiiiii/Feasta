@@ -62,14 +62,14 @@ function contrastRatio(first: string, second: string): number {
 
 describe("FEASTA brand theme contract", () => {
   it("defines the canonical semantic brand palette", () => {
-    expect(cssToken("primary")).toBe("#b02f00");
-    expect(cssToken("primary-hover")).toBe("#9c2a00");
-    expect(cssToken("primary-pressed")).toBe("#862400");
-    expect(cssToken("primary-strong")).toBe("#862200");
+    expect(cssToken("primary")).toBe("#550b14");
+    expect(cssToken("primary-hover")).toBe("#450910");
+    expect(cssToken("primary-pressed")).toBe("#36070c");
+    expect(cssToken("primary-strong")).toBe("#450910");
     expect(cssToken("primary-foreground")).toBe("#ffffff");
-    expect(cssToken("primary-tint")).toBe("#fff1ed");
-    expect(cssToken("primary-tint-strong")).toBe("#fee2db");
-    expect(cssToken("ring")).toBe("#b02f00");
+    expect(cssToken("primary-tint")).toBe("#f7f0f2");
+    expect(cssToken("primary-tint-strong")).toBe("#eddde0");
+    expect(cssToken("ring")).toBe("#550b14");
 
     expect(globalStyles).toContain(
       "--color-primary-tint: var(--primary-tint)",
@@ -120,12 +120,11 @@ describe("FEASTA brand theme contract", () => {
     }
 
     for (const centralizedBrandLiteral of [
-      "#b02f00",
-      "#9c2a00",
-      "#862400",
-      "#862200",
-      "#fff1ed",
-      "#fee2db",
+      "#550b14",
+      "#450910",
+      "#36070c",
+      "#f7f0f2",
+      "#eddde0",
     ]) {
       expect(customerSource).not.toContain(centralizedBrandLiteral);
     }
@@ -168,5 +167,20 @@ describe("FEASTA brand theme contract", () => {
     expect(navigation).toContain("bg-primary-tint");
     expect(navigation).toContain("text-primary-strong");
     expect(navigation).toContain("focus-visible:ring-primary/40");
+  });
+
+  it("loads Plus Jakarta Sans for interface text and Playfair Display for accents", () => {
+    const layout = readFileSync(
+      join(sourceRoot, "app/layout.tsx"),
+      "utf8",
+    );
+
+    expect(layout).toContain("Plus_Jakarta_Sans");
+    expect(layout).toContain("Playfair_Display");
+    expect(layout).toContain("--font-plus-jakarta");
+    expect(layout).toContain("--font-playfair");
+    expect(globalStyles).toContain("var(--font-plus-jakarta)");
+    expect(globalStyles).toContain("var(--font-playfair)");
+    expect(globalStyles).toContain(".feasta-quote");
   });
 });

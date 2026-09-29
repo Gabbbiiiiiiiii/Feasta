@@ -22,6 +22,7 @@ import {
   useState,
 } from "react";
 
+import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {
   Dialog,
   DialogContent,
@@ -1403,9 +1404,11 @@ export function CustomerEventListReview() {
                             {item.configuration ? (
                               <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
                                 {
-                                  item.configuration
-                                    .event
-                                    .eventDate
+                                  formatCustomerEventDate(
+                                    item.configuration
+                                      .event
+                                      .eventDate,
+                                  )
                                 }{" "}
                                 ·{" "}
                                 {
@@ -2040,8 +2043,7 @@ function EventDetailsDialog({
                 errors.eventDate
               }
             >
-              <Input
-                type="date"
+              <PhilippineDateInput
                 value={
                   draft.eventDate
                 }

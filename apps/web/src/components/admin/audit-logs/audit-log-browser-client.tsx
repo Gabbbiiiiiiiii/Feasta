@@ -20,10 +20,10 @@ import {CursorPagination} from "@/components/data/cursor-pagination";
 import {DataTable, type DataTableColumn} from "@/components/data/data-table";
 import {FilterToolbar} from "@/components/data/filter-toolbar";
 import {SummaryCard} from "@/components/data/summary-card";
+import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {PageHeading} from "@/components/layout/page-heading";
 import {Badge, type BadgeProps} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
-import {Input} from "@/components/ui/input";
 import {Select} from "@/components/ui/select";
 import type {
   AdminAuditLog,
@@ -296,12 +296,12 @@ function AuditLogBrowserClient({
             />
             <label className="grid gap-1 text-sm font-semibold">
               From date
-              <Input
-                type="date"
+              <PhilippineDateInput
                 value={filters.fromDate}
                 max={filters.toDate || undefined}
                 disabled={isPending}
                 className="min-h-12 py-2 text-sm"
+                displayClassName="left-4 right-12 text-sm"
                 onChange={(event) =>
                   applyFilters({fromDate: event.currentTarget.value})
                 }
@@ -309,12 +309,12 @@ function AuditLogBrowserClient({
             </label>
             <label className="grid gap-1 text-sm font-semibold">
               To date
-              <Input
-                type="date"
+              <PhilippineDateInput
                 value={filters.toDate}
                 min={filters.fromDate || undefined}
                 disabled={isPending}
                 className="min-h-12 py-2 text-sm"
+                displayClassName="left-4 right-12 text-sm"
                 onChange={(event) =>
                   applyFilters({toDate: event.currentTarget.value})
                 }

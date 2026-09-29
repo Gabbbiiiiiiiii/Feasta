@@ -92,7 +92,7 @@ function formatDate(value: string | null) {
 
 function roleBadgeClass(role: AdminManagedRole) {
   return role === "provider"
-    ? "bg-orange-100 text-orange-700"
+    ? "bg-primary-tint text-primary-strong"
     : "bg-blue-100 text-blue-700";
 }
 

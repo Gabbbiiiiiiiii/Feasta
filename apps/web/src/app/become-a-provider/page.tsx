@@ -133,7 +133,7 @@ export default function BecomeAProviderPage() {
           />
 
           <div className="relative mx-auto max-w-[1180px] text-center">
-            <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
+            <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
               Become a Provider
             </p>
 
@@ -179,7 +179,7 @@ export default function BecomeAProviderPage() {
         <div className="mx-auto max-w-[1180px]">
             <div className="grid items-end gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:gap-16">
             <div className="max-w-3xl">
-                <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
+                <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 Why join Feasta
                 </p>
 
@@ -245,7 +245,7 @@ export default function BecomeAProviderPage() {
         <section className="bg-secondary px-5 py-16 sm:px-8 sm:py-20 lg:py-24">
         <div className="mx-auto max-w-[1180px]">
             <div className="mx-auto max-w-3xl text-center">
-            <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
+            <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 Who can join
             </p>
 
@@ -278,12 +278,12 @@ export default function BecomeAProviderPage() {
                         <Icon aria-hidden="true" className="size-5" />
                     </span>
 
-                    <span className="text-xs font-bold uppercase tracking-[0.14em] text-primary-strong">
+                    <span className="font-serif text-xs font-semibold uppercase tracking-[0.14em] text-primary-strong">
                         {String(index + 1).padStart(2, "0")}
                     </span>
                     </div>
 
-                    <p className="mt-6 text-xs font-bold uppercase tracking-[0.14em] text-primary-strong">
+                    <p className="mt-6 font-serif text-xs font-semibold uppercase tracking-[0.14em] text-primary-strong">
                     {provider.eyebrow}
                     </p>
 
@@ -313,7 +313,7 @@ export default function BecomeAProviderPage() {
         <div className="mx-auto max-w-[1180px]">
             <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-end lg:gap-16">
             <div>
-                <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
+                <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 Provider onboarding
                 </p>
 
@@ -357,7 +357,7 @@ export default function BecomeAProviderPage() {
 
                     <div>
                         <div className="flex flex-wrap items-center gap-3">
-                        <span className="text-xs font-bold uppercase tracking-[0.16em] text-primary-strong">
+                        <span className="font-serif text-xs font-semibold uppercase tracking-[0.16em] text-primary-strong">
                             Step {stepNumber}
                         </span>
 
@@ -396,7 +396,7 @@ export default function BecomeAProviderPage() {
         <div className="mx-auto max-w-[1180px]">
             <div className="grid items-start gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:gap-20">
             <div className="max-w-xl">
-                <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
+                <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 Prepare before you start
                 </p>
 
@@ -433,7 +433,7 @@ export default function BecomeAProviderPage() {
             </div>
 
             <div>
-                <p className="text-sm font-bold uppercase tracking-[0.16em] text-primary-strong">
+                <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 Provider readiness checklist
                 </p>
 
@@ -451,7 +451,7 @@ export default function BecomeAProviderPage() {
                     </span>
 
                     <div className="min-w-0 flex-1">
-                        <span className="text-xs font-bold uppercase tracking-[0.14em] text-primary-strong">
+                        <span className="font-serif text-xs font-semibold uppercase tracking-[0.14em] text-primary-strong">
                         Item {String(index + 1).padStart(2, "0")}
                         </span>
 
@@ -490,11 +490,11 @@ export default function BecomeAProviderPage() {
                 <span className="mx-auto flex size-20 items-center justify-center rounded-full border border-white/20 bg-white/10 shadow-card">
                     <BadgeCheck
                     aria-hidden="true"
-                    className="size-10 text-primary"
+                    className="size-10 text-primary-tint"
                     />
                 </span>
 
-                <p className="mt-6 text-sm font-bold uppercase tracking-[0.18em] text-primary">
+                <p className="mt-6 font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-tint">
                     Provider Verification
                 </p>
 
@@ -506,7 +506,7 @@ export default function BecomeAProviderPage() {
             </div>
 
             <div className="px-6 py-10 sm:px-10 sm:py-12 lg:px-14 lg:py-14">
-                <p className="text-sm font-bold uppercase tracking-[0.2em] text-primary-strong">
+                <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 Before activation
                 </p>
 

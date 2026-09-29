@@ -5,6 +5,9 @@ export declare const FIRESTORE_COLLECTIONS: {
     readonly providerVerifications: "providerVerifications";
     readonly providerTaxProfiles: "providerTaxProfiles";
     readonly serviceCategories: "serviceCategories";
+    readonly documentCategories: "documentCategories";
+    readonly agreementTemplates: "agreementTemplates";
+    readonly businessDocumentTypes: "businessDocumentTypes";
     readonly packages: "packages";
     readonly menuItems: "menuItems";
     readonly addons: "addons";

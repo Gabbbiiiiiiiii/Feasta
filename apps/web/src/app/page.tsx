@@ -203,7 +203,7 @@ export default async function HomePage() {
                     className="size-4 text-primary-strong"
                   />
 
-                  <span className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
+                  <span className="font-serif text-xs font-semibold uppercase tracking-[0.13em] text-primary-strong">
                     Your celebration starts here
                   </span>
                 </div>

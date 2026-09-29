@@ -8,6 +8,7 @@ import {
 } from "react";
 import {useRouter} from "next/navigation";
 
+import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {
   Dialog,
   DialogContent,
@@ -736,8 +737,7 @@ function openMenuItem(
                       <label className="grid gap-1.5 text-sm font-semibold text-foreground">
                         Event date *
 
-                        <Input
-                          type="date"
+                        <PhilippineDateInput
                           min={
                             minimumDate
                           }

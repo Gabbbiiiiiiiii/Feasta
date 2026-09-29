@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  PROVIDER_AGREEMENT_VERSION,
   PROVIDER_EVENT_TYPES,
   PROVIDER_OPERATING_DAYS,
   isServiceCategoryCode,
@@ -21,13 +20,16 @@ import {
 
 import {AuthStatus} from "@/components/auth/auth-status";
 import {FormField} from "@/components/forms/form-field";
+import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {CheckboxField} from "@/components/forms/selection-controls";
+import {ProviderAgreementAcceptanceSection} from "@/components/provider/provider-agreement-acceptance";
 import {ProviderBusinessImageField} from "@/components/provider/provider-business-image-field";
 import {ProviderBusinessLocationField} from "@/components/provider/provider-business-location-field";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {Textarea} from "@/components/ui/textarea";
 import {providerOnboardingError} from "@/lib/auth/error-messages";
+import {formatPhilippineDate} from "@/lib/dates/philippine-date";
 import {
   registerProviderBusiness,
   saveProviderOnboardingDraft,
@@ -42,10 +44,8 @@ import {
   type ProviderOnboardingDraft,
   type ProviderOnboardingStep,
 } from "@/lib/provider/onboarding";
-import {
-  PROVIDER_AGREEMENT_FINAL_SECTION,
-  PROVIDER_AGREEMENT_SECTIONS,
-} from "@/lib/provider/provider-agreement";
+import type {AdminAgreementTemplate} from "@/lib/admin/file-maintenance/admin-document-catalog-types";
+import {authorizedRepresentativeName} from "@/lib/provider/provider-agreement-record";
 import type {
   ServiceCategoryOption,
 } from "@/lib/service-categories/service-category-service";
@@ -76,11 +76,13 @@ export function ProviderOnboardingStepForm({
   step,
   draft,
   serviceCategories = [],
+  agreement = null,
   editingExistingApplication = false,
 }: {
   step: ProviderOnboardingStep;
   draft: ProviderOnboardingDraft;
   serviceCategories?: readonly ServiceCategoryOption[];
+  agreement?: AdminAgreementTemplate | null;
   editingExistingApplication?: boolean;
 }) {
   const router = useRouter();
@@ -145,6 +147,11 @@ export function ProviderOnboardingStepForm({
     event.preventDefault();
 
     if (busy.current) return;
+
+    if (step.number === 6 && !agreement) {
+      setError("A provider agreement has not been published.");
+      return;
+    }
 
     if (step.number === 3 && hasNoServiceOffering) {
       setFieldErrors((current) => ({
@@ -217,7 +224,7 @@ export function ProviderOnboardingStepForm({
       }
       await saveProviderOnboardingDraft(
         step.number,
-        stepPayload(step.number, submissionValues),
+        stepPayload(step.number, submissionValues, agreement),
       );
       if (step.number === 2) {
         await cleanupRemovedMedia(
@@ -373,6 +380,8 @@ export function ProviderOnboardingStepForm({
         loading={loading}
         editingExistingApplication={editingExistingApplication}
         fieldErrors={fieldErrors}
+        agreement={agreement}
+        acceptedCopyAvailable={Boolean(draft.providerAgreementSnapshot)}
         onServiceOfferingEmptyChange={setHasNoServiceOffering}
         selectedImages={selectedImages}
         setSelectedImage={(mediaType, file) => {
@@ -456,9 +465,11 @@ export function ProviderOnboardingStepForm({
           }
           className="w-full sm:w-auto"
         >
-          {step.number === 6
-            ? "Save and continue to documents"
-            : "Save and continue"}
+          {step.number === 6 && !draft.providerAgreementAccepted
+            ? "Accept Agreement & Continue"
+            : step.number === 6
+              ? "Save and continue to documents"
+              : "Save and continue"}
         </Button>
       </div>
     </form>
@@ -472,6 +483,8 @@ function StepFields({
   loading,
   editingExistingApplication,
   fieldErrors,
+  agreement,
+  acceptedCopyAvailable,
   onServiceOfferingEmptyChange,
   selectedImages,
   setSelectedImage,
@@ -484,6 +497,8 @@ function StepFields({
   loading: boolean;
   editingExistingApplication: boolean;
   fieldErrors: Record<string, string>;
+  agreement: AdminAgreementTemplate | null;
+  acceptedCopyAvailable: boolean;
   onServiceOfferingEmptyChange: (empty: boolean) => void;
   selectedImages: {logo: File | null; cover: File | null};
   setSelectedImage: (
@@ -1335,8 +1350,7 @@ function StepFields({
       >
         <div className="grid gap-3">
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              type="date"
+            <PhilippineDateInput
               disabled={loading}
               aria-label="Add unavailable date"
               onChange={(event) => {
@@ -1378,9 +1392,9 @@ function StepFields({
                       ),
                     )
                   }
-                  aria-label={`Remove unavailable date ${date}`}
+                  aria-label={`Remove unavailable date ${formatPhilippineDate(date)}`}
                 >
-                  <span>{date}</span>
+                  <span>{formatPhilippineDate(date)}</span>
                   <span aria-hidden="true">?</span>
                 </button>
               ))}
@@ -1398,7 +1412,14 @@ function StepFields({
 
   return (
     <ProviderAgreementStep
+      agreement={agreement}
+      businessName={values.businessName}
+      representativeName={authorizedRepresentativeName(
+        values.ownerFirstName,
+        values.ownerLastName,
+      )}
       accepted={values.providerAgreementAccepted}
+      acceptedCopyAvailable={acceptedCopyAvailable}
       loading={loading}
       error={fieldErrors.providerAgreementAccepted}
       onAcceptedChange={(accepted) =>
@@ -1412,12 +1433,20 @@ function StepFields({
 }
 
 function ProviderAgreementStep({
+  agreement,
+  businessName,
+  representativeName,
   accepted,
+  acceptedCopyAvailable,
   loading,
   error,
   onAcceptedChange,
 }: {
+  agreement: AdminAgreementTemplate | null;
+  businessName: string;
+  representativeName: string;
   accepted: boolean;
+  acceptedCopyAvailable: boolean;
   loading: boolean;
   error?: string;
   onAcceptedChange: (accepted: boolean) => void;
@@ -1427,6 +1456,14 @@ function ProviderAgreementStep({
 
   const acceptanceEnabled =
     accepted || hasReachedEnd;
+  const downloadLabel = acceptedCopyAvailable
+    ? "Download Accepted Copy"
+    : "Download PDF";
+  const downloadHref = acceptedCopyAvailable
+    ? "/api/provider/agreement/pdf?copy=accepted"
+    : agreement
+      ? "/api/provider/agreement/pdf"
+      : null;
 
   return (
     <div className="grid gap-5">
@@ -1445,22 +1482,29 @@ function ProviderAgreementStep({
         <div className="flex flex-col gap-3 border-b border-border bg-muted/30 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div>
             <p className="font-semibold text-foreground">
-              FEASTA Provider Agreement
+              {agreement?.name ?? "Provider agreement"}
             </p>
 
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Version {PROVIDER_AGREEMENT_VERSION}
+              {agreement ? `Version ${agreement.version}` : "No agreement is published"}
             </p>
           </div>
 
-          <Link
-            href="/provider-agreement"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-fit text-sm font-semibold text-primary hover:underline"
-          >
-            Open full page
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            {downloadHref ? (
+              <Button variant="secondary" size="compact" asChild className="w-fit">
+                <a href={downloadHref}>{downloadLabel}</a>
+              </Button>
+            ) : null}
+            <Link
+              href="/provider-agreement"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-fit text-sm font-semibold text-primary hover:underline"
+            >
+              Open full page
+            </Link>
+          </div>
         </div>
 
         <div
@@ -1490,50 +1534,30 @@ function ProviderAgreementStep({
               </p>
             </div>
 
-            {PROVIDER_AGREEMENT_SECTIONS.map(
-              (section) => (
-                <section
-                  key={section.title}
-                  className="grid gap-2"
-                >
-                  <h4 className="font-semibold leading-6 text-foreground">
-                    {section.title}
-                  </h4>
-
-                  <div className="grid gap-3">
-                    {section.paragraphs.map(
-                      (paragraph) => (
-                        <p
-                          key={paragraph}
-                          className="text-sm leading-6 text-muted-foreground"
-                        >
-                          {paragraph}
-                        </p>
-                      ),
-                    )}
-                  </div>
-                </section>
-              ),
-            )}
-
-            <section className="grid gap-2">
-              <h4 className="font-semibold leading-6 text-foreground">
-                {PROVIDER_AGREEMENT_FINAL_SECTION.title}
-              </h4>
-
-              <div className="grid gap-3">
-                {PROVIDER_AGREEMENT_FINAL_SECTION.paragraphs.map(
-                  (paragraph) => (
+            {agreement ? agreement.sections.map((section, index) => (
+              <section
+                key={`${index}-${section.title}`}
+                className="grid gap-2"
+              >
+                <h4 className="font-semibold leading-6 text-foreground">
+                  {section.title}
+                </h4>
+                <div className="grid gap-3">
+                  {section.paragraphs.map((paragraph) => (
                     <p
                       key={paragraph}
                       className="text-sm leading-6 text-muted-foreground"
                     >
                       {paragraph}
                     </p>
-                  ),
-                )}
-              </div>
-            </section>
+                  ))}
+                </div>
+              </section>
+            )) : (
+              <p className="text-sm leading-6 text-muted-foreground" role="status">
+                FEASTA has not published a provider agreement yet.
+              </p>
+            )}
 
             <section className="grid gap-4 border-t border-border pt-6">
               <div>
@@ -1547,20 +1571,26 @@ function ProviderAgreementStep({
                 </p>
               </div>
 
-              <CheckboxField
-                label="I have read and agree to the FEASTA Provider Agreement."
-                checked={accepted}
-                required
-                disabled={
-                  loading ||
-                  !acceptanceEnabled
-                }
-                onChange={(event) =>
-                  onAcceptedChange(
-                    event.target.checked,
-                  )
-                }
-              />
+              {agreement ? (
+                <ProviderAgreementAcceptanceSection
+                  businessName={businessName}
+                  representativeName={representativeName}
+                  agreementName={agreement.name}
+                  version={agreement.version}
+                  effectiveDate={agreement.effectiveDate}
+                  accepted={accepted}
+                >
+                  <CheckboxField
+                    label="I have read and agree to the FEASTA Provider Agreement."
+                    checked={accepted}
+                    required
+                    disabled={loading || !acceptanceEnabled}
+                    onChange={(event) =>
+                      onAcceptedChange(event.target.checked)
+                    }
+                  />
+                </ProviderAgreementAcceptanceSection>
+              ) : null}
 
               {error ? (
                 <p
@@ -1705,13 +1735,14 @@ function initialValues(draft: ProviderOnboardingDraft): FormValues {
     providerAgreementAccepted:
       draft.providerAgreementAccepted ?? false,
     providerAgreementVersion:
-      draft.providerAgreementVersion || PROVIDER_AGREEMENT_VERSION,
+      draft.providerAgreementVersion,
   };
 }
 
 function stepPayload(
   step: number,
   values: FormValues,
+  agreement: AdminAgreementTemplate | null,
 ): Record<string, unknown> {
   if (step === 1) return pick(values, ["ownerFirstName", "ownerLastName", "ownerPhone"]);
   if (step === 2) {
@@ -1730,10 +1761,10 @@ function stepPayload(
   if (step === 3) return pick(values, ["providerServiceType", "providerCategory", "serviceCategories", "eventTypesSupported"]);
   if (step === 4) return pick(values, ["address", "city", "province", "serviceAreas", "maxServiceDistanceKm", "locationCoordinates"]);
   if (step === 5) return pick(values, ["minGuestsPerEvent", "maxGuestsPerEvent", "acceptsMultipleEventsPerDay", "maxEventsPerDay", "availableStaffCount", "availableEquipmentCount", "operatingDays", "bookingLeadTimeDays", "unavailableDates"]);
-  return pick(values, [
-    "providerAgreementAccepted",
-    "providerAgreementVersion",
-  ]);
+  return {
+    providerAgreementAccepted: values.providerAgreementAccepted,
+    providerAgreementVersion: agreement?.version ?? values.providerAgreementVersion,
+  };
 }
 
 function pick(

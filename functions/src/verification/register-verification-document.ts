@@ -12,12 +12,16 @@ import {
 } from "../shared/authorization.js";
 import {
   MAX_VERIFICATION_DOCUMENT_SIZE_BYTES,
-  providerVerificationDocumentPolicy,
   USER_ROLES,
   VERIFICATION_DOCUMENT_CONTENT_TYPES,
-  VERIFICATION_DOCUMENT_TYPES,
   verificationDocumentRequirement,
 } from "../shared/constants.js";
+import {
+  isDocumentCode,
+  loadBusinessDocumentCatalog,
+  providerDocumentContext,
+  resolveVerificationDocumentPolicy,
+} from "../shared/document-catalog.js";
 import {db} from "../shared/firestore.js";
 import {
   logError,
@@ -27,7 +31,6 @@ import {serverTimestamp} from "../shared/timestamps.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {
-  requireEnum,
   requireObject,
   requireString,
 } from "../shared/validation.js";
@@ -87,12 +90,30 @@ export const registerVerificationDocument =
           },
         );
 
-      const documentType =
-        requireEnum(
-          input.documentType,
-          "documentType",
-          VERIFICATION_DOCUMENT_TYPES,
+      const documentType = requireString(
+        input.documentType,
+        "documentType",
+        {
+          minLength: 2,
+          maxLength: 100,
+        },
+      );
+      if (!isDocumentCode(documentType)) {
+        throw new HttpsError(
+          "invalid-argument",
+          "documentType must contain only lowercase letters, numbers, and underscores.",
         );
+      }
+      const documentCatalog = await loadBusinessDocumentCatalog();
+      const documentRecord = documentCatalog.find((record) =>
+        record.code === documentType && record.status === "active",
+      );
+      if (!documentRecord) {
+        throw new HttpsError(
+          "invalid-argument",
+          "The document type is not available.",
+        );
+      }
 
       requireString(
           input.displayName,
@@ -102,7 +123,7 @@ export const registerVerificationDocument =
             maxLength: 120,
           },
         );
-      const displayName = documentLabel(documentType);
+      const displayName = documentRecord.name;
 
       const storagePath =
         requireString(
@@ -243,7 +264,10 @@ export const registerVerificationDocument =
           );
         }
         const providerData = providerSnapshot.data() ?? {};
-        const policy = providerVerificationDocumentPolicy(providerData);
+        const policy = resolveVerificationDocumentPolicy(
+          documentCatalog,
+          providerDocumentContext(providerData),
+        );
         const requirement = verificationDocumentRequirement(
           documentType,
           policy,
@@ -633,21 +657,6 @@ function rejectUnknownFields(
       `Unknown document fields: ${unknownFields.join(", ")}.`,
     );
   }
-}
-
-function documentLabel(
-  type: (typeof VERIFICATION_DOCUMENT_TYPES)[number],
-): string {
-  const labels: Record<(typeof VERIFICATION_DOCUMENT_TYPES)[number], string> = {
-    business_permit: "Business permit",
-    dti_registration: "DTI or SEC registration",
-    bir_registration: "BIR documentation",
-    valid_id: "Valid government ID",
-    sanitary_permit: "Sanitary permit",
-    mayors_permit: "Mayor's permit",
-    other: "Other supporting document",
-  };
-  return labels[type];
 }
 
 function fileNameMatchesContentType(

@@ -10,6 +10,7 @@ import {
   MAX_EVENT_GUESTS,
 } from "@/lib/customer/planning/event-planning-context";
 
+import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {EventVenueInput} from "./event-venue-input";
 import {parseProviderDiscoveryFilters, providerDiscoveryHref} from "@/lib/customer/providers/provider-query";
 import {PUBLIC_PROVIDER_MARKETPLACE_PATH} from "@/lib/customer/providers/provider-route-policy";
@@ -113,11 +114,12 @@ export function StartYourEventForm() {
             aria-hidden="true"
             className="pointer-events-none absolute left-3.5 top-1/2 size-[18px] -translate-y-1/2 text-feasta-text-tertiary"
           />
-          <input
-            type="date"
+          <PhilippineDateInput
+            plain
             name="eventDate"
             aria-label="Date"
             ref={dateInput}
+            displayClassName="left-11 right-10 text-sm font-semibold"
             className={[
               "h-12 w-full rounded-xl",
               "border border-feasta-border-soft bg-feasta-canvas",

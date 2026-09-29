@@ -15,6 +15,15 @@ import {
   PROVIDER_SERVICE_TYPES,
   USER_ROLES,
 } from "../shared/constants.js";
+import {
+  loadCurrentProviderOnboardingAgreement,
+  readProviderOnboardingAgreementInTransaction,
+} from "../shared/document-catalog.js";
+import {
+  providerAgreementAcceptanceWrite,
+  resolveProviderAgreementAcceptance,
+  type ProviderAgreementSource,
+} from "../shared/provider-agreement-acceptance.js";
 import {db} from "../shared/firestore.js";
 import {
   requireActiveServiceCategories,
@@ -67,6 +76,32 @@ export const saveProviderOnboardingDraft = onCall(
     }
     const data = requireObject(input.data, "data");
     let validated = validateStep(step, data, actor.uid);
+    let onboardingAgreement: ProviderAgreementSource | null = null;
+
+    if (step === 6) {
+      onboardingAgreement = await loadCurrentProviderOnboardingAgreement();
+      if (!onboardingAgreement) {
+        throw new HttpsError(
+          "failed-precondition",
+          "A provider agreement has not been published.",
+        );
+      }
+      if (validated.providerAgreementVersion !== onboardingAgreement.version) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Accept the current provider agreement.",
+        );
+      }
+      validated = {
+        ...validated,
+        providerAgreementAccepted: true,
+        providerAgreementCode: onboardingAgreement.code,
+        providerAgreementName: onboardingAgreement.name,
+        providerAgreementVersion: onboardingAgreement.version,
+        providerAgreementEffectiveDate: onboardingAgreement.effectiveDate,
+        providerAgreementTemplateCode: onboardingAgreement.code,
+      };
+    }
 
     if (step === 3) {
       const providerServiceType =
@@ -176,6 +211,7 @@ export const saveProviderOnboardingDraft = onCall(
           identityPhoneNumber:
             identity.phoneNumber,
           validated,
+          onboardingAgreement,
         });
       }
 
@@ -294,12 +330,30 @@ export const saveProviderOnboardingDraft = onCall(
       completed.add(step);
       const completedSteps = [...completed].sort((left, right) => left - right);
       const nextStep = firstIncompleteStep(completed);
+      const acceptanceFields = step === 6
+        ? await agreementAcceptanceFields(
+            transaction,
+            existing,
+            String(validated.providerAgreementVersion ?? ""),
+            onboardingAgreement,
+          )
+        : null;
+      const draftValues: Record<string, unknown> = {...validated};
+      if (step === 6 && !acceptanceFields) {
+        delete draftValues.providerAgreementAccepted;
+        delete draftValues.providerAgreementCode;
+        delete draftValues.providerAgreementName;
+        delete draftValues.providerAgreementVersion;
+        delete draftValues.providerAgreementEffectiveDate;
+        delete draftValues.providerAgreementTemplateCode;
+      }
 
       transaction.set(
         draftReference,
         {
           ownerId: actor.uid,
-          ...validated,
+          ...draftValues,
+          ...(acceptanceFields ?? {}),
           completedSteps,
           currentStep: nextStep,
           createdAt: draftSnapshot.exists
@@ -326,20 +380,6 @@ export const saveProviderOnboardingDraft = onCall(
           updatedAt: serverTimestamp(),
         });
       }
-      if (step === 6) {
-        transaction.set(
-          draftReference,
-          {
-            providerAgreementAccepted: true,
-            providerAgreementVersion:
-              validated.providerAgreementVersion,
-            providerAgreementAcceptedAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          },
-          {merge: true},
-        );
-      }
-
       return {
         success: true,
         completedSteps,
@@ -349,6 +389,50 @@ export const saveProviderOnboardingDraft = onCall(
   },
 );
 
+async function agreementAcceptanceFields(
+  transaction: Transaction,
+  existing: Record<string, unknown>,
+  clientVersion: string,
+  expected: ProviderAgreementSource | null,
+): Promise<Record<string, unknown> | null> {
+  if (!expected) {
+    throw new HttpsError(
+      "failed-precondition",
+      "A provider agreement has not been published.",
+    );
+  }
+  const current = await readProviderOnboardingAgreementInTransaction(
+    transaction,
+    expected.code,
+  );
+  if (
+    !current ||
+    current.code !== expected.code ||
+    current.version !== expected.version
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Accept the current provider agreement.",
+    );
+  }
+  const decision = resolveProviderAgreementAcceptance({
+    clientVersion,
+    current,
+    existing,
+  });
+  if (decision.action === "reject") {
+    throw new HttpsError(
+      "failed-precondition",
+      "Accept the current provider agreement.",
+    );
+  }
+  if (decision.action === "preserve") return null;
+  return providerAgreementAcceptanceWrite(
+    decision.acceptance,
+    serverTimestamp(),
+  );
+}
+
 async function saveLinkedProviderApplicationStep({
   transaction,
   step,
@@ -357,6 +441,7 @@ async function saveLinkedProviderApplicationStep({
   user,
   identityPhoneNumber,
   validated,
+  onboardingAgreement,
 }: {
   transaction: Transaction;
   step: number;
@@ -365,6 +450,7 @@ async function saveLinkedProviderApplicationStep({
   user: Record<string, unknown>;
   identityPhoneNumber: string;
   validated: Record<string, unknown>;
+  onboardingAgreement: ProviderAgreementSource | null;
 }): Promise<{
   success: true;
   completedSteps: number[];
@@ -791,14 +877,15 @@ async function saveLinkedProviderApplicationStep({
   }
 
   if (step === 6) {
-    verificationUpdates
-      .providerAgreementVersion =
-        nextValidated
-          .providerAgreementVersion;
-
-    verificationUpdates
-      .providerAgreementAcceptedAt =
-        serverTimestamp();
+    const acceptanceFields = await agreementAcceptanceFields(
+      transaction,
+      verification ?? {},
+      String(nextValidated.providerAgreementVersion ?? ""),
+      onboardingAgreement,
+    );
+    if (acceptanceFields) {
+      Object.assign(verificationUpdates, acceptanceFields);
+    }
   }
 
   if (

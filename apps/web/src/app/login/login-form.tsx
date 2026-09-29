@@ -127,7 +127,7 @@ export function LoginForm({
 
       <div className="flex min-h-dvh items-center bg-white px-6 py-12 sm:px-10 lg:min-h-0 lg:px-16 xl:px-24">
         <div className="mx-auto w-full max-w-[540px]">
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-primary-strong">
+          <p className="font-serif text-xs font-semibold uppercase tracking-[0.16em] text-primary-strong">
             Customer account
           </p>
 
@@ -223,7 +223,7 @@ function CustomerLoginBrandPanel() {
         </Link>
 
         <div className="mt-24 xl:mt-28">
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-primary">
+          <p className="font-serif text-xs font-semibold uppercase tracking-[0.16em] text-primary-tint">
             FEASTA Customer
           </p>
 

@@ -641,7 +641,7 @@ function UserDetailsContent({
                 className={cn(
                   "rounded-full px-2.5 py-1 text-xs font-semibold capitalize",
                   user.role === "provider"
-                    ? "bg-orange-100 text-orange-700"
+                    ? "bg-primary-tint text-primary-strong"
                     : "bg-blue-100 text-blue-700",
                 )}
               >
@@ -802,7 +802,7 @@ function UserDetailsContent({
                   <span className="inline-flex items-center gap-2">
                     <Building2
                       aria-hidden="true"
-                      className="size-4 text-orange-500"
+                      className="size-4 text-primary"
                     />
                     {user.businessName ??
                       "Not available"}

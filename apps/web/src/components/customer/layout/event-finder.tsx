@@ -5,6 +5,7 @@ import {useRouter} from "next/navigation";
 import {useEffect, useRef, useState, type FormEvent} from "react";
 
 import {EventVenueInput} from "@/components/landing/event-venue-input";
+import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {Select} from "@/components/ui/select";
@@ -84,57 +85,58 @@ export function EventFinder({
         Find services for your event
       </p>
 
-      <div className="mt-3 grid min-w-0 items-start gap-3 sm:grid-cols-2 sm:gap-x-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(10rem,1fr)_minmax(0,1.35fr)_auto]">
-        <EventVenueInput initialVenue={planning?.eventVenue} placeholder="Ormoc City, Leyte" />
-        <div className="min-w-0">
-          <label htmlFor="event-finder-date" className="mb-2 block text-xs font-bold text-feasta-text-secondary">
-            Event Date
-          </label>
-          <div className="group relative">
-            <Input
+      <div className="mt-3 grid min-w-0 items-start gap-3">
+        <EventVenueInput
+          initialVenue={planning?.eventVenue}
+          placeholder="Select your location and where you want the event held"
+          enableMap
+        />
+        <div className="grid min-w-0 items-start gap-3 sm:grid-cols-2 sm:gap-x-4 lg:grid-cols-[minmax(10rem,1fr)_minmax(0,1.35fr)_auto]">
+          <div className="min-w-0">
+            <label htmlFor="event-finder-date" className="mb-2 block text-xs font-bold text-feasta-text-secondary">
+              Event Date
+            </label>
+            <PhilippineDateInput
               id="event-finder-date"
               ref={dateInput}
               name="eventDate"
-              type="date"
               value={eventDate}
               onChange={(event) => setEventDate(event.target.value)}
               aria-describedby="event-finder-planning-hint"
-              className={`${controlClass} ${eventDate ? "" : "text-transparent focus:text-foreground"}`}
+              placeholder="Select event date"
+              visibleText
+              displayClassName="left-4 right-12 text-sm font-semibold"
+              className={controlClass}
             />
-            {!eventDate ? (
-              <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-sm font-semibold text-feasta-text-tertiary group-focus-within:hidden">
-                Select event date
-              </span>
-            ) : null}
           </div>
+          <div className="min-w-0">
+            <label htmlFor="event-finder-service" className="mb-2 block text-xs font-bold text-feasta-text-secondary">
+              Service Category
+            </label>
+            <Select
+              id="event-finder-service"
+              name="category"
+              defaultValue={
+                serviceCategoryOptions.some(
+                  (option) => option.code === category,
+                )
+                  ? category ?? "all"
+                  : "all"
+              }
+              className={controlClass}
+            >
+              <option value="all">What service do you need?</option>
+              {serviceCategoryOptions.map((option) => (
+                <option key={option.code} value={option.code}>
+                  {option.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <Button type="submit" className="h-12 min-h-12 w-full shrink-0 rounded-xl px-5 text-sm sm:mt-6 lg:w-auto">
+            Find Services <ArrowRight aria-hidden="true" className="size-4" />
+          </Button>
         </div>
-        <div className="min-w-0">
-          <label htmlFor="event-finder-service" className="mb-2 block text-xs font-bold text-feasta-text-secondary">
-            Service Category
-          </label>
-          <Select
-            id="event-finder-service"
-            name="category"
-            defaultValue={
-              serviceCategoryOptions.some(
-                (option) => option.code === category,
-              )
-                ? category ?? "all"
-                : "all"
-            }
-            className={controlClass}
-          >
-            <option value="all">What service do you need?</option>
-            {serviceCategoryOptions.map((option) => (
-              <option key={option.code} value={option.code}>
-                {option.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <Button type="submit" className="h-12 min-h-12 w-full shrink-0 rounded-xl px-5 text-sm sm:mt-6 lg:w-auto">
-          Find Services <ArrowRight aria-hidden="true" className="size-4" />
-        </Button>
       </div>
 
       <details className="mt-2" open={hasAdditionalFilters || undefined}>

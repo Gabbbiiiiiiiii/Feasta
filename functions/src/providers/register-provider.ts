@@ -16,6 +16,8 @@ import {
   PROVIDER_SERVICE_TYPES,
   USER_ROLES,
 } from "../shared/constants.js";
+import {loadCurrentProviderOnboardingAgreement} from "../shared/document-catalog.js";
+import {parseProviderAgreementSnapshot} from "../shared/provider-agreement-acceptance.js";
 import {db} from "../shared/firestore.js";
 import {
   requireActiveServiceCategories,
@@ -465,6 +467,8 @@ export const registerProvider = onCall(
       .where("businessEmail", "==", businessEmail)
       .limit(1);
 
+    const providerAgreement = await loadCurrentProviderOnboardingAgreement();
+
     try {
       const result = await db.runTransaction(
         async (transaction) => {
@@ -700,8 +704,33 @@ export const registerProvider = onCall(
 
           const providerAgreementVersion =
             onboardingDraftData.providerAgreementVersion.trim();
+          if (
+            !providerAgreement ||
+            providerAgreementVersion !== providerAgreement.version
+          ) {
+            throw new HttpsError(
+              "failed-precondition",
+              "Accept the current provider agreement.",
+            );
+          }
           const providerAgreementAcceptedAt =
             onboardingDraftData.providerAgreementAcceptedAt;
+          const providerAgreementSnapshot = parseProviderAgreementSnapshot(
+            onboardingDraftData.providerAgreementSnapshot,
+          );
+          if (
+            onboardingDraftData.providerAgreementSnapshot != null &&
+            (
+              !providerAgreementSnapshot ||
+              providerAgreementSnapshot.version !== providerAgreementVersion ||
+              providerAgreementSnapshot.code !== providerAgreement.code
+            )
+          ) {
+            throw new HttpsError(
+              "failed-precondition",
+              "Accept the current provider agreement.",
+            );
+          }
 
           await requireActiveServiceCategoriesInTransaction(
             transaction,
@@ -849,8 +878,26 @@ export const registerProvider = onCall(
                   : "unversioned",
               termsAcceptedAt: userData?.termsAcceptedAt ?? null,
               privacyAcceptedAt: userData?.privacyAcceptedAt ?? null,
+              providerAgreementAccepted: true,
               providerAgreementVersion,
+              providerAgreementCode:
+                providerAgreementSnapshot?.code ?? providerAgreement.code,
+              providerAgreementName:
+                providerAgreementSnapshot?.name ?? providerAgreement.name,
+              providerAgreementEffectiveDate:
+                providerAgreementSnapshot?.effectiveDate ??
+                providerAgreement.effectiveDate,
+              providerAgreementTemplateCode: providerAgreement.code,
               providerAgreementAcceptedAt,
+              ...(providerAgreementSnapshot
+                ? {
+                    providerAgreementSnapshot: {
+                      ...providerAgreementSnapshot,
+                      acceptedAt: providerAgreementSnapshot.acceptedAt ??
+                        providerAgreementAcceptedAt,
+                    },
+                  }
+                : {}),
 
               status: "draft",
               remarks: null,

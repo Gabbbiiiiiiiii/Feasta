@@ -337,8 +337,13 @@ describe("provider onboarding Capacity and schedule", () => {
     );
     assert.match(
       form,
-      /type="date"/u,
+      /<PhilippineDateInput\s/u,
     );
+    const dateInput = readFileSync(path.resolve(
+      process.cwd(),
+      "src/components/forms/philippine-date-input.tsx",
+    ), "utf8");
+    assert.match(dateInput, /type: "date" as const/u);
     assert.match(
       form,
       /No unavailable dates added\./u,
@@ -491,8 +496,9 @@ describe("provider onboarding Location and coverage", () => {
     );
     assert.match(
       locationMap,
-      /zoomControl: true/u,
+      /zoomControl: !compact/u,
     );
+    assert.match(locationMap, /compact = false/u);
     assert.match(
       locationMap,
       /MapTypeId\.SATELLITE/u,

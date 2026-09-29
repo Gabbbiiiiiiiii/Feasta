@@ -47,7 +47,7 @@ function CustomerRegistrationScreen() {
             </Link>
 
             <div className="my-auto max-w-[500px] py-14">
-              <p className="text-sm font-bold uppercase tracking-[0.18em] text-primary">
+              <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-tint">
                 FEASTA CUSTOMER
               </p>
 
@@ -80,7 +80,7 @@ function CustomerRegistrationScreen() {
                   },
                 ].map((benefit) => (
                   <div key={benefit.title} className="flex items-start gap-4">
-                    <span className="mt-1 grid size-10 shrink-0 place-items-center rounded-[10px] border border-primary/30 bg-primary/10 text-primary">
+                    <span className="mt-1 grid size-10 shrink-0 place-items-center rounded-[10px] border border-white/25 bg-white/10 text-primary-tint">
                       ✓
                     </span>
 
@@ -124,7 +124,7 @@ function CustomerRegistrationScreen() {
             </Link>
 
             <div>
-              <p className="text-sm font-bold uppercase tracking-[0.18em] text-primary-strong">
+              <p className="font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">
                 CUSTOMER ACCOUNT
               </p>
 

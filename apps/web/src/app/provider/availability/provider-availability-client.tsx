@@ -1,13 +1,11 @@
 "use client";
 
 import {
-  Box,
   CalendarOff,
   CalendarRange,
   Clock3,
   Plus,
   Save,
-  UserRoundCheck,
   UsersRound,
 } from "lucide-react";
 import {useRouter} from "next/navigation";
@@ -18,12 +16,13 @@ import {
   type ProviderOperatingDay,
 } from "@feasta/shared-types";
 
-import {CheckboxField} from "@/components/forms/selection-controls";
+import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {FormField} from "@/components/forms/form-field";
 import {feastaToast} from "@/components/feedback/toast";
 import {PageHeading} from "@/components/layout/page-heading";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
+import {formatPhilippineDate} from "@/lib/dates/philippine-date";
 import {
   updateProviderAvailability,
   updateProviderAvailabilitySettings,
@@ -40,12 +39,8 @@ type ProviderAvailabilityClientProps = {
 type AvailabilityFormState = {
   operatingDays: ProviderOperatingDay[];
   bookingLeadTimeDays: string;
-  acceptsMultipleEventsPerDay: boolean;
-  maxEventsPerDay: string;
   minGuestsPerEvent: string;
   maxGuestsPerEvent: string;
-  availableStaffCount: string;
-  availableEquipmentCount: string;
 };
 
 const DAY_LABELS: Record<ProviderOperatingDay, string> = {
@@ -242,13 +237,15 @@ export function ProviderAvailabilityClient({
 
         <AvailabilityCard
           icon={<Clock3 className="size-5" />}
-          title="Booking Lead Time"
-          description="Minimum number of days required before an event can be accepted."
+          title="Minimum booking notice (days)"
+          description="How many days in advance should customers normally book? Enter 0 if you accept same-day or rush bookings."
+          requiredMark
         >
           <FormField
             id="bookingLeadTimeDays"
-            label="Lead time in days"
-            description="Choose between 0 and 365 days."
+            label="Minimum booking notice (days)"
+            required
+            labelClassName="sr-only"
           >
             <Input
               type="number"
@@ -267,71 +264,8 @@ export function ProviderAvailabilityClient({
                   bookingLeadTimeDays: value,
                 }));
               }}
-              className="max-w-48"
             />
           </FormField>
-        </AvailabilityCard>
-
-        <AvailabilityCard
-          icon={<CalendarOff className="size-5" />}
-          title="Daily Booking Capacity"
-          description="Set how many active FEASTA events your business can accept on one date."
-        >
-          <CheckboxField
-            id="acceptsMultipleEventsPerDay"
-            label="Accept multiple events per day"
-            description={
-              form.acceptsMultipleEventsPerDay
-                ? "Set the maximum number of active events you can handle each day."
-                : "Only one active event can be accepted per day."
-            }
-            checked={form.acceptsMultipleEventsPerDay}
-            disabled={savingSettings}
-            onChange={(event) => {
-              const checked = event.currentTarget.checked;
-              setSuccessMessage(null);
-              setFormError(null);
-              setForm((current) => ({
-                ...current,
-                acceptsMultipleEventsPerDay: checked,
-                maxEventsPerDay: checked
-                  ? current.maxEventsPerDay
-                  : "1",
-              }));
-            }}
-          />
-
-          {form.acceptsMultipleEventsPerDay ? (
-            <FormField
-              id="maxEventsPerDay"
-              label="Maximum events per day"
-              description="Choose between 1 and 100 active events."
-            >
-              <Input
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={100}
-                step={1}
-                value={form.maxEventsPerDay}
-                disabled={savingSettings}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setSuccessMessage(null);
-                  setFormError(null);
-                  setForm((current) => ({
-                    ...current,
-                    maxEventsPerDay: value,
-                  }));
-                }}
-                className="max-w-48"
-              />
-            </FormField>
-          ) : (
-            <p className="rounded-lg bg-secondary px-4 py-3 text-sm font-medium">
-              Daily limit: 1 active event
-            </p>
-          )}
         </AvailabilityCard>
 
         <AvailabilityCard
@@ -339,80 +273,36 @@ export function ProviderAvailabilityClient({
           title="Event Capacity"
           description="Only capacity settings that apply to your verified service categories are shown."
         >
-          <div className="grid gap-4 sm:grid-cols-2">
-            {capabilities.requiresGuestCapacity ? (
-              <>
-                <CapacityInput
-                  id="minGuestsPerEvent"
-                  label="Minimum guests"
-                  value={form.minGuestsPerEvent}
-                  minimum={1}
-                  disabled={savingSettings}
-                  onChange={(value) => setForm((current) => ({
-                    ...current,
-                    minGuestsPerEvent: value,
-                  }))}
-                />
-                <CapacityInput
-                  id="maxGuestsPerEvent"
-                  label="Maximum guests"
-                  value={form.maxGuestsPerEvent}
-                  minimum={1}
-                  disabled={savingSettings}
-                  onChange={(value) => setForm((current) => ({
-                    ...current,
-                    maxGuestsPerEvent: value,
-                  }))}
-                />
-              </>
-            ) : null}
-
-            {capabilities.usesStaffCapacity ? (
+          {capabilities.requiresGuestCapacity ? (
+            <div className="grid gap-4 sm:grid-cols-2">
               <CapacityInput
-                id="availableStaffCount"
-                label="Available staff"
-                value={form.availableStaffCount}
-                minimum={0}
+                id="minGuestsPerEvent"
+                label="Minimum guests"
+                value={form.minGuestsPerEvent}
+                minimum={1}
                 disabled={savingSettings}
-                icon={<UserRoundCheck className="size-4" />}
                 onChange={(value) => setForm((current) => ({
                   ...current,
-                  availableStaffCount: value,
+                  minGuestsPerEvent: value,
                 }))}
               />
-            ) : null}
-
-            {capabilities.usesEquipmentCapacity ? (
               <CapacityInput
-                id="availableEquipmentCount"
-                label="Available equipment"
-                value={form.availableEquipmentCount}
-                minimum={0}
+                id="maxGuestsPerEvent"
+                label="Maximum guests"
+                value={form.maxGuestsPerEvent}
+                minimum={1}
                 disabled={savingSettings}
-                icon={<Box className="size-4" />}
                 onChange={(value) => setForm((current) => ({
                   ...current,
-                  availableEquipmentCount: value,
+                  maxGuestsPerEvent: value,
                 }))}
               />
-            ) : null}
-          </div>
-
-          {(capabilities.usesStaffCapacity ||
-            capabilities.usesEquipmentCapacity) ? (
-              <p className="text-sm text-muted-foreground">
-                Staff and equipment values describe your available business capacity.
-                FEASTA does not allocate those resources per booking yet.
-              </p>
-            ) : null}
-
-          {!capabilities.requiresGuestCapacity &&
-          !capabilities.usesStaffCapacity &&
-          !capabilities.usesEquipmentCapacity ? (
+            </div>
+          ) : (
             <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
               Your current service categories do not require additional capacity settings.
             </p>
-          ) : null}
+          )}
         </AvailabilityCard>
       </div>
 
@@ -432,8 +322,7 @@ export function ProviderAvailabilityClient({
             id="unavailableDate"
             label="Date to make unavailable"
           >
-            <Input
-              type="date"
+            <PhilippineDateInput
               min={today}
               value={selectedDate}
               disabled={datePending !== null}
@@ -505,7 +394,7 @@ export function ProviderAvailabilityClient({
                 >
                   <div className="min-w-0">
                     <time className="block truncate font-semibold" dateTime={date}>
-                      {formatManilaDate(date)}
+                      {formatPhilippineDate(date)}
                     </time>
                     <span className="text-xs text-muted-foreground">
                       {isPast ? "Past date" : "Unavailable"}
@@ -519,7 +408,7 @@ export function ProviderAvailabilityClient({
                     disabled={isPast || datePending !== null}
                     loading={datePending === date}
                     loadingLabel="Removing"
-                    aria-label={`Make ${formatManilaDate(date)} available`}
+                    aria-label={`Make ${formatPhilippineDate(date)} available`}
                     onClick={() => {
                       void removeUnavailableDate(date);
                     }}
@@ -571,21 +460,29 @@ function AvailabilityCard({
   icon,
   title,
   description,
+  requiredMark = false,
   children,
 }: {
   icon: React.ReactNode;
   title: string;
   description: string;
+  requiredMark?: boolean;
   children: React.ReactNode;
 }) {
-  const id = `availability-${title.toLowerCase().replaceAll(" ", "-")}`;
+  const id = `availability-${title.toLowerCase().replaceAll(/[^a-z0-9]+/gu, "-").replaceAll(/^-|-$/gu, "")}`;
 
   return (
     <section
       className="grid min-w-0 gap-5 rounded-card border border-border bg-card p-5 shadow-card sm:p-6"
       aria-labelledby={id}
     >
-      <CardHeading icon={icon} id={id} title={title} description={description} />
+      <CardHeading
+        icon={icon}
+        id={id}
+        title={title}
+        description={description}
+        requiredMark={requiredMark}
+      />
       {children}
     </section>
   );
@@ -596,11 +493,13 @@ function CardHeading({
   id,
   title,
   description,
+  requiredMark = false,
 }: {
   icon: React.ReactNode;
   id: string;
   title: string;
   description: string;
+  requiredMark?: boolean;
 }) {
   return (
     <div className="flex min-w-0 items-start gap-3">
@@ -613,6 +512,9 @@ function CardHeading({
       <div className="min-w-0">
         <h2 id={id} className="text-lg font-bold tracking-tight">
           {title}
+          {requiredMark ? (
+            <span aria-hidden="true" className="ml-1 text-destructive">*</span>
+          ) : null}
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">{description}</p>
       </div>
@@ -626,7 +528,6 @@ function CapacityInput({
   value,
   minimum,
   disabled,
-  icon,
   onChange,
 }: {
   id: string;
@@ -634,32 +535,20 @@ function CapacityInput({
   value: string;
   minimum: number;
   disabled: boolean;
-  icon?: React.ReactNode;
   onChange: (value: string) => void;
 }) {
   return (
     <FormField id={id} label={label}>
-      <div className="relative">
-        {icon ? (
-          <span
-            className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
-            aria-hidden="true"
-          >
-            {icon}
-          </span>
-        ) : null}
-        <Input
-          type="number"
-          inputMode="numeric"
-          min={minimum}
-          max={100_000}
-          step={1}
-          value={value}
-          disabled={disabled}
-          onChange={(event) => onChange(event.currentTarget.value)}
-          className={icon ? "pl-11" : undefined}
-        />
-      </div>
+      <Input
+        type="number"
+        inputMode="numeric"
+        min={minimum}
+        max={100_000}
+        step={1}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      />
     </FormField>
   );
 }
@@ -670,12 +559,8 @@ function formFromSettings(
   return {
     operatingDays: [...settings.operatingDays],
     bookingLeadTimeDays: String(settings.bookingLeadTimeDays),
-    acceptsMultipleEventsPerDay: settings.acceptsMultipleEventsPerDay,
-    maxEventsPerDay: String(settings.maxEventsPerDay),
     minGuestsPerEvent: String(settings.guestCapacity?.minimum ?? 0),
     maxGuestsPerEvent: String(settings.guestCapacity?.maximum ?? 0),
-    availableStaffCount: String(settings.availableStaffCount ?? 0),
-    availableEquipmentCount: String(settings.availableEquipmentCount ?? 0),
   };
 }
 
@@ -685,12 +570,8 @@ function formFromMutation(
   return {
     operatingDays: [...settings.operatingDays],
     bookingLeadTimeDays: String(settings.bookingLeadTimeDays),
-    acceptsMultipleEventsPerDay: settings.acceptsMultipleEventsPerDay,
-    maxEventsPerDay: String(settings.maxEventsPerDay),
     minGuestsPerEvent: String(settings.minGuestsPerEvent),
     maxGuestsPerEvent: String(settings.maxGuestsPerEvent),
-    availableStaffCount: String(settings.availableStaffCount),
-    availableEquipmentCount: String(settings.availableEquipmentCount),
   };
 }
 
@@ -702,15 +583,16 @@ function settingsInput(
     throw new Error("Select at least one operating day.");
   }
 
+  if (form.bookingLeadTimeDays.trim() === "") {
+    throw new Error("Enter your minimum booking notice.");
+  }
+
   const bookingLeadTimeDays = boundedInteger(
     form.bookingLeadTimeDays,
-    "Booking lead time",
+    "Minimum booking notice",
     0,
     365,
   );
-  const maxEventsPerDay = form.acceptsMultipleEventsPerDay
-    ? boundedInteger(form.maxEventsPerDay, "Maximum events per day", 1, 100)
-    : 1;
   const capabilities = settings.capacityCapabilities;
   const minGuestsPerEvent = capabilities.requiresGuestCapacity
     ? boundedInteger(form.minGuestsPerEvent, "Minimum guests", 1, 100_000)
@@ -726,16 +608,12 @@ function settingsInput(
   return {
     operatingDays: form.operatingDays,
     bookingLeadTimeDays,
-    acceptsMultipleEventsPerDay: form.acceptsMultipleEventsPerDay,
-    maxEventsPerDay,
+    acceptsMultipleEventsPerDay: false,
+    maxEventsPerDay: 1,
     minGuestsPerEvent,
     maxGuestsPerEvent,
-    availableStaffCount: capabilities.usesStaffCapacity
-      ? boundedInteger(form.availableStaffCount, "Available staff", 0, 100_000)
-      : 0,
-    availableEquipmentCount: capabilities.usesEquipmentCapacity
-      ? boundedInteger(form.availableEquipmentCount, "Available equipment", 0, 100_000)
-      : 0,
+    availableStaffCount: settings.availableStaffCount ?? 0,
+    availableEquipmentCount: settings.availableEquipmentCount ?? 0,
   };
 }
 
@@ -770,13 +648,6 @@ function todayInManila(): string {
     parts.find((item) => item.type === type)?.value;
 
   return `${part("year")}-${part("month")}-${part("day")}`;
-}
-
-function formatManilaDate(value: string): string {
-  return new Intl.DateTimeFormat("en-PH", {
-    dateStyle: "long",
-    timeZone: "Asia/Manila",
-  }).format(new Date(`${value}T00:00:00+08:00`));
 }
 
 function safeErrorMessage(error: unknown, fallback: string): string {

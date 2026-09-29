@@ -85,14 +85,14 @@ const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const dailyLabelFormatter =
-  new Intl.DateTimeFormat("en-US", {
+  new Intl.DateTimeFormat("en-PH", {
     month: "short",
     day: "numeric",
     timeZone: "Asia/Manila",
   });
 
 const monthlyLabelFormatter =
-  new Intl.DateTimeFormat("en-US", {
+  new Intl.DateTimeFormat("en-PH", {
     month: "short",
     year: "2-digit",
     timeZone: "Asia/Manila",

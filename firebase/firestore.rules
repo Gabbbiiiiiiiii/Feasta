@@ -802,6 +802,25 @@ service cloud.firestore {
     }
 
     // ============================================================
+    // Dynamic document catalog
+    // ============================================================
+
+    match /documentCategories/{categoryCode} {
+      allow read: if isActiveSignedInUser();
+      allow create, update, delete: if false;
+    }
+
+    match /agreementTemplates/{templateCode} {
+      allow read: if isActiveSignedInUser();
+      allow create, update, delete: if false;
+    }
+
+    match /businessDocumentTypes/{documentCode} {
+      allow read: if isActiveSignedInUser();
+      allow create, update, delete: if false;
+    }
+
+    // ============================================================
     // Provider-owned catalog
     // ============================================================
 

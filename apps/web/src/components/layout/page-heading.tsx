@@ -14,7 +14,7 @@ function PageHeading({title, description, eyebrow, actions, className}: PageHead
   return (
     <header className={cn("flex min-w-0 flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-end sm:justify-between", className)}>
       <div className="min-w-0">
-        {eyebrow ? <p className="mb-2 text-sm font-bold uppercase tracking-widest text-primary-strong">{eyebrow}</p> : null}
+        {eyebrow ? <p className="mb-2 font-serif text-sm font-semibold uppercase tracking-[0.16em] text-primary-strong">{eyebrow}</p> : null}
         <h1 className="break-words text-3xl font-black tracking-tight sm:text-4xl">{title}</h1>
         {description ? <p className="mt-2 max-w-3xl break-words text-base text-muted-foreground">{description}</p> : null}
       </div>
