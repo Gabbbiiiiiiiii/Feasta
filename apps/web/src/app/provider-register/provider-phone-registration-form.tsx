@@ -588,7 +588,7 @@ export function ProviderPhoneRegistrationForm() {
                 onChange={(event) => setAcceptedTerms(event.target.checked)}
                 className="mt-1 size-5 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
-              <span>I accept the <Link href="/terms" className="font-semibold text-primary-strong underline">Terms</Link>.</span>
+              <span>I accept the <Link href="/terms" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary-strong underline">Terms</Link>.</span>
             </label>
             {accountErrors.acceptedTerms ? (
               <p id="provider-terms-error" role="alert" className="text-sm font-semibold text-destructive">
@@ -605,7 +605,7 @@ export function ProviderPhoneRegistrationForm() {
                 onChange={(event) => setAcceptedPrivacy(event.target.checked)}
                 className="mt-1 size-5 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
-              <span>I accept the <Link href="/privacy" className="font-semibold text-primary-strong underline">Privacy Policy</Link>.</span>
+              <span>I accept the <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary-strong underline">Privacy Policy</Link>.</span>
             </label>
             {accountErrors.acceptedPrivacy ? (
               <p id="provider-privacy-error" role="alert" className="text-sm font-semibold text-destructive">

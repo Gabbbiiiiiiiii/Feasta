@@ -107,10 +107,10 @@ export default async function ProviderAgreementPage() {
                 subject to the platform-wide Terms of Service and Privacy Policy.
               </p>
               <div className="mt-4 flex flex-wrap gap-4 text-sm font-semibold">
-                <Link href="/terms" className="text-primary hover:underline">
+                <Link href="/terms" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                   Terms of Service
                 </Link>
-                <Link href="/privacy" className="text-primary hover:underline">
+                <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                   Privacy Policy
                 </Link>
               </div>

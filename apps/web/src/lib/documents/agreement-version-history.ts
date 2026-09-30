@@ -1,8 +1,60 @@
+import {withLegacyVersionSummary} from "../../../../../functions/src/shared/agreement-summary";
+import {agreementSectionsToText, parseAgreementText} from "../../../../../functions/src/shared/agreement-text";
+import {
+  agreementVersionChoiceError,
+  isRealCalendarDate,
+  suggestNextAgreementVersion,
+} from "../../../../../functions/src/shared/agreement-version-order";
+
 import type {
   AgreementSection,
   AgreementVersionRecord,
   AgreementVersionStatus,
 } from "@/lib/admin/file-maintenance/admin-document-catalog-types";
+
+export {
+  agreementVersionChoiceError,
+  isRealCalendarDate,
+  parseAgreementText,
+  suggestNextAgreementVersion,
+};
+
+export function normalizeAgreementName(value: string): string {
+  return value.trim().replace(/\s+/gu, " ");
+}
+
+export function agreementDraftFieldErrors(input: {
+  name: string;
+  summary: string;
+  version: string;
+  effectiveDate: string;
+  body: string;
+  versions?: readonly {version: string; status?: string}[];
+  ignoringVersion?: string;
+  lockLegalContent?: boolean;
+}): Partial<Record<"name" | "summary" | "version" | "effectiveDate" | "body", string>> {
+  const errors: Partial<Record<"name" | "summary" | "version" | "effectiveDate" | "body", string>> = {};
+  const name = normalizeAgreementName(input.name);
+  if (!name) errors.name = "Agreement name is required.";
+  else if (name.length < 2 || name.length > 120) {
+    errors.name = "Enter an agreement name between 2 and 120 characters.";
+  }
+  if (input.summary.trim().length > 500) {
+    errors.summary = "Summary must be 500 characters or fewer.";
+  }
+  if (input.lockLegalContent) return errors;
+  const version = normalizeAgreementVersionLabel(input.version);
+  if (!version || version.length > 40) errors.version = "Enter a valid version.";
+  else if (input.versions) {
+    const choice = agreementVersionChoiceError(version, input.versions, input.ignoringVersion);
+    if (choice) errors.version = choice;
+  }
+  if (!isRealCalendarDate(input.effectiveDate.trim())) {
+    errors.effectiveDate = "Enter a valid effective date.";
+  }
+  if (!input.body.trim()) errors.body = "Agreement text is required.";
+  return errors;
+}
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/u;
 
@@ -11,32 +63,11 @@ export function normalizeAgreementVersionLabel(value: string): string {
 }
 
 export function sectionsToBody(sections: readonly AgreementSection[]): string {
-  return sections
-    .map((section) => `# ${section.title}\n\n${section.paragraphs.join("\n\n")}`)
-    .join("\n\n");
+  return agreementSectionsToText(sections);
 }
 
 export function bodyToSections(body: string): AgreementSection[] {
-  const trimmed = body.trim();
-  if (!trimmed.startsWith("# ")) {
-    throw new Error("Start each section with a heading line that begins with #.");
-  }
-  return trimmed.split(/\n(?=# )/u).map((block) => {
-    const [heading = "", ...rest] = block.split("\n");
-    const title = heading.replace(/^#\s+/u, "").trim();
-    const paragraphs = rest
-      .join("\n")
-      .split(/\n\s*\n/u)
-      .map((paragraph) => paragraph.trim())
-      .filter(Boolean);
-    if (title.length < 2 || title.length > 160) {
-      throw new Error("Each section heading must be between 2 and 160 characters.");
-    }
-    if (paragraphs.length < 1 || paragraphs.some((paragraph) => paragraph.length > 2000)) {
-      throw new Error(`Add paragraphs under "${title}" that are 2000 characters or fewer.`);
-    }
-    return {title, paragraphs};
-  });
+  return parseAgreementText(body).sections;
 }
 
 export function agreementVersionsFromRecord(
@@ -46,7 +77,7 @@ export function agreementVersionsFromRecord(
     return {
       explicit: true,
       versions: data.versions.flatMap((entry) => {
-        const parsed = parseVersion(entry);
+        const parsed = parseVersion(withLegacyVersionSummary(entry, data));
         return parsed ? [parsed] : [];
       }),
     };
@@ -56,6 +87,7 @@ export function agreementVersionsFromRecord(
 
 export function currentPublishedVersion(agreement: {
   name: string;
+  summary?: string;
   version: string;
   effectiveDate: string;
   sections: AgreementSection[];
@@ -64,22 +96,50 @@ export function currentPublishedVersion(agreement: {
   const versions = agreement.versions ?? [];
   const current = versions.filter((entry) => entry.status === "current");
   if (current.length === 1) return current[0];
-  if (versions.length > 0) return null;
+  if (agreement.versions !== undefined) return null;
   return legacyCurrent(agreement);
 }
 
 export function displayAgreementVersions(agreement: {
   name: string;
+  summary?: string;
   version: string;
   effectiveDate: string;
   sections: AgreementSection[];
   versions?: AgreementVersionRecord[];
 }): AgreementVersionRecord[] {
-  if (agreement.versions && agreement.versions.length > 0) {
+  if (agreement.versions !== undefined) {
     return [...agreement.versions].sort(byNewest);
   }
   const current = legacyCurrent(agreement);
   return current ? [current] : [];
+}
+
+export function agreementPublication(agreement: {
+  name: string;
+  summary?: string;
+  version: string;
+  effectiveDate: string;
+  sections: AgreementSection[];
+  versions?: AgreementVersionRecord[];
+}): {label: "Current" | "Draft" | "Archived" | "Not published"; version: string} {
+  const versions = agreement.versions ?? [];
+  const current = versions.filter((entry) => entry.status === "current");
+  if (current.length === 1) {
+    return {label: "Current", version: current[0].version};
+  }
+  if (versions.length === 0) {
+    const legacy = currentPublishedVersion(agreement);
+    return legacy
+      ? {label: "Current", version: legacy.version}
+      : {label: "Not published", version: ""};
+  }
+  const draft = versions.find((entry) => entry.status === "draft");
+  if (current.length === 0 && draft) return {label: "Draft", version: draft.version};
+  if (versions.every((entry) => entry.status === "archived")) {
+    return {label: "Archived", version: versions[0]?.version ?? ""};
+  }
+  return {label: "Not published", version: ""};
 }
 
 export function versionStatusLabel(status: AgreementVersionStatus): string {
@@ -104,6 +164,7 @@ function legacyVersions(data: Record<string, unknown>): AgreementVersionRecord[]
     [];
   const current = legacyCurrent({
     name,
+    summary: typeof data.summary === "string" ? data.summary.trim() : "",
     version: typeof data.version === "string" ? data.version : "",
     effectiveDate: typeof data.effectiveDate === "string" ? data.effectiveDate : "",
     sections: parseSections(data.sections) ?? [],
@@ -113,6 +174,7 @@ function legacyVersions(data: Record<string, unknown>): AgreementVersionRecord[]
 
 function legacyCurrent(agreement: {
   name: string;
+  summary?: string;
   version: string;
   effectiveDate: string;
   sections: AgreementSection[];
@@ -129,6 +191,7 @@ function legacyCurrent(agreement: {
   return {
     version,
     name: agreement.name.trim(),
+    ...(agreement.summary !== undefined ? {summary: agreement.summary} : {}),
     effectiveDate: agreement.effectiveDate,
     sections: agreement.sections.map((section) => ({
       title: section.title,
@@ -156,6 +219,7 @@ function parseLegacyArchived(
   return {
     version,
     name,
+    ...(typeof value.summary === "string" ? {summary: value.summary.trim()} : {}),
     effectiveDate,
     sections,
     status: "archived",
@@ -181,6 +245,7 @@ function parseVersion(value: unknown): AgreementVersionRecord | null {
   return {
     version,
     name,
+    ...(typeof value.summary === "string" ? {summary: value.summary.trim()} : {}),
     effectiveDate: value.effectiveDate,
     sections,
     status: value.status,

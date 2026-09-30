@@ -4,6 +4,8 @@ const {createRequire} = require("node:module");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const {parseAgreementText} = require("../lib/shared/agreement-text.js");
+const {initialAgreementTypes} = require("../lib/shared/agreement-types.js");
 
 const {
   parseActiveOnboardingAgreement,
@@ -13,13 +15,14 @@ const {
 
 function catalogHarness(initial = {}) {
   const records = structuredClone({
+    ...Object.fromEntries(initialAgreementTypes().map((type) => [`agreementTypes/${type.code}`, type])),
     "documentCategories/agreements": {status: "active"},
     ...initial,
   });
   const writes = [];
   const transaction = {
     get: async (ref) => ref.id ? {
-      exists: Boolean(records[ref.path]), data: () => records[ref.path],
+      id: ref.id, exists: Boolean(records[ref.path]), data: () => records[ref.path],
     } : {
       docs: Object.entries(records)
         .filter(([key]) => key.startsWith(`${ref.path}/`))
@@ -85,6 +88,7 @@ function agreementDocument(versions) {
     version: current.version,
     effectiveDate: current.effectiveDate,
     sections: current.sections,
+    agreementTypeCode: "provider_agreement",
     useForProviderOnboarding: true,
     status: "active",
     sortName: "feasta provider agreement",
@@ -104,6 +108,86 @@ function publishedError(error) {
   );
   return true;
 }
+
+for (const editingDraft of [false, true]) {
+  test(`canonical text is stored when ${editingDraft ? "editing" : "creating"} a draft`, async () => {
+    const publish = false;
+      const archived = version("0.9", "archived", "Historical  spacing.\nOriginal line.", "2026-09-01");
+      const current = version("1.0", "current", "Original 1.0 sentence.", "2026-09-29");
+      const draft = version("1.1", "draft", "Draft only.", "2026-10-01");
+      const acceptance = {providerAgreementSnapshot: {version: "1.0", sections: current.sections}};
+      const harness = catalogHarness({
+        [agreementPath]: agreementDocument(editingDraft ? [archived, current, draft] : [archived, current]),
+        "providerVerifications/provider": acceptance,
+      });
+      const text = "1. PAYMENT\r\nThe Provider shall pay PHP 10,000. ".concat("One event per day. ".repeat(160));
+      const {sections} = parseAgreementText(text);
+      const handler = editingDraft ? harness.handlers.updateAgreementVersion : harness.handlers.createAgreementVersion;
+      await handler({data: {
+        code: "feasta_provider_agreement", version: "1.1", effectiveDate: "2026-10-01", sections, publish,
+        ...(editingDraft ? {draftVersion: "1.1"} : {sourceVersion: "1.0"}),
+      }});
+      const saved = harness.records[agreementPath];
+      const next = saved.versions.find((entry) => entry.version === "1.1");
+      assert.deepEqual(next.sections, sections);
+      assert.equal(next.status, publish ? "current" : "draft");
+      assert.equal(saved.version, publish ? "1.1" : "1.0");
+      assert.equal(saved.versions.filter((entry) => entry.status === "current").length, 1);
+      assert.deepEqual(saved.versions[0], archived);
+      assert.deepEqual(saved.versions[1].sections, current.sections);
+      assert.equal(saved.versions[1].status, publish ? "archived" : "current");
+      assert.deepEqual(harness.records["providerVerifications/provider"], acceptance);
+      assert.deepEqual(harness.writes, [agreementPath]);
+    });
+
+  test(`saving cannot publish while ${editingDraft ? "editing" : "creating"} a draft`, async () => {
+    const current = version("1.0", "current", "Original 1.0 sentence.", "2026-09-29");
+    const draft = version("1.1", "draft", "Draft only.", "2026-10-01");
+    const harness = catalogHarness({
+      [agreementPath]: agreementDocument(editingDraft ? [current, draft] : [current]),
+    });
+    const handler = editingDraft ? harness.handlers.updateAgreementVersion : harness.handlers.createAgreementVersion;
+    await assert.rejects(handler({data: {
+      code: "feasta_provider_agreement",
+      version: "1.1",
+      effectiveDate: "2026-10-01",
+      sections: section("Published from save."),
+      publish: true,
+      ...(editingDraft ? {draftVersion: "1.1"} : {sourceVersion: "1.0"}),
+    }}), (error) => {
+      assert.equal(error.code, "failed-precondition");
+      assert.match(error.message, /cannot publish/);
+      return true;
+    });
+    const saved = harness.records[agreementPath];
+    assert.equal(saved.version, "1.0");
+    assert.equal(saved.versions.find((entry) => entry.status === "current").version, "1.0");
+    assert.equal(saved.versions.some((entry) => entry.version === "1.1" && entry.status === "current"), false);
+    assert.deepEqual(harness.writes, []);
+  });
+}
+
+test("callables reject malformed canonical sections without writing", async () => {
+  for (const sections of [
+    [], [{title: "Terms", paragraphs: [null]}],
+    [{title: "Terms", paragraphs: ["X".repeat(2001)]}],
+    [{title: "Terms", paragraphs: Array(13).fill("Term.")}],
+    Array.from({length: 41}, () => ({title: "Terms", paragraphs: ["Term."]})),
+  ]) {
+    const harness = catalogHarness({[agreementPath]: agreementDocument([
+      version("1.0", "current", "Original 1.0 sentence.", "2026-09-29"),
+    ])});
+    await assert.rejects(harness.handlers.createAgreementVersion({data: {
+      code: "feasta_provider_agreement", sourceVersion: "1.0", version: "1.1",
+      effectiveDate: "2026-10-01", sections,
+    }}), (error) => {
+      assert.equal(error.code, "invalid-argument");
+      assert.equal(error.details.userMessage, error.message);
+      return true;
+    });
+    assert.deepEqual(harness.writes, []);
+  }
+});
 
 test("a draft can change its text and effective date without a new version label", async () => {
   const versions = [
@@ -151,7 +235,7 @@ test("published text and effective date cannot be changed in place", async () =>
           version: "1.0",
           effectiveDate: patch.effectiveDate ?? original.effectiveDate,
           sections: patch.sections ?? original.sections,
-          useForProviderOnboarding: true,
+          agreementTypeCode: "provider_agreement",
           versions: [version("1.0", "current", "Forged history.", "1999-01-01")],
         },
       }),
@@ -270,6 +354,7 @@ test("publishing a new version archives the previous current version", async () 
   const visible = parseActiveOnboardingAgreement(
     "feasta_provider_agreement",
     saved,
+    "provider_agreement",
   );
   assert.equal(visible.version, "1.1");
   assert.equal(visible.sections[0].paragraphs[0], "Current 1.1 sentence.");
@@ -312,6 +397,7 @@ test("an accepted 1.0 snapshot stays intact after 1.1 becomes current", async ()
   const visible = parseActiveOnboardingAgreement(
     "feasta_provider_agreement",
     harness.records[agreementPath],
+    "provider_agreement",
   );
   assert.equal(visible.version, "1.1");
   const stale = resolveProviderAgreementAcceptance({
@@ -338,7 +424,8 @@ test("an accepted 1.0 snapshot stays intact after 1.1 becomes current", async ()
 test("providers read the current version and never a draft", () => {
   const parsed = parseActiveOnboardingAgreement("feasta_provider_agreement", {
     status: "active",
-    useForProviderOnboarding: true,
+    useForProviderOnboarding: false,
+    agreementTypeCode: "provider_agreement",
     name: "FEASTA Provider Agreement",
     version: "1.2",
     effectiveDate: "2026-12-01",
@@ -348,18 +435,30 @@ test("providers read the current version and never a draft", () => {
       version("1.1", "current", "Current 1.1 sentence.", "2026-11-01"),
       version("1.2", "draft", "Draft only text.", "2026-12-01"),
     ],
-  });
+  }, "provider_agreement");
   assert.equal(parsed.version, "1.1");
   assert.equal(parsed.sections[0].paragraphs[0], "Current 1.1 sentence.");
   assert.equal(
     parseActiveOnboardingAgreement("feasta_provider_agreement", {
       status: "active",
-      useForProviderOnboarding: false,
+      useForProviderOnboarding: true,
+      agreementTypeCode: "custom_agreement",
+      name: "Provider Agreement",
+      version: "1.1",
+      effectiveDate: "2026-11-01",
+      sections: section("Current 1.1 sentence."),
+    }, "provider_agreement"),
+    null,
+  );
+  assert.equal(
+    parseActiveOnboardingAgreement("feasta_provider_agreement", {
+      status: "active",
+      useForProviderOnboarding: true,
       name: "FEASTA Provider Agreement",
       version: "1.1",
       effectiveDate: "2026-11-01",
       sections: section("Current 1.1 sentence."),
-    }),
+    }, "provider_agreement"),
     null,
   );
 });
@@ -376,11 +475,11 @@ test("a metadata change does not rewrite published version text", async () => {
     data: {
       code: "feasta_provider_agreement",
       name: "Renamed agreement",
-      summary: "Updated summary",
+      summary: "Provider terms",
       version: "1.1",
       effectiveDate: "2026-11-01",
       sections: section("Current 1.1 sentence."),
-      useForProviderOnboarding: true,
+      agreementTypeCode: "provider_agreement",
     },
   });
   const saved = harness.records[agreementPath];

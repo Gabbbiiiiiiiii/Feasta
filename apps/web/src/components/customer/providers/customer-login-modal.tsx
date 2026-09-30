@@ -384,6 +384,8 @@ function AuthenticationAgreement() {
       <Link
         className="font-semibold text-primary-strong underline underline-offset-2"
         href="/terms"
+        target="_blank"
+        rel="noopener noreferrer"
       >
         Terms
       </Link>{" "}
@@ -391,6 +393,8 @@ function AuthenticationAgreement() {
       <Link
         className="font-semibold text-primary-strong underline underline-offset-2"
         href="/privacy"
+        target="_blank"
+        rel="noopener noreferrer"
       >
         Privacy Policy
       </Link>

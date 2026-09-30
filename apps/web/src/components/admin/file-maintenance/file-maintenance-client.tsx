@@ -12,6 +12,7 @@ import {Button} from "@/components/ui/button";
 import type {
   AdminAgreementTemplate,
   AdminBusinessDocumentType,
+  AgreementTypeRecord,
 } from "@/lib/admin/file-maintenance/admin-document-catalog-types";
 import type {AdminServiceCategory} from "@/lib/admin/file-maintenance/admin-service-category-types";
 
@@ -26,10 +27,12 @@ type SectionId = (typeof SECTIONS)[number]["id"];
 export function FileMaintenanceClient({
   initialCategories,
   initialAgreements,
+  initialAgreementTypes = [],
   initialBusinessDocuments,
 }: {
   initialCategories: AdminServiceCategory[];
   initialAgreements: AdminAgreementTemplate[];
+  initialAgreementTypes?: AgreementTypeRecord[];
   initialBusinessDocuments: AdminBusinessDocumentType[];
 }) {
   const [section, setSection] =
@@ -85,6 +88,7 @@ export function FileMaintenanceClient({
         {section === "agreements" ? (
           <AgreementTemplateManagement
             initialAgreements={initialAgreements}
+            agreementTypes={initialAgreementTypes}
           />
         ) : null}
         {section === "business-documents" ? (

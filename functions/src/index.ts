@@ -186,6 +186,7 @@ export {
   reactivateAgreementTemplate,
   reactivateBusinessDocumentType,
   updateAgreementTemplate,
+  updateAgreementType,
   updateAgreementVersion,
   updateBusinessDocumentType,
 } from "./admin/document-catalog-management.js";
@@ -1073,3 +1074,4 @@ function normalizeNotificationText(
 export {
   reconcileRemainingBalanceLifecycle,
 } from "./payments/remaining-balance-lifecycle-scheduler.js";
+export {getCurrentLegalAgreement} from "./documents/current-legal-agreement.js";

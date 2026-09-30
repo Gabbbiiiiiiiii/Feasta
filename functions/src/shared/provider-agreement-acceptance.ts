@@ -2,6 +2,10 @@ import {
   agreementVersionsFromDocument,
   currentAgreementVersion,
 } from "./agreement-versions.js";
+import {
+  providerOnboardingType,
+  type AgreementTypeRecord,
+} from "./agreement-types.js";
 import {isDocumentCode} from "./document-catalog-policy.js";
 
 export type ProviderAgreementSection = {
@@ -43,12 +47,30 @@ export type AgreementAcceptanceDecision =
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/u;
 
+export function selectProviderOnboardingAgreement(
+  agreements: readonly {id: string; data: Record<string, unknown>}[],
+  types: readonly AgreementTypeRecord[],
+): ProviderAgreementSource | null {
+  const providerType = providerOnboardingType(types);
+  if (!providerType) return null;
+  const matches = agreements.flatMap((agreement) => {
+    const parsed = parseActiveOnboardingAgreement(
+      agreement.id,
+      agreement.data,
+      providerType.code,
+    );
+    return parsed ? [parsed] : [];
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
 export function parseActiveOnboardingAgreement(
   id: string,
   data: Record<string, unknown>,
+  providerTypeCode: string,
 ): ProviderAgreementSource | null {
-  if (!isDocumentCode(id)) return null;
-  if (data.status !== "active" || data.useForProviderOnboarding !== true) {
+  if (!isDocumentCode(id) || !isDocumentCode(providerTypeCode)) return null;
+  if (data.status !== "active" || data.agreementTypeCode !== providerTypeCode) {
     return null;
   }
   const stored = agreementVersionsFromDocument(data);

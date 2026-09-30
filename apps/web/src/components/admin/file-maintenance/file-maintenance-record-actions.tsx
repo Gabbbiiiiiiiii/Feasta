@@ -2,6 +2,9 @@
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
+  Download,
+  Eye,
+  History,
   MoreHorizontal,
   Pencil,
   Power,
@@ -16,18 +19,48 @@ export type FileMaintenanceLifecycleAction =
   | "reactivate"
   | "delete";
 
+export type FileMaintenanceOverflowAction = {
+  label: string;
+  icon: "view" | "history" | "download" | "delete";
+  href?: string;
+  onSelect?: () => void;
+};
+
 type FileMaintenanceRecordActionsProps = {
-  status: "active" | "discontinued";
+  status?: "active" | "discontinued";
   disabled?: boolean;
+  showEdit?: boolean;
+  menuLabel?: string;
+  triggerSize?: "compact" | "icon";
+  overflowActions?: readonly FileMaintenanceOverflowAction[];
   onEdit: () => void;
-  onAction: (
+  onAction?: (
     action: FileMaintenanceLifecycleAction,
   ) => void;
 };
 
+const menuItemClassName = `
+  flex cursor-pointer select-none items-center
+  gap-2 rounded-md px-3 py-2 text-sm
+  outline-none
+  hover:bg-muted
+  focus:bg-muted
+`;
+
+const overflowIcons = {
+  view: Eye,
+  history: History,
+  download: Download,
+  delete: Trash2,
+} as const;
+
 export function FileMaintenanceRecordActions({
   status,
   disabled = false,
+  showEdit = true,
+  menuLabel = "More actions",
+  triggerSize = "compact",
+  overflowActions = [],
   onEdit,
   onAction,
 }: FileMaintenanceRecordActionsProps) {
@@ -35,35 +68,37 @@ export function FileMaintenanceRecordActions({
     action: FileMaintenanceLifecycleAction,
   ) => {
     window.setTimeout(() => {
-      onAction(action);
+      onAction?.(action);
     }, 0);
   };
 
   return (
     <div className="flex items-center justify-end gap-2">
-      <Button
-        type="button"
-        variant="secondary"
-        size="compact"
-        disabled={disabled}
-        onClick={onEdit}
-      >
-        <Pencil
-          aria-hidden="true"
-          className="size-4"
-        />
-        Edit
-      </Button>
+      {showEdit ? (
+        <Button
+          type="button"
+          variant="secondary"
+          size="compact"
+          disabled={disabled}
+          onClick={onEdit}
+        >
+          <Pencil
+            aria-hidden="true"
+            className="size-4"
+          />
+          Edit
+        </Button>
+      ) : null}
 
       <DropdownMenu.Root modal={false}>
         <DropdownMenu.Trigger asChild>
           <Button
             type="button"
             variant="secondary"
-            size="compact"
+            size={triggerSize}
             disabled={disabled}
-            aria-label="More actions"
-            title="More actions"
+            aria-label={menuLabel}
+            title={menuLabel}
           >
             <MoreHorizontal
               aria-hidden="true"
@@ -85,15 +120,48 @@ export function FileMaintenanceRecordActions({
               shadow-lg
             "
           >
-            {status === "active" ? (
+            {overflowActions.map((action) => {
+              const Icon = overflowIcons[action.icon];
+              const icon = (
+                <Icon
+                  aria-hidden="true"
+                  className="size-4"
+                />
+              );
+              if (action.href) {
+                return (
+                  <DropdownMenu.Item
+                    key={action.label}
+                    asChild
+                  >
+                    <a
+                      href={action.href}
+                      className={menuItemClassName}
+                    >
+                      {icon}
+                      {action.label}
+                    </a>
+                  </DropdownMenu.Item>
+                );
+              }
+              return (
+                <DropdownMenu.Item
+                  key={action.label}
+                  className={menuItemClassName}
+                  onSelect={() => {
+                    window.setTimeout(() => {
+                      action.onSelect?.();
+                    }, 0);
+                  }}
+                >
+                  {icon}
+                  {action.label}
+                </DropdownMenu.Item>
+              );
+            })}
+            {status === undefined ? null : status === "active" ? (
               <DropdownMenu.Item
-                className="
-                  flex cursor-pointer select-none items-center
-                  gap-2 rounded-md px-3 py-2 text-sm
-                  outline-none
-                  hover:bg-muted
-                  focus:bg-muted
-                "
+                className={menuItemClassName}
                 onSelect={() =>
                   handleAction("discontinue")
                 }
@@ -107,13 +175,7 @@ export function FileMaintenanceRecordActions({
             ) : (
               <>
                 <DropdownMenu.Item
-                  className="
-                    flex cursor-pointer select-none items-center
-                    gap-2 rounded-md px-3 py-2 text-sm
-                    outline-none
-                    hover:bg-muted
-                    focus:bg-muted
-                  "
+                  className={menuItemClassName}
                   onSelect={() =>
                     handleAction("reactivate")
                   }

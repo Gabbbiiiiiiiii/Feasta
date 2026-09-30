@@ -815,6 +815,11 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    match /agreementTypes/{typeCode} {
+      allow read: if isActiveSignedInUser();
+      allow create, update, delete: if false;
+    }
+
     match /businessDocumentTypes/{documentCode} {
       allow read: if isActiveSignedInUser();
       allow create, update, delete: if false;

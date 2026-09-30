@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/theme/app_breakpoints.dart';
 import '../../../core/theme/app_colors.dart';
@@ -17,6 +16,7 @@ import '../../authentication/domain/customer_registration.dart';
 import '../widgets/feasta_google_auth_button.dart';
 import 'email_verification_screen.dart';
 import 'login_screen.dart';
+import 'legal_document_screen.dart';
 
 class CustomerRegisterScreen extends StatefulWidget {
   const CustomerRegisterScreen({
@@ -42,10 +42,6 @@ class CustomerRegisterScreen extends StatefulWidget {
 }
 
 class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
-  static const _termsUrl = String.fromEnvironment('FEASTA_TERMS_URL');
-
-  static const _privacyUrl = String.fromEnvironment('FEASTA_PRIVACY_URL');
-
   final _firstNameController = TextEditingController();
   final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
@@ -188,32 +184,13 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
     );
   }
 
-  Future<void> _openLegalUrl(String configuredUrl, String label) async {
-    final uri = Uri.tryParse(configuredUrl.trim());
-
-    if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
-      if (!mounted) return;
-
-      FeastaSnackbars.show(
-        context,
-        message:
-            '$label is temporarily unavailable. '
-            'Please try again later.',
-        tone: FeastaSnackbarTone.warning,
-      );
-
-      return;
-    }
-
-    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-
-    if (!launched && mounted) {
-      FeastaSnackbars.show(
-        context,
-        message: 'Unable to open $label.',
-        tone: FeastaSnackbarTone.error,
-      );
-    }
+  void _openLegalDocument(FeastaLegalDocument document) {
+    Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LegalDocumentScreen(document: document),
+      ),
+    );
   }
 
   void _openLogin() {
@@ -428,7 +405,9 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
                     },
                     onOpen:
                         widget.onOpenTerms ??
-                        () => _openLegalUrl(_termsUrl, 'Terms of Service'),
+                        () => _openLegalDocument(
+                          FeastaLegalDocument.termsOfService,
+                        ),
                   ),
 
                   const SizedBox(height: AppSpacing.sm),
@@ -447,7 +426,9 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
                     },
                     onOpen:
                         widget.onOpenPrivacy ??
-                        () => _openLegalUrl(_privacyUrl, 'Privacy Policy'),
+                        () => _openLegalDocument(
+                          FeastaLegalDocument.privacyPolicy,
+                        ),
                   ),
 
                   const SizedBox(height: AppSpacing.xl),

@@ -8,8 +8,16 @@ import type {
   AdminBusinessDocumentRule,
   AdminBusinessDocumentType,
   AgreementSection,
+  AgreementTypeRecord,
   AgreementVersionRecord,
 } from "@/lib/admin/file-maintenance/admin-document-catalog-types";
+import {
+  AGREEMENT_TYPES,
+  initialAgreementTypes,
+  isTrustedAgreementType,
+  parseAgreementType,
+  providerOnboardingType,
+} from "../../../../../functions/src/shared/agreement-types";
 import {
   agreementVersionsFromRecord,
   normalizeAgreementVersionLabel,
@@ -44,7 +52,8 @@ export async function ensureDocumentCatalog(): Promise<void> {
   const data = existing.data() ?? {};
   if (
     data.businessDocumentsSeeded === true &&
-    data.agreementsSeeded === true
+    data.agreementsSeeded === true &&
+    data.agreementTypesSeeded === true
   ) {
     return;
   }
@@ -68,7 +77,13 @@ export async function ensureDocumentCatalog(): Promise<void> {
     const agreementReference = adminDb
       .collection(FIRESTORE_COLLECTIONS.agreementTemplates)
       .doc("feasta_provider_agreement");
-    const [categorySnapshots, documentSnapshots, agreementSnapshot] =
+    const agreementTypeRecords = current.agreementTypesSeeded === true
+      ? []
+      : initialAgreementTypes();
+    const agreementTypeReferences = agreementTypeRecords.map((agreementType) =>
+      adminDb.collection(AGREEMENT_TYPES).doc(agreementType.code),
+    );
+    const [categorySnapshots, documentSnapshots, agreementSnapshot, agreementTypeSnapshots] =
       await Promise.all([
         Promise.all(categoryReferences.map((reference) =>
           transaction.get(reference),
@@ -79,6 +94,9 @@ export async function ensureDocumentCatalog(): Promise<void> {
         current.agreementsSeeded === true
           ? Promise.resolve(null)
           : transaction.get(agreementReference),
+        Promise.all(agreementTypeReferences.map((reference) =>
+          transaction.get(reference),
+        )),
       ]);
 
     categorySnapshots.forEach((snapshot, index) => {
@@ -122,9 +140,21 @@ export async function ensureDocumentCatalog(): Promise<void> {
       });
     }
 
+    agreementTypeSnapshots.forEach((snapshot, index) => {
+      if (snapshot.exists) return;
+      transaction.create(agreementTypeReferences[index], {
+        ...agreementTypeRecords[index],
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        createdBy: "system",
+        updatedBy: "system",
+      });
+    });
+
     transaction.set(settings, {
       businessDocumentsSeeded: true,
       agreementsSeeded: true,
+      agreementTypesSeeded: true,
       isPublic: false,
       updatedAt: FieldValue.serverTimestamp(),
     }, {merge: true});
@@ -149,13 +179,14 @@ function initialProviderAgreement() {
     version: "2026-09-27",
     effectiveDate: "2026-09-27",
     sections,
-    useForProviderOnboarding: true,
+    agreementTypeCode: "provider_agreement",
     status: "active" as const,
     sortName: "feasta provider agreement",
   };
   const versions: AgreementVersionRecord[] = [{
     version: agreement.version,
     name: agreement.name,
+    summary: agreement.summary,
     effectiveDate: agreement.effectiveDate,
     sections,
     status: "current",
@@ -249,12 +280,29 @@ export async function getAdminBusinessDocumentTypes():
   }).sort(byName);
 }
 
+export async function getAdminAgreementTypes():
+  Promise<AgreementTypeRecord[]> {
+  const snapshot = await adminDb.collection(AGREEMENT_TYPES).get();
+  return snapshot.docs.flatMap((document) => {
+    const parsed = parseAgreementType(document.id, document.data());
+    return parsed && isTrustedAgreementType(parsed) ? [parsed] : [];
+  }).sort((left, right) =>
+    left.sortOrder - right.sortOrder || left.name.localeCompare(right.name),
+  );
+}
+
 export async function getProviderOnboardingAgreement():
   Promise<AdminAgreementTemplate | null> {
   await ensureDocumentCatalog();
-  const agreements = await getAdminAgreementTemplates();
+  const [agreements, agreementTypes] = await Promise.all([
+    getAdminAgreementTemplates(),
+    getAdminAgreementTypes(),
+  ]);
+  const providerType = providerOnboardingType(agreementTypes);
+  if (!providerType) return null;
   const matches = agreements.filter((agreement) =>
-    agreement.status === "active" && agreement.useForProviderOnboarding,
+    agreement.status === "active" &&
+    agreement.agreementTypeCode === providerType.code,
   );
   if (matches.length !== 1) return null;
   const agreement = matches[0];
@@ -315,11 +363,14 @@ function parseAgreement(
     code: id,
     categoryCode: data.categoryCode,
     name,
-    summary: typeof data.summary === "string" ? data.summary.trim() : "",
+    summary: legal?.summary ?? (typeof data.summary === "string" ? data.summary.trim() : ""),
     version: legal?.version ?? data.version.trim(),
     effectiveDate: legal?.effectiveDate ?? data.effectiveDate,
     sections: legal?.sections ?? sections,
-    useForProviderOnboarding: data.useForProviderOnboarding === true,
+    agreementTypeCode: typeof data.agreementTypeCode === "string" &&
+      isDocumentCode(data.agreementTypeCode)
+      ? data.agreementTypeCode
+      : null,
     status: data.status,
     sortName: typeof data.sortName === "string" && data.sortName.trim()
       ? data.sortName.trim()

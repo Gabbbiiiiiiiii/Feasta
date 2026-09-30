@@ -7,6 +7,7 @@ export const FIRESTORE_COLLECTIONS = {
   serviceCategories: "serviceCategories",
   documentCategories: "documentCategories",
   agreementTemplates: "agreementTemplates",
+  agreementTypes: "agreementTypes",
   businessDocumentTypes: "businessDocumentTypes",
 
   packages: "packages",

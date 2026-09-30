@@ -38,10 +38,42 @@ async function callCatalogMutation<TInput>(
   }
 }
 
+function catalogDetailMessage(error: FirebaseError): string | null {
+  const details = (error as FirebaseError & {
+    details?: {userMessage?: unknown};
+  }).details;
+  if (typeof details?.userMessage === "string" && details.userMessage.trim()) {
+    return details.userMessage.trim();
+  }
+  return null;
+}
+
+function specificCallableMessage(message: string): string | null {
+  const text = message.trim();
+  if (!text || !text.includes(" ") || text.length < 12) return null;
+  if (/^firebase\b/iu.test(text)) return null;
+  return text;
+}
+
 function catalogErrorMessage(error: unknown, subject: string): string {
   if (error instanceof WebAuthenticationError) return error.message;
   if (error instanceof FirebaseError) {
-    switch (error.code.replace(/^functions\//, "").replace(/^functions:/, "")) {
+    const code = error.code.replace(/^functions\//, "").replace(/^functions:/, "");
+    if (subject === "agreement" || subject === "agreement type") {
+      const detail = catalogDetailMessage(error);
+      if (detail) return detail;
+      if (code === "permission-denied") {
+        return "You do not have permission to perform this action.";
+      }
+      if (code === "already-exists") {
+        return "An agreement with this code already exists.";
+      }
+      const specific = specificCallableMessage(error.message);
+      if (specific && (code === "invalid-argument" || code === "failed-precondition" || code === "not-found")) {
+        return specific;
+      }
+    }
+    switch (code) {
       case "unauthenticated":
         return "Your admin session has expired. Please sign in again.";
       case "permission-denied":
@@ -78,12 +110,22 @@ export function updateAdminAgreementTemplate(input: AgreementInput) {
   return callCatalogMutation("updateAgreementTemplate", input, "agreement");
 }
 
+export function updateAdminAgreementType(input: {
+  code: string;
+  name: string;
+  description: string;
+  isActive: boolean;
+  sortOrder: number;
+}) {
+  return callCatalogMutation("updateAgreementType", input, "agreement type");
+}
+
 export type AgreementVersionInput = {
+  summary?: string;
   code: string;
   version: string;
   effectiveDate: string;
   sections: AgreementInput["sections"];
-  publish?: boolean;
 };
 
 export function createAdminAgreementVersion(
@@ -110,22 +152,6 @@ export function deleteAdminAgreementVersion(input: {
   version: string;
 }) {
   return callCatalogMutation("deleteAgreementVersion", input, "agreement");
-}
-
-export function discontinueAdminAgreementTemplate(code: string) {
-  return callCatalogMutation<DocumentCatalogCodeInput>(
-    "discontinueAgreementTemplate",
-    {code},
-    "agreement",
-  );
-}
-
-export function reactivateAdminAgreementTemplate(code: string) {
-  return callCatalogMutation<DocumentCatalogCodeInput>(
-    "reactivateAgreementTemplate",
-    {code},
-    "agreement",
-  );
 }
 
 export function deleteAdminAgreementTemplate(code: string) {

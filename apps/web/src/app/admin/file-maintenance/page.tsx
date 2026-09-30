@@ -2,6 +2,7 @@
 import {
   ensureDocumentCatalog,
   getAdminAgreementTemplates,
+  getAdminAgreementTypes,
   getAdminBusinessDocumentTypes,
 } from "@/lib/documents/document-catalog-service";
 import {getAdminServiceCategories} from "@/lib/admin/file-maintenance/admin-service-category-service";
@@ -13,10 +14,12 @@ export default async function AdminFileMaintenancePage() {
   const [
     categories,
     agreements,
+    agreementTypes,
     businessDocuments,
   ] = await Promise.all([
     getAdminServiceCategories(),
     getAdminAgreementTemplates(),
+    getAdminAgreementTypes(),
     getAdminBusinessDocumentTypes(),
   ]);
 
@@ -24,6 +27,7 @@ export default async function AdminFileMaintenancePage() {
     <FileMaintenanceClient
       initialCategories={categories}
       initialAgreements={agreements}
+      initialAgreementTypes={agreementTypes}
       initialBusinessDocuments={businessDocuments}
     />
   );

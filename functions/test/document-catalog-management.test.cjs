@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const {initialAgreementTypes} = require("../lib/shared/agreement-types.js");
 const {readFileSync} = require("node:fs");
 const {createRequire} = require("node:module");
 const path = require("node:path");
@@ -9,6 +10,7 @@ const vm = require("node:vm");
 // No credentials, emulator, or live Firestore connection is used.
 function catalogHarness(initial = {}) {
   const records = structuredClone({
+    ...Object.fromEntries(initialAgreementTypes().map((type) => [`agreementTypes/${type.code}`, type])),
     "documentCategories/agreements": {status: "active"},
     "documentCategories/business_documents": {status: "active"},
     "documentCategories/test": {status: "active", name: "test"},
@@ -17,7 +19,7 @@ function catalogHarness(initial = {}) {
   const writes = [];
   const transaction = {
     get: async (ref) => ref.id ? {
-      exists: Boolean(records[ref.path]), data: () => records[ref.path],
+      id: ref.id, exists: Boolean(records[ref.path]), data: () => records[ref.path],
     } : {
       docs: Object.entries(records)
         .filter(([key]) => key.startsWith(`${ref.path}/`))
@@ -57,10 +59,10 @@ function catalogHarness(initial = {}) {
 }
 
 const agreement = {
-  code: "provider_agreement", name: "Provider agreement", summary: "Terms",
+  code: "terms_of_service", name: "Terms of Service", summary: "Terms",
   version: "2", effectiveDate: "2026-09-29",
   sections: [{title: "Responsibilities", paragraphs: ["Deliver the agreed services."]}],
-  useForProviderOnboarding: true,
+  agreementTypeCode: "terms_of_service",
 };
 const businessDocument = {
   code: "permit", name: "Business permit", description: "Current permit",
@@ -114,9 +116,11 @@ for (const [kind, collection, categoryCode, input] of [
         assert.equal(JSON.stringify(Object.entries(harness.records)
           .filter(([key]) => key.startsWith("documentCategories/"))), categoriesBefore);
         if (kind === "AgreementTemplate") {
-          assert.equal(saved.useForProviderOnboarding, true);
-          assert.equal(saved.versions[0].status, "current");
+          assert.equal(saved.agreementTypeCode, "terms_of_service");
+          assert.equal(saved.useForProviderOnboarding, undefined);
+          assert.equal(saved.versions[0].status, "draft");
           assert.equal(saved.versions[0].version, input.version);
+          assert.equal(saved.versions[0].publishedAt, null);
         }
       });
     }

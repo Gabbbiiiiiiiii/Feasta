@@ -1,4 +1,7 @@
+import {withLegacyVersionSummary} from "./agreement-summary.js";
 import {HttpsError} from "firebase-functions/v2/https";
+
+import {agreementVersionChoiceError} from "./agreement-version-order.js";
 
 export const PUBLISHED_AGREEMENT_VERSION_ERROR =
   "This agreement version has already been published. Create a new version to change the agreement text or effective date.";
@@ -14,6 +17,8 @@ export type AgreementVersionSection = {
 };
 
 export type AgreementVersionRecord = {
+  /** Optional only for versions written before summary versioning. */
+  summary?: string;
   version: string;
   name: string;
   effectiveDate: string;
@@ -37,7 +42,7 @@ export function agreementVersionsFromDocument(
     return {
       explicit: true,
       versions: data.versions.flatMap((entry) => {
-        const parsed = parseVersionRecord(entry);
+        const parsed = parseVersionRecord(withLegacyVersionSummary(entry, data));
         return parsed ? [parsed] : [];
       }),
     };
@@ -76,6 +81,7 @@ export function assertPublishedLegalContentUnchanged(
   versions: readonly AgreementVersionRecord[],
   next: {
     version: string;
+    summary?: string;
     effectiveDate: string;
     sections: readonly AgreementVersionSection[];
   },
@@ -91,6 +97,7 @@ export function assertPublishedLegalContentUnchanged(
   if (
     version !== current.version ||
     next.effectiveDate !== current.effectiveDate ||
+    (next.summary !== undefined && next.summary !== (current.summary ?? "")) ||
     !sectionsEqual(current.sections, next.sections)
   ) {
     throw new HttpsError(
@@ -115,6 +122,7 @@ export function appendDraftVersion(input: {
   version: string;
   effectiveDate: string;
   sections: readonly AgreementVersionSection[];
+  summary?: string;
   now: string;
 }): AgreementVersionRecord[] {
   const sourceVersion = normalizeAgreementVersionLabel(input.sourceVersion);
@@ -126,12 +134,13 @@ export function appendDraftVersion(input: {
     );
   }
   const version = normalizeAgreementVersionLabel(input.version);
-  assertVersionAvailable(input.versions, version);
+  assertVersionProgression(input.versions, version);
   return [
     ...input.versions.map(cloneVersion),
     {
       version,
       name: source.name,
+      summary: input.summary ?? source.summary ?? "",
       effectiveDate: input.effectiveDate,
       sections: cloneSections(input.sections),
       status: "draft",
@@ -148,6 +157,7 @@ export function replaceDraftVersion(input: {
   version: string;
   effectiveDate: string;
   sections: readonly AgreementVersionSection[];
+  summary?: string;
 }): AgreementVersionRecord[] {
   const draftVersion = normalizeAgreementVersionLabel(input.draftVersion);
   const draft = input.versions.find((entry) => entry.version === draftVersion);
@@ -161,10 +171,11 @@ export function replaceDraftVersion(input: {
     );
   }
   const version = normalizeAgreementVersionLabel(input.version);
-  assertVersionAvailable(input.versions, version, draftVersion);
+  assertVersionProgression(input.versions, version, draftVersion);
   return input.versions.map((entry) => entry.version === draftVersion ? {
     ...cloneVersion(entry),
     version,
+    summary: input.summary ?? draft.summary ?? "",
     effectiveDate: input.effectiveDate,
     sections: cloneSections(input.sections),
   } : cloneVersion(entry));
@@ -188,10 +199,8 @@ export function publishDraftVersion(input: {
     );
   }
   if (selected.status === "current") {
-    throw new HttpsError(
-      "failed-precondition",
-      "This agreement version is already current.",
-    );
+    const message = "This draft has already been published.";
+    throw new HttpsError("failed-precondition", message, {userMessage: message});
   }
   const next = input.versions.map((entry) => {
     if (entry.status === "current") {
@@ -230,11 +239,17 @@ export function deleteDraftVersion(
   if (!selected) {
     throw new HttpsError("not-found", "The agreement version was not found.");
   }
+  if (selected.status === "current") {
+    const message = "The current agreement version cannot be deleted.";
+    throw new HttpsError("failed-precondition", message, {userMessage: message});
+  }
+  if (selected.status === "archived") {
+    const message = "Archived agreement versions cannot be deleted.";
+    throw new HttpsError("failed-precondition", message, {userMessage: message});
+  }
   if (selected.status !== "draft") {
-    throw new HttpsError(
-      "failed-precondition",
-      "Published agreement versions cannot be deleted.",
-    );
+    const message = "Published agreement versions cannot be deleted.";
+    throw new HttpsError("failed-precondition", message, {userMessage: message});
   }
   return versions
     .filter((entry) => entry.version !== draftVersion)
@@ -254,6 +269,7 @@ export function mergePriorVersions(
     if (already) continue;
     prior.push({
       version: version.version,
+      ...(version.summary !== undefined ? {summary: version.summary} : {}),
       effectiveDate: version.effectiveDate,
       sections: cloneSections(version.sections),
       archivedAt: version.archivedAt,
@@ -303,6 +319,7 @@ function parseLegacyCurrent(
   return {
     version,
     name,
+    ...(typeof data.summary === "string" ? {summary: data.summary.trim()} : {}),
     effectiveDate: data.effectiveDate,
     sections,
     status: "current",
@@ -330,6 +347,7 @@ function parseLegacyArchived(
   return {
     version,
     name,
+    ...(typeof value.summary === "string" ? {summary: value.summary.trim()} : {}),
     effectiveDate,
     sections,
     status: "archived",
@@ -361,6 +379,7 @@ function parseVersionRecord(value: unknown): AgreementVersionRecord | null {
   return {
     version,
     name,
+    ...(typeof value.summary === "string" ? {summary: value.summary.trim()} : {}),
     effectiveDate: value.effectiveDate,
     sections,
     status: value.status,
@@ -396,20 +415,14 @@ function parseSections(
   return sections;
 }
 
-function assertVersionAvailable(
+function assertVersionProgression(
   versions: readonly AgreementVersionRecord[],
   version: string,
   ignoring?: string,
 ): void {
-  const duplicate = versions.some((entry) =>
-    entry.version === version && entry.version !== ignoring,
-  );
-  if (duplicate) {
-    throw new HttpsError(
-      "failed-precondition",
-      `Version ${version} already exists for this agreement.`,
-    );
-  }
+  const message = agreementVersionChoiceError(version, versions, ignoring);
+  if (!message) return;
+  throw new HttpsError("failed-precondition", message, {userMessage: message});
 }
 
 function cloneVersion(version: AgreementVersionRecord): AgreementVersionRecord {

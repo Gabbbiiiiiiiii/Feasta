@@ -40,7 +40,7 @@ const agreement: AdminAgreementTemplate = {
       paragraphs: ["Providers remain responsible for the services they offer."],
     },
   ],
-  useForProviderOnboarding: true,
+  agreementTypeCode: "provider_agreement",
   status: "active",
   sortName: "feasta provider agreement",
 };

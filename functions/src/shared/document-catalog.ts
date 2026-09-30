@@ -6,8 +6,15 @@ import {
 import {db} from "./firestore.js";
 import {
   parseActiveOnboardingAgreement,
+  selectProviderOnboardingAgreement,
   type ProviderAgreementSource,
 } from "./provider-agreement-acceptance.js";
+import {
+  AGREEMENT_TYPES,
+  initialAgreementTypes,
+  isTrustedAgreementType,
+  parseAgreementType,
+} from "./agreement-types.js";
 import {serverTimestamp} from "./timestamps.js";
 import {
   AGREEMENT_TEMPLATES,
@@ -127,17 +134,55 @@ export async function loadBusinessDocumentCatalog():
   });
 }
 
+export async function ensureAgreementTypes(): Promise<void> {
+  const settings = db.collection("appSettings").doc(FILE_MAINTENANCE_SETTINGS);
+  const existingSettings = await settings.get();
+  if (existingSettings.data()?.agreementTypesSeeded === true) return;
+
+  const types = initialAgreementTypes();
+  await db.runTransaction(async (transaction) => {
+    const settingsSnapshot = await transaction.get(settings);
+    if (settingsSnapshot.data()?.agreementTypesSeeded === true) return;
+    const references = types.map((type) =>
+      db.collection(AGREEMENT_TYPES).doc(type.code),
+    );
+    const snapshots = await transaction.getAll(...references);
+    snapshots.forEach((snapshot, index) => {
+      if (snapshot.exists) return;
+      transaction.create(references[index], {
+        ...types[index],
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        createdBy: "system",
+        updatedBy: "system",
+      });
+    });
+    transaction.set(settings, {
+      agreementTypesSeeded: true,
+      isPublic: false,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+  });
+}
+
 export async function loadCurrentProviderOnboardingAgreement():
   Promise<ProviderAgreementSource | null> {
-  const snapshot = await db.collection(AGREEMENT_TEMPLATES).get();
-  const matches = snapshot.docs.flatMap((document) => {
-    const parsed = parseActiveOnboardingAgreement(
-      document.id,
-      document.data(),
-    );
-    return parsed ? [parsed] : [];
+  await ensureAgreementTypes();
+  const [typeSnapshot, agreementSnapshot] = await Promise.all([
+    db.collection(AGREEMENT_TYPES).get(),
+    db.collection(AGREEMENT_TEMPLATES).get(),
+  ]);
+  const types = typeSnapshot.docs.flatMap((document) => {
+    const parsed = parseAgreementType(document.id, document.data());
+    return parsed && isTrustedAgreementType(parsed) ? [parsed] : [];
   });
-  return matches.length === 1 ? matches[0] : null;
+  return selectProviderOnboardingAgreement(
+    agreementSnapshot.docs.map((document) => ({
+      id: document.id,
+      data: document.data(),
+    })),
+    types,
+  );
 }
 
 export async function readProviderOnboardingAgreementInTransaction(
@@ -148,5 +193,19 @@ export async function readProviderOnboardingAgreementInTransaction(
     db.collection(AGREEMENT_TEMPLATES).doc(code),
   );
   if (!snapshot.exists) return null;
-  return parseActiveOnboardingAgreement(snapshot.id, snapshot.data() ?? {});
+  const data = snapshot.data() ?? {};
+  const typeCode = typeof data.agreementTypeCode === "string" ?
+    data.agreementTypeCode :
+    "";
+  if (!typeCode) return null;
+  const typeSnapshot = await transaction.get(
+    db.collection(AGREEMENT_TYPES).doc(typeCode),
+  );
+  const type = typeSnapshot.exists ?
+    parseAgreementType(typeSnapshot.id, typeSnapshot.data() ?? {}) :
+    null;
+  if (!type || !isTrustedAgreementType(type) || type.purpose !== "provider_onboarding") {
+    return null;
+  }
+  return parseActiveOnboardingAgreement(snapshot.id, data, type.code);
 }

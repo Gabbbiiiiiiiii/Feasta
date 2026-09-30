@@ -7,6 +7,7 @@ export declare const FIRESTORE_COLLECTIONS: {
     readonly serviceCategories: "serviceCategories";
     readonly documentCategories: "documentCategories";
     readonly agreementTemplates: "agreementTemplates";
+    readonly agreementTypes: "agreementTypes";
     readonly businessDocumentTypes: "businessDocumentTypes";
     readonly packages: "packages";
     readonly menuItems: "menuItems";

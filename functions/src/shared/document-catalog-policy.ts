@@ -1,6 +1,7 @@
 export const DOCUMENT_CATEGORIES = "documentCategories";
 export const AGREEMENT_TEMPLATES = "agreementTemplates";
 export const BUSINESS_DOCUMENT_TYPES = "businessDocumentTypes";
+export {AGREEMENT_TYPES} from "./agreement-types.js";
 const DOCUMENT_CODE_PATTERN =
   /^[a-z0-9]+(?:_[a-z0-9]+)*$/u;
 

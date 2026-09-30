@@ -1,3 +1,4 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
@@ -6,14 +7,61 @@ import '../../../core/theme/app_typography.dart';
 
 enum FeastaLegalDocument { termsOfService, privacyPolicy }
 
-class LegalDocumentScreen extends StatelessWidget {
-  const LegalDocumentScreen({required this.document, super.key});
+typedef LegalDocumentLoader =
+    Future<Map<String, dynamic>?> Function(FeastaLegalDocument document);
+
+Future<Map<String, dynamic>?> loadCurrentLegalDocument(
+  FeastaLegalDocument document,
+) async {
+  final result = await FirebaseFunctions.instanceFor(region: 'asia-southeast1')
+      .httpsCallable('getCurrentLegalAgreement')
+      .call<Map<String, dynamic>>({
+        'purpose': document == FeastaLegalDocument.termsOfService
+            ? 'platform_terms'
+            : 'privacy_notice',
+      });
+  final agreement = result.data['agreement'];
+  return agreement is Map ? Map<String, dynamic>.from(agreement) : null;
+}
+
+class LegalDocumentScreen extends StatefulWidget {
+  const LegalDocumentScreen({
+    required this.document,
+    this.loader = loadCurrentLegalDocument,
+    super.key,
+  });
 
   final FeastaLegalDocument document;
+  final LegalDocumentLoader loader;
 
-  bool get _isTerms => document == FeastaLegalDocument.termsOfService;
+  @override
+  State<LegalDocumentScreen> createState() => _LegalDocumentScreenState();
+}
 
+class _LegalDocumentScreenState extends State<LegalDocumentScreen> {
+  late Future<Map<String, dynamic>?> _agreement;
+
+  bool get _isTerms => widget.document == FeastaLegalDocument.termsOfService;
   String get _title => _isTerms ? 'Terms of Service' : 'Privacy Policy';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant LegalDocumentScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.document != widget.document ||
+        oldWidget.loader != widget.loader) {
+      _load();
+    }
+  }
+
+  void _load() {
+    _agreement = Future.sync(() => widget.loader(widget.document));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,246 +80,95 @@ class LegalDocumentScreen extends StatelessWidget {
         title: Text(_title),
       ),
       body: SafeArea(
-        child: SelectionArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.xl,
-              AppSpacing.lg,
-              AppSpacing.xl,
-              AppSpacing.huge,
-            ),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 720),
-                child: _isTerms
-                    ? const _TermsOfServiceContent()
-                    : const _PrivacyPolicyContent(),
+        child: FutureBuilder<Map<String, dynamic>?>(
+          future: _agreement,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final agreement = snapshot.data;
+            if (snapshot.hasError || !_validAgreement(agreement)) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.xl),
+                  child: Text(
+                    _isTerms
+                        ? 'Terms of Service are currently unavailable.'
+                        : 'Privacy Policy is currently unavailable.',
+                  ),
+                ),
+              );
+            }
+            return SelectionArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 720),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          agreement!['name'] as String,
+                          style: AppTypography.pageTitle,
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                        if (agreement['summary'] is String &&
+                            (agreement['summary'] as String).isNotEmpty) ...[
+                          Text(
+                            agreement['summary'] as String,
+                            style: AppTypography.body,
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                        ],
+                        Text('Version ${agreement['version']}'),
+                        Text('Effective date: ${agreement['effectiveDate']}'),
+                        for (final section
+                            in agreement['sections'] as List) ...[
+                          const SizedBox(height: AppSpacing.xl),
+                          Text(
+                            section['title'] as String,
+                            style: AppTypography.sectionTitle,
+                          ),
+                          for (final paragraph
+                              in section['paragraphs'] as List) ...[
+                            const SizedBox(height: AppSpacing.md),
+                            Text(
+                              paragraph as String,
+                              style: AppTypography.body,
+                            ),
+                          ],
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       ),
     );
   }
 }
 
-class _TermsOfServiceContent extends StatelessWidget {
-  const _TermsOfServiceContent();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _LegalContent(
-      title: 'FEASTA Terms of Service',
-      introduction:
-          'These Terms of Service explain the conditions that apply when '
-          'using FEASTA to discover catering and event service providers, '
-          'create and manage bookings, communicate with providers, and use '
-          'other customer features available through the platform.',
-      sections: [
-        _LegalSection(
-          title: '1. Using FEASTA',
-          body:
-              'You must provide accurate information when creating and using '
-              'your FEASTA customer account. You are responsible for keeping '
-              'your account credentials secure and for activity performed '
-              'through your account.',
-        ),
-        _LegalSection(
-          title: '2. Customer Accounts',
-          body:
-              'Some FEASTA features require a registered customer account. '
-              'Guest users may browse available services, while protected '
-              'features such as bookings, favorites, account management, '
-              'and payment-related actions may require authentication.',
-        ),
-        _LegalSection(
-          title: '3. Providers and Services',
-          body:
-              'FEASTA allows customers to discover catering and event service '
-              'providers and review packages, menus, add-ons, availability, '
-              'ratings, and other service information available through '
-              'the platform.',
-        ),
-        _LegalSection(
-          title: '4. Booking Requests',
-          body:
-              'Submitting a booking request does not automatically confirm '
-              'the service. Providers review booking requests before the '
-              'applicable confirmation and payment process continues.',
-        ),
-        _LegalSection(
-          title: '5. Payments',
-          body:
-              'When a booking requires a down payment, customers must complete '
-              'the required payment through the payment options provided by '
-              'FEASTA. Payment and booking statuses are managed according to '
-              'the applicable booking process.',
-        ),
-        _LegalSection(
-          title: '6. Appropriate Use',
-          body:
-              'You must not misuse FEASTA, attempt unauthorized access, '
-              'impersonate another person, provide fraudulent information, '
-              'or use the platform for unlawful purposes.',
-        ),
-        _LegalSection(
-          title: '7. Platform Availability',
-          body:
-              'FEASTA may occasionally be unavailable because of maintenance, '
-              'network conditions, third-party services, security requirements, '
-              'or other operational circumstances.',
-        ),
-        _LegalSection(
-          title: '8. Updates to These Terms',
-          body:
-              'These Terms of Service may be updated as FEASTA develops. '
-              'Updated terms should be made available through the application.',
-        ),
-      ],
-    );
+bool _validAgreement(Map<String, dynamic>? agreement) {
+  if (agreement == null ||
+      agreement['name'] is! String ||
+      agreement['version'] is! String ||
+      agreement['effectiveDate'] is! String ||
+      agreement['sections'] is! List) {
+    return false;
   }
-}
-
-class _PrivacyPolicyContent extends StatelessWidget {
-  const _PrivacyPolicyContent();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _LegalContent(
-      title: 'FEASTA Privacy Policy',
-      introduction:
-          'This Privacy Policy describes how FEASTA handles information '
-          'needed to provide customer accounts, event planning, booking, '
-          'payment, communication, and related platform features.',
-      sections: [
-        _LegalSection(
-          title: '1. Information You Provide',
-          body:
-              'FEASTA may process information you provide when creating or '
-              'using an account, including your name, email address, phone '
-              'number, event details, booking information, and other '
-              'information necessary to provide requested services.',
-        ),
-        _LegalSection(
-          title: '2. Authentication Information',
-          body:
-              'FEASTA uses authentication services to identify users and '
-              'protect account access. When you choose Google sign-in, '
-              'information provided through that authentication service may '
-              'be used to establish or access your FEASTA account.',
-        ),
-        _LegalSection(
-          title: '3. Booking Information',
-          body:
-              'Information related to event requests, providers, packages, '
-              'add-ons, guest counts, event dates, locations, booking statuses, '
-              'and related activity may be processed to manage bookings.',
-        ),
-        _LegalSection(
-          title: '4. Payment Information',
-          body:
-              'Payment-related transactions may be processed through payment '
-              'services integrated with FEASTA. FEASTA uses information needed '
-              'to associate payment activity with the appropriate customer '
-              'and booking.',
-        ),
-        _LegalSection(
-          title: '5. How Information Is Used',
-          body:
-              'Information may be used to provide platform functionality, '
-              'authenticate users, process booking workflows, communicate '
-              'important account or booking updates, maintain security, '
-              'troubleshoot problems, and improve the service.',
-        ),
-        _LegalSection(
-          title: '6. Sharing Necessary Information',
-          body:
-              'Information may be shared with the relevant service provider '
-              'or supporting service when necessary to process bookings, '
-              'payments, communications, or other requested functionality.',
-        ),
-        _LegalSection(
-          title: '7. Security',
-          body:
-              'FEASTA uses technical and organizational safeguards intended '
-              'to protect account and platform information. Customers should '
-              'also protect their credentials and devices.',
-        ),
-        _LegalSection(
-          title: '8. Your Account Information',
-          body:
-              'Customers should keep their account information accurate and '
-              'use available account features to maintain appropriate '
-              'information associated with their FEASTA account.',
-        ),
-        _LegalSection(
-          title: '9. Policy Updates',
-          body:
-              'This Privacy Policy may be updated as FEASTA functionality and '
-              'data practices develop. Updated information should be made '
-              'available through the application.',
-        ),
-      ],
-    );
-  }
-}
-
-class _LegalContent extends StatelessWidget {
-  const _LegalContent({
-    required this.title,
-    required this.introduction,
-    required this.sections,
-  });
-
-  final String title;
-  final String introduction;
-  final List<_LegalSection> sections;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: AppTypography.headline.copyWith(color: AppColors.mainText),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        Text(
-          'Last updated: August 2026',
-          style: AppTypography.bodySmall.copyWith(
-            color: AppColors.secondaryTextAccessible,
-          ),
-        ),
-        const SizedBox(height: AppSpacing.xl),
-        Text(
-          introduction,
-          style: AppTypography.body.copyWith(color: AppColors.mainText),
-        ),
-        const SizedBox(height: AppSpacing.xxl),
-        for (var index = 0; index < sections.length; index++) ...[
-          Text(
-            sections[index].title,
-            style: AppTypography.title.copyWith(color: AppColors.mainText),
-          ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            sections[index].body,
-            style: AppTypography.body.copyWith(
-              color: AppColors.secondaryTextAccessible,
+  final sections = agreement['sections'] as List;
+  return sections.isNotEmpty &&
+      sections.every(
+        (section) =>
+            section is Map &&
+            section['title'] is String &&
+            section['paragraphs'] is List &&
+            (section['paragraphs'] as List).every(
+              (paragraph) => paragraph is String,
             ),
-          ),
-          if (index != sections.length - 1)
-            const SizedBox(height: AppSpacing.xl),
-        ],
-      ],
-    );
-  }
-}
-
-class _LegalSection {
-  const _LegalSection({required this.title, required this.body});
-
-  final String title;
-  final String body;
+      );
 }

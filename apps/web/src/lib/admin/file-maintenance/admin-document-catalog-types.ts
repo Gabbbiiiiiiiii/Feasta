@@ -1,3 +1,10 @@
+import type {
+  AgreementPurpose,
+  AgreementTypeRecord,
+} from "../../../../../../functions/src/shared/agreement-types";
+
+export type {AgreementPurpose, AgreementTypeRecord};
+
 export type DocumentCatalogStatus = "active" | "discontinued";
 
 export type AgreementSection = {
@@ -8,6 +15,8 @@ export type AgreementSection = {
 export type AgreementVersionStatus = "draft" | "current" | "archived";
 
 export type AgreementVersionRecord = {
+  /** Optional only for versions written before summary versioning. */
+  summary?: string;
   version: string;
   name: string;
   effectiveDate: string;
@@ -26,7 +35,7 @@ export type AdminAgreementTemplate = {
   version: string;
   effectiveDate: string;
   sections: AgreementSection[];
-  useForProviderOnboarding: boolean;
+  agreementTypeCode: string | null;
   status: DocumentCatalogStatus;
   sortName: string;
   versions?: AgreementVersionRecord[];
@@ -56,6 +65,8 @@ export type DocumentCatalogCodeInput = {
 };
 
 export type DocumentCatalogMutationResult = {
+  deletedCode?: string;
   success: true;
   agreement?: AdminAgreementTemplate;
+  agreementType?: AgreementTypeRecord;
 };
