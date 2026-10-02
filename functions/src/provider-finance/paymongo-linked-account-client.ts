@@ -1,4 +1,8 @@
 import {
+  logWarning,
+} from "../shared/logger.js";
+
+import {
   logSecurityEvent,
 } from "../shared/security-events.js";
 
@@ -85,6 +89,9 @@ export class PayMongoLinkedAccountRequestError
   readonly missingPointers:
     readonly string[];
 
+  readonly gatewayCode:
+    string | null;
+
   constructor(
     message: string,
     certainty:
@@ -94,6 +101,8 @@ export class PayMongoLinkedAccountRequestError
       number | null,
     missingPointers:
       readonly string[] = [],
+    gatewayCode:
+      string | null = null,
   ) {
     super(message);
 
@@ -108,6 +117,9 @@ export class PayMongoLinkedAccountRequestError
 
     this.missingPointers =
       missingPointers;
+
+    this.gatewayCode =
+      gatewayCode;
   }
 }
 
@@ -252,7 +264,7 @@ export async function createPayMongoChildAccount(
   },
 ): Promise<PayMongoLinkedAccount> {
   const response =
-    await payMongoLinkedAccountRequest(
+    await payMongoLinkedAccountExchange(
       input.secretKey,
       "/v2/accounts",
       {
@@ -273,10 +285,33 @@ export async function createPayMongoChildAccount(
       },
     );
 
-  const account =
-    parsePayMongoLinkedAccountResource(
-      response,
+  let account: PayMongoLinkedAccount;
+
+  try {
+    account =
+      parsePayMongoLinkedAccountResource(
+        response.body,
+      );
+  } catch (error) {
+    logWarning(
+      "PayMongo account response could not be verified.",
+      {
+        method: "POST",
+        url: payMongoLinkedAccountUrl(
+          "/v2/accounts",
+        ),
+        statusCode:
+          response.statusCode,
+        ...safePayMongoAccountResponseMetadata(
+          response.body,
+        ),
+      },
     );
+    rethrowWithHttpStatus(
+      error,
+      response.statusCode,
+    );
+  }
 
   if (
     account.accountType !==
@@ -285,7 +320,7 @@ export async function createPayMongoChildAccount(
     throw new PayMongoLinkedAccountRequestError(
       "PayMongo child-account type is inconsistent.",
       "ambiguous",
-      null,
+      response.statusCode,
     );
   }
 
@@ -665,6 +700,16 @@ export function parsePayMongoLinkedAccountResource(
   const root =
     asRecord(value);
 
+  if (
+    !root.data ||
+    typeof root.data !== "object" ||
+    Array.isArray(root.data)
+  ) {
+    throw invalidResponse(
+      "PayMongo linked-account response is invalid.",
+    );
+  }
+
   const data =
     asRecord(
       root.data,
@@ -683,13 +728,6 @@ export function parsePayMongoLinkedAccountResource(
     typeof data.person === "object" &&
     !Array.isArray(data.person)
       ? data.person as Record<string, unknown>
-      : null;
-
-  const relationship =
-    data.relationship &&
-    typeof data.relationship === "object" &&
-    !Array.isArray(data.relationship)
-      ? data.relationship as Record<string, unknown>
       : null;
 
   return {
@@ -715,12 +753,13 @@ export function parsePayMongoLinkedAccountResource(
         )
         : null,
 
+    /*
+     * Relationship authority is verified separately through
+     * PayMongo's Relationships API. Embedded relationship
+     * data in an Account response is not payout authority.
+     */
     relationshipId:
-      relationship
-        ? optionalRelationshipId(
-          relationship.id,
-        )
-        : null,
+      null,
 
     legalIdentityPresent:
       legalIdentityIsPresent(
@@ -906,6 +945,24 @@ async function payMongoLinkedAccountRequest(
   path: string,
   init: RequestInit,
 ): Promise<unknown> {
+  const response =
+    await payMongoLinkedAccountExchange(
+      secretKey,
+      path,
+      init,
+    );
+
+  return response.body;
+}
+
+async function payMongoLinkedAccountExchange(
+  secretKey: string,
+  path: string,
+  init: RequestInit,
+): Promise<{
+  statusCode: number;
+  body: unknown;
+}> {
   if (
     typeof secretKey !== "string" ||
     !secretKey.startsWith("sk_")
@@ -931,17 +988,14 @@ async function payMongoLinkedAccountRequest(
     );
   }
 
-  if (
-    !path.startsWith(
-      "/v2/",
-    )
-  ) {
-    throw new PayMongoLinkedAccountRequestError(
-      "PayMongo linked-account path is invalid.",
-      "gateway_rejected",
-      null,
+  const url =
+    payMongoLinkedAccountUrl(
+      path,
     );
-  }
+
+  const method =
+    init.method ??
+    "GET";
 
   const authorization =
     Buffer.from(
@@ -955,7 +1009,7 @@ async function payMongoLinkedAccountRequest(
   try {
     response =
       await fetch(
-        `https://api.paymongo.com${path}`,
+        url,
         {
           ...init,
 
@@ -980,6 +1034,14 @@ async function payMongoLinkedAccountRequest(
       );
   }
   catch {
+    logWarning(
+      "PayMongo linked-account request outcome is unknown.",
+      {
+        method,
+        url,
+      },
+    );
+
     throw new PayMongoLinkedAccountRequestError(
       "PayMongo linked-account request outcome is unknown.",
       "ambiguous",
@@ -989,14 +1051,27 @@ async function payMongoLinkedAccountRequest(
 
   if (!response.ok) {
     /*
-     * Never expose or log the PayMongo response
-     * body. It may contain account/person data.
-     * Field pointers are safe category names.
+     * Never log the PayMongo response body.
+     * It may contain account or person data.
+     * The error code and field pointers are
+     * safe category names.
      */
-    const missingPointers =
-      await readMissingPointers(
+    const gatewayFailure =
+      await readGatewayFailure(
         response,
       );
+
+    logWarning(
+      "PayMongo linked-account request failed.",
+      {
+        method,
+        url,
+        statusCode:
+          response.status,
+        gatewayCode:
+          gatewayFailure.gatewayCode,
+      },
+    );
 
     const rejected =
       response.status >= 400 &&
@@ -1012,20 +1087,55 @@ async function payMongoLinkedAccountRequest(
         ? "gateway_rejected"
         : "ambiguous",
       response.status,
-      missingPointers,
+      gatewayFailure.missingPointers,
+      gatewayFailure.gatewayCode,
     );
   }
 
   try {
-    return await response.json();
+    return {
+      statusCode:
+        response.status,
+
+      body:
+        await response.json(),
+    };
   }
-  catch {
+  catch (error) {
+    if (
+      error instanceof
+        PayMongoLinkedAccountRequestError
+    ) {
+      throw error;
+    }
+
     throw new PayMongoLinkedAccountRequestError(
       "PayMongo linked-account response could not be decoded.",
       "ambiguous",
       response.status,
     );
   }
+}
+
+function rethrowWithHttpStatus(
+  error: unknown,
+  statusCode: number,
+): never {
+  if (
+    error instanceof
+      PayMongoLinkedAccountRequestError &&
+    error.statusCode === null
+  ) {
+    throw new PayMongoLinkedAccountRequestError(
+      error.message,
+      error.certainty,
+      statusCode,
+      error.missingPointers,
+      error.gatewayCode,
+    );
+  }
+
+  throw error;
 }
 
 function parseAccountType(
@@ -1108,27 +1218,12 @@ function nonEmpty(value: unknown): boolean {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function optionalRelationshipId(
-  value: unknown,
-): string | null {
-  if (value === undefined || value === null) return null;
-  if (
-    typeof value !== "string" ||
-    !/^mr_[A-Za-z0-9]+$/u.test(value)
-  ) {
-    throw invalidResponse(
-      "PayMongo relationship ID is invalid.",
-    );
-  }
-  return value;
-}
-
 function requireVerificationId(
   value: unknown,
 ): string {
   if (
     typeof value !== "string" ||
-    !/^verif_[A-Za-z0-9]+$/u.test(value)
+    !/^verif_[A-Za-z0-9_]+$/u.test(value)
   ) {
     throw invalidResponse(
       "PayMongo identity-verification ID is invalid.",
@@ -1185,9 +1280,31 @@ function requireMobileNumber(
   return value;
 }
 
-async function readMissingPointers(
+export function payMongoLinkedAccountUrl(
+  path: string,
+): string {
+  if (
+    !path.startsWith("/v2/") ||
+    path.startsWith("/v2/v2/") ||
+    path.includes("://") ||
+    path.includes("//")
+  ) {
+    throw new PayMongoLinkedAccountRequestError(
+      "PayMongo linked-account path is invalid.",
+      "gateway_rejected",
+      null,
+    );
+  }
+
+  return `https://api.paymongo.com${path}`;
+}
+
+async function readGatewayFailure(
   response: Response,
-): Promise<string[]> {
+): Promise<{
+  missingPointers: string[];
+  gatewayCode: string | null;
+}> {
   try {
     const body: unknown = await response.json();
     if (
@@ -1196,12 +1313,24 @@ async function readMissingPointers(
       !("errors" in body) ||
       !Array.isArray(body.errors)
     ) {
-      return [];
+      return {
+        missingPointers: [],
+        gatewayCode: null,
+      };
     }
 
     const pointers: string[] = [];
+    let gatewayCode: string | null = null;
     for (const error of body.errors) {
       if (!error || typeof error !== "object") continue;
+      if (
+        gatewayCode === null &&
+        "code" in error &&
+        typeof error.code === "string" &&
+        /^[a-z0-9_]{1,64}$/u.test(error.code)
+      ) {
+        gatewayCode = error.code;
+      }
       const source =
         "source" in error &&
         error.source &&
@@ -1216,9 +1345,15 @@ async function readMissingPointers(
         pointers.push(pointer);
       }
     }
-    return pointers;
+    return {
+      missingPointers: pointers,
+      gatewayCode,
+    };
   } catch {
-    return [];
+    return {
+      missingPointers: [],
+      gatewayCode: null,
+    };
   }
 }
 
@@ -1320,6 +1455,90 @@ function normalizeEmail(
   }
 
   return normalized;
+}
+
+const SAFE_RESPONSE_TOKEN =
+  /^[a-z_]{1,40}$/u;
+
+const SAFE_RESPONSE_KEY =
+  /^[A-Za-z0-9_]{1,64}$/u;
+
+/*
+ * Structural metadata for a 2xx body that failed account parsing.
+ * Values that are not short status tokens are omitted.
+ */
+export function safePayMongoAccountResponseMetadata(
+  value: unknown,
+): {
+  hasData: boolean;
+  topLevelKeys: string[];
+  dataKeys: string[];
+  orgIdPresent: boolean;
+  accountType: string | null;
+  activationStatus: string | null;
+} {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return {
+      hasData: false,
+      topLevelKeys: [],
+      dataKeys: [],
+      orgIdPresent: false,
+      accountType: null,
+      activationStatus: null,
+    };
+  }
+
+  const root =
+    value as Record<string, unknown>;
+
+  const data =
+    root.data &&
+    typeof root.data === "object" &&
+    !Array.isArray(root.data)
+      ? root.data as Record<string, unknown>
+      : null;
+
+  return {
+    hasData: data !== null,
+    topLevelKeys: safeKeyNames(root),
+    dataKeys: data ? safeKeyNames(data) : [],
+    orgIdPresent: Boolean(
+      data &&
+      typeof data.id === "string" &&
+      /^org_[A-Za-z0-9_-]{3,200}$/u.test(data.id),
+    ),
+    accountType: safeResponseToken(
+      data?.type,
+    ),
+    activationStatus: safeResponseToken(
+      data?.activation_status,
+    ),
+  };
+}
+
+function safeKeyNames(
+  record: Record<string, unknown>,
+): string[] {
+  return Object.keys(record)
+    .filter((key) => SAFE_RESPONSE_KEY.test(key))
+    .slice(0, 40);
+}
+
+function safeResponseToken(
+  value: unknown,
+): string | null {
+  if (
+    typeof value !== "string" ||
+    !SAFE_RESPONSE_TOKEN.test(value)
+  ) {
+    return null;
+  }
+
+  return value;
 }
 
 function unwrapDataRecord(

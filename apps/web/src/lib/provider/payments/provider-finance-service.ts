@@ -294,6 +294,9 @@ function normalizePayoutAccount(
       identityVerificationStatus:
         null,
 
+      gatewayLastStatusCode:
+        null,
+
       updatedAt:
         null,
     };
@@ -393,6 +396,11 @@ function normalizePayoutAccount(
         data.identityVerificationStatus,
       ),
 
+    gatewayLastStatusCode:
+      gatewayStatusCode(
+        data.gatewayLastStatusCode,
+      ),
+
     updatedAt:
       dateString(
         data.updatedAt,
@@ -481,6 +489,21 @@ function optionalIdentityStatus(
   }
 
   return null;
+}
+
+function gatewayStatusCode(
+  value: unknown,
+): number | null {
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < 100 ||
+    value > 599
+  ) {
+    return null;
+  }
+
+  return value;
 }
 
 function normalizeEarning(

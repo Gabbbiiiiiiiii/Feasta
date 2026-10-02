@@ -17,6 +17,10 @@ import {
 } from "react";
 
 import {
+  repairAmbiguousProviderPayoutSetup,
+} from "@/lib/admin/payments/admin-payment-client";
+
+import {
   loadAdminFinanceAttentionQueueAction,
   loadAdminPaymentDetailsAction,
   loadAdminPaymentsAction,
@@ -114,6 +118,11 @@ function PaymentMonitoringClient({
 
   const [attentionError, setAttentionError] =
     useState<string>();
+
+  const [
+    repairingAttentionId,
+    setRepairingAttentionId,
+  ] = useState<string | null>(null);
 
   const [filters, setFilters] =
     useState<AdminPaymentFilters>(
@@ -251,6 +260,74 @@ function PaymentMonitoringClient({
           }
         });
     }, []);
+
+  const repairPayoutSetup =
+  useCallback(
+    async (
+      item:
+        AdminFinanceAttentionQueue[
+          "items"
+        ][number],
+    ) => {
+      if (
+        item.kind !==
+          "ambiguous_payout_setup" ||
+        item.recordState !== "valid" ||
+        !item.providerId ||
+        !item.expectedUpdatedAtMillis
+      ) {
+        setAttentionError(
+          "This payout recovery case is no longer safe to repair. Refresh Finance attention.",
+        );
+        return;
+      }
+
+      const confirmed =
+        window.confirm(
+          [
+            "Repair this Provider payout setup?",
+            "",
+            "Continue only because you already confirmed that no matching PayMongo test child account exists.",
+            "",
+            "This does not make the Provider payout-ready. It only allows a safe payout setup retry.",
+          ].join("\n"),
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setRepairingAttentionId(
+        item.id,
+      );
+      setAttentionError(undefined);
+
+      try {
+        await repairAmbiguousProviderPayoutSetup({
+          providerId:
+            item.providerId,
+          expectedUpdatedAtMillis:
+            item.expectedUpdatedAtMillis,
+        });
+
+        const refreshed =
+          await loadAdminFinanceAttentionQueueAction();
+
+        setAttentionQueue(
+          refreshed,
+        );
+      } catch (error: unknown) {
+        setAttentionError(
+          errorMessage(error),
+        );
+      } finally {
+        setRepairingAttentionId(
+          null,
+        );
+      }
+    },
+    [],
+  );
 
   const applyFilters = useCallback(
     (
@@ -659,11 +736,17 @@ const handleRefundRequested =
         queue={attentionQueue}
         loading={attentionLoading}
         error={attentionError}
+        repairingItemId={
+          repairingAttentionId
+        }
         onRefresh={
           refreshFinanceAttention
         }
         onViewPayment={
           openPaymentDetails
+        }
+        onRepairPayoutSetup={
+          repairPayoutSetup
         }
       />
 

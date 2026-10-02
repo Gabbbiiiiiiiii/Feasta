@@ -57,6 +57,11 @@ export type ProviderRequestListItem = {
 
   downPaymentAmount: number;
 
+  paymentPolicy:
+    | "full_payment"
+    | "deposit_then_balance"
+    | null;
+
   downPaymentPercentage: number | null;
 
   rejectionReason: string | null;

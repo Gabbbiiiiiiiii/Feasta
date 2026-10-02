@@ -257,6 +257,11 @@ function mapProviderRequest(
         data.downPaymentAmount,
       ),
 
+    paymentPolicy:
+      paymentPolicyFromTerms(
+        data.packagePaymentTerms,
+      ),
+
     downPaymentPercentage:
       optionalNumber(
         data.downPaymentPercentage,
@@ -285,6 +290,31 @@ function mapProviderRequest(
         data.respondedAt,
       ),
   };
+}
+
+function paymentPolicyFromTerms(
+  value: unknown,
+): "full_payment" | "deposit_then_balance" | null {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return null;
+  }
+
+  const policy =
+    (value as Record<string, unknown>)
+      .paymentPolicy;
+
+  if (
+    policy === "full_payment" ||
+    policy === "deposit_then_balance"
+  ) {
+    return policy;
+  }
+
+  return null;
 }
 
 function calculateSummary(

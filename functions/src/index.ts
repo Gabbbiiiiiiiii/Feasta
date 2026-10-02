@@ -207,6 +207,9 @@ export {
   saveProviderPayoutActivationProfile,
   startProviderPayoutOnboarding,
 } from "./provider-finance/provider-payment-account-management.js";
+export {
+  repairAmbiguousProviderPayoutAccount,
+} from "./provider-finance/repair-ambiguous-provider-payout-account.js";
 export {payMongoWebhook} from "./payments/paymongo-webhook.js";
 export {requestPaymentRefund} from "./payments/request-refund.js";
 export {approveProviderRequestCancellationRefund} from

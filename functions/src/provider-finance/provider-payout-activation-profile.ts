@@ -69,6 +69,9 @@ const BROWSER_AUTHORITY_FIELDS = [
   "payoutReady",
   "accountId",
   "account_id",
+  "orgId",
+  "childAccountId",
+  "child_account_id",
   "invitationId",
 ] as const;
 

@@ -58,6 +58,7 @@ const EMPTY_PROVIDER_FINANCE: ProviderFinanceOverview = {
     childAccountPresent: false,
     activationProfileComplete: false,
     identityVerificationStatus: null,
+    gatewayLastStatusCode: null,
     updatedAt: null,
   },
   earningSummary: {

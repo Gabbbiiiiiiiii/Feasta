@@ -15,6 +15,9 @@ import {
   functions,
   initializeBrowserAppCheck,
 } from "@/lib/firebase/client";
+import {
+  providerRequestPreconditionError,
+} from "@/lib/provider/requests/provider-request-acceptance-copy";
 
 const ACCEPT_PROVIDER_REQUEST_FUNCTION =
   "acceptProviderRequest";
@@ -44,6 +47,10 @@ export type RejectProviderRequestResult = {
   status: "rejected";
   rejected: boolean;
 };
+
+export {
+  ProviderRequestActionError,
+} from "@/lib/provider/requests/provider-request-acceptance-copy";
 
 export async function acceptProviderRequest(
   input: AcceptProviderRequestInput,
@@ -131,6 +138,40 @@ export async function rejectProviderRequest(
   }
 }
 
+function callableErrorReason(
+  error: FirebaseError,
+): string | null {
+  const details = (
+    error as FirebaseError & {details?: unknown}
+  ).details;
+  const values = [
+    details,
+    error.customData?.details,
+    error.customData,
+  ];
+
+  for (const value of values) {
+    if (
+      value &&
+      typeof value === "object" &&
+      !Array.isArray(value)
+    ) {
+      const reason = (
+        value as Record<string, unknown>
+      ).reason;
+
+      if (
+        typeof reason === "string" &&
+        reason.length <= 80
+      ) {
+        return reason;
+      }
+    }
+  }
+
+  return null;
+}
+
 function requireAuthenticatedProviderSession(): void {
   if (!auth.currentUser) {
     throw new WebAuthenticationError(
@@ -168,9 +209,9 @@ function normalizeProviderRequestError(
         );
 
       case "functions/failed-precondition":
-        return new Error(
-          error.message ||
-            "This request can no longer be changed.",
+        return providerRequestPreconditionError(
+          error.message,
+          callableErrorReason(error),
         );
 
       case "functions/resource-exhausted":

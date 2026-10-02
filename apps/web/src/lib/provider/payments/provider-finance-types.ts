@@ -38,6 +38,7 @@ export type ProviderPayoutAccountView = {
   childAccountPresent: boolean;
   activationProfileComplete: boolean;
   identityVerificationStatus: string | null;
+  gatewayLastStatusCode: number | null;
   updatedAt: string | null;
 };
 

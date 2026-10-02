@@ -27,6 +27,7 @@ import type {
   ProviderPayoutSetupStatus,
   ProviderSettlementStatus,
 } from "@/lib/provider/payments/provider-finance-types";
+import {payoutSetupGuidance} from "@/lib/provider/payments/provider-payout-status";
 
 import {
   loadProviderFinanceOverviewAction,
@@ -111,6 +112,9 @@ export function ProviderFinancePanel({
 
   const payout =
     finance.payoutAccount;
+
+  const setupGuidance =
+    payoutSetupGuidance(payout);
 
   return (
     <div className="grid min-w-0 gap-6">
@@ -215,6 +219,13 @@ export function ProviderFinancePanel({
             role="alert"
           >
             {error}
+          </p>
+        ) : setupGuidance ? (
+          <p
+            className="mt-4 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning"
+            role="status"
+          >
+            {setupGuidance}
           </p>
         ) : null}
 

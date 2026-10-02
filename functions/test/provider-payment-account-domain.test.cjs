@@ -49,7 +49,7 @@ test(
         linkedAccountTypeForBusinessRegistration(
           "unknown",
         ),
-      /registration type is invalid/u,
+      /Complete your business registration type before setting up payouts\./u,
     );
   },
 );

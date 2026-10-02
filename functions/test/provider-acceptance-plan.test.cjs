@@ -51,6 +51,21 @@ test("last response promotes all held acceptances together with each required pa
   ]);
 });
 
+test("full upfront and partial deposit both wait for the required payment", () => {
+  const fullPayment = plan([
+    document("request_current", "pending", 100),
+  ]);
+  const deposit = plan([
+    document("request_current", "pending", 20),
+  ]);
+
+  assert.equal(fullPayment.nextStatus, "waiting_for_down_payment");
+  assert.equal(deposit.nextStatus, "waiting_for_down_payment");
+  assert.equal(fullPayment.summary.status, "waiting_for_down_payment");
+  assert.equal(deposit.summary.status, "waiting_for_down_payment");
+  assert.notEqual(deposit.overrides[0].status, "confirmed");
+});
+
 test("zero-deposit services also wait for all responses before confirmation", () => {
   assert.equal(plan([document("request_current", "pending", 0),
     document("request_other", "pending", 0)]).nextStatus, "accepted");

@@ -29,6 +29,10 @@ import {
 } from "../shared/firestore.js";
 
 import {
+  logWarning,
+} from "../shared/logger.js";
+
+import {
   enforceCallableRateLimit,
 } from "../shared/rate-limit.js";
 
@@ -42,7 +46,10 @@ import {
 
 import {
   linkedAccountTypeForBusinessRegistration,
+  providerPayoutCreationFailure,
   PROVIDER_PAYMENT_ACCOUNT_SCHEMA_VERSION,
+  shouldCreateProviderPayoutAccount,
+  storedChildAccountId,
 } from "./provider-payment-account-domain.js";
 
 import {
@@ -196,30 +203,22 @@ export const startProviderPayoutOnboarding =
                 context,
               );
 
-              const status =
-                storedSetupStatus(
-                  existing.setupStatus,
-                );
-
               const orgAccountId =
                 storedOrgAccountId(
                   existing.paymongoAccountId,
                 );
 
-              if (orgAccountId) {
-                return {
-                  createInvite:
-                    false,
-
-                  existing,
-                };
-              }
+              const existingInvitationId =
+                storedInvitationId(
+                  existing.invitationId,
+                );
 
               if (
-                status === "ready" ||
-                status === "onboarding" ||
-                status ===
-                  "action_required"
+                orgAccountId ||
+                existingInvitationId ||
+                !shouldCreateProviderPayoutAccount(
+                  existing,
+                )
               ) {
                 return {
                   createInvite:
@@ -276,6 +275,9 @@ export const startProviderPayoutOnboarding =
 
                   settlementTransportReady:
                     false,
+
+                  inviteCreationState:
+                    "creating",
 
                   updatedAt:
                     serverTimestamp(),
@@ -431,6 +433,12 @@ export const startProviderPayoutOnboarding =
             created
               .identityVerificationStatus,
 
+          inviteCreationState:
+            "created",
+
+          gatewayLastStatusCode:
+            null,
+
           gatewayLastCheckedAt:
             serverTimestamp(),
 
@@ -468,23 +476,108 @@ export const startProviderPayoutOnboarding =
         };
       }
       catch (error) {
+        if (
+          error instanceof HttpsError &&
+          !createdAccountId
+        ) {
+          await accountReference.update({
+            setupStatus:
+              "action_required",
+
+            payoutReady:
+              false,
+
+            inviteCreationState:
+              "rejected",
+
+            updatedAt:
+              serverTimestamp(),
+          });
+
+          throw error;
+        }
+
         const gatewayError =
           error instanceof
             PayMongoLinkedAccountRequestError
             ? error
             : null;
 
+        const failure =
+          createdAccountId
+            ? null
+            : providerPayoutCreationFailure({
+              certainty:
+                gatewayError
+                  ?.certainty ??
+                null,
+
+              statusCode:
+                gatewayError
+                  ?.statusCode ??
+                null,
+
+              gatewayMessage:
+                gatewayError
+                  ?.message ??
+                null,
+
+              gatewayCode:
+                gatewayError
+                  ?.gatewayCode ??
+                null,
+
+              missingPointers:
+                gatewayError
+                  ?.missingPointers ??
+                [],
+            });
+
+        logWarning(
+          "Provider payout account creation was not completed.",
+          {
+            certainty:
+              gatewayError
+                ?.certainty ??
+              null,
+
+            statusCode:
+              gatewayError
+                ?.statusCode ??
+              null,
+
+            gatewayCode:
+              gatewayError
+                ?.gatewayCode ??
+              null,
+
+            safeMessage:
+              gatewayError
+                ?.message ??
+              null,
+
+            reason:
+              failure?.reason ??
+              null,
+          },
+        );
+
         await accountReference.update({
           setupStatus:
             createdAccountId
               ? "action_required"
-              : gatewayError?.certainty ===
-                "gateway_rejected"
-                ? "unavailable"
-                : "action_required",
+              : failure?.setupStatus ??
+                "action_required",
 
           payoutReady:
             false,
+
+          inviteCreationState:
+            createdAccountId
+              ? "created"
+              : failure
+                ?.inviteCreationState ??
+                "ambiguous",
 
           gatewayLastStatusCode:
             gatewayError
@@ -506,15 +599,16 @@ export const startProviderPayoutOnboarding =
         }
 
         throw new HttpsError(
-          gatewayError?.certainty ===
-            "gateway_rejected"
-            ? "failed-precondition"
-            : "unavailable",
-          gatewayError?.certainty ===
-            "gateway_rejected"
-            ? "PayMongo could not create the payout account."
-            : "The PayMongo account request could not be confirmed. " +
-              "FEASTA will not create another account automatically.",
+          failure?.callableStatus ??
+            "internal",
+          failure?.message ??
+            "The PayMongo account request could not be confirmed. " +
+            "FEASTA will not create another account automatically.",
+          {
+            reason:
+              failure?.reason ??
+              "payout_setup_unconfirmed",
+          },
         );
       }
     },
@@ -610,7 +704,11 @@ export const refreshProviderPayoutAccount =
       if (!invitationId) {
         throw new HttpsError(
           "failed-precondition",
-          "The payout onboarding invitation needs manual review before it can be refreshed.",
+          "No PayMongo payout account exists yet. Use Set up payouts to create one.",
+          {
+            reason:
+              "payout_setup_missing",
+          },
         );
       }
 
@@ -1408,15 +1506,9 @@ function storedActivationStatus(
 function storedOrgAccountId(
   value: unknown,
 ): string | null {
-  if (
-    typeof value !== "string" ||
-    !/^org_[A-Za-z0-9_-]{3,200}$/u
-      .test(value)
-  ) {
-    return null;
-  }
-
-  return value;
+  return storedChildAccountId(
+    value,
+  );
 }
 
 function storedRelationshipId(
@@ -1561,6 +1653,12 @@ async function refreshChildAccount(input: {
       input.context,
     );
 
+  /*
+   * Temporary payout activation diagnostic.
+   * Never log names, DOB, TIN, addresses,
+   * account identifiers, or profile contents.
+   */
+
   if (
     account.activationStatus !==
       "activated" &&
@@ -1622,7 +1720,8 @@ async function refreshChildAccount(input: {
           }),
       });
 
-      await activatePayMongoChildAccount({
+      account =
+        await activatePayMongoChildAccount({
         secretKey:
           payMongoSecretKey.value(),
 
@@ -1630,11 +1729,8 @@ async function refreshChildAccount(input: {
           account.accountId,
       });
 
-      account =
-        await retrieveTrustedChildAccount(
-          account.accountId,
-          input.context,
-        );
+
+
     }
     catch (error) {
       await input.accountReference.update(

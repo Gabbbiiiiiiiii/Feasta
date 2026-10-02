@@ -144,7 +144,8 @@ export type AdminPaymentPage = {
 
 export type AdminFinanceAttentionKind =
   | "failed_payout"
-  | "reconciliation_required";
+  | "reconciliation_required"
+  | "ambiguous_payout_setup";
 
 export type AdminFinanceAttentionRecordState =
   | "valid"
@@ -166,6 +167,7 @@ export type AdminFinanceAttentionItem = {
   status:
     | "failed"
     | "reconciliation_required"
+    | "ambiguous"
     | null;
 
   amountInCentavos: number | null;
@@ -174,11 +176,25 @@ export type AdminFinanceAttentionItem = {
   reason: string | null;
   updatedAt: string | null;
 
+  expectedUpdatedAtMillis: number | null;
+
   payment: AdminPayment | null;
 };
 
 export type AdminFinanceAttentionQueue = {
   items: AdminFinanceAttentionItem[];
+};
+
+export type AdminPayoutSetupRepairInput = {
+  providerId: string;
+  expectedUpdatedAtMillis: number;
+};
+
+export type AdminPayoutSetupRepairResult = {
+  providerId: string;
+  setupStatus: "action_required";
+  inviteCreationState: "rejected";
+  payoutReady: false;
 };
 export type AdminPaymentDetailsResult = {
   details: AdminPaymentDetails;

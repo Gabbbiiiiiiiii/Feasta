@@ -193,9 +193,10 @@ export async function getAdminFinanceAttentionQueue(): Promise<
   await requireAdmin();
 
   const [
-    failedPayoutSnapshot,
-    reconciliationSnapshot,
-  ] = await Promise.all([
+  failedPayoutSnapshot,
+  reconciliationSnapshot,
+  ambiguousPayoutSetupSnapshot,
+] = await Promise.all([
     adminDb
       .collection(
         COLLECTIONS
@@ -225,6 +226,19 @@ export async function getAdminFinanceAttentionQueue(): Promise<
         FINANCE_ATTENTION_PER_KIND_LIMIT,
       )
       .get(),
+    adminDb
+      .collection(
+        COLLECTIONS.providerPaymentAccounts,
+      )
+      .where(
+        "inviteCreationState",
+        "==",
+        "ambiguous",
+      )
+      .limit(
+        FINANCE_ATTENTION_PER_KIND_LIMIT,
+      )
+      .get(),
   ]);
 
   const failedPayoutCandidates =
@@ -239,9 +253,15 @@ export async function getAdminFinanceAttentionQueue(): Promise<
       mapReconciliationAttentionCandidate,
     );
 
+  const ambiguousPayoutSetupCandidates =
+    ambiguousPayoutSetupSnapshot.docs.map(
+      mapAmbiguousPayoutSetupAttentionCandidate,
+    );
+
   const candidates = [
     ...failedPayoutCandidates,
     ...reconciliationCandidates,
+    ...ambiguousPayoutSetupCandidates,
   ];
 
   const paymentIds =
@@ -301,6 +321,8 @@ export async function getAdminFinanceAttentionQueue(): Promise<
             : null;
 
         if (
+          candidate.kind !==
+            "ambiguous_payout_setup" &&
           candidate.recordState ===
             "valid" &&
           !payment
@@ -335,6 +357,89 @@ export async function getAdminFinanceAttentionQueue(): Promise<
       );
 
   return {items};
+}
+
+function mapAmbiguousPayoutSetupAttentionCandidate(
+  document:
+    QueryDocumentSnapshot<DocumentData>,
+): AdminFinanceAttentionCandidate {
+  const data =
+    document.data();
+
+  const providerId =
+    nullableString(
+      data.providerId,
+    );
+
+  const updatedAt =
+    isoDateValue(
+      data.updatedAt,
+    );
+
+  const expectedUpdatedAtMillis =
+    data.updatedAt instanceof Timestamp
+      ? data.updatedAt.toMillis()
+      : null;
+
+  const paymongoAccountId =
+    nullableString(
+      data.paymongoAccountId,
+    );
+
+  const invitationId =
+    nullableString(
+      data.invitationId,
+    );
+
+  const valid =
+    data.schemaVersion === 1 &&
+    providerId === document.id &&
+    data.setupStatus ===
+      "action_required" &&
+    data.inviteCreationState ===
+      "ambiguous" &&
+    data.payoutReady === false &&
+    paymongoAccountId === null &&
+    invitationId === null &&
+    expectedUpdatedAtMillis !== null;
+
+  return {
+    id:
+      `ambiguous_payout_setup:${document.id}`,
+
+    kind:
+      "ambiguous_payout_setup",
+
+    recordState:
+      valid
+        ? "valid"
+        : "invalid",
+
+    paymentId: null,
+
+    providerId:
+      providerId ??
+      document.id,
+
+    settlementId: null,
+    payoutAttemptId: null,
+
+    status:
+      "ambiguous",
+
+    amountInCentavos: null,
+    formattedAmount: null,
+
+    reason:
+      valid
+        ? "Provider payout setup has an ambiguous external account-creation result and requires Admin review."
+        : "The ambiguous payout setup record did not pass FEASTA finance validation.",
+
+    updatedAt,
+
+    expectedUpdatedAtMillis,
+
+  };
 }
 
 async function mapFailedPayoutAttentionCandidate(
@@ -411,6 +516,7 @@ async function mapFailedPayoutAttentionCandidate(
         : null,
     reason: gatewayReason,
     updatedAt,
+    expectedUpdatedAtMillis: null,
   };
 
   if (
@@ -610,6 +716,7 @@ function mapReconciliationAttentionCandidate(
         ? reason
         : "The reconciliation record did not pass FEASTA finance validation.",
     updatedAt,
+    expectedUpdatedAtMillis: null,
   };
 }
 

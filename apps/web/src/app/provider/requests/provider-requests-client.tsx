@@ -7,6 +7,7 @@ import {
   Clock3,
   Eye,
 } from "lucide-react";
+import Link from "next/link";
 import {
   useMemo,
   useState,
@@ -20,6 +21,10 @@ import {
   acceptProviderRequest,
   rejectProviderRequest,
 } from "@/lib/provider/requests/provider-request-client";
+import {
+  providerRequestAcceptanceDescription,
+  ProviderRequestActionError,
+} from "@/lib/provider/requests/provider-request-acceptance-copy";
 
 import {
   DataTable,
@@ -84,6 +89,11 @@ export function ProviderRequestsClient({
   ] = useState<string | null>(
     null,
   );
+
+  const [
+    payoutSetupRequired,
+    setPayoutSetupRequired,
+  ] = useState(false);
 
   const [
     actionPending,
@@ -152,6 +162,7 @@ export function ProviderRequestsClient({
 
     setActionPending(true);
     setActionError(null);
+    setPayoutSetupRequired(false);
 
     try {
       await acceptProviderRequest({
@@ -164,6 +175,10 @@ export function ProviderRequestsClient({
 
       router.refresh();
     } catch (error) {
+      setPayoutSetupRequired(
+        error instanceof ProviderRequestActionError &&
+          error.payoutSetupRequired,
+      );
       setActionError(
         error instanceof Error
           ? error.message
@@ -454,6 +469,7 @@ export function ProviderRequestsClient({
         actionPending={actionPending}
         onAccept={() => {
           setActionError(null);
+          setPayoutSetupRequired(false);
           setAction("accept");
         }}
         onReject={() => {
@@ -469,6 +485,7 @@ export function ProviderRequestsClient({
             setSelectedRequest(null);
             setAction(null);
             setActionError(null);
+            setPayoutSetupRequired(false);
             setRejectionReason("");
           }
         }}
@@ -483,17 +500,16 @@ export function ProviderRequestsClient({
           ) {
             setAction(null);
             setActionError(null);
+            setPayoutSetupRequired(false);
           }
         }}
         title="Accept this request?"
         description={
-          selectedRequest &&
-          selectedRequest.downPaymentAmount > 0 &&
-          selectedRequest.downPaymentAmount < selectedRequest.amount
-            ? "The customer will be asked to complete the required down payment after you accept."
-            : selectedRequest?.downPaymentAmount
-              ? "The customer will be asked to pay the full amount after you accept."
-              : "This request will be confirmed after you accept it."
+          selectedRequest
+            ? providerRequestAcceptanceDescription(
+              selectedRequest,
+            )
+            : "This request will be confirmed after you accept it."
         }
         confirmLabel={
           actionPending
@@ -505,7 +521,30 @@ export function ProviderRequestsClient({
         onConfirm={() => {
           void handleAccept();
         }}
-      />
+      >
+        {actionError ? (
+          <div
+            className="grid gap-3"
+            role="alert"
+          >
+            <p className="rounded-md bg-destructive-subtle p-3 text-sm font-semibold text-destructive">
+              {actionError}
+            </p>
+
+            {payoutSetupRequired ? (
+              <Button
+                type="button"
+                variant="secondary"
+                asChild
+              >
+                <Link href="/provider/payments">
+                  Set up payouts
+                </Link>
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </ManagementConfirmationModal>
 
       <ManagementModal
         open={action === "reject"}
