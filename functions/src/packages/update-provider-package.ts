@@ -21,9 +21,13 @@ import {
 import {
   serverTimestamp,
 } from "../shared/timestamps.js";
+import {
+  requireActiveServiceCategoryInTransaction,
+} from "../shared/service-category-policy.js";
 
 import {
   assertCanonicalPackagePaymentTerms,
+  assertCanonicalPackageServiceCategory,
   assertDraftPackage,
   assertPackageMatchesProviderCapabilities,
   assertPackageOfferConfigured,
@@ -43,6 +47,7 @@ const ALLOWED_FIELDS = [
   "name",
   "description",
   "eventType",
+  "serviceCategoryCode",
   "price",
   "serviceOptions",
   "themeOptions",
@@ -102,6 +107,8 @@ export const updateProviderPackage = onCall(
       name: input.name,
       description: input.description,
       eventType: input.eventType,
+      serviceCategoryCode:
+        input.serviceCategoryCode,
       price: input.price,
       serviceOptions:
         input.serviceOptions,
@@ -139,6 +146,10 @@ export const updateProviderPackage = onCall(
       serviceInclusions:
         input.serviceInclusions,
     });
+
+    assertCanonicalPackageServiceCategory(
+      validated,
+    );
 
     assertCanonicalPackagePaymentTerms(
       validated,
@@ -237,6 +248,13 @@ export const updateProviderPackage = onCall(
           validated,
         );
 
+        await requireActiveServiceCategoryInTransaction(
+          transaction,
+          validated.serviceCategoryCode,
+          "catering",
+          "serviceCategoryCode",
+        );
+
         const paymentPolicyBounds =
           packagePaymentPolicyBoundsFromData(
             paymentPolicySnapshot.data(),
@@ -260,6 +278,9 @@ export const updateProviderPackage = onCall(
 
             eventType:
               validated.eventType,
+
+            serviceCategoryCode:
+              validated.serviceCategoryCode,
 
             price:
               validated.price,

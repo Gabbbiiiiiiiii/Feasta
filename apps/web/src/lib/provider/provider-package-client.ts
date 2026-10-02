@@ -12,6 +12,11 @@ import {
 } from "firebase/functions";
 
 import {
+  isServiceCategoryCode,
+  type ServiceCategoryCode,
+} from "@feasta/shared-types";
+
+import {
   WebAuthenticationError,
 } from "@/lib/auth/client-session";
 import {
@@ -39,6 +44,7 @@ export type ProviderPackageInput = {
   name: string;
   description: string;
   eventType: string;
+  serviceCategoryCode: string;
 
   price: number;
   serviceOptions: PackageServiceOptions;
@@ -71,6 +77,8 @@ export type ProviderPackage = {
   name: string;
   description: string;
   eventType: string;
+  serviceCategoryCode:
+    ServiceCategoryCode | null;
 
   price: number;
   serviceOptions: PackageServiceOptions;
@@ -230,6 +238,9 @@ function normalizePackageInput(
     eventType:
       input.eventType.trim(),
 
+    serviceCategoryCode:
+      input.serviceCategoryCode.trim(),
+
     price:
       input.price,
 
@@ -384,6 +395,11 @@ function parseProviderPackage(
         "eventType",
       ),
 
+    serviceCategoryCode:
+      optionalServiceCategoryCode(
+        data.serviceCategoryCode,
+      ),
+
     price:
       requiredNonNegativeNumber(
         data.price,
@@ -525,6 +541,24 @@ function requireDocumentId(
   }
 
   return normalized;
+}
+
+function optionalServiceCategoryCode(
+  value: unknown,
+): ServiceCategoryCode | null {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  if (!isServiceCategoryCode(value)) {
+    throw invalidPackageRecord();
+  }
+
+  return value;
 }
 
 function recordValue(

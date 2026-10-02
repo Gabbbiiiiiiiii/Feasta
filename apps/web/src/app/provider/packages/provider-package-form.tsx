@@ -52,6 +52,10 @@ type ProviderPackageFormProps = {
   dialogLayout?: boolean;
   providerServiceType?: string;
   serviceCategories?: readonly string[];
+  packageCategoryOptions: readonly {
+    code: string;
+    name: string;
+  }[];
   eventTypesSupported: string[];
   minGuestsPerEvent: number;
   maxGuestsPerEvent: number;
@@ -70,6 +74,7 @@ export function ProviderPackageForm({
   dialogLayout = false,
   providerServiceType = "catering",
   serviceCategories = [],
+  packageCategoryOptions,
   eventTypesSupported,
   minGuestsPerEvent,
   maxGuestsPerEvent,
@@ -83,6 +88,14 @@ export function ProviderPackageForm({
 
   const editing =
     initialPackage !== undefined;
+
+  const [
+    serviceCategoryCode,
+    setServiceCategoryCode,
+  ] = useState(
+    initialPackage?.serviceCategoryCode ??
+      "",
+  );
   const availableEventTypes =
     useMemo(
         () =>
@@ -227,6 +240,19 @@ export function ProviderPackageForm({
         }
 
       if (
+        !packageCategoryOptions.some(
+          (category) =>
+            category.code ===
+              serviceCategoryCode,
+        )
+      ) {
+        return {
+          field: "serviceCategoryCode",
+          message: "Choose an active catering service category for this package.",
+        };
+      }
+
+      if (
         offerConfiguration.error
       ) {
         return {
@@ -278,6 +304,8 @@ export function ProviderPackageForm({
       parsedMinimumGuests,
       parsedMaximumGuests,
       availableEventTypes,
+      packageCategoryOptions,
+      serviceCategoryCode,
       minGuestsPerEvent,
       maxGuestsPerEvent,
     ]);
@@ -322,6 +350,7 @@ export function ProviderPackageForm({
         description:
           description.trim(),
         eventType,
+        serviceCategoryCode,
         price: parsedPrice,
         serviceOptions:
           offerConfiguration.serviceOptions,
@@ -385,6 +414,35 @@ export function ProviderPackageForm({
       setSubmitting(false);
       onSubmittingChange?.(false);
     }
+  }
+
+  if (
+    packageCategoryOptions.length === 0
+  ) {
+    return (
+      <div
+        role="alert"
+        className="rounded-lg border border-destructive/30 bg-destructive/5 p-4"
+      >
+        <p className="font-medium text-foreground">
+          Package setup is unavailable
+        </p>
+
+        <p className="mt-1 text-sm text-muted-foreground">
+          Your business does not have an active catering service category available for packages. Update your provider profile before creating or editing a package.
+        </p>
+
+        <div className="mt-4">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onCancel}
+          >
+            Close
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   if (
@@ -481,6 +539,50 @@ export function ProviderPackageForm({
           </Select>
         </FormField>
       </div>
+
+      <FormField
+        label="Service category"
+        error={
+          validationError?.field ===
+            "serviceCategoryCode"
+            ? validationError.message
+            : undefined
+        }
+        required
+      >
+        <Select
+          value={serviceCategoryCode}
+          onChange={(event) =>
+            setServiceCategoryCode(
+              event.target.value,
+            )
+          }
+          className="min-h-10 w-full rounded-md border bg-background px-3 text-sm"
+        >
+          <option value="">
+            Choose a service category
+          </option>
+
+          {packageCategoryOptions.map(
+            (category) => (
+              <option
+                key={category.code}
+                value={category.code}
+              >
+                {category.name}
+              </option>
+            ),
+          )}
+        </Select>
+
+        {editing &&
+        initialPackage?.serviceCategoryCode ===
+          null ? (
+          <p className="text-xs leading-5 text-muted-foreground">
+            This legacy package does not have a service category yet. Choose one before saving.
+          </p>
+        ) : null}
+      </FormField>
 
       <FormField
         label="Description"

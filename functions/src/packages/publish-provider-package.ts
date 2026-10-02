@@ -21,9 +21,13 @@ import {
 import {
   serverTimestamp,
 } from "../shared/timestamps.js";
+import {
+  requireActiveServiceCategoryInTransaction,
+} from "../shared/service-category-policy.js";
 
 import {
   assertCanonicalPackagePaymentTerms,
+  assertCanonicalPackageServiceCategory,
   assertDraftPackage,
   assertPackageMatchesProviderCapabilities,
   assertPackagePublishable,
@@ -151,10 +155,14 @@ export const publishProviderPackage = onCall(
             packageRecord.packageData,
           );
         /*
-         * P13-C:
-         * Historical legacy/deposit package records remain readable,
-         * but newly published packages must use canonical full payment.
+         * Historical package records remain readable, but packages
+         * entering publication must use canonical category and
+         * payment-term contracts.
          */
+        assertCanonicalPackageServiceCategory(
+          validated,
+        );
+
         assertCanonicalPackagePaymentTerms(
           validated,
         );
@@ -162,6 +170,13 @@ export const publishProviderPackage = onCall(
         assertPackageMatchesProviderCapabilities(
           provider.providerData,
           validated,
+        );
+
+        await requireActiveServiceCategoryInTransaction(
+          transaction,
+          validated.serviceCategoryCode,
+          "catering",
+          "serviceCategoryCode",
         );
 
         assertPackagePublishable(

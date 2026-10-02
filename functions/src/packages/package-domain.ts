@@ -6,6 +6,11 @@ import type {
 import {HttpsError} from "firebase-functions/v2/https";
 
 import {
+  isServiceCategoryCode,
+  type ServiceCategoryCode,
+} from "../shared/service-category-code.js";
+
+import {
   isApprovedProviderForOperations,
   PROVIDER_EVENT_TYPES,
 } from "../shared/constants.js";
@@ -60,6 +65,15 @@ export type PackageInput = {
   name: string;
   description: string;
   eventType: string;
+
+  /*
+   * Historical packages may not contain this field yet.
+   * New and edited packages will require it through the
+   * canonical package-category assertion.
+   */
+  serviceCategoryCode:
+    ServiceCategoryCode | null;
+
   price: number;
   serviceOptions: PackageServiceOptions;
   themeOptions: readonly PackageThemeOption[];
@@ -250,6 +264,31 @@ export function assertPackageMatchesProviderCapabilities(
     );
   }
 
+  if (
+    packageInput.serviceCategoryCode !==
+      null
+  ) {
+    const providerServiceCategories =
+      Array.isArray(
+        providerData.serviceCategories,
+      )
+        ? providerData.serviceCategories.filter(
+            isServiceCategoryCode,
+          )
+        : [];
+
+    if (
+      !providerServiceCategories.includes(
+        packageInput.serviceCategoryCode,
+      )
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "This service category is not enabled for the provider.",
+      );
+    }
+  }
+
   const supportedEventTypes = Array.isArray(
     providerData.eventTypesSupported,
   )
@@ -325,6 +364,11 @@ export function parsePackageInput(
   const eventType = requiredEventType(
     data.eventType,
   );
+
+  const serviceCategoryCode =
+    optionalServiceCategoryCode(
+      data.serviceCategoryCode,
+    );
 
   const price = requiredMoney(
     data.price,
@@ -419,6 +463,7 @@ export function parsePackageInput(
     name,
     description,
     eventType,
+    serviceCategoryCode,
     price,
     serviceOptions,
     themeOptions,
@@ -452,20 +497,35 @@ export function parsePackageInput(
   };
 }
 
+export function assertCanonicalPackageServiceCategory(
+  packageInput: PackageInput,
+): asserts packageInput is PackageInput & {
+  serviceCategoryCode:
+    ServiceCategoryCode;
+} {
+  if (!packageInput.serviceCategoryCode) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Choose the service category for this package.",
+    );
+  }
+}
+
 export function assertCanonicalPackagePaymentTerms(
   packageInput: PackageInput,
 ): asserts packageInput is PackageInput & {
-  paymentPolicy: "full_payment";
+  paymentPolicy:
+    | "full_payment"
+    | "deposit_then_balance";
   usesLegacyPaymentTerms: false;
 } {
   if (
     packageInput.usesLegacyPaymentTerms ||
-    packageInput.paymentPolicy !==
-      "full_payment"
+    packageInput.paymentPolicy === null
   ) {
     throw new HttpsError(
       "invalid-argument",
-      "New and edited packages must use Full Payment.",
+      "New and edited packages must use canonical payment terms.",
     );
   }
 }
@@ -602,6 +662,27 @@ export function assertPublishedPackage(
       "Only published packages can be archived.",
     );
   }
+}
+
+function optionalServiceCategoryCode(
+  value: unknown,
+): ServiceCategoryCode | null {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  if (!isServiceCategoryCode(value)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Package service category is invalid.",
+    );
+  }
+
+  return value;
 }
 
 function recordValue(

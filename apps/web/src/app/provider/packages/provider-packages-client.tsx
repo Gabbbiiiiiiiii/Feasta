@@ -48,6 +48,10 @@ import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Dia
 type ProviderPackagesClientProps = {
   providerServiceType?: string;
   serviceCategories?: readonly string[];
+  packageCategoryOptions: readonly {
+    code: string;
+    name: string;
+  }[];
   providerId: string;
   eventTypesSupported: string[];
   minGuestsPerEvent: number;
@@ -60,6 +64,7 @@ type ProviderPackagesClientProps = {
 export function ProviderPackagesClient({
   providerServiceType = "catering",
   serviceCategories = [],
+  packageCategoryOptions,
   providerId,
   eventTypesSupported,
   minGuestsPerEvent,
@@ -282,6 +287,7 @@ export function ProviderPackagesClient({
           dialogLayout
           providerServiceType={providerServiceType}
           serviceCategories={serviceCategories}
+          packageCategoryOptions={packageCategoryOptions}
           eventTypesSupported={eventTypesSupported}
           minGuestsPerEvent={minGuestsPerEvent}
           maxGuestsPerEvent={maxGuestsPerEvent}

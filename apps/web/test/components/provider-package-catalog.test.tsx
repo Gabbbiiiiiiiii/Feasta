@@ -18,10 +18,10 @@ vi.mock("@/lib/provider/provider-package-client", () => ({
 }));
 vi.mock("@/lib/provider/provider-media-client", () => ({uploadProviderServiceImage: mocks.upload}));
 
-const props = {eventTypesSupported: ["birthday"], minGuestsPerEvent: 10, maxGuestsPerEvent: 200};
+const props = {eventTypesSupported: ["birthday"], minGuestsPerEvent: 10, maxGuestsPerEvent: 200, packageCategoryOptions: [{code: "catering_service", name: "Catering Service"}]};
 const image = "https://res.cloudinary.com/feasta/image/upload/v1/feasta/providers/owner/services/asset/image.png";
 const record: ProviderPackage = {
-  id: "package-one", providerId: "provider-one", name: "Party package", description: "A celebration package.", eventType: "birthday",
+  id: "package-one", providerId: "provider-one", name: "Party package", description: "A celebration package.", eventType: "birthday", serviceCategoryCode: "catering_service",
   price: 10000,
   serviceOptions: {
     drop_off: {price: 10000, includedServices: []},

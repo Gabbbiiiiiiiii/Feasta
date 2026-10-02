@@ -11,6 +11,10 @@ import {
 } from "@/lib/provider/provider-package-payment-policy-service";
 
 import {
+  getActiveServiceCategoryOptions,
+} from "@/lib/service-categories/service-category-service";
+
+import {
   ProviderPackagesClient,
 } from "./provider-packages-client";
 
@@ -26,14 +30,36 @@ export default async function ProviderPackagesPage() {
     return null;
   }
 
+  const providerServiceCategories =
+    account.provider.serviceCategories;
+
   const capabilities = providerContentCapabilities(account.provider.providerServiceType, account.provider.serviceCategories);
 
   const paymentPolicyBounds =
     await getProviderPackagePaymentPolicyBounds();
 
+  const activeServiceCategoryOptions =
+    await getActiveServiceCategoryOptions();
+
+  const packageCategoryOptions =
+    activeServiceCategoryOptions
+      .filter(
+        (category) =>
+          category.serviceType ===
+            "catering" &&
+          providerServiceCategories.includes(
+            category.code,
+          ),
+      )
+      .map((category) => ({
+        code: category.code,
+        name: category.name,
+      }));
+
   return (
     <div className="grid gap-6">
     {capabilities.packages ? <ProviderPackagesClient
+      packageCategoryOptions={packageCategoryOptions}
       providerServiceType={account.provider.providerServiceType}
       serviceCategories={account.provider.serviceCategories}
       providerId={account.provider.id}

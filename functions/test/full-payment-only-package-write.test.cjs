@@ -65,7 +65,7 @@ const base = {
 };
 
 test(
-  "P13-C accepts canonical full-payment package writes",
+  "accepts canonical full-payment package terms",
   () => {
     const parsed =
       parsePackageInput(base);
@@ -90,7 +90,7 @@ test(
 );
 
 test(
-  "P13-C rejects deposit package terms for new writes",
+  "accepts canonical deposit-plus-balance package terms",
   () => {
     const parsed =
       parsePackageInput({
@@ -109,21 +109,32 @@ test(
           7,
       });
 
-    assert.throws(
+    assert.doesNotThrow(
       () =>
         assertCanonicalPackagePaymentTerms(
           parsed,
         ),
-      {
-        code:
-          "invalid-argument",
-      },
+    );
+
+    assert.equal(
+      parsed.paymentPolicy,
+      "deposit_then_balance",
+    );
+
+    assert.equal(
+      parsed.downPaymentPercentage,
+      30,
+    );
+
+    assert.equal(
+      parsed.balanceDueDaysBeforeEvent,
+      7,
     );
   },
 );
 
 test(
-  "P13-C publish flow enforces full-payment-only terms",
+  "package publication enforces canonical payment terms",
   () => {
     const source =
       fs.readFileSync(

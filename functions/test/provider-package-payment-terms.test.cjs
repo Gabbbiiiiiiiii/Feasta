@@ -57,7 +57,7 @@ const policy = {
 };
 
 test(
-  "canonical deposit package remains readable but is rejected for new writes",
+  "canonical deposit package is accepted for new writes when within policy",
   () => {
     const parsed =
       parsePackageInput(base);
@@ -87,15 +87,10 @@ test(
       false,
     );
 
-    assert.throws(
-      () =>
-        assertCanonicalPackagePaymentTerms(
-          parsed,
-        ),
-      {
-        code:
-          "invalid-argument",
-      },
+    assert.doesNotThrow(() =>
+      assertCanonicalPackagePaymentTerms(
+        parsed,
+      ),
     );
 
     assert.doesNotThrow(() =>

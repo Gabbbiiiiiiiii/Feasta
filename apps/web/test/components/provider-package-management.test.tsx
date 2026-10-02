@@ -15,6 +15,17 @@ vi.mock("@/app/provider/packages/setup-gallery-actions", () => ({
 }));
 vi.mock("@/lib/provider/provider-media-client", () => ({uploadProviderServiceImage: vi.fn()}));
 vi.mock("@/lib/auth/session", () => ({requireProviderCatalogAccess: mocks.account}));
+vi.mock("@/lib/service-categories/service-category-service", () => ({
+  getActiveServiceCategoryOptions:
+    vi.fn().mockResolvedValue([
+      {
+        code: "catering_service",
+        name: "Catering Service",
+        serviceType: "catering",
+        status: "active",
+      },
+    ]),
+}));
 vi.mock(
   "@/lib/provider/provider-package-payment-policy-service",
   () => ({
@@ -35,10 +46,10 @@ vi.mock(
   }),
 );
 
-const props = {providerId: "provider-one", eventTypesSupported: ["birthday", "wedding"], minGuestsPerEvent: 10, maxGuestsPerEvent: 200};
+const props = {providerId: "provider-one", eventTypesSupported: ["birthday", "wedding"], minGuestsPerEvent: 10, maxGuestsPerEvent: 200, packageCategoryOptions: [{code: "catering_service", name: "Catering Service"}]};
 const base: ProviderPackage = {
   id: "newest", providerId: props.providerId, name: "Zeta celebration", description: "Family gathering",
-  eventType: "birthday", price: 12000,
+  eventType: "birthday", serviceCategoryCode: "catering_service", price: 12000,
   serviceOptions: {
     drop_off: {price: 12000, includedServices: []},
   },

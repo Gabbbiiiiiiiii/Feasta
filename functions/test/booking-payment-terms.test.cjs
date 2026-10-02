@@ -303,7 +303,7 @@ test(
 
     assert.match(
       source,
-      /const packagePaymentTerms/u,
+      /let packagePaymentTerms/u,
     );
 
     assert.match(
