@@ -84,14 +84,8 @@ export function packagePaymentPolicyBoundsFromData(
   if (
     minimumDepositRateBps === null ||
     maximumDepositRateBps === null ||
-    minimumBalanceDueDaysBeforeEvent ===
-      null ||
-    maximumBalanceDueDaysBeforeEvent ===
-      null ||
     minimumDepositRateBps >
-      maximumDepositRateBps ||
-    minimumBalanceDueDaysBeforeEvent >
-      maximumBalanceDueDaysBeforeEvent
+      maximumDepositRateBps
   ) {
     return defaultBounds();
   }
@@ -99,8 +93,8 @@ export function packagePaymentPolicyBoundsFromData(
   return {
     minimumDepositRateBps,
     maximumDepositRateBps,
-    minimumBalanceDueDaysBeforeEvent,
-    maximumBalanceDueDaysBeforeEvent,
+    minimumBalanceDueDaysBeforeEvent: minimumBalanceDueDaysBeforeEvent ?? 1,
+    maximumBalanceDueDaysBeforeEvent: maximumBalanceDueDaysBeforeEvent ?? 30,
   };
 }
 

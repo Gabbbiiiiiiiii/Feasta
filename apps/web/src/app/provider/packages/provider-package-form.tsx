@@ -188,25 +188,15 @@ export function ProviderPackageForm({
 
   const minimumDepositPercentageAllowed = depositRateBpsToPercentage(paymentPolicyBounds.minimumDepositRateBps);
   const maximumDepositPercentageAllowed = depositRateBpsToPercentage(paymentPolicyBounds.maximumDepositRateBps);
-  const minimumBalanceDaysAllowed = paymentPolicyBounds.minimumBalanceDueDaysBeforeEvent;
-  const maximumBalanceDaysAllowed = paymentPolicyBounds.maximumBalanceDueDaysBeforeEvent;
   const [paymentPolicy, setPaymentPolicy] = useState<ProviderPackagePaymentPolicy>(initialPackage?.paymentPolicy ?? "full_payment");
   const [depositPercentage, setDepositPercentage] = useState(
     initialPackage?.paymentPolicy === "deposit_then_balance" ? String(initialPackage.depositPercentage) : "",
   );
-  const [balanceDueDaysBeforeEvent, setBalanceDueDaysBeforeEvent] = useState(
-    initialPackage?.paymentPolicy === "deposit_then_balance" && initialPackage.balanceDueDaysBeforeEvent !== null
-      ? String(initialPackage.balanceDueDaysBeforeEvent) : "",
-  );
   const parsedDepositPercentage = depositPercentage.trim() === "" ? Number.NaN : Number(depositPercentage);
-  const parsedBalanceDueDays = balanceDueDaysBeforeEvent.trim() === "" ? Number.NaN : Number(balanceDueDaysBeforeEvent);
   const depositError = paymentPolicy === "deposit_then_balance" && (
     !Number.isFinite(parsedDepositPercentage) || parsedDepositPercentage <= 0 || parsedDepositPercentage >= 100 ||
     parsedDepositPercentage < minimumDepositPercentageAllowed || parsedDepositPercentage > maximumDepositPercentageAllowed
   ) ? `Enter a deposit percentage between ${minimumDepositPercentageAllowed}% and ${maximumDepositPercentageAllowed}%, greater than 0% and below 100%.` : undefined;
-  const balanceError = paymentPolicy === "deposit_then_balance" && (
-    !Number.isInteger(parsedBalanceDueDays) || parsedBalanceDueDays < minimumBalanceDaysAllowed || parsedBalanceDueDays > maximumBalanceDaysAllowed
-  ) ? `Enter a whole number between ${minimumBalanceDaysAllowed} and ${maximumBalanceDaysAllowed} days before the event.` : undefined;
 
   const [images, setImages] = useState(() => packageImageDrafts(initialPackage?.imageUrls, initialPackage?.imageUrl));
   const [offerDraft, setOfferDraft] =
@@ -339,7 +329,7 @@ export function ProviderPackageForm({
   ) {
     event.preventDefault();
 
-    if (submitting || validationError || depositError || balanceError) {
+    if (submitting || validationError || depositError) {
       return;
     }
 
@@ -383,7 +373,6 @@ export function ProviderPackageForm({
 
         paymentPolicy,
         depositPercentage: paymentPolicy === "full_payment" ? 100 : parsedDepositPercentage,
-        balanceDueDaysBeforeEvent: paymentPolicy === "full_payment" ? null : parsedBalanceDueDays,
 
         minimumGuests:
           parsedMinimumGuests,
@@ -663,7 +652,7 @@ export function ProviderPackageForm({
             <p className="text-xs leading-5 text-muted-foreground">
               {paymentPolicy === "full_payment"
                 ? "Customers pay the full amount after you accept their booking request."
-                : "Customers can pay the required deposit first and must pay the remaining balance by the package deadline."}
+                : "Customers can pay the required deposit first and must pay the remaining balance 24 hours before the scheduled event start."}
             </p>
           </FormField>
           {paymentPolicy === "deposit_then_balance" ? (
@@ -673,11 +662,11 @@ export function ProviderPackageForm({
                 <Input type="number" min={minimumDepositPercentageAllowed} max={maximumDepositPercentageAllowed}
                   step="any" value={depositPercentage} onChange={(event) => setDepositPercentage(event.target.value)} />
               </FormField>
-              <FormField label="Remaining balance due (days before event)" error={balanceError} required
-                description={`Current FEASTA policy allows ${minimumBalanceDaysAllowed}–${maximumBalanceDaysAllowed} days before the event.`}>
-                <Input type="number" min={minimumBalanceDaysAllowed} max={maximumBalanceDaysAllowed}
-                  step="1" value={balanceDueDaysBeforeEvent} onChange={(event) => setBalanceDueDaysBeforeEvent(event.target.value)} />
-              </FormField>
+              <div className="grid content-start gap-2 text-sm">
+                <p className="font-semibold">Remaining balance deadline</p>
+                <p>24 hours before the scheduled event start</p>
+                <p className="text-muted-foreground">FEASTA automatically sets the remaining balance deadline based on the Customer&apos;s event date and start time.</p>
+              </div>
             </div>
           ) : null}
         </div>
@@ -830,7 +819,7 @@ export function ProviderPackageForm({
             submitting ||
             Boolean(
               validationError,
-            ) || Boolean(depositError) || Boolean(balanceError)
+            ) || Boolean(depositError)
           }
           loading={submitting}
           loadingLabel={

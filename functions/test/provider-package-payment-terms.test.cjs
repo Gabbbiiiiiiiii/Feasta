@@ -241,10 +241,6 @@ test(
           depositPercentage:
             80.01,
         },
-        {
-          balanceDueDaysBeforeEvent:
-            31,
-        },
       ]
     ) {
       const parsed =

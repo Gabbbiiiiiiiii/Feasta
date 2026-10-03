@@ -1,3 +1,4 @@
+import {BALANCE_DUE_HOURS_BEFORE_EVENT, canonicalBalanceTiming, canonicalBalanceSchedule, scheduledEventStart} from "../payments/canonical-balance-timing.js";
 import {
   Timestamp,
 } from "firebase-admin/firestore";
@@ -65,7 +66,6 @@ import {
 } from "../provider-finance/provider-payment-account-domain.js";
 import {
   AVAILABILITY_COUNTED_REQUEST_STATUSES,
-  manilaDateKey,
   manilaDateRange,
   PROVIDER_PAYMENT_HOLD_WINDOW_MS,
   validateProviderAvailability,
@@ -415,15 +415,21 @@ export const acceptProviderRequest = onCall(
           /*
            * P10 freezes balance timing at Provider acceptance.
            *
-           * It is derived from the already-frozen package payment
-           * terms and the authoritative event date. Later package
+           * Version 2 uses the authoritative Manila event date and clock.
+           * Version 1 retains the frozen legacy package day terms. Later package
            * edits therefore cannot move the Customer's due date.
            *
            * Legacy records without canonical payment terms remain
            * explicit legacy records instead of receiving invented
            * due dates.
            */
-          const remainingBalanceTiming =
+          const canonicalTiming = packagePaymentTerms?.schemaVersion === 2 &&
+            packagePaymentTerms.paymentPolicy === "deposit_then_balance" && financialSnapshot.remainingBalanceInCentavos > 0
+            ? canonicalBalanceTiming(acceptanceSnapshot.eventDate.toDate(), acceptanceSnapshot.eventTime) : null;
+          const remainingBalanceTiming = canonicalTiming
+            ? canonicalBalanceSchedule({...canonicalTiming, now: acceptanceTime,
+                remainingAmountInCentavos: financialSnapshot.remainingBalanceInCentavos})
+            :
             balanceDueDaysBeforeEvent === null
               ? null
               : remainingBalanceSchedule({
@@ -515,10 +521,7 @@ export const acceptProviderRequest = onCall(
           });
           // Reuse the existing payment expiry field, starting only when the
           // entire lineup is ready and never extending beyond event start.
-          const eventStart = new Date(
-            `${manilaDateKey(acceptanceSnapshot.eventDate.toDate())}` +
-            `T${acceptanceSnapshot.eventTime}:00+08:00`,
-          );
+          const eventStart = scheduledEventStart(acceptanceSnapshot.eventDate.toDate(), acceptanceSnapshot.eventTime);
           const paymentDeadline = Timestamp.fromMillis(Math.min(
             acceptanceTime.getTime() + PROVIDER_PAYMENT_HOLD_WINDOW_MS,
             eventStart.getTime(),
@@ -558,22 +561,29 @@ export const acceptProviderRequest = onCall(
                * These fields describe when the Customer owes the
                * remaining booking balance only.
                */
+              ...(canonicalTiming && remainingBalanceTiming
+                ? {remainingBalanceStatus: remainingBalanceTiming.status}
+                : {}),
+              providerOwnerId: authorized.providerOwnerId,
               remainingBalanceTimingSchemaVersion:
                 remainingBalanceTiming
-                  ? 1
+                  ? (canonicalTiming ? 2 : 1)
                   : null,
 
+              balanceDueHoursBeforeEvent: canonicalTiming ? BALANCE_DUE_HOURS_BEFORE_EVENT : null,
+              remainingBalanceReminderAt: canonicalTiming ? Timestamp.fromDate(canonicalTiming.reminderAt) : null,
+              eventStartAt: canonicalTiming ? Timestamp.fromDate(canonicalTiming.eventStartAt) : null,
               balanceDueDaysBeforeEvent:
                 balanceDueDaysBeforeEvent,
 
               remainingBalanceDueSoonWindowDays:
-                remainingBalanceTiming
+                remainingBalanceTiming && !canonicalTiming
                   ? DEFAULT_REMAINING_BALANCE_TIMING_POLICY
                       .dueSoonWindowDays
                   : null,
 
               remainingBalanceGracePeriodDays:
-                remainingBalanceTiming
+                remainingBalanceTiming && !canonicalTiming
                   ? DEFAULT_REMAINING_BALANCE_TIMING_POLICY
                       .gracePeriodDays
                   : null,

@@ -25,6 +25,7 @@ export type AdminPlatformSettings = {
   minimumDepositRateBps: number;
   maximumDepositRateBps: number;
 
+  /** Legacy stored bounds; new packages use the FEASTA T-24 deadline. */
   minimumBalanceDueDaysBeforeEvent:
     number;
 

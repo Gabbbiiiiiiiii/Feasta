@@ -18,7 +18,9 @@ test("new bookings accept canonical full payment and exact basis-point deposits"
   const deposit = requireNewBookingCanonicalPaymentTerms(terms());
   assert.equal(deposit.depositRateBps, 5050);
   assert.equal(deposit.depositRateBps / 100, 50.5);
-  assert.equal(deposit.balanceDueDaysBeforeEvent, 7);
+  assert.equal(deposit.balanceDueDaysBeforeEvent, null);
+  assert.equal(deposit.schemaVersion, 2);
+  assert.equal(deposit.balanceDueHoursBeforeEvent, 24);
 });
 
 test("legacy terms remain readable but are rejected for every new package booking", () => {

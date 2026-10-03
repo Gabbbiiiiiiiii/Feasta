@@ -103,6 +103,15 @@ beforeEach(() => {
 });
 const cardNames = () => screen.getAllByRole("article").map((element) => element.getAttribute("aria-label"));
 
+it("keeps the deposit editable and explains the FEASTA deadline without a day input", async () => {
+  render(<ProviderPackagesClient {...props} />);
+  fireEvent.click(await screen.findByRole("button", {name: `Edit ${base.name}`}));
+  expect(screen.getByLabelText(/Deposit required/)).toHaveValue(20);
+  expect(screen.queryByLabelText(/Remaining balance due \(days before event\)/)).not.toBeInTheDocument();
+  expect(screen.getByText("24 hours before the scheduled event start")).toBeVisible();
+  expect(screen.getByText(/FEASTA automatically sets the remaining balance deadline/)).toBeVisible();
+});
+
 it("renders real package metrics, media, prices, guests and lifecycle actions", async () => {
   render(<ProviderPackagesClient {...props} />);
   const draft = await screen.findByRole("article", {name: base.name});
@@ -113,7 +122,7 @@ it("renders real package metrics, media, prices, guests and lifecycle actions", 
   expect(within(draft).getByText(/12,000/)).toBeVisible();
   expect(
     within(draft).getByText(
-      "20% minimum payment · Balance due 7 days before event",
+      "20% deposit ? Balance due 24 hours before scheduled event start",
     ),
   ).toBeVisible();
   expect(within(draft).getByRole("button", {name: `Edit ${base.name}`})).toBeEnabled();

@@ -55,7 +55,7 @@ export type ProviderPackageInput = {
 
   depositPercentage: number;
 
-  balanceDueDaysBeforeEvent:
+  balanceDueDaysBeforeEvent?:
     number | null;
 
   minimumGuests: number;
@@ -256,9 +256,6 @@ function normalizePackageInput(
     depositPercentage:
       input.depositPercentage,
 
-    balanceDueDaysBeforeEvent:
-      input.balanceDueDaysBeforeEvent,
-
     minimumGuests:
       input.minimumGuests,
 
@@ -355,15 +352,15 @@ function parseProviderPackage(
       throw invalidPackageRecord();
     }
 
-    balanceDueDaysBeforeEvent =
-      requiredNonNegativeInteger(
+    balanceDueDaysBeforeEvent = data.paymentTermsSchemaVersion === 2
+      ? null : requiredNonNegativeInteger(
         data.balanceDueDaysBeforeEvent,
         "balanceDueDaysBeforeEvent",
       );
 
     if (
-      balanceDueDaysBeforeEvent < 1 ||
-      balanceDueDaysBeforeEvent > 365
+      balanceDueDaysBeforeEvent !== null && (balanceDueDaysBeforeEvent < 1 ||
+      balanceDueDaysBeforeEvent > 365)
     ) {
       throw invalidPackageRecord();
     }

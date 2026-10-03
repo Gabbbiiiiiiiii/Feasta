@@ -41,8 +41,8 @@ const ACTIVE_REMAINING_BALANCE_STATUSES = [
 /*
  * Reconcile remaining-balance lifecycle once per hour.
  *
- * Manila calendar boundaries occur at midnight, so an hourly cron
- * with Asia/Manila timezone evaluates those transitions promptly.
+ * Frozen exact v2 timestamps are evaluated on the next hourly run.
+ * Legacy Manila calendar timing remains supported.
  *
  * Firestore transaction conflicts plus deterministic notification
  * IDs make overlapping scheduler invocations safe.
@@ -222,6 +222,15 @@ export const reconcileRemainingBalanceLifecycle =
                       },
                     },
                   );
+                }
+
+                if (providerRequest.remainingBalanceTimingSchemaVersion === 2 &&
+                  plan.reminder?.stage === "due" && plan.notificationId) {
+                  createNotificationWithIdInTransaction(transaction, plan.notificationId + "_provider", {
+                    userId: requireStoredId(providerRequest.providerOwnerId, "Provider owner"),
+                    title: "Customer remaining balance is due", message: plan.reminder.message.replace("Your remaining", "The customer's remaining"),
+                    type: "payment", relatedId: snapshot.id, relatedCollection: "providerRequests",
+                  });
                 }
 
                 return true;

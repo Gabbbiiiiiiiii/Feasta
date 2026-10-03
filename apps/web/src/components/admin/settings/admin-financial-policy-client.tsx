@@ -85,26 +85,6 @@ function AdminFinancialPolicyClient({
   );
 
   const [
-    minimumBalanceDueDays,
-    setMinimumBalanceDueDays,
-  ] = useState(
-    String(
-      initialSettings
-        .minimumBalanceDueDaysBeforeEvent,
-    ),
-  );
-
-  const [
-    maximumBalanceDueDays,
-    setMaximumBalanceDueDays,
-  ] = useState(
-    String(
-      initialSettings
-        .maximumBalanceDueDaysBeforeEvent,
-    ),
-  );
-
-  const [
     internalReason,
     setInternalReason,
   ] = useState("");
@@ -144,29 +124,15 @@ function AdminFinancialPolicyClient({
       maximumDepositPercentage,
     );
 
-  const minimumBalanceDueDaysBeforeEvent =
-    daysInputToInteger(
-      minimumBalanceDueDays,
-    );
-
-  const maximumBalanceDueDaysBeforeEvent =
-    daysInputToInteger(
-      maximumBalanceDueDays,
-    );
+  // Retain stored legacy fields when editing unrelated financial settings.
+  const minimumBalanceDueDaysBeforeEvent = savedSettings.minimumBalanceDueDaysBeforeEvent;
+  const maximumBalanceDueDaysBeforeEvent = savedSettings.maximumBalanceDueDaysBeforeEvent;
 
   const depositBoundsValid =
     minimumDepositRateBps !== null &&
     maximumDepositRateBps !== null &&
     minimumDepositRateBps <=
       maximumDepositRateBps;
-
-  const balanceDeadlineBoundsValid =
-    minimumBalanceDueDaysBeforeEvent !==
-      null &&
-    maximumBalanceDueDaysBeforeEvent !==
-      null &&
-    minimumBalanceDueDaysBeforeEvent <=
-      maximumBalanceDueDaysBeforeEvent;
 
   /*
    * Raw-value comparison intentionally keeps
@@ -197,22 +163,10 @@ function AdminFinancialPolicyClient({
         basisPointsToInput(
           savedSettings
             .maximumDepositRateBps,
-        ) ||
-      minimumBalanceDueDays !==
-        String(
-          savedSettings
-            .minimumBalanceDueDaysBeforeEvent,
-        ) ||
-      maximumBalanceDueDays !==
-        String(
-          savedSettings
-            .maximumBalanceDueDaysBeforeEvent,
         ),
     [
       commissionPercentage,
-      maximumBalanceDueDays,
       maximumDepositPercentage,
-      minimumBalanceDueDays,
       minimumDepositPercentage,
       platformTaxStatus,
       savedSettings,
@@ -225,7 +179,6 @@ function AdminFinancialPolicyClient({
     commissionRateBps !== null &&
     vatRateBps !== null &&
     depositBoundsValid &&
-    balanceDeadlineBoundsValid &&
     (
       platformTaxStatus ===
         "non_vat" ||
@@ -269,28 +222,6 @@ function AdminFinancialPolicyClient({
     ) {
       setError(
         "Minimum deposit rate cannot exceed the maximum deposit rate.",
-      );
-      return;
-    }
-
-    if (
-      minimumBalanceDueDaysBeforeEvent ===
-        null ||
-      maximumBalanceDueDaysBeforeEvent ===
-        null
-    ) {
-      setError(
-        "Balance deadlines must be whole numbers between 1 and 365 days.",
-      );
-      return;
-    }
-
-    if (
-      minimumBalanceDueDaysBeforeEvent >
-      maximumBalanceDueDaysBeforeEvent
-    ) {
-      setError(
-        "Minimum balance deadline cannot exceed the maximum balance deadline.",
       );
       return;
     }
@@ -369,20 +300,6 @@ function AdminFinancialPolicyClient({
             ),
           );
 
-          setMinimumBalanceDueDays(
-            String(
-              result.settings
-                .minimumBalanceDueDaysBeforeEvent,
-            ),
-          );
-
-          setMaximumBalanceDueDays(
-            String(
-              result.settings
-                .maximumBalanceDueDaysBeforeEvent,
-            ),
-          );
-
           setInternalReason("");
 
           setSuccess(
@@ -435,20 +352,6 @@ function AdminFinancialPolicyClient({
       basisPointsToInput(
         savedSettings
           .maximumDepositRateBps,
-      ),
-    );
-
-    setMinimumBalanceDueDays(
-      String(
-        savedSettings
-          .minimumBalanceDueDaysBeforeEvent,
-      ),
-    );
-
-    setMaximumBalanceDueDays(
-      String(
-        savedSettings
-          .maximumBalanceDueDaysBeforeEvent,
       ),
     );
 
@@ -756,74 +659,6 @@ function AdminFinancialPolicyClient({
             </span>
           </div>
 
-          <div className="grid gap-2">
-            <label
-              htmlFor="financial-policy-minimum-balance-deadline"
-              className="font-semibold text-foreground"
-            >
-              Minimum balance deadline (days before event)
-            </label>
-
-            <Input
-              id="financial-policy-minimum-balance-deadline"
-              type="number"
-              min="1"
-              max="365"
-              step="1"
-              inputMode="numeric"
-              value={
-                minimumBalanceDueDays
-              }
-              disabled={isPending}
-              onChange={(event) => {
-                setMinimumBalanceDueDays(
-                  event.currentTarget
-                    .value,
-                );
-              }}
-            />
-
-            <span className="text-sm leading-5 text-muted-foreground">
-              Earliest allowed lower bound
-              for a package&apos;s remaining
-              balance deadline.
-            </span>
-          </div>
-
-          <div className="grid gap-2">
-            <label
-              htmlFor="financial-policy-maximum-balance-deadline"
-              className="font-semibold text-foreground"
-            >
-              Maximum balance deadline (days before event)
-            </label>
-
-            <Input
-              id="financial-policy-maximum-balance-deadline"
-              type="number"
-              min="1"
-              max="365"
-              step="1"
-              inputMode="numeric"
-              value={
-                maximumBalanceDueDays
-              }
-              disabled={isPending}
-              onChange={(event) => {
-                setMaximumBalanceDueDays(
-                  event.currentTarget
-                    .value,
-                );
-              }}
-            />
-
-            <span className="text-sm leading-5 text-muted-foreground">
-              Package balance deadlines
-              must remain within the saved
-              minimum and maximum limits.
-            </span>
-          </div>
-
           <div className="grid content-start gap-2 rounded-lg border border-border bg-muted/30 p-4">
             <p className="font-semibold text-foreground">
               Current interpretation
@@ -879,14 +714,7 @@ function AdminFinancialPolicyClient({
                 }
               />
 
-              <PolicyValue
-                label="Balance deadline range"
-                value={
-                  balanceDeadlineBoundsValid
-                    ? `${minimumBalanceDueDaysBeforeEvent}–${maximumBalanceDueDaysBeforeEvent} days before event`
-                    : "Invalid"
-                }
-              />
+              <PolicyValue label="Remaining balance deadline" value="24 hours before scheduled event start" />
             </dl>
           </div>
         </div>
@@ -1026,32 +854,6 @@ function depositInputToBasisPoints(
   }
 
   return basisPoints;
-}
-
-function daysInputToInteger(
-  value: string,
-): number | null {
-  const normalized =
-    value.trim();
-
-  if (!normalized) {
-    return null;
-  }
-
-  const days =
-    Number(normalized);
-
-  if (
-    !Number.isSafeInteger(
-      days,
-    ) ||
-    days < 1 ||
-    days > 365
-  ) {
-    return null;
-  }
-
-  return days;
 }
 
 function basisPointsToInput(

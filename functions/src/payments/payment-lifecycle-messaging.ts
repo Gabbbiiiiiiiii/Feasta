@@ -1,6 +1,24 @@
 import type {
   PaymentStatus,
 } from "../shared/constants.js";
+import {balanceDeadlineMessage} from "./canonical-balance-timing.js";
+
+export function depositReceivedNotification(input: {
+  status: PaymentStatus; paymentChoice: unknown;
+  providerRequest: Readonly<Record<string, unknown>>;
+  settlementUpdate: Readonly<Record<string, unknown>>;
+}): {title: string; message: string} | null {
+  if (input.status !== "paid" || input.paymentChoice !== "minimum" ||
+    input.settlementUpdate.settlementStatus !== "deposit_settled") return null;
+  const financial = input.providerRequest.financialSnapshot as Record<string, unknown> | undefined;
+  const amount = input.settlementUpdate.outstandingAmountInCentavos;
+  const dueAt = (input.providerRequest.remainingBalanceDueAt as {toDate?: () => Date} | undefined)?.toDate?.();
+  if (!financial || financial.currency !== "PHP" || financial.schemaVersion !== 1 ||
+    !Number.isSafeInteger(amount) || (amount as number) <= 0 ||
+    amount !== financial.remainingBalanceInCentavos || !(dueAt instanceof Date) ||
+    !Number.isFinite(dueAt.getTime())) return null;
+  return {title: "Deposit received", message: "Your deposit was confirmed. " + balanceDeadlineMessage(amount as number, dueAt)};
+}
 
 import {
   parseCustomerPaymentChoice,

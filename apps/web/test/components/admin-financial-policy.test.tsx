@@ -137,17 +137,9 @@ describe(
           ),
         ).toHaveValue(80);
 
-        expect(
-          screen.getByLabelText(
-            "Minimum balance deadline (days before event)",
-          ),
-        ).toHaveValue(1);
+        expect(screen.queryByLabelText(/balance deadline \(days before event\)/i)).not.toBeInTheDocument();
 
-        expect(
-          screen.getByLabelText(
-            "Maximum balance deadline (days before event)",
-          ),
-        ).toHaveValue(30);
+        expect(screen.queryByLabelText(/balance deadline \(days before event\)/i)).not.toBeInTheDocument();
 
         expect(
           screen.getByText(
@@ -375,10 +367,10 @@ describe(
               7500,
 
             minimumBalanceDueDaysBeforeEvent:
-              2,
+              1,
 
             maximumBalanceDueDaysBeforeEvent:
-              21,
+              30,
 
             financialPolicyVersion:
               2,
@@ -447,27 +439,7 @@ describe(
           },
         );
 
-        fireEvent.change(
-          screen.getByLabelText(
-            "Minimum balance deadline (days before event)",
-          ),
-          {
-            target: {
-              value: "2",
-            },
-          },
-        );
 
-        fireEvent.change(
-          screen.getByLabelText(
-            "Maximum balance deadline (days before event)",
-          ),
-          {
-            target: {
-              value: "21",
-            },
-          },
-        );
 
         fireEvent.change(
           screen.getByLabelText(
@@ -511,10 +483,10 @@ describe(
               7500,
 
             minimumBalanceDueDaysBeforeEvent:
-              2,
+              1,
 
             maximumBalanceDueDaysBeforeEvent:
-              21,
+              30,
 
             internalReason:
               "Update the versioned financial and payment-term policy.",
@@ -539,11 +511,7 @@ describe(
           ),
         ).toHaveValue(25);
 
-        expect(
-          screen.getByLabelText(
-            "Maximum balance deadline (days before event)",
-          ),
-        ).toHaveValue(21);
+        expect(screen.queryByLabelText(/balance deadline \(days before event\)/i)).not.toBeInTheDocument();
 
         expect(
           screen.getByLabelText(
@@ -586,16 +554,6 @@ describe(
           },
         );
 
-        fireEvent.change(
-          screen.getByLabelText(
-            "Maximum balance deadline (days before event)",
-          ),
-          {
-            target: {
-              value: "14",
-            },
-          },
-        );
 
         fireEvent.click(
           screen.getByRole(
@@ -619,11 +577,7 @@ describe(
           ),
         ).toHaveValue(80);
 
-        expect(
-          screen.getByLabelText(
-            "Maximum balance deadline (days before event)",
-          ),
-        ).toHaveValue(30);
+        expect(screen.queryByLabelText(/balance deadline \(days before event\)/i)).not.toBeInTheDocument();
       },
     );
   },

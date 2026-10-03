@@ -1,3 +1,4 @@
+import {frozenCanonicalBalanceTiming} from "./canonical-balance-timing.js";
 import {
   HttpsError,
   onCall,
@@ -1006,6 +1007,14 @@ function validateRemainingBalanceTimingSnapshot(
 ): void {
   const request =
     input.providerRequest;
+
+  if (request.remainingBalanceTimingSchemaVersion === 2) {
+    try { frozenCanonicalBalanceTiming(request); } catch {
+      throw new HttpsError("failed-precondition", "The remaining-balance schedule is invalid.");
+    }
+    // Early payment is deliberately allowed for the exact frozen v2 deadline.
+    return;
+  }
 
   /*
    * P10 is intentionally fail-closed for new canonical balance

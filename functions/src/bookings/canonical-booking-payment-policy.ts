@@ -1,3 +1,5 @@
+import {BALANCE_DUE_HOURS_BEFORE_EVENT} from "../payments/canonical-balance-timing.js";
+import {parsePackagePaymentTermsSnapshot} from "../payments/package-payment-terms.js";
 import {HttpsError} from "firebase-functions/v2/https";
 
 import type {PackagePaymentTermsSnapshot} from "../payments/package-payment-terms.js";
@@ -14,18 +16,19 @@ export type NewBookingCanonicalPaymentTerms = PackagePaymentTermsSnapshot & {
 export function requireNewBookingCanonicalPaymentTerms(
   terms: PackagePaymentTermsSnapshot,
 ): NewBookingCanonicalPaymentTerms {
+  terms = parsePackagePaymentTermsSnapshot(terms)!;
   const validPolicyTerms = terms.paymentPolicy === "full_payment"
     ? terms.depositRateBps === FULL_PAYMENT_RATE_BPS &&
       terms.balanceDueDaysBeforeEvent === null
     : terms.paymentPolicy === "deposit_then_balance" &&
       Number.isSafeInteger(terms.depositRateBps) &&
       terms.depositRateBps > 0 && terms.depositRateBps < FULL_PAYMENT_RATE_BPS &&
-      Number.isSafeInteger(terms.balanceDueDaysBeforeEvent) &&
-      terms.balanceDueDaysBeforeEvent !== null &&
-      terms.balanceDueDaysBeforeEvent > 0 && terms.balanceDueDaysBeforeEvent <= 365;
+      (terms.schemaVersion === 2 ? terms.balanceDueHoursBeforeEvent === BALANCE_DUE_HOURS_BEFORE_EVENT :
+        Number.isSafeInteger(terms.balanceDueDaysBeforeEvent) && terms.balanceDueDaysBeforeEvent !== null &&
+        terms.balanceDueDaysBeforeEvent > 0 && terms.balanceDueDaysBeforeEvent <= 365);
 
   if (
-    terms.schemaVersion !== 1 ||
+    (terms.schemaVersion !== 1 && terms.schemaVersion !== 2) ||
     terms.source !== "canonical_package" ||
     terms.usesLegacyPaymentTerms !== false ||
     !validPolicyTerms
@@ -37,5 +40,7 @@ export function requireNewBookingCanonicalPaymentTerms(
     );
   }
 
-  return terms as NewBookingCanonicalPaymentTerms;
+  return {...terms, schemaVersion: 2, balanceDueDaysBeforeEvent: null,
+    balanceDueHoursBeforeEvent: terms.paymentPolicy === "deposit_then_balance" ? BALANCE_DUE_HOURS_BEFORE_EVENT : null,
+  } as NewBookingCanonicalPaymentTerms;
 }

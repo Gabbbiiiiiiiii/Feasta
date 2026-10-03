@@ -1,3 +1,4 @@
+import {BALANCE_DUE_HOURS_BEFORE_EVENT} from "../payments/canonical-balance-timing.js";
 import {createHash} from "node:crypto";
 
 import {
@@ -128,9 +129,10 @@ export type ResolvedServiceBookingPolicy = {
 /*
  * Bootstrap defaults only.
  *
- * Runtime Firestore policy can override these
+ * Runtime Firestore policy can override configurable defaults
  * through appSettings/platform and the selected
- * service-category/package records.
+ * service-category/package records. The balance deadline remains
+ * a FEASTA invariant regardless of stored overrides.
  *
  * Business logic must consume the resolved
  * effective policy instead of importing these
@@ -150,7 +152,7 @@ ServiceBookingPolicy = {
       48,
 
     balanceDueHoursBeforeEvent:
-      24,
+      BALANCE_DUE_HOURS_BEFORE_EVENT,
   },
 
   preparation: {
@@ -267,6 +269,9 @@ export function resolveServiceBookingPolicy(
       policy,
       packageOverride,
     );
+
+  // Normalize before validation and hashing; stored overrides have no authority.
+  policy.payment.balanceDueHoursBeforeEvent = BALANCE_DUE_HOURS_BEFORE_EVENT;
 
   validatePolicy(policy);
 
@@ -585,20 +590,8 @@ function parsePaymentOverride(
       );
   }
 
-  if (
-    record.balanceDueHoursBeforeEvent !==
-      undefined
-  ) {
-    result
-      .balanceDueHoursBeforeEvent =
-      boundedInteger(
-        record
-          .balanceDueHoursBeforeEvent,
-        0,
-        MAX_POLICY_HOURS,
-        `${label} balance deadline`,
-      );
-  }
+  // Tolerate the obsolete stored field, but never copy it into an override.
+  // FEASTA owns the exact T-24 deadline for every resolved policy.
 
   return result;
 }

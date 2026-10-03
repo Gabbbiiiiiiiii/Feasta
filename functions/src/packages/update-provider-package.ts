@@ -1,3 +1,4 @@
+import {BALANCE_DUE_HOURS_BEFORE_EVENT} from "../payments/canonical-balance-timing.js";
 import {cloudinarySecrets} from "../shared/cloudinary.js";
 import {
   HttpsError,
@@ -34,7 +35,7 @@ import {
   assertPackagePaymentTermsWithinPolicy,
   authorizeOwnedPackage,
   authorizeProviderForPackageManagement,
-  parsePackageInput,
+  parseCanonicalPackageWrite,
   verifyPackageImages,
 } from "./package-domain.js";
 import {
@@ -103,7 +104,7 @@ export const updateProviderPackage = onCall(
       "packageId",
     );
 
-    const validated = parsePackageInput({
+    const validated = parseCanonicalPackageWrite({
       name: input.name,
       description: input.description,
       eventType: input.eventType,
@@ -122,7 +123,7 @@ export const updateProviderPackage = onCall(
         input.depositPercentage,
 
       balanceDueDaysBeforeEvent:
-        input.balanceDueDaysBeforeEvent,
+        null,
 
       /*
        * Optional compatibility input is accepted
@@ -291,6 +292,8 @@ export const updateProviderPackage = onCall(
             themeOptions:
               validated.themeOptions,
 
+            paymentTermsSchemaVersion: 2,
+            balanceDueHoursBeforeEvent: validated.paymentPolicy === "deposit_then_balance" ? BALANCE_DUE_HOURS_BEFORE_EVENT : null,
             paymentPolicy:
               validated.paymentPolicy,
 

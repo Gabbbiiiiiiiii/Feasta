@@ -1,3 +1,4 @@
+import {BALANCE_DUE_HOURS_BEFORE_EVENT} from "./canonical-balance-timing.js";
 import {
   HttpsError,
 } from "firebase-functions/v2/https";
@@ -34,7 +35,8 @@ export type PackagePaymentPolicy =
   (typeof PACKAGE_PAYMENT_POLICIES)[number];
 
 export type PackagePaymentTermsSnapshot = {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
+  balanceDueHoursBeforeEvent?: number | null;
 
   source:
     | "canonical_package"
@@ -58,6 +60,16 @@ export function buildPackagePaymentTermsSnapshot(
       Record<string, unknown>
     >,
 ): PackagePaymentTermsSnapshot {
+  if (packageData.paymentTermsSchemaVersion === 2) {
+    if (packageData.downPaymentPercentage !== packageData.depositPercentage ||
+      (packageData.balanceDueDaysBeforeEvent !== null && packageData.balanceDueDaysBeforeEvent !== undefined)) throw invalidTerms();
+    return parsePackagePaymentTermsSnapshot({
+      schemaVersion: 2, source: "canonical_package", paymentPolicy: packageData.paymentPolicy,
+      depositRateBps: percentageToBasisPoints(packageData.depositPercentage, "Package deposit percentage"),
+      balanceDueDaysBeforeEvent: null, balanceDueHoursBeforeEvent: packageData.balanceDueHoursBeforeEvent,
+      usesLegacyPaymentTerms: false,
+    })!;
+  }
   const paymentPolicy =
     packagePaymentPolicy(
       packageData.paymentPolicy,
@@ -212,6 +224,18 @@ export function parsePackagePaymentTermsSnapshot(
     value as
       Record<string, unknown>;
 
+  if (data.schemaVersion === 2) {
+    const full = data.paymentPolicy === "full_payment";
+    const rate = basisPointRate(data.depositRateBps);
+    if (data.source !== "canonical_package" || data.usesLegacyPaymentTerms !== false ||
+      data.balanceDueDaysBeforeEvent !== null || rate === null ||
+      (full ? rate !== BASIS_POINTS_SCALE || data.balanceDueHoursBeforeEvent !== null :
+        data.paymentPolicy !== "deposit_then_balance" || rate <= 0 || rate >= BASIS_POINTS_SCALE ||
+        data.balanceDueHoursBeforeEvent !== BALANCE_DUE_HOURS_BEFORE_EVENT)) throw invalidSnapshot();
+    return {schemaVersion: 2, source: "canonical_package", paymentPolicy: full ? "full_payment" : "deposit_then_balance",
+      depositRateBps: rate, balanceDueDaysBeforeEvent: null,
+      balanceDueHoursBeforeEvent: full ? null : BALANCE_DUE_HOURS_BEFORE_EVENT, usesLegacyPaymentTerms: false};
+  }
   if (
     data.schemaVersion !== 1
   ) {

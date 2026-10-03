@@ -1,3 +1,4 @@
+import {frozenCanonicalBalanceTiming, canonicalBalanceSchedule, balanceDeadlineMessage} from "./canonical-balance-timing.js";
 import {
   createHash,
 } from "node:crypto";
@@ -82,6 +83,7 @@ export function remainingBalanceLifecyclePlan(
     input.providerRequest;
 
   if (
+    request.remainingBalanceTimingSchemaVersion !== 2 &&
     request.remainingBalanceTimingSchemaVersion !==
       1
   ) {
@@ -175,6 +177,20 @@ export function remainingBalanceLifecyclePlan(
   const settledBalanceInCentavos =
     remainingBalanceInCentavos -
     outstandingAmountInCentavos;
+
+  if (request.remainingBalanceTimingSchemaVersion === 2) {
+    const timing = frozenCanonicalBalanceTiming(request);
+    const schedule = canonicalBalanceSchedule({...timing, remainingAmountInCentavos: outstandingAmountInCentavos, now: input.now});
+    const changed = schedule.status !== currentStatus;
+    const stage = schedule.status === "due_soon" || schedule.status === "due" ? schedule.status : null;
+    const reminder = changed && stage ? {
+      stage, title: stage === "due_soon" ? "Remaining balance due tomorrow" : "Remaining balance due now",
+      message: balanceDeadlineMessage(outstandingAmountInCentavos, timing.dueAt),
+    } : null;
+    return {currentStatus, nextStatus: schedule.status, changed, reminder,
+      notificationId: reminder ? remainingBalanceNotificationId(input.providerRequestId, reminder.stage) : null,
+      dueAt: timing.dueAt, graceEndsAt: null};
+  }
 
   const eventDate =
     timestampDate(

@@ -21,6 +21,28 @@ const category = {
     "active",
 };
 
+for (const [source, hours] of [["category", 72], ["package", 96], ["platform", 120]]) {
+  test(`${source} balance deadline override cannot change FEASTA T-24 or its policy hash`, () => {
+    const input = {
+      platformSettings: null,
+      serviceCategoryCode: "photographer",
+      serviceCategory: {...category, bookingPolicy: {payment: {}}},
+      packageId: "package_123",
+      packageData: {bookingPolicyOverride: {payment: {}}},
+    };
+    if (source === "platform") input.platformSettings = {serviceBookingPolicyDefaults: {payment: {}}};
+    const baseline = resolveServiceBookingPolicy(input);
+    const payment = source === "category" ? input.serviceCategory.bookingPolicy.payment :
+      source === "package" ? input.packageData.bookingPolicyOverride.payment :
+        input.platformSettings.serviceBookingPolicyDefaults.payment;
+    payment.balanceDueHoursBeforeEvent = hours;
+    const resolved = resolveServiceBookingPolicy(input);
+    assert.equal(resolved.policy.payment.balanceDueHoursBeforeEvent, 24);
+    assert.equal(resolved.effectivePolicyKey, baseline.effectivePolicyKey);
+    assert.equal(payment.balanceDueHoursBeforeEvent, hours, "stored document is not mutated");
+  });
+}
+
 test(
   "platform defaults produce the FEASTA baseline booking policy",
   () => {

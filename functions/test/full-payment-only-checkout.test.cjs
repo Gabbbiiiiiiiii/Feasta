@@ -419,14 +419,10 @@ test("canonical fractional deposit plus full-upfront add-on freezes aggregate mo
   packageData.downPaymentPercentage = 75;
   packageData.balanceDueDaysBeforeEvent = 1;
   assert.equal(snapshot.packagePaymentTerms.depositRateBps, 5050);
-  assert.equal(snapshot.packagePaymentTerms.balanceDueDaysBeforeEvent, 7);
-  const {remainingBalanceSchedule, DEFAULT_REMAINING_BALANCE_TIMING_POLICY} = require("../lib/payments/remaining-balance-domain.js");
-  const timing = remainingBalanceSchedule({eventDate: new Date("2027-06-18T00:00:00+08:00"),
-    balanceDueDaysBeforeEvent: snapshot.packagePaymentTerms.balanceDueDaysBeforeEvent,
-    remainingBalanceInCentavos: snapshot.remainingBalanceInCentavos, settledBalanceInCentavos: 0,
-    cancelled: false, now: new Date("2027-06-01T00:00:00+08:00"), policy: DEFAULT_REMAINING_BALANCE_TIMING_POLICY});
-  assert.equal(timing.dueAt.toISOString(), "2027-06-10T16:00:00.000Z");
-  assert.equal(timing.status, "not_due");
+  assert.equal(snapshot.packagePaymentTerms.balanceDueHoursBeforeEvent, 24);
+  const {canonicalBalanceTiming} = require("../lib/payments/canonical-balance-timing.js");
+  const timing = canonicalBalanceTiming(new Date("2027-06-18T00:00:00+08:00"), "10:00");
+  assert.equal(timing.dueAt.toISOString(), "2027-06-17T02:00:00.000Z");
 });
 
 test("custom-menu full-upfront money remains separate from deposit package obligations", () => {

@@ -100,15 +100,10 @@ test(
       /maximumDepositPercentageAllowed/u,
     );
 
-    assert.match(
-      form,
-      /minimumBalanceDaysAllowed/u,
-    );
+    assert.doesNotMatch(form, /minimumBalanceDaysAllowed/u);
 
-    assert.match(
-      form,
-      /maximumBalanceDaysAllowed/u,
-    );
+    assert.doesNotMatch(form, /maximumBalanceDaysAllowed/u);
+    assert.match(form, /24 hours before the scheduled event start/u);
   },
 );
 

@@ -31,7 +31,7 @@ export function ProviderPackageCard({item, onEdit, onPublish, onArchive}: {
           ? "Full Payment. Customers pay the full amount after you accept their booking request."
           : item.paymentPolicy ===
             "deposit_then_balance"
-            ? `${item.depositPercentage}% minimum payment · Balance due ${item.balanceDueDaysBeforeEvent} days before event`
+            ? `${item.depositPercentage}% deposit ? Balance due 24 hours before scheduled event start`
             : `Legacy payment terms · ${item.downPaymentPercentage}% down payment`}
       </p>
     </div>

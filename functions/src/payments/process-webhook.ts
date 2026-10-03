@@ -66,6 +66,7 @@ import {
   settlementIdForEarning,
 } from "../provider-finance/provider-settlement-domain.js";
 import {
+  depositReceivedNotification,
   customerNotificationMessageForPaymentLifecycle,
   customerNotificationTitleForPaymentLifecycle,
   paymentLifecycleChoice,
@@ -1191,19 +1192,21 @@ export async function processPayMongoWebhook(
         },
       );
 
+      const depositNotification = depositReceivedNotification({status: nextStatus,
+        paymentChoice: lifecyclePaymentChoice, providerRequest, settlementUpdate: requestPaymentUpdate.update});
       createNotificationInTransaction(
         transaction,
         {
           userId: customerId,
 
           title:
-            customerNotificationTitleForPaymentLifecycle(
+            depositNotification?.title ?? customerNotificationTitleForPaymentLifecycle(
               nextStatus,
               lifecyclePaymentChoice,
             ),
 
           message:
-            customerNotificationMessageForPaymentLifecycle(
+            depositNotification?.message ?? customerNotificationMessageForPaymentLifecycle(
               nextStatus,
               lifecyclePaymentChoice,
             ),

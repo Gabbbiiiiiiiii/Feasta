@@ -1,3 +1,4 @@
+import {BALANCE_DUE_HOURS_BEFORE_EVENT} from "../payments/canonical-balance-timing.js";
 import {verifyProviderServiceImage} from "../shared/cloudinary.js";
 import type {
   DocumentData,
@@ -342,6 +343,12 @@ export function assertPackageMatchesProviderCapabilities(
   }
 }
 
+/** Provider-supplied legacy deadlines never become authority on new writes. */
+export function parseCanonicalPackageWrite(value: Readonly<Record<string, unknown>>): PackageInput {
+  return parsePackageInput({...value, paymentTermsSchemaVersion: 2, balanceDueDaysBeforeEvent: null,
+    balanceDueHoursBeforeEvent: value.paymentPolicy === "deposit_then_balance" ? BALANCE_DUE_HOURS_BEFORE_EVENT : null});
+}
+
 export function parsePackageInput(
   value: unknown,
 ): PackageInput {
@@ -417,6 +424,10 @@ export function parsePackageInput(
     }
   }
 
+  if (data.paymentTermsSchemaVersion === 2 && data.paymentPolicy === "deposit_then_balance" &&
+    data.balanceDueHoursBeforeEvent !== BALANCE_DUE_HOURS_BEFORE_EVENT) {
+    throw new HttpsError("invalid-argument", "The FEASTA balance deadline is invalid.");
+  }
   const paymentTerms =
     parsePackagePaymentTerms(
       data,
@@ -585,33 +596,6 @@ export function assertPackagePaymentTermsWithinPolicy(
     );
   }
 
-  const balanceDueDaysBeforeEvent =
-    packageInput
-      .balanceDueDaysBeforeEvent;
-
-  if (
-    balanceDueDaysBeforeEvent ===
-      null ||
-    balanceDueDaysBeforeEvent <
-      bounds
-        .minimumBalanceDueDaysBeforeEvent ||
-    balanceDueDaysBeforeEvent >
-      bounds
-        .maximumBalanceDueDaysBeforeEvent
-  ) {
-    throw new HttpsError(
-      "invalid-argument",
-      "Balance deadline must be between " +
-        `${
-          bounds
-            .minimumBalanceDueDaysBeforeEvent
-        } and ` +
-        `${
-          bounds
-            .maximumBalanceDueDaysBeforeEvent
-        } days before the event.`,
-    );
-  }
 }
 
 export function assertPackagePublishable(
@@ -1181,17 +1165,17 @@ function parsePackagePaymentTerms(
     );
   }
 
-  const balanceDueDaysBeforeEvent =
-    requiredPositiveInteger(
+  const balanceDueDaysBeforeEvent = data.paymentTermsSchemaVersion === 2
+    ? null : requiredPositiveInteger(
       data.balanceDueDaysBeforeEvent,
       "Balance due days before event",
     );
 
   if (
-    balanceDueDaysBeforeEvent <
+    balanceDueDaysBeforeEvent !== null && (balanceDueDaysBeforeEvent <
       MIN_CANONICAL_BALANCE_DUE_DAYS ||
     balanceDueDaysBeforeEvent >
-      MAX_CANONICAL_BALANCE_DUE_DAYS
+      MAX_CANONICAL_BALANCE_DUE_DAYS)
   ) {
     throw new HttpsError(
       "invalid-argument",
