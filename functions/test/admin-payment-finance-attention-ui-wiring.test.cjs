@@ -143,7 +143,7 @@ test(
 );
 
 test(
-  "P11 Finance Attention remains monitoring-only",
+  "P11 Finance Attention allows only guarded payout setup recovery",
   () => {
     for (const forbidden of [
       "Retry payout",
@@ -161,12 +161,37 @@ test(
 
     assert.match(
       attention,
-      /monitoring only/u,
+      /ambiguous_payout_setup/u,
     );
 
     assert.match(
       attention,
-      /cannot initiate Provider settlement/u,
+      /Repair payout setup/u,
+    );
+
+    assert.match(
+      attention,
+      /onRepairPayoutSetup/u,
+    );
+
+    assert.match(
+      attention,
+      /expectedUpdatedAtMillis/u,
+    );
+
+    assert.match(
+      attention,
+      /guarded Admin recovery actions/u,
+    );
+
+    assert.match(
+      attention,
+      /cannot rewrite trusted financial/u,
+    );
+
+    assert.match(
+      attention,
+      /mark a Provider payout-ready/u,
     );
   },
 );
