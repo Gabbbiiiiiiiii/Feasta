@@ -1,5 +1,10 @@
 import * as logger from
   "firebase-functions/logger";
+import {defineSecret} from "firebase-functions/params";
+import {enforceRemainingBalanceDeadline} from "./remaining-balance-enforcement.js";
+import {reconcileCheckoutAttempts} from "./checkout-attempt-reconciliation.js";
+import {paymentIdForProviderRequestChoice} from "./payment-obligation.js";
+const balanceEnforcementSecret = defineSecret("PAYMONGO_SECRET_KEY");
 
 import {
   onSchedule,
@@ -61,6 +66,7 @@ export const reconcileRemainingBalanceLifecycle =
 
       retryCount:
         2,
+      secrets: [balanceEnforcementSecret],
     },
 
     async (event) => {
@@ -113,6 +119,14 @@ export const reconcileRemainingBalanceLifecycle =
           candidates.docs
       ) {
         try {
+          if (candidate.data().remainingBalanceTimingSchemaVersion === 2) {
+            if (candidate.data().remainingBalanceEnforcement?.status === "on_hold" ||
+              candidate.data().remainingBalanceEnforcement?.status === "reconciliation_required") {
+              await reconcileCheckoutAttempts({paymentId: paymentIdForProviderRequestChoice(candidate.id, "remaining_balance"),
+                secretKey: balanceEnforcementSecret.value()});
+            }
+            await enforceRemainingBalanceDeadline(candidate.id, now);
+          }
           const changed =
             await db.runTransaction(
               async (transaction) => {

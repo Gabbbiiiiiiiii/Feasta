@@ -1,4 +1,5 @@
 import "server-only";
+import {balanceEnforcementPresentation, balanceEnforcementBlocksActions} from "@/lib/payments/remaining-balance-enforcement";
 
 import {
   FieldPath,
@@ -503,6 +504,7 @@ function mapProviderBooking(
     providerId,
     customerId,
     providerRequestStatus: requestStatus,
+    balanceEnforcement: balanceEnforcementPresentation(request, "provider"),
     mainEventStatus,
     paymentStatus: payment?.status ?? null,
     requestType,
@@ -619,6 +621,7 @@ function mapRefundEligibility(
       stage === "preparation_not_started" &&
       activeCancellationId === null &&
       requestStatus === "confirmed" &&
+      !balanceEnforcementBlocksActions(request) &&
       paymentReady,
   };
 }

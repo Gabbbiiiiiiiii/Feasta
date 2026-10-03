@@ -54,6 +54,7 @@ export type ProviderBookingService = {
 };
 
 export type ProviderBooking = {
+  balanceEnforcement?: {label: string; explanation: string | null} | null;
   providerRequestId: string;
   mainEventId: string;
   providerId: string;

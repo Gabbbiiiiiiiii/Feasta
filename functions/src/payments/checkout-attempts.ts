@@ -1,4 +1,7 @@
 import {randomUUID, createHash} from "node:crypto";
+import {frozenCanonicalBalanceTiming} from "./canonical-balance-timing.js";
+import {readBalanceDeadlineAttempt} from "./remaining-balance-enforcement-reader.js";
+import {remainingBalanceDeadlinePassed} from "./remaining-balance-enforcement-domain.js";
 import {FieldValue, Timestamp} from "firebase-admin/firestore";
 import {HttpsError} from "firebase-functions/v2/https";
 import {db} from "../shared/firestore.js";
@@ -30,6 +33,22 @@ export async function createDurableCheckout(
       transaction.get(paymentRef), transaction.get(attemptsRef),
     ]);
     const payment = paymentSnapshot.data();
+    let deadlineReached = false;
+    let newAttemptDeadline: Date | null = null;
+    if (payment?.paymentChoice === "remaining_balance") {
+      const requestSnapshot = await transaction.get(db.collection("providerRequests").doc(payment.providerRequestId));
+      const request = requestSnapshot.data();
+      if (!request || request.status !== "confirmed") throw reconciliationRequired();
+      if (request.remainingBalanceTimingSchemaVersion === 2) newAttemptDeadline = frozenCanonicalBalanceTiming(request).dueAt;
+      if (request.remainingBalanceTimingSchemaVersion === 2 && new Date(Date.now()) >= frozenCanonicalBalanceTiming(request).dueAt) {
+        deadlineReached = true;
+        const parent = await transaction.get(db.collection("mainEvents").doc(payment.mainEventId));
+        const classified = await readBalanceDeadlineAttempt({transaction, providerRequestId: payment.providerRequestId,
+          providerRequest: request, mainEvent: parent.data() ?? {}});
+        if (classified.kind === "none") throw remainingBalanceDeadlinePassed();
+        if (classified.kind !== "existing") throw reconciliationRequired();
+      }
+    }
     if (!payment || payment.attemptSchemaVersion !== 1 || payment.reconciliationRequired ||
       !["pending", "processing", "failed", "expired"].includes(payment.status) ||
       payment.attemptCount !== attemptsSnapshot.size) throw reconciliationRequired();
@@ -77,7 +96,9 @@ export async function createDurableCheckout(
     } else if (attempts.length > 0 || payment.currentCheckoutAttemptId) {
       throw reconciliationRequired();
     }
+    if (deadlineReached) throw remainingBalanceDeadlinePassed();
     const firstDispatchAt = Timestamp.now();
+    if (newAttemptDeadline && firstDispatchAt.toMillis() >= newAttemptDeadline.getTime()) throw remainingBalanceDeadlinePassed();
     const key = checkoutAttemptKey(input.paymentId, candidateId);
     transaction.create(attemptsRef.doc(candidateId), {
       attemptId: candidateId, paymentId: input.paymentId, fingerprint,

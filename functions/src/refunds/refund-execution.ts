@@ -1,4 +1,6 @@
 import {Timestamp} from "firebase-admin/firestore";
+import {SYSTEM_BALANCE_REFUND_SOURCE} from "./system-balance-deadline-refund.js";
+import type {BalanceEnforcement} from "../payments/remaining-balance-enforcement-domain.js";
 import {PAYMONGO_SAFE_RETRY_WINDOW_MS} from "../payments/checkout-attempt-domain.js";
 import {defineSecret} from "firebase-functions/params";
 import {
@@ -2352,6 +2354,13 @@ async function prepareRefundOperationSetExecution(input: {
     },
   );
 
+  if (input.cancellation.source === SYSTEM_BALANCE_REFUND_SOURCE) {
+    input.transaction.update(requestReference, {
+      remainingBalanceEnforcement: {...providerRequest.remainingBalanceEnforcement,
+        status: "refund_processing", evaluatedAt: timestamp}, updatedAt: timestamp,
+    });
+  }
+
   if (
     cancellationStatus !==
       "refund_processing"
@@ -2393,10 +2402,13 @@ async function prepareRefundOperationSetExecution(input: {
           ids.customerId,
 
         title:
-          "Refund processing",
+          input.cancellation.source === SYSTEM_BALANCE_REFUND_SOURCE
+            ? "Booking Cancelled · Deposit Refund in Progress" : "Refund processing",
 
         message:
-          "Your approved Provider service refund is being processed.",
+          input.cancellation.source === SYSTEM_BALANCE_REFUND_SOURCE
+            ? "Your settled initial deposit refund is being processed."
+            : "Your approved Provider service refund is being processed.",
 
         type:
           "payment",
@@ -2422,7 +2434,7 @@ async function prepareRefundOperationSetExecution(input: {
         input.actorId,
 
       actorRole:
-        "admin",
+        input.cancellation.source === SYSTEM_BALANCE_REFUND_SOURCE ? "system" : "admin",
 
       action:
         attemptCount === 0
@@ -3454,6 +3466,12 @@ export async function reconcileGatewayRefund(input: {
         aggregateStatus ===
           "refund_completed"
       ) {
+        if (cancellation.source === SYSTEM_BALANCE_REFUND_SOURCE) {
+          transaction.update(requestReference, {
+            remainingBalanceEnforcement: {...providerRequest.remainingBalanceEnforcement,
+              status: "refunded", evaluatedAt: timestamp}, remainingBalanceStatus: "cancelled", updatedAt: timestamp,
+          });
+        }
         updateCancellationRefundStatus(
           transaction,
           cancellationReference,
@@ -3533,10 +3551,13 @@ export async function reconcileGatewayRefund(input: {
               ids.customerId,
 
             title:
-              "Refund completed",
+              cancellation.source === SYSTEM_BALANCE_REFUND_SOURCE
+                ? "Booking Cancelled · Deposit Refunded" : "Refund completed",
 
             message:
-              "Your approved Provider service refund was completed.",
+              cancellation.source === SYSTEM_BALANCE_REFUND_SOURCE
+                ? "Your settled initial deposit has been refunded."
+                : "Your approved Provider service refund was completed.",
 
             type:
               "payment",
@@ -3554,7 +3575,7 @@ export async function reconcileGatewayRefund(input: {
           },
         );
 
-        createNotificationInTransaction(
+        if (cancellation.source !== SYSTEM_BALANCE_REFUND_SOURCE) createNotificationInTransaction(
           transaction,
           {
             userId:
@@ -4209,6 +4230,15 @@ function assertPolicyOperationLinkage(input: {
   providerRequest: Record<string, unknown>;
   mainEvent: Record<string, unknown>;
 }): void {
+  if (input.cancellation.source === SYSTEM_BALANCE_REFUND_SOURCE) {
+    const state = input.providerRequest.remainingBalanceEnforcement as BalanceEnforcement | undefined;
+    if (input.providerRequest.remainingBalanceEnforcementSchemaVersion !== 1 ||
+      state?.cancellationRequestId !== input.cancellationRequestId || state.refundId !== input.operationId ||
+      input.operation.policySource !== SYSTEM_BALANCE_REFUND_SOURCE ||
+      input.payment.paymentChoice !== "minimum" || input.operation.amountInCentavos !== input.payment.amountInCentavos) {
+      throw gatewayLinkageInvalid();
+    }
+  }
   const operationBindings =
     readRefundOperationBindings(
       input.cancellation,

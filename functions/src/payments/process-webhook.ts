@@ -1,3 +1,4 @@
+import {balanceEnforcementPaymentOutcomeUpdate} from "./remaining-balance-enforcement-domain.js";
 import {
   FieldValue,
 } from "firebase-admin/firestore";
@@ -1451,6 +1452,8 @@ function createProviderRequestPaymentUpdate(
   if (isBalancePayment) {
     return {
       update: {
+        ...balanceEnforcementPaymentOutcomeUpdate({request: providerRequest, settlementUpdate,
+          status, timestamp}),
         paymentStatus:
           status,
 

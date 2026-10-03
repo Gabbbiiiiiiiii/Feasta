@@ -1,4 +1,5 @@
 import {HttpsError, onCall} from "firebase-functions/v2/https";
+import {assertBalanceEnforcementAllowsProgress} from "../payments/remaining-balance-enforcement-domain.js";
 
 import {
   classifyProviderRequestRefundPolicyEvidence,
@@ -174,6 +175,8 @@ async function advanceStage(input: {
 
     const classification =
       classifyProviderRequestRefundPolicyEvidence(authorized.requestData);
+
+    assertBalanceEnforcementAllowsProgress(authorized.requestData);
 
     if (classification.status !== "policy_backed") {
       throw policyEvidenceInvalid();

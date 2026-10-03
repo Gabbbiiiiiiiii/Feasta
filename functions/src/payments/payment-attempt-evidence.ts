@@ -72,6 +72,9 @@ export function recordAttemptEvidence(input: {
       // A failed payment/expired-session notification is not proof that every
       // intent in this checkout has settled. Only success resolves it here.
       ...(event.successfulPayments.length ? {resolution: "success"} : {}),
+      ...((event.eventType === "payment.failed" || event.eventType === "checkout_session.expired") ? {
+        unsuccessfulObservation: event.eventType,
+      } : {}),
       lastEvidenceAt: serverTimestamp(), updatedAt: serverTimestamp(),
     });
   }

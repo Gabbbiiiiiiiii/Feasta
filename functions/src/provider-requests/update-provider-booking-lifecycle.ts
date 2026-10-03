@@ -1,3 +1,4 @@
+import {assertBalanceEnforcementAllowsProgress} from "../payments/remaining-balance-enforcement-domain.js";
 import {
   HttpsError,
   onCall,
@@ -349,6 +350,7 @@ async function updateProviderBookingLifecycle(
         }
 
         if (targetStatus === "in_progress") {
+          assertBalanceEnforcementAllowsProgress(authorized.requestData);
           /*
            * Canonical P5 bookings cannot begin fulfillment with
            * Customer money still outstanding.

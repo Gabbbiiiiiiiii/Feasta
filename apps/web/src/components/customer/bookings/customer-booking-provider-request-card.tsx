@@ -65,6 +65,10 @@ function CustomerBookingProviderRequestCard({
       "grid min-w-0 gap-4 rounded-card border border-border bg-card p-4 shadow-none",
       !compact && "sm:p-5",
     )}>
+      {request.balanceEnforcement ? <div role="status" className="grid gap-1 text-sm">
+        <p className="font-bold">{request.balanceEnforcement.label}</p>
+        {request.balanceEnforcement.explanation ? <p>{request.balanceEnforcement.explanation}</p> : null}
+      </div> : null}
       <header className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
         <div className="min-w-0">
           <h3 className="break-words text-base font-black tracking-tight sm:text-lg">

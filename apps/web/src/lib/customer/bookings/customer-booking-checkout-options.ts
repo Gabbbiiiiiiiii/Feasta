@@ -1,4 +1,5 @@
 import "server-only";
+import {balanceEnforcementBlocksActions} from "@/lib/payments/remaining-balance-enforcement";
 
 import {createHash} from "node:crypto";
 import {parseCustomerPaymentChoice, type CustomerPaymentChoice} from "@feasta/shared-types";
@@ -61,6 +62,7 @@ export function customerBookingCheckoutOptions(
     request.outstandingAmountInCentavos === balance && balance > 0 &&
     (balanceId == null ? ["paid", "partially_refunded", "refunded"].includes(String(request.paymentStatus)) :
       request.paymentId === balanceId && RETRY_STATUSES.has(String(request.paymentStatus)))) {
+    if (balanceEnforcementBlocksActions(request)) return [];
     return [option("remaining_balance", balance)];
   }
   if (balanceId != null || !initialEligible(request, mainEventStatus) ||

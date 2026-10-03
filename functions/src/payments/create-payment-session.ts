@@ -1,4 +1,6 @@
 import {enforceInitialPaymentEligibility} from "./initial-payment-eligibility.js";
+import {readBalanceDeadlineAttempt} from "./remaining-balance-enforcement-reader.js";
+import {remainingBalanceDeadlinePassed} from "./remaining-balance-enforcement-domain.js";
 import {frozenCanonicalBalanceTiming} from "./canonical-balance-timing.js";
 import {
   HttpsError,
@@ -543,6 +545,17 @@ export async function createPaymentSessionForCustomer(
         paymentSnapshot.exists
           ? paymentSnapshot.data() ?? {}
           : null;
+
+      // Check recovery and new reservations. A logical pending payment alone
+      // cannot bypass the deadline while the hourly worker has not run.
+      if (paymentChoice === "remaining_balance" && providerRequest.remainingBalanceTimingSchemaVersion === 2 &&
+        new Date(Date.now()) >= frozenCanonicalBalanceTiming(providerRequest).dueAt) {
+        const attempt = await readBalanceDeadlineAttempt({transaction, providerRequestId,
+          providerRequest, mainEvent: booking});
+        if (attempt.kind === "none") throw remainingBalanceDeadlinePassed();
+        if (attempt.kind !== "existing") throw new HttpsError("failed-precondition",
+          "Payment attempt requires reconciliation.", {reason: "CHECKOUT_RECONCILIATION_REQUIRED"});
+      }
 
       if (
         checkoutEligibilityReason({

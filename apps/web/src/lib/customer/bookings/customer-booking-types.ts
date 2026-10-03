@@ -39,6 +39,7 @@ export type CustomerRemainingBalanceStatus =
 export type CustomerBookingProviderRequest = {
   checkoutOptions: CustomerBookingPaymentOption[];
   initialPaymentExplanation?: string | null;
+  balanceEnforcement?: {label: string; explanation: string | null} | null;
   id: string;
   providerRequestId: string;
 

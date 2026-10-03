@@ -75,6 +75,10 @@ export function ProviderBookingDetailDrawer({
       ) : booking ? (
         <div className="grid gap-6">
           <DrawerSection title="Booking status">
+            {booking.balanceEnforcement ? <div role="status" className="grid gap-1 text-sm">
+              <p className="font-bold">{booking.balanceEnforcement.label}</p>
+              {booking.balanceEnforcement.explanation ? <p>{booking.balanceEnforcement.explanation}</p> : null}
+            </div> : null}
             <StatusRow label="Provider request" status={booking.providerRequestStatus} />
             <StatusRow label="Main event" status={booking.mainEventStatus} />
             <StatusRow
@@ -243,7 +247,7 @@ function LifecycleFooter({
   onStart: () => void;
   onComplete: () => void;
 }) {
-  if (booking.providerRequestStatus === "confirmed") {
+  if (booking.providerRequestStatus === "confirmed" && !booking.balanceEnforcement) {
     return (
       <Button loading={pending} loadingLabel="Starting event" onClick={onStart}>
         Start Event
