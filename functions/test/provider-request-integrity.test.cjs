@@ -456,3 +456,30 @@ test("core rejection integrity deliberately tolerates stale commercial schedule 
 
   assert.equal(core(mainEvent(), actor).mainEventStatus, "pending_provider_approval");
 });
+
+
+test("acceptance preserves canonical deposit plus full-upfront add-on with an aggregate compatibility rate", () => {
+  const packageId = "package_canonical_mixed";
+  const providerId = "provider_catering_001";
+  const addonId = "service_extra_staff_001";
+  const packagePaymentTerms = {schemaVersion: 1, source: "canonical_package", paymentPolicy: "deposit_then_balance",
+    depositRateBps: 5050, balanceDueDaysBeforeEvent: 7, usesLegacyPaymentTerms: false};
+  const amounts = {downPaymentPercentage: 58.75, downPaymentAmount: 7050, remainingBalance: 4950};
+  const addon = {addonId, providerId, ownerId: "owner_catering_001", name: "Additional Staff",
+    category: "catering_service", price: 2000, downPaymentPercentage: 100, source: "provider"};
+  const event = mainEvent({providerId, currentProviderId: providerId, packageId, packageName: "Canonical Mixed Package",
+    packagePrice: 10000, totalAmount: 12000, packagePaymentTerms, selectedAddOns: [addon], ...amounts});
+  const request = {providerId, type: "catering", packageId, packageName: "Canonical Mixed Package", packagePaymentTerms,
+    services: [
+      {serviceId: packageId, name: "Canonical Mixed Package", category: "catering_package", price: 10000,
+        downPaymentPercentage: 50.5, downPaymentAmount: 5050},
+      {serviceId: addonId, name: addon.name, category: addon.category, price: addon.price,
+        downPaymentPercentage: 100, downPaymentAmount: 2000},
+    ], amount: 12000, ...amounts};
+  const actor = authorized({providerId, type: "catering", requestData: request});
+  const result = validate(event, actor);
+  assert.equal(result.downPaymentAmount, 7050);
+  assert.equal(result.remainingBalance, 4950);
+  assert.throws(() => validate(event, authorized({providerId, type: "catering",
+    requestData: {...request, downPaymentPercentage: 100}})), /financial snapshot is invalid/u);
+});

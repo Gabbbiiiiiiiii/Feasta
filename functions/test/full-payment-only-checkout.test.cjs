@@ -42,7 +42,7 @@ const canonicalFullPaymentTerms = {
     false,
 };
 
-const legacyDepositTerms = {
+const canonicalDepositTerms = {
   schemaVersion:
     1,
 
@@ -265,12 +265,12 @@ test(
 );
 
 test(
-  "historical deposit obligations remain readable and payable",
+  "canonical deposit packages expose minimum, full and remaining-balance obligations",
   () => {
     const snapshot =
       buildSnapshot({
         packagePaymentTerms:
-          legacyDepositTerms,
+          canonicalDepositTerms,
 
         amount:
           30_000,
@@ -389,3 +389,49 @@ test(
     );
   },
 );
+
+
+test("canonical fractional deposit plus full-upfront add-on freezes aggregate money and independent terms", () => {
+  const {buildPackagePaymentTermsSnapshot} = require("../lib/payments/package-payment-terms.js");
+  const {requireNewBookingCanonicalPaymentTerms} = require("../lib/bookings/canonical-booking-payment-policy.js");
+  const {resolveBookingPackageOffer} = require("../lib/bookings/booking-package-offer.js");
+  const packageData = {
+    paymentPolicy: "deposit_then_balance", depositPercentage: 50.5,
+    downPaymentPercentage: 50.5, balanceDueDaysBeforeEvent: 7,
+    price: 10000, serviceOptions: {drop_off: {price: 20000, includedServices: []}}, themeOptions: [],
+  };
+  const terms = requireNewBookingCanonicalPaymentTerms(buildPackagePaymentTermsSnapshot(packageData));
+  const price = resolveBookingPackageOffer({packageData, serviceTier: "drop_off", packageThemeId: null}).basePrice;
+  const packageUpfront = Math.round(price * terms.depositRateBps / 10000 * 100) / 100;
+  const addonPrice = 2000;
+  const snapshot = buildSnapshot({packagePaymentTerms: terms, amount: price + addonPrice,
+    downPaymentAmount: packageUpfront + addonPrice, remainingBalance: price - packageUpfront});
+  assert.equal(packageUpfront, 10100);
+  assert.equal(snapshot.grossAmountInCentavos, 2200000);
+  assert.equal(snapshot.requiredUpfrontAmountInCentavos, 1210000);
+  assert.equal(snapshot.remainingBalanceInCentavos, 990000);
+  assert.equal(snapshot.requiredUpfrontRateBps, 5500);
+  assert.equal(snapshot.packagePaymentTerms.depositRateBps, 5050, "aggregate rate cannot replace package rate");
+  for (const [paymentChoice, expected] of [["minimum", 1210000], ["full", 2200000], ["remaining_balance", 990000]]) {
+    assert.equal(providerPaymentObligationForChoice({financialSnapshot: snapshot, paymentChoice}).amountInCentavos, expected);
+  }
+  packageData.depositPercentage = 75;
+  packageData.downPaymentPercentage = 75;
+  packageData.balanceDueDaysBeforeEvent = 1;
+  assert.equal(snapshot.packagePaymentTerms.depositRateBps, 5050);
+  assert.equal(snapshot.packagePaymentTerms.balanceDueDaysBeforeEvent, 7);
+  const {remainingBalanceSchedule, DEFAULT_REMAINING_BALANCE_TIMING_POLICY} = require("../lib/payments/remaining-balance-domain.js");
+  const timing = remainingBalanceSchedule({eventDate: new Date("2027-06-18T00:00:00+08:00"),
+    balanceDueDaysBeforeEvent: snapshot.packagePaymentTerms.balanceDueDaysBeforeEvent,
+    remainingBalanceInCentavos: snapshot.remainingBalanceInCentavos, settledBalanceInCentavos: 0,
+    cancelled: false, now: new Date("2027-06-01T00:00:00+08:00"), policy: DEFAULT_REMAINING_BALANCE_TIMING_POLICY});
+  assert.equal(timing.dueAt.toISOString(), "2027-06-10T16:00:00.000Z");
+  assert.equal(timing.status, "not_due");
+});
+
+test("custom-menu full-upfront money remains separate from deposit package obligations", () => {
+  const snapshot = buildSnapshot({amount: 12500, downPaymentAmount: 12500, remainingBalance: 0});
+  assert.equal(snapshot.remainingBalanceInCentavos, 0);
+  assert.equal(providerPaymentObligationForChoice({financialSnapshot: snapshot, paymentChoice: "full"}).amountInCentavos, 1250000);
+  assert.throws(() => providerPaymentObligationForChoice({financialSnapshot: snapshot, paymentChoice: "minimum"}), {code: "failed-precondition"});
+});

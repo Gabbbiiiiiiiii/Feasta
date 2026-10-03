@@ -1,141 +1,70 @@
-const assert =
-  require("node:assert/strict");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const {requireNewBookingCanonicalPaymentTerms} = require("../lib/bookings/canonical-booking-payment-policy.js");
+const {buildPackagePaymentTermsSnapshot} = require("../lib/payments/package-payment-terms.js");
+const {rejectClientBookingFinancialAuthority} = require("../lib/bookings/booking-package-offer.js");
 
-const fs =
-  require("node:fs");
+function terms(paymentPolicy = "deposit_then_balance", percentage = 50.5, days = 7) {
+  return buildPackagePaymentTermsSnapshot({paymentPolicy, depositPercentage: percentage,
+    downPaymentPercentage: percentage, balanceDueDaysBeforeEvent: days});
+}
 
-const path =
-  require("node:path");
+test("new bookings accept canonical full payment and exact basis-point deposits", () => {
+  const full = requireNewBookingCanonicalPaymentTerms(terms("full_payment", 100, null));
+  assert.equal(full.depositRateBps, 10000);
+  assert.equal(full.balanceDueDaysBeforeEvent, null);
+  const deposit = requireNewBookingCanonicalPaymentTerms(terms());
+  assert.equal(deposit.depositRateBps, 5050);
+  assert.equal(deposit.depositRateBps / 100, 50.5);
+  assert.equal(deposit.balanceDueDaysBeforeEvent, 7);
+});
 
-const test =
-  require("node:test");
+test("legacy terms remain readable but are rejected for every new package booking", () => {
+  for (const downPaymentPercentage of [0, 30, 100]) {
+    const legacy = buildPackagePaymentTermsSnapshot({downPaymentPercentage});
+    assert.equal(legacy.source, "legacy_package");
+    assert.throws(() => requireNewBookingCanonicalPaymentTerms(legacy), {code: "failed-precondition"});
+  }
+});
 
-const {
-  FULL_PAYMENT_PERCENTAGE,
-  requireNewBookingFullPaymentTerms,
-} = require(
-  "../lib/bookings/full-payment-booking-policy.js",
-);
+test("canonical new-booking guard fails closed on invalid or contradictory terms", () => {
+  const valid = terms();
+  for (const patch of [
+    {schemaVersion: 2}, {source: "legacy_package"}, {usesLegacyPaymentTerms: true},
+    {usesLegacyPaymentTerms: undefined}, {paymentPolicy: null}, {paymentPolicy: "unknown"},
+    {depositRateBps: 0}, {depositRateBps: 10000}, {depositRateBps: 5050.5},
+    {depositRateBps: NaN}, {depositRateBps: Infinity},
+    {balanceDueDaysBeforeEvent: null}, {balanceDueDaysBeforeEvent: 0},
+    {balanceDueDaysBeforeEvent: 1.5}, {balanceDueDaysBeforeEvent: 366},
+    {balanceDueDaysBeforeEvent: Infinity},
+    {paymentPolicy: "full_payment", depositRateBps: 10000},
+    {paymentPolicy: "full_payment", balanceDueDaysBeforeEvent: null},
+  ]) assert.throws(() => requireNewBookingCanonicalPaymentTerms({...valid, ...patch}),
+    {code: "failed-precondition"}, JSON.stringify(patch));
+});
 
-const {
-  buildPackagePaymentTermsSnapshot,
-} = require(
-  "../lib/payments/package-payment-terms.js",
-);
+test("browser cannot supply package or payment financial authority", () => {
+  for (const field of ["packagePrice", "downPaymentPercentage", "depositPercentage", "downPaymentAmount", "totalAmount"]) {
+    assert.throws(() => rejectClientBookingFinancialAuthority({[field]: 1}), {code: "invalid-argument"}, field);
+  }
+});
 
-test(
-  "P13-C accepts canonical full-payment booking terms",
-  () => {
-    const terms =
-      requireNewBookingFullPaymentTerms(
-        buildPackagePaymentTermsSnapshot({
-          paymentPolicy:
-            "full_payment",
-
-          depositPercentage:
-            100,
-
-          downPaymentPercentage:
-            100,
-
-          balanceDueDaysBeforeEvent:
-            null,
-        }),
-      );
-
-    assert.equal(
-      terms.depositRateBps,
-      10000,
-    );
-
-    assert.equal(
-      terms.balanceDueDaysBeforeEvent,
-      null,
-    );
-
-    assert.equal(
-      FULL_PAYMENT_PERCENTAGE,
-      100,
-    );
-  },
-);
-
-test(
-  "P13-C rejects deposit terms for newly submitted bookings",
-  () => {
-    const terms =
-      buildPackagePaymentTermsSnapshot({
-        paymentPolicy:
-          "deposit_then_balance",
-
-        depositPercentage:
-          30,
-
-        downPaymentPercentage:
-          30,
-
-        balanceDueDaysBeforeEvent:
-          7,
-      });
-
-    assert.throws(
-      () =>
-        requireNewBookingFullPaymentTerms(
-          terms,
-        ),
-      {
-        code:
-          "failed-precondition",
-      },
-    );
-  },
-);
-
-test(
-  "new booking submission uses full-payment financial authority",
-  () => {
-    const source =
-      fs.readFileSync(
-        path.join(
-          __dirname,
-          "../src/bookings/submit-booking-request.ts",
-        ),
-        "utf8",
-      );
-
-    assert.match(
-      source,
-      /requireNewBookingFullPaymentTerms\s*\(\s*buildPackagePaymentTermsSnapshot\s*\(/u,
-    );
-
-    assert.match(
-      source,
-      /const packageDownPaymentPercentage\s*=\s*FULL_PAYMENT_PERCENTAGE/u,
-    );
-
-    assert.doesNotMatch(
-      source,
-      /requireStoredPercentage/u,
-    );
-
-    assert.doesNotMatch(
-      source,
-      /cateringEffectivePercentage/u,
-    );
-
-    assert.doesNotMatch(
-      source,
-      /\beffectivePercentage\b/u,
-    );
-
-    const fullPaymentWrites =
-      source.match(
-        /downPaymentPercentage:\s*FULL_PAYMENT_PERCENTAGE/gu,
-      ) ?? [];
-
-    assert.ok(
-      fullPaymentWrites.length >= 4,
-      `expected at least 4 full-payment writes, found ${fullPaymentWrites.length}`,
-    );
-  },
-);
+test("booking wiring freezes trusted package terms and preserves independent service payment rules", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/bookings/submit-booking-request.ts"), "utf8");
+  assert.match(source, /requireNewBookingCanonicalPaymentTerms\s*\(\s*buildPackagePaymentTermsSnapshot\s*\(\s*packageData/u);
+  assert.match(source, /const packageDownPaymentPercentage\s*=\s*packagePaymentTerms\.depositRateBps \/ 100/u);
+  assert.match(source, /downPaymentAmount:\s*calculateDownPayment\(\s*packagePrice,\s*packageDownPaymentPercentage/u);
+  assert.match(source, /const cateringDownPaymentAmount\s*=\s*calculateServiceDownPayment\(\s*cateringServices/u);
+  assert.match(source, /roundCurrency\(\(cateringDownPaymentAmount \/ cateringSubtotal\) \* 100\)/u);
+  assert.equal((source.match(/downPaymentPercentage:\s*cateringDownPaymentPercentage/gu) ?? []).length, 2);
+  assert.equal((source.match(/^\s+packagePaymentTerms,$/gmu) ?? []).length, 2, "event and catering request both freeze terms");
+  assert.match(source, /customMenuSelectionService[\s\S]*downPaymentPercentage: FULL_PAYMENT_PERCENTAGE,[\s\S]*downPaymentAmount: roundCurrency\(selection\.price\)/u);
+  assert.match(source, /price,\s*downPaymentPercentage:\s*FULL_PAYMENT_PERCENTAGE,\s*source,/u);
+  assert.match(source, /type: "addon",[\s\S]*packagePaymentTerms:\s*null,[\s\S]*downPaymentPercentage:\s*FULL_PAYMENT_PERCENTAGE/u);
+  assert.doesNotMatch(source, /input\.(?:price|paymentPolicy|depositPercentage|balanceDueDaysBeforeEvent|packagePaymentTerms|financialSnapshot)\b/u);
+  const packageBranch = source.slice(source.indexOf('if (cateringSelectionType === "package") {', source.indexOf('let packagePaymentTerms')),
+    source.indexOf('const resolvedGuestCount'));
+  assert.doesNotMatch(packageBranch, /input\.(deposit|payment|price)|packagePaymentPolicyBounds|appSettings/u);
+});

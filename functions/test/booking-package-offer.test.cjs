@@ -396,7 +396,7 @@ test(
 );
 
 test(
-  "booking submission keeps payment terms, availability, and blocks custom-menu checkout",
+  "booking submission keeps package terms, availability, and full-payment custom-menu checkout",
   () => {
     assert.match(
       submitSource,
@@ -410,9 +410,9 @@ test(
       submitSource,
       /packageDownPaymentPercentage\s*=\s*100/u,
     );
-    assert.doesNotMatch(
+    assert.match(
       submitSource,
-      /custom_menu|customMenu|menuSelections/u,
+      /packagePaymentTerms\s*=\s*requireNewBookingCanonicalPaymentTerms\(\{\s*schemaVersion: 1,\s*source: "canonical_package",\s*paymentPolicy: "full_payment",\s*depositRateBps:\s*FULL_PAYMENT_RATE_BPS/u,
     );
     assert.doesNotMatch(
       submitSource,

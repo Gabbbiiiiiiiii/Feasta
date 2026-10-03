@@ -61,8 +61,8 @@ import {
 import {
   FULL_PAYMENT_PERCENTAGE,
   FULL_PAYMENT_RATE_BPS,
-  requireNewBookingFullPaymentTerms,
-} from "./full-payment-booking-policy.js";
+  requireNewBookingCanonicalPaymentTerms,
+} from "./canonical-booking-payment-policy.js";
 import {
   assertRefundPolicyAcknowledgements,
   buildProviderRequestRefundPolicyEvidence,
@@ -568,7 +568,7 @@ export const submitBookingRequest = onCall(
           let resolvedPackageOffer:
             ReturnType<typeof resolveBookingPackageOffer>;
           let packagePaymentTerms:
-            ReturnType<typeof requireNewBookingFullPaymentTerms>;
+            ReturnType<typeof requireNewBookingCanonicalPaymentTerms>;
 
           if (cateringSelectionType === "package") {
             if (!packageSnapshot.exists) {
@@ -632,7 +632,7 @@ export const submitBookingRequest = onCall(
               resolvedPackageOffer.basePrice;
 
             packagePaymentTerms =
-              requireNewBookingFullPaymentTerms(
+              requireNewBookingCanonicalPaymentTerms(
                 buildPackagePaymentTermsSnapshot(
                   packageData,
                 ),
@@ -671,7 +671,7 @@ export const submitBookingRequest = onCall(
             // Menu bookings have no package terms. They still
             // follow the current full-payment booking policy.
             packagePaymentTerms =
-              requireNewBookingFullPaymentTerms({
+              requireNewBookingCanonicalPaymentTerms({
                 schemaVersion: 1,
                 source: "canonical_package",
                 paymentPolicy: "full_payment",
@@ -691,7 +691,7 @@ export const submitBookingRequest = onCall(
             );
 
           const packageDownPaymentPercentage =
-            FULL_PAYMENT_PERCENTAGE;
+            packagePaymentTerms.depositRateBps / 100;
 
           const selectedAddOns =
             addonSnapshots.map(
@@ -1069,6 +1069,12 @@ export const submitBookingRequest = onCall(
               cateringServices,
             );
 
+          // Display/compatibility projection of the summed service amounts.
+          // Payment authority remains the financial snapshot in centavos.
+          const cateringDownPaymentPercentage = cateringSubtotal === 0
+            ? 0
+            : roundCurrency((cateringDownPaymentAmount / cateringSubtotal) * 100);
+
           const marketplaceAddOnsTotal =
             calculateServiceTotal(
               marketplaceAddOns.map(
@@ -1353,7 +1359,7 @@ export const submitBookingRequest = onCall(
               totalAmount:
                 cateringSubtotal,
               downPaymentPercentage:
-                FULL_PAYMENT_PERCENTAGE,
+                cateringDownPaymentPercentage,
               downPaymentAmount:
                 cateringDownPaymentAmount,
               remainingBalance:
@@ -1454,7 +1460,7 @@ export const submitBookingRequest = onCall(
 
               amount: cateringSubtotal,
               downPaymentPercentage:
-                FULL_PAYMENT_PERCENTAGE,
+                cateringDownPaymentPercentage,
               downPaymentAmount:
                 cateringDownPaymentAmount,
               remainingBalance:
