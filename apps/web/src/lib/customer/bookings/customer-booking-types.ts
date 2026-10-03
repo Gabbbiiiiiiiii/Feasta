@@ -38,6 +38,7 @@ export type CustomerRemainingBalanceStatus =
   | "cancelled";
 export type CustomerBookingProviderRequest = {
   checkoutOptions: CustomerBookingPaymentOption[];
+  initialPaymentExplanation?: string | null;
   id: string;
   providerRequestId: string;
 

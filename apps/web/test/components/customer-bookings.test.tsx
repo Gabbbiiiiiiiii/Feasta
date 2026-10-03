@@ -178,6 +178,20 @@ describe("customer booking history and details", () => {
     });
   });
 
+  it("shows the full-only short-notice explanation in the booking drawer", async () => {
+    const details = detailsFixture();
+    details.details.providerRequests = [providerRequestFixture({
+      checkoutOptions: [{choice: "full", amount: 100000}],
+      initialPaymentExplanation: "Full payment is required because fewer than 49 hours remained before the event when this booking was accepted.",
+    })];
+    mocks.loadDetails.mockResolvedValueOnce(details);
+    render(<CustomerBookingExperience initialPage={pageFixture()} />);
+    fireEvent.click(screen.getAllByRole("button", {name: "View booking FEA-2026-0001"})[0]);
+    expect(await screen.findByRole("button", {name: /Pay full payment/})).toBeVisible();
+    expect(screen.queryByRole("button", {name: /Pay minimum payment/})).not.toBeInTheDocument();
+    expect(screen.getByText(/fewer than 49 hours remained before the event/)).toBeVisible();
+  });
+
   it("loads owned details and shows bounded event, location, service, and provider-request data", async () => {
     const user = userEvent.setup();
     render(<CustomerBookingExperience initialPage={pageFixture()} />);

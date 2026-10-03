@@ -1,3 +1,4 @@
+import {loadBookingPaymentPolicySnapshot} from "./load-booking-payment-policy.js";
 import {createHash} from "node:crypto";
 
 import {getAuth} from "firebase-admin/auth";
@@ -690,6 +691,12 @@ export const submitBookingRequest = onCall(
               ),
             );
 
+          // The custom-menu contract has no category; its full-payment terms
+          // need no deposit eligibility policy or fabricated category evidence.
+          const bookingPaymentPolicySnapshot = cateringSelectionType === "package"
+            ? await loadBookingPaymentPolicySnapshot({transaction, packageId, packageData})
+            : null;
+
           const packageDownPaymentPercentage =
             packagePaymentTerms.depositRateBps / 100;
 
@@ -1309,6 +1316,11 @@ export const submitBookingRequest = onCall(
               ...resolvedPackageOffer.selection,
 
               packagePaymentTerms,
+              ...(bookingPaymentPolicySnapshot ? {
+                bookingPaymentPolicySnapshot,
+                bookingPaymentPolicyCapturedAt: serverTimestamp(),
+                bookingPaymentPolicyCapturedAtStage: "submission",
+              } : {}),
 
               menuSelections:
                 cateringSelectionType ===
@@ -1449,6 +1461,11 @@ export const submitBookingRequest = onCall(
               ...resolvedPackageOffer.selection,
 
               packagePaymentTerms,
+              ...(bookingPaymentPolicySnapshot ? {
+                bookingPaymentPolicySnapshot,
+                bookingPaymentPolicyCapturedAt: serverTimestamp(),
+                bookingPaymentPolicyCapturedAtStage: "submission",
+              } : {}),
 
               menuSelections:
                 cateringSelectionType ===

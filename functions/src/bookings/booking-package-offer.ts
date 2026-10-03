@@ -16,6 +16,13 @@ const MAX_THEME_IMAGE_URL_LENGTH = 2048;
 const MAX_PACKAGE_PRICE = 10_000_000;
 
 const CLIENT_FINANCIAL_AUTHORITY_FIELDS = [
+  "bookingPaymentPolicySnapshot",
+  "bookingPolicySnapshot",
+  "serviceBookingPolicy",
+  "depositAllowed",
+  "depositMinimumNoticeHours",
+  "initialPaymentEligibilitySchemaVersion",
+  "initialPaymentEligibility",
   "tierPrice",
   "servicePrice",
   "displayedServicePrice",

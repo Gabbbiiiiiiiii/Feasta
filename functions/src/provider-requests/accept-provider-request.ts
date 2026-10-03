@@ -1,3 +1,6 @@
+import {loadBookingPaymentPolicySnapshot} from "../bookings/load-booking-payment-policy.js";
+import {requireBookingPaymentPolicySnapshot} from "../bookings/booking-payment-eligibility-policy.js";
+import {evaluateInitialPaymentEligibility} from "../payments/initial-payment-eligibility.js";
 import {BALANCE_DUE_HOURS_BEFORE_EVENT, canonicalBalanceTiming, canonicalBalanceSchedule, scheduledEventStart} from "../payments/canonical-balance-timing.js";
 import {
   Timestamp,
@@ -402,6 +405,28 @@ export const acceptProviderRequest = onCall(
             financialSnapshot
               .packagePaymentTerms;
 
+          let bookingPaymentPolicySnapshot = authorized.requestData.bookingPaymentPolicySnapshot == null
+            ? null : requireBookingPaymentPolicySnapshot(authorized.requestData.bookingPaymentPolicySnapshot);
+          const legacyPolicyCapture = !bookingPaymentPolicySnapshot &&
+            packagePaymentTerms?.paymentPolicy === "deposit_then_balance";
+          if (legacyPolicyCapture) {
+            // Pre-phase pending requests have no submission-time policy evidence.
+            // Deposit requests must resolve the actual package category; no category fallback.
+            // Full-payment/menu requests need no deposit policy, and accepted legacy requests return above unchanged.
+            const packageId = typeof authorized.requestData.packageId === "string"
+              ? authorized.requestData.packageId : null;
+            const packageData = packageId
+              ? (await transaction.get(db.collection("packages").doc(packageId))).data() ?? null : null;
+            bookingPaymentPolicySnapshot = await loadBookingPaymentPolicySnapshot({transaction, packageId, packageData,
+              platformSettings: platformSettingsSnapshot.data() ?? null});
+          }
+          const initialPaymentEligibility = packagePaymentTerms ||
+            financialSnapshot.requiredUpfrontAmountInCentavos === financialSnapshot.grossAmountInCentavos
+            ? evaluateInitialPaymentEligibility({
+                eventDate: acceptanceSnapshot.eventDate.toDate(), eventTime: acceptanceSnapshot.eventTime,
+                acceptanceTime, packagePaymentTerms, bookingPaymentPolicySnapshot,
+              }) : null;
+
           const balanceDueDaysBeforeEvent =
             financialSnapshot
               .remainingBalanceInCentavos > 0 &&
@@ -564,6 +589,17 @@ export const acceptProviderRequest = onCall(
               ...(canonicalTiming && remainingBalanceTiming
                 ? {remainingBalanceStatus: remainingBalanceTiming.status}
                 : {}),
+              ...(legacyPolicyCapture ? {
+                bookingPaymentPolicySnapshot,
+                bookingPaymentPolicyCapturedAt: Timestamp.fromDate(acceptanceTime),
+                bookingPaymentPolicyCapturedAtStage: "acceptance_legacy",
+              } : {}),
+              ...(initialPaymentEligibility ? {
+                initialPaymentEligibilitySchemaVersion: 1,
+                initialPaymentEligibility: {...initialPaymentEligibility,
+                  evaluatedAt: Timestamp.fromDate(initialPaymentEligibility.evaluatedAt),
+                  eventStartAt: Timestamp.fromDate(initialPaymentEligibility.eventStartAt)},
+              } : {}),
               providerOwnerId: authorized.providerOwnerId,
               remainingBalanceTimingSchemaVersion:
                 remainingBalanceTiming

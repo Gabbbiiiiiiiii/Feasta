@@ -1,3 +1,4 @@
+import {enforceInitialPaymentEligibility} from "./initial-payment-eligibility.js";
 import {frozenCanonicalBalanceTiming} from "./canonical-balance-timing.js";
 import {
   HttpsError,
@@ -396,6 +397,8 @@ export async function createPaymentSessionForCustomer(
       ) {
         throw invalidLinkage();
       }
+
+      enforceInitialPaymentEligibility(providerRequest, paymentChoice);
 
       let selectingInitialPayment = false;
       if (paymentChoice !== "remaining_balance") {

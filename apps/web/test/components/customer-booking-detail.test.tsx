@@ -127,6 +127,18 @@ describe("customer booking dedicated detail page", () => {
     await waitFor(() => expect(mocks.createCheckout).toHaveBeenCalledWith("request-1", choice));
   });
 
+  it("shows only Full Payment with the frozen short-notice explanation", () => {
+    const result = detailResult();
+    result.details.providerRequests = [providerRequestFixture({
+      checkoutOptions: [{choice: "full", amount: 100000}],
+      initialPaymentExplanation: "Full payment is required because fewer than 2 days remained before the event when this booking was accepted.",
+    })];
+    render(<CustomerBookingDetailPage result={result} />);
+    expect(screen.getByRole("button", {name: /Pay full payment/})).toBeVisible();
+    expect(screen.queryByRole("button", {name: /Pay minimum payment/})).not.toBeInTheDocument();
+    expect(screen.getByText(/fewer than 2 days remained before the event/)).toBeVisible();
+  });
+
   it("shows only the projected remaining-balance choice after settled minimum payment", async () => {
     const result = detailResult();
     result.details.booking.status = "confirmed";

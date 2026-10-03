@@ -283,6 +283,9 @@ function BookingDetailsContent({
                     {request.checkoutOptions.length === 1 && request.checkoutOptions[0]?.choice === "full" ? (
                       <p className="text-sm font-bold">Full Payment</p>
                     ) : null}
+                    {request.checkoutOptions.length === 1 && request.checkoutOptions[0]?.choice === "full" && request.initialPaymentExplanation ? (
+                      <p className="text-xs leading-5 text-muted-foreground">{request.initialPaymentExplanation}</p>
+                    ) : null}
                     {request.checkoutOptions.some((option) => option.choice === "minimum") &&
                     request.checkoutOptions.some((option) => option.choice === "full") ? (
                       <p className="text-xs leading-5 text-muted-foreground">

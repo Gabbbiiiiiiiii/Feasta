@@ -3,6 +3,7 @@ import "server-only";
 import {createHash} from "node:crypto";
 import {parseCustomerPaymentChoice, type CustomerPaymentChoice} from "@feasta/shared-types";
 import type {CustomerBookingPaymentOption} from "./customer-booking-types";
+import {customerInitialPaymentEligibility} from "./customer-booking-initial-payment-eligibility";
 
 type StoredRecord = Readonly<Record<string, unknown>>;
 const RETRY_STATUSES = new Set(["unpaid", "pending", "failed", "expired"]);
@@ -34,11 +35,15 @@ export function customerBookingCheckoutOptions(
     ({choice: paymentChoice, amount: amount / 100});
   const initialAbsent = request.initialPaymentChoice == null && request.initialPaymentId == null;
   const partial = upfront > 0 && upfront < gross;
+  const eligibility = customerInitialPaymentEligibility(request);
+  const minimumAvailable = eligibility.kind === "legacy" ||
+    (eligibility.kind === "canonical" && eligibility.mode === "minimum_or_full");
   if (initialAbsent) {
     if (request.paymentId != null || request.remainingBalancePaymentId != null ||
       request.settlementSchemaVersion != null || request.settlementStatus != null ||
       !initialEligible(request, mainEventStatus)) return [];
-    return partial ? [option("minimum", upfront), option("full", gross)] : [option("full", gross)];
+    if (eligibility.kind === "invalid") return [];
+    return partial && minimumAvailable ? [option("minimum", upfront), option("full", gross)] : [option("full", gross)];
   }
 
   if ((choice !== "minimum" && choice !== "full") ||
@@ -61,6 +66,7 @@ export function customerBookingCheckoutOptions(
   if (balanceId != null || !initialEligible(request, mainEventStatus) ||
     request.grossSettledAmountInCentavos !== 0 || request.outstandingAmountInCentavos !== gross ||
     !["unpaid", "initial_payment_processing"].includes(String(request.settlementStatus))) return [];
+  if (eligibility.kind === "invalid" || (choice === "minimum" && !minimumAvailable)) return [];
   return [option(choice, choice === "minimum" ? upfront : gross)];
 }
 

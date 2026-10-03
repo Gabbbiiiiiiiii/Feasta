@@ -1,5 +1,6 @@
 import "server-only";
 import {customerBookingCheckoutOptions} from "./customer-booking-checkout-options";
+import {customerInitialPaymentExplanation} from "./customer-booking-initial-payment-eligibility";
 
 import {createHash} from "node:crypto";
 
@@ -577,6 +578,7 @@ function mapProviderRequestDocument(
         data.remainingBalanceGraceEndsAt,
       ),
     checkoutOptions: customerBookingCheckoutOptions(document.id, data, mainEventStatus),
+    initialPaymentExplanation: customerInitialPaymentExplanation(data),
     rejectionReason: nullableString(data.rejectionReason),
     cancellationReason: nullableString(data.cancellationReason),
     requestedAt: isoDateValue(data.requestedAt),
