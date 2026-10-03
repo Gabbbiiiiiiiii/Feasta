@@ -19,13 +19,14 @@ import {
   updateProviderPackage,
   type ProviderPackage,
   type ProviderPackageInput,
+  type ProviderPackagePaymentPolicy,
 } from "@/lib/provider/provider-package-client";
 
 import {CatalogImageUploader, uploadCatalogImages} from "@/components/provider/catalog-image-uploader";
 import {packageImageDrafts} from "@/lib/provider/catalog-media";
 
 import {providerContentCapabilities} from "@/lib/provider/provider-content-capabilities";
-import {type ProviderPackagePaymentPolicyBounds} from "@/lib/provider/provider-package-payment-policy";
+import {DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS, depositRateBpsToPercentage, type ProviderPackagePaymentPolicyBounds} from "@/lib/provider/provider-package-payment-policy";
 
 import {Textarea} from "@/components/ui/textarea";
 import {Select} from "@/components/ui/select";
@@ -79,6 +80,7 @@ export function ProviderPackageForm({
   minGuestsPerEvent,
   maxGuestsPerEvent,
 
+  paymentPolicyBounds = DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS,
   initialPackage,
   onSaved,
   onCancel,
@@ -183,6 +185,28 @@ export function ProviderPackageForm({
       "\n",
     ) ?? "",
   );
+
+  const minimumDepositPercentageAllowed = depositRateBpsToPercentage(paymentPolicyBounds.minimumDepositRateBps);
+  const maximumDepositPercentageAllowed = depositRateBpsToPercentage(paymentPolicyBounds.maximumDepositRateBps);
+  const minimumBalanceDaysAllowed = paymentPolicyBounds.minimumBalanceDueDaysBeforeEvent;
+  const maximumBalanceDaysAllowed = paymentPolicyBounds.maximumBalanceDueDaysBeforeEvent;
+  const [paymentPolicy, setPaymentPolicy] = useState<ProviderPackagePaymentPolicy>(initialPackage?.paymentPolicy ?? "full_payment");
+  const [depositPercentage, setDepositPercentage] = useState(
+    initialPackage?.paymentPolicy === "deposit_then_balance" ? String(initialPackage.depositPercentage) : "",
+  );
+  const [balanceDueDaysBeforeEvent, setBalanceDueDaysBeforeEvent] = useState(
+    initialPackage?.paymentPolicy === "deposit_then_balance" && initialPackage.balanceDueDaysBeforeEvent !== null
+      ? String(initialPackage.balanceDueDaysBeforeEvent) : "",
+  );
+  const parsedDepositPercentage = depositPercentage.trim() === "" ? Number.NaN : Number(depositPercentage);
+  const parsedBalanceDueDays = balanceDueDaysBeforeEvent.trim() === "" ? Number.NaN : Number(balanceDueDaysBeforeEvent);
+  const depositError = paymentPolicy === "deposit_then_balance" && (
+    !Number.isFinite(parsedDepositPercentage) || parsedDepositPercentage <= 0 || parsedDepositPercentage >= 100 ||
+    parsedDepositPercentage < minimumDepositPercentageAllowed || parsedDepositPercentage > maximumDepositPercentageAllowed
+  ) ? `Enter a deposit percentage between ${minimumDepositPercentageAllowed}% and ${maximumDepositPercentageAllowed}%, greater than 0% and below 100%.` : undefined;
+  const balanceError = paymentPolicy === "deposit_then_balance" && (
+    !Number.isInteger(parsedBalanceDueDays) || parsedBalanceDueDays < minimumBalanceDaysAllowed || parsedBalanceDueDays > maximumBalanceDaysAllowed
+  ) ? `Enter a whole number between ${minimumBalanceDaysAllowed} and ${maximumBalanceDaysAllowed} days before the event.` : undefined;
 
   const [images, setImages] = useState(() => packageImageDrafts(initialPackage?.imageUrls, initialPackage?.imageUrl));
   const [offerDraft, setOfferDraft] =
@@ -315,7 +339,7 @@ export function ProviderPackageForm({
   ) {
     event.preventDefault();
 
-    if (submitting || validationError) {
+    if (submitting || validationError || depositError || balanceError) {
       return;
     }
 
@@ -357,9 +381,9 @@ export function ProviderPackageForm({
         themeOptions:
           uploadedThemes,
 
-        paymentPolicy: "full_payment",
-        depositPercentage: 100,
-        balanceDueDaysBeforeEvent: null,
+        paymentPolicy,
+        depositPercentage: paymentPolicy === "full_payment" ? 100 : parsedDepositPercentage,
+        balanceDueDaysBeforeEvent: paymentPolicy === "full_payment" ? null : parsedBalanceDueDays,
 
         minimumGuests:
           parsedMinimumGuests,
@@ -627,22 +651,34 @@ export function ProviderPackageForm({
           </p>
         </FormField>
 
-        <div className="grid gap-2 sm:col-span-2">
-          <p className="text-sm font-medium text-foreground">
-            Payment terms
-          </p>
-          <p className="text-sm font-semibold text-foreground">
-            Full Payment
-          </p>
-          <p className="text-xs leading-5 text-muted-foreground">
-            Customers pay the full amount after you accept their booking request.
-          </p>
-          {initialPackage &&
-          initialPackage.paymentPolicy !==
-            "full_payment" ? (
-            <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs leading-5 text-muted-foreground">
-              Saving updates this package to Full Payment. Bookings already created keep their original payment records.
+        <div className="grid gap-4 sm:col-span-2">
+          <FormField label="Payment terms" required>
+            <Select value={paymentPolicy} onChange={(event) => {
+              const value = event.target.value;
+              if (value === "full_payment" || value === "deposit_then_balance") setPaymentPolicy(value);
+            }}>
+              <option value="full_payment">Full Payment</option>
+              <option value="deposit_then_balance">Deposit + Remaining Balance</option>
+            </Select>
+            <p className="text-xs leading-5 text-muted-foreground">
+              {paymentPolicy === "full_payment"
+                ? "Customers pay the full amount after you accept their booking request."
+                : "Customers can pay the required deposit first and must pay the remaining balance by the package deadline."}
             </p>
+          </FormField>
+          {paymentPolicy === "deposit_then_balance" ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FormField label="Deposit required (%)" error={depositError} required
+                description={`Current FEASTA policy allows ${minimumDepositPercentageAllowed}%–${maximumDepositPercentageAllowed}%.`}>
+                <Input type="number" min={minimumDepositPercentageAllowed} max={maximumDepositPercentageAllowed}
+                  step="any" value={depositPercentage} onChange={(event) => setDepositPercentage(event.target.value)} />
+              </FormField>
+              <FormField label="Remaining balance due (days before event)" error={balanceError} required
+                description={`Current FEASTA policy allows ${minimumBalanceDaysAllowed}–${maximumBalanceDaysAllowed} days before the event.`}>
+                <Input type="number" min={minimumBalanceDaysAllowed} max={maximumBalanceDaysAllowed}
+                  step="1" value={balanceDueDaysBeforeEvent} onChange={(event) => setBalanceDueDaysBeforeEvent(event.target.value)} />
+              </FormField>
+            </div>
           ) : null}
         </div>
       </div>
@@ -794,7 +830,7 @@ export function ProviderPackageForm({
             submitting ||
             Boolean(
               validationError,
-            )
+            ) || Boolean(depositError) || Boolean(balanceError)
           }
           loading={submitting}
           loadingLabel={

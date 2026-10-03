@@ -56,35 +56,69 @@ describe("provider package modal and media", () => {
     fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({name: "Updated package", ...inclusions})));
   });
-  it("offers only Full Payment for new and edited packages", async () => {
-    render(
-      <ProviderPackageForm
-        {...props}
-        initialPackage={record}
-        onSaved={vi.fn()}
-        onCancel={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByText("Full Payment")).toBeVisible();
-    expect(screen.getByText(/Customers pay the full amount after you accept their booking request/)).toBeVisible();
-    expect(screen.queryByRole("radio", {name: /Down Payment \+ Balance/})).not.toBeInTheDocument();
-    expect(screen.queryByRole("spinbutton", {name: /Minimum payment/})).not.toBeInTheDocument();
-    expect(screen.queryByRole("spinbutton", {name: /Balance due before event/})).not.toBeInTheDocument();
-    expect(screen.getByText(/Saving updates this package to Full Payment/)).toBeVisible();
-
+  it("preserves saved deposit terms when editing", async () => {
+    render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByLabelText(/Payment terms/)).toHaveValue("deposit_then_balance");
+    expect(screen.getByLabelText(/Deposit required/)).toHaveValue(20);
+    expect(screen.getByLabelText(/Remaining balance due/)).toHaveValue(7);
     fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({paymentPolicy: "deposit_then_balance", depositPercentage: 20, balanceDueDaysBeforeEvent: 7})));
+  });
 
-    await waitFor(() =>
-      expect(mocks.update).toHaveBeenCalledWith(
-        record.id,
-        expect.objectContaining({
-          paymentPolicy: "full_payment",
-          depositPercentage: 100,
-          balanceDueDaysBeforeEvent: null,
-        }),
-      ),
-    );
+  it("switches back to Full Payment and submits canonical terms even with invalid deposit fields", async () => {
+    render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(/Deposit required/), {target: {value: "0"}});
+    fireEvent.change(screen.getByLabelText(/Remaining balance due/), {target: {value: "1.5"}});
+    fireEvent.change(screen.getByLabelText(/Payment terms/), {target: {value: "full_payment"}});
+    expect(screen.queryByLabelText(/Deposit required/)).not.toBeInTheDocument();
+    expect(screen.getByText("Customers pay the full amount after you accept their booking request.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({paymentPolicy: "full_payment", depositPercentage: 100, balanceDueDaysBeforeEvent: null})));
+  });
+
+  it("starts new deposit fields blank without inventing terms", () => {
+    render(<ProviderPackageForm {...props} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByLabelText(/Payment terms/)).toHaveValue("full_payment");
+    fireEvent.change(screen.getByLabelText(/Payment terms/), {target: {value: "deposit_then_balance"}});
+    expect(screen.getByLabelText(/Deposit required/)).toHaveValue(null);
+    expect(screen.getByLabelText(/Remaining balance due/)).toHaveValue(null);
+  });
+
+  const paymentPolicyBounds = {minimumDepositRateBps: 1250, maximumDepositRateBps: 9250, minimumBalanceDueDaysBeforeEvent: 4, maximumBalanceDueDaysBeforeEvent: 60};
+  it("uses supplied bounds and preserves Provider-entered deposit values", async () => {
+    render(<ProviderPackageForm {...props} paymentPolicyBounds={paymentPolicyBounds} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    const deposit = screen.getByLabelText(/Deposit required/);
+    const balance = screen.getByLabelText(/Remaining balance due/);
+    expect(deposit).toHaveAttribute("min", "12.5");
+    expect(deposit).toHaveAttribute("max", "92.5");
+    expect(balance).toHaveAttribute("min", "4");
+    expect(balance).toHaveAttribute("max", "60");
+    expect(screen.getByText("Current FEASTA policy allows 12.5%–92.5%.")).toBeVisible();
+    expect(screen.getByText("Current FEASTA policy allows 4–60 days before the event.")).toBeVisible();
+    fireEvent.change(deposit, {target: {value: "90.25"}});
+    fireEvent.change(balance, {target: {value: "60"}});
+    fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({paymentPolicy: "deposit_then_balance", depositPercentage: 90.25, balanceDueDaysBeforeEvent: 60})));
+  });
+
+  it.each(["", "0", "100", "12.49", "92.51"])("blocks invalid deposit %s without replacing it", (value) => {
+    render(<ProviderPackageForm {...props} paymentPolicyBounds={paymentPolicyBounds} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    const input = screen.getByLabelText(/Deposit required/);
+    fireEvent.change(input, {target: {value}});
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveValue(value === "" ? null : Number(value));
+    fireEvent.submit(input.closest("form")!);
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "3", "61", "4.5"])("blocks invalid balance deadline %s without replacing it", (value) => {
+    render(<ProviderPackageForm {...props} paymentPolicyBounds={paymentPolicyBounds} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    const input = screen.getByLabelText(/Remaining balance due/);
+    fireEvent.change(input, {target: {value}});
+    expect(input).toHaveAttribute("aria-invalid", "true");
+    expect(input).toHaveValue(value === "" ? null : Number(value));
+    fireEvent.submit(input.closest("form")!);
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 
   it("edits the actual package in the shared dialog, preserves the listing and restores opener focus", async () => {
@@ -243,7 +277,7 @@ describe("provider package modal and media", () => {
     expect(screen.getByLabelText("Service inclusions")).not.toBeRequired();
   });
 
-  it("derives the starting price from enabled service tiers and saves full payment", async () => {
+  it("derives the starting price from enabled service tiers and preserves deposit terms", async () => {
     render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
     expect(screen.getByRole("checkbox", {name: /Drop-Off Catering/})).toBeChecked();
     expect(screen.getByRole("spinbutton", {name: /Drop-Off Catering price/})).toHaveValue(10000);
@@ -258,9 +292,9 @@ describe("provider package modal and media", () => {
         buffet_setup: {price: 8500.5, includedServices: []},
       },
       themeOptions: [],
-      paymentPolicy: "full_payment",
-      depositPercentage: 100,
-      balanceDueDaysBeforeEvent: null,
+      paymentPolicy: "deposit_then_balance",
+      depositPercentage: 20,
+      balanceDueDaysBeforeEvent: 7,
     })));
   });
 
@@ -294,9 +328,9 @@ describe("provider package modal and media", () => {
       serviceOptions: {
         drop_off: {price: 10000, includedServices: []},
       },
-      paymentPolicy: "full_payment",
-      depositPercentage: 100,
-      balanceDueDaysBeforeEvent: null,
+      paymentPolicy: "deposit_then_balance",
+      depositPercentage: 20,
+      balanceDueDaysBeforeEvent: 7,
     })));
   });
 });
