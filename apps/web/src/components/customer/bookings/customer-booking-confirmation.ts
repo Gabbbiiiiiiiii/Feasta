@@ -2,7 +2,7 @@ import type {
   CustomerBooking,
   CustomerBookingProviderRequest,
 } from "@/lib/customer/bookings/customer-booking-types";
-import {isHistoricalDepositTerms} from "@/lib/payments/full-payment-presentation";
+import {hasPartialUpfrontPayment} from "@/lib/payments/customer-payment-presentation";
 
 type CustomerBookingConfirmationTone =
   | "success"
@@ -127,25 +127,25 @@ export function bookingConfirmationPresentation(
   }
 
   if (hasWaitingPayment || booking.status === "waiting_for_down_payment") {
-    const historicalDeposit = providerRequests.some((request) =>
+    const partialUpfront = providerRequests.some((request) =>
       request.status === "waiting_for_down_payment" &&
-      isHistoricalDepositTerms({
+      hasPartialUpfrontPayment({
         amount: request.amount,
         upfrontAmount: request.downPaymentAmount,
       }),
     ) || (
       providerRequests.length === 0 &&
-      isHistoricalDepositTerms({
+      hasPartialUpfrontPayment({
         amount: booking.estimatedEventTotal,
         upfrontAmount: booking.downPaymentAmount,
       })
     );
 
-    return historicalDeposit ? {
+    return partialUpfront ? {
       eyebrow: "Payment needed",
-      title: "A provider service requires a down payment",
+      title: "A provider service requires an upfront payment",
       description:
-        "Review each provider request and complete only the eligible required down payments shown below.",
+        "Review each provider request and choose from the payment options currently available for that request.",
       tone: "warning",
     } : {
       eyebrow: "Payment needed",
@@ -188,17 +188,17 @@ export function bookingConfirmationPresentation(
 export function providerPaymentPresentation(
   request: CustomerBookingProviderRequest,
 ): CustomerProviderPaymentPresentation {
-  const historicalDeposit = isHistoricalDepositTerms({
+  const partialUpfront = hasPartialUpfrontPayment({
     amount: request.amount,
     upfrontAmount: request.downPaymentAmount,
   });
 
   if (request.paymentStatus === "refunded") {
     return {
-      label: historicalDeposit ? "Down payment refunded" : "Payment refunded",
+      label: partialUpfront ? "Upfront payment refunded" : "Payment refunded",
       status: "refunded",
-      description: historicalDeposit
-        ? "The recorded provider down payment was refunded. No cancellation is implied by this payment state."
+      description: partialUpfront
+        ? "The recorded provider upfront payment was refunded. No cancellation is implied by this payment state."
         : "The recorded provider payment was refunded. No cancellation is implied by this payment state.",
       showPaidAt: false,
       showRefundedAt: true,
@@ -224,10 +224,10 @@ export function providerPaymentPresentation(
     ["confirmed", "in_progress", "completed"].includes(request.status)
   ) {
     return {
-      label: "No down payment required",
+      label: "No upfront payment required",
       status: request.status,
       description:
-        "This provider service was confirmed without an online down payment.",
+        "This provider service was confirmed without an online upfront payment.",
       showPaidAt: false,
       showRefundedAt: false,
     };
@@ -235,10 +235,10 @@ export function providerPaymentPresentation(
 
   if (request.paymentStatus === "paid") {
     return {
-      label: historicalDeposit ? "Down payment confirmed" : "Full payment confirmed",
+      label: partialUpfront ? "Upfront payment confirmed" : "Full payment confirmed",
       status: "paid",
-      description: historicalDeposit
-        ? "FEASTA has authoritative confirmation of this provider down payment."
+      description: partialUpfront
+        ? "FEASTA has authoritative confirmation of this provider upfront payment."
         : "FEASTA has authoritative confirmation of this full payment.",
       showPaidAt: true,
       showRefundedAt: false,
@@ -249,8 +249,8 @@ export function providerPaymentPresentation(
     return {
       label: "Payment failed",
       status: "failed",
-      description: historicalDeposit
-        ? "The provider down payment was not confirmed. Use the available secure action when you are ready to retry."
+      description: partialUpfront
+        ? "The provider upfront payment was not confirmed. Use the available secure action when you are ready to retry."
         : "The full payment was not confirmed. Use the available secure action when you are ready to retry.",
       showPaidAt: false,
       showRefundedAt: false,
@@ -269,11 +269,11 @@ export function providerPaymentPresentation(
   }
 
   if (request.status === "waiting_for_down_payment") {
-    return historicalDeposit ? {
-      label: "Down payment required",
+    return partialUpfront ? {
+      label: "Upfront payment required",
       status: "waiting_for_down_payment",
       description:
-        "Complete the required down payment using the secure action for this provider request.",
+        "Pay the minimum required amount now, or pay this Provider request in full using the available secure actions.",
       showPaidAt: false,
       showRefundedAt: false,
     } : {
@@ -290,8 +290,8 @@ export function providerPaymentPresentation(
     return {
       label: "No active payment",
       status: request.status,
-      description: historicalDeposit
-        ? "No provider down-payment action is available for this request."
+      description: partialUpfront
+        ? "No provider upfront-payment action is available for this request."
         : "No payment action is available for this request.",
       showPaidAt: false,
       showRefundedAt: false,
@@ -301,8 +301,8 @@ export function providerPaymentPresentation(
   return {
     label: "Payment not yet required",
     status: request.status,
-    description: historicalDeposit
-      ? "No confirmed provider down payment is recorded for this request."
+    description: partialUpfront
+      ? "No confirmed provider upfront payment is recorded for this request."
       : "No confirmed provider payment is recorded for this request.",
     showPaidAt: false,
     showRefundedAt: false,

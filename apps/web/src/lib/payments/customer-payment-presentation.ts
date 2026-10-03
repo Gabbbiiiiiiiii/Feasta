@@ -1,11 +1,7 @@
 import type {CustomerPaymentChoice} from "@feasta/shared-types";
 
-/**
- * Historical deposit terms stay visible when a frozen upfront amount is a
- * partial share of the recorded total. New full-payment records use the
- * complete amount and are presented as Full Payment.
- */
-export function isHistoricalDepositTerms(input: {
+/** A partial upfront amount can include a package deposit and full-upfront add-ons. */
+export function hasPartialUpfrontPayment(input: {
   amount: number;
   upfrontAmount: number;
 }): boolean {
@@ -19,7 +15,7 @@ export function customerPaymentChoiceActionLabel(
 ): string {
   switch (choice) {
     case "minimum":
-      return "minimum";
+      return "minimum payment";
     case "remaining_balance":
       return "remaining balance";
     case "full":

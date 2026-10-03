@@ -25,7 +25,7 @@ import {
   formatCount,
   formatCurrency,
 } from "@/components/customer/bookings/booking-formatters";
-import {customerPaymentChoiceActionLabel} from "@/lib/payments/full-payment-presentation";
+import {customerPaymentChoiceActionLabel} from "@/lib/payments/customer-payment-presentation";
 import {CustomerBookingCancellationDialog} from "@/components/customer/bookings/customer-booking-cancellation-dialog";
 import {CustomerBookingCancellationStatus} from "@/components/customer/bookings/customer-booking-cancellation-status";
 import {CustomerBookingProviderRequestCard} from "@/components/customer/bookings/customer-booking-provider-request-card";
@@ -176,7 +176,7 @@ function CustomerBookingDetailContent({
         </div>
         <p className="mt-3 flex min-w-0 items-start gap-2 text-xs leading-5 text-muted-foreground">
           <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-          <span>Each provider request is paid separately. New bookings use full payment after the provider accepts.</span>
+          <span>Each provider request is paid separately. Available payment options are based on the payment terms saved with that request.</span>
         </p>
       </DetailSection>
 
@@ -522,6 +522,12 @@ function paymentActionForRequest({
     <div className="grid gap-2 border-t border-border pt-4">
       {onlyFullPayment ? (
         <p className="text-sm font-bold">Full Payment</p>
+      ) : null}
+      {request.checkoutOptions.some((option) => option.choice === "minimum") &&
+      request.checkoutOptions.some((option) => option.choice === "full") ? (
+        <p className="text-xs leading-5 text-muted-foreground">
+          Pay the minimum required amount now, or pay this Provider request in full.
+        </p>
       ) : null}
       {request.checkoutOptions.map((option) => <Button
         key={option.choice}

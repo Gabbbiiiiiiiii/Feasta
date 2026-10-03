@@ -108,6 +108,45 @@ describe("customer booking dedicated detail page", () => {
     });
   });
 
+  it.each(["minimum", "full"] as const)("presents partial upfront choices using option amounts and sends %s", async (choice) => {
+    const result = detailResult();
+    result.details.providerRequests = [providerRequestFixture({
+      checkoutOptions: [{choice: "minimum", amount: 26000}, {choice: "full", amount: 101000}],
+    })];
+    mocks.createCheckout.mockResolvedValueOnce({paymentId: "payment_test", providerRequestId: "request-1",
+      bookingId: "owned-booking-001", checkoutUrl: "https://checkout.paymongo.com/test", created: true});
+    render(<CustomerBookingDetailPage result={result} />);
+    expect(screen.getByRole("button", {name: /Pay minimum payment .*26,000/})).toBeVisible();
+    expect(screen.getByRole("button", {name: /Pay full payment .*101,000/})).toBeVisible();
+    expect(screen.queryByRole("button", {name: /Pay remaining balance/})).not.toBeInTheDocument();
+    expect(screen.getByText("Pay the minimum required amount now, or pay this Provider request in full.")).toBeVisible();
+    for (const label of ["Required upfront payment", "Remaining balance", "Upfront rate"]) expect(screen.getByText(label)).toBeVisible();
+    expect(screen.getByText("Each provider request is paid separately. Available payment options are based on the payment terms saved with that request.")).toBeVisible();
+    expect(document.body).not.toHaveTextContent(/historical|New bookings use full payment after the provider accepts/);
+    fireEvent.click(screen.getByRole("button", {name: choice === "minimum" ? /Pay minimum payment/ : /Pay full payment/}));
+    await waitFor(() => expect(mocks.createCheckout).toHaveBeenCalledWith("request-1", choice));
+  });
+
+  it("shows only the projected remaining-balance choice after settled minimum payment", async () => {
+    const result = detailResult();
+    result.details.booking.status = "confirmed";
+    result.details.providerRequests = [providerRequestFixture({status: "confirmed", paymentStatus: "paid",
+      settlementStatus: "deposit_settled", grossSettledAmountInCentavos: 2500000, outstandingAmountInCentavos: 7500000,
+      remainingBalanceStatus: "not_due", remainingBalanceDueAt: "2026-08-08T16:00:00.000Z",
+      checkoutOptions: [{choice: "remaining_balance", amount: 75000}],
+    })];
+    mocks.createCheckout.mockResolvedValueOnce({paymentId: "payment_balance", providerRequestId: "request-1",
+      bookingId: "owned-booking-001", checkoutUrl: "https://checkout.paymongo.com/test", created: true});
+    render(<CustomerBookingDetailPage result={result} />);
+    const buttons = screen.getAllByRole("button", {name: /^Pay /});
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]).toHaveTextContent(/Pay remaining balance .*75,000/);
+    expect(screen.getByLabelText("Status: Upfront payment confirmed")).toBeVisible();
+    expect(screen.queryByLabelText("Status: Full payment confirmed")).not.toBeInTheDocument();
+    fireEvent.click(buttons[0]);
+    await waitFor(() => expect(mocks.createCheckout).toHaveBeenCalledWith("request-1", "remaining_balance"));
+  });
+
   it("server-loads an owned direct URL and renders accessible read-only details", async () => {
     const result = detailResult();
     mocks.getDetails.mockResolvedValueOnce(result);
@@ -121,7 +160,7 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.getByRole("heading", {name: "Booking details"})).toBeVisible();
     expect(screen.getByRole("link", {name: "Back to bookings"})).toHaveAttribute("href", "/customer/bookings");
     const currentState = screen.getByRole("heading", {
-      name: "A provider service requires a down payment",
+      name: "A provider service requires an upfront payment",
     }).closest("section");
     expect(currentState).not.toBeNull();
     expect(within(currentState as HTMLElement).getByLabelText("Status: Awaiting payment")).toBeVisible();
@@ -130,11 +169,11 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.getAllByText("Maria's Catering").length).toBeGreaterThan(0);
     expect(screen.getByText("Package: Premium Wedding Package")).toBeVisible();
     expect(screen.getByText("Catering")).toBeVisible();
-    expect(screen.getByText("Accepted — down payment required")).toBeVisible();
+    expect(screen.getByText("Accepted — upfront payment required")).toBeVisible();
     expect(screen.getByText(/Response received Aug 1, 2026/u)).toBeVisible();
     expect(screen.getAllByText(/125,000\.00/u).length).toBeGreaterThan(0);
     expect(screen.getAllByLabelText("Status: Awaiting payment").length).toBeGreaterThan(0);
-    expect(screen.getByText("Review each provider request and complete only the eligible required down payments shown below.")).toBeVisible();
+    expect(screen.getByText("Review each provider request and choose from the payment options currently available for that request.")).toBeVisible();
     expect(screen.getByRole("heading", {name: "Provider requests"})).toBeVisible();
     expect(screen.queryByText("Primary provider")).not.toBeInTheDocument();
 
@@ -373,7 +412,7 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.getByRole("heading", {
       name: "Your provider service is confirmed",
     })).toBeVisible();
-    expect(screen.getByLabelText("Status: Down payment confirmed")).toBeVisible();
+    expect(screen.getByLabelText("Status: Upfront payment confirmed")).toBeVisible();
     expect(screen.getByText("Paid")).toBeVisible();
     expect(screen.getByText(/Aug 3, 2026/u)).toBeVisible();
     expect(screen.getByRole("button", {name: "Message Provider"})).toBeVisible();
@@ -406,7 +445,7 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.getByRole("heading", {
       name: "All provider services are confirmed",
     })).toBeVisible();
-    expect(screen.getAllByLabelText("Status: Down payment confirmed"))
+    expect(screen.getAllByLabelText("Status: Upfront payment confirmed"))
       .toHaveLength(2);
   });
 
@@ -460,7 +499,7 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.getByRole("heading", {
       name: "Some provider services are confirmed",
     })).toBeVisible();
-    expect(screen.getByLabelText("Status: Down payment required")).toBeVisible();
+    expect(screen.getByLabelText("Status: Upfront payment required")).toBeVisible();
   });
 
   it("presents a zero-down confirmed request without an unpaid state", () => {
@@ -476,9 +515,9 @@ describe("customer booking dedicated detail page", () => {
 
     render(<CustomerBookingDetailPage result={result} />);
 
-    expect(screen.getByLabelText("Status: No down payment required")).toBeVisible();
+    expect(screen.getByLabelText("Status: No upfront payment required")).toBeVisible();
     expect(screen.getByText(
-      "This provider service was confirmed without an online down payment.",
+      "This provider service was confirmed without an online upfront payment.",
     )).toBeVisible();
     expect(screen.queryByLabelText("Status: Unpaid")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", {name: /pay/iu})).not.toBeInTheDocument();
@@ -495,7 +534,7 @@ describe("customer booking dedicated detail page", () => {
 
     render(<CustomerBookingDetailPage result={result} />);
 
-    expect(screen.getByLabelText("Status: Down payment refunded")).toBeVisible();
+    expect(screen.getByLabelText("Status: Upfront payment refunded")).toBeVisible();
     expect(screen.getByText("Refunded")).toBeVisible();
     expect(screen.getByText(/Aug 5, 2026/u)).toBeVisible();
     expect(screen.getByText(/No cancellation is implied/u)).toBeVisible();

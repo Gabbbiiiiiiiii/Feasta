@@ -60,6 +60,27 @@ describe("customer booking history and details", () => {
     mocks.searchParamGet.mockReturnValue(null);
   });
 
+  it.each(["minimum", "full", "remaining_balance"] as const)("drawer keeps projected %s actions and amounts", async (choice) => {
+    const details = detailsFixture();
+    const balance = choice === "remaining_balance";
+    details.details.booking.status = balance ? "confirmed" : "waiting_for_down_payment";
+    details.details.providerRequests = [providerRequestFixture({
+      status: balance ? "confirmed" : "waiting_for_down_payment", paymentStatus: balance ? "paid" : "unpaid",
+      checkoutOptions: balance ? [{choice: "remaining_balance", amount: 75000}] :
+        [{choice: "minimum", amount: 26000}, {choice: "full", amount: 101000}],
+    })];
+    mocks.loadDetails.mockResolvedValueOnce(details);
+    render(<CustomerBookingExperience initialPage={pageFixture()} />);
+    fireEvent.click(screen.getAllByRole("button", {name: "View booking FEA-2026-0001"})[0]);
+    const button = await screen.findByRole("button", {name: choice === "minimum" ? /Pay minimum payment .*26,000/ :
+      choice === "full" ? /Pay full payment .*101,000/ : /Pay remaining balance .*75,000/});
+    expect(screen.getByText("Each provider request is paid separately. Available payment options are based on the payment terms saved with that request.")).toBeVisible();
+    if (balance) expect(screen.getAllByRole("button", {name: /^Pay /})).toHaveLength(1);
+    else expect(screen.getByText("Pay the minimum required amount now, or pay this Provider request in full.")).toBeVisible();
+    fireEvent.click(button);
+    await waitFor(() => expect(mocks.createCheckout).toHaveBeenCalledWith("provider-request-waiting-001", choice));
+  });
+
   it("server-loads the first owned page and renders real booking information", async () => {
     render(await CustomerBookingsPage());
 
@@ -178,7 +199,7 @@ describe("customer booking history and details", () => {
     expect(screen.getAllByText("Catering buffet").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Catering").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Lights & sounds").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText("Accepted — down payment required")).toBeVisible();
+    expect(screen.getByText("Accepted — upfront payment required")).toBeVisible();
     expect(screen.getByText("Accepted — confirmed")).toBeVisible();
     expect(screen.getByText("Declined by Alternative Caterer")).toBeVisible();
     expect(screen.getAllByText(/Response received Aug 1, 2026/u).length).toBeGreaterThanOrEqual(3);
@@ -253,7 +274,7 @@ describe("customer booking history and details", () => {
       "Searches only your bookings using an exact booking code or booking ID.",
     );
     expect(screen.getAllByLabelText("Status: Awaiting payment").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Accepted provider requests require a down payment. Review each request's payment status.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Accepted provider requests require an upfront payment. Review each request's payment status.").length).toBeGreaterThan(0);
     expect(screen.getByText(/Searches only your bookings/u)).toBeVisible();
   });
 
@@ -285,7 +306,7 @@ describe("customer booking history and details", () => {
           rejectedProviderRequestCount: 0,
         }),
         summary: "1 awaiting payment",
-        nextStep: "Accepted provider requests require a down payment. Review each request's payment status.",
+        nextStep: "Accepted provider requests require an upfront payment. Review each request's payment status.",
       },
       {
         booking: bookingFixture({

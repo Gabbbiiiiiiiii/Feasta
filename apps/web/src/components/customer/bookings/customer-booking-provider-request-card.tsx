@@ -19,7 +19,7 @@ import type {
   CustomerBookingProviderRequest,
   CustomerBookingService,
 } from "@/lib/customer/bookings/customer-booking-types";
-import {isHistoricalDepositTerms} from "@/lib/payments/full-payment-presentation";
+import {hasPartialUpfrontPayment} from "@/lib/payments/customer-payment-presentation";
 import {cn} from "@/lib/utils";
 
 type CustomerBookingProviderRequestCardProps = {
@@ -55,7 +55,7 @@ function CustomerBookingProviderRequestCard({
       null;
   const responseTimestamp = providerRequestResponseTimestamp(request);
   const paymentPresentation = providerPaymentPresentation(request);
-  const historicalDeposit = isHistoricalDepositTerms({
+  const partialUpfront = hasPartialUpfrontPayment({
     amount: request.amount,
     upfrontAmount: request.downPaymentAmount,
   });
@@ -110,15 +110,15 @@ function CustomerBookingProviderRequestCard({
         !compact && "xl:grid-cols-4",
       )}>
         <FinancialMetric label="Service amount" value={formatCurrency(request.amount)} />
-        {historicalDeposit ? <>
-          <FinancialMetric label="Required down payment" value={formatCurrency(request.downPaymentAmount)} />
+        {partialUpfront ? <>
+          <FinancialMetric label="Required upfront payment" value={formatCurrency(request.downPaymentAmount)} />
           <FinancialMetric label="Remaining balance" value={formatCurrency(request.remainingBalance)} />
-          <FinancialMetric label="Down payment rate" value={formatPercentage(request.downPaymentPercentage)} />
+          <FinancialMetric label="Upfront rate" value={formatPercentage(request.downPaymentPercentage)} />
         </> : (
           <FinancialMetric label="Full payment" value={formatCurrency(request.downPaymentAmount)} />
         )}
       </dl>
-      {historicalDeposit && request.remainingBalanceStatus && request.remainingBalanceStatus !== "not_applicable" ? (
+      {partialUpfront && request.remainingBalanceStatus && request.remainingBalanceStatus !== "not_applicable" ? (
         <RemainingBalanceLifecycle
           request={request}
         />
@@ -151,7 +151,7 @@ function CustomerBookingProviderRequestCard({
             <PaymentDate label="Refunded" value={request.refundedAt} />
           ) : null}
 
-          {historicalDeposit && request.remainingBalance > 0 ? (
+          {partialUpfront && request.remainingBalance > 0 ? (
             <p className="border-t border-border pt-3 text-xs leading-5 text-muted-foreground">
               You can pay the remaining balance securely through FEASTA when eligible.
             </p>
