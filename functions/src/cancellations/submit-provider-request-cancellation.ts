@@ -6,6 +6,9 @@ import {
   calculateCancellationRefundForPaymentSet,
 } from "../refunds/refund-accounting-domain.js";
 import {
+  approveCancellation,
+} from "../refunds/refund-execution.js";
+import {
   cancellationPaymentSetState,
   cancellationPaymentState,
 } from "./cancellation-payment-state.js";
@@ -59,6 +62,9 @@ import {
   CANCELLATION_REFUND_ROLLOUT_DOCUMENT_ID,
   parseCancellationRefundRollout,
 } from "./cancellation-rollout.js";
+
+const AUTOMATIC_CANCELLATION_SYSTEM_ACTOR_ID =
+  "feasta-system";
 
 const INPUT_FIELDS = new Set([
   "providerRequestId",
@@ -124,12 +130,45 @@ export const submitProviderRequestCancellation = onCall(
       key: operationKey,
       operation,
       actorId: actor.uid,
-      handler: () => submitCancellation({
-        actorUid: actor.uid,
-        providerRequestId,
-        reason,
-        operationKey,
-      }),
+      handler: async () => {
+        const submitted = await submitCancellation({
+          actorUid: actor.uid,
+          providerRequestId,
+          reason,
+          operationKey,
+        });
+
+        if (
+          submitted.status !== "submitted" ||
+          submitted.policyEvidenceStatus !== "policy_backed"
+        ) {
+          return submitted;
+        }
+
+        const automaticApproval =
+          await approveCancellation({
+            cancellationRequestId:
+              submitted.cancellationRequestId,
+            actorId:
+              AUTOMATIC_CANCELLATION_SYSTEM_ACTOR_ID,
+            actorRole:
+              "system",
+            approvalMode:
+              "automatic_unpaid",
+          });
+
+        if (!automaticApproval) {
+          return submitted;
+        }
+
+        return {
+          ...submitted,
+          status:
+            automaticApproval.cancellationStatus,
+          manualReviewRequired:
+            false,
+        };
+      },
     });
     // The shared idempotency key is actor-scoped. Never replay another service's result.
     if (execution.result.providerRequestId !== providerRequestId) {

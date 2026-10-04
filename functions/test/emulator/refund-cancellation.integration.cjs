@@ -48,6 +48,8 @@ async function run() {
     const fixture = await createFixture();
 
     for (const scenario of [assertRolloutFailsClosed,
+      assertAutomaticUnpaidCancellation,
+      assertAutomaticModePaymentSafety,
       assertAuthorizationAndPreparationReadiness,
       assertPolicyBackedCancellationAndIsolation, assertLegacyAndInvalidEvidence,
       assertPaymentProcessingRouting, assertTransactionalRace, assertAuditAndNotification]) {
@@ -183,6 +185,418 @@ async function assertRolloutFailsClosed(fixture) {
     customerCancellationMode: "review_only",
     automaticPolicyRefundApprovalMode: "off",
   });
+}
+
+async function assertAutomaticUnpaidCancellation(fixture) {
+  const rollout = db
+    .collection("appSettings")
+    .doc("cancellationRefundRollout");
+
+  await rollout.set({
+    schemaVersion: 1,
+    isPublic: false,
+    customerCancellationMode: "enabled",
+    automaticPolicyRefundApprovalMode: "enabled",
+  });
+
+  try {
+    const unpaid = await createStandaloneRequest(fixture, {
+      suffix: "automatic_unpaid",
+      status: "waiting_for_down_payment",
+      mainEventStatus: "waiting_for_down_payment",
+      downPaymentAmount: 500,
+    });
+
+    const options = await callFunction(
+      "getProviderRequestCancellationOptions",
+      fixture.customer,
+      {
+        providerRequestId:
+          unpaid.requestId,
+      },
+    );
+
+    assert.equal(
+      options.cancellationAllowed,
+      true,
+    );
+
+    assert.equal(
+      options.reasonCode,
+      "ALLOWED",
+    );
+
+    assert.equal(
+      options.refundPreview.refundAmountInCentavos,
+      0,
+    );
+
+    const result = await callFunction(
+      "submitProviderRequestCancellation",
+      fixture.customer,
+      cancellationInput(
+        unpaid.requestId,
+        "automatic-unpaid-cancel",
+      ),
+    );
+
+    assert.equal(
+      result.status,
+      "cancelled_no_refund",
+    );
+
+    assert.equal(
+      result.policyEvidenceStatus,
+      "policy_backed",
+    );
+
+    assert.equal(
+      result.manualReviewRequired,
+      false,
+    );
+
+    const [
+      providerRequestSnapshot,
+      mainEventSnapshot,
+      cancellationSnapshot,
+      paymentSnapshot,
+      timelineSnapshot,
+      auditSnapshot,
+    ] = await Promise.all([
+      db.collection("providerRequests")
+        .doc(unpaid.requestId)
+        .get(),
+
+      db.collection("mainEvents")
+        .doc(unpaid.eventId)
+        .get(),
+
+      db.collection(
+        "providerRequestCancellationRequests",
+      )
+        .doc(result.cancellationRequestId)
+        .get(),
+
+      db.collection("payments")
+        .doc(
+          paymentIdForProviderRequest(
+            unpaid.requestId,
+          ),
+        )
+        .get(),
+
+      db.collection("mainEvents")
+        .doc(unpaid.eventId)
+        .collection("timeline")
+        .get(),
+
+      db.collection("adminLogs")
+        .get(),
+    ]);
+
+    const providerRequest =
+      providerRequestSnapshot.data();
+
+    const mainEvent =
+      mainEventSnapshot.data();
+
+    const cancellation =
+      cancellationSnapshot.data();
+
+    assert.equal(
+      providerRequest?.status,
+      "cancelled",
+    );
+
+    assert.equal(
+      providerRequest
+        ?.approvedCancellationRequestId,
+      result.cancellationRequestId,
+    );
+
+    assert.equal(
+      providerRequest
+        ?.refundEligibilityState
+        ?.activeCancellationRequestId,
+      null,
+    );
+
+    assert.equal(
+      mainEvent?.status,
+      "cancelled",
+    );
+
+    assert.equal(
+      cancellation?.status,
+      "cancelled_no_refund",
+    );
+
+    assert.equal(
+      cancellation?.decision?.outcome,
+      "approved",
+    );
+
+    assert.equal(
+      cancellation?.refundOperationId,
+      null,
+    );
+
+    assert.deepEqual(
+      cancellation?.refundOperationIds,
+      [],
+    );
+
+    assert.equal(
+      paymentSnapshot.exists,
+      false,
+    );
+
+    const approvalTimeline =
+      timelineSnapshot.docs
+        .map((document) => document.data())
+        .find(
+          (entry) =>
+            entry.type ===
+              "cancellation_approved_no_refund" &&
+            entry.providerRequestId ===
+              unpaid.requestId,
+        );
+
+    assert.ok(
+      approvalTimeline,
+    );
+
+    assert.equal(
+      approvalTimeline.createdByRole,
+      "system",
+    );
+
+    const approvalAudit =
+      auditSnapshot.docs
+        .map((document) => document.data())
+        .find(
+          (entry) =>
+            entry.action ===
+              "cancellation_request.approved" &&
+            entry.targetId ===
+              result.cancellationRequestId,
+        );
+
+    assert.ok(
+      approvalAudit,
+    );
+
+    assert.equal(
+      approvalAudit.actorRole,
+      "system",
+    );
+
+    assert.equal(
+      approvalAudit.actorId,
+      "feasta-system",
+    );
+  } finally {
+    await rollout.set({
+      schemaVersion: 1,
+      isPublic: false,
+      customerCancellationMode:
+        "review_only",
+      automaticPolicyRefundApprovalMode:
+        "off",
+    });
+  }
+}
+
+async function assertAutomaticModePaymentSafety(fixture) {
+  const rollout = db
+    .collection("appSettings")
+    .doc("cancellationRefundRollout");
+
+  await rollout.set({
+    schemaVersion: 1,
+    isPublic: false,
+    customerCancellationMode: "enabled",
+    automaticPolicyRefundApprovalMode: "enabled",
+  });
+
+  try {
+    const processing =
+      await createStandaloneRequest(fixture, {
+        suffix: "automatic_processing",
+        status: "payment_processing",
+        mainEventStatus:
+          "waiting_for_down_payment",
+        downPaymentAmount: 300,
+        paymentStatus: "processing",
+      });
+
+    await seedPayment({
+      ...processing,
+      customerId:
+        fixture.customer.uid,
+      providerId:
+        fixture.providerA,
+      status: "processing",
+      amount: 300,
+    });
+
+    const processingResult =
+      await callFunction(
+        "submitProviderRequestCancellation",
+        fixture.customer,
+        cancellationInput(
+          processing.requestId,
+          "automatic-processing-cancel",
+        ),
+      );
+
+    assert.equal(
+      processingResult.status,
+      "awaiting_payment_resolution",
+    );
+
+    const [
+      processingRequestSnapshot,
+      processingPaymentSnapshot,
+    ] = await Promise.all([
+      db.collection("providerRequests")
+        .doc(processing.requestId)
+        .get(),
+
+      db.collection("payments")
+        .doc(
+          paymentIdForProviderRequest(
+            processing.requestId,
+          ),
+        )
+        .get(),
+    ]);
+
+    assert.equal(
+      processingRequestSnapshot.data()?.status,
+      "payment_processing",
+    );
+
+    assert.equal(
+      processingPaymentSnapshot.data()?.status,
+      "processing",
+    );
+
+
+    const paid =
+      await createStandaloneRequest(fixture, {
+        suffix: "automatic_paid",
+        status: "confirmed",
+        mainEventStatus: "confirmed",
+        downPaymentAmount: 500,
+        paymentStatus: "paid",
+        paidAt: Timestamp.now(),
+      });
+
+    await seedPayment({
+      ...paid,
+      customerId:
+        fixture.customer.uid,
+      providerId:
+        fixture.providerA,
+      status: "paid",
+      amount: 500,
+    });
+
+    await db.collection("payments")
+      .doc(
+        paymentIdForProviderRequest(
+          paid.requestId,
+        ),
+      )
+      .update({
+        paidAt: Timestamp.now(),
+        paymongoResourceId:
+          "pay_automatic_paid",
+      });
+
+    const paidResult =
+      await callFunction(
+        "submitProviderRequestCancellation",
+        fixture.customer,
+        cancellationInput(
+          paid.requestId,
+          "automatic-paid-cancel",
+        ),
+      );
+
+    assert.equal(
+      paidResult.status,
+      "submitted",
+    );
+
+    assert.equal(
+      paidResult.policyEvidenceStatus,
+      "policy_backed",
+    );
+
+    const [
+      paidRequestSnapshot,
+      paidPaymentSnapshot,
+      paidCancellationSnapshot,
+    ] = await Promise.all([
+      db.collection("providerRequests")
+        .doc(paid.requestId)
+        .get(),
+
+      db.collection("payments")
+        .doc(
+          paymentIdForProviderRequest(
+            paid.requestId,
+          ),
+        )
+        .get(),
+
+      db.collection(
+        "providerRequestCancellationRequests",
+      )
+        .doc(
+          paidResult.cancellationRequestId,
+        )
+        .get(),
+    ]);
+
+    assert.equal(
+      paidRequestSnapshot.data()?.status,
+      "confirmed",
+    );
+
+    assert.equal(
+      paidPaymentSnapshot.data()?.status,
+      "paid",
+    );
+
+    assert.equal(
+      paidCancellationSnapshot.data()?.status,
+      "submitted",
+    );
+
+    assert.equal(
+      paidCancellationSnapshot
+        .data()?.decision,
+      null,
+    );
+
+    assert.equal(
+      paidCancellationSnapshot
+        .data()?.refundOperationId,
+      null,
+    );
+  } finally {
+    await rollout.set({
+      schemaVersion: 1,
+      isPublic: false,
+      customerCancellationMode:
+        "review_only",
+      automaticPolicyRefundApprovalMode:
+        "off",
+    });
+  }
 }
 
 async function assertAuthorizationAndPreparationReadiness(fixture) {

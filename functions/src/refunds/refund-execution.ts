@@ -49,6 +49,14 @@ import {
 import {
   requireSafeDocumentId,
 } from "../refund-policies/refund-policy-domain.js";
+import {
+  cancellationPaymentSetState,
+  cancellationPaymentState,
+} from "../cancellations/cancellation-payment-state.js";
+import {
+  CANCELLATION_REFUND_ROLLOUT_DOCUMENT_ID,
+  parseCancellationRefundRollout,
+} from "../cancellations/cancellation-rollout.js";
 import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
@@ -191,10 +199,20 @@ export const approveProviderRequestCancellationRefund = onCall(
       key: operationKey,
       operation: "approveProviderRequestCancellationRefund",
       actorId: actor.uid,
-      handler: () => approveCancellation({
-        cancellationRequestId,
-        actorId: actor.uid,
-      }),
+      handler: async () => {
+        const result = await approveCancellation({
+          cancellationRequestId,
+          actorId: actor.uid,
+          actorRole: "admin",
+          approvalMode: "standard",
+        });
+
+        if (!result) {
+          throw approvalConflict();
+        }
+
+        return result;
+      },
     });
     return {...execution.result, idempotentReplay: execution.replayed};
   },
@@ -300,7 +318,11 @@ export const executeProviderRequestRefund = onCall(
 export async function approveCancellation(input: {
   cancellationRequestId: string;
   actorId: string;
-}): Promise<Omit<ApprovalResult, "idempotentReplay">> {
+  actorRole?: "admin" | "system";
+  approvalMode?: "standard" | "automatic_unpaid";
+}): Promise<Omit<ApprovalResult, "idempotentReplay"> | null> {
+  const actorRole = input.actorRole ?? "admin";
+  const approvalMode = input.approvalMode ?? "standard";
   const cancellationReference =
     db.collection(
       "providerRequestCancellationRequests",
@@ -349,6 +371,10 @@ export async function approveCancellation(input: {
           ids.providerId,
         );
 
+      const rolloutReference =
+        db.collection("appSettings")
+          .doc(CANCELLATION_REFUND_ROLLOUT_DOCUMENT_ID);
+
       const allRequestsQuery =
         db.collection(
           "providerRequests",
@@ -375,6 +401,7 @@ export async function approveCancellation(input: {
         mainEventSnapshot,
         providerSnapshot,
         allRequestsSnapshot,
+        rolloutSnapshot,
       ] = await Promise.all([
         transaction.get(
           mainEventReference,
@@ -386,6 +413,10 @@ export async function approveCancellation(input: {
 
         transaction.get(
           allRequestsQuery,
+        ),
+
+        transaction.get(
+          rolloutReference,
         ),
       ]);
 
@@ -399,6 +430,26 @@ export async function approveCancellation(input: {
       const mainEvent =
         mainEventSnapshot.data() ??
         {};
+
+      if (approvalMode === "automatic_unpaid") {
+        let rollout;
+
+        try {
+          rollout = parseCancellationRefundRollout({
+            exists: rolloutSnapshot.exists,
+            data: rolloutSnapshot.data(),
+          });
+        } catch {
+          return null;
+        }
+
+        if (
+          rollout.customerCancellationMode !== "enabled" ||
+          rollout.automaticPolicyRefundApprovalMode !== "enabled"
+        ) {
+          return null;
+        }
+      }
 
       const paymentSet =
         await readTrustedProviderRequestPaymentSetInTransaction({
@@ -550,6 +601,51 @@ export async function approveCancellation(input: {
         requestStatus,
       );
 
+      if (approvalMode === "automatic_unpaid") {
+        if (
+          currentCancellationStatus !== "submitted" ||
+          requestStatus !== "waiting_for_down_payment"
+        ) {
+          return null;
+        }
+
+        let automaticPaymentState;
+
+        try {
+          automaticPaymentState =
+            paymentSet.mode === "p5"
+              ? cancellationPaymentSetState(
+                  providerRequest,
+                  paymentSet.settlement,
+                  paymentSet.payments,
+                )
+              : cancellationPaymentState(
+                  providerRequest,
+                  payment,
+                );
+        } catch {
+          return null;
+        }
+
+        const hasNoSettledMoney =
+          paymentSet.mode === "p5"
+            ? paymentSet.settlement.grossSettledAmountInCentavos === 0
+            : (
+                payment === null ||
+                (
+                  payment.status !== "paid" &&
+                  payment.paidAt == null
+                )
+              );
+
+        if (
+          automaticPaymentState !== "ready" ||
+          !hasNoSettledMoney
+        ) {
+          return null;
+        }
+      }
+
       const approvedId =
         nullableId(
           providerRequest
@@ -592,12 +688,23 @@ export async function approveCancellation(input: {
           .calculationStatus ===
         "manual_review_required"
       ) {
+        if (approvalMode === "automatic_unpaid") {
+          return null;
+        }
+
         throw refundAccountingError(
           "failed-precondition",
           REFUND_ACCOUNTING_ERROR_REASONS
             .manualReviewRequired,
           "Refund approval requires manual review.",
         );
+      }
+
+      if (
+        approvalMode === "automatic_unpaid" &&
+        calculation.eligibleRefundAmountInCentavos !== 0
+      ) {
+        return null;
       }
 
       if (
@@ -1154,7 +1261,7 @@ export async function approveCancellation(input: {
             input.cancellationRequestId,
 
           createdByRole:
-            "admin",
+            actorRole,
 
           createdAt:
             timestamp,
@@ -1192,8 +1299,7 @@ export async function approveCancellation(input: {
           actorId:
             input.actorId,
 
-          actorRole:
-            "admin",
+          actorRole,
 
           action:
             "cancellation_request.approved",

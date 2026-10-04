@@ -190,11 +190,18 @@ function CustomerBookingCancellationDialog({
 
       if (mountedRef.current) {
         onStatusChanged?.(request.providerRequestId);
-        feastaToast.success(
-          submitted.created
-            ? "Cancellation request submitted."
-            : "This cancellation request was already recorded.",
-        );
+        const successMessage =
+          !submitted.created
+            ? "This cancellation request was already recorded."
+            : submitted.status === "cancelled_no_refund"
+              ? "Provider service cancelled."
+              : submitted.status === "awaiting_payment_resolution"
+                ? "Cancellation request recorded. Waiting for payment resolution."
+                : submitted.status === "under_review"
+                  ? "Cancellation request submitted for FEASTA review."
+                  : "Cancellation request submitted.";
+
+        feastaToast.success(successMessage);
       }
     } catch (error: unknown) {
       if (!mountedRef.current) return;
