@@ -195,6 +195,20 @@ export async function retrievePayMongoCheckout(
   return payMongoRequest(secretKey, `/v1/checkout_sessions/${checkoutId}`, {method: "GET"});
 }
 
+/** Retrieve a stored refund identity; never accept a gateway URL from an event. */
+export async function retrievePayMongoRefund(
+  secretKey: string, refundId: string,
+): Promise<PayMongoRefundResource> {
+  if (!/^[A-Za-z0-9_-]{3,160}$/u.test(refundId)) {
+    throw new PayMongoRequestError("PayMongo refund ID is invalid.", "not_sent");
+  }
+  const refund = parsePayMongoRefundResource(await payMongoRequest(
+    secretKey, `/v1/refunds/${refundId}`, {method: "GET"},
+  ));
+  if (refund.id !== refundId) throw new Error("PayMongo refund identity mismatch.");
+  return refund;
+}
+
 export async function createPayMongoRefund(
   input: {
     secretKey: string;

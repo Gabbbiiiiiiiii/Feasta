@@ -38,6 +38,7 @@ const libRoot = process.env.FEASTA_FUNCTIONS_LIB_DIR ??
     await partialCapabilityFailsClosed(execution, paymentIdForProviderRequest);
     await gatewayMismatchFailsClosed(execution, paymentIdForProviderRequest);
     await legacyEarlyWebhook(webhook, paymentIdForProviderRequest);
+    await paymentRefundCompatibility(execution, webhook, paymentIdForProviderRequest);
     console.log("Refund execution B6 integration passed.");
   } finally {
     await deleteApp(app);
@@ -149,6 +150,15 @@ async function positiveApprovalAndWebhook(
     `payments/${seeded.paymentId}/refunds/${approved.refundOperationId}`,
   );
   assert.equal(finalOperation.status, "completed");
+  assert.equal(finalOperation.gatewayStatus, "succeeded");
+  for (const eventType of ["payment.refund.updated", "payment.refunded"]) {
+    assert.equal((await webhook.processPayMongoWebhook(refundWebhook({
+      eventId: `event-b6-${eventType}`, eventType,
+      paymentId: seeded.paymentId, operationId: approved.refundOperationId,
+      gatewayPaymentId: seeded.gatewayPaymentId, amount: 50_000, status: "succeeded",
+    }))).duplicate, true);
+    assert.equal((await data(`payments/${seeded.paymentId}`)).refundedAmountInCentavos, 50_000);
+  }
   assert.equal(finalOperation.gatewayRefundId, "refund-b6-gateway");
   assert.equal((await data(
     `providerRequestCancellationRequests/${seeded.cancellationRequestId}`,
@@ -442,6 +452,96 @@ async function gatewayMismatchFailsClosed(execution, paymentIdForProviderRequest
     .refundedAmountInCentavos, 0);
 }
 
+async function paymentRefundCompatibility(execution, webhook, paymentIdForProviderRequest) {
+  const seeded = await seed(paymentIdForProviderRequest, "payment-compat");
+  const approved = await execution.approveCancellation({
+    cancellationRequestId: seeded.cancellationRequestId, actorId: "admin-b6",
+  });
+  await execution.prepareRefundExecution({
+    cancellationRequestId: seeded.cancellationRequestId, actorId: "admin-b6",
+  });
+  const raw = (id) => paymentWebhook({
+    eventId: id, eventType: "payment.refunded", paymentId: seeded.paymentId,
+    gatewayPaymentId: seeded.gatewayPaymentId, amount: 100_000,
+  });
+  const operationPath = `payments/${seeded.paymentId}/refunds/${approved.refundOperationId}`;
+  const before = await data(`payments/${seeded.paymentId}`);
+  const missing = await webhook.processPayMongoWebhook(raw("compat-missing"));
+  assert.equal(missing.reason, "refund_operation_required");
+  assert.deepEqual(await data(`payments/${seeded.paymentId}`), before);
+
+  await execution.reconcileGatewayRefund({
+    paymentId: seeded.paymentId, refundOperationId: approved.refundOperationId,
+    refund: gatewayRefund(seeded, approved.refundOperationId, {status: "processing"}),
+    actorId: "admin-b6", source: "refund_execution_response",
+  });
+  assert.equal((await data(operationPath)).status, "processing");
+  assert.equal((await data(`payments/${seeded.paymentId}`)).refundedAmountInCentavos, 0);
+  const originalFetch = global.fetch;
+  process.env.PAYMONGO_SECRET_KEY = "sk_test_compatibility";
+  let calls = 0;
+  let overrides = {};
+  global.fetch = async (url, options) => {
+    calls++;
+    assert.equal(url, "https://api.paymongo.com/v1/refunds/refund-b6-gateway");
+    assert.equal(options.method, "GET");
+    const payload = JSON.parse(refundWebhook({
+      eventId: "unused", paymentId: seeded.paymentId,
+      operationId: approved.refundOperationId, gatewayPaymentId: seeded.gatewayPaymentId,
+      amount: 100_000, status: "succeeded",
+    }).toString());
+    const resource = payload.data.attributes.data;
+    if (overrides.id) resource.id = overrides.id;
+    Object.assign(resource.attributes, overrides.attributes ?? {});
+    return {ok: true, json: async () => ({data: resource})};
+  };
+  try {
+    const processing = await data(operationPath);
+    await db.doc(`payments/${seeded.paymentId}/refunds/refund_ambiguous`).set(processing);
+    const ambiguous = await webhook.processPayMongoWebhook(raw("compat-ambiguous"));
+    assert.equal(ambiguous.reason, "refund_operation_required");
+    assert.equal(calls, 0);
+    await db.doc(`payments/${seeded.paymentId}/refunds/refund_ambiguous`).delete();
+    for (const [name, mismatch] of [
+      ["id", {id: "ref_wrong"}],
+      ["payment", {attributes: {payment_id: "pay_wrong"}}],
+      ["metadata", {attributes: {metadata: {
+        feasta_payment_id: seeded.paymentId, feasta_refund_operation_id: "refund_wrong",
+      }}}],
+      ["payment-metadata", {attributes: {metadata: {
+        feasta_payment_id: "payment_wrong", feasta_refund_operation_id: approved.refundOperationId,
+      }}}],
+    ]) {
+      overrides = mismatch;
+      await assert.rejects(() => webhook.processPayMongoWebhook(raw(`compat-${name}`)));
+      assert.equal((await data(operationPath)).status, "processing");
+      assert.equal((await data(`payments/${seeded.paymentId}`)).refundedAmountInCentavos, 0);
+    }
+    overrides = {attributes: {status: "pending"}};
+    await webhook.processPayMongoWebhook(raw("compat-pending"));
+    assert.equal((await data(operationPath)).status, "processing");
+    assert.equal((await data(`payments/${seeded.paymentId}`)).refundedAmountInCentavos, 0);
+    overrides = {};
+    const completed = await webhook.processPayMongoWebhook(raw("compat-success"));
+    assert.equal(completed.applied, true);
+    const count = calls;
+    assert.equal((await webhook.processPayMongoWebhook(raw("compat-success"))).duplicate, true);
+    assert.equal(calls, count);
+    const payment = await data(`payments/${seeded.paymentId}`);
+    assert.equal(payment.status, "refunded");
+    assert.equal(payment.refundedAmountInCentavos, 100_000);
+    assert.equal(payment.refundReservedAmountInCentavos, 0);
+    const operation = await data(operationPath);
+    assert.equal(operation.status, "completed");
+    assert.equal(operation.gatewayStatus, "succeeded");
+    assert.equal((await data(`providerRequestCancellationRequests/${seeded.cancellationRequestId}`)).status,
+      "refund_completed");
+  } finally {
+    global.fetch = originalFetch;
+    delete process.env.PAYMONGO_SECRET_KEY;
+  }
+}
+
 async function legacyEarlyWebhook(webhook, paymentIdForProviderRequest) {
   const seeded = await seed(paymentIdForProviderRequest, "legacy-webhook");
   const paymentReference = db.doc(`payments/${seeded.paymentId}`);
@@ -631,7 +731,7 @@ function refundWebhook(input) {
     data: {
       id: input.eventId,
       attributes: {
-        type: "refund.succeeded",
+        type: input.eventType ?? "refund.succeeded",
         data: {
           id: "refund-b6-gateway",
           type: "refund",

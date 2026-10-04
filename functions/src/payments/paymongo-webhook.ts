@@ -20,6 +20,7 @@ import {
   processPayMongoWebhook,
 } from "./process-webhook.js";
 
+const payMongoSecretKey = defineSecret("PAYMONGO_SECRET_KEY");
 const payMongoWebhookSecret = defineSecret(
   "PAYMONGO_WEBHOOK_SECRET",
 );
@@ -30,6 +31,7 @@ export const payMongoWebhook = onRequest(
     invoker: "public",
     secrets: [
       payMongoWebhookSecret,
+      payMongoSecretKey,
     ],
     timeoutSeconds: 30,
   },

@@ -179,6 +179,8 @@ export function parsePayMongoWebhookEvent(
   const eventId = requireString(event.id, "event id");
   const eventType = requireString(eventAttributes.type, "event type");
   if ((eventType === "payment.paid" && resourceType !== "payment") ||
+    (eventType === "payment.refunded" && resourceType !== "payment" && resourceType !== "refund") ||
+    ((eventType === "refund.succeeded" || eventType === "payment.refund.updated") && resourceType !== "refund") ||
     (eventType === "checkout_session.payment.paid" && resourceType !== "checkout_session")) {
     throw new Error("Gateway event resource type mismatch.");
   }

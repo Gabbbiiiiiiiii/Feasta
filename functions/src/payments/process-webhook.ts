@@ -1,3 +1,5 @@
+import {defineSecret} from "firebase-functions/params";
+import {retrievePayMongoRefund} from "./paymongo-client.js";
 import {balanceEnforcementPaymentOutcomeUpdate} from "./remaining-balance-enforcement-domain.js";
 import {
   FieldValue,
@@ -83,6 +85,8 @@ type WebhookResult = {
   conflict?: boolean;
 };
 
+const refundReconciliationSecret = defineSecret("PAYMONGO_SECRET_KEY");
+
 type ProviderRequestPaymentUpdate = {
   update: Record<string, unknown>;
   statusOverride?: ProviderRequestStatus;
@@ -131,6 +135,7 @@ export async function processPayMongoWebhook(
   if (parsedEvent.kind === "refund") {
     if (
       parsedEvent.eventType !== "refund.succeeded" &&
+      parsedEvent.eventType !== "payment.refunded" &&
       parsedEvent.eventType !== "payment.refund.updated"
     ) {
       logSecurityEvent({
@@ -188,6 +193,55 @@ export async function processPayMongoWebhook(
   const paymentReference = db
     .collection("payments")
     .doc(event.paymentId);
+
+  // The payment event is a trigger, never refund authority. Retrieve the actual
+  // refund and retain every transactional operation/accounting linkage check.
+  if (event.eventType === "payment.refunded") {
+    const [seen, snapshot] = await Promise.all([
+      eventReference.get(), paymentReference.get(),
+    ]);
+    if (seen.exists) return {
+      duplicate: true, applied: false, reason: "webhook_already_processed",
+    };
+    const payment = snapshot.data() ?? {};
+    if (payment.refundAccountingSchemaVersion !== undefined ||
+      payment.refundedAmountInCentavos !== undefined ||
+      payment.refundReservedAmountInCentavos !== undefined) {
+      const operations = await paymentReference.collection("refunds").get();
+      const processing = operations.docs.filter((doc) => doc.data().status === "processing");
+      const candidate = processing.length === 1 ? processing[0] : null;
+      const operation = candidate?.data();
+      if (candidate && operation &&
+        typeof operation.gatewayRefundId === "string" &&
+        operation.gatewayPaymentId === event.gatewayResourceId &&
+        payment.paymongoResourceId === event.gatewayResourceId &&
+        event.amountInCentavos === payment.amountInCentavos &&
+        event.currency === "PHP" &&
+        operation.gatewayExecutionKey === `feasta-policy-${candidate.id}`) {
+        const refund = await retrievePayMongoRefund(
+          refundReconciliationSecret.value(), operation.gatewayRefundId,
+        );
+        const reconciled = await reconcileGatewayRefund({
+          paymentId: event.paymentId, refundOperationId: candidate.id, refund,
+          actorId: "paymongo", source: "paymongo_webhook",
+          webhookEventId: event.eventId, webhookEventType: event.eventType,
+        });
+        logSecurityEvent({
+          action: "payment_webhook",
+          outcome: reconciled.replayed ? "replayed" : reconciled.status === "failed" ? "denied" : "succeeded",
+          actorUid: "paymongo", targetId: event.paymentId,
+          correlationId: event.eventId, reasonCode: reconciled.status,
+          metadata: {eventType: event.eventType},
+        });
+        return {
+          duplicate: reconciled.replayed, applied: !reconciled.replayed,
+          ...(reconciled.status === "failed" ? {reason: "gateway_refund_failed"} : {}),
+        };
+      }
+      // Missing or ambiguous evidence falls through to the existing durable
+      // refund_operation_required rejection without any financial mutation.
+    }
+  }
 
   const result = await db.runTransaction(
     async (transaction): Promise<WebhookResult> => {
