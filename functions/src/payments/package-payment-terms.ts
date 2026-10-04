@@ -61,12 +61,24 @@ export function buildPackagePaymentTermsSnapshot(
     >,
 ): PackagePaymentTermsSnapshot {
   if (packageData.paymentTermsSchemaVersion === 2) {
-    if (packageData.downPaymentPercentage !== packageData.depositPercentage ||
-      (packageData.balanceDueDaysBeforeEvent !== null && packageData.balanceDueDaysBeforeEvent !== undefined)) throw invalidTerms();
+    // V2 stores an explicit null day deadline; never normalize a malformed
+    // stored record into valid canonical terms before validating it.
+    if (
+      packageData.downPaymentPercentage !== packageData.depositPercentage ||
+      packageData.balanceDueDaysBeforeEvent !== null
+    ) {
+      throw invalidTerms();
+    }
     return parsePackagePaymentTermsSnapshot({
-      schemaVersion: 2, source: "canonical_package", paymentPolicy: packageData.paymentPolicy,
-      depositRateBps: percentageToBasisPoints(packageData.depositPercentage, "Package deposit percentage"),
-      balanceDueDaysBeforeEvent: null, balanceDueHoursBeforeEvent: packageData.balanceDueHoursBeforeEvent,
+      schemaVersion: 2,
+      source: "canonical_package",
+      paymentPolicy: packageData.paymentPolicy,
+      depositRateBps: percentageToBasisPoints(
+        packageData.depositPercentage,
+        "Package deposit percentage",
+      ),
+      balanceDueDaysBeforeEvent: packageData.balanceDueDaysBeforeEvent,
+      balanceDueHoursBeforeEvent: packageData.balanceDueHoursBeforeEvent,
       usesLegacyPaymentTerms: false,
     })!;
   }
