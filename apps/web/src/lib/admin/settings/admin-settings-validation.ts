@@ -32,6 +32,7 @@ const allowedFinancialInputKeys =
 
 const allowedCancellationRolloutInputKeys =
   new Set([
+    "bookingRefundPolicyCaptureMode",
     "customerCancellationMode",
     "automaticPolicyRefundApprovalMode",
     "internalReason",
@@ -239,6 +240,11 @@ export function validateAdminCancellationRolloutUpdate(
     allowedCancellationRolloutInputKeys,
   );
 
+  const bookingRefundPolicyCaptureMode = input.bookingRefundPolicyCaptureMode;
+  if (bookingRefundPolicyCaptureMode !== "off" && bookingRefundPolicyCaptureMode !== "required") {
+    throw new Error("Choose a valid booking refund-policy capture mode.");
+  }
+
   const customerCancellationMode =
     input.customerCancellationMode;
 
@@ -269,8 +275,13 @@ export function validateAdminCancellationRolloutUpdate(
     customerCancellationMode !== "enabled"
   ) {
     throw new Error(
-      "Automatic unpaid cancellation requires customer cancellation to be fully enabled.",
+      "Automatic policy refund approval requires customer cancellation to be fully enabled.",
     );
+  }
+
+  if (bookingRefundPolicyCaptureMode !== "required" &&
+    (customerCancellationMode !== "off" || automaticPolicyRefundApprovalMode !== "off")) {
+    throw new Error("Booking refund-policy capture must be Required before customer cancellation or automatic policy refund approval can be enabled.");
   }
 
   const internalReason =
@@ -282,6 +293,7 @@ export function validateAdminCancellationRolloutUpdate(
     );
 
   return {
+    bookingRefundPolicyCaptureMode,
     customerCancellationMode,
     automaticPolicyRefundApprovalMode,
     internalReason,

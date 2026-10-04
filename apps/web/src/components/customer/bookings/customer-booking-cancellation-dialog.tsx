@@ -324,7 +324,9 @@ function CustomerBookingCancellationDialog({
                 <div className="rounded-xl border border-warning/25 bg-warning-subtle p-4">
                   <p className="text-sm font-bold text-warning">Before you submit</p>
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                    Your cancellation and any refund outcome follow FEASTA&apos;s recorded policy and workflow. Submitting does not mean a refund is approved or completed.
+                    {options.reasonCode === "LEGACY_MANUAL_REVIEW"
+                      ? "FEASTA must review this cancellation before determining any refund. Submitting does not mean a refund is approved or completed."
+                      : "Your cancellation and any refund outcome follow FEASTA's recorded policy and workflow. Submitting does not mean a refund is approved or completed."}
                   </p>
                   <p className="mt-2 text-sm font-semibold text-foreground">
                     Reason: {normalizedReason || "Enter your reason above."}
@@ -338,7 +340,9 @@ function CustomerBookingCancellationDialog({
                     onChange={(event) => setAcknowledged(event.currentTarget.checked)}
                     className="mt-1 size-4 shrink-0 accent-primary"
                   />
-                  I understand that this cancellation is subject to the refund policy I accepted for this booking.
+                  {options.reasonCode === "LEGACY_MANUAL_REVIEW"
+                    ? "I understand that FEASTA must review this cancellation before determining any refund."
+                    : "I understand that this cancellation is subject to the refund policy I accepted for this booking."}
                 </label>
               </>
             ) : null}
@@ -458,7 +462,7 @@ function ManualReviewPanel() {
   return (
     <NoticePanel
       title="Manual review required"
-      description="This booking was created without the newer refund-policy agreement record. FEASTA must review the cancellation request before any refund decision. No refund percentage or estimate is available."
+      description="This booking does not have a recorded refund-policy agreement. FEASTA must review the cancellation before determining any refund."
     />
   );
 }

@@ -38,7 +38,9 @@ export function cancellationStatusPresentation(
           ? "Manual review required"
           : "Cancellation under review",
         description: cancellation.manualReviewRequired
-          ? "This older request has no policy evidence or refund estimate to display."
+          ? cancellation.policyEvidenceStatus === "legacy"
+            ? "This booking does not have a recorded refund-policy agreement. FEASTA must review the cancellation before determining any refund."
+            : "FEASTA must review the cancellation before determining any refund."
           : "FEASTA is reviewing the request before any refund decision is made.",
         nextStep: "Wait for FEASTA's decision for this Provider service.",
       };
@@ -106,7 +108,7 @@ export function refundStatusPresentation(
     case "manual_review":
       return {
         title: "Manual review required",
-        description: "No policy, refund percentage, or refund estimate is shown for this legacy request.",
+        description: "No refund amount is promised while FEASTA reviews the cancellation.",
         amountInCentavos: null,
       };
     case "approved":

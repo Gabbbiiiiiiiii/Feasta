@@ -27,6 +27,10 @@ const ADMIN_LOGS_COLLECTION =
 
 const defaultCancellationRollout:
   AdminCancellationRolloutSettings = {
+    bookingRefundPolicyCaptureMode: "off",
+    bookingCaptureConfigurationStatus: "missing",
+    bookingCaptureUpdatedAt: null,
+    bookingCaptureUpdatedBy: null,
     customerCancellationMode: "off",
     automaticPolicyRefundApprovalMode: "off",
     schemaVersion: 1,
@@ -39,11 +43,9 @@ export async function getAdminCancellationRollout():
 Promise<AdminCancellationRolloutSettings> {
   await requireAdmin();
 
-  const snapshot =
-    await cancellationRolloutReference()
-      .get();
-
-  return mapCancellationRollout(snapshot);
+  const [snapshot, bookingSnapshot] = await adminDb.runTransaction(async (transaction) =>
+    Promise.all([transaction.get(cancellationRolloutReference()), transaction.get(bookingCaptureReference())]));
+  return {...mapCancellationRollout(snapshot), ...mapBookingCapture(bookingSnapshot)};
 }
 
 export async function updateAdminCancellationRollout(
@@ -59,6 +61,7 @@ export async function updateAdminCancellationRollout(
 
   const settingsReference =
     cancellationRolloutReference();
+  const bookingReference = bookingCaptureReference();
 
   const changed =
     await adminDb.runTransaction(
@@ -68,6 +71,9 @@ export async function updateAdminCancellationRollout(
             settingsReference,
           );
 
+        const bookingSnapshot = await transaction.get(bookingReference);
+        const bookingCurrent = mapBookingCapture(bookingSnapshot);
+
         const current =
           mapCancellationRollout(
             snapshot,
@@ -75,6 +81,8 @@ export async function updateAdminCancellationRollout(
 
         const next:
           AdminCancellationRolloutSettings = {
+            ...bookingCurrent,
+            bookingRefundPolicyCaptureMode: update.bookingRefundPolicyCaptureMode,
             customerCancellationMode:
               update.customerCancellationMode,
 
@@ -93,6 +101,11 @@ export async function updateAdminCancellationRollout(
           };
 
         if (
+          bookingSnapshot.exists &&
+          bookingCurrent.bookingCaptureConfigurationStatus === "valid" &&
+          bookingCurrent.bookingRefundPolicyCaptureMode === update.bookingRefundPolicyCaptureMode &&
+          bookingCurrent.bookingCaptureUpdatedAt !== null &&
+          Boolean(bookingCurrent.bookingCaptureUpdatedBy?.trim()) &&
           snapshot.exists &&
           isCanonicalStoredRollout(snapshot.data() ?? {}) &&
           rolloutEqual(
@@ -105,6 +118,28 @@ export async function updateAdminCancellationRollout(
 
         const timestamp =
           FieldValue.serverTimestamp();
+
+        const bookingSettings = {
+          schemaVersion: 1, isPublic: false,
+          enforcementMode: update.bookingRefundPolicyCaptureMode,
+          updatedAt: timestamp, updatedBy: administrator.uid,
+        };
+        if (bookingSnapshot.exists) {
+          transaction.update(bookingReference, bookingSettings);
+        } else {
+          transaction.create(bookingReference, {...bookingSettings, createdAt: timestamp, createdBy: administrator.uid});
+        }
+        transaction.create(adminDb.collection(ADMIN_LOGS_COLLECTION).doc(), {
+          actorId: administrator.uid, actorRole: "admin",
+          action: bookingSnapshot.exists ? "booking_refund_policy_capture_updated" : "booking_refund_policy_capture_created",
+          description: "Saved booking refund-policy capture with the customer cancellation rollout.",
+          targetCollection: FIRESTORE_COLLECTIONS.appSettings,
+          targetId: "refundPolicyBookingAgreement", source: "web_admin",
+          reason: update.internalReason,
+          before: bookingSnapshot.exists ? bookingCaptureAuditSnapshot(bookingSnapshot.data() ?? {}) : null,
+          after: {schemaVersion: 1, isPublic: false, enforcementMode: update.bookingRefundPolicyCaptureMode},
+          createdAt: timestamp,
+        });
 
         const storedSettings = {
           customerCancellationMode:
@@ -197,14 +232,12 @@ export async function updateAdminCancellationRollout(
       },
     );
 
-  const savedSnapshot =
-    await settingsReference.get();
+  const [savedSnapshot, savedBookingSnapshot] = await adminDb.runTransaction(async (transaction) =>
+    Promise.all([transaction.get(settingsReference), transaction.get(bookingReference)]));
 
   return {
     settings:
-      mapCancellationRollout(
-        savedSnapshot,
-      ),
+      {...mapCancellationRollout(savedSnapshot), ...mapBookingCapture(savedBookingSnapshot)},
 
     changed,
   };
@@ -266,6 +299,7 @@ function mapCancellationRollout(
   }
 
   return {
+    ...defaultCancellationRollout,
     customerCancellationMode,
 
     automaticPolicyRefundApprovalMode,
@@ -355,4 +389,26 @@ function storedRolloutAuditSnapshot(data: DocumentData) {
     schemaVersion: scalar(data.schemaVersion),
     isPublic: scalar(data.isPublic),
   };
+}
+
+function bookingCaptureReference() {
+  return adminDb.collection(FIRESTORE_COLLECTIONS.appSettings).doc("refundPolicyBookingAgreement");
+}
+
+function mapBookingCapture(snapshot: DocumentSnapshot<DocumentData>) {
+  const data = snapshot.data();
+  const valid = snapshot.exists && data?.schemaVersion === 1 && data.isPublic === false &&
+    (data.enforcementMode === "off" || data.enforcementMode === "required");
+  return {
+    bookingRefundPolicyCaptureMode: (valid ? data.enforcementMode : "off") as "off" | "required",
+    bookingCaptureConfigurationStatus: (!snapshot.exists ? "missing" : valid ? "valid" : "invalid") as "missing" | "valid" | "invalid",
+    bookingCaptureUpdatedAt: valid ? timestampToIsoString(data.updatedAt) : null,
+    bookingCaptureUpdatedBy: valid && typeof data.updatedBy === "string" ? data.updatedBy : null,
+  };
+}
+
+function bookingCaptureAuditSnapshot(data: DocumentData) {
+  const scalar = (value: unknown) => typeof value === "boolean" || typeof value === "number" ? value :
+    typeof value === "string" ? value.slice(0, 100) : null;
+  return {schemaVersion: scalar(data.schemaVersion), isPublic: scalar(data.isPublic), enforcementMode: scalar(data.enforcementMode)};
 }

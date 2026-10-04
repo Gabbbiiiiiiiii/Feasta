@@ -109,7 +109,7 @@ test("legacy and invalid evidence remain fail-closed without fabricated financia
   assert.match(client, /REFUND_POLICY_EVIDENCE_INVALID/u);
   assert.match(client, /CANCELLATION_POLICY_EVIDENCE_INVALID/u);
   assert.match(dialog, /Manual review required/u);
-  assert.match(dialog, /No refund percentage or estimate is available/u);
+  assert.match(dialog, /does not have a recorded refund-policy agreement/u);
   assert.doesNotMatch(dialog, /request\.amount\s*\*|payment\s*\*|refundAmountInCentavos\s*=(?!=)/u);
   assert.doesNotMatch(dialog, /Requested refund amount|Desired refund|Partial refund amount/u);
 });

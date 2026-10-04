@@ -70,8 +70,8 @@ describe("Customer Provider-service cancellation and refund status", () => {
       name: "Cancellation and refund status for Legacy Catering",
     });
     expect(within(panel).getAllByText("Manual review required").length).toBeGreaterThanOrEqual(2);
-    expect(within(panel).getByText(/no policy evidence or refund estimate/iu)).toBeVisible();
-    expect(panel).not.toHaveTextContent(/%|estimated refund|PHP|PayMongo/iu);
+    expect(within(panel).getByText(/does not have a recorded refund-policy agreement/iu)).toBeVisible();
+    expect(panel).not.toHaveTextContent(/older|newer|legacy|%|estimated refund|PHP|PayMongo/iu);
   });
 
   it("shows only trusted projected refund amounts and never derives a value", async () => {
@@ -227,3 +227,11 @@ function projection({
     updatedAt: "2026-08-21T02:30:00.000Z",
   };
 }
+
+describe("Manual review describes evidence rather than booking age", () => {
+  it("does not describe policy-backed manual review as a missing agreement", () => {
+    const value = projection({status: "under_review", refundStatus: "manual_review", policyEvidenceStatus: "policy_backed", manualReviewRequired: true});
+    expect(cancellationStatusPresentation(value).description).not.toMatch(/older|newer|legacy|does not have/u);
+    expect(refundStatusPresentation(value).amountInCentavos).toBeNull();
+  });
+});

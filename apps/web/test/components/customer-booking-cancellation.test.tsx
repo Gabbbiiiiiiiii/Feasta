@@ -228,7 +228,9 @@ describe("Customer Provider-service cancellation", () => {
     renderDialog();
 
     expect(await screen.findByText("Manual review required")).toBeVisible();
-    expect(screen.getByText(/No refund percentage or estimate is available/u)).toBeVisible();
+    expect(screen.getByText(/does not have a recorded refund-policy agreement/u)).toBeVisible();
+    expect(screen.getByRole("dialog")).not.toHaveTextContent(/older|newer|%|I accepted/u);
+    expect(screen.getByRole("checkbox")).toHaveAccessibleName("I understand that FEASTA must review this cancellation before determining any refund.");
     expect(screen.queryByRole("heading", {name: "Agreed refund policy"}))
       .not.toBeInTheDocument();
     expect(screen.queryByText(/Estimated refund under the agreed policy/u))

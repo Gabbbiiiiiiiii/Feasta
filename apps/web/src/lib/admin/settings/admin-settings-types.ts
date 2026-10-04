@@ -105,6 +105,10 @@ export type AdminAutomaticCancellationMode =
   | "enabled";
 
 export type AdminCancellationRolloutSettings = {
+  bookingRefundPolicyCaptureMode: "off" | "required";
+  bookingCaptureConfigurationStatus: "missing" | "valid" | "invalid";
+  bookingCaptureUpdatedAt: string | null;
+  bookingCaptureUpdatedBy: string | null;
   customerCancellationMode:
     AdminCustomerCancellationMode;
 
@@ -119,6 +123,7 @@ export type AdminCancellationRolloutSettings = {
 };
 
 export type UpdateAdminCancellationRolloutInput = {
+  bookingRefundPolicyCaptureMode: "off" | "required";
   customerCancellationMode:
     AdminCustomerCancellationMode;
 

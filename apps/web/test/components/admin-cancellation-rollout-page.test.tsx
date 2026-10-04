@@ -22,7 +22,7 @@ describe("Cancellation rollout page and action", () => {
     expect(element.props.children.map((child: {props: {initialSettings: unknown}}) => child.props.initialSettings)).toEqual([platform, platform, rollout]);
   });
   it("authorizes the typed action before passing input to the trusted service", async () => {
-    const input = {customerCancellationMode: "off" as const, automaticPolicyRefundApprovalMode: "off" as const, internalReason: "Review rollout configuration."};
+    const input = {bookingRefundPolicyCaptureMode: "off" as const, customerCancellationMode: "off" as const, automaticPolicyRefundApprovalMode: "off" as const, internalReason: "Review rollout configuration."};
     mocks.update.mockResolvedValue({changed: false});
     expect(await updateAdminCancellationRolloutAction(input)).toEqual({changed: false});
     expect(mocks.auth).toHaveBeenCalledOnce();
