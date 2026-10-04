@@ -7,6 +7,7 @@ const root = path.resolve(__dirname, "../src");
 const source = (relative) => readFileSync(path.join(root, relative), "utf8");
 
 const policies = [
+  ["reconcileProviderRequestRefund", "refunds/refund-execution.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "secrets: [payMongoSecretKey]", "retrievePayMongoRefund", "assertAdminReconciliationEvidence", "writeAuditLogInTransaction"]],
   ["ensureUserProfile", "auth/ensure-user-profile.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions"]],
   ["ensureProviderIdentity", "auth/ensure-provider-identity.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions", "isAuthoritativeAuthPhone", "passwordLinked", "authEmail !== submittedEmail", "requireProviderConsent"]],
   ["syncUserAuthState", "auth/sync-user-auth-state.ts", ["requireAuth(request)", "enforceCallableRateLimit", "authUser.disabled", "appCheckCallableOptions"]],
@@ -502,6 +503,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "reactivateAgreementTemplate",
   "reactivateBusinessDocumentType",
   "reactivateServiceCategory",
+  "reconcileProviderRequestRefund",
   "reconcileRemainingBalanceLifecycle",
   "refreshProviderPayoutAccount",
   "registerProvider",

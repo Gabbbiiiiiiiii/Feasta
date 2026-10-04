@@ -1,5 +1,8 @@
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const {readFileSync} = require("node:fs");
+const {createRequire} = require("node:module");
+const vm = require("node:vm");
 const {initializeApp, deleteApp} = require("firebase-admin/app");
 const {getFirestore, Timestamp} = require("firebase-admin/firestore");
 
@@ -39,6 +42,7 @@ const libRoot = process.env.FEASTA_FUNCTIONS_LIB_DIR ??
     await gatewayMismatchFailsClosed(execution, paymentIdForProviderRequest);
     await legacyEarlyWebhook(webhook, paymentIdForProviderRequest);
     await paymentRefundCompatibility(execution, webhook, paymentIdForProviderRequest);
+    await adminRefundReconciliation(execution, paymentIdForProviderRequest);
     console.log("Refund execution B6 integration passed.");
   } finally {
     await deleteApp(app);
@@ -568,6 +572,201 @@ async function legacyEarlyWebhook(webhook, paymentIdForProviderRequest) {
   assert.equal(payment.refundedAmountInCentavos, 100_000);
   assert.equal(payment.refundReservedAmountInCentavos, 0);
   assert.equal(payment.refundExecutionLock.state, "completed");
+}
+
+// Exercise the real callable handler, authorization/profile checks, rate limit,
+// Firestore transactions and gateway client. Only Auth lookup and PayMongo HTTP
+// are local substitutes; no external service is contacted.
+function adminCallableHarness() {
+  function load(relative, stubs) {
+    const filename = path.join(libRoot, relative);
+    const realRequire = createRequire(filename);
+    const exports = {};
+    vm.runInThisContext(`(function(exports, require) {\n${readFileSync(filename, "utf8")}\n})`,
+      {filename})(exports, (name) => stubs[name] ?? realRequire(name));
+    return exports;
+  }
+  const authorization = load("shared/authorization.js", {
+    "firebase-admin/auth": {getAuth: () => ({getUser: async () => ({disabled: false})})},
+  });
+  const https = require("firebase-functions/v2/https");
+  const stubs = {
+    "firebase-functions/v2/https": {...https, onCall: (options, handler) => {
+      handler.options = options;
+      return handler;
+    }},
+    "../shared/authorization.js": authorization,
+  };
+  const handler = load("refunds/refund-execution.js", stubs).reconcileProviderRequestRefund;
+  handler.inspect = load("refunds/inspect-refund-reconciliation.js", stubs)
+    .inspectProviderRequestRefundReconciliation;
+  return handler;
+}
+
+async function adminRefundReconciliation(execution, paymentIdForProviderRequest) {
+  const handler = adminCallableHarness();
+  assert.equal(handler.options.enforceAppCheck, true);
+  assert.equal(handler.options.secrets[0].name, "PAYMONGO_SECRET_KEY");
+  const activeProfile = {accountStatus: "active", isActive: true, isBlocked: false};
+  await db.doc("users/admin-reconciliation").set({role: "admin", ...activeProfile});
+  await db.doc("users/customer-reconciliation").set({role: "customer", ...activeProfile});
+  const request = (id, uid = "admin-reconciliation", extras = {}) => ({
+    auth: {uid, token: {}}, data: {cancellationRequestId: id, ...extras},
+    rawRequest: {headers: {}, ip: "127.0.0.1"},
+  });
+  await assert.rejects(() => handler(request("cancellation-invalid", "customer-reconciliation")),
+    (error) => error.code === "permission-denied");
+  await assert.rejects(() => handler({...request("cancellation-invalid"), auth: undefined}),
+    (error) => error.code === "unauthenticated");
+  await assert.rejects(() => handler(request("bad/id")),
+    (error) => error.code === "invalid-argument");
+  for (const field of ["paymentId", "refundOperationId", "gatewayRefundId", "gatewayPaymentId",
+    "amount", "status", "currency", "URL"]) {
+    await assert.rejects(() => handler(request("cancellation-invalid", undefined, {[field]: "untrusted"})),
+      (error) => error.code === "invalid-argument");
+  }
+  const seeded = await seed(paymentIdForProviderRequest, "admin-reconciliation");
+  await db.doc(`payments/${seeded.paymentId}`).update({amount: 5_000, amountInCentavos: 500_000});
+  await db.doc(`providerRequests/${seeded.providerRequestId}`).update({downPaymentAmount: 5_000});
+  const approved = await execution.approveCancellation({
+    cancellationRequestId: seeded.cancellationRequestId, actorId: "admin-reconciliation",
+  });
+  await execution.prepareRefundExecution({
+    cancellationRequestId: seeded.cancellationRequestId, actorId: "admin-reconciliation",
+  });
+  await execution.reconcileGatewayRefund({
+    paymentId: seeded.paymentId, refundOperationId: approved.refundOperationId,
+    refund: gatewayRefund(seeded, approved.refundOperationId, {
+      status: "pending", amountInCentavos: 500_000,
+    }), actorId: "admin-reconciliation", source: "refund_execution_response",
+  });
+  const operationPath = `payments/${seeded.paymentId}/refunds/${approved.refundOperationId}`;
+  const cancellationPath = `providerRequestCancellationRequests/${seeded.cancellationRequestId}`;
+  await db.doc(cancellationPath).update({
+    refundOperationPlanSchemaVersion: 1,
+    refundOperationBindings: [{paymentId: seeded.paymentId,
+      refundOperationId: approved.refundOperationId, amountInCentavos: 500_000}],
+  });
+  await db.doc(operationPath).update({
+    refundOperationSetSchemaVersion: 1, refundOperationSetIndex: 0, refundOperationSetSize: 1,
+  });
+  const baseline = {
+    payment: await data(`payments/${seeded.paymentId}`),
+    operation: await data(operationPath), cancellation: await data(cancellationPath),
+  };
+  const originalFetch = global.fetch;
+  const originalSecret = process.env.PAYMONGO_SECRET_KEY;
+  process.env.PAYMONGO_SECRET_KEY = "sk_test_admin_reconciliation";
+  let calls = 0;
+  let responseOverrides = {};
+  let networkFailure = false;
+  global.fetch = async (url, options) => {
+    calls++;
+    assert.equal(url, "https://api.paymongo.com/v1/refunds/refund-b6-gateway");
+    assert.equal(options.method, "GET");
+    if (networkFailure) throw new Error("Local simulated GET failure");
+    return {ok: true, json: async () => ({data: {
+      id: responseOverrides.id ?? "refund-b6-gateway", type: "refund",
+      attributes: {
+        amount: 500_000, currency: "PHP", payment_id: seeded.gatewayPaymentId,
+        status: "succeeded", metadata: {
+          feasta_payment_id: seeded.paymentId, feasta_refund_operation_id: approved.refundOperationId,
+        }, ...responseOverrides.attributes,
+      },
+    }})};
+  };
+  const assertUnchanged = async () => {
+    assert.deepEqual(await data(`payments/${seeded.paymentId}`), baseline.payment);
+    assert.deepEqual(await data(operationPath), baseline.operation);
+    assert.deepEqual(await data(cancellationPath), baseline.cancellation);
+  };
+  // Use a fresh hour bucket subject per invocation to avoid exercising rate
+  // exhaustion in the financial mismatch matrix below.
+  let actorIndex = 0;
+  const call = async () => {
+    const uid = `admin-reconciliation-${actorIndex++}`;
+    await db.doc(`users/${uid}`).set({role: "admin", ...activeProfile});
+    return handler(request(seeded.cancellationRequestId, uid));
+  };
+  try {
+    for (const patch of [
+      {gatewayRefundId: null}, {gatewayPaymentId: "pay_wrong"},
+      {gatewayExecutionKey: "wrong"}, {cancellationRequestId: "cancellation-wrong"},
+      {status: "reserved"}, {status: "released"},
+    ]) {
+      await db.doc(operationPath).update(patch);
+      const count = calls;
+      await assert.rejects(call);
+      assert.equal(calls, count);
+      assert.equal((await data(`payments/${seeded.paymentId}`)).refundedAmountInCentavos, 0);
+      await db.doc(operationPath).set(baseline.operation);
+    }
+    await db.doc(cancellationPath).update({
+      refundOperationIds: [approved.refundOperationId, `refund_${"a".repeat(40)}`],
+      refundOperationBindings: [baseline.cancellation.refundOperationBindings[0], {
+        paymentId: `payment_${"a".repeat(32)}`, refundOperationId: `refund_${"a".repeat(40)}`,
+        amountInCentavos: 100,
+      }],
+    });
+    await assert.rejects(call);
+    assert.equal(calls, 0);
+    await db.doc(cancellationPath).set(baseline.cancellation);
+    await db.doc(operationPath).delete();
+    await assert.rejects(call);
+    assert.equal(calls, 0);
+    await db.doc(operationPath).set(baseline.operation);
+    for (const mismatch of [
+      {id: "ref_wrong"}, {attributes: {payment_id: "pay_wrong"}},
+      {attributes: {amount: 499_999}}, {attributes: {currency: "USD"}},
+      {attributes: {metadata: {feasta_payment_id: "payment_wrong",
+        feasta_refund_operation_id: approved.refundOperationId}}},
+      {attributes: {metadata: {feasta_payment_id: seeded.paymentId,
+        feasta_refund_operation_id: `refund_${"a".repeat(40)}`}}},
+    ]) {
+      responseOverrides = mismatch;
+      await assert.rejects(call);
+      await assertUnchanged();
+    }
+    responseOverrides = {};
+    networkFailure = true;
+    await assert.rejects(call, (error) => error.code === "unavailable");
+    await assertUnchanged();
+    networkFailure = false;
+    responseOverrides = {attributes: {status: "pending"}};
+    const pending = await call();
+    assert.equal(pending.status, "processing");
+    assert.equal(pending.gatewayStatus, "pending");
+    assert.deepEqual(await data(`payments/${seeded.paymentId}`), baseline.payment);
+    responseOverrides = {};
+    const completed = await call();
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.gatewayStatus, "succeeded");
+    const payment = await data(`payments/${seeded.paymentId}`);
+    assert.equal(payment.refundedAmountInCentavos, 500_000);
+    assert.equal(payment.refundReservedAmountInCentavos, 0);
+    assert.equal(payment.status, "refunded");
+    assert.equal((await data(operationPath)).status, "completed");
+    assert.equal((await data(operationPath)).gatewayStatus, "succeeded");
+    assert.equal((await data(cancellationPath)).status, "refund_completed");
+    const count = calls;
+    const duplicate = await call();
+    assert.equal(duplicate.idempotentReplay, true);
+    assert.equal(calls, count);
+    assert.deepEqual(await data(`payments/${seeded.paymentId}`), payment);
+    const logs = await db.collection("adminLogs").where("source", "==", "admin_reconciliation").get();
+    assert.ok(logs.docs.some((doc) => doc.data().action === "refund_reconciliation.completed" &&
+      doc.data().actorRole === "admin"));
+    const inspectedBefore = await data(operationPath);
+    const inspectedCancellation = await data(cancellationPath);
+    await handler.inspect(request(seeded.cancellationRequestId));
+    assert.deepEqual(await data(operationPath), inspectedBefore);
+    assert.deepEqual(await data(cancellationPath), inspectedCancellation);
+    assert.deepEqual(await data(`payments/${seeded.paymentId}`), payment);
+  } finally {
+    global.fetch = originalFetch;
+    if (originalSecret === undefined) delete process.env.PAYMONGO_SECRET_KEY;
+    else process.env.PAYMONGO_SECRET_KEY = originalSecret;
+  }
 }
 
 async function seed(paymentIdForProviderRequest, suffix, options = {}) {
