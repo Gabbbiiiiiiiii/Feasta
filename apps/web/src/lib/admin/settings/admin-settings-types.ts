@@ -95,3 +95,40 @@ export type UpdateAdminFinancialPolicyResult = {
   settings: AdminPlatformSettings;
   changed: boolean;
 };
+export type AdminCustomerCancellationMode =
+  | "off"
+  | "review_only"
+  | "enabled";
+
+export type AdminAutomaticCancellationMode =
+  | "off"
+  | "enabled";
+
+export type AdminCancellationRolloutSettings = {
+  customerCancellationMode:
+    AdminCustomerCancellationMode;
+
+  automaticPolicyRefundApprovalMode:
+    AdminAutomaticCancellationMode;
+
+  schemaVersion: 1;
+  isPublic: false;
+
+  updatedAt: string | null;
+  updatedBy: string | null;
+};
+
+export type UpdateAdminCancellationRolloutInput = {
+  customerCancellationMode:
+    AdminCustomerCancellationMode;
+
+  automaticPolicyRefundApprovalMode:
+    AdminAutomaticCancellationMode;
+
+  internalReason: string;
+};
+
+export type UpdateAdminCancellationRolloutResult = {
+  settings: AdminCancellationRolloutSettings;
+  changed: boolean;
+};

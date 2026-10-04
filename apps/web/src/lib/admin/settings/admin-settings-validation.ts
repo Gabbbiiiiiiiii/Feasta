@@ -4,6 +4,7 @@ import {
 } from "@feasta/shared-types";
 
 import type {
+  UpdateAdminCancellationRolloutInput,
   UpdateAdminFinancialPolicyInput,
   UpdateAdminPlatformSettingsInput,
 } from "@/lib/admin/settings/admin-settings-types";
@@ -26,6 +27,13 @@ const allowedFinancialInputKeys =
     "maximumDepositRateBps",
     "minimumBalanceDueDaysBeforeEvent",
     "maximumBalanceDueDaysBeforeEvent",
+    "internalReason",
+  ]);
+
+const allowedCancellationRolloutInputKeys =
+  new Set([
+    "customerCancellationMode",
+    "automaticPolicyRefundApprovalMode",
     "internalReason",
   ]);
 
@@ -213,6 +221,69 @@ export function validateAdminFinancialPolicyUpdate(
     minimumBalanceDueDaysBeforeEvent,
     maximumBalanceDueDaysBeforeEvent,
 
+    internalReason,
+  };
+}
+
+export function validateAdminCancellationRolloutUpdate(
+  value: unknown,
+): UpdateAdminCancellationRolloutInput {
+  const input =
+    requiredObject(
+      value,
+      "Cancellation rollout settings are required.",
+    );
+
+  rejectUnknownFields(
+    input,
+    allowedCancellationRolloutInputKeys,
+  );
+
+  const customerCancellationMode =
+    input.customerCancellationMode;
+
+  if (
+    customerCancellationMode !== "off" &&
+    customerCancellationMode !== "review_only" &&
+    customerCancellationMode !== "enabled"
+  ) {
+    throw new Error(
+      "Choose a valid customer cancellation mode.",
+    );
+  }
+
+  const automaticPolicyRefundApprovalMode =
+    input.automaticPolicyRefundApprovalMode;
+
+  if (
+    automaticPolicyRefundApprovalMode !== "off" &&
+    automaticPolicyRefundApprovalMode !== "enabled"
+  ) {
+    throw new Error(
+      "Choose a valid automatic cancellation mode.",
+    );
+  }
+
+  if (
+    automaticPolicyRefundApprovalMode === "enabled" &&
+    customerCancellationMode !== "enabled"
+  ) {
+    throw new Error(
+      "Automatic unpaid cancellation requires customer cancellation to be fully enabled.",
+    );
+  }
+
+  const internalReason =
+    requiredText(
+      input.internalReason,
+      "Internal administrative reason",
+      10,
+      1000,
+    );
+
+  return {
+    customerCancellationMode,
+    automaticPolicyRefundApprovalMode,
     internalReason,
   };
 }

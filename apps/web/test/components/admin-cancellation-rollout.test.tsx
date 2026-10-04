@@ -1,0 +1,74 @@
+import {fireEvent, render, screen, waitFor} from "@testing-library/react";
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {updateAdminCancellationRolloutAction} from "@/app/admin/settings/actions";
+import {AdminCancellationRolloutClient} from "@/components/admin/settings/admin-cancellation-rollout-client";
+import type {AdminCancellationRolloutSettings} from "@/lib/admin/settings/admin-settings-types";
+vi.mock("@/app/admin/settings/actions", () => ({updateAdminCancellationRolloutAction: vi.fn()}));
+const initial: AdminCancellationRolloutSettings = {schemaVersion: 1, isPublic: false, customerCancellationMode: "off", automaticPolicyRefundApprovalMode: "off", updatedAt: null, updatedBy: null};
+const customer = () => screen.getByLabelText("Customer cancellation");
+const automatic = () => screen.getByLabelText("Automatic cancellation for definitely-unpaid bookings");
+const reason = () => screen.getByLabelText("Internal administrative reason");
+const save = () => screen.getByRole("button", {name: "Save cancellation rollout"});
+beforeEach(() => vi.clearAllMocks());
+describe("Admin cancellation rollout UI", () => {
+  it("renders saved Off state, disables automatic mode and requires reason", () => {
+    render(<AdminCancellationRolloutClient initialSettings={initial} />);
+    expect(screen.getByText("Customer cancellation: Off")).toBeInTheDocument();
+    expect(automatic()).toBeDisabled();
+    expect(reason()).toBeRequired();
+    expect(save()).toBeDisabled();
+    fireEvent.change(reason(), {target: {value: "short"}});
+    expect(save()).toBeDisabled();
+  });
+  it.each(["off", "review_only"])("resets automatic mode when customer changes to %s and discard restores saved values", (mode) => {
+    render(<AdminCancellationRolloutClient initialSettings={{...initial, customerCancellationMode: "enabled", automaticPolicyRefundApprovalMode: "enabled"}} />);
+    fireEvent.change(customer(), {target: {value: mode}});
+    expect(automatic()).toHaveValue("off");
+    expect(automatic()).toBeDisabled();
+    fireEvent.change(reason(), {target: {value: "Explain the rollout change."}});
+    fireEvent.click(screen.getByRole("button", {name: "Discard changes"}));
+    expect(customer()).toHaveValue("enabled");
+    expect(automatic()).toHaveValue("enabled");
+    expect(reason()).toHaveValue("");
+  });
+  it("sends exact trusted fields, shows loading and updates saved state", async () => {
+    let resolve!: (result: {settings: AdminCancellationRolloutSettings; changed: boolean}) => void;
+    vi.mocked(updateAdminCancellationRolloutAction).mockImplementation(() => new Promise((done) => {resolve = done;}));
+    render(<AdminCancellationRolloutClient initialSettings={initial} />);
+    fireEvent.change(customer(), {target: {value: "enabled"}});
+    expect(automatic()).toBeEnabled();
+    fireEvent.change(automatic(), {target: {value: "enabled"}});
+    fireEvent.change(reason(), {target: {value: "  Enable reviewed rollout.  "}});
+    fireEvent.click(save());
+    expect(updateAdminCancellationRolloutAction).toHaveBeenCalledWith({customerCancellationMode: "enabled", automaticPolicyRefundApprovalMode: "enabled", internalReason: "Enable reviewed rollout."});
+    expect(screen.getByRole("button", {name: "Saving..."})).toBeDisabled();
+    expect(customer()).toBeDisabled();
+    resolve({settings: {...initial, customerCancellationMode: "enabled", automaticPolicyRefundApprovalMode: "enabled"}, changed: true});
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("updated successfully"));
+    expect(screen.getByText("Customer cancellation: Enabled")).toBeInTheDocument();
+    expect(reason()).toHaveValue("");
+    fireEvent.change(customer(), {target: {value: "off"}});
+    fireEvent.click(screen.getByRole("button", {name: "Discard changes"}));
+    expect(customer()).toHaveValue("enabled");
+    expect(automatic()).toHaveValue("enabled");
+  });
+  it("allows saving displayed defaults for repair and handles true no-change", async () => {
+    vi.mocked(updateAdminCancellationRolloutAction).mockResolvedValue({settings: initial, changed: false});
+    render(<AdminCancellationRolloutClient initialSettings={initial} />);
+    fireEvent.change(reason(), {target: {value: "Confirm safe rollout defaults."}});
+    expect(save()).toBeEnabled();
+    fireEvent.click(save());
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No cancellation rollout changes"));
+  });
+  it("displays safe errors and retains the draft for retry", async () => {
+    vi.mocked(updateAdminCancellationRolloutAction).mockRejectedValue(new Error("Sensitive server details"));
+    render(<AdminCancellationRolloutClient initialSettings={initial} />);
+    fireEvent.change(customer(), {target: {value: "review_only"}});
+    fireEvent.change(reason(), {target: {value: "Review rollout configuration."}});
+    fireEvent.click(save());
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("could not be updated"));
+    expect(screen.queryByText("Sensitive server details")).not.toBeInTheDocument();
+    expect(customer()).toHaveValue("review_only");
+    expect(screen.getByText("Customer cancellation: Off")).toBeInTheDocument();
+  });
+});
