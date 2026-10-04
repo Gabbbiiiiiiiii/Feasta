@@ -19,6 +19,7 @@ test("Admin cancellation decisions and refund execution use exact trusted callab
     "rejectProviderRequestCancellation",
     "executeProviderRequestRefund",
     "inspectProviderRequestRefundReconciliation",
+    "reconcileProviderRequestRefund",
   ]) assert.match(client, new RegExp(operation, "u"));
 
   assert.match(client, /httpsCallable/u);
@@ -37,7 +38,7 @@ test("Admin cancellation decisions and refund execution use exact trusted callab
 test("Customer and Provider roles cannot invoke Admin financial operations", async () => {
   const execution = await functionSource("refunds/refund-execution.ts");
   const adminRoleChecks = execution.match(/requireRole\(actor\.uid, \[USER_ROLES\.admin\]\)/gu) ?? [];
-  assert.equal(adminRoleChecks.length, 3);
+  assert.equal(adminRoleChecks.length, 4);
   assert.doesNotMatch(execution, /requireRole\(actor\.uid, \[USER_ROLES\.(customer|provider)\]\)/u);
 });
 
@@ -53,7 +54,7 @@ test("Admin queue reads are server-authorized and expose a bounded projection", 
   assert.match(service, /await requireAdmin\(\)/u);
   assert.match(service, /\.limit\(QUEUE_LIMIT\)/u);
   assert.doesNotMatch(types, /customerId:|providerId:|actorUid:|gatewayPaymentId:|gatewayRefundId:/u);
-  assert.doesNotMatch(component, /collection\(|doc\(|setDoc\(|updateDoc\(|PayMongo/iu);
+  assert.doesNotMatch(component, /collection\(|doc\(|setDoc\(|updateDoc\(|api\.paymongo\.com|PAYMONGO_SECRET/iu);
   assert.match(component, /one Provider service at a time/u);
   assert.match(page, /Promise\.all/u);
   assert.match(page, /getAdminCancellationQueue/u);

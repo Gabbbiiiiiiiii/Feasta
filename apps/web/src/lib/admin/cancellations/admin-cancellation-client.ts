@@ -10,6 +10,7 @@ import type {
   AdminCancellationApprovalResult,
   AdminCancellationExecutionResult,
   AdminCancellationRejectionResult,
+  AdminCancellationReconciliationResult,
 } from "./admin-cancellation-types";
 
 const SAFE_ID = /^[A-Za-z0-9_-]{8,160}$/u;
@@ -61,6 +62,14 @@ export function inspectCancellationRefund(
   cancellationRequestId: string,
 ): Promise<RefundReconciliationInspection> {
   return callAdminCancellation("inspectProviderRequestRefundReconciliation", {
+    cancellationRequestId: normalizedId(cancellationRequestId),
+  });
+}
+
+export function reconcileCancellationRefund(
+  cancellationRequestId: string,
+): Promise<AdminCancellationReconciliationResult> {
+  return callAdminCancellation("reconcileProviderRequestRefund", {
     cancellationRequestId: normalizedId(cancellationRequestId),
   });
 }

@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   reject: vi.fn(),
   execute: vi.fn(),
   inspect: vi.fn(),
+  reconcile: vi.fn(),
   createKey: vi.fn((action: string, id: string) => `key:${action}:${id}`),
   success: vi.fn(),
   error: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock("@/lib/admin/cancellations/admin-cancellation-client", () => ({
   rejectCancellation: mocks.reject,
   executeCancellationRefund: mocks.execute,
   inspectCancellationRefund: mocks.inspect,
+  reconcileCancellationRefund: mocks.reconcile,
   createCancellationActionKey: mocks.createKey,
 }));
 
@@ -264,6 +266,7 @@ describe("Admin Provider-service cancellation operations", () => {
     await openReview(user);
     expect(screen.getAllByText("Full refund completed").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", {name: /Process refund|Retry refund/u})).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: "Check refund status"})).not.toBeInTheDocument();
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
@@ -283,6 +286,52 @@ describe("Admin Provider-service cancellation operations", () => {
     await openReview(user);
     expect(screen.getAllByText("Refund processing").length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", {name: /Process refund|Retry refund/u})).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["processing", "refund_processing", "processing", "PayMongo is still processing this refund."],
+    ["completed", "refund_completed", "full_completed", "Refund completed and FEASTA records were synchronized."],
+    ["failed", "refund_failed", "failed_reconciliation_required", "PayMongo reported that the refund failed. Review the refund details before taking further action."],
+  ] as const)("checks an existing refund and reloads its trusted %s state", async (status, cancellationStatus, refundProgress, message) => {
+    const processing = item({cancellationStatus: "refund_processing", operationStatus: "processing",
+      refundProgress: "processing", canApprove: false, canReject: false});
+    let resolveCheck: ((value: unknown) => void) | undefined;
+    mocks.reconcile.mockImplementationOnce(() => new Promise((resolve) => {resolveCheck = resolve;}));
+    mocks.loadQueue.mockResolvedValueOnce(queue([item({...processing, cancellationStatus, refundProgress,
+      operationStatus: status, paymentStatus: status === "completed" ? "refunded" : "paid"})]));
+    const user = userEvent.setup();
+    renderQueue([processing]);
+    const drawer = await openReview(user);
+    expect(within(drawer).getByText("Checks the existing PayMongo refund and synchronizes FEASTA. This does not create another refund.")).toBeVisible();
+    await user.dblClick(within(drawer).getByRole("button", {name: "Check refund status"}));
+    expect(mocks.reconcile).toHaveBeenCalledExactlyOnceWith(processing.cancellationRequestId);
+    expect(within(drawer).getByRole("button", {name: "Checking refund status"})).toBeDisabled();
+    expect(mocks.loadQueue).not.toHaveBeenCalled();
+    expect(within(drawer).getByText("Refund processing")).toBeVisible();
+    resolveCheck?.({status});
+    await waitFor(() => expect(mocks.loadQueue).toHaveBeenCalledTimes(1));
+    expect(await within(drawer).findByText(message)).toBeVisible();
+    if (status === "completed") {
+      expect(await within(drawer).findByText("Refund completed")).toBeVisible();
+      expect(within(drawer).queryByRole("button", {name: /Check refund status|Process refund|Retry refund/u})).not.toBeInTheDocument();
+    } else if (status === "processing") {
+      expect(await within(drawer).findByRole("button", {name: "Check refund status"})).toBeEnabled();
+      expect(within(drawer).getByText("Refund processing")).toBeVisible();
+    }
+    expect(mocks.execute).not.toHaveBeenCalled();
+  });
+
+  it("reports an unavailable check without creating or processing a refund", async () => {
+    mocks.reconcile.mockRejectedValueOnce(new Error("unavailable"));
+    const user = userEvent.setup();
+    renderQueue([item({cancellationStatus: "refund_processing", refundProgress: "processing",
+      canApprove: false, canReject: false})]);
+    const drawer = await openReview(user);
+    await user.click(within(drawer).getByRole("button", {name: "Check refund status"}));
+    expect(await within(drawer).findByText("Refund status could not be checked right now. No new refund was created.")).toBeVisible();
+    expect(mocks.loadQueue).not.toHaveBeenCalled();
+    expect(mocks.execute).not.toHaveBeenCalled();
+    expect(within(drawer).getByText("Refund processing")).toBeVisible();
   });
 
   it("prevents duplicate decision submission while the first action is pending", async () => {

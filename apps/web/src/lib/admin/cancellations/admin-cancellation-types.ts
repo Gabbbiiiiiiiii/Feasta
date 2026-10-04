@@ -74,3 +74,12 @@ export type AdminCancellationExecutionResult = {
   gatewayStatus: string | null;
   idempotentReplay: boolean;
 };
+
+export type AdminCancellationReconciliationResult = {
+  cancellationRequestId: string;
+  refundOperationId: string;
+  status: "processing" | "completed" | "failed";
+  gatewayStatus: string | null;
+  reconciliationRequired: boolean;
+  idempotentReplay: boolean;
+};

@@ -17,6 +17,7 @@ import {
   executeCancellationRefund,
   inspectCancellationRefund,
   rejectCancellation,
+  reconcileCancellationRefund,
 } from "@/lib/admin/cancellations/admin-cancellation-client";
 import type {
   AdminCancellationQueue,
@@ -39,6 +40,8 @@ export function CancellationManagementClient({
   const [error, setError] = useState<string>();
   const [inspection, setInspection] = useState<RefundReconciliationInspection | null>(null);
   const [inspectionLoading, setInspectionLoading] = useState(false);
+  const [checkingRefund, setCheckingRefund] = useState(false);
+  const [refundCheckMessage, setRefundCheckMessage] = useState<string>();
   const actionKeys = useRef(new Map<string, string>());
 
   const columns = useMemo<readonly DataTableColumn<AdminCancellationQueueItem>[]>(() => [
@@ -93,9 +96,41 @@ export function CancellationManagementClient({
   };
 
   const openDetails = (item: AdminCancellationQueueItem) => {
+    if (checkingRefund) return;
     setSelected(item);
     setInspection(null);
+    setRefundCheckMessage(undefined);
     setDrawerOpen(true);
+  };
+
+  const checkRefundStatus = async () => {
+    if (!selected || selected.cancellationStatus !== "refund_processing" || loading || checkingRefund) return;
+    const cancellationRequestId = selected.cancellationRequestId;
+    setCheckingRefund(true);
+    setLoading(true);
+    setRefundCheckMessage(undefined);
+    try {
+      const result = await reconcileCancellationRefund(cancellationRequestId);
+      const message = result.status === "completed"
+        ? "Refund completed and FEASTA records were synchronized."
+        : result.status === "failed"
+          ? "PayMongo reported that the refund failed. Review the refund details before taking further action."
+          : "PayMongo is still processing this refund.";
+      setInspection(null);
+      setRefundCheckMessage(message);
+      try {
+        await refresh(cancellationRequestId);
+      } catch {
+        feastaToast.error("Refund status was checked, but the latest cancellation details could not be loaded. Refresh the queue.");
+      }
+    } catch {
+      const message = "Refund status could not be checked right now. No new refund was created.";
+      setRefundCheckMessage(message);
+      feastaToast.error(message);
+    } finally {
+      setCheckingRefund(false);
+      setLoading(false);
+    }
   };
 
   const inspect = async () => {
@@ -206,8 +241,11 @@ export function CancellationManagementClient({
         open={drawerOpen}
         busy={loading}
         inspectionLoading={inspectionLoading}
+        checkingRefund={checkingRefund}
+        refundCheckMessage={refundCheckMessage}
         onOpenChange={(open) => !loading && setDrawerOpen(open)}
         onInspect={() => void inspect()}
+        onCheckRefund={() => void checkRefundStatus()}
         onAction={setAction}
       />
 
@@ -258,8 +296,11 @@ function CancellationDrawer({
   open,
   busy,
   inspectionLoading,
+  checkingRefund,
+  refundCheckMessage,
   onOpenChange,
   onInspect,
+  onCheckRefund,
   onAction,
 }: {
   item: AdminCancellationQueueItem | null;
@@ -267,16 +308,19 @@ function CancellationDrawer({
   open: boolean;
   busy: boolean;
   inspectionLoading: boolean;
+  checkingRefund: boolean;
+  refundCheckMessage?: string;
   onOpenChange: (open: boolean) => void;
   onInspect: () => void;
+  onCheckRefund: () => void;
   onAction: (action: DecisionAction) => void;
 }) {
   const footer = item ? (
     <div className="flex w-full flex-wrap justify-end gap-2">
       {item.canReject ? <Button variant="secondary" disabled={busy} onClick={() => onAction("reject")}>Reject cancellation</Button> : null}
       {item.canApprove ? <Button disabled={busy} onClick={() => onAction("approve")}>Approve cancellation</Button> : null}
-      {item.canProcessRefund ? <Button variant="destructive" disabled={busy} onClick={() => onAction("process")}>Process refund</Button> : null}
-      {item.canRetryRefund ? <Button variant="destructive" disabled={busy} onClick={() => onAction("retry")}>Retry refund</Button> : null}
+      {item.canProcessRefund && item.cancellationStatus === "approved" ? <Button variant="destructive" disabled={busy} onClick={() => onAction("process")}>Process refund</Button> : null}
+      {item.canRetryRefund && item.cancellationStatus === "refund_failed" ? <Button variant="destructive" disabled={busy} onClick={() => onAction("retry")}>Retry refund</Button> : null}
     </div>
   ) : undefined;
 
@@ -318,6 +362,16 @@ function CancellationDrawer({
             <DetailRow label="Refund amount" value={item.refundAmountInCentavos === null ? "Calculated by backend on approval" : formatCentavos(item.refundAmountInCentavos)} />
             <DetailRow label="Refund progress" value={refundLabel(item.refundProgress)} />
             <DetailRow label="Payment status" value={item.paymentStatus ? formatLabel(item.paymentStatus) : "No safe payment status available"} />
+            {item.cancellationStatus === "refund_completed" ? <p className="font-semibold">Refund completed</p> : null}
+            {item.cancellationStatus === "refund_processing" ? (
+              <div className="grid gap-2">
+                <p className="text-sm text-muted-foreground">Checks the existing PayMongo refund and synchronizes FEASTA. This does not create another refund.</p>
+                <Button variant="secondary" disabled={busy} loading={checkingRefund} loadingLabel="Checking refund status" onClick={onCheckRefund}>
+                  Check refund status
+                </Button>
+              </div>
+            ) : null}
+            {refundCheckMessage ? <p role="status" className="text-sm">{refundCheckMessage}</p> : null}
           </DrawerSection>
 
           {item.reconciliationRequired ? (
@@ -336,7 +390,7 @@ function CancellationDrawer({
                 <DetailRow label="Last updated" value={formatDate(inspection.updatedAt)} />
               </>
             ) : <p className="text-sm text-muted-foreground">Load the existing read-only safe reconciliation projection when operational inspection is needed.</p>}
-            <Button variant="secondary" size="compact" loading={inspectionLoading} loadingLabel="Inspecting" onClick={onInspect}>
+            <Button variant="secondary" size="compact" disabled={busy} loading={inspectionLoading} loadingLabel="Inspecting" onClick={onInspect}>
               Inspect reconciliation status
             </Button>
           </DrawerSection>
