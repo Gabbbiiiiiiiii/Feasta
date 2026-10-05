@@ -79,6 +79,9 @@ const activityLabels:
     provider_verification_resubmission_required:
       "Provider resubmission requested",
 
+    provider_verification_restored:
+      "Provider verification restored",
+
     provider_verification_suspended:
       "Provider verification suspended",
 

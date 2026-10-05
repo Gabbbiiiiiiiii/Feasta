@@ -89,7 +89,9 @@ export const PROVIDER_VERIFICATION_TRANSITIONS = {
 export function isProviderVerificationTransitionAllowed(
   from: ProviderVerificationStatus,
   to: ProviderVerificationStatus,
+  action?: string,
 ): boolean {
+  if (action === "restore") return from === "suspended" && to === "approved";
   return (PROVIDER_VERIFICATION_TRANSITIONS[from] as readonly string[])
     .includes(to);
 }
@@ -347,52 +349,6 @@ export const FOOD_SERVICE_CATEGORIES = [
 export interface ProviderVerificationDocumentPolicy {
   requiredAll: readonly string[];
   requiredOneOf: readonly (readonly string[])[];
-}
-
-export function providerVerificationDocumentPolicy(
-  provider: Readonly<Record<string, unknown>>,
-): ProviderVerificationDocumentPolicy {
-  const serviceType = parseProviderServiceType(provider.providerServiceType);
-  const categories = Array.isArray(provider.serviceCategories) ?
-    provider.serviceCategories.filter(
-      (value): value is string => typeof value === "string",
-    ) :
-    typeof provider.providerCategory === "string" ?
-      [provider.providerCategory] :
-      [];
-  const businessRegistrationType =
-    provider.businessRegistrationType === "individual" ||
-    provider.businessRegistrationType === "registered_business" ?
-      provider.businessRegistrationType :
-      undefined;
-  const registeredOrLegacy = businessRegistrationType !== "individual";
-  const requiredAll: VerificationDocumentType[] = registeredOrLegacy ?
-    [...REQUIRED_VERIFICATION_DOCUMENT_TYPES] :
-    ["valid_id"];
-  const requiresFoodPermit =
-    serviceType === "catering" ||
-    serviceType === "both" ||
-    categories.some((category) =>
-      (FOOD_SERVICE_CATEGORIES as readonly string[]).includes(category)
-    );
-  const requiresMayorsPermit = categories.includes("venue_provider");
-
-  if (requiresMayorsPermit) {
-    requiredAll.push("mayors_permit");
-  }
-
-  if (requiresFoodPermit) {
-    requiredAll.push("sanitary_permit");
-  }
-
-  if (requiresMayorsPermit) {
-    requiredAll.push("mayors_permit");
-  }
-
-  return {
-    requiredAll,
-    requiredOneOf: [],
-  };
 }
 
 export function verificationDocumentRequirement(

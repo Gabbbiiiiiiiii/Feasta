@@ -8,6 +8,18 @@ const {
 
 const catalog = initialBusinessDocumentTypes();
 
+test("current catalog preserves one-of alternatives without duplicate or individual requirements", () => {
+  const {verificationDocumentsSatisfyPolicy} = require("../lib/shared/constants.js");
+  const alternativeCatalog = catalog.filter((entry) => ["sanitary_permit", "mayors_permit"].includes(entry.code))
+    .map((entry) => ({...entry, rules: [{effect: "one_of", oneOfGroup: "permit", registrationScope: "any",
+      serviceTypes: ["catering"], serviceCategoryCodes: [], excludeServiceCategoryCodes: []}]}));
+  const result = resolveVerificationDocumentPolicy(alternativeCatalog, {providerServiceType: "catering", serviceCategories: []});
+  assert.deepEqual(result.requiredAll, []);
+  assert.deepEqual(result.requiredOneOf, [["mayors_permit", "sanitary_permit"]]);
+  assert.equal(verificationDocumentsSatisfyPolicy(new Set(["sanitary_permit"]), result), true);
+  assert.equal(verificationDocumentsSatisfyPolicy(new Set(), result), false);
+});
+
 test("seeded document rules follow registration and service conditions", () => {
   const individualPhotographer = resolveVerificationDocumentPolicy(catalog, {
     providerServiceType: "addon",
@@ -35,11 +47,8 @@ test("seeded document rules follow registration and service conditions", () => {
     serviceCategories: ["catering_service"],
     businessRegistrationType: "individual",
   });
-  assert.deepEqual(individualCatering.requiredAll, ["valid_id"]);
-  assert.deepEqual(individualCatering.requiredOneOf, [[
-    "mayors_permit",
-    "sanitary_permit",
-  ]]);
+  assert.deepEqual(individualCatering.requiredAll, ["sanitary_permit", "valid_id"]);
+  assert.deepEqual(individualCatering.requiredOneOf, []);
 
   const individualVenue = resolveVerificationDocumentPolicy(catalog, {
     providerServiceType: "addon",

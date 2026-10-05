@@ -9,7 +9,6 @@ const {
   VERIFICATION_DOCUMENT_CONTENT_TYPES,
   MAX_VERIFICATION_DOCUMENT_SIZE_BYTES,
   isRequiredVerificationDocumentType,
-  providerVerificationDocumentPolicy,
   providerSubmissionProfileIssues,
   verificationDocumentsSatisfyPolicy,
   isApprovedProviderForOperations,
@@ -18,6 +17,9 @@ const {
   parseVerificationDocumentStatus,
   parseVerificationDocumentType,
 } = require("../lib/shared/constants.js");
+
+const {initialBusinessDocumentTypes, resolveVerificationDocumentPolicy, providerDocumentContext} = require("../lib/shared/document-catalog-policy.js");
+const currentPolicy = (provider) => resolveVerificationDocumentPolicy(initialBusinessDocumentTypes(), providerDocumentContext(provider));
 
 const expectedStatuses = [
   "draft",
@@ -96,7 +98,7 @@ test("provider verification document policy is server-owned and canonical", () =
 });
 
 test("document requirements vary by provider registration and service type", () => {
-  const individualPhotographer = providerVerificationDocumentPolicy({
+  const individualPhotographer = currentPolicy({
     providerServiceType: "addon",
     serviceCategories: ["photographer"],
     businessRegistrationType: "individual",
@@ -104,27 +106,24 @@ test("document requirements vary by provider registration and service type", () 
   assert.deepEqual(individualPhotographer.requiredAll, ["valid_id"]);
   assert.deepEqual(individualPhotographer.requiredOneOf, []);
 
-  const registeredPhotographer = providerVerificationDocumentPolicy({
+  const registeredPhotographer = currentPolicy({
     providerServiceType: "addon",
     serviceCategories: ["photographer"],
     businessRegistrationType: "registered_business",
   });
   assert.deepEqual(
     registeredPhotographer.requiredAll,
-    REQUIRED_VERIFICATION_DOCUMENT_TYPES,
+    [...REQUIRED_VERIFICATION_DOCUMENT_TYPES].sort(),
   );
   assert.deepEqual(registeredPhotographer.requiredOneOf, []);
 
-  const individualCatering = providerVerificationDocumentPolicy({
+  const individualCatering = currentPolicy({
     providerServiceType: "catering",
     serviceCategories: ["catering_service"],
     businessRegistrationType: "individual",
   });
-  assert.deepEqual(individualCatering.requiredAll, ["valid_id"]);
-  assert.deepEqual(individualCatering.requiredOneOf, [[
-    "sanitary_permit",
-    "mayors_permit",
-  ]]);
+  assert.deepEqual(individualCatering.requiredAll, ["sanitary_permit", "valid_id"]);
+  assert.deepEqual(individualCatering.requiredOneOf, []);
   assert.equal(verificationDocumentsSatisfyPolicy(
     new Set(["valid_id"]),
     individualCatering,
@@ -134,24 +133,24 @@ test("document requirements vary by provider registration and service type", () 
     individualCatering,
   ), true);
 
-  const individualVenue = providerVerificationDocumentPolicy({
+  const individualVenue = currentPolicy({
     providerServiceType: "addon",
     serviceCategories: ["venue_provider"],
     businessRegistrationType: "individual",
   });
   assert.deepEqual(individualVenue.requiredAll, [
-    "valid_id",
     "mayors_permit",
+    "valid_id",
   ]);
   assert.deepEqual(individualVenue.requiredOneOf, []);
 
-  const legacyPhotographer = providerVerificationDocumentPolicy({
+  const legacyPhotographer = currentPolicy({
     providerServiceType: "addon",
     serviceCategories: ["photographer"],
   });
   assert.deepEqual(
     legacyPhotographer.requiredAll,
-    REQUIRED_VERIFICATION_DOCUMENT_TYPES,
+    [...REQUIRED_VERIFICATION_DOCUMENT_TYPES].sort(),
   );
   assert.deepEqual(legacyPhotographer.requiredOneOf, []);
 });

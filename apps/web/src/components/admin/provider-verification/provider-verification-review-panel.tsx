@@ -58,7 +58,7 @@ function ProviderVerificationReviewPanel({
   const decide = async () => {
     if (!pendingDecision || submitting) return;
     if (
-      ["reject", "require_resubmission", "suspend"].includes(
+      ["reject", "require_resubmission", "suspend", "restore"].includes(
         pendingDecision.action,
       ) &&
       remarks.trim().length < 10
@@ -99,14 +99,14 @@ function ProviderVerificationReviewPanel({
   };
 
   const requiresMeaningfulRemarks = pendingDecision != null &&
-    ["reject", "require_resubmission", "suspend"].includes(
+    ["reject", "require_resubmission", "suspend", "restore"].includes(
       pendingDecision.action,
     );
   const remarksValid = !requiresMeaningfulRemarks ||
     remarks.trim().length >= 10;
   const selectDecision = (decision: Exclude<PendingDecision, null>) => {
     if (
-      ["reject", "require_resubmission", "suspend"].includes(
+      ["reject", "require_resubmission", "suspend", "restore"].includes(
         decision.action,
       ) &&
       remarks.trim().length < 10
@@ -279,7 +279,9 @@ function ProviderVerificationReviewPanel({
                   <div className="min-w-0">
                     <p className="break-words font-semibold">
                       {document.title}
-                      {document.isRequired ? " (required)" : ""}
+                      {document.requirementKind === "one_of"
+                        ? " (one of required alternatives)"
+                        : document.isRequired ? " (required)" : " (optional)"}
                     </p>
                     <p className="mt-1 break-all text-sm text-muted-foreground">
                       {document.fileName} · {document.fileSize} ·{" "}
@@ -906,7 +908,15 @@ function DecisionActions({
               "eligibility. A meaningful reason is required.",
             destructive: true,
           }]
-        : [];
+        : status === "suspended"
+          ? [{
+              action: "restore",
+              label: "Restore provider",
+              title: "Restore this provider?",
+              description: "Restoring this provider rechecks the current verification requirements and, if valid, allows the provider to operate on FEASTA again.",
+              destructive: false,
+            }]
+          : [];
 
   if (actions.length === 0) {
     return (

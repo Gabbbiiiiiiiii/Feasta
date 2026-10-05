@@ -9,7 +9,6 @@ import {
   parseProviderVerificationStatusStrict,
   parseVerificationDocumentStatus,
   parseVerificationDocumentType,
-  providerVerificationDocumentPolicy,
   verificationDocumentsSatisfyPolicy,
   normalizePhilippineMobile,
   normalizePhilippinePhone,
@@ -295,11 +294,8 @@ test("required verification policy remains server-aligned", () => {
   );
 });
 
-test("provider document policy requires sanitary permit for catering providers", () => {
-  const catering = providerVerificationDocumentPolicy({
-    providerServiceType: "catering",
-    serviceCategories: ["catering_service"],
-  });
+test("document evidence satisfaction respects required-all policy", () => {
+  const catering = {requiredAll: ["valid_id", "sanitary_permit"], requiredOneOf: []};
 
   assert.ok(
     catering.requiredAll.includes(

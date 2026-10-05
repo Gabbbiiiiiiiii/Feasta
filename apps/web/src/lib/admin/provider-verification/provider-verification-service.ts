@@ -34,6 +34,11 @@ import type {
   VerificationTimelineStatus,
 } from "./provider-verification-types";
 
+import {getAdminBusinessDocumentTypes} from "@/lib/documents/document-catalog-service";
+import {verificationDocumentRequirement} from "../../../../../../functions/src/shared/constants";
+import {providerDocumentContext} from "../../../../../../functions/src/shared/document-catalog-policy";
+import {resolveVerificationDocumentPolicy} from "@/lib/documents/verification-document-policy";
+
 const applicationLimit = 50;
 export const verificationQueuePageSize = 20;
 const queueStatuses = verificationQueueStatuses.filter((status) => status !== "all");
@@ -257,6 +262,7 @@ function mapActivityType(
 
 function mapDocument(
   document: QueryDocumentSnapshot<DocumentData>,
+  policy: ReturnType<typeof resolveVerificationDocumentPolicy>,
 ): VerificationDocumentData {
   const data = document.data();
 
@@ -285,7 +291,8 @@ function mapDocument(
       ? formatDateTime(data.reviewedAt)
       : null,
     reviewedBy: getNullableString(data.reviewedBy),
-    isRequired: getBoolean(data.isRequired, true),
+    isRequired: policy.requiredAll.includes(getString(data.documentType, document.id)),
+    requirementKind: verificationDocumentRequirement(getString(data.documentType, document.id), policy),
     status: mapDocumentStatus(data.status),
   };
 }
@@ -412,6 +419,7 @@ function createFallbackTimeline(
 
 async function loadNestedVerificationData(
   application: QueryDocumentSnapshot<DocumentData>,
+  policy: ReturnType<typeof resolveVerificationDocumentPolicy>,
 ) {
   const [documentsSnapshot, timelineSnapshot, activitiesSnapshot] =
     await Promise.all([
@@ -445,7 +453,7 @@ async function loadNestedVerificationData(
     ]);
 
   return {
-    documents: documentsSnapshot.docs.map(mapDocument),
+    documents: documentsSnapshot.docs.map((document) => mapDocument(document, policy)),
     timeline: timelineSnapshot.docs.map(mapTimelineEntry),
     activities: activitiesSnapshot.docs.map(mapActivity),
   };
@@ -699,6 +707,10 @@ export async function getProviderVerificationReview(
       providerId,
       ownerId,
     );
+  const policy = resolveVerificationDocumentPolicy(
+    await getAdminBusinessDocumentTypes(),
+    providerDocumentContext(provider),
+  );
   const documents = documentsSnapshot.docs.map((document) => {
     const data = document.data();
     const fileSize = Number(data.fileSize);
@@ -718,7 +730,10 @@ export async function getProviderVerificationReview(
         : "Size unavailable",
       contentType: getString(data.contentType, "Unknown type"),
       status: getString(data.status, "pending"),
-      isRequired: getBoolean(data.isRequired),
+      isRequired: policy.requiredAll.includes(getString(data.documentType, document.id)),
+      requirementKind: verificationDocumentRequirement(
+        getString(data.documentType, document.id), policy,
+      ),
       reviewNote: getNullableString(
         data.rejectionReason ?? data.reviewNote,
       ),
@@ -1135,10 +1150,14 @@ export async function getProviderVerificationApplications(): Promise<
     ]),
   );
 
+  const catalog = await getAdminBusinessDocumentTypes();
   const nestedData = await Promise.all(
-    applicationsSnapshot.docs.map(
-      loadNestedVerificationData,
-    ),
+    applicationsSnapshot.docs.map((document) => loadNestedVerificationData(
+      document,
+      resolveVerificationDocumentPolicy(catalog, providerDocumentContext(
+        providersById.get(getString(document.data().providerId)) ?? {},
+      )),
+    )),
   );
 
   return applicationsSnapshot.docs.map(

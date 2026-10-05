@@ -173,11 +173,6 @@ export interface ProviderVerificationDocument {
     createdAt: ProviderTimestamp;
     updatedAt: ProviderTimestamp;
 }
-export declare function providerVerificationDocumentPolicy(input: {
-    providerServiceType: ProviderServiceType;
-    serviceCategories?: readonly string[];
-    businessRegistrationType?: ProviderBusinessRegistrationType;
-}): ProviderVerificationDocumentPolicy;
 export declare function verificationDocumentRequirement(documentType: string, policy: ProviderVerificationDocumentPolicy): "required" | "one_of" | "optional";
 export declare function verificationDocumentsSatisfyPolicy(documentTypes: ReadonlySet<string>, policy: ProviderVerificationDocumentPolicy): boolean;
 export interface ProviderVerificationHistoryEntry {

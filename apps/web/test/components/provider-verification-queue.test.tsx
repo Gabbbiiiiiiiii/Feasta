@@ -1,4 +1,4 @@
-import {fireEvent, render, screen, within} from "@testing-library/react";
+import {fireEvent, render, screen, within, waitFor} from "@testing-library/react";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 
 const push = vi.fn();
@@ -141,6 +141,54 @@ const selected: ProviderVerificationReviewDetail = {
 };
 
 import {TEST_SERVICE_CATEGORY_OPTIONS} from "../fixtures/service-category-options";
+
+describe("provider restoration", () => {
+  beforeEach(() => {vi.mocked(reviewProviderVerification).mockReset(); refresh.mockReset();});
+  function show(status: ProviderVerificationReviewDetail["status"]) {
+    render(<ProviderVerificationQueue page={page} filters={filters}
+      summary={{submitted: 0, underReview: 0, approvedToday: 0, needsResubmission: 0}}
+      selected={{...selected, status}} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
+  }
+  it("offers restore only for suspended providers and requires a reason", () => {
+    show("suspended");
+    expect(screen.getByRole("button", {name: "Restore provider"})).toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: /Suspend/})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {name: "Restore provider"}));
+    expect(reviewProviderVerification).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("at least 10 characters");
+  });
+  it("does not offer restore for approved providers", () => {
+    show("approved");
+    expect(screen.queryByRole("button", {name: "Restore provider"})).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "Suspend provider"})).toBeInTheDocument();
+  });
+  it("displays optional pending permits independently of required and one-of labels", () => {
+    render(<ProviderVerificationQueue page={page} filters={filters}
+      summary={{submitted: 0, underReview: 0, approvedToday: 0, needsResubmission: 0}}
+      selected={{...selected, status: "suspended", documents: [
+        {...selected.documents[0], id: "mayors", title: "Mayor's permit", isRequired: false, requirementKind: "optional"},
+        {...selected.documents[0], id: "sanitary", title: "Sanitary permit", isRequired: true, requirementKind: "required"},
+        {...selected.documents[0], id: "alternative", title: "Alternative permit", isRequired: false, requirementKind: "one_of"},
+      ]}} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
+    expect(screen.getByText("Mayor's permit (optional)")).toBeInTheDocument();
+    expect(screen.getByText("Sanitary permit (required)")).toBeInTheDocument();
+    expect(screen.getByText("Alternative permit (one of required alternatives)")).toBeInTheDocument();
+  });
+  it("sends only trusted decision inputs and refreshes after success", async () => {
+    vi.mocked(reviewProviderVerification).mockResolvedValue({success: true, verificationId: selected.id,
+      providerId: selected.providerId, previousStatus: "suspended", status: "approved", idempotentReplay: false});
+    show("suspended");
+    fireEvent.change(screen.getByLabelText("Admin remarks"), {target: {value: "Accidental suspension during administrator testing."}});
+    fireEvent.click(screen.getByRole("button", {name: "Restore provider"}));
+    const dialog = screen.getByRole("dialog", {name: "Restore this provider?"});
+    expect(dialog).toHaveTextContent("rechecks the current verification requirements");
+    expect(refresh).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", {name: "Restore provider"}));
+    await waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+    expect(reviewProviderVerification).toHaveBeenCalledWith({verificationId: selected.id, action: "restore",
+      remarks: "Accidental suspension during administrator testing.", idempotencyKey: expect.any(String)});
+  });
+});
 
 describe("provider verification queue", () => {
   beforeEach(() => {

@@ -10,6 +10,7 @@ export const providerReviewActions = [
   "reject",
   "require_resubmission",
   "suspend",
+  "restore",
 ] as const;
 
 export type ProviderReviewAction = (typeof providerReviewActions)[number];

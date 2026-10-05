@@ -26,6 +26,7 @@ test("provider review exposes only canonical admin transitions", () => {
     "reject",
     "require_resubmission",
     "suspend",
+    "restore",
   ]) {
     assert.ok(review.includes(`"${action}"`), action);
   }
@@ -36,7 +37,8 @@ test("provider review exposes only canonical admin transitions", () => {
 
 test("approval revalidates canonical required documents and Storage metadata", () => {
   for (const contract of [
-    "providerVerificationDocumentPolicy",
+    "resolveVerificationDocumentPolicy",
+    "providerDocumentContext",
     "verificationDocumentsSatisfyPolicy",
     "validateApprovalStorageEvidence",
     "validateApprovalDocumentsInTransaction",

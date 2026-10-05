@@ -94,6 +94,7 @@ export type ProviderVerificationReviewDocument = {
   fileSize: string;
   contentType: string;
   status: string;
+  requirementKind?: "required" | "one_of" | "optional";
   isRequired: boolean;
   reviewNote: string | null;
   uploadedAt: string;
@@ -215,6 +216,7 @@ export type VerificationActivityType =
   | "provider_notified";
 
 export type VerificationDocumentData = {
+  requirementKind?: "required" | "one_of" | "optional";
   id: string;
   title: string;
   fileName: string;

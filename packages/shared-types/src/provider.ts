@@ -377,43 +377,6 @@ export interface ProviderVerificationDocument {
   updatedAt: ProviderTimestamp;
 }
 
-export function providerVerificationDocumentPolicy(input: {
-  providerServiceType: ProviderServiceType;
-  serviceCategories?: readonly string[];
-  businessRegistrationType?: ProviderBusinessRegistrationType;
-}): ProviderVerificationDocumentPolicy {
-  const categories = input.serviceCategories ?? [];
-  const registeredOrLegacy =
-    input.businessRegistrationType !== "individual";
-  const requiredAll: VerificationDocumentType[] = registeredOrLegacy
-    ? [...REQUIRED_VERIFICATION_DOCUMENT_TYPES]
-    : ["valid_id"];
-  const requiresFoodPermit =
-    input.providerServiceType === "catering" ||
-    input.providerServiceType === "both" ||
-    categories.some((category) =>
-      (FOOD_SERVICE_CATEGORIES as readonly string[]).includes(category)
-    );
-  const requiresMayorsPermit = categories.includes("venue_provider");
-
-  if (requiresMayorsPermit) {
-    requiredAll.push("mayors_permit");
-  }
-
-  if (requiresFoodPermit) {
-    requiredAll.push("sanitary_permit");
-  }
-
-  if (requiresMayorsPermit) {
-    requiredAll.push("mayors_permit");
-  }
-
-  return {
-    requiredAll,
-    requiredOneOf: [],
-  };
-}
-
 export function verificationDocumentRequirement(
   documentType: string,
   policy: ProviderVerificationDocumentPolicy,

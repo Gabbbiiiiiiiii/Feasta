@@ -55,6 +55,7 @@ const REVIEW_ACTIONS = [
   "reject",
   "require_resubmission",
   "suspend",
+  "restore",
 ] as const;
 
 type ReviewAction =
@@ -64,6 +65,7 @@ const REVIEWABLE_STATUSES = [
   "submitted",
   "under_review",
   "approved",
+  "suspended",
 ] as const;
 
 export const reviewProviderVerification = onCall(
@@ -116,7 +118,8 @@ export const reviewProviderVerification = onCall(
     const actionRequiresReason =
       action === "reject" ||
       action === "require_resubmission" ||
-      action === "suspend";
+      action === "suspend" ||
+      action === "restore";
 
     if (
       actionRequiresReason &&
@@ -154,12 +157,12 @@ export const reviewProviderVerification = onCall(
       return {...idempotency.result, idempotentReplay: true};
     }
 
+    const requiresApproval = action === "approve" || action === "restore";
     try {
-      const documentCatalog = action === "approve" ?
+      const documentCatalog = requiresApproval ?
         await loadBusinessDocumentCatalog() :
         [];
-      const [storageValidatedDocuments, approvalOwnerAuth] = action ===
-        "approve" ?
+      const [storageValidatedDocuments, approvalOwnerAuth] = requiresApproval ?
         await Promise.all([
           validateApprovalStorageEvidence(verificationId, documentCatalog),
           loadApprovalOwnerAuth(verificationReference),
@@ -246,9 +249,11 @@ export const reviewProviderVerification = onCall(
           }
 
           const ownerData = ownerSnapshot.data();
-          if (action === "approve") {
+          if (requiresApproval) {
             if (
               !approvalOwnerAuth ||
+              (verificationData?.ownerId != null &&
+                verificationData.ownerId !== ownerId) ||
               approvalOwnerAuth.uid !== ownerId ||
               ownerData?.role !== USER_ROLES.provider ||
               ownerData.accountStatus !== "active" ||
@@ -280,7 +285,8 @@ export const reviewProviderVerification = onCall(
               currentStatus as
                 | "submitted"
                 | "under_review"
-                | "approved",
+                | "approved"
+                | "suspended",
             )
           ) {
             throw new HttpsError(
@@ -299,7 +305,7 @@ export const reviewProviderVerification = onCall(
             nextStatus,
           });
 
-          const approvedDocumentReferences = action === "approve" ?
+          const approvedDocumentReferences = requiresApproval ?
             await validateApprovalDocumentsInTransaction({
               transaction,
               verificationReference,
@@ -371,7 +377,9 @@ export const reviewProviderVerification = onCall(
             },
           );
 
-          for (const documentReference of approvedDocumentReferences) {
+          // Restoration validates current evidence without rewriting document reviews.
+          for (const documentReference of action === "restore" ?
+            [] : approvedDocumentReferences) {
             transaction.update(documentReference, {
               status: "verified",
               verifiedAt: serverTimestamp(),
@@ -397,7 +405,9 @@ export const reviewProviderVerification = onCall(
               actorRole:
                 USER_ROLES.admin,
               action:
-                `provider_verification_${nextStatus}`,
+                action === "restore" ?
+                  "provider_verification_restored" :
+                  `provider_verification_${nextStatus}`,
               targetCollection:
                 "providerVerifications",
               targetId:
@@ -429,7 +439,8 @@ export const reviewProviderVerification = onCall(
             providerId,
             actorId: authenticatedUser.uid,
             actorRole: USER_ROLES.admin,
-            eventType: `verification_${nextStatus}`,
+            eventType: action === "restore" ?
+              "verification_restored" : `verification_${nextStatus}`,
             fromStatus: currentStatus,
             toStatus: nextStatus,
             remarks: remarks || null,
@@ -441,10 +452,13 @@ export const reviewProviderVerification = onCall(
             transaction,
             {
               userId: ownerId,
-              title: notificationTitle(
+              title: action === "restore" ? "Provider Restored" : notificationTitle(
                 nextStatus,
               ),
-              message: notificationMessage({
+              message: action === "restore" ?
+                "Your provider profile has been restored and can operate " +
+                  `on FEASTA again. Remarks: ${remarks}` :
+                notificationMessage({
                 status: nextStatus,
                 businessName:
                   typeof providerData
@@ -591,6 +605,7 @@ function resolveNextStatus(
       return "under_review";
 
     case "approve":
+    case "restore":
       return "approved";
 
     case "reject":
@@ -607,15 +622,18 @@ function resolveNextStatus(
 function validateTransition({
   currentStatus,
   nextStatus,
+  action,
 }: {
   currentStatus: string;
   action: ReviewAction;
   nextStatus: string;
 }): void {
-  if (!isProviderVerificationTransitionAllowed(
-    currentStatus as ProviderVerificationStatus,
-    nextStatus as ProviderVerificationStatus,
-  )) {
+  if ((action === "restore" && currentStatus !== "suspended") ||
+    !isProviderVerificationTransitionAllowed(
+      currentStatus as ProviderVerificationStatus,
+      nextStatus as ProviderVerificationStatus,
+      action,
+    )) {
     throw new HttpsError(
       "failed-precondition",
       `The verification cannot transition to ${nextStatus}.`,
@@ -655,7 +673,7 @@ function buildVerificationUpdate({
       serverTimestamp();
   }
 
-  if (action === "approve") {
+  if (action === "approve" || action === "restore") {
     update.reviewedAt =
       serverTimestamp();
     update.approvedAt =

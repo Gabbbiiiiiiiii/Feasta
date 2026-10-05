@@ -174,30 +174,6 @@ export const PROVIDER_SERVER_OWNED_FIELDS = [
     "deletedAt",
     "deletedBy",
 ];
-export function providerVerificationDocumentPolicy(input) {
-    const categories = input.serviceCategories ?? [];
-    const registeredOrLegacy = input.businessRegistrationType !== "individual";
-    const requiredAll = registeredOrLegacy
-        ? [...REQUIRED_VERIFICATION_DOCUMENT_TYPES]
-        : ["valid_id"];
-    const requiresFoodPermit = input.providerServiceType === "catering" ||
-        input.providerServiceType === "both" ||
-        categories.some((category) => FOOD_SERVICE_CATEGORIES.includes(category));
-    const requiresMayorsPermit = categories.includes("venue_provider");
-    if (requiresMayorsPermit) {
-        requiredAll.push("mayors_permit");
-    }
-    if (requiresFoodPermit) {
-        requiredAll.push("sanitary_permit");
-    }
-    if (requiresMayorsPermit) {
-        requiredAll.push("mayors_permit");
-    }
-    return {
-        requiredAll,
-        requiredOneOf: [],
-    };
-}
 export function verificationDocumentRequirement(documentType, policy) {
     if (policy.requiredAll.includes(documentType))
         return "required";
