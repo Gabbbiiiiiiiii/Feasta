@@ -124,8 +124,8 @@ importers:
   functions:
     dependencies:
       '@feasta/shared-types':
-        specifier: workspace:*
-        version: link:../packages/shared-types
+        specifier: file:vendor/feasta-shared-types-0.1.0.tgz
+        version: file:functions/vendor/feasta-shared-types-0.1.0.tgz
       '@google-cloud/functions-framework':
         specifier: 5.0.2
         version: 5.0.2
@@ -409,6 +409,10 @@ packages:
 
   '@fastify/busboy@3.2.0':
     resolution: {integrity: sha512-m9FVDXU3GT2ITSe0UaMA5rU3QkfC/UXtCU8y0gSN/GugTqtVldOBWIB5V6V3sbmenVZUIpU6f+mPEO2+m5iTaA==}
+
+  '@feasta/shared-types@file:functions/vendor/feasta-shared-types-0.1.0.tgz':
+    resolution: {integrity: sha512-Y2kkaCuZi7bD/cN6ydM45hq/UBTrG8q0jpFFI4ZgiJHumqqLj2dS6OJBG3fpsgpaciWP8cfzgAUFGYelWNijAg==, tarball: file:functions/vendor/feasta-shared-types-0.1.0.tgz}
+    version: 0.1.0
 
   '@firebase/ai@2.13.1':
     resolution: {integrity: sha512-RhT/VViTPBSplhQSuEp62HhLvfsV+LowMh8ZUo5MMRDzG7oFtSget4Kmg5oHP50hDVyWQuQj6to9iPFEZk08Tw==}
@@ -6410,6 +6414,8 @@ snapshots:
       lodash.uniq: 4.5.0
 
   '@fastify/busboy@3.2.0': {}
+
+  '@feasta/shared-types@file:functions/vendor/feasta-shared-types-0.1.0.tgz': {}
 
   '@firebase/ai@2.13.1(@firebase/app-types@0.9.5)(@firebase/app@0.15.1)':
     dependencies:
