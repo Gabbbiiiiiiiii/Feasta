@@ -35,9 +35,9 @@ import type {
 } from "./provider-verification-types";
 
 import {getAdminBusinessDocumentTypes} from "@/lib/documents/document-catalog-service";
-import {verificationDocumentRequirement} from "../../../../../../functions/src/shared/constants";
-import {providerDocumentContext} from "../../../../../../functions/src/shared/document-catalog-policy";
-import {resolveVerificationDocumentPolicy} from "@/lib/documents/verification-document-policy";
+import {verificationDocumentRequirement} from "@feasta/shared-types/documents";
+import {providerDocumentContext} from "@feasta/shared-types/documents";
+import {resolveVerificationDocumentPolicy} from "@feasta/shared-types/documents";
 
 const applicationLimit = 50;
 export const verificationQueuePageSize = 20;

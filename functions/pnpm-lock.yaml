@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@feasta/shared-types':
+        specifier: workspace:*
+        version: link:../packages/shared-types
       '@google-cloud/functions-framework':
         specifier: 5.0.2
         version: 5.0.2
@@ -45,6 +48,12 @@ importers:
       typescript-eslint:
         specifier: ^8.64.0
         version: 8.65.0(eslint@9.39.5)(typescript@5.9.3)
+
+  ../packages/shared-types:
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
 
 packages:
 

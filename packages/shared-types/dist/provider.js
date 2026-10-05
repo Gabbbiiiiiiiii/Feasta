@@ -174,18 +174,7 @@ export const PROVIDER_SERVER_OWNED_FIELDS = [
     "deletedAt",
     "deletedBy",
 ];
-export function verificationDocumentRequirement(documentType, policy) {
-    if (policy.requiredAll.includes(documentType))
-        return "required";
-    if (policy.requiredOneOf.some((group) => group.includes(documentType))) {
-        return "one_of";
-    }
-    return "optional";
-}
-export function verificationDocumentsSatisfyPolicy(documentTypes, policy) {
-    return policy.requiredAll.every((type) => documentTypes.has(type)) &&
-        policy.requiredOneOf.every((group) => group.some((type) => documentTypes.has(type)));
-}
+export { verificationDocumentRequirement, verificationDocumentsSatisfyPolicy } from "./documents/verification-document-requirement.cjs";
 export function validateProviderOwnerIdentityInput(input) {
     if (!isRecord(input)) {
         return { success: false, issues: [{ field: "data", code: "invalid" }] };

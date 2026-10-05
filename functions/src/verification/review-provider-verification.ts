@@ -1,3 +1,5 @@
+import {providerDocumentContext, resolveVerificationDocumentPolicy,
+  verificationDocumentsSatisfyPolicy, type BusinessDocumentCatalogRecord} from "@feasta/shared-types/documents";
 import {
   HttpsError,
   onCall,
@@ -20,13 +22,9 @@ import {
   type ProviderVerificationStatus,
   USER_ROLES,
   VERIFICATION_DOCUMENT_CONTENT_TYPES,
-  verificationDocumentsSatisfyPolicy,
 } from "../shared/constants.js";
 import {
   loadBusinessDocumentCatalog,
-  providerDocumentContext,
-  resolveVerificationDocumentPolicy,
-  type BusinessDocumentCatalogRecord,
 } from "../shared/document-catalog.js";
 import {db} from "../shared/firestore.js";
 import {

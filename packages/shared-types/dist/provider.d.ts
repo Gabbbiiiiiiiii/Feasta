@@ -2,10 +2,7 @@ import { type ProviderServiceType, type ProviderVerificationStatus, type Verific
 import { type ServiceCategoryCode } from "./service-category.js";
 export declare const REQUIRED_VERIFICATION_DOCUMENT_TYPES: readonly ["business_permit", "dti_registration", "bir_registration", "valid_id"];
 export declare const FOOD_SERVICE_CATEGORIES: readonly ["catering_service", "food_trays_packed_meals", "catering_event_styling", "cake_provider"];
-export interface ProviderVerificationDocumentPolicy {
-    requiredAll: readonly string[];
-    requiredOneOf: readonly (readonly string[])[];
-}
+export type { ProviderVerificationDocumentPolicy } from "./documents/verification-document-requirement.cjs";
 export declare const UNVERSIONED_POLICY_VERSION: "unversioned";
 export declare const PROVIDER_AGREEMENT_VERSION: "2026-09-27";
 export interface ProviderCapacityCapabilities {
@@ -173,8 +170,7 @@ export interface ProviderVerificationDocument {
     createdAt: ProviderTimestamp;
     updatedAt: ProviderTimestamp;
 }
-export declare function verificationDocumentRequirement(documentType: string, policy: ProviderVerificationDocumentPolicy): "required" | "one_of" | "optional";
-export declare function verificationDocumentsSatisfyPolicy(documentTypes: ReadonlySet<string>, policy: ProviderVerificationDocumentPolicy): boolean;
+export { verificationDocumentRequirement, verificationDocumentsSatisfyPolicy } from "./documents/verification-document-requirement.cjs";
 export interface ProviderVerificationHistoryEntry {
     actorId: string;
     actorRole: "provider" | "admin" | "system";

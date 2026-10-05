@@ -34,10 +34,7 @@ export const FOOD_SERVICE_CATEGORIES = [
 
 
 
-export interface ProviderVerificationDocumentPolicy {
-  requiredAll: readonly string[];
-  requiredOneOf: readonly (readonly string[])[];
-}
+export type {ProviderVerificationDocumentPolicy} from "./documents/verification-document-requirement.cjs";
 
 export const UNVERSIONED_POLICY_VERSION = "unversioned" as const;
 
@@ -377,26 +374,7 @@ export interface ProviderVerificationDocument {
   updatedAt: ProviderTimestamp;
 }
 
-export function verificationDocumentRequirement(
-  documentType: string,
-  policy: ProviderVerificationDocumentPolicy,
-): "required" | "one_of" | "optional" {
-  if (policy.requiredAll.includes(documentType)) return "required";
-  if (policy.requiredOneOf.some((group) => group.includes(documentType))) {
-    return "one_of";
-  }
-  return "optional";
-}
-
-export function verificationDocumentsSatisfyPolicy(
-  documentTypes: ReadonlySet<string>,
-  policy: ProviderVerificationDocumentPolicy,
-): boolean {
-  return policy.requiredAll.every((type) => documentTypes.has(type)) &&
-    policy.requiredOneOf.every((group) =>
-      group.some((type) => documentTypes.has(type))
-    );
-}
+export {verificationDocumentRequirement, verificationDocumentsSatisfyPolicy} from "./documents/verification-document-requirement.cjs";
 
 export interface ProviderVerificationHistoryEntry {
   actorId: string;

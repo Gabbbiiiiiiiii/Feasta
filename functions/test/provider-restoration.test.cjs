@@ -38,6 +38,7 @@ function fixture(options = {}) {
     return result;
   }};
   const mocks = {
+    "@feasta/shared-types/documents": require("@feasta/shared-types/documents"),
     "firebase-functions/v2/https": {HttpsError, onCall: (_, handler) => handler},
     "firebase-admin/storage": {getStorage: () => ({bucket: () => ({file: () => ({getMetadata: async () => [{contentType: options.invalidStorage ? "text/plain" : "application/pdf", size: 100}]})})})},
     "firebase-admin/auth": {getAuth: () => ({getUser: async () => ({uid: "owner", disabled: options.disabled})})},

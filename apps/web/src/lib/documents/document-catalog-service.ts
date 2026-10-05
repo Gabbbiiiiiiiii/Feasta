@@ -17,7 +17,7 @@ import {
   isTrustedAgreementType,
   parseAgreementType,
   providerOnboardingType,
-} from "../../../../../functions/src/shared/agreement-types";
+} from "@feasta/shared-types/documents/agreement-types";
 import {
   agreementVersionsFromRecord,
   normalizeAgreementVersionLabel,

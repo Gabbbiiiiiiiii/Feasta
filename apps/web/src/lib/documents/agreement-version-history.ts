@@ -1,10 +1,10 @@
-import {withLegacyVersionSummary} from "../../../../../functions/src/shared/agreement-summary";
-import {agreementSectionsToText, parseAgreementText} from "../../../../../functions/src/shared/agreement-text";
+import {withLegacyVersionSummary} from "@feasta/shared-types/documents/agreement-summary";
+import {agreementSectionsToText, parseAgreementText} from "@feasta/shared-types/documents/agreement-text";
 import {
   agreementVersionChoiceError,
   isRealCalendarDate,
   suggestNextAgreementVersion,
-} from "../../../../../functions/src/shared/agreement-version-order";
+} from "@feasta/shared-types/documents/agreement-version-order";
 
 import type {
   AgreementSection,

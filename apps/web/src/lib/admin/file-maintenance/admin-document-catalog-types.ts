@@ -1,7 +1,7 @@
 import type {
   AgreementPurpose,
   AgreementTypeRecord,
-} from "../../../../../../functions/src/shared/agreement-types";
+} from "@feasta/shared-types/documents/agreement-types";
 
 export type {AgreementPurpose, AgreementTypeRecord};
 

@@ -123,6 +123,9 @@ importers:
 
   functions:
     dependencies:
+      '@feasta/shared-types':
+        specifier: workspace:*
+        version: link:../packages/shared-types
       '@google-cloud/functions-framework':
         specifier: 5.0.2
         version: 5.0.2
