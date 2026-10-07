@@ -19,7 +19,7 @@ export default function AdminReportsError({
     >
       <ApplicationErrorState
         kind="load"
-        description="Reports and Insights could not be loaded securely. Please try again."
+        description="Reports could not be loaded securely. Please try again."
         onRetry={reset}
       />
     </div>

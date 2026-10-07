@@ -19,7 +19,11 @@ describe("Cancellation rollout page and action", () => {
     expect(mocks.auth).toHaveBeenCalledOnce();
     expect(mocks.platform).toHaveBeenCalledOnce();
     expect(mocks.rollout).toHaveBeenCalledOnce();
-    expect(element.props.children.map((child: {props: {initialSettings: unknown}}) => child.props.initialSettings)).toEqual([platform, platform, rollout]);
+    expect(element.props.children[0].props.initialSettings).toEqual(platform);
+    const additional = element.props.children[1];
+    expect(additional.type).toBe("details");
+    expect(additional.props.open).toBeUndefined();
+    expect(additional.props.children[2].props.children.map((child: {props: {initialSettings: unknown}}) => child.props.initialSettings)).toEqual([platform, rollout]);
   });
   it("authorizes the typed action before passing input to the trusted service", async () => {
     const input = {bookingRefundPolicyCaptureMode: "off" as const, customerCancellationMode: "off" as const, automaticPolicyRefundApprovalMode: "off" as const, internalReason: "Review rollout configuration."};

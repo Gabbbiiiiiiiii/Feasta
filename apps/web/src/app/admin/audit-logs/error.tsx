@@ -11,7 +11,7 @@ export default function AdminAuditLogsError({
   return (
     <ApplicationErrorState
       kind="load"
-      description="Audit logs could not be loaded. No records were changed."
+      description="Activities could not be loaded. Please try again."
       onRetry={reset}
     />
   );

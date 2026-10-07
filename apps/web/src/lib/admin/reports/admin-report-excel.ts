@@ -35,7 +35,7 @@ export async function createAdminReportExcel(
   workbook.created = new Date(report.generatedAt);
   workbook.modified = new Date(report.generatedAt);
   workbook.subject = `Administrative report for ${report.filters.period.label}`;
-  workbook.title = "FEASTA Reports and Insights";
+  workbook.title = "FEASTA Reports";
 
   buildSummarySheet(workbook.addWorksheet("Executive Summary"), report);
   buildBookingSheet(workbook.addWorksheet("Booking Performance"), report);
@@ -52,7 +52,7 @@ export async function createAdminReportExcel(
     report,
     serviceCategoryOptions,
   );
-  buildDefinitionsSheet(workbook.addWorksheet("Metric Definitions"), report);
+
 
   const buffer = await workbook.xlsx.writeBuffer();
   const bytes = new Uint8Array(buffer);
@@ -65,7 +65,7 @@ export async function createAdminReportExcel(
 function buildSummarySheet(sheet: Worksheet, report: AdminReportResult): void {
   configureSheet(sheet, [30, 24, 24, 18]);
   title(sheet, "FEASTA ADMINISTRATIVE REPORT", 4);
-  subtitle(sheet, `Reports and Insights · ${report.filters.period.label}`, 4);
+  subtitle(sheet, `Reports. ${report.filters.period.label}`, 4);
   sheet.addRow([]);
   section(sheet, "Report metadata", 4);
   keyValue(sheet, "Generated at", new Date(report.generatedAt), "mmm d, yyyy h:mm AM/PM");
@@ -74,7 +74,6 @@ function buildSummarySheet(sheet: Worksheet, report: AdminReportResult): void {
   keyValue(sheet, "Grouping", titleCase(report.filters.grouping));
   keyValue(sheet, "Time zone", report.timeZone);
   keyValue(sheet, "Currency", report.currency);
-  keyValue(sheet, "Data source", "Authorized server-generated bounded operational data");
   sheet.addRow([]);
   section(sheet, "Applied filters", 4);
   for (const [label, value] of [
@@ -87,7 +86,7 @@ function buildSummarySheet(sheet: Worksheet, report: AdminReportResult): void {
     ["Payment status", report.filters.paymentStatus],
   ]) keyValue(sheet, label, titleCase(value));
   sheet.addRow([]);
-  section(sheet, "Executive overview", 4);
+  section(sheet, "Overview", 4);
   tableHeader(sheet, ["Metric", "Current", "Previous", "Change"]);
   metricRow(sheet, "Total bookings", report.executive.totalBookings);
   metricRow(sheet, "Confirmed bookings", report.executive.confirmedBookings);
@@ -95,70 +94,16 @@ function buildSummarySheet(sheet: Worksheet, report: AdminReportResult): void {
   rateRow(sheet, "Cancellation rate", report.executive.cancellationRate);
   metricRow(sheet, "Active customers", report.executive.activeCustomers);
   metricRow(sheet, "Active providers", report.executive.activeProviders);
-  moneyRow(sheet, "Confirmed payment volume", report.executive.confirmedPaymentVolume);
+  moneyRow(sheet, "Currently paid amount", report.executive.confirmedPaymentVolume);
   moneyRow(sheet, "Average paid payment", report.executive.averagePaidPayment);
   sheet.addRow([]);
-  section(sheet, "Financial interpretation", 4);
-  keyValue(
-    sheet,
-    "Provider-associated volume",
-    report.payments.providerAssociatedVolume.valueInCentavos / 100,
-    currencyFormat(),
-  );
-
+  section(sheet, "FEASTA Revenue", 4);
   if (report.financial) {
-    keyValue(
-      sheet,
-      "Commission accrued",
-      report.financial.ledger.commissionAccruedInCentavos / 100,
-      currencyFormat(),
-    );
-
-    keyValue(
-      sheet,
-      "Commission reversed",
-      report.financial.ledger.commissionReversedInCentavos / 100,
-      currencyFormat(),
-    );
-
-    keyValue(
-      sheet,
-      "Commission net movement",
-      report.financial.ledger.commissionNetMovementInCentavos / 100,
-      currencyFormat(),
-    );
-
-    keyValue(
-      sheet,
-      "Observed gateway processing fees",
-      report.financial.gatewayFees.observedFeeInCentavos / 100,
-      currencyFormat(),
-    );
-
-    keyValue(
-      sheet,
-      "Gateway-fee evidence",
-      titleCase(report.financial.gatewayFees.evidenceCompleteness),
-    );
-  } else {
-    keyValue(
-      sheet,
-      "Financial Report",
-      "Unavailable in this legacy report snapshot",
-    );
-  }
-
-  keyValue(
-    sheet,
-    "Net FEASTA platform revenue",
-    "Not derived automatically",
-  );
-
-  keyValue(
-    sheet,
-    "Explanation",
-    report.payments.platformRevenue.explanation,
-  );
+    keyValue(sheet, "FEASTA fees before refunds", report.financial.ledger.commissionAccruedInCentavos / 100, currencyFormat());
+    keyValue(sheet, "Refunded FEASTA fees", report.financial.ledger.commissionReversedInCentavos / 100, currencyFormat());
+    keyValue(sheet, "FEASTA Revenue", report.financial.ledger.commissionNetMovementInCentavos / 100, currencyFormat());
+    keyValue(sheet, "Fee basis", "Platform and service fees after completed refunds, before payment processing costs");
+  } else keyValue(sheet, "FEASTA Revenue", "Not available");
   finishSheet(sheet);
 }
 
@@ -208,26 +153,25 @@ function buildPaymentSheet(sheet: Worksheet, report: AdminReportResult): void {
     26,
     ]);
   title(sheet, "PAYMENT PERFORMANCE", 9);
-  subtitle(sheet, "Provider-associated payment activity · Not FEASTA-owned revenue", 9);
+  subtitle(sheet, "Customer payments and refunds. These totals are not FEASTA Revenue.", 9);
   sheet.addRow([]);
   section(sheet, "Payment summary", 9);
   for (const [label, value, format] of [
     ["Created payments", report.payments.createdPayments.value, undefined],
     ["Successful payment attempts", report.payments.successfulPaymentAttempts.value, undefined],
     ["Currently paid payments", report.payments.currentlyPaidPayments.value, undefined],
-    ["Gross collected volume", report.payments.grossCollectedVolume.valueInCentavos / 100, currencyFormat()],
-    ["Confirmed payment volume", report.payments.confirmedPaymentVolume.valueInCentavos / 100, currencyFormat()],
-    ["Provider-associated volume", report.payments.providerAssociatedVolume.valueInCentavos / 100, currencyFormat()],
+    ["Total customer payments", report.payments.grossCollectedVolume.valueInCentavos / 100, currencyFormat()],
+    ["Currently paid amount", report.payments.confirmedPaymentVolume.valueInCentavos / 100, currencyFormat()],
+    ["Payments after refunds", report.payments.providerAssociatedVolume.valueInCentavos / 100, currencyFormat()],
     ["Refunded amount", report.payments.refundedAmount.valueInCentavos / 100, currencyFormat()],
     ["Payment success rate", report.payments.paymentSuccessRate.value / 100, "0.0%"],
     ["Refund rate", report.payments.refundRate.value / 100, "0.0%"],
-    ["Net FEASTA platform revenue", "Not derived automatically", undefined],
   ] as const) keyValue(sheet, label, value, format);
   sheet.addRow([]);
   section(sheet, "Payment activity by period", 9);
   const headerRow = tableHeader(sheet, [
     "Period", "Created", "Successful", "Failed / expired", "Refunded",
-    "Gross collected", "Currently paid", "Refunded amount", "Provider-associated",
+    "Total customer payments", "Currently paid amount", "Refunded amount", "Payments after refunds",
   ]);
   for (const point of report.payments.trend) {
     const row = sheet.addRow([
@@ -266,434 +210,108 @@ function buildFinancialSheet(
   sheet: Worksheet,
   report: AdminReportResult,
 ): void {
-  const financial =
-    report.financial;
-
-  if (!financial) {
-    return;
-  }
-
-  configureSheet(
-    sheet,
-    [
-      26, 26, 26, 26, 26, 26,
-      26, 26, 26, 26, 26, 26,
-    ],
-  );
-
-  title(
-    sheet,
-    "FINANCIAL REPORT",
-    12,
-  );
-
-  subtitle(
-    sheet,
-    `${financial.period.label} · Trusted financial movements`,
-    12,
-  );
-
+  const financial = report.financial;
+  if (!financial) return;
+  configureSheet(sheet, [28, 22, 28, 28, 28, 22, 18, 28, 24, 24, 22, 24]);
+  title(sheet, "FEASTA REVENUE AND PAYOUTS", 12);
+  subtitle(sheet, `${financial.period.label}. Platform and service fees after completed refunds, before payment processing costs.`, 12);
   sheet.addRow([]);
-
-  section(
-    sheet,
-    "Financial movement summary",
-    12,
-  );
-
-  for (
-    const [
-      label,
-      value,
-    ] of [
-      ["Customer gross collected", financial.ledger.grossCollectedInCentavos],
-      ["Completed refunds", financial.ledger.completedRefundsInCentavos],
-      ["Customer cash movement", financial.ledger.customerCashMovementInCentavos],
-      ["Commission accrued", financial.ledger.commissionAccruedInCentavos],
-      ["Commission reversed", financial.ledger.commissionReversedInCentavos],
-      ["Commission net movement", financial.ledger.commissionNetMovementInCentavos],
-      ["Provider VAT accrued", financial.ledger.providerVatAccruedInCentavos],
-      ["Provider VAT reversed", financial.ledger.providerVatReversedInCentavos],
-      ["Provider VAT net movement", financial.ledger.providerVatNetMovementInCentavos],
-      ["FEASTA VAT accrued", financial.ledger.platformVatAccruedInCentavos],
-      ["FEASTA VAT reversed", financial.ledger.platformVatReversedInCentavos],
-      ["FEASTA VAT net movement", financial.ledger.platformVatNetMovementInCentavos],
-      ["Provider earning reversals", financial.providerEarnings.reversedAmountInCentavos],
-      ["Net Provider earnings", financial.providerEarnings.netEarningInCentavos],
-      ["Provider earnings pending", financial.providerEarnings.pendingAmountInCentavos],
-      ["Provider earnings available", financial.providerEarnings.availableAmountInCentavos],
-      ["Provider earning paid bucket", financial.providerEarnings.paidAmountInCentavos],
-      ["Confirmed settlement paid out", financial.settlementPayouts.paidOutAmountInCentavos],
-      ["Observed gateway processing fees", financial.gatewayFees.observedFeeInCentavos],
-    ] as const
-  ) {
-    keyValue(
-      sheet,
-      label,
-      value / 100,
-      currencyFormat(),
-    );
-  }
-
-  keyValue(
-    sheet,
-    "Gateway-fee evidence completeness",
-    titleCase(
-      financial.gatewayFees.evidenceCompleteness,
-    ),
-  );
-
-  keyValue(
-    sheet,
-    "Gateway fees observed / unavailable / invalid",
-    `${financial.gatewayFees.observedCount} / ${financial.gatewayFees.unavailableCount} / ${financial.gatewayFees.invalidCount}`,
-  );
-
-  keyValue(
-    sheet,
-    "Net FEASTA platform revenue",
-    "Not derived automatically",
-  );
-
-  keyValue(
-    sheet,
-    "Scope notice",
-    financial.scopeNotice,
-  );
-
-  keyValue(
-    sheet,
-    "Gateway-fee notice",
-    financial.gatewayFeeNotice,
-  );
-
+  section(sheet, "Financial summary", 12);
+  for (const [label, value] of [
+    ["Total customer payments", financial.ledger.grossCollectedInCentavos],
+    ["Completed refunds", financial.ledger.completedRefundsInCentavos],
+    ["Customer payments after refunds", financial.ledger.customerCashMovementInCentavos],
+    ["FEASTA fees before refunds", financial.ledger.commissionAccruedInCentavos],
+    ["Refunded FEASTA fees", financial.ledger.commissionReversedInCentavos],
+    ["FEASTA Revenue", financial.ledger.commissionNetMovementInCentavos],
+    ["Provider tax before refunds", financial.ledger.providerVatAccruedInCentavos],
+    ["Refunded provider tax", financial.ledger.providerVatReversedInCentavos],
+    ["Provider tax after refunds", financial.ledger.providerVatNetMovementInCentavos],
+    ["Tax on FEASTA fees", financial.ledger.platformVatAccruedInCentavos],
+    ["Refunded tax on FEASTA fees", financial.ledger.platformVatReversedInCentavos],
+    ["Tax on FEASTA fees after refunds", financial.ledger.platformVatNetMovementInCentavos],
+    ["Provider earning reversals", financial.providerEarnings.reversedAmountInCentavos],
+    ["Provider earnings after reversals", financial.providerEarnings.netEarningInCentavos],
+    ["Provider earnings pending", financial.providerEarnings.pendingAmountInCentavos],
+    ["Provider earnings available", financial.providerEarnings.availableAmountInCentavos],
+    ["Provider earnings marked paid", financial.providerEarnings.paidAmountInCentavos],
+    ["Provider payouts completed", financial.settlementPayouts.paidOutAmountInCentavos],
+  ] as const) keyValue(sheet, label, value / 100, currencyFormat());
+  subtitle(sheet, "Earnings use their current status. Payouts use the date they were paid.", 12);
   sheet.addRow([]);
-
-  section(
-    sheet,
-    "Financial ledger movements",
-    12,
-  );
-
-  let headerRow =
-    tableHeader(
-      sheet,
-      [
-        "Created",
-        "Entry type",
-        "Ledger entry ID",
-        "Payment ID",
-        "Provider ID",
-        "Gross",
-        "Refund",
-        "Commission accrued",
-        "Commission reversed",
-        "Provider VAT movement",
-        "FEASTA VAT movement",
-        "Withholding movement",
-      ],
-    );
-
-  for (
-    const row of
-      financial.ledgerRows
-  ) {
-    const excelRow =
-      sheet.addRow([
-        new Date(
-          row.createdAt,
-        ),
-
-        titleCase(
-          row.entryType,
-        ),
-
-        safeText(
-          row.ledgerEntryId,
-        ),
-
-        safeText(
-          row.paymentId,
-        ),
-
-        safeText(
-          row.providerId,
-        ),
-
-        row.grossAmountInCentavos / 100,
-
-        row.refundAmountInCentavos / 100,
-
-        row.commissionAccruedInCentavos / 100,
-
-        row.commissionReversedInCentavos / 100,
-
-        (
-          row.providerVatAccruedInCentavos -
-          row.providerVatReversedInCentavos
-        ) / 100,
-
-        (
-          row.platformVatAccruedInCentavos -
-          row.platformVatReversedInCentavos
-        ) / 100,
-
-        (
-          row.withholdingAccruedInCentavos -
-          row.withholdingReversedInCentavos
-        ) / 100,
-      ]);
-
-    excelRow.getCell(1).numFmt =
-      "mmm d, yyyy h:mm AM/PM";
-
-    for (
-      let column = 6;
-      column <= 12;
-      column += 1
-    ) {
-      excelRow
-        .getCell(column)
-        .numFmt =
-          currencyFormat();
-    }
+  section(sheet, "Financial movements", 12);
+  let headerRow = tableHeader(sheet, [
+    "Created", "Entry type", "Ledger entry ID", "Payment ID", "Provider ID",
+    "Customer payment", "Refund", "FEASTA fees before refunds", "Refunded FEASTA fees",
+    "Provider tax movement", "FEASTA tax movement", "Withholding movement",
+  ]);
+  for (const row of financial.ledgerRows) {
+    const excelRow = sheet.addRow([
+      new Date(row.createdAt),
+      titleCase(row.entryType),
+      safeText(row.ledgerEntryId),
+      safeText(row.paymentId),
+      safeText(row.providerId),
+      row.grossAmountInCentavos / 100,
+      row.refundAmountInCentavos / 100,
+      row.commissionAccruedInCentavos / 100,
+      row.commissionReversedInCentavos / 100,
+      (row.providerVatAccruedInCentavos - row.providerVatReversedInCentavos) / 100,
+      (row.platformVatAccruedInCentavos - row.platformVatReversedInCentavos) / 100,
+      (row.withholdingAccruedInCentavos - row.withholdingReversedInCentavos) / 100,
+    ]);
+    excelRow.getCell(1).numFmt = "mmm d, yyyy h:mm AM/PM";
+    for (let column = 6; column <= 12; column += 1) excelRow.getCell(column).numFmt = currencyFormat();
   }
-
-  addFilter(
-    sheet,
-    headerRow,
-    12,
-  );
-
+  addFilter(sheet, headerRow, 12);
   sheet.addRow([]);
-
-  section(
-    sheet,
-    "Provider earnings created in period — current state",
-    10,
-  );
-
-  headerRow =
-    tableHeader(
-      sheet,
-      [
-        "Created",
-        "Earning ID",
-        "Payment ID",
-        "Provider ID",
-        "Status",
-        "Original earning",
-        "Reversed",
-        "Net earning",
-        "Available",
-        "Paid bucket",
-      ],
-    );
-
-  for (
-    const row of
-      financial.providerEarningRows
-  ) {
-    const excelRow =
-      sheet.addRow([
-        new Date(
-          row.createdAt,
-        ),
-
-        safeText(
-          row.earningId,
-        ),
-
-        safeText(
-          row.paymentId,
-        ),
-
-        safeText(
-          row.providerId,
-        ),
-
-        titleCase(
-          row.status,
-        ),
-
-        row.originalEarningInCentavos / 100,
-        row.reversedAmountInCentavos / 100,
-        row.netEarningInCentavos / 100,
-        row.availableAmountInCentavos / 100,
-        row.paidAmountInCentavos / 100,
-      ]);
-
-    excelRow.getCell(1).numFmt =
-      "mmm d, yyyy h:mm AM/PM";
-
-    for (
-      let column = 6;
-      column <= 10;
-      column += 1
-    ) {
-      excelRow
-        .getCell(column)
-        .numFmt =
-          currencyFormat();
-    }
+  section(sheet, "Provider earnings created in this period", 10);
+  headerRow = tableHeader(sheet, [
+    "Created", "Earning ID", "Payment ID", "Provider ID", "Status",
+    "Original earning", "Reversed", "Net earning", "Available", "Marked paid",
+  ]);
+  for (const row of financial.providerEarningRows) {
+    const excelRow = sheet.addRow([
+      new Date(row.createdAt),
+      safeText(row.earningId),
+      safeText(row.paymentId),
+      safeText(row.providerId),
+      titleCase(row.status),
+      row.originalEarningInCentavos / 100,
+      row.reversedAmountInCentavos / 100,
+      row.netEarningInCentavos / 100,
+      row.availableAmountInCentavos / 100,
+      row.paidAmountInCentavos / 100,
+    ]);
+    excelRow.getCell(1).numFmt = "mmm d, yyyy h:mm AM/PM";
+    for (let column = 6; column <= 10; column += 1) excelRow.getCell(column).numFmt = currencyFormat();
   }
-
-  addFilter(
-    sheet,
-    headerRow,
-    10,
-  );
-
+  addFilter(sheet, headerRow, 10);
   sheet.addRow([]);
-
-  section(
-    sheet,
-    "Settlement payouts in period",
-    8,
-  );
-
-  headerRow =
-    tableHeader(
-      sheet,
-      [
-        "Paid out",
-        "Settlement ID",
-        "Earning ID",
-        "Payment ID",
-        "Provider ID",
-        "Status",
-        "Net settlement",
-        "Paid out amount",
-      ],
-    );
-
-  for (
-    const row of
-      financial.settlementPayoutRows
-  ) {
-    const excelRow =
-      sheet.addRow([
-        new Date(
-          row.paidOutAt,
-        ),
-
-        safeText(
-          row.settlementId,
-        ),
-
-        safeText(
-          row.earningId,
-        ),
-
-        safeText(
-          row.paymentId,
-        ),
-
-        safeText(
-          row.providerId,
-        ),
-
-        titleCase(
-          row.status,
-        ),
-
-        row.netSettlementAmountInCentavos / 100,
-
-        row.paidOutAmountInCentavos / 100,
-      ]);
-
-    excelRow.getCell(1).numFmt =
-      "mmm d, yyyy h:mm AM/PM";
-
-    excelRow.getCell(7).numFmt =
-      currencyFormat();
-
-    excelRow.getCell(8).numFmt =
-      currencyFormat();
+  section(sheet, "Provider payouts", 8);
+  headerRow = tableHeader(sheet, [
+    "Paid out", "Settlement ID", "Earning ID", "Payment ID", "Provider ID",
+    "Status", "Net settlement", "Paid out amount",
+  ]);
+  for (const row of financial.settlementPayoutRows) {
+    const excelRow = sheet.addRow([
+      new Date(row.paidOutAt),
+      safeText(row.settlementId),
+      safeText(row.earningId),
+      safeText(row.paymentId),
+      safeText(row.providerId),
+      titleCase(row.status),
+      row.netSettlementAmountInCentavos / 100,
+      row.paidOutAmountInCentavos / 100,
+    ]);
+    excelRow.getCell(1).numFmt = "mmm d, yyyy h:mm AM/PM";
+    excelRow.getCell(7).numFmt = currencyFormat();
+    excelRow.getCell(8).numFmt = currencyFormat();
   }
-
-  addFilter(
-    sheet,
-    headerRow,
-    8,
-  );
-
-  sheet.addRow([]);
-
-  section(
-    sheet,
-    "Gateway processing-fee evidence",
-    6,
-  );
-
-  headerRow =
-    tableHeader(
-      sheet,
-      [
-        "Paid",
-        "Payment ID",
-        "Provider ID",
-        "Evidence status",
-        "Observed fee",
-        "Currency",
-      ],
-    );
-
-  for (
-    const row of
-      financial.gatewayFeeRows
-  ) {
-    const excelRow =
-      sheet.addRow([
-        new Date(
-          row.paidAt,
-        ),
-
-        safeText(
-          row.paymentId,
-        ),
-
-        safeText(
-          row.providerId,
-        ),
-
-        titleCase(
-          row.status,
-        ),
-
-        row.amountInCentavos ===
-          null
-          ? "Unavailable"
-          : row.amountInCentavos /
-            100,
-
-        row.currency,
-      ]);
-
-    excelRow.getCell(1).numFmt =
-      "mmm d, yyyy h:mm AM/PM";
-
-    if (
-      typeof excelRow
-        .getCell(5)
-        .value ===
-      "number"
-    ) {
-      excelRow.getCell(5).numFmt =
-        currencyFormat();
-    }
-  }
-
-  addFilter(
-    sheet,
-    headerRow,
-    6,
-  );
-
-  finishSheet(
-    sheet,
-  );
+  addFilter(sheet, headerRow, 8);
+  finishSheet(sheet);
 }
+
 function buildProviderSheet(
   sheet: Worksheet,
   report: AdminReportResult,
@@ -707,7 +325,7 @@ function buildProviderSheet(
     "Provider ID", "Provider", "Service type", "Category", "Requests",
     "Accepted", "Rejected", "Confirmed", "Completed", "Cancelled",
     "Acceptance rate", "Rejection rate", "Cancellation rate", "Avg response (min)",
-    "Avg rating", "Published reviews", "Confirmed payment volume",
+    "Avg rating", "Published reviews", "Currently paid amount",
   ]);
   for (const provider of report.providers.providers) {
     const row = sheet.addRow([
@@ -737,19 +355,6 @@ function buildProviderSheet(
   finishSheet(sheet);
 }
 
-function buildDefinitionsSheet(sheet: Worksheet, report: AdminReportResult): void {
-  configureSheet(sheet, [34, 95]);
-  title(sheet, "METRIC DEFINITIONS", 2);
-  subtitle(sheet, "Definitions used throughout FEASTA administrative reporting", 2);
-  sheet.addRow([]);
-  const headerRow = tableHeader(sheet, ["Metric", "Definition"]);
-  for (const definition of report.definitions) {
-    const row = sheet.addRow([definition.label, definition.description]);
-    row.alignment = {vertical: "top", wrapText: true};
-  }
-  addFilter(sheet, headerRow, 2);
-  finishSheet(sheet);
-}
 
 function configureSheet(sheet: Worksheet, widths: number[]): void {
   sheet.views = [{state: "frozen", ySplit: 3, showGridLines: false}];

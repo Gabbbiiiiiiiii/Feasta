@@ -109,12 +109,6 @@ function getNullableString(value: unknown): string | null {
   return result || null;
 }
 
-function getBoolean(
-  value: unknown,
-  fallback = false,
-): boolean {
-  return typeof value === "boolean" ? value : fallback;
-}
 
 function getDate(value: unknown): Date | null {
   if (value instanceof Timestamp) {

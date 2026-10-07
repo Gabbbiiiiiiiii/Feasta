@@ -40,12 +40,13 @@ import type {
   AdminUserDetails,
   AdminUserFilters,
   AdminUserPage,
-  AdminVerificationStatus,
 } from "@/lib/admin/users/admin-user-types";
 import type { ServiceCategoryOption } from "@/lib/service-categories/service-category-types";
 import { PageHeading } from "@/components/layout/page-heading";
 import { AdminUserAvatar } from "@/components/admin/users/admin-user-avatar";
 import { UserDetailsContent } from "@/components/admin/users/user-details-content";
+import {useAdminAutoRefresh} from "@/lib/admin/use-admin-auto-refresh";
+import {accountAccessLabel, restrictionDecision, restrictionReasons, restrictionReasonDescriptions, meaningfulRestrictionExplanation, type RestrictionReason} from "@/lib/admin/users/admin-account-labels";
 import { cn } from "@/lib/utils";
 
 type UserManagementClientProps = {
@@ -94,60 +95,6 @@ function roleBadgeClass(role: AdminManagedRole) {
   return role === "provider"
     ? "bg-primary-tint text-primary-strong"
     : "bg-blue-100 text-blue-700";
-}
-
-function verificationBadgeClass(
-  status: AdminVerificationStatus | null,
-) {
-  switch (status) {
-    case "verified":
-      return "bg-green-100 text-green-700";
-
-    case "submitted":
-    case "under_review":
-      return "bg-amber-100 text-amber-700";
-
-    case "action_required":
-      return "bg-orange-100 text-orange-700";
-
-    case "rejected":
-    case "suspended":
-      return "bg-red-100 text-red-700";
-
-    case "not_submitted":
-    default:
-      return "bg-slate-100 text-slate-600";
-  }
-}
-
-function verificationLabel(
-  status: AdminVerificationStatus | null,
-) {
-  switch (status) {
-    case "not_submitted":
-      return "Not Submitted";
-
-    case "submitted":
-      return "Submitted";
-
-    case "under_review":
-      return "Under Review";
-
-    case "verified":
-      return "Verified";
-
-    case "action_required":
-      return "Action Required";
-
-    case "rejected":
-      return "Rejected";
-
-    case "suspended":
-      return "Suspended";
-
-    default:
-      return "Not Submitted";
-  }
 }
 
 function accountStatusBadgeClass(
@@ -211,13 +158,10 @@ function UserManagementClient({
     setPendingAccountAction,
   ] = useState<PendingAccountAction>(null);
 
-  const [
-    accessDecision,
-    setAccessDecision,
-  ] =
-    useState<AdminAccountAccessDecision>(
-      "disable",
-    );
+  const [restrictionReason, setRestrictionReason] = useState<RestrictionReason | "">("");
+  const [accountMutationPending, setAccountMutationPending] = useState(false);
+  const accessDecision: AdminAccountAccessDecision = pendingAccountAction?.user.accountStatus !== "active"
+    ? "restore" : restrictionDecision(restrictionReason || "Temporary investigation");
 
   const [
     userExplanation,
@@ -235,7 +179,7 @@ function UserManagementClient({
   ] = useState<string | null>(null);
 
   const [pageHistory, setPageHistory] = useState<
-    AdminUserPage[]
+    Array<{page: AdminUserPage; filters: AdminUserFilters}>
   >([]);
 
   const [error, setError] =
@@ -244,32 +188,46 @@ function UserManagementClient({
   const [isPending, startTransition] =
     useTransition();
 
+  const queryRequestId = useRef(0);
   const executeQuery = async (
     nextFilters: AdminUserFilters,
     options: {
       clearHistory?: boolean;
     } = {},
   ) => {
+    const requestId = ++queryRequestId.current;
     setError(null);
 
     try {
       const result =
         await loadAdminUsersAction(nextFilters);
 
+      if (requestId !== queryRequestId.current) return;
       setPage(result);
       setFilters(nextFilters);
 
       if (options.clearHistory !== false) {
         setPageHistory([]);
       }
+      return true;
     } catch (queryError) {
+      if (requestId !== queryRequestId.current) return;
       setError(
         queryError instanceof Error
           ? queryError.message
           : "Unable to load user accounts.",
       );
+      return false;
     }
   };
+
+  useAdminAutoRefresh(async (isCurrent) => {
+    const requestId = queryRequestId.current;
+    const result = await loadAdminUsersAction(filters);
+    if (!isCurrent() || requestId !== queryRequestId.current) return;
+    setPage(result);
+    setSelectedUser(current => current ? result.users.find(user => user.id === current.id) ?? current : null);
+  }, JSON.stringify(filters), isPending || accountMutationPending);
 
   const loadSelectedUserDetails =
     useCallback((
@@ -394,8 +352,7 @@ function UserManagementClient({
     const accountStatus:
       AdminUserFilters["accountStatus"] =
       value === "active" ||
-      value === "disabled" ||
-      value === "blocked"
+      value === "restricted"
         ? value
         : "all";
 
@@ -408,41 +365,13 @@ function UserManagementClient({
     });
   };
 
-  const updateVerificationStatus = (
-    value: string,
-  ) => {
-    const verificationStatus:
-      AdminUserFilters["verificationStatus"] =
-      value === "not_submitted" ||
-      value === "submitted" ||
-      value === "under_review" ||
-      value === "verified" ||
-      value === "action_required" ||
-      value === "rejected" ||
-      value === "suspended"
-        ? value
-        : "all";
-
-    startTransition(async () => {
-      await executeQuery({
-        ...filters,
-        verificationStatus,
-        cursor: null,
-      });
-    });
-  };
-
   const openAccessManagement = (
     user: AdminUser,
     returnToDetails = false,
   ) => {
     setAccountActionError(null);
 
-    setAccessDecision(
-      user.accountStatus === "active"
-        ? "disable"
-        : "restore",
-    );
+    setRestrictionReason("");
 
     setUserExplanation(
       user.accountStatus === "active"
@@ -481,34 +410,15 @@ const closeAccessManagement = (
   );
 };
 
-const accessActionCopy = {
-  disable: {
-    title: "Disable account access?",
-    description:
-      "Use administrative deactivation when an account should temporarily stop accessing FEASTA without identifying it as a security or policy violation.",
-    confirmLabel: "Disable access",
-    loadingLabel: "Disabling access",
-    destructive: true,
-  },
-
-  block: {
-    title: "Block this account?",
-    description:
-      "Use a security restriction only for policy violations, abuse, fraud, compromised access, or another security concern.",
-    confirmLabel: "Block account",
-    loadingLabel: "Blocking account",
-    destructive: true,
-  },
-
-  restore: {
-    title: "Restore account access?",
-    description:
-      "The restriction will be removed and the account will regain access according to its role and provider verification state.",
-    confirmLabel: "Restore access",
-    loadingLabel: "Restoring access",
-    destructive: false,
-  },
-}[accessDecision];
+const accessActionCopy = accessDecision === "restore" ? {
+  title: "Restore account access?",
+  description: "Remove the restriction and restore access according to the account's role and provider verification state.",
+  confirmLabel: "Restore access", loadingLabel: "Restoring access", destructive: false,
+} : {
+  title: "Restrict account access?",
+  description: "Temporarily prevent this account from accessing FEASTA.",
+  confirmLabel: "Restrict access", loadingLabel: "Restricting access", destructive: true,
+};
 
 const normalizedUserExplanation =
   userExplanation
@@ -544,7 +454,9 @@ const accessFormIsValid =
   normalizedUserExplanation.length <= 500 &&
   normalizedInternalReason.length >= 10 &&
   normalizedInternalReason.length <= 1000 &&
-  !selectedDecisionMatchesStatus;
+  !selectedDecisionMatchesStatus &&
+  (accessDecision === "restore" || restrictionReason !== "") &&
+  (restrictionReason !== "Other" || meaningfulRestrictionExplanation(normalizedUserExplanation));
 
 const confirmAccountAction =
   async () => {
@@ -555,6 +467,7 @@ const confirmAccountAction =
       return;
     }
 
+    setAccountMutationPending(true);
     setAccountActionError(null);
     setError(null);
 
@@ -570,10 +483,7 @@ const confirmAccountAction =
           normalizedInternalReason,
       });
 
-      await executeQuery({
-        ...filters,
-        cursor: null,
-      });
+      await executeQuery(filters, {clearHistory: false});
 
       closeAccessManagement(false);
       closeUserDetails();
@@ -585,6 +495,8 @@ const confirmAccountAction =
 
       setAccountActionError(message);
       setError(message);
+    } finally {
+      setAccountMutationPending(false);
     }
   };
 
@@ -639,26 +551,6 @@ const confirmAccountAction =
         ),
       },
       {
-        id: "verification",
-        header: "Verification",
-        cell: (user) => (
-          <span
-            className={cn(
-              "inline-flex rounded-full px-2.5 py-1 text-xs font-semibold capitalize",
-              verificationBadgeClass(
-                user.verificationStatus,
-              ),
-            )}
-          >
-            {user.role === "provider"
-              ? verificationLabel(
-                  user.verificationStatus,
-                )
-              : "Not applicable"}
-          </span>
-        ),
-      },
-      {
         id: "status",
         header: "Status",
         cell: (user) => (
@@ -670,7 +562,7 @@ const confirmAccountAction =
               ),
             )}
           >
-            {user.accountStatus}
+            {accountAccessLabel(user.accountStatus)}
           </span>
         ),
       },
@@ -681,7 +573,7 @@ const confirmAccountAction =
       },
       {
         id: "lastLogin",
-        header: "Last Login",
+        header: "Last login",
         cell: (user) => formatDate(user.lastLoginAt),
       },
     ],
@@ -689,20 +581,6 @@ const confirmAccountAction =
   );
 
   const statistics = page.statistics;
-
-  const providerPercentage =
-    statistics.providers === 0
-      ? 0
-      : (statistics.verifiedProviders /
-          statistics.providers) *
-        100;
-
-  const pendingPercentage =
-    statistics.providers === 0
-      ? 0
-      : (statistics.pendingProviders /
-          statistics.providers) *
-        100;
 
   const restrictedPercentage =
     statistics.totalAccounts === 0
@@ -716,10 +594,7 @@ const confirmAccountAction =
       ? `Role: ${filters.role}`
       : null,
     filters.accountStatus !== "all"
-      ? `Status: ${filters.accountStatus}`
-      : null,
-    filters.verificationStatus !== "all"
-      ? `Verification: ${filters.verificationStatus}`
+      ? `Status: ${filters.accountStatus === "restricted" ? "Restricted" : "Active"}`
       : null,
   ].filter((value): value is string => value !== null);
 
@@ -727,7 +602,7 @@ const confirmAccountAction =
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Administration"
-        title="User Management"
+        title="Users"
         description="Monitor and manage customer and provider accounts."
     />
 
@@ -736,50 +611,17 @@ const confirmAccountAction =
         aria-label="User account statistics"
       >
         <SummaryCard
-          label="Total Accounts"
+          label="Total accounts"
           value={statistics.totalAccounts.toLocaleString()}
           icon={<Users className="size-6" />}
-          trend={{
-            direction:
-              (statistics.accountGrowthPercentage ?? 0) >
-              0
-                ? "up"
-                : (statistics.accountGrowthPercentage ??
-                      0) < 0
-                  ? "down"
-                  : "neutral",
-            label: `${Math.abs(
-              statistics.accountGrowthPercentage ?? 0,
-            ).toFixed(1)}% compared with last month`,
-          }}
+
         />
 
-        <SummaryCard
-          label="Verified Providers"
-          value={statistics.verifiedProviders.toLocaleString()}
-          icon={
-            <UserRoundCheck className="size-6 text-green-600" />
-          }
-          trend={{
-            direction: "neutral",
-            label: `${providerPercentage.toFixed(1)}% of providers`,
-          }}
-        />
+        <SummaryCard label="Customers" value={statistics.customers.toLocaleString()} icon={<Users className="size-6" />} />
+        <SummaryCard label="Providers" value={statistics.providers.toLocaleString()} icon={<UserRoundCheck className="size-6" />} />
 
         <SummaryCard
-          label="Pending Verification"
-          value={statistics.pendingProviders.toLocaleString()}
-          icon={
-            <ShieldCheck className="size-6 text-amber-600" />
-          }
-          trend={{
-            direction: "neutral",
-            label: `${pendingPercentage.toFixed(1)}% of providers`,
-          }}
-        />
-
-        <SummaryCard
-          label="Disabled / Blocked"
+          label="Restricted accounts"
           value={statistics.restrictedAccounts.toLocaleString()}
           icon={<Ban className="size-6 text-red-500" />}
           trend={{
@@ -829,7 +671,7 @@ const confirmAccountAction =
             </label>
 
             <label className="grid gap-1 text-sm font-semibold">
-              Status
+              Account status
               <select
                 value={filters.accountStatus}
                 disabled={isPending}
@@ -844,54 +686,10 @@ const confirmAccountAction =
                   All Statuses
                 </option>
                 <option value="active">Active</option>
-                <option value="disabled">
-                  Disabled
-                </option>
-                <option value="blocked">Blocked</option>
+                <option value="restricted">Restricted</option>
               </select>
             </label>
 
-            <label className="grid gap-1 text-sm font-semibold">
-              Verification
-              <select
-                value={filters.verificationStatus}
-                disabled={
-                  isPending ||
-                  filters.role !== "provider"
-                }
-                onChange={(event) =>
-                  updateVerificationStatus(
-                    event.currentTarget.value,
-                  )
-                }
-                className="min-h-11 rounded-lg border border-border bg-card px-3 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <option value="all">
-                  All Verification
-                </option>
-                <option value="not_submitted">
-                  Not Submitted
-                </option>
-                <option value="submitted">
-                  Submitted
-                </option>
-                <option value="under_review">
-                  Under Review
-                </option>
-                <option value="verified">
-                  Verified
-                </option>
-                <option value="action_required">
-                  Action Required
-                </option>
-                <option value="rejected">
-                  Rejected
-                </option>
-                <option value="suspended">
-                  Suspended
-                </option>
-              </select>
-            </label>
           </>
         }
       />
@@ -937,8 +735,8 @@ const confirmAccountAction =
               onClick={() =>
                 openAccessManagement(user)
               }
-              aria-label={`Manage access for ${user.fullName}`}
-              title="Manage account access"
+              aria-label={`${user.accountStatus === "active" ? "Restrict account access" : "Restore account access"} for ${user.fullName}`}
+              title={user.accountStatus === "active" ? "Restrict account access" : "Restore account access"}
               className={cn(
                 user.accountStatus === "active"
                   ? "bg-amber-50 text-amber-700 hover:bg-amber-100 hover:text-amber-800"
@@ -964,6 +762,9 @@ const confirmAccountAction =
 
                 <p className="truncate text-sm text-muted-foreground">
                   {user.email}
+                </p>
+                <p className="mt-2 text-sm capitalize">
+                  {user.role} · {accountAccessLabel(user.accountStatus)}
                 </p>
               </div>
 
@@ -1001,13 +802,15 @@ const confirmAccountAction =
             return;
           }
 
-          setPage(previousPage);
-          setPageHistory((current) =>
-            current.slice(0, -1),
-          );
+          startTransition(async () => {
+            if (await executeQuery(previousPage.filters, {clearHistory: false})) {
+              setPageHistory((current) => current.slice(0, -1));
+            }
+          });
         }}
         onNext={(cursor) => {
           startTransition(async () => {
+            const requestId = ++queryRequestId.current;
             setError(null);
 
             try {
@@ -1017,9 +820,10 @@ const confirmAccountAction =
                   cursor,
                 });
 
+              if (requestId !== queryRequestId.current) return;
               setPageHistory((current) => [
                 ...current,
-                page,
+                {page, filters},
               ]);
 
               setPage(nextPage);
@@ -1076,7 +880,7 @@ const confirmAccountAction =
                 aria-hidden="true"
               />
 
-              Manage account access
+              {selectedUser.accountStatus === "active" ? "Restrict account access" : "Restore account access"}
             </Button>
           ) : null
         }
@@ -1101,7 +905,7 @@ const confirmAccountAction =
           userModalView === "access" &&
           pendingAccountAction !== null
         }
-        contentClassName="grid max-h-[90dvh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-4xl"
+        contentClassName="grid max-h-[90dvh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-xl"
         bodyClassName="overflow-y-auto overscroll-contain pr-3 [scrollbar-gutter:stable]"
         onOpenChange={(open) => {
           if (!open) {
@@ -1115,6 +919,7 @@ const confirmAccountAction =
         confirmLabel={
           accessActionCopy.confirmLabel
         }
+        loading={accountMutationPending}
         loadingLabel={
           accessActionCopy.loadingLabel
         }
@@ -1150,98 +955,20 @@ const confirmAccountAction =
                 account ·{" "}
                 {
                   pendingAccountAction
-                    .user.accountStatus
+                    .user.accountStatus === "active" ? "Active" : "Restricted"
                 }
               </p>
             </div>
 
-            <fieldset>
-              <legend className="mb-3 font-semibold text-foreground">
-                Access decision
-              </legend>
-
-              <div className="grid gap-3 sm:grid-cols-3">
-                {(
-                  [
-                    {
-                      value: "disable",
-                      label:
-                        "Administrative deactivation",
-                      description:
-                        "Temporarily disable access for an operational or administrative reason.",
-                    },
-                    {
-                      value: "block",
-                      label:
-                        "Security or policy restriction",
-                      description:
-                        "Block access because of abuse, fraud, policy, or security concerns.",
-                    },
-                    {
-                      value: "restore",
-                      label:
-                        "Restore account access",
-                      description:
-                        "Remove the current restriction and restore appropriate account access.",
-                    },
-                  ] as const
-                ).map((option) => (
-                  <label
-                    key={option.value}
-                    className={cn(
-                      "flex min-h-36 cursor-pointer gap-3 rounded-xl border p-4 transition-colors",
-                      accessDecision ===
-                        option.value
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:bg-muted/40",
-                    )}
-                  >
-                    <input
-                      type="radio"
-                      name="accessDecision"
-                      value={option.value}
-                      checked={
-                        accessDecision ===
-                        option.value
-                      }
-                      onChange={() => {
-                        setAccessDecision(
-                          option.value,
-                        );
-
-                        if (
-                          option.value ===
-                            "restore" &&
-                          !userExplanation.trim()
-                        ) {
-                          setUserExplanation(
-                            "Your FEASTA account access has been restored.",
-                          );
-                        }
-                      }}
-                      className="mt-1 size-4 shrink-0 accent-primary"
-                    />
-
-                    <span className="min-w-0">
-                      <span className="block font-semibold text-foreground">
-                        {option.label}
-                      </span>
-
-                      <span className="mt-1 block text-sm leading-5 text-muted-foreground">
-                        {option.description}
-                      </span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-
-            {selectedDecisionMatchesStatus ? (
-              <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-                This account already has the
-                selected access state. Choose a
-                different decision.
-              </p>
+            {accessDecision !== "restore" ? (
+              <label className="grid gap-2">
+                <span className="font-semibold">Reason for restriction</span>
+                <select aria-label="Reason for restriction" aria-describedby={restrictionReason ? "restriction-reason-description" : undefined} value={restrictionReason} onChange={(event) => setRestrictionReason(event.currentTarget.value as RestrictionReason | "")} className="min-h-11 rounded-lg border border-border bg-card px-3 text-sm">
+                  <option value="">Select a reason</option>
+                  {restrictionReasons.map(reason => <option key={reason} value={reason}>{reason}</option>)}
+                </select>
+                {restrictionReason ? <span id="restriction-reason-description" className="text-sm text-muted-foreground">{restrictionReasonDescriptions[restrictionReason]}</span> : null}
+              </label>
             ) : null}
 
             <label className="grid gap-2">
@@ -1266,10 +993,10 @@ const confirmAccountAction =
                     event.target.value,
                   )
                 }
-                rows={4}
+                rows={3}
                 maxLength={500}
                 placeholder="Explain the access decision clearly and respectfully."
-                className="min-h-32 w-full resize-y rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                className="min-h-24 w-full resize-y rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
 
               <span
@@ -1281,6 +1008,7 @@ const confirmAccountAction =
                     : "text-muted-foreground",
                 )}
               >
+                {restrictionReason === "Other" && normalizedUserExplanation.length >= 10 && !meaningfulRestrictionExplanation(normalizedUserExplanation) ? "Enter a clear explanation, not a placeholder. " : ""}
                 {normalizedUserExplanation.length}/500
                 {normalizedUserExplanation.length < 10
                   ? " · Minimum 10"
@@ -1290,7 +1018,7 @@ const confirmAccountAction =
 
             <label className="grid gap-2">
               <span className="font-semibold text-foreground">
-                Internal administrative reason
+                {accessDecision === "restore" ? "Reason for restoration" : "Internal note"}
               </span>
 
               <span className="text-sm text-muted-foreground">
@@ -1309,10 +1037,10 @@ const confirmAccountAction =
                     event.target.value,
                   )
                 }
-                rows={4}
+                rows={3}
                 maxLength={1000}
                 placeholder="Record the evidence, policy, request, or operational reason supporting this decision."
-                className="min-h-32 w-full resize-y rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                className="min-h-24 w-full resize-y rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
               />
 
               <span

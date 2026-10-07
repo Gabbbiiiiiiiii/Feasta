@@ -55,10 +55,13 @@ test("Admin queue reads are server-authorized and expose a bounded projection", 
   assert.match(service, /\.limit\(QUEUE_LIMIT\)/u);
   assert.doesNotMatch(types, /customerId:|providerId:|actorUid:|gatewayPaymentId:|gatewayRefundId:/u);
   assert.doesNotMatch(component, /collection\(|doc\(|setDoc\(|updateDoc\(|api\.paymongo\.com|PAYMONGO_SECRET/iu);
-  assert.match(component, /one Provider service at a time/u);
+  assert.match(component, /This cancels only this provider’s service/u);
   assert.match(page, /Promise\.all/u);
   assert.match(page, /getAdminCancellationQueue/u);
-  assert.match(page, /supplementalContent/u);
+  assert.match(page, /initialCancellationQueue=\{initialCancellationQueue\}/u);
+  const monitoring = await webSource("components/admin/bookings/booking-monitoring-client.tsx");
+  assert.match(monitoring, /<CancellationManagementClient/u);
+  assert.match(monitoring, /onUpdated=\{\(\) => refreshBookings\(true\)\}/u);
 });
 
 test("Provider preparation UI is factual, forward-only, and non-financial", async () => {

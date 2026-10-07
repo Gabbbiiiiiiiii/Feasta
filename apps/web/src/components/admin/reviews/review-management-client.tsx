@@ -221,7 +221,7 @@ function ReviewManagementClient({
             {review.comment || "No written comment"}
           </p>
           <span className="text-xs text-muted-foreground">
-            {review.bookingCode ?? review.bookingId}
+            {review.bookingCode ?? "Booking reference unavailable"}
           </span>
         </div>
       ),
@@ -478,7 +478,7 @@ function ReviewDetailsDrawer({
   return (
     <DetailDrawer
       title={current ? `${current.customerName}'s review` : "Review details"}
-      description="Verified booking feedback and immutable moderation history."
+      description="Review customer feedback and manage reported reviews."
       open={open}
       onOpenChange={onOpenChange}
     >
@@ -511,12 +511,17 @@ function ReviewDetailsDrawer({
             <Detail label="Package" value={current.packageName} />
           </DetailSection>
 
-          <DetailSection title="Booking references">
-            <Detail label="Review ID" value={current.id} />
-            <Detail label="Booking" value={current.bookingCode ?? current.bookingId} />
+          <DetailSection title="Booking">
+            <Detail label="Booking" value={current.bookingCode ?? "Not recorded"} />
             <Detail label="Event type" value={details?.booking.eventType} />
             <Detail label="Booking status" value={details?.booking.status} />
           </DetailSection>
+          <details className="rounded-lg border border-border p-4">
+            <summary className="cursor-pointer text-sm font-semibold">Support references</summary>
+            <div className="mt-3">
+              <Detail label="Review reference" value={current.id} />
+            </div>
+          </details>
 
           <section className="grid gap-3 rounded-card border border-border p-4">
             <h3 className="font-bold">Provider reply</h3>

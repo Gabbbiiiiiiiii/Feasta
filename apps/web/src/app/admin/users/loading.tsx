@@ -12,7 +12,7 @@ export default function AdminUsersLoading() {
   return (
     <div
       className="grid min-w-0 gap-6"
-      aria-label="Loading User Management"
+      aria-label="Loading Users"
       aria-busy="true"
     >
       <header className="grid gap-3 border-b border-border pb-6">
@@ -42,17 +42,17 @@ export default function AdminUsersLoading() {
         />
 
         <SummaryCard
-          label="Verified Providers"
+          label="Customers"
           loading
         />
 
         <SummaryCard
-          label="Pending Verification"
+          label="Providers"
           loading
         />
 
         <SummaryCard
-          label="Disabled / Blocked"
+          label="Restricted accounts"
           loading
         />
       </section>
@@ -73,16 +73,11 @@ export default function AdminUsersLoading() {
             className="h-14 w-full"
             label="Loading account status filter"
           />
-
-          <LoadingSkeleton
-            className="h-14 w-full"
-            label="Loading verification filter"
-          />
         </div>
       </section>
 
       <TableLoadingSkeleton
-        caption="Loading User Management records"
+        caption="Loading Users records"
       />
     </div>
   );

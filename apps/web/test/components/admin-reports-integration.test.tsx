@@ -82,7 +82,7 @@ describe("admin reports integration", () => {
   it("renders every report phase and accurate financial terminology", () => {
     render(<AdminReportsExecutiveClient initialReport={reportFixture()} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
 
-    expect(screen.getByRole("heading", {name: "Reports and Insights"})).toBeInTheDocument();
+    expect(screen.getByRole("heading", {name: "Reports"})).toBeInTheDocument();
     expect(screen.getByText("Booking performance test section")).toBeInTheDocument();
     expect(screen.getByText("Payment performance test section")).toBeInTheDocument();
     expect(screen.getByText("Provider performance test section")).toBeInTheDocument();
@@ -91,7 +91,7 @@ describe("admin reports integration", () => {
         "heading",
         {
           name:
-            "Financial Report",
+            "FEASTA Revenue",
         },
       ),
     ).toBeInTheDocument();

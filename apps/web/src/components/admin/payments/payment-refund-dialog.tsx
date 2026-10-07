@@ -106,7 +106,7 @@ function PaymentRefundDialog({
       feastaToast.success(
         result.idempotentReplay
           ? "The existing refund request was recovered successfully."
-          : "Refund requested. Waiting for PayMongo confirmation.",
+          : "Refund requested. Waiting for payment service confirmation.",
       );
 
       resetForm();
@@ -164,15 +164,14 @@ function PaymentRefundDialog({
           role="note"
         >
           <p className="font-bold text-warning">
-            Full refund through PayMongo
+            Full refund
           </p>
 
           <p className="mt-2 text-sm text-muted-foreground">
             FEASTA will submit this
-            request to PayMongo. The
+            request to the payment service. The
             payment will only become
-            refunded after a verified
-            webhook confirms it.
+            refunded after the payment service confirms it.
           </p>
         </div>
 

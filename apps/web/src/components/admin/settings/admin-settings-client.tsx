@@ -144,7 +144,7 @@ function AdminSettingsClient({
     <div className="grid gap-6">
       <PageHeading
         eyebrow="Administration"
-        title="Platform Settings"
+        title="Settings"
         description="Manage public FEASTA platform identity and service-area information."
       />
 
@@ -300,12 +300,11 @@ function AdminSettingsClient({
 
               <div>
                 <h2 className="font-bold text-foreground">
-                  Administrative justification
+                  Reason for changes
                 </h2>
 
                 <p className="mt-1 text-sm text-muted-foreground">
-                  This private reason is stored only
-                  in the immutable audit record.
+                  Your reason is saved in the activity history.
                 </p>
               </div>
             </div>
@@ -315,7 +314,7 @@ function AdminSettingsClient({
                 htmlFor="platform-settings-internal-reason"
                 className="font-semibold text-foreground"
               >
-                Internal reason
+                Reason for changes
               </label>
 
               <Textarea
@@ -394,7 +393,7 @@ function AdminSettingsClient({
               />
 
               <h2 className="font-bold text-foreground">
-                Canonical configuration
+                System defaults
               </h2>
             </div>
 
@@ -408,24 +407,10 @@ function AdminSettingsClient({
                 label="Currency"
                 value={savedSettings.currencyCode}
               />
-
-              <SettingValue
-                label="Schema version"
-                value={String(
-                  savedSettings.schemaVersion,
-                )}
-              />
-
-              <SettingValue
-                label="Visibility"
-                value="Public profile"
-              />
             </dl>
 
             <p className="mt-4 text-sm text-muted-foreground">
-              These values are enforced by the
-              backend and cannot be changed from
-              this form.
+              These settings are fixed by the system.
             </p>
           </section>
 

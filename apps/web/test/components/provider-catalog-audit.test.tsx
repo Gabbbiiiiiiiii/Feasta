@@ -7,12 +7,18 @@ import {ProviderProfile} from "@/components/customer/providers/provider-profile"
 import {normalizePublicProvider} from "@/lib/customer/providers/provider-normalization";
 
 const actions = vi.hoisted(() => ({load: vi.fn(), save: vi.fn()}));
-vi.mock("@/app/provider/packages/menu-actions", () => ({loadProviderMenuAction: actions.load, saveProviderMenuAction: actions.save}));
+const router = vi.hoisted(() => ({replace: vi.fn()}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => router,
+}));
+
+vi.mock("@/app/provider/packages/menu-actions", () => ({loadProviderMenuAction: actions.load,saveProviderMenuAction: actions.save}));
 vi.mock("@/lib/provider/provider-media-client", () => ({uploadProviderServiceImage: vi.fn()}));
 vi.mock("@/app/customer/favorites/actions", () => ({setProviderFavoriteAction: vi.fn()}));
 const image = {id: "poster", url: "https://res.cloudinary.com/feasta/image/upload/v1/feasta/providers/owner/services/poster/image.png", title: "Chicken menu", isPublished: true};
 
-beforeEach(() => { actions.load.mockReset(); actions.save.mockReset(); });
+beforeEach(() => { actions.load.mockReset(); actions.save.mockReset(); router.replace.mockReset(); });
 
 it("restores lightbox focus to the actual opening thumbnail", async () => {
   const user = userEvent.setup();
@@ -115,8 +121,7 @@ it.each([
   render(<ProviderProfile detail={{provider, packages: [], menuImages: [image]}} />);
   expect(screen.getByText("No public packages currently listed.")).toBeVisible();
   if (hasMenu) {
-    expect(screen.getByRole("img", {name: "Chicken menu"})).toBeVisible();
-    expect(screen.getByText("Browsing only. No serving sizes are currently listed.")).toBeVisible();
+    expect(screen.getByRole("button", {name: "View Chicken menu"})).toBeVisible();
   }
   else expect(screen.queryByRole("heading", {name: "Menu & catalog"})).not.toBeInTheDocument();
 });

@@ -44,10 +44,10 @@ test("P11 finance-health counts use bounded Firestore aggregate queries", () => 
 
 test("P11 Payment Monitoring clearly separates failed Customer payments and Provider payouts", () => {
   for (const label of [
-    "Customer collected",
+    "Currently paid amount",
     "Failed payments",
-    "Failed payouts",
-    "Reconciliation cases",
+    "Failed provider payouts",
+    "Payments to review",
     "Refunded amount",
   ]) {
     assert.match(client, new RegExp(label, "u"));

@@ -11,7 +11,7 @@ export default async function AdminAccountPage() {
       <PageHeading
         eyebrow="Administration"
         title="Administrative profile"
-        description="Manage limited personal fields, preferences, credentials, and trusted sessions."
+        description="Manage your profile, preferences, and sign-in sessions."
       />
       <AccountManagementPanel profile={profile} />
     </div>

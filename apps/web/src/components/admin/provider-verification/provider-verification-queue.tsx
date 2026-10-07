@@ -18,6 +18,9 @@ import {
   SummaryCard,
   type DataTableColumn,
 } from "@/components/data";
+import {loadProviderVerificationQueueAction} from "@/app/admin/providers/actions";
+import {useAdminAutoRefresh} from "@/lib/admin/use-admin-auto-refresh";
+import {providerVerificationLabel} from "@/lib/admin/provider-verification/provider-verification-labels";
 import {PageHeading} from "@/components/layout/page-heading";
 import {ProviderVerificationReviewPanel} from "@/components/admin/provider-verification/provider-verification-review-panel";
 import {StatusBadge} from "@/components/shared/status-badge";
@@ -75,26 +78,34 @@ const columns: readonly DataTableColumn<ProviderVerificationQueueItem>[] = [
   {
     id: "status",
     header: "Status",
-    cell: (item) => <StatusBadge status={item.status} />,
+    cell: (item) => <StatusBadge status={item.status} label={providerVerificationLabel(item.status)} />,
   },
 ];
 
 function ProviderVerificationQueue({
-  page,
+  page: initialPage,
   filters,
-  summary,
-  selected,
+  summary: initialSummary,
+  selected: initialSelected,
   serviceCategoryOptions,
 }: ProviderVerificationQueueProps) {
+  const [data, setData] = useState({page: initialPage, summary: initialSummary, selected: initialSelected});
+  const {page, summary, selected} = data;
   const router = useRouter();
   const pathname = usePathname();
   const currentSearchParams = useSearchParams();
   const [search, setSearch] = useState(filters.search);
   const [isPending, startTransition] = useTransition();
+  const [reviewBusy, setReviewBusy] = useState(false);
+
+  const refreshQueue = useAdminAutoRefresh(async (isCurrent) => {
+    const next = await loadProviderVerificationQueueAction(filters, initialSelected?.id ?? null);
+    if (isCurrent()) setData(current => ({...next, selected: next.selected ?? current.selected}));
+  }, JSON.stringify({filters, selected: initialSelected?.id}), isPending || reviewBusy);
 
   const activeFilters = useMemo(() => [
     ...(filters.search ? [`Search: ${filters.search}`] : []),
-    ...(filters.status !== "all" ? [`Status: ${filters.status}`] : []),
+    ...(filters.status !== "all" ? [`Status: ${providerVerificationLabel(filters.status)}`] : []),
     ...(filters.serviceType !== "all"
       ? [`Service: ${filters.serviceType}`]
       : []),
@@ -128,7 +139,7 @@ function ProviderVerificationQueue({
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="administration"
-        title="Provider verification queue"
+        title="Provider verification"
         description="View provider applications across all verification statuses and review those awaiting approval."
       />
 
@@ -142,7 +153,7 @@ function ProviderVerificationQueue({
         />
 
         <SummaryCard
-          label="Under Review"
+          label="Under review"
           value={summary.underReview}
           icon={
             <Eye className="size-6" />
@@ -150,7 +161,7 @@ function ProviderVerificationQueue({
         />
 
         <SummaryCard
-          label="Approved Today"
+          label="Approved today"
           value={summary.approvedToday}
           icon={
             <CalendarCheck className="size-6" />
@@ -158,7 +169,7 @@ function ProviderVerificationQueue({
         />
 
         <SummaryCard
-          label="Needs Resubmission"
+          label="Updated documents needed"
           value={summary.needsResubmission}
           icon={
             <RotateCcw className="size-6" />
@@ -207,7 +218,7 @@ function ProviderVerificationQueue({
                 <option value="under_review">Under review</option>
                 <option value="approved">Approved</option>
                 <option value="resubmission_required">
-                  Resubmission required
+                  Updated documents needed
                 </option>
                 <option value="rejected">Rejected</option>
                 <option value="suspended">Suspended</option>
@@ -264,7 +275,7 @@ function ProviderVerificationQueue({
         columns={columns}
         rows={page.items}
         getRowId={(item) => item.id}
-        caption="Provider verification queue"
+        caption="Provider verification"
         loading={isPending}
         emptyTitle="No verification applications"
         emptyDescription="No applications match the selected filters."
@@ -273,11 +284,9 @@ function ProviderVerificationQueue({
             variant="secondary"
             size="compact"
             onClick={() => selectApplication(item)}
-            aria-label={`Inspect ${item.businessName}`}
+            aria-label={`Review ${item.businessName}`}
           >
-            <Eye aria-hidden="true" />
-            Inspect
-          </Button>
+            <Eye aria-hidden="true" />Review</Button>
         )}
         renderMobileRow={(item) => (
           <article className="grid min-w-0 gap-3 rounded-card border border-border bg-card p-4 shadow-card">
@@ -291,7 +300,7 @@ function ProviderVerificationQueue({
                   {item.ownerName}
                 </p>
               </div>
-              <StatusBadge status={item.status} />
+              <StatusBadge status={item.status} label={providerVerificationLabel(item.status)} />
             </div>
             <dl className="grid gap-2 text-sm">
               <div>
@@ -309,10 +318,10 @@ function ProviderVerificationQueue({
               variant="secondary"
               fullWidth
               onClick={() => selectApplication(item)}
-              aria-label={`Inspect ${item.businessName}`}
+              aria-label={`Review ${item.businessName}`}
             >
               <Eye aria-hidden="true" />
-              Inspect application
+              Review application
             </Button>
           </article>
         )}
@@ -341,12 +350,14 @@ function ProviderVerificationQueue({
           if (!open) navigate({selected: null}, false);
         }}
         title={selected?.business.name ?? "Provider verification"}
-        description="Secure provider application review"
+        description="Provider application review"
       >
         {selected ? (
           <ProviderVerificationReviewPanel
             application={selected}
             serviceCategoryOptions={serviceCategoryOptions}
+            onBusyChange={setReviewBusy}
+            onUpdated={() => refreshQueue(true)}
           />
         ) : null}
       </DetailDrawer>

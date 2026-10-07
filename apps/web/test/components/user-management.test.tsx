@@ -1,11 +1,14 @@
 import {
   render,
+  act,
+  fireEvent,
   screen,
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   beforeEach,
+  afterEach,
   describe,
   expect,
   it,
@@ -43,6 +46,63 @@ import type {
   ServiceCategoryOption,
 } from "@/lib/service-categories/service-category-types";
 import { TEST_SERVICE_CATEGORY_OPTIONS } from "../fixtures/service-category-options";
+import {restrictionDecision, restrictionReasons} from "@/lib/admin/users/admin-account-labels";
+
+afterEach(() => vi.useRealTimers());
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.loadUsers.mockResolvedValue(adminUserPage());
+});
+
+it.each(restrictionReasons)("preserves the existing internal action for %s", reason => {
+  expect(restrictionDecision(reason)).toBe(reason === "Temporary investigation" || reason === "Other" ? "disable" : "block");
+});
+
+it("focuses Users on account summaries and account filters", () => {
+  render(<UserManagementClient initialPage={adminUserPage()} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
+  for (const label of ["Total accounts", "Customers", "Providers", "Restricted accounts"]) {
+    expect(screen.getByRole("region", {name: label})).toBeInTheDocument();
+  }
+  expect(screen.queryByRole("columnheader", {name: "Verification"})).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("Verification")).not.toBeInTheDocument();
+  expect(screen.getByRole("option", {name: "Restricted"})).toHaveValue("restricted");
+  expect(screen.queryByRole("option", {name: "Disabled"})).not.toBeInTheDocument();
+  expect(screen.queryByRole("option", {name: "Blocked"})).not.toBeInTheDocument();
+});
+
+it("requires a category and valid explanations and calls disable for a temporary investigation restriction", async () => {
+  mocks.manageAccess.mockResolvedValue({userId: "customer-1", accountStatus: "disabled", changed: true});
+  mocks.loadUsers.mockResolvedValue(adminUserPage({...adminUser(), accountStatus: "disabled", isActive: false}));
+  render(<UserManagementClient initialPage={adminUserPage()} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
+  fireEvent.click(screen.getByRole("button", {name: "Restrict account access for Test Customer"}));
+  const confirm = screen.getByRole("button", {name: "Restrict access"});
+  expect(confirm).toBeDisabled();
+  fireEvent.change(screen.getByLabelText(/Explanation for the user/), {target: {value: "Access paused at your request."}});
+  fireEvent.change(screen.getByLabelText(/Internal note/), {target: {value: "Temporary administrative restriction requested."}});
+  expect(confirm).toBeDisabled();
+  fireEvent.change(screen.getByLabelText("Reason for restriction"), {target: {value: "Temporary investigation"}});
+  expect(confirm).toBeEnabled();
+  fireEvent.change(screen.getByLabelText(/Explanation for the user/), {target: {value: "short"}});
+  expect(confirm).toBeDisabled();
+  fireEvent.change(screen.getByLabelText(/Explanation for the user/), {target: {value: "Access paused at your request."}});
+  await act(async () => {fireEvent.click(confirm);});
+  expect(mocks.manageAccess).toHaveBeenCalledWith(expect.objectContaining({decision: "disable"}));
+  expect(screen.getByRole("button", {name: "Restore account access for Test Customer"})).toBeInTheDocument();
+});
+
+it("keeps the access dialog and form values during automatic refresh", async () => {
+  vi.useFakeTimers();
+  mocks.loadUsers.mockReset().mockResolvedValue(adminUserPage());
+  render(<UserManagementClient initialPage={adminUserPage()} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
+  fireEvent.click(screen.getByRole("button", {name: "Restrict account access for Test Customer"}));
+  fireEvent.change(screen.getByLabelText("Reason for restriction"), {target: {value: "Policy violation"}});
+  fireEvent.change(screen.getByLabelText(/Explanation for the user/), {target: {value: "A policy review is in progress."}});
+  await act(async () => {await vi.advanceTimersByTimeAsync(5_000);});
+  expect(mocks.loadUsers).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("dialog", {name: "Restrict account access?"})).toBeInTheDocument();
+  expect(screen.getByLabelText("Reason for restriction")).toHaveValue("Policy violation");
+  expect(screen.getByLabelText(/Explanation for the user/)).toHaveValue("A policy review is in progress.");
+});
 
 describe(
   "admin user provider category display",
@@ -110,11 +170,11 @@ describe(
   "admin provider verification status display",
   () => {
     const cases = [
-      ["not_submitted", "Not Submitted"],
-      ["submitted", "Submitted"],
-      ["under_review", "Under Review"],
+      ["not_submitted", "Not verified"],
+      ["submitted", "Verification pending"],
+      ["under_review", "Under review"],
       ["verified", "Verified"],
-      ["action_required", "Action Required"],
+      ["action_required", "Action required"],
       ["rejected", "Rejected"],
       ["suspended", "Suspended"],
     ] as const;
@@ -180,7 +240,7 @@ describe(
         );
 
         expect(
-          screen.getAllByText("Not Submitted").length,
+          screen.getAllByText("Not verified").length,
         ).toBeGreaterThanOrEqual(1);
 
         expect(
@@ -225,7 +285,7 @@ describe(
             "button",
             {
               name:
-                "Manage access for Test Customer",
+                "Restrict account access for Test Customer",
             },
           ),
         ).toBeInTheDocument();
@@ -270,26 +330,20 @@ describe(
             "button",
             {
               name:
-                "Manage access for Test Customer",
+                "Restrict account access for Test Customer",
             },
           ),
         );
 
-        await user.click(
-          screen.getByRole(
-            "radio",
-            {
-              name:
-                /Security or policy restriction/i,
-            },
-          ),
-        );
+        expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+        expect(screen.queryByText("Restore account access")).not.toBeInTheDocument();
+        await user.selectOptions(screen.getByLabelText("Reason for restriction"), "Account security concern");
 
         const confirm =
           screen.getByRole(
             "button",
             {
-              name: "Block account",
+              name: "Restrict access",
             },
           );
 
@@ -306,13 +360,14 @@ describe(
 
         await user.type(
           screen.getByLabelText(
-            /Internal administrative reason/i,
+            /Internal note|Reason for restoration/i,
           ),
           "Security review reference SEC-2026-001 requires temporary restriction.",
         );
 
         expect(confirm).toBeEnabled();
 
+        const readsBeforeRestriction = mocks.loadUsers.mock.calls.length;
         await user.click(confirm);
 
         await waitFor(() => {
@@ -330,7 +385,7 @@ describe(
 
         expect(
           mocks.loadUsers,
-        ).toHaveBeenCalledTimes(1);
+        ).toHaveBeenCalledTimes(readsBeforeRestriction + 1);
       },
     );
 
@@ -371,20 +426,14 @@ describe(
             "button",
             {
               name:
-                "Manage access for Test Customer",
+                "Restore account access for Test Customer",
             },
           ),
         );
 
-        expect(
-          screen.getByRole(
-            "radio",
-            {
-              name:
-                /Restore account access/i,
-            },
-          ),
-        ).toBeChecked();
+        expect(screen.getByRole("dialog", {name: "Restore account access?"})).toBeInTheDocument();
+        expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+        expect(screen.queryByLabelText("Reason for restriction")).not.toBeInTheDocument();
 
         expect(
           screen.getByLabelText(
@@ -396,7 +445,7 @@ describe(
 
         await user.type(
           screen.getByLabelText(
-            /Internal administrative reason/i,
+            /Reason for restoration/i,
           ),
           "The security review was completed and the restriction was cleared.",
         );
@@ -485,3 +534,24 @@ function adminUserPage(
     hasMore: false,
   };
 }
+
+
+it("renders the final reasons and rejects placeholder Other explanations", async () => {
+  mocks.manageAccess.mockResolvedValue({userId: "customer-1", accountStatus: "disabled", changed: true});
+  mocks.loadUsers.mockResolvedValue(adminUserPage({...adminUser(), accountStatus: "disabled", isActive: false}));
+  render(<UserManagementClient initialPage={adminUserPage()} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
+  fireEvent.click(screen.getByRole("button", {name: "Restrict account access for Test Customer"}));
+  for (const reason of restrictionReasons) expect(screen.getByRole("option", {name: reason})).toBeInTheDocument();
+  expect(screen.queryByRole("option", {name: "Administrative reason"})).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Reason for restriction"), {target: {value: "Other"}});
+  fireEvent.change(screen.getByLabelText(/Internal note/), {target: {value: "Duplicate ownership report is being reviewed."}});
+  for (const placeholder of ["test", "12345", "asdf", "other", "none", "n/a", "test test test", "12345 12345", "other other", "none none none", "  n/a n/a n/a  "]) {
+    fireEvent.change(screen.getByLabelText(/Explanation for the user/), {target: {value: placeholder}});
+    expect(screen.getByRole("button", {name: "Restrict access"})).toBeDisabled();
+  }
+  expect(mocks.manageAccess).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText(/Explanation for the user/), {target: {value: "  Account temporarily restricted while duplicate business ownership information is being reviewed.  "}});
+  await act(async () => {fireEvent.click(screen.getByRole("button", {name: "Restrict access"}));});
+  expect(mocks.manageAccess).toHaveBeenCalledWith(expect.objectContaining({decision: "disable", userExplanation: "Account temporarily restricted while duplicate business ownership information is being reviewed."}));
+  expect(screen.getByRole("button", {name: "Restore account access for Test Customer"})).toBeInTheDocument();
+});

@@ -194,9 +194,9 @@ describe("Admin dashboard financial and population metrics", () => {
     expect(within(summary).getByText("1 submitted / 1 under review")).toBeInTheDocument();
     expect(within(summary).getByRole("link", { name: /FEASTA Revenue/i })).toHaveAttribute("href", "/admin/payments");
     expect(within(summary).getByText("\u20b16,750.25")).toBeInTheDocument();
-    expect(within(summary).getByRole("link", { name: /Total Users/ })).toHaveAttribute("href", "/admin/users");
-    expect(within(summary).getByRole("link", { name: /Total Bookings/ })).toHaveAttribute("href", "/admin/bookings");
-    expect(within(summary).getByRole("link", { name: /Pending Accounts for Approval/ })).toHaveAttribute("href", "/admin/providers");
+    expect(within(summary).getByRole("link", { name: /Total users/ })).toHaveAttribute("href", "/admin/users");
+    expect(within(summary).getByRole("link", { name: /Total bookings/ })).toHaveAttribute("href", "/admin/bookings");
+    expect(within(summary).getByRole("link", { name: /Pending provider verifications/ })).toHaveAttribute("href", "/admin/providers");
     expect(screen.getByText(/Platform and service fees earned through eligible FEASTA transactions\./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "1M" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "7D" }));
@@ -245,9 +245,8 @@ describe("Admin dashboard financial and population metrics", () => {
       { id: "provider-a", completedBookings: 1, href: "/admin/providers?q=Alpha%20Catering" },
     ]);
     render(await AdminPage());
-    expect(screen.getByRole("link", { name: /Beta Events/ })).toHaveAttribute("href", "/admin/providers?selected=application-b-current");
-    expect(screen.getByRole("link", { name: /Alpha Catering/ })).toHaveAttribute("href", "/admin/providers?q=Alpha%20Catering");
-    expect(screen.getByRole("link", { name: "View all providers" })).toHaveAttribute("href", "/admin/providers");
+    expect(screen.queryByRole("heading", { name: "Top Providers" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", {name: "View all providers"})).not.toBeInTheDocument();
   });
 
   it("limits the provider ranking to five with deterministic ties", async () => {
@@ -280,7 +279,7 @@ describe("Admin dashboard financial and population metrics", () => {
     render(await AdminPage());
     const operations = screen.getByRole("region", { name: "Operations Overview" });
     expect(within(operations).getAllByRole("link")).toHaveLength(4);
-    expect(within(operations).getByRole("link", { name: "Pending / processing payments: 1" })).toHaveAttribute("href", "/admin/payments");
+    expect(within(operations).getByRole("link", { name: "Pending payments: 1" })).toHaveAttribute("href", "/admin/payments");
     expect(within(operations).getByRole("link", { name: "Reported reviews: 1" })).toHaveAttribute("href", "/admin/reviews");
     expect(within(operations).getByRole("link", { name: "Open complaints: 2" })).toHaveAttribute("href", "/admin/complaints");
     expect(within(operations).queryByText(/provider|booking/i)).not.toBeInTheDocument();
@@ -290,7 +289,7 @@ describe("Admin dashboard financial and population metrics", () => {
     expect(screen.getByText("User account enabled")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Platform Health" })).not.toBeInTheDocument();
     for (let i = 0; i < 4; i++) await user.tab();
-    expect(screen.getByRole("link", { name: /Pending Accounts for Approval/ })).toHaveFocus();
+    expect(screen.getByRole("link", { name: /Pending provider verifications/ })).toHaveFocus();
   });
 
 });

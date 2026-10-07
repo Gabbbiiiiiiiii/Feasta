@@ -24,7 +24,7 @@ export default function AdminBookingsError({
         kind="load"
         description={
           error.message ||
-          "Booking Monitoring could not be loaded."
+          "Bookings could not be loaded."
         }
         onRetry={reset}
       />

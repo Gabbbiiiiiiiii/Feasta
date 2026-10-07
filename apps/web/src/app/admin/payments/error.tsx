@@ -24,7 +24,7 @@ export default function AdminPaymentsError({
         kind="load"
         description={
           error.message ||
-          "Payment Monitoring could not be loaded."
+          "Payments could not be loaded."
         }
         onRetry={reset}
       />

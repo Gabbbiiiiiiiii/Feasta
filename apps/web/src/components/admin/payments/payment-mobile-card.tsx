@@ -110,11 +110,11 @@ function PaymentMobileCard({
 
           <div className="min-w-0">
             <dt className="font-semibold text-muted-foreground">
-              Gateway
+              Processed by
             </dt>
 
             <dd className="break-words font-medium">
-              PayMongo
+              Payment service
             </dd>
           </div>
         </div>

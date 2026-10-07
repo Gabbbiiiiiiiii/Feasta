@@ -16,8 +16,8 @@ const indexes = readFileSync(
   join(process.cwd(), "../../firebase/firestore.indexes.json"),
   "utf8",
 );
-const navigation = readFileSync(
-  join(process.cwd(), "src/components/layout/navigation.ts"),
+const messageIndicator = readFileSync(
+  join(process.cwd(), "src/components/layout/provider-message-indicator.tsx"),
   "utf8",
 );
 
@@ -105,14 +105,9 @@ describe("provider messaging server-read contract", () => {
     ]);
   });
 
-  it("enables the provider Messages navigation entry after the UI exists", () => {
-    const messagesLabel = navigation.indexOf('label: "Messages"');
-    const messagesEntry = navigation.slice(
-      navigation.lastIndexOf("{", messagesLabel),
-      navigation.indexOf('label: "Notifications"'),
-    );
-    expect(messagesEntry).toContain('kind: "link"');
-    expect(messagesEntry).toContain('href: "/provider/messages"');
-    expect(messagesEntry).not.toContain("Coming soon");
+  it("exposes provider Messages through the header indicator", () => {
+    expect(messageIndicator).toContain('href="/provider/messages"');
+    expect(messageIndicator).toContain('title="Messages"');
+    expect(messageIndicator).not.toContain("Coming soon");
   });
 });

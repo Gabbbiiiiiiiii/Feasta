@@ -92,11 +92,11 @@ describe("Admin audit log browser", () => {
     render(<AuditLogBrowserClient initialPage={pageFixture()} />);
 
     expect(
-      screen.getByRole("heading", {name: "Audit Logs"}),
+      screen.getByRole("heading", {name: "Activity logs"}),
     ).toBeVisible();
-    expect(screen.getByText("Events in latest window")).toBeVisible();
+    expect(screen.getByText("Recent activities")).toBeVisible();
     expect(
-      screen.getByText(/They are not lifetime totals/u),
+      screen.getByText(/Counts cover the latest/u),
     ).toBeVisible();
     expect(
       screen.getAllByRole("link", {name: /View audit event|View/u})[0],
@@ -113,7 +113,7 @@ describe("Admin audit log browser", () => {
     );
 
     expect(
-      screen.getByText("No audit events in the latest window"),
+      screen.getByText("No recent activities"),
     ).toBeVisible();
 
     rerender(
@@ -150,9 +150,9 @@ describe("Admin audit log browser", () => {
     );
 
     expect(
-      await screen.findByText("No matching audit events in this scan"),
+      await screen.findByText("No matching activities"),
     ).toBeVisible();
-    expect(screen.getByText(/at most 250 timestamped events/u)).toBeVisible();
+    expect(screen.getByText(/up to 250 recent activities/u)).toBeVisible();
   });
 
   it("submits exact filters and bounded page sizes", async () => {
@@ -160,7 +160,7 @@ describe("Admin audit log browser", () => {
     render(<AuditLogBrowserClient initialPage={pageFixture()} />);
 
     await user.selectOptions(
-      screen.getByLabelText("Actor role"),
+      screen.getByLabelText("User role"),
       "provider",
     );
 
@@ -221,14 +221,14 @@ describe("Admin audit log browser", () => {
     render(<AuditLogBrowserClient initialPage={pageFixture()} />);
 
     await user.type(
-      screen.getByLabelText("Search audit events"),
+      screen.getByLabelText("Search activities"),
       "admin_01",
     );
     await user.click(screen.getByRole("button", {name: "Search"}));
 
     expect(
       await screen.findByText(
-        "Audit events could not be loaded. Try the request again.",
+        "Activities could not be loaded. Please try again.",
       ),
     ).toBeVisible();
     expect(screen.queryByText(/do-not-render/u)).not.toBeInTheDocument();
@@ -254,7 +254,7 @@ describe("Admin audit log browser", () => {
 
     expect(
       screen.getByText(
-        "Audit logs could not be loaded. No records were changed.",
+        "Activities could not be loaded. Please try again.",
       ),
     ).toBeVisible();
     expect(screen.queryByText(/secret backend detail/u)).not.toBeInTheDocument();

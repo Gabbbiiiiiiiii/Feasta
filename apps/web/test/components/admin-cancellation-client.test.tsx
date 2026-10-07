@@ -41,3 +41,13 @@ it("rejects invalid cancellation IDs before contacting Functions", () => {
   expect(() => reconcileCancellationRefund("bad/id")).toThrow();
   expect(mocks.callable).not.toHaveBeenCalled();
 });
+
+it("maps evidence failures to review and keeps technical failures distinct", async () => {
+  const {FirebaseError} = await import("firebase/app");
+  const {RefundCheckNeedsReviewError} = await import("@/lib/admin/cancellations/admin-refund-check-presentation");
+  mocks.call.mockRejectedValueOnce(new FirebaseError("functions/failed-precondition", "Refund reconciliation evidence is invalid."));
+  await expect(reconcileCancellationRefund("cancellation_12345678")).rejects.toBeInstanceOf(RefundCheckNeedsReviewError);
+  mocks.call.mockRejectedValueOnce(new FirebaseError("functions/unavailable", "Refund retrieval failed; reconciliation can be retried."));
+  try {await reconcileCancellationRefund("cancellation_12345678"); throw new Error("expected failure");}
+  catch (error) {expect(error).not.toBeInstanceOf(RefundCheckNeedsReviewError);}
+});

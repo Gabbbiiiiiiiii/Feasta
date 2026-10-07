@@ -1,4 +1,6 @@
 "use client";
+import {adminBookingStatusLabel, adminBookingPaymentLabel, adminProviderRequestLabel} from "@/lib/admin/bookings/admin-booking-labels";
+import {accountAccessLabel} from "@/lib/admin/users/admin-account-labels";
 
 import {
   BadgeCheck,
@@ -74,16 +76,16 @@ function providerVerificationLabel(
 ) {
   switch (status) {
     case "submitted":
-      return "Submitted";
+      return "Verification pending";
 
     case "under_review":
-      return "Under Review";
+      return "Under review";
 
     case "verified":
       return "Verified";
 
     case "action_required":
-      return "Action Required";
+      return "Action required";
 
     case "rejected":
       return "Rejected";
@@ -93,7 +95,7 @@ function providerVerificationLabel(
 
     case "not_submitted":
     default:
-      return "Not Submitted";
+      return "Not verified";
   }
 }
 
@@ -310,10 +312,8 @@ function BookingDetailsTab({
                 </p>
               </div>
 
-              <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold capitalize text-muted-foreground">
-                {humanizeValue(
-                  booking.bookingStatus,
-                )}
+              <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+                {adminBookingStatusLabel(booking.bookingStatus)}
               </span>
             </div>
 
@@ -345,10 +345,8 @@ function BookingDetailsTab({
                   <dt className="text-xs text-muted-foreground">
                     Provider request
                   </dt>
-                  <dd className="mt-0.5 capitalize">
-                    {humanizeValue(
-                      booking.providerRequestStatus,
-                    )}
+                  <dd className="mt-0.5">
+                    {adminProviderRequestLabel(booking.providerRequestStatus)}
                   </dd>
                 </div>
               ) : null}
@@ -358,10 +356,8 @@ function BookingDetailsTab({
                   <dt className="text-xs text-muted-foreground">
                     Payment
                   </dt>
-                  <dd className="mt-0.5 capitalize">
-                    {humanizeValue(
-                      booking.paymentStatus,
-                    )}
+                  <dd className="mt-0.5">
+                    {adminBookingPaymentLabel(booking.paymentStatus)}
                   </dd>
                 </div>
               ) : null}
@@ -632,7 +628,7 @@ function UserDetailsContent({
                     "bg-red-100 text-red-700",
                 )}
               >
-                {user.accountStatus}
+                {accountAccessLabel(user.accountStatus)}
               </span>
             </div>
 
@@ -769,7 +765,7 @@ function UserDetailsContent({
 
               <DetailRow label="Status">
                 <span className="capitalize">
-                  {user.accountStatus}
+                  {accountAccessLabel(user.accountStatus)}
                 </span>
               </DetailRow>
 

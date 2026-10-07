@@ -33,6 +33,7 @@ export default async function AdminProvidersPage({
 
   return (
     <ProviderVerificationQueue
+      key={JSON.stringify({filters, selectedId})}
       page={page}
       summary={summary}
       filters={filters}

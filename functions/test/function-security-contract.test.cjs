@@ -505,6 +505,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "reactivateServiceCategory",
   "reconcileProviderRequestRefund",
   "reconcileRemainingBalanceLifecycle",
+  "reconcileUnresolvedRefundStatuses",
   "refreshProviderPayoutAccount",
   "registerProvider",
   "registerVerificationDocument",

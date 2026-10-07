@@ -25,10 +25,14 @@ export default async function AdminSettingsPage() {
         initialSettings={settings}
       />
 
-      <AdminFinancialPolicyClient
-        initialSettings={settings}
-      />
-      <AdminCancellationRolloutClient initialSettings={cancellationRollout} />
+      <details className="rounded-card border border-border bg-card p-5">
+        <summary className="cursor-pointer font-bold">Additional settings</summary>
+        <p className="mt-2 text-sm text-muted-foreground">Manage fee policies and cancellation availability.</p>
+        <div className="mt-4 grid gap-6">
+          <AdminFinancialPolicyClient initialSettings={settings} />
+          <AdminCancellationRolloutClient initialSettings={cancellationRollout} />
+        </div>
+      </details>
     </div>
   );
 }

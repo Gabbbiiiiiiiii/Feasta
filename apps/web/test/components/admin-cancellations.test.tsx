@@ -1,6 +1,6 @@
-import {render, screen, waitFor, within} from "@testing-library/react";
+import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import {beforeEach, describe, expect, it, vi} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
 import type {
   AdminCancellationQueue,
@@ -37,6 +37,35 @@ vi.mock("@/components/feedback/toast", () => ({
 }));
 
 import {CancellationManagementClient} from "@/components/admin/bookings/cancellation-management-client";
+afterEach(() => vi.useRealTimers());
+
+it("separates cancellation from refund completion and removes the manual refresh control", () => {
+  renderQueue([item({cancellationStatus: "refund_completed", refundProgress: "full_completed", refundAmountInCentavos: 500000,
+    canApprove: false, canReject: false})]);
+  expect(screen.queryByRole("button", {name: "Refresh queue"})).not.toBeInTheDocument();
+  const table = screen.getByRole("table", {name: "Provider-service cancellation queue"});
+  const row = within(table).getAllByRole("row")[1];
+  const cells = within(row).getAllByRole("cell");
+  expect(cells[4]).toHaveTextContent("Cancelled");
+  expect(cells[4]).not.toHaveTextContent(/refund/i);
+  expect(cells[5]).toHaveTextContent("Refund confirmed");
+  expect(cells[5]).toHaveTextContent("5,000.00");
+});
+
+it("polls silently while preserving the rejection form and its drawer", async () => {
+  vi.useFakeTimers();
+  renderQueue([item()]);
+  fireEvent.click(screen.getByRole("button", {name: "Review cancellation for Maria's Catering"}));
+  fireEvent.click(screen.getByRole("button", {name: "Reject cancellation"}));
+  fireEvent.change(screen.getByLabelText(/Rejection reason/), {target: {value: "Review evidence retained."}});
+  await act(async () => {await vi.advanceTimersByTimeAsync(5_000);});
+  expect(mocks.loadQueue).toHaveBeenCalledTimes(1);
+  expect(screen.getByLabelText(/Rejection reason/)).toHaveValue("Review evidence retained.");
+  mocks.loadQueue.mockRejectedValueOnce(new Error("offline"));
+  await act(async () => {await vi.advanceTimersByTimeAsync(5_000);});
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(mocks.success).not.toHaveBeenCalled();
+});
 
 function item(overrides: Partial<AdminCancellationQueueItem> = {}): AdminCancellationQueueItem {
   return {
@@ -60,6 +89,7 @@ function item(overrides: Partial<AdminCancellationQueueItem> = {}): AdminCancell
     operationStatus: null,
     refundProgress: "none",
     reconciliationRequired: false,
+    refundAutomaticCheckState: null,
     canApprove: true,
     canReject: true,
     canProcessRefund: false,
@@ -80,7 +110,7 @@ function renderQueue(items: AdminCancellationQueueItem[]) {
 
 async function openReview(user: ReturnType<typeof userEvent.setup>, providerName = "Maria's Catering") {
   await user.click(screen.getAllByRole("button", {name: `Review cancellation for ${providerName}`})[0]);
-  return screen.getByRole("dialog", {name: "Cancellation review"});
+  return screen.getByRole("dialog", {name: "Cancellation details"});
 }
 
 beforeEach(() => {
@@ -146,16 +176,16 @@ describe("Admin Provider-service cancellation operations", () => {
     const user = userEvent.setup();
     renderQueue([item(), legacy]);
 
-    expect(screen.getAllByText("Policy-backed").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Policy recorded").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Manual review required").length).toBeGreaterThan(0);
     await openReview(user, "Photo Studio");
-    expect(screen.getByText("No policy, percentage, or estimated refund has been fabricated. Automatic approval remains unavailable.")).toBeVisible();
+    expect(screen.getByText("The refund policy is unavailable for this request. Automatic approval is unavailable; review the booking before deciding.")).toBeVisible();
     expect(screen.queryByRole("button", {name: "Approve cancellation"})).not.toBeInTheDocument();
     expect(screen.getByRole("button", {name: "Reject cancellation"})).toBeVisible();
   });
 
   it.each([
-    ["cancelled_no_refund", 0, "Cancellation approved. The trusted calculation found no refundable amount."],
+    ["cancelled_no_refund", 0, "Cancellation approved. No refund is due."],
     ["approved", 250000, "Cancellation approved. The refund is ready for processing."],
   ] as const)("approves a policy-backed %s result using no editable financial input", async (status, amount, message) => {
     mocks.approve.mockResolvedValueOnce({
@@ -217,9 +247,10 @@ describe("Admin Provider-service cancellation operations", () => {
     const user = userEvent.setup();
     renderQueue([record]);
     await openReview(user);
+    if (action === "process") expect(screen.queryByRole("button", {name: "Check refund status"})).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", {name: label}));
     const confirmation = screen.getAllByRole("dialog").at(-1)!;
-    expect(confirmation).toHaveTextContent("The browser sends no amount, currency, or gateway identifier.");
+    expect(confirmation).toHaveTextContent("The saved refund amount will be used.");
     await user.click(within(confirmation).getByRole("button", {name: label}));
     await waitFor(() => expect(mocks.execute).toHaveBeenCalledWith(
       record.cancellationRequestId,
@@ -242,11 +273,12 @@ describe("Admin Provider-service cancellation operations", () => {
     const user = userEvent.setup();
     renderQueue([record]);
     await openReview(user);
-    expect(screen.getAllByText("Refund requires reconciliation review").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Refund needs review").length).toBeGreaterThan(0);
+    expect(screen.getByText("FEASTA could not confirm the latest refund status automatically.")).toBeVisible();
     expect(screen.queryByRole("button", {name: "Retry refund"})).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", {name: "Inspect reconciliation status"}));
+    expect(screen.queryByRole("button", {name: "Check refund status"})).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", {name: "Try status check again"}));
     await waitFor(() => expect(mocks.inspect).toHaveBeenCalledWith(record.cancellationRequestId));
-    expect((await within(screen.getByRole("dialog", {name: "Cancellation review"})).findAllByText("Failed")).length).toBeGreaterThan(0);
   });
 
   it("presents completed refunds as read-only and prevents duplicate execution", async () => {
@@ -264,9 +296,10 @@ describe("Admin Provider-service cancellation operations", () => {
     const user = userEvent.setup();
     renderQueue([completed]);
     await openReview(user);
-    expect(screen.getAllByText("Full refund completed").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", {name: /Process refund|Retry refund/u})).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", {name: "Check refund status"})).not.toBeInTheDocument();
+    expect(screen.getAllByText("Refund confirmed").length).toBeGreaterThan(0);
+    expect(screen.getByText("₱5,000.00 has been refunded.")).toBeVisible();
+    expect(screen.queryByRole("button", {name: /Process refund|Retry refund|Check refund status|Try status check again/u})).not.toBeInTheDocument();
+    expect(mocks.reconcile).not.toHaveBeenCalled();
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
@@ -284,54 +317,45 @@ describe("Admin Provider-service cancellation operations", () => {
     const user = userEvent.setup();
     renderQueue([processing]);
     await openReview(user);
-    expect(screen.getAllByText("Refund processing").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", {name: /Process refund|Retry refund/u})).not.toBeInTheDocument();
+    expect(screen.getAllByText("Refund pending").length).toBeGreaterThan(0);
+    expect(screen.getByText("FEASTA is checking the refund status automatically.")).toBeVisible();
+    expect(screen.queryByRole("button", {name: /Process refund|Retry refund|Check refund status|Try status check again/u})).not.toBeInTheDocument();
+    expect(mocks.reconcile).not.toHaveBeenCalled();
   });
 
-  it.each([
-    ["processing", "refund_processing", "processing", "PayMongo is still processing this refund."],
-    ["completed", "refund_completed", "full_completed", "Refund completed and FEASTA records were synchronized."],
-    ["failed", "refund_failed", "failed_reconciliation_required", "PayMongo reported that the refund failed. Review the refund details before taking further action."],
-  ] as const)("checks an existing refund and reloads its trusted %s state", async (status, cancellationStatus, refundProgress, message) => {
+  it("keeps a pending refund automatic and lets the saved refresh replace it", async () => {
+    vi.useFakeTimers();
     const processing = item({cancellationStatus: "refund_processing", operationStatus: "processing",
-      refundProgress: "processing", canApprove: false, canReject: false});
-    let resolveCheck: ((value: unknown) => void) | undefined;
-    mocks.reconcile.mockImplementationOnce(() => new Promise((resolve) => {resolveCheck = resolve;}));
-    mocks.loadQueue.mockResolvedValueOnce(queue([item({...processing, cancellationStatus, refundProgress,
-      operationStatus: status, paymentStatus: status === "completed" ? "refunded" : "paid"})]));
-    const user = userEvent.setup();
+      refundProgress: "processing", refundAmountInCentavos: 500000, currency: "PHP", canApprove: false, canReject: false});
+    const confirmed = item({...processing, cancellationStatus: "refund_completed", operationStatus: "completed",
+      refundProgress: "full_completed", completedRefundAmountInCentavos: 500000, paymentStatus: "refunded"});
+    mocks.loadQueue.mockResolvedValue(queue([confirmed]));
     renderQueue([processing]);
-    const drawer = await openReview(user);
-    expect(within(drawer).getByText("Checks the existing PayMongo refund and synchronizes FEASTA. This does not create another refund.")).toBeVisible();
-    await user.dblClick(within(drawer).getByRole("button", {name: "Check refund status"}));
-    expect(mocks.reconcile).toHaveBeenCalledExactlyOnceWith(processing.cancellationRequestId);
-    expect(within(drawer).getByRole("button", {name: "Checking refund status"})).toBeDisabled();
-    expect(mocks.loadQueue).not.toHaveBeenCalled();
-    expect(within(drawer).getByText("Refund processing")).toBeVisible();
-    resolveCheck?.({status});
-    await waitFor(() => expect(mocks.loadQueue).toHaveBeenCalledTimes(1));
-    expect(await within(drawer).findByText(message)).toBeVisible();
-    if (status === "completed") {
-      expect(await within(drawer).findByText("Refund completed")).toBeVisible();
-      expect(within(drawer).queryByRole("button", {name: /Check refund status|Process refund|Retry refund/u})).not.toBeInTheDocument();
-    } else if (status === "processing") {
-      expect(await within(drawer).findByRole("button", {name: "Check refund status"})).toBeEnabled();
-      expect(within(drawer).getByText("Refund processing")).toBeVisible();
-    }
+    fireEvent.click(screen.getByRole("button", {name: "Review cancellation for Maria's Catering"}));
+    const drawer = screen.getByRole("dialog", {name: "Cancellation details"});
+    expect(within(drawer).getByText("Refund pending")).toBeVisible();
+    expect(within(drawer).getByText("FEASTA is checking the refund status automatically.")).toBeVisible();
+    expect(within(drawer).queryByRole("button", {name: /Check refund status|Try status check again/u})).not.toBeInTheDocument();
+    await act(async () => {await vi.advanceTimersByTimeAsync(5_000);});
+    expect(within(drawer).getByText("Refund confirmed")).toBeVisible();
+    expect(within(drawer).getByText("₱5,000.00 has been refunded.")).toBeVisible();
+    expect(screen.getByRole("dialog", {name: "Cancellation details"})).toBe(drawer);
+    expect(mocks.reconcile).not.toHaveBeenCalled();
+    expect(mocks.inspect).not.toHaveBeenCalled();
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 
-  it("reports an unavailable check without creating or processing a refund", async () => {
+  it("reports an unavailable manual retry without creating or processing a refund", async () => {
     mocks.reconcile.mockRejectedValueOnce(new Error("unavailable"));
     const user = userEvent.setup();
     renderQueue([item({cancellationStatus: "refund_processing", refundProgress: "processing",
-      canApprove: false, canReject: false})]);
+      refundAutomaticCheckState: "review", canApprove: false, canReject: false})]);
     const drawer = await openReview(user);
-    await user.click(within(drawer).getByRole("button", {name: "Check refund status"}));
-    expect(await within(drawer).findByText("Refund status could not be checked right now. No new refund was created.")).toBeVisible();
+    await user.click(within(drawer).getByRole("button", {name: "Try status check again"}));
+    expect(await within(drawer).findByText("Refund status could not be checked. Try again.")).toBeVisible();
     expect(mocks.loadQueue).not.toHaveBeenCalled();
     expect(mocks.execute).not.toHaveBeenCalled();
-    expect(within(drawer).getByText("Refund processing")).toBeVisible();
+    expect(mocks.reconcile).toHaveBeenCalledOnce();
   });
 
   it("prevents duplicate decision submission while the first action is pending", async () => {
@@ -367,4 +391,54 @@ describe("Admin Provider-service cancellation operations", () => {
     await waitFor(() => expect(mocks.error).toHaveBeenCalledWith("Only an authorized FEASTA Admin can perform this action."));
     expect(mocks.approve).toHaveBeenCalledTimes(1);
   });
+});
+
+it("keeps internal IDs only in Support references and presents plain cancellation details", () => {
+  const record = item({cancellationStatus: "refund_completed", operationStatus: "completed", frozenStage: "preparation_not_started",
+    refundProgress: "full_completed", refundAmountInCentavos: 500000, completedRefundAmountInCentavos: 500000,
+    paymentStatus: "refunded", canApprove: false, canReject: false});
+  renderQueue([record]);
+  const table = screen.getByRole("table", {name: "Provider-service cancellation queue"});
+  expect(within(table).getByText(record.bookingCode)).toBeVisible();
+  expect(within(table).queryByText(record.providerRequestId)).not.toBeInTheDocument();
+  expect(within(table).queryByText(record.cancellationRequestId)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "Review cancellation for Maria's Catering"}));
+  const drawer = screen.getByRole("dialog", {name: "Cancellation details"});
+  for (const label of ["Refund summary", "Refund amount", "Refund status", "Payment status", "Reason for cancellation", "Preparation had not started", "Policy recorded", "Refunded", "Refund confirmed", "₱5,000.00 has been refunded.", "Support references"]) {
+    expect(within(drawer).getByText(label)).toBeVisible();
+  }
+  for (const label of ["System refund result", "Calculation", "Calculated", "Refund progress", "Refund status check"]) {
+    expect(within(drawer).queryByText(label)).not.toBeInTheDocument();
+  }
+  expect(within(drawer).getByText(record.providerRequestId).closest("details")).not.toHaveAttribute("open");
+});
+
+it("shows a saved confirmed refund without asking Admin to check it", () => {
+  const completed = item({cancellationStatus: "refund_completed", operationStatus: "completed", refundProgress: "full_completed",
+    refundAmountInCentavos: 500000, completedRefundAmountInCentavos: 500000, paymentStatus: "refunded", canApprove: false, canReject: false});
+  render(<CancellationManagementClient initialQueue={queue([completed])} />);
+  fireEvent.click(screen.getByRole("button", {name: "Review cancellation for Maria's Catering"}));
+  const drawer = screen.getByRole("dialog", {name: "Cancellation details"});
+  expect(within(drawer).getByText("Refund confirmed")).toBeVisible();
+  expect(within(drawer).getByText("₱5,000.00 has been refunded.")).toBeVisible();
+  expect(within(drawer).queryByRole("button", {name: /Check refund status|Try status check again/u})).not.toBeInTheDocument();
+  expect(mocks.reconcile).not.toHaveBeenCalled();
+  expect(mocks.inspect).not.toHaveBeenCalled();
+  expect(mocks.execute).not.toHaveBeenCalled();
+});
+
+it("keeps the open drawer while background refresh reads saved FEASTA state", async () => {
+  vi.useFakeTimers();
+  const record = item({cancellationStatus: "refund_processing", operationStatus: "processing", refundProgress: "processing",
+    refundAmountInCentavos: 500000, canApprove: false, canReject: false});
+  mocks.loadQueue.mockResolvedValue(queue([record]));
+  renderQueue([record]);
+  fireEvent.click(screen.getByRole("button", {name: "Review cancellation for Maria's Catering"}));
+  const drawer = screen.getByRole("dialog", {name: "Cancellation details"});
+  expect(screen.getByRole("table", {hidden: true})).toHaveTextContent(record.bookingCode);
+  await act(async () => {await vi.advanceTimersByTimeAsync(5_000);});
+  expect(mocks.loadQueue).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("dialog", {name: "Cancellation details"})).toBe(drawer);
+  expect(within(drawer).getByText("Refund pending")).toBeVisible();
+  expect(mocks.reconcile).not.toHaveBeenCalled();
 });

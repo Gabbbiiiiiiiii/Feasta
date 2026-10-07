@@ -93,10 +93,12 @@ type BookingRelations = {
 
 export async function getAdminBookingPage(
   input: AdminBookingFilters,
+  options?: {freshStatistics?: boolean},
 ): Promise<AdminBookingPage> {
   await requireAdmin();
 
   const filters = normalizeFilters(input);
+  if (options?.freshStatistics) bookingStatisticsCache = null;
   const statisticsPromise =
     getAdminBookingStatistics();
 

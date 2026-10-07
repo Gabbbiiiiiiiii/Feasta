@@ -52,7 +52,7 @@ export function createAdminReportCsv(
   executiveMetric(rows, "Cancellation rate", report.executive.cancellationRate, true);
   executiveMetric(rows, "Active customers", report.executive.activeCustomers);
   executiveMetric(rows, "Active providers", report.executive.activeProviders);
-  moneyMetric(rows, "Confirmed payment volume", report.executive.confirmedPaymentVolume);
+  moneyMetric(rows, "Currently paid amount", report.executive.confirmedPaymentVolume);
   moneyMetric(rows, "Average paid payment", report.executive.averagePaidPayment);
 
   section(rows, "BOOKING STATUS DISTRIBUTION");
@@ -104,17 +104,17 @@ export function createAdminReportCsv(
     ["Created payments", String(report.payments.createdPayments.value)],
     ["Successful payment attempts", String(report.payments.successfulPaymentAttempts.value)],
     ["Currently paid payments", String(report.payments.currentlyPaidPayments.value)],
-    ["Gross collected volume (PHP)", centavos(report.payments.grossCollectedVolume.valueInCentavos)],
-    ["Confirmed payment volume (PHP)", centavos(report.payments.confirmedPaymentVolume.valueInCentavos)],
-    ["Provider-associated volume (PHP)", centavos(report.payments.providerAssociatedVolume.valueInCentavos)],
+    ["Total customer payments (PHP)", centavos(report.payments.grossCollectedVolume.valueInCentavos)],
+    ["Currently paid amount (PHP)", centavos(report.payments.confirmedPaymentVolume.valueInCentavos)],
+    ["Payments after refunds (PHP)", centavos(report.payments.providerAssociatedVolume.valueInCentavos)],
     ["Refunded amount (PHP)", centavos(report.payments.refundedAmount.valueInCentavos)],
     ["Average paid payment (PHP)", centavos(report.payments.averagePaidPayment.valueInCentavos)],
     ["Pending or processing", String(report.payments.pendingOrProcessing.value)],
     ["Failed or expired", String(report.payments.failedOrExpired.value)],
-    ["Awaiting webhook confirmation", String(report.payments.awaitingWebhookConfirmation.value)],
+    ["Awaiting payment confirmation", String(report.payments.awaitingWebhookConfirmation.value)],
     ["Payment success rate", report.payments.paymentSuccessRate.formattedValue],
     ["Refund rate", report.payments.refundRate.formattedValue],
-    ["Net FEASTA platform revenue", "Not derived automatically"],
+    ["Payment processing costs", "Not derived automatically"],
     ["Platform revenue note", report.payments.platformRevenue.explanation],
   ]);
 
@@ -137,10 +137,10 @@ export function createAdminReportCsv(
     "Successful",
     "Failed/expired",
     "Refunded",
-    "Gross collected (PHP)",
-    "Currently paid (PHP)",
+    "Total customer payments (PHP)",
+    "Currently paid amount (PHP)",
     "Refunded amount (PHP)",
-    "Provider-associated volume (PHP)",
+    "Payments after refunds (PHP)",
   ]);
   for (const point of report.payments.trend) {
     rows.push([
@@ -164,12 +164,12 @@ export function createAdminReportCsv(
 
     addRows(rows, [
       ["Scope", financial.scopeNotice],
-      ["Customer gross collected (PHP)", centavos(financial.ledger.grossCollectedInCentavos)],
+      ["Total customer payments (PHP)", centavos(financial.ledger.grossCollectedInCentavos)],
       ["Completed refunds (PHP)", centavos(financial.ledger.completedRefundsInCentavos)],
-      ["Customer cash movement (PHP)", centavos(financial.ledger.customerCashMovementInCentavos)],
-      ["Commission accrued (PHP)", centavos(financial.ledger.commissionAccruedInCentavos)],
-      ["Commission reversed (PHP)", centavos(financial.ledger.commissionReversedInCentavos)],
-      ["Commission net movement (PHP)", centavos(financial.ledger.commissionNetMovementInCentavos)],
+      ["Customer payments after refunds (PHP)", centavos(financial.ledger.customerCashMovementInCentavos)],
+      ["FEASTA fees before refunds (PHP)", centavos(financial.ledger.commissionAccruedInCentavos)],
+      ["Refunded FEASTA fees (PHP)", centavos(financial.ledger.commissionReversedInCentavos)],
+      ["FEASTA Revenue (PHP)", centavos(financial.ledger.commissionNetMovementInCentavos)],
       ["Provider VAT accrued (PHP)", centavos(financial.ledger.providerVatAccruedInCentavos)],
       ["Provider VAT reversed (PHP)", centavos(financial.ledger.providerVatReversedInCentavos)],
       ["FEASTA VAT accrued (PHP)", centavos(financial.ledger.platformVatAccruedInCentavos)],
@@ -181,13 +181,12 @@ export function createAdminReportCsv(
       ["Provider earnings available (PHP)", centavos(financial.providerEarnings.availableAmountInCentavos)],
       ["Provider earning paid bucket (PHP)", centavos(financial.providerEarnings.paidAmountInCentavos)],
       ["Confirmed settlement paid out (PHP)", centavos(financial.settlementPayouts.paidOutAmountInCentavos)],
-      ["Observed gateway processing fees (PHP)", centavos(financial.gatewayFees.observedFeeInCentavos)],
-      ["Gateway-fee evidence completeness", titleCase(financial.gatewayFees.evidenceCompleteness)],
-      ["Gateway-fee observed payments", String(financial.gatewayFees.observedCount)],
-      ["Gateway-fee unavailable payments", String(financial.gatewayFees.unavailableCount)],
-      ["Gateway-fee invalid payments", String(financial.gatewayFees.invalidCount)],
-      ["Net FEASTA platform revenue", "Not derived automatically"],
-      ["Gateway-fee note", financial.gatewayFeeNotice],
+      ["Observed payment processing fees (PHP)", centavos(financial.gatewayFees.observedFeeInCentavos)],
+      ["Payment processing fee records observed", String(financial.gatewayFees.observedCount)],
+      ["Payment processing fee records unavailable", String(financial.gatewayFees.unavailableCount)],
+      ["Payment processing fee records invalid", String(financial.gatewayFees.invalidCount)],
+      ["Payment processing costs", "Not derived automatically"],
+      ["Payment processing note", financial.gatewayFeeNotice],
       ["Record notice", financial.recordNotice],
     ]);
 
@@ -199,10 +198,10 @@ export function createAdminReportCsv(
       "Ledger entry ID",
       "Payment ID",
       "Provider ID",
-      "Gross (PHP)",
+      "Customer payment (PHP)",
       "Refund (PHP)",
-      "Commission accrued (PHP)",
-      "Commission reversed (PHP)",
+      "FEASTA fees before refunds (PHP)",
+      "Refunded FEASTA fees (PHP)",
       "Provider VAT accrued (PHP)",
       "Provider VAT reversed (PHP)",
       "FEASTA VAT accrued (PHP)",
@@ -283,7 +282,7 @@ export function createAdminReportCsv(
     "Average rating",
     "Published reviews",
     "Rating qualified",
-    "Confirmed payment volume (PHP)",
+    "Currently paid amount (PHP)",
   ]);
   for (const provider of report.providers.providers) {
     rows.push([

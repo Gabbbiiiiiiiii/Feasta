@@ -724,7 +724,7 @@ function AdminFinancialPolicyClient({
             htmlFor="financial-policy-reason"
             className="font-semibold text-foreground"
           >
-            Internal reason
+            Reason for changes
           </label>
 
           <Textarea

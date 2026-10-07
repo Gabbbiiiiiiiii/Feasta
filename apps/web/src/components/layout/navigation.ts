@@ -221,8 +221,8 @@ const adminNavigation: readonly NavigationItem[] = [
   {kind: "link", section: "Support", label: "Complaints", href: "/admin/complaints", icon: MessageSquareWarning},
   {kind: "link", section: "Support", label: "Announcements", href: "/admin/announcements", icon: Megaphone},
   {kind: "link", section: "System", label: "Reports", href: "/admin/reports", icon: ChartNoAxesCombined},
-  {kind: "link", section: "System", label: "Audit Logs", href: "/admin/audit-logs", icon: ScrollText},
-  {kind: "link", section: "System", label: "File Maintenance", href: "/admin/file-maintenance", icon: FolderCog},
+  {kind: "link", section: "System", label: "Activity logs", href: "/admin/audit-logs", icon: ScrollText},
+  {kind: "link", section: "System", label: "Platform setup", href: "/admin/file-maintenance", icon: FolderCog},
   {kind: "link", section: "System", label: "Settings", href: "/admin/settings", icon: Settings2},
 ];
 

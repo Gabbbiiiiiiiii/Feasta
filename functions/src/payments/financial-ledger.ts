@@ -325,6 +325,7 @@ export function buildSuccessfulRefundFinancialLedgerPlan(
     source:
       "refund_execution_response" |
       "admin_reconciliation" |
+      "automatic_reconciliation" |
       "paymongo_webhook";
 
     webhookEventId:

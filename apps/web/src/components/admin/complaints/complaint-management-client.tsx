@@ -488,7 +488,7 @@ function ComplaintManagementClient({
       <PageHeading
         eyebrow="Administration"
         title="Complaints"
-        description="Review, investigate, resolve, and audit customer and provider complaints."
+        description="Review and resolve customer and provider complaints."
       />
 
       <section
@@ -763,7 +763,7 @@ function ComplaintManagementClient({
           setDrawerOpen
         }
         title="Complaint details"
-        description="Review the complaint, involved accounts, lifecycle status, evidence, and administrative resolution."
+        description="Review the complaint, people involved, and steps taken to resolve it."
         footer={
           selected ? (
             <Button
@@ -795,7 +795,7 @@ function ComplaintManagementClient({
             handleDecisionOpenChange
           }
           title="Manage complaint"
-          description={`Record a controlled and auditable decision for complaint ${selected.id}.`}
+          description={`Save a decision for complaint ${selected.id}.`}
           confirmLabel={
             decisionLabels[
               decision
@@ -933,10 +933,10 @@ function ComplaintManagementClient({
             </label>
 
             <label className="grid gap-2 font-semibold">
-              Internal administrative reason
+              Reason for changes
 
               <span className="text-sm font-normal text-muted-foreground">
-                Private audit information visible only to authorized administrators.
+                Saved with the activity log and not shown to the customer.
               </span>
 
               <Textarea

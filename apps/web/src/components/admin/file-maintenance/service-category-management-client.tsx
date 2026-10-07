@@ -486,7 +486,7 @@ function ServiceCategoryManagementClient({
         </div>
       ) : (
         <PageHeading
-          eyebrow="File Maintenance"
+          eyebrow="Platform setup"
           title="Service Categories"
           description="Manage the service categories providers can select across FEASTA. Discontinued categories remain available for existing records but cannot be newly selected."
           actions={

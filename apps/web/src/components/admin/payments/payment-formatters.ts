@@ -28,7 +28,7 @@ const paymentGatewayLabels: Record<
   AdminPaymentGateway,
   string
 > = {
-  paymongo: "PayMongo",
+  paymongo: "Payment service",
 };
 
 export function formatPaymentDate(

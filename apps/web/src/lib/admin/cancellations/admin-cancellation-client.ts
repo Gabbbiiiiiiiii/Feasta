@@ -13,6 +13,8 @@ import type {
   AdminCancellationReconciliationResult,
 } from "./admin-cancellation-types";
 
+import {RefundCheckNeedsReviewError} from "./admin-refund-check-presentation";
+
 const SAFE_ID = /^[A-Za-z0-9_-]{8,160}$/u;
 
 export function createCancellationActionKey(action: string, cancellationRequestId: string): string {
@@ -118,8 +120,11 @@ function normalizeAdminCancellationError(error: unknown): Error {
       return new Error("Too many cancellation actions were attempted. Wait a moment and try again.");
     case "functions/deadline-exceeded":
     case "functions/unavailable":
-      return new Error("FEASTA could not reach the trusted refund service. Try again.");
+      return new Error("FEASTA could not reach the refund service. Try again.");
     case "functions/failed-precondition":
+      if (/reconciliation|linkage|evidence/iu.test(error.message)) {
+        return new RefundCheckNeedsReviewError("The saved refund information does not match the latest payment record.");
+      }
       return new Error(safePreconditionMessage(error.message));
     default:
       return new Error("The cancellation action could not be completed safely.");
@@ -128,10 +133,10 @@ function normalizeAdminCancellationError(error: unknown): Error {
 
 function safePreconditionMessage(message: string): string {
   const normalized = message.replace(/^Firebase:\s*/u, "").trim();
-  if (/reconciliation/iu.test(normalized)) return "Refund requires reconciliation review.";
+  if (/reconciliation/iu.test(normalized)) return "Refund needs review.";
   if (/manual review/iu.test(normalized)) return "Manual review required. Automatic approval is unavailable.";
   if (/already|not allowed|cannot|eligible/iu.test(normalized)) {
-    return "The latest trusted state no longer permits this action. Refresh the queue.";
+    return "This action is no longer available for this request. The list will update automatically.";
   }
-  return "The trusted refund workflow could not perform this action in its current state.";
+  return "This refund cannot be processed in its current state.";
 }

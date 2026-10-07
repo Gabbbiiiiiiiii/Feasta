@@ -287,7 +287,7 @@ describe("provider navigation rendering", () => {
       .toHaveAttribute("href", "/provider/bookings");
     expect(within(desktop).getByRole("link", {name: "Availability"}))
       .toHaveAttribute("href", "/provider/availability");
-    expect(within(desktop).getByRole("link", {name: "Payments"}))
+    expect(within(desktop).getByRole("link", {name: "Payments & Payouts"}))
       .toHaveAttribute("href", "/provider/payments");
     expect(within(desktop).getByRole("link", {name: "Refund Policy"}))
       .toHaveAttribute("href", "/provider/refund-policy");
@@ -345,7 +345,7 @@ describe("provider navigation rendering", () => {
     );
 
     expect(payments).toBeDefined();
-    expect(payments?.label).toBe("Payments");
+    expect(payments?.label).toBe("Payments & Payouts");
     expect(isNavigationItemActive("/provider/payments", payments!)).toBe(true);
     expect(isNavigationItemActive("/provider/payments/history", payments!)).toBe(true);
     expect(isNavigationItemActive("/provider/payments/history", availability!))
@@ -385,7 +385,7 @@ describe("provider navigation rendering", () => {
       .toHaveAttribute("href", "/provider/bookings");
     expect(within(complete).getByRole("link", {name: "Availability"}))
       .toHaveAttribute("href", "/provider/availability");
-    expect(within(complete).getByRole("link", {name: "Payments"}))
+    expect(within(complete).getByRole("link", {name: "Payments & Payouts"}))
       .toHaveAttribute("href", "/provider/payments");
     expect(within(complete).getByRole("link", {name: "Refund Policy"}))
       .toHaveAttribute("href", "/provider/refund-policy");
@@ -466,7 +466,7 @@ describe("provider navigation rendering", () => {
     const desktop = screen.getByRole("navigation", {
       name: "Provider primary navigation",
     });
-    expect(within(desktop).getByRole("link", {name: "Payments"}))
+    expect(within(desktop).getByRole("link", {name: "Payments & Payouts"}))
       .toHaveAttribute("aria-current", "page");
     expect(within(desktop).getByRole("link", {name: "Availability"}))
       .not.toHaveAttribute("aria-current");
@@ -477,7 +477,7 @@ describe("provider navigation rendering", () => {
     const complete = screen.getByRole("navigation", {
       name: "Provider complete mobile navigation",
     });
-    const payments = within(complete).getByRole("link", {name: "Payments"});
+    const payments = within(complete).getByRole("link", {name: "Payments & Payouts"});
     expect(payments).toHaveAttribute("aria-current", "page");
 
     const preventDocumentNavigation = (event: MouseEvent) => {

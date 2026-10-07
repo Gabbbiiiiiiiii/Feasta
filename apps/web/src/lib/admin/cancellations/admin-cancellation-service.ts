@@ -228,6 +228,7 @@ function mapCancellation(input: {
     operationStatus,
     refundProgress,
     reconciliationRequired,
+    refundAutomaticCheckState: automaticCheckState(cancellation.refundAutomaticCheckState),
     canApprove: canDecide && evidence === "policy_backed",
     canReject: canDecide,
     canProcessRefund: status === "approved" && operationStatus === "reserved",
@@ -284,6 +285,10 @@ function stageValue(value: unknown): RefundEligibilityStage | null {
     (REFUND_ELIGIBILITY_STAGES as readonly string[]).includes(value)
     ? value as RefundEligibilityStage
     : null;
+}
+
+function automaticCheckState(value: unknown): AdminCancellationQueueItem["refundAutomaticCheckState"] {
+  return value === "scheduled" || value === "review" || value === "stopped" ? value : null;
 }
 
 function operationStatusValue(value: unknown): AdminCancellationQueueItem["operationStatus"] {

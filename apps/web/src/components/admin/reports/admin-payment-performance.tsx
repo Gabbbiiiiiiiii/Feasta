@@ -9,7 +9,6 @@ import {
   Clock3,
   RefreshCcw,
   RotateCcw,
-  WalletCards,
   Webhook,
 } from "lucide-react";
 import {useState} from "react";
@@ -27,7 +26,7 @@ type AdminPaymentPerformanceProps = {
 const volumeSeries = [
   {
     key: "collectedVolumeInCentavos",
-    label: "Gross collected",
+    label: "Total customer payments",
     color: "#ff5f35",
   },
   {
@@ -49,33 +48,28 @@ export function AdminPaymentPerformance({
     <section aria-labelledby="payment-performance-heading" className="grid gap-4">
       <div>
         <h2 id="payment-performance-heading" className="text-xl font-black">
-          Payment performance
+          Payments
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Provider-associated payment activity, finalized outcomes, refunds, and gateway-processing health.
+          Review customer payments and refunds for the selected period.
         </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <PaymentMetricCard
-          label="Gross collected volume"
+          label="Total customer payments"
           value={report.grossCollectedVolume.formattedValue}
           detail="Currently paid plus subsequently refunded payments"
           icon={<Banknote className="size-5" />}
         />
         <PaymentMetricCard
-          label="Confirmed payment volume"
+          label="Currently paid amount"
           value={report.confirmedPaymentVolume.formattedValue}
           detail="Payments that currently remain in paid status"
           icon={<CircleCheck className="size-5" />}
           tone="positive"
         />
-        <PaymentMetricCard
-          label="Provider-associated volume"
-          value={report.providerAssociatedVolume.formattedValue}
-          detail="Collected volume less completed full refunds"
-          icon={<WalletCards className="size-5" />}
-        />
+
         <PaymentMetricCard
           label="Refunded amount"
           value={report.refundedAmount.formattedValue}
@@ -93,7 +87,7 @@ export function AdminPaymentPerformance({
       <div className="grid gap-4 lg:grid-cols-2">
         <PaymentDistribution
           title="Payments by status"
-          description="Current payment lifecycle outcomes for attempts created during this period."
+          description="Current status of payments started during this period."
           points={report.byStatus.map((point) => ({
             id: point.status,
             label: titleCase(point.status),
@@ -103,7 +97,7 @@ export function AdminPaymentPerformance({
         />
         <PaymentDistribution
           title="Payments by type"
-          description="Payment purpose recorded when each provider-associated payment was created."
+          description="Payment types for the selected period."
           points={report.byType.map((point) => ({
             id: point.paymentType,
             label: paymentTypeLabel(point.paymentType),
@@ -140,7 +134,7 @@ function PaymentVolumeChart({points}: {points: AdminPaymentTrendPoint[]}) {
         <div>
           <h3 className="font-bold">Payment volume over time</h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            Gross collected, currently paid, and fully refunded provider-associated volume.
+            Total customer payments, currently paid amount, and refunded amount.
           </p>
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs font-semibold">
@@ -175,9 +169,9 @@ function PaymentVolumeChart({points}: {points: AdminPaymentTrendPoint[]}) {
             role="img"
             aria-labelledby="payment-chart-title payment-chart-description"
           >
-            <title id="payment-chart-title">Provider-associated payment volume trend</title>
+            <title id="payment-chart-title">Customer payment trend</title>
             <desc id="payment-chart-description">
-              Line chart comparing gross collected, currently paid, and refunded payment volume in Philippine pesos.
+              Line chart comparing total customer payments, currently paid amount, and refunded amount in Philippine pesos.
             </desc>
             {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
               const y = top + ratio * (height - top - bottom);
@@ -243,7 +237,7 @@ function PaymentVolumeChart({points}: {points: AdminPaymentTrendPoint[]}) {
 function PaymentHealth({report}: {report: AdminPaymentPerformanceData}) {
   return (
     <article className="rounded-card border border-border bg-card p-4 shadow-card sm:p-5">
-      <h3 className="font-bold">Payment and gateway health</h3>
+      <h3 className="font-bold">Payment issues</h3>
       <p className="mt-1 text-sm text-muted-foreground">
         Finalized payment quality and attempts requiring operational attention.
       </p>
@@ -276,9 +270,9 @@ function PaymentHealth({report}: {report: AdminPaymentPerformanceData}) {
           tone="negative"
         />
         <HealthRow
-          label="Awaiting webhook confirmation"
+          label="Awaiting payment confirmation"
           value={formatCount(report.awaitingWebhookConfirmation.value)}
-          detail="Processing records without a recorded final webhook event"
+          detail="Payments waiting for a final result"
           icon={<Webhook className="size-4" />}
           tone={report.awaitingWebhookConfirmation.value > 0 ? "warning" : "positive"}
         />
@@ -501,9 +495,9 @@ function PaymentPeriodTable({
                   "Successful",
                   "Failed / expired",
                   "Refunded",
-                  "Gross collected",
-                  "Currently paid",
-                  "Provider-associated",
+                  "Total customer payments",
+                  "Currently paid amount",
+                  "Payments after refunds",
                 ].map((heading) => (
                   <th
                     key={heading}

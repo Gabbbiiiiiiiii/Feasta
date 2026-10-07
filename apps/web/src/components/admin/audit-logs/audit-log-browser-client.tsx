@@ -83,7 +83,7 @@ function AuditLogBrowserClient({
           );
         } catch {
           setPageError(
-            "Audit events could not be loaded. Try the request again.",
+            "Activities could not be loaded. Please try again.",
           );
         }
       });
@@ -113,7 +113,7 @@ function AuditLogBrowserClient({
     () => [
       {
         id: "timestamp",
-        header: "Timestamp",
+        header: "Date and time",
         cell: (auditLog) => (
           <span className="whitespace-nowrap font-medium">
             {formatDate(auditLog.createdAt)}
@@ -122,7 +122,7 @@ function AuditLogBrowserClient({
       },
       {
         id: "event",
-        header: "Event",
+        header: "Action",
         cell: (auditLog) => (
           <div className="grid min-w-44 gap-2">
             <Link
@@ -131,18 +131,15 @@ function AuditLogBrowserClient({
             >
               {humanize(auditLog.action)}
             </Link>
-            <span className="break-all font-mono text-xs text-muted-foreground">
-              {auditLog.id}
-            </span>
+
           </div>
         ),
       },
       {
         id: "actor",
-        header: "Actor",
+        header: "Admin / user",
         cell: (auditLog) => (
           <div className="grid gap-2">
-            <span className="break-all font-medium">{auditLog.actorId}</span>
             <Badge className="w-fit" tone="neutral">
               {humanize(auditLog.actorRole)}
             </Badge>
@@ -151,31 +148,28 @@ function AuditLogBrowserClient({
       },
       {
         id: "target",
-        header: "Target",
+        header: "Affected item",
         cell: (auditLog) => (
           <div className="grid gap-1">
             <span className="font-semibold">
               {humanize(auditLog.targetCollection)}
             </span>
-            <span className="break-all font-mono text-xs text-muted-foreground">
-              {auditLog.targetId}
-            </span>
+
           </div>
         ),
       },
       {
         id: "source",
-        header: "Source / outcome",
+        header: "Result",
         cell: (auditLog) => (
           <div className="grid gap-2">
-            <span>{humanize(auditLog.source)}</span>
             {auditLog.outcome ? (
               <Badge className="w-fit" tone={outcomeTone(auditLog.outcome)}>
                 {humanize(auditLog.outcome)}
               </Badge>
             ) : (
               <span className="text-xs text-muted-foreground">
-                Outcome not recorded
+                Result not recorded
               </span>
             )}
           </div>
@@ -183,7 +177,7 @@ function AuditLogBrowserClient({
       },
       {
         id: "summary",
-        header: "Summary",
+        header: "Details",
         cell: (auditLog) => (
           <p className="max-w-xs break-words text-muted-foreground">
             {auditLog.summary}
@@ -197,9 +191,9 @@ function AuditLogBrowserClient({
   return (
     <div className="grid min-w-0 gap-6">
       <PageHeading
-        eyebrow="Security and audit"
-        title="Audit Logs"
-        description="Review immutable administrative, account, provider, and system activity."
+        eyebrow="Administration"
+        title="Activity logs"
+        description="Review administrator and system activity."
       />
 
       <section
@@ -207,47 +201,33 @@ function AuditLogBrowserClient({
         aria-label="Latest audit event window"
       >
         <SummaryCard
-          label="Events in latest window"
+          label="Recent activities"
           value={page.summary.windowCount}
           icon={<Activity />}
-          trend={{
-            label: `Latest ${page.summary.windowLimit} maximum`,
-            direction: "neutral",
-          }}
+
         />
         <SummaryCard
-          label="Admin actors in window"
+          label="Admins active"
           value={page.summary.adminActorCount}
           icon={<ShieldCheck />}
-          trend={{
-            label: "Counted only in this window",
-            direction: "neutral",
-          }}
+
         />
         <SummaryCard
-          label="Succeeded outcomes"
+          label="Successful actions"
           value={page.summary.succeededOutcomeCount}
           icon={<CircleCheckBig />}
-          trend={{
-            label: "Explicit outcomes only",
-            direction: "neutral",
-          }}
+
         />
         <SummaryCard
-          label="Denied or failed outcomes"
+          label="Failed actions"
           value={page.summary.attentionOutcomeCount}
           icon={<TriangleAlert />}
-          trend={{
-            label: "Explicit outcomes only",
-            direction: "neutral",
-          }}
+
         />
       </section>
 
       <p className="-mt-2 text-sm text-muted-foreground">
-        Operational counts cover up to the latest{" "}
-        {page.summary.windowLimit} timestamped events. They are not lifetime
-        totals.
+        Counts cover the latest {page.summary.windowLimit} activities.
       </p>
 
       <FilterToolbar
@@ -257,8 +237,8 @@ function AuditLogBrowserClient({
         onClearFilters={clearFilters}
         activeFilters={activeFilters}
         loading={isPending}
-        searchLabel="Search audit events"
-        searchPlaceholder="Actor ID, target ID, correlation ID, or action"
+        searchLabel="Search activities"
+        searchPlaceholder="Search activity or reference"
         filterControls={
           <>
             <FilterSelect
@@ -269,21 +249,15 @@ function AuditLogBrowserClient({
               disabled={isPending}
             />
             <FilterSelect
-              label="Actor role"
+              label="User role"
               value={filters.actorRole}
               options={withSelected(filterOptions.actorRoles, filters.actorRole)}
               onChange={(actorRole) => applyFilters({actorRole})}
               disabled={isPending}
             />
+
             <FilterSelect
-              label="Source"
-              value={filters.source}
-              options={withSelected(filterOptions.sources, filters.source)}
-              onChange={(source) => applyFilters({source})}
-              disabled={isPending}
-            />
-            <FilterSelect
-              label="Target collection"
+              label="Record type"
               value={filters.targetCollection}
               options={withSelected(
                 filterOptions.targetCollections,
@@ -344,10 +318,9 @@ function AuditLogBrowserClient({
           className="rounded-xl border border-info bg-info-subtle p-4 text-sm text-info"
           role="note"
         >
-          Search and filters are evaluated in memory against at most{" "}
-          {page.scan.scanLimit} timestamped events per request, newest first.
+          Search covers up to {page.scan.scanLimit} recent activities at a time.
           {page.scan.reachedLimit
-            ? " This window reached the scan limit; use Next to continue into older events."
+            ? " Use Next to view older activities."
             : ""}
         </div>
       ) : null}
@@ -356,7 +329,7 @@ function AuditLogBrowserClient({
         columns={columns}
         rows={page.auditLogs}
         getRowId={(auditLog) => auditLog.id}
-        caption="Administrative audit events, newest first"
+        caption="Activities, newest first"
         loading={isPending}
         error={pageError}
         onRetry={() =>
@@ -364,21 +337,21 @@ function AuditLogBrowserClient({
         }
         emptyTitle={
           filtered
-            ? "No matching audit events in this scan"
-            : "No audit events in the latest window"
+            ? "No matching activities"
+            : "No recent activities"
         }
         emptyDescription={
           filtered
             ? page.hasMore
               ? "Continue to older events or clear a filter to broaden the results."
               : "Try changing the search, date range, or filters."
-            : "Timestamped audit events will appear here when they are recorded."
+            : "Activities will appear here when an administrator or the system makes a change."
         }
         rowActionsLabel="Details"
         rowActions={(auditLog) => (
           <Button asChild variant="secondary" size="compact">
             <Link href={`/admin/audit-logs/${auditLog.id}`}>
-              View
+              View details
               <ExternalLink aria-hidden="true" className="size-4" />
             </Link>
           </Button>
@@ -430,22 +403,17 @@ function AuditLogMobileCard({auditLog}: {auditLog: AdminAuditLog}) {
           ) : null}
         </div>
         <p className="font-bold">{formatDate(auditLog.createdAt)}</p>
-        <p className="break-all text-sm text-muted-foreground">
-          Actor: {auditLog.actorId}
-        </p>
+
       </div>
 
       <dl className="grid gap-3 text-sm">
         <div>
-          <dt className="font-semibold text-muted-foreground">Target</dt>
+          <dt className="font-semibold text-muted-foreground">Affected item</dt>
           <dd className="mt-1 break-all">
-            {auditLog.targetCollection}/{auditLog.targetId}
+            {humanize(auditLog.targetCollection)}
           </dd>
         </div>
-        <div>
-          <dt className="font-semibold text-muted-foreground">Source</dt>
-          <dd className="mt-1">{humanize(auditLog.source)}</dd>
-        </div>
+
         <div>
           <dt className="font-semibold text-muted-foreground">Summary</dt>
           <dd className="mt-1 break-words">{auditLog.summary}</dd>
@@ -454,7 +422,7 @@ function AuditLogMobileCard({auditLog}: {auditLog: AdminAuditLog}) {
 
       <Button asChild variant="secondary" size="compact">
         <Link href={`/admin/audit-logs/${auditLog.id}`}>
-          View audit event
+          View details
           <ExternalLink aria-hidden="true" className="size-4" />
         </Link>
       </Button>
@@ -537,7 +505,7 @@ function auditLogFilterLabels(filters: AdminAuditLogFilters): string[] {
     labels.push(`Source: ${humanize(filters.source)}`);
   }
   if (filters.targetCollection !== "all") {
-    labels.push(`Target: ${humanize(filters.targetCollection)}`);
+    labels.push(`Record type: ${humanize(filters.targetCollection)}`);
   }
   if (filters.fromDate) labels.push(`From: ${filters.fromDate}`);
   if (filters.toDate) labels.push(`To: ${filters.toDate}`);
@@ -565,9 +533,9 @@ function formatDate(value: string | null): string {
 
 function humanize(value: string): string {
   return value
-    .replaceAll("_", " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2").replaceAll("_", " ")
     .replaceAll("-", " ")
-    .replace(/\b\w/gu, (character) => character.toUpperCase());
+    .replace(/^./u, (character) => character.toUpperCase());
 }
 
 function outcomeTone(outcome: string): BadgeProps["tone"] {

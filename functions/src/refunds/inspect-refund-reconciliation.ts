@@ -1,8 +1,9 @@
 import {Timestamp} from "firebase-admin/firestore";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 
-import {canonicalPaymentLinkageReason, canonicalRequestLinkageReason,
-  paymentIdForProviderRequest} from "../payments/payment-lifecycle.js";
+import {canonicalPaymentLinkageReason, canonicalRequestLinkageReason} from "../payments/payment-lifecycle.js";
+import {providerRequestPaymentReadPlan} from "../payments/provider-request-payment-set.js";
+import {readRefundOperationBindings} from "./refund-operation-set.js";
 import {requireSafeDocumentId} from
   "../refund-policies/refund-policy-domain.js";
 import {requireAuth} from "../shared/auth.js";
@@ -42,21 +43,34 @@ export const inspectProviderRequestRefundReconciliation = onCall(
     const mainEventId = storedId(cancellation.mainEventId, "Main event");
     const customerId = storedId(cancellation.customerId, "Customer");
     const providerId = storedId(cancellation.providerId, "Provider");
-    const paymentId = paymentIdForProviderRequest(providerRequestId);
-    const paymentReference = db.collection("payments").doc(paymentId);
-    const operationId = nullableStoredId(cancellation.refundOperationId);
-    const [requestSnapshot, mainEventSnapshot, paymentSnapshot,
-      operationSnapshot] = await Promise.all([
+    const [requestSnapshot, mainEventSnapshot] = await Promise.all([
       db.collection("providerRequests").doc(providerRequestId).get(),
       db.collection("mainEvents").doc(mainEventId).get(),
-      paymentReference.get(),
-      operationId
-        ? paymentReference.collection("refunds").doc(operationId).get()
-        : Promise.resolve(null),
     ]);
     if (!requestSnapshot.exists || !mainEventSnapshot.exists) throw invalid();
     const providerRequest = requestSnapshot.data() ?? {};
     const mainEvent = mainEventSnapshot.data() ?? {};
+    // Inspection must resolve the same immutable payment/operation identity as
+    // refund execution. The deterministic legacy payment ID is not P5 history.
+    let plan: ReturnType<typeof providerRequestPaymentReadPlan>;
+    let bindings: ReturnType<typeof readRefundOperationBindings>;
+    try {
+      plan = providerRequestPaymentReadPlan(providerRequestId, providerRequest);
+      bindings = readRefundOperationBindings(cancellation);
+    } catch {
+      throw invalid();
+    }
+    // This DTO describes one operation; never confirm a partial operation set.
+    if (bindings && bindings.length > 1) throw invalid();
+    const binding = bindings?.[0];
+    const paymentId = binding?.paymentId ?? plan.currentPaymentId;
+    if (!plan.paymentIds.includes(paymentId)) throw invalid();
+    const operationId = binding?.refundOperationId ?? nullableStoredId(cancellation.refundOperationId);
+    const paymentReference = db.collection("payments").doc(paymentId);
+    const [paymentSnapshot, operationSnapshot] = await Promise.all([
+      paymentReference.get(),
+      operationId ? paymentReference.collection("refunds").doc(operationId).get() : Promise.resolve(null),
+    ]);
     const payment = paymentSnapshot.exists ? paymentSnapshot.data() ?? {} : null;
     if (canonicalRequestLinkageReason({
       providerRequestId,
@@ -81,6 +95,7 @@ export const inspectProviderRequestRefundReconciliation = onCall(
       throw invalid();
     }
     const operation = operationSnapshot?.data() ?? null;
+    if (binding && operation?.amountInCentavos !== binding.amountInCentavos) throw invalid();
     const operationStatus = operationStatusValue(operation?.status);
     const cancellationStatus = parseProviderRequestCancellationStatus(
       cancellation.status,

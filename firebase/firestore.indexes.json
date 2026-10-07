@@ -2406,6 +2406,20 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "providerRequestCancellationRequests",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "refundStatusCheckDueAt",
+          "order": "ASCENDING"
+        }
+      ]
     }  ],
   "fieldOverrides": []
 }

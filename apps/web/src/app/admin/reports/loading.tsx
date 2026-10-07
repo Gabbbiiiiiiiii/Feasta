@@ -13,8 +13,8 @@ export default function AdminReportsLoading() {
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Administration"
-        title="Reports and Insights"
-        description="Review booking activity, provider participation, and provider-associated payment volume using bounded operational data."
+        title="Reports"
+        description="Review bookings, customer payments, FEASTA revenue, and provider activity."
       />
       <LoadingSkeleton
         className="h-48 w-full rounded-card"
@@ -31,7 +31,7 @@ export default function AdminReportsLoading() {
           "Cancellation rate",
           "Active customers",
           "Active providers",
-          "Confirmed payment volume",
+          "Currently paid amount",
           "Average paid payment",
         ].map((label) => (
           <SummaryCard key={label} label={label} loading />

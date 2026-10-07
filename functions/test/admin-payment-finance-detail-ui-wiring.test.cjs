@@ -20,7 +20,7 @@ test("P11 Admin drawer renders Customer booking financial truth", () => {
   for (const text of [
     "Booking financial summary",
     "Booking value",
-    "Customer collected",
+    "Total customer payments",
     "Remaining customer balance",
     "Remaining balance status",
     "Customer fully settled",
@@ -32,7 +32,7 @@ test("P11 Admin drawer renders Customer booking financial truth", () => {
 
 test("P11 Admin drawer renders Provider tax and VAT truth", () => {
   for (const text of [
-    "Provider tax and VAT",
+    "Tax details",
     "Provider tax classification",
     "Tax verification",
     "Provider VAT accrued",
@@ -43,13 +43,13 @@ test("P11 Admin drawer renders Provider tax and VAT truth", () => {
   }
 });
 
-test("P11 Admin drawer renders canonical FEASTA commission and tax values", () => {
+test("P11 Admin drawer renders canonical FEASTA fee and tax values", () => {
   for (const text of [
-    "FEASTA commission and tax",
-    "Commission rate",
-    "Commission accrued",
-    "Commission reversed",
-    "Commission earned",
+    "FEASTA fees and tax",
+    "FEASTA fee rate",
+    "FEASTA fees before refunds",
+    "Refunded FEASTA fees",
+    "Recorded FEASTA fees",
     "FEASTA VAT accrued",
     "FEASTA VAT reversed",
     "FEASTA VAT net",
@@ -70,7 +70,7 @@ test("P11 Admin drawer separates payout-account readiness from settlement transp
   assert.match(drawer, /Settlement transport ready/u);
   assert.match(
     drawer,
-    /onboarding\s+readiness\s+does\s+not\s+mean\s+FEASTA/u,
+    /Completing account setup does not mean a provider payout can be sent yet\./u,
   );
 });
 
@@ -91,7 +91,7 @@ test("P11 finance detail UI remains read-only for Provider settlement", () => {
 
   assert.match(
     drawer,
-    /Admin monitoring[\s\S]*does not authorize payout[\s\S]*dispatch/u,
+    /This payout account information is read-only\./u,
   );
 });
 

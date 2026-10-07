@@ -45,13 +45,13 @@ export function FileMaintenanceClient({
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Administration"
-        title="File Maintenance"
-        description="Manage service categories, agreements, and business documents. New document types are stored as records and do not require a code change."
+        title="Platform setup"
+        description="Manage service categories, agreements, and required business documents."
       />
       <div
         className="flex min-w-0 gap-2 overflow-x-auto pb-1"
         role="tablist"
-        aria-label="File maintenance sections"
+        aria-label="Platform setup sections"
       >
         {SECTIONS.map((item) => {
           const selected = section === item.id;

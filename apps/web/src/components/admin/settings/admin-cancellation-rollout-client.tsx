@@ -10,8 +10,8 @@ import {validateAdminCancellationRolloutUpdate} from "@/lib/admin/settings/admin
 const labels = {off: "Off", review_only: "Review only", enabled: "Enabled"};
 const help = {
   off: "Customers cannot submit cancellation requests through the rollout workflow.",
-  review_only: "Customers may submit cancellation requests, but automatic policy-backed no-payment cancellation is disabled.",
-  enabled: "Customer cancellation workflow is available. Automatic handling still depends on the automatic policy refund approval setting.",
+  review_only: "Customers can request cancellation, but automatic cancellation before payment is turned off.",
+  enabled: "Customers can request cancellation. Automatic cancellation still depends on the automatic approval setting.",
 };
 const selectClass = "min-h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -68,7 +68,7 @@ export function AdminCancellationRolloutClient({initialSettings}: {initialSettin
 
   return (
     <section aria-labelledby="cancellation-rollout-heading" className="rounded-card border border-border bg-card p-5 shadow-card sm:p-6">
-      <h2 id="cancellation-rollout-heading" className="text-xl font-bold text-foreground">Booking Policy and Customer Cancellation Rollout</h2>
+      <h2 id="cancellation-rollout-heading" className="text-xl font-bold text-foreground">Booking and cancellation settings</h2>
       <div className="mt-4 rounded-lg border border-border bg-muted/30 p-4 text-sm leading-6">
         <p className="font-semibold text-foreground">Current saved state</p>
         <p>Booking refund-policy capture: {saved.bookingRefundPolicyCaptureMode === "required" ? "Required" : "Off"} ({saved.bookingCaptureConfigurationStatus})</p>
@@ -78,7 +78,7 @@ export function AdminCancellationRolloutClient({initialSettings}: {initialSettin
         <p className="text-muted-foreground">{saved.updatedAt ? `Last updated: ${new Intl.DateTimeFormat("en-PH", {dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila"}).format(new Date(saved.updatedAt))} (Asia/Manila)` : "No saved cancellation update timestamp available. Missing or invalid cancellation configuration displays Off for both cancellation modes."}</p>
       </div>
       {saved.bookingCaptureConfigurationStatus === "invalid" ? <p role="alert" className="mt-4 text-sm text-destructive">Booking policy capture configuration is invalid. Booking policy checks fail closed until the configuration is repaired; Off is the safe display default.</p> : null}
-      {saved.bookingRefundPolicyCaptureMode !== "required" ? <p role="alert" className="mt-4 text-sm text-destructive">{saved.bookingCaptureConfigurationStatus === "invalid" ? "New bookings cannot safely capture policy agreements." : "New bookings are not capturing refund-policy agreements."} Customer cancellation cannot be safely policy-backed until booking refund-policy capture is Required. Save Required capture or turn both cancellation modes Off to repair a mismatch. Existing bookings without recorded agreements remain subject to manual review.</p> : null}
+      {saved.bookingRefundPolicyCaptureMode !== "required" ? <p role="alert" className="mt-4 text-sm text-destructive">{saved.bookingCaptureConfigurationStatus === "invalid" ? "New bookings cannot safely capture policy agreements." : "New bookings are not capturing refund-policy agreements."} Automatic cancellation stays off until refund-policy capture is Required. Save Required capture, or turn both cancellation modes Off. Existing bookings without a recorded refund policy need manual review.</p> : null}
       <form onSubmit={submit} className="mt-6 grid gap-6" aria-busy={pending}>
         <div className="grid gap-2">
           <label htmlFor="booking-policy-capture-mode" className="font-semibold text-foreground">Booking refund-policy capture</label>
@@ -89,7 +89,7 @@ export function AdminCancellationRolloutClient({initialSettings}: {initialSettin
           }}>
             <option value="off">Off</option><option value="required">Required</option>
           </select>
-          <p id="booking-policy-capture-help" className="text-sm leading-6 text-muted-foreground">Required makes new bookings acknowledge current Provider refund policies and records frozen policy evidence. Customer cancellation and automatic policy refund approval require this setting. Existing bookings are not backfilled.</p>
+          <p id="booking-policy-capture-help" className="text-sm leading-6 text-muted-foreground">Required asks customers to accept the provider&apos;s current refund policy and saves that policy with the booking. Customer cancellation and automatic approval need this setting. Existing bookings are not updated.</p>
         </div>
         <div className="grid gap-2">
           <label htmlFor="cancellation-customer-mode" className="font-semibold text-foreground">Customer cancellation</label>
@@ -113,12 +113,12 @@ export function AdminCancellationRolloutClient({initialSettings}: {initialSettin
           }}>
             <option value="off">Off</option><option value="enabled">Enabled</option>
           </select>
-          <p id="cancellation-automatic-help" className="text-sm leading-6 text-muted-foreground">Requires customer cancellation to be Enabled. Applies only to trusted policy-backed bookings still waiting for payment with no settled or unresolved payment. Paid bookings continue through the normal policy workflow; processing or unresolved payments await payment resolution.</p>
+          <p id="cancellation-automatic-help" className="text-sm leading-6 text-muted-foreground">Automatic cancellation applies only when the booking has a recorded refund policy and no completed payment. Payments still being processed must finish before cancellation can continue. Customer cancellation must be Enabled.</p>
         </div>
         <div className="grid gap-2">
-          <label htmlFor="cancellation-internal-reason" className="font-semibold text-foreground">Internal administrative reason</label>
+          <label htmlFor="cancellation-internal-reason" className="font-semibold text-foreground">Reason for changes</label>
           <Textarea id="cancellation-internal-reason" value={reason} disabled={pending} required minLength={10} maxLength={1000} aria-describedby="cancellation-reason-help" onChange={(event) => setReason(event.currentTarget.value)} />
-          <p id="cancellation-reason-help" className="text-sm text-muted-foreground">Required: 10 to 1000 characters. Stored privately in the administrative audit log. Saving the displayed Off state can also repair missing or invalid configuration.</p>
+          <p id="cancellation-reason-help" className="text-sm text-muted-foreground">Enter 10 to 1000 characters. This reason is saved with the activity log. Saving the displayed Off state can also repair a missing or invalid setup.</p>
         </div>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         {success && <p role="status" className="text-sm text-success">{success}</p>}

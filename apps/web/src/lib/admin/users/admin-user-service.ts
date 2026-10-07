@@ -479,7 +479,8 @@ function normalizeFilters(
     accountStatus:
       filters.accountStatus === "active" ||
       filters.accountStatus === "disabled" ||
-      filters.accountStatus === "blocked"
+      filters.accountStatus === "blocked" ||
+      filters.accountStatus === "restricted"
         ? filters.accountStatus
         : "all",
 
@@ -527,7 +528,10 @@ function applyUserFilters(
     );
   }
 
-  if (filters.accountStatus === "active") {
+  if (filters.accountStatus === "restricted") {
+    // Both canonical restriction states use the existing account-status index.
+    filteredQuery = filteredQuery.where("accountStatus", "in", ["disabled", "blocked"]);
+  } else if (filters.accountStatus === "active") {
     filteredQuery = filteredQuery
       .where("isActive", "==", true)
       .where("isBlocked", "==", false);

@@ -22,14 +22,14 @@ export default async function AdminAuditLogPage({
   return (
     <div className="grid gap-6">
       <PageHeading
-        eyebrow="Security and audit"
-        title="Audit log detail"
-        description="Immutable structured evidence for an administrative or provider lifecycle event."
+        eyebrow="Administration"
+        title="Activity details"
+        description="Review this activity and its recorded details."
       />
       <Button asChild variant="secondary" size="compact" className="w-fit">
         <Link href="/admin/audit-logs">
           <ArrowLeft aria-hidden="true" />
-          Back to audit logs
+          Back to activity logs
         </Link>
       </Button>
       <section
@@ -48,35 +48,24 @@ export default async function AdminAuditLogPage({
           ) : null}
         </div>
         <dl className="mt-4 grid gap-4 sm:grid-cols-2">
-          <AuditField label="Audit ID" value={auditLog.id} />
           <AuditField
-            label="Timestamp"
+            label="Date and time"
             value={formatDate(auditLog.createdAt)}
           />
           <AuditField label="Action" value={humanize(auditLog.action)} />
           <AuditField
-            label="Actor role"
+            label="Admin / user"
             value={humanize(auditLog.actorRole)}
           />
-          <AuditField label="Actor ID" value={auditLog.actorId} />
           <AuditField
-            label="Target"
-            value={`${auditLog.targetCollection}/${auditLog.targetId}`}
-          />
-          <AuditField label="Source" value={humanize(auditLog.source)} />
-          <AuditField
-            label="Correlation ID"
-            value={auditLog.correlationId ?? "Not recorded"}
+            label="Affected item"
+            value={humanize(auditLog.targetCollection)}
           />
           <AuditField
-            label="Reason code"
-            value={
-              auditLog.reasonCode
-                ? humanize(auditLog.reasonCode)
-                : "Not recorded"
-            }
+            label="Result"
+            value={auditLog.outcome ? humanize(auditLog.outcome) : "Not recorded"}
           />
-          <AuditField label="Summary" value={auditLog.summary} wide />
+          <AuditField label="Details" value={auditLog.summary} wide />
           {auditLog.description ? (
             <AuditField
               label="Description"
@@ -85,12 +74,32 @@ export default async function AdminAuditLogPage({
             />
           ) : null}
         </dl>
+        <details className="mt-6 rounded-lg border border-border p-4">
+          <summary className="cursor-pointer font-semibold">Support references</summary>
+          <dl className="mt-4 grid gap-4 sm:grid-cols-2">
+            <AuditField label="Activity reference" value={auditLog.id} />
+            <AuditField label="User reference" value={auditLog.actorId} />
+            <AuditField
+              label="Affected record"
+              value={`${humanize(auditLog.targetCollection)} / ${auditLog.targetId}`}
+            />
+            <AuditField label="Source" value={humanize(auditLog.source)} />
+            <AuditField
+              label="Related reference"
+              value={auditLog.correlationId ?? "Not recorded"}
+            />
+            <AuditField
+              label="Reason code"
+              value={auditLog.reasonCode ? humanize(auditLog.reasonCode) : "Not recorded"}
+            />
+          </dl>
+        </details>
       </section>
 
       <div className="grid gap-6 xl:grid-cols-3">
         <PreviewSection title="Before" fields={auditLog.beforePreview} />
         <PreviewSection title="After" fields={auditLog.afterPreview} />
-        <PreviewSection title="Metadata" fields={auditLog.metadataPreview} />
+        <PreviewSection title="Additional details" fields={auditLog.metadataPreview} />
       </div>
     </div>
   );

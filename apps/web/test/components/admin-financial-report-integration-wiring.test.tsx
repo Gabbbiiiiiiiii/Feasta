@@ -116,7 +116,13 @@ it(
     expect(
       excel,
     ).toContain(
-      "Net FEASTA platform revenue",
+      "commissionNetMovementInCentavos",
+    );
+
+    expect(
+      excel,
+    ).toContain(
+      "FEASTA Revenue",
     );
 
     expect(
@@ -143,13 +149,19 @@ it(
     expect(
       component,
     ).toContain(
-      "gatewayFeeNotice",
+      "before payment processing costs",
     );
 
     expect(
       component,
     ).toContain(
-      "Not derived automatically",
+      "commissionNetMovementInCentavos",
+    );
+
+    expect(
+      component,
+    ).toContain(
+      "FEASTA Revenue",
     );
 
     expect(

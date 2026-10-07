@@ -160,7 +160,7 @@ export type AdminUserStatistics = {
 export type AdminUserFilters = {
   search: string;
   role: "all" | AdminManagedRole;
-  accountStatus: "all" | AdminAccountStatus;
+  accountStatus: "all" | "restricted" | AdminAccountStatus;
   verificationStatus:
     | "all"
     | AdminVerificationStatus;

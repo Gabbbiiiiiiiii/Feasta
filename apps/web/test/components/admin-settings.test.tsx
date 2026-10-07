@@ -86,7 +86,7 @@ describe("Admin platform settings", () => {
 
     expect(
       screen.getByRole("heading", {
-        name: "Platform Settings",
+        name: "Settings",
       }),
     ).toBeInTheDocument();
 
@@ -124,7 +124,7 @@ describe("Admin platform settings", () => {
       "FEASTA supports verified event services across Leyte.",
     ],
     [
-      "Internal reason",
+      "Reason for changes",
       "Update the public platform configuration.",
     ],
   ])(
@@ -167,7 +167,7 @@ describe("Admin platform settings", () => {
         "FEASTA supports verified event services across Leyte.",
       ],
       [
-        "Internal reason",
+        "Reason for changes",
         "Update the public platform configuration.",
       ],
     ] as const;
@@ -236,7 +236,7 @@ describe("Admin platform settings", () => {
       {target: {value: "Updated service area description."}},
     );
     fireEvent.change(
-      screen.getByLabelText("Internal reason"),
+      screen.getByLabelText("Reason for changes"),
       {target: {value: "Administrative QA update reason."}},
     );
 
@@ -256,7 +256,7 @@ describe("Admin platform settings", () => {
       /^Service-area description/u,
     ))
       .toHaveValue(initialSettings.serviceAreaDescription);
-    expect(screen.getByLabelText("Internal reason"))
+    expect(screen.getByLabelText("Reason for changes"))
       .toHaveValue("");
     expect(screen.getByRole("button", {name: "Discard changes"}))
       .toBeDisabled();
@@ -293,7 +293,7 @@ describe("Admin platform settings", () => {
 
     fireEvent.change(
       screen.getByLabelText(
-        "Internal reason",
+        "Reason for changes",
       ),
       {
         target: {
@@ -337,7 +337,7 @@ describe("Admin platform settings", () => {
 
     fireEvent.change(
       screen.getByLabelText(
-        "Internal reason",
+        "Reason for changes",
       ),
       {
         target: {
@@ -392,7 +392,7 @@ describe("Admin platform settings", () => {
 
     expect(
       screen.getByLabelText(
-        "Internal reason",
+        "Reason for changes",
       ),
     ).toHaveValue("");
   });

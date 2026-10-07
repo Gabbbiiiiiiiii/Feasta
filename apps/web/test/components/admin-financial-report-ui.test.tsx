@@ -191,55 +191,20 @@ const financial:
       "This Financial Report is a FEASTA administrative platform record for authorized internal use. It is not a statutory fiscal document.",
   };
 
-it(
-  "renders trusted financial movements without inventing net platform revenue",
-  () => {
-    render(
-      <AdminFinancialReportSummary
-        report={financial}
-        fallbackExplanation=""
-      />,
-    );
+it("shows business fee totals without technical evidence or invented net revenue", () => {
+  const {container} = render(<AdminFinancialReportSummary report={financial} fallbackExplanation="" />);
+  expect(screen.getByRole("heading", {name: "FEASTA revenue and provider payouts"})).toBeVisible();
+  expect(screen.getByText("FEASTA Revenue").parentElement).toHaveTextContent("₱75.00");
+  expect(screen.getByText("FEASTA fees before refunds").parentElement).toHaveTextContent("₱100.00");
+  expect(screen.getByText("Customer payments after refunds").parentElement).toHaveTextContent("₱750.00");
+  expect(container.textContent).not.toMatch(/gateway|immutable|canonical|net platform revenue/i);
+});
 
-    expect(
-      screen.getByRole(
-        "heading",
-        {
-          name:
-            "Financial Report",
-        },
-      ),
-    ).toBeVisible();
-
-    expect(
-      screen.getByLabelText(
-        "Customer financial movements",
-      ),
-    ).toHaveTextContent(
-      "₱750.00",
-    );
-
-    expect(
-      screen.getByLabelText(
-        "Commission movements",
-      ),
-    ).toHaveTextContent(
-      "₱75.00",
-    );
-
-    expect(
-      screen.getByText(
-        /Net FEASTA platform revenue: Not derived automatically/iu,
-      ),
-    ).toBeVisible();
-
-    expect(
-      screen.getByText(
-        /Partial/iu,
-      ),
-    ).toBeVisible();
-  },
-);
+it("hides zero tax cards and keeps record issues understandable", () => {
+  render(<AdminFinancialReportSummary report={{...financial, ledger: {...financial.ledger, platformVatAccruedInCentavos: 0, platformVatReversedInCentavos: 0, malformedRecordCount: 1}}} fallbackExplanation="" />);
+  expect(screen.queryByText("Tax on FEASTA fees")).not.toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("1 payment records need review");
+});
 
 it(
   "contains no statutory invoice or official receipt claims",

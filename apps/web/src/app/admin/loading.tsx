@@ -34,22 +34,22 @@ export default function AdminDashboardLoading() {
         aria-label="Loading dashboard statistics"
       >
         <SummaryCard
-          label="Feasta Revenue"
+          label="FEASTA revenue"
           loading
         />
 
         <SummaryCard
-          label="Total Users"
+          label="Total users"
           loading
         />
 
         <SummaryCard
-          label="Total Bookings"
+          label="Total bookings"
           loading
         />
 
         <SummaryCard
-          label="Pending Accounts for Approval"
+          label="Pending provider verifications"
           loading
         />
       </section>

@@ -1,4 +1,4 @@
-const test =
+﻿const test =
   require("node:test");
 
 const assert =
@@ -207,7 +207,7 @@ test(
         "Payout attempt evidence",
         "Active payout attempt",
         "Last payout attempt",
-        "Gateway reference",
+        "Payment service reference",
         "Failure code",
         "Failure message",
         "Submitted",
@@ -225,7 +225,7 @@ test(
 
     assert.match(
       drawer,
-      /read-only reconciliation/u,
+      /This information is read-only\./u,
     );
   },
 );

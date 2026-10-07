@@ -24,42 +24,42 @@ const issueConfiguration: Record<
   },
 
   missing_booking: {
-    label: "Missing booking",
+    label: "Booking not found",
     description:
-      "The linked main event could not be found.",
+      "The booking linked to this payment could not be found.",
     tone: "destructive",
   },
 
   missing_provider_request: {
-    label: "Missing provider request",
+    label: "Provider request not found",
     description:
       "The linked provider request could not be found.",
     tone: "destructive",
   },
 
   missing_provider: {
-    label: "Missing provider",
+    label: "Provider not found",
     description:
       "The linked provider record could not be found.",
     tone: "destructive",
   },
 
   missing_gateway_reference: {
-    label: "Missing gateway reference",
+    label: "Payment reference missing",
     description:
-      "The payment is missing its required PayMongo reference.",
+      "The payment is missing its payment service reference.",
     tone: "destructive",
   },
 
   invalid_amount: {
     label: "Invalid amount",
     description:
-      "The canonical payment amount is missing or invalid.",
+      "The payment amount is missing or invalid.",
     tone: "destructive",
   },
 
   booking_status_mismatch: {
-    label: "Booking mismatch",
+    label: "Booking details do not match",
     description:
       "The payment and booking payment statuses are inconsistent.",
     tone: "destructive",
@@ -68,7 +68,7 @@ const issueConfiguration: Record<
   refund_awaiting_webhook: {
     label: "Refund pending",
     description:
-      "A refund was requested and is awaiting gateway confirmation.",
+      "The refund has been requested and is awaiting confirmation.",
     tone: "warning",
   },
 };

@@ -16,8 +16,8 @@ export default function AdminPaymentsLoading() {
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Administration"
-        title="Payment Monitoring"
-        description="Monitor Customer payments, Provider payout health, reconciliation cases, transaction issues, and refund eligibility."
+        title="Payments"
+        description="View customer payments, provider payouts, refunds, and payment issues."
       />
 
             <section
@@ -25,12 +25,12 @@ export default function AdminPaymentsLoading() {
         aria-label="Loading payment statistics"
       >
         <SummaryCard
-          label="Customer collected"
+          label="Currently paid amount"
           loading
         />
 
         <SummaryCard
-          label="Pending / Processing"
+          label="Pending payments"
           loading
         />
 
@@ -40,12 +40,12 @@ export default function AdminPaymentsLoading() {
         />
 
         <SummaryCard
-          label="Failed payouts"
+          label="Failed provider payouts"
           loading
         />
 
         <SummaryCard
-          label="Reconciliation cases"
+          label="Payments to review"
           loading
         />
 
@@ -57,7 +57,7 @@ export default function AdminPaymentsLoading() {
 
             <LoadingSkeleton
         className="h-64 w-full rounded-card"
-        label="Loading finance attention"
+        label="Loading payment issues"
       />
 
 <LoadingSkeleton

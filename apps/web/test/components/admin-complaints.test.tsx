@@ -227,7 +227,7 @@ describe(
 
         await user.type(
           screen.getByLabelText(
-            /Internal administrative reason/i,
+            /Reason for changes/i,
           ),
           "Initial administrative review opened.",
         );

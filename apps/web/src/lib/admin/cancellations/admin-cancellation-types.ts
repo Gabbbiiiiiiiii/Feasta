@@ -31,6 +31,7 @@ export type AdminCancellationQueueItem = {
   operationStatus: "reserved" | "processing" | "completed" | "failed" | "released" | null;
   refundProgress: ParticipantRefundProgressStatus;
   reconciliationRequired: boolean;
+  refundAutomaticCheckState: "scheduled" | "review" | "stopped" | null;
   canApprove: boolean;
   canReject: boolean;
   canProcessRefund: boolean;

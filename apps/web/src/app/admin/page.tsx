@@ -6,7 +6,6 @@ import {
   CircleAlert,
   MessageSquareText,
   ShieldCheck,
-  Store,
   Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -17,7 +16,6 @@ import {
   FeastaRevenueChart,
 } from "@/components/data/feasta-revenue-chart";
 import { PageHeading } from "@/components/layout/page-heading";
-import { Button } from "@/components/ui/button";
 import { requireRole } from "@/lib/auth/session";
 import { getAdminDashboardData, type AdminDashboardData } from "../../lib/admin/dashboard/admin-dashboard-data";
 
@@ -159,7 +157,7 @@ export default async function AdminPage() {
       >
         <Link href="/admin/payments" className="grid min-w-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <SummaryCard
-            label="Feasta Revenue"
+            label="FEASTA Revenue"
             supportingMetric={formatCentavos(dashboard.statistics.revenueLast30DaysInCentavos) + " in the last 30 days"}
             value={formatCentavos(
               dashboard.statistics
@@ -176,7 +174,7 @@ export default async function AdminPage() {
 
         <Link href="/admin/users" className="grid min-w-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <SummaryCard
-            label="Total Users"
+            label="Total users"
             supportingMetric={numberFormatter.format(dashboard.statistics.customerAccounts) + " customers / " + numberFormatter.format(dashboard.statistics.providerAccounts) + " providers"}
             value={numberFormatter.format(
               dashboard.statistics.totalUsers,
@@ -187,7 +185,7 @@ export default async function AdminPage() {
 
         <Link href="/admin/bookings" className="grid min-w-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <SummaryCard
-            label="Total Bookings"
+            label="Total bookings"
             supportingMetric={numberFormatter.format(dashboard.statistics.activeBookings) + " active / " + numberFormatter.format(dashboard.statistics.completedBookings) + " completed"}
             value={numberFormatter.format(
               dashboard.statistics.totalBookings,
@@ -200,7 +198,7 @@ export default async function AdminPage() {
 
         <Link href="/admin/providers" className="grid min-w-0 rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
           <SummaryCard
-            label="Pending Accounts for Approval"
+            label="Pending provider verifications"
             supportingMetric={numberFormatter.format(dashboard.statistics.submittedApprovals) + " submitted / " + numberFormatter.format(dashboard.statistics.underReviewApprovals) + " under review"}
             value={numberFormatter.format(
               dashboard.statistics.verificationQueue,
@@ -227,10 +225,7 @@ export default async function AdminPage() {
         </div>
 
         <aside className="grid min-w-0 content-start gap-6">
-          <TopProviders
-            title={dashboard.settings.topProvidersTitle}
-            providers={dashboard.topProviders}
-          />
+
 
           <OperationsOverview
             title={dashboard.settings.operationsOverviewTitle}
@@ -243,92 +238,6 @@ export default async function AdminPage() {
 }
 
 
-type TopProvidersProps = {
-  title: string;
-  providers: Array<{
-    id: string;
-    businessName: string;
-    serviceType: string;
-    completedBookings: number;
-    href: string;
-  }>;
-};
-
-function TopProviders({
-  title,
-  providers,
-}: TopProvidersProps) {
-  return (
-    <section className="rounded-card border border-border bg-card p-5 shadow-card">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-lg font-bold">{title}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Active providers ranked by completed bookings.
-          </p>
-        </div>
-
-        <Store
-          aria-hidden="true"
-          className="size-5 text-muted-foreground"
-        />
-      </div>
-
-      {providers.length === 0 ? (
-        <p className="mt-5 rounded-lg bg-muted/60 p-4 text-sm text-muted-foreground">
-          No provider ranking is available yet.
-        </p>
-      ) : (
-        <ol className="mt-5 grid gap-3">
-          {providers.map((provider, index) => (
-            <li key={provider.id}>
-              <Link
-                href={provider.href}
-                className="flex items-center gap-3 rounded-xl border border-border p-3 transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                  {index + 1}
-                </div>
-
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">
-                    {provider.businessName}
-                  </p>
-                  <p className="truncate text-sm capitalize text-muted-foreground">
-                    {provider.serviceType.replaceAll("_", " ")}
-                  </p>
-                </div>
-
-                <div className="text-right">
-                  <p className="font-bold">
-                    {numberFormatter.format(
-                      provider.completedBookings,
-                    )}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    completed
-                  </p>
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ol>
-      )}
-
-      <Button
-        variant="ghost"
-        className="mt-4 w-full justify-between"
-        asChild
-      >
-        <Link href="/admin/providers">
-          View all providers
-          <ChevronRight aria-hidden="true" className="size-4" />
-        </Link>
-      </Button>
-    </section>
-  );
-}
-
 function OperationsOverview({
   title,
   overview,
@@ -337,8 +246,8 @@ function OperationsOverview({
   overview: AdminDashboardData["operationsOverview"];
 }) {
   const metrics = [
-    { label: "Pending / processing payments", value: overview.pendingProcessingPayments, href: "/admin/payments", icon: CreditCard },
-    { label: "Failed / expired payments", value: overview.failedExpiredPayments, href: "/admin/payments", icon: CircleAlert },
+    { label: "Pending payments", value: overview.pendingProcessingPayments, href: "/admin/payments", icon: CreditCard },
+    { label: "Failed or expired payments", value: overview.failedExpiredPayments, href: "/admin/payments", icon: CircleAlert },
     { label: "Reported reviews", value: overview.reportedReviews, href: "/admin/reviews", icon: MessageSquareText },
     { label: "Open complaints", value: overview.openComplaints, href: "/admin/complaints", icon: MessageSquareText },
   ];

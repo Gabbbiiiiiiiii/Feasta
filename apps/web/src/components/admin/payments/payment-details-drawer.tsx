@@ -9,7 +9,6 @@ import {
 } from "@/components/admin/payments/payment-issue-badges";
 import {
   formatPaymentDate,
-  formatPaymentGateway,
   formatPaymentType,
   paymentBookingLabel,
 } from "@/components/admin/payments/payment-formatters";
@@ -185,7 +184,7 @@ function PaymentDetailsContent({
               id="payment-summary-heading"
               className="break-words text-lg font-black"
             >
-              {payment.paymentId}
+              Payment summary
             </h2>
 
             <p className="mt-1 break-words text-sm text-muted-foreground">
@@ -218,22 +217,9 @@ function PaymentDetailsContent({
       </section>
 
       <DetailsSection
-        title="Transaction information"
+        title="Payment summary"
       >
         <DetailsGrid>
-          <DetailField
-            label="Payment ID"
-            value={payment.paymentId}
-            code
-          />
-
-          <DetailField
-            label="Gateway"
-            value={formatPaymentGateway(
-              payment.gateway,
-            )}
-          />
-
           <DetailField
             label="Payment type"
             value={formatPaymentType(
@@ -247,33 +233,6 @@ function PaymentDetailsContent({
           />
 
           <DetailField
-            label="PayMongo payment reference"
-            value={
-              payment.gatewayResourceId ??
-              "Not available"
-            }
-            code
-          />
-
-          <DetailField
-            label="PayMongo checkout reference"
-            value={
-              payment.gatewayCheckoutId ??
-              "Not available"
-            }
-            code
-          />
-
-          <DetailField
-            label="Last webhook event"
-            value={
-              payment.lastWebhookEventId ??
-              "Not available"
-            }
-            code
-          />
-
-          <DetailField
             label="Last updated"
             value={formatPaymentDate(
               payment.updatedAt,
@@ -283,7 +242,7 @@ function PaymentDetailsContent({
       </DetailsSection>
 
       <DetailsSection
-        title="Booking linkage"
+        title="Booking"
       >
         <DetailsGrid>
           <DetailField
@@ -291,21 +250,6 @@ function PaymentDetailsContent({
             value={paymentBookingLabel(
               payment,
             )}
-          />
-
-          <DetailField
-            label="Main event ID"
-            value={payment.mainEventId}
-            code
-          />
-
-          <DetailField
-            label="Provider request ID"
-            value={
-              payment.providerRequestId ??
-              "Not available"
-            }
-            code
           />
 
           <DetailField
@@ -326,7 +270,7 @@ function PaymentDetailsContent({
           />
 
           <DetailField
-            label="Provider-request status"
+            label="Provider response"
             value={
               details.providerRequest
                 .status ??
@@ -352,7 +296,7 @@ function PaymentDetailsContent({
       </DetailsSection>
 
       <DetailsSection
-        title="Parties"
+        title="Customer and provider"
       >
         <DetailsGrid>
           <DetailField
@@ -369,20 +313,8 @@ function PaymentDetailsContent({
           />
 
           <DetailField
-            label="Customer ID"
-            value={payment.customerId}
-            code
-          />
-
-          <DetailField
             label="Provider"
             value={payment.providerName}
-          />
-
-          <DetailField
-            label="Provider ID"
-            value={payment.providerId}
-            code
           />
         </DetailsGrid>
       </DetailsSection>
@@ -417,7 +349,7 @@ function PaymentDetailsContent({
       </DetailsSection>
 
       <DetailsSection
-        title="Refund eligibility"
+        title="Refund information"
       >
         <div
           className={[
@@ -450,59 +382,99 @@ function PaymentDetailsContent({
         </div>
       </DetailsSection>
 
-            <AdminFinancialOverview details={details} />
-
-      <ProviderFinanceDetails details={details} />
-
-<DetailsSection
-        title="PayMongo webhook history"
-      >
-        {details.webhooks.length > 0 ? (
-          <ol className="grid gap-3">
-            {details.webhooks.map(
-              (event) => (
-                <li
-                  key={event.id}
-                  className="rounded-lg border border-border p-3"
-                >
-                  <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-                    <p className="break-words font-bold">
-                      {event.eventType}
-                    </p>
-
-                    <span className="text-sm font-semibold text-muted-foreground">
-                      {event.status}
-                    </span>
-                  </div>
-
-                  <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
-                    {event.eventId}
-                  </p>
-
-                  {event.reason ? (
-                    <p className="mt-2 text-sm text-destructive">
-                      {event.reason}
-                    </p>
-                  ) : null}
-
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {formatPaymentDate(
-                      event.processedAt,
-                    )}
-                  </p>
-                </li>
-              ),
-            )}
-          </ol>
-        ) : (
-          <EmptyDetailMessage>
-            No webhook events were found.
-          </EmptyDetailMessage>
-        )}
+      <DetailsSection title="Provider payout">
+        <DetailsGrid>
+          <DetailField
+            label="Provider earning"
+            value={
+              details.providerFinance.earning.formattedEarningAmount ??
+              "Not recorded"
+            }
+          />
+          <DetailField
+            label="Provider paid out"
+            value={
+              details.providerFinance.settlement.formattedPaidOutAmount ??
+              "Not recorded"
+            }
+          />
+        </DetailsGrid>
       </DetailsSection>
 
+      <details className="rounded-lg border border-border p-4">
+        <summary className="cursor-pointer font-semibold">
+          Additional payment details
+        </summary>
+        <div className="mt-4 grid gap-6">
+          <DetailsSection title="Payment update history">
+            {details.webhooks.length > 0 ? (
+              <ol className="grid gap-3">
+                {details.webhooks.map((event) => (
+                  <li
+                    key={event.id}
+                    className="rounded-lg border border-border p-3"
+                  >
+                    <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+                      <p className="break-words font-bold">{event.eventType}</p>
+                      <span className="text-sm font-semibold text-muted-foreground">
+                        {event.status}
+                      </span>
+                    </div>
+                    <p className="mt-2 break-all font-mono text-xs text-muted-foreground">
+                      {event.eventId}
+                    </p>
+                    {event.reason ? (
+                      <p className="mt-2 text-sm text-destructive">{event.reason}</p>
+                    ) : null}
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {formatPaymentDate(event.processedAt)}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <EmptyDetailMessage>
+                No payment updates were found.
+              </EmptyDetailMessage>
+            )}
+          </DetailsSection>
+
+          <DetailsSection title="Support references">
+            <DetailsGrid>
+              <DetailField label="Payment reference" value={payment.paymentId} code />
+              <DetailField
+                label="Payment service reference"
+                value={payment.gatewayResourceId ?? "Not available"}
+                code
+              />
+              <DetailField
+                label="Checkout reference"
+                value={payment.gatewayCheckoutId ?? "Not available"}
+                code
+              />
+              <DetailField
+                label="Last payment update"
+                value={payment.lastWebhookEventId ?? "Not available"}
+                code
+              />
+              <DetailField label="Event reference" value={payment.mainEventId} code />
+              <DetailField
+                label="Provider request reference"
+                value={payment.providerRequestId ?? "Not available"}
+                code
+              />
+              <DetailField label="Customer reference" value={payment.customerId} code />
+              <DetailField label="Provider reference" value={payment.providerId} code />
+            </DetailsGrid>
+          </DetailsSection>
+
+          <AdminFinancialOverview details={details} />
+          <ProviderFinanceDetails details={details} />
+        </div>
+      </details>
+
       <DetailsSection
-        title="Audit history"
+        title="Activity history"
       >
         {details.auditHistory.length >
         0 ? (
@@ -518,18 +490,15 @@ function PaymentDetailsContent({
                   </p>
 
                   <p className="mt-1 break-words text-sm text-muted-foreground">
-                    {entry.actorRole} Ã‚Â·{" "}
-                    {entry.actorId}
+                    {entry.actorRole} - {entry.actorId}
                   </p>
 
                   {entry.beforeStatus ||
                   entry.afterStatus ? (
                     <p className="mt-2 text-sm">
-                      {entry.beforeStatus ??
-                        "Unknown"}
-                      {" Ã¢â€ â€™ "}
-                      {entry.afterStatus ??
-                        "Unknown"}
+                      {entry.beforeStatus ?? "Unknown"}
+                      {" to "}
+                      {entry.afterStatus ?? "Unknown"}
                     </p>
                   ) : null}
 
@@ -550,7 +519,7 @@ function PaymentDetailsContent({
           </ol>
         ) : (
           <EmptyDetailMessage>
-            No audit entries were found.
+            No payment activities have been recorded yet.
           </EmptyDetailMessage>
         )}
       </DetailsSection>
@@ -588,7 +557,7 @@ function AdminFinancialOverview({
               />
 
               <DetailField
-                label="Customer collected"
+                label="Total customer payments"
                 value={
                   summary
                     .formattedCollectedAmount ??
@@ -647,12 +616,7 @@ function AdminFinancialOverview({
             </DetailsGrid>
 
             <p className="text-xs leading-5 text-muted-foreground">
-              Booking value comes from the
-              frozen booking financial
-              snapshot. Customer collection
-              and remaining balance come from
-              trusted server-maintained
-              settlement totals.
+              Booking value comes from the saved booking total. Customer payments and the remaining balance come from recorded payment totals.
             </p>
           </div>
         ) : (
@@ -664,7 +628,7 @@ function AdminFinancialOverview({
       </DetailsSection>
 
       <DetailsSection
-        title="Provider tax and VAT"
+        title="Tax details"
       >
         {summary.recordState ===
         "valid" ? (
@@ -714,13 +678,7 @@ function AdminFinancialOverview({
             </DetailsGrid>
 
             <p className="text-xs leading-5 text-muted-foreground">
-              Provider tax classification is
-              independent from business
-              registration type. The frozen
-              booking snapshot uses an
-              authoritative tax type only when
-              the Provider tax profile was
-              verified.
+              Provider tax classification is separate from the business registration type. Tax amounts use the saved booking record when the provider tax profile was verified.
             </p>
           </div>
         ) : (
@@ -732,14 +690,14 @@ function AdminFinancialOverview({
       </DetailsSection>
 
       <DetailsSection
-        title="FEASTA commission and tax"
+        title="FEASTA fees and tax"
       >
         {summary.recordState ===
         "valid" ? (
           <div className="grid gap-3">
             <DetailsGrid>
               <DetailField
-                label="Commission rate"
+                label="FEASTA fee rate"
                 value={basisPointsLabel(
                   summary
                     .platformCommissionRateBps,
@@ -747,7 +705,7 @@ function AdminFinancialOverview({
               />
 
               <DetailField
-                label="Commission accrued"
+                label="FEASTA fees before refunds"
                 value={
                   summary
                     .formattedCommissionAccrued ??
@@ -756,7 +714,7 @@ function AdminFinancialOverview({
               />
 
               <DetailField
-                label="Commission reversed"
+                label="Refunded FEASTA fees"
                 value={
                   summary
                     .formattedCommissionReversed ??
@@ -765,7 +723,7 @@ function AdminFinancialOverview({
               />
 
               <DetailField
-                label="Commission earned"
+                label="Recorded FEASTA fees"
                 value={
                   summary
                     .formattedCommissionEarned ??
@@ -817,11 +775,7 @@ function AdminFinancialOverview({
             </DetailsGrid>
 
             <p className="text-xs leading-5 text-muted-foreground">
-              Commission accrued, reversed,
-              and earned are the canonical
-              accounting values. FEASTA does
-              not infer a separate pending
-              commission amount.
+              FEASTA fees reflect saved charges and completed refunds.
             </p>
           </div>
         ) : (
@@ -833,7 +787,7 @@ function AdminFinancialOverview({
       </DetailsSection>
 
       <DetailsSection
-        title="Provider payout account"
+        title="Payout account"
       >
         {payout.recordState ===
         "valid" ? (
@@ -845,14 +799,11 @@ function AdminFinancialOverview({
                 role="status"
               >
                 <p className="font-bold text-warning">
-                  Settlement transport not ready
+                  Payout account not ready
                 </p>
 
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                  Provider account onboarding
-                  readiness does not mean FEASTA
-                  can dispatch a Provider
-                  settlement.
+                  Completing account setup does not mean a provider payout can be sent yet.
                 </p>
               </div>
             ) : null}
@@ -894,7 +845,7 @@ function AdminFinancialOverview({
               />
 
               <DetailField
-                label="PayMongo relationship"
+                label="Payment service relationship"
                 value={financeStatusLabel(
                   payout.relationshipStatus,
                 )}
@@ -925,11 +876,7 @@ function AdminFinancialOverview({
             </DetailsGrid>
 
             <p className="text-xs leading-5 text-muted-foreground">
-              Payout-account state is
-              read-only here. Admin monitoring
-              does not authorize payout
-              dispatch or rewrite Provider
-              settlement amounts.
+              This payout account information is read-only.
             </p>
           </div>
         ) : (
@@ -1103,7 +1050,7 @@ function ProviderFinanceDetails({
                 role="status"
               >
                 <p className="font-bold text-warning">
-                  Reconciliation required
+                  Review needed
                 </p>
 
                 <p className="mt-1 text-sm leading-6 text-muted-foreground">
@@ -1282,9 +1229,7 @@ function PayoutAttemptEvidence({
           ) : null}
 
           <p className="text-xs leading-5 text-muted-foreground">
-            This section is read-only reconciliation
-            evidence. Gateway evidence does not
-            change Customer payment truth.
+            This information is read-only.
           </p>
         </div>
       )}
@@ -1373,17 +1318,17 @@ function PayoutAttemptCard({
         />
 
         <DetailField
-          label="Gateway"
+          label="Payment service"
           value={
             attempt.gateway ===
               "paymongo"
-              ? "PayMongo"
+              ? "Payment service"
               : "Not recorded"
           }
         />
 
         <DetailField
-          label="Gateway reference"
+          label="Payment service reference"
           value={
             attempt.gatewayResourceId ??
             "Not recorded"
@@ -1480,7 +1425,7 @@ function FinanceRecordNotice({
         >
           The {recordLabel.toLowerCase()} record
           failed FEASTA&apos;s finance validation.
-          Review the canonical backend record.
+          Review the payment record.
         </p>
       );
 
@@ -1609,10 +1554,10 @@ function refundEligibilityMessage(
     string
   > = {
     eligible:
-      "This paid PayMongo transaction can proceed to the secured refund workflow.",
+      "This paid transaction can proceed to the secured refund workflow.",
 
     refund_pending:
-      "A refund has already been requested and is awaiting confirmation from PayMongo.",
+      "A refund has already been requested and is awaiting confirmation from the payment service.",
 
     not_paid:
       "Only successfully paid transactions can be refunded.",
@@ -1621,10 +1566,10 @@ function refundEligibilityMessage(
       "This transaction has already been refunded.",
 
     missing_gateway_reference:
-      "The PayMongo payment reference is missing.",
+      "The payment service reference is missing.",
 
     invalid_amount:
-      "The canonical payment amount is invalid.",
+      "The payment amount is invalid.",
 
     invalid_currency:
       "Only Philippine peso payments are currently supported.",

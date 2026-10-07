@@ -9,8 +9,8 @@ export default function AdminAuditLogsLoading() {
     >
       <PageHeading
         eyebrow="Security and audit"
-        title="Audit Logs"
-        description="Review immutable administrative, account, provider, and system activity."
+        title="Activity logs"
+        description="Review administrator and system activity."
       />
       <section
         className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"

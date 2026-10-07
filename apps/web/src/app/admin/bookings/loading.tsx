@@ -12,7 +12,7 @@ export default function AdminBookingsLoading() {
   return (
     <div
       className="grid min-w-0 gap-6"
-      aria-label="Loading Booking Monitoring"
+      aria-label="Loading Bookings"
       aria-busy="true"
     >
       <header className="grid gap-3 border-b border-border pb-6">
@@ -42,7 +42,7 @@ export default function AdminBookingsLoading() {
         />
 
         <SummaryCard
-          label="Pending approval"
+          label="Waiting for provider"
           loading
         />
 
@@ -52,7 +52,7 @@ export default function AdminBookingsLoading() {
         />
 
         <SummaryCard
-          label="Confirmed revenue"
+          label="Paid booking amount"
           loading
         />
       </section>
@@ -82,7 +82,7 @@ export default function AdminBookingsLoading() {
       </section>
 
       <TableLoadingSkeleton
-        caption="Loading Booking Monitoring records"
+        caption="Loading Bookings records"
       />
     </div>
   );

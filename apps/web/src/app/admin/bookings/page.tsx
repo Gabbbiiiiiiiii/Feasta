@@ -1,7 +1,6 @@
 import {
   BookingMonitoringClient,
 } from "@/components/admin/bookings/booking-monitoring-client";
-import {CancellationManagementClient} from "@/components/admin/bookings/cancellation-management-client";
 import {
   getAdminBookingPage,
 } from "@/lib/admin/bookings/admin-booking-service";
@@ -25,9 +24,7 @@ export default async function AdminBookingsPage() {
   return (
     <BookingMonitoringClient
       initialPage={initialPage}
-      supplementalContent={(
-        <CancellationManagementClient initialQueue={initialCancellationQueue} />
-      )}
+      initialCancellationQueue={initialCancellationQueue}
     />
   );
 }

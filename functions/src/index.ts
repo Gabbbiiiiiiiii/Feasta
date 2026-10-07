@@ -1079,4 +1079,7 @@ function normalizeNotificationText(
 export {
   reconcileRemainingBalanceLifecycle,
 } from "./payments/remaining-balance-lifecycle-scheduler.js";
+export {
+  reconcileUnresolvedRefundStatuses,
+} from "./refunds/automatic-refund-status-check.js";
 export {getCurrentLegalAgreement} from "./documents/current-legal-agreement.js";

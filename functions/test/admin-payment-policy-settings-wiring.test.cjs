@@ -122,13 +122,11 @@ test(
 );
 
 test(
-  "P11-C1 Admin UI exposes payment-term controls and immutable-history copy",
+  "P11-C1 Admin UI exposes deposit controls, fixed balance deadline, and immutable-history copy",
   () => {
     for (const label of [
       "Minimum deposit (%)",
       "Maximum deposit (%)",
-      "Minimum balance deadline (days before event)",
-      "Maximum balance deadline (days before event)",
     ]) {
       assert.match(
         client,
@@ -141,6 +139,16 @@ test(
         ),
       );
     }
+
+    assert.match(
+      client,
+      /Remaining balance deadline/u,
+    );
+
+    assert.match(
+      client,
+      /24 hours before scheduled event start/u,
+    );
 
     assert.match(
       client,

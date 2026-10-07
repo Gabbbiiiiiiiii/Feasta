@@ -8,7 +8,7 @@ const initial: AdminCancellationRolloutSettings = {bookingRefundPolicyCaptureMod
 const booking = () => screen.getByLabelText("Booking refund-policy capture");
 const customer = () => screen.getByLabelText("Customer cancellation");
 const automatic = () => screen.getByLabelText("Automatic policy refund approval");
-const reason = () => screen.getByLabelText("Internal administrative reason");
+const reason = () => screen.getByLabelText("Reason for changes");
 const save = () => screen.getByRole("button", {name: "Save booking and cancellation rollout"});
 beforeEach(() => vi.clearAllMocks());
 describe("Admin cancellation rollout UI", () => {

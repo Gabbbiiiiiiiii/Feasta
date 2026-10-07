@@ -109,6 +109,10 @@ import {
   type RefundOperationBinding,
   type RefundOperationSetEntry,
 } from "./refund-operation-set.js";
+import {
+  clearedRefundStatusCheckPatch,
+  initialRefundStatusCheckPatch,
+} from "./refund-status-check-schedule.js";
 
 const payMongoSecretKey = defineSecret("PAYMONGO_SECRET_KEY");
 const callableOptions = {
@@ -181,70 +185,10 @@ export const reconcileProviderRequestRefund = onCall(
         minLength: 8, maxLength: 160,
       }), "Cancellation request",
     );
-    const prepared = await db.runTransaction(async (transaction) => {
-      const cancellationSnapshot = await transaction.get(db.collection(
-        "providerRequestCancellationRequests",
-      ).doc(cancellationRequestId));
-      if (!cancellationSnapshot.exists) throw operationNotFound();
-      const cancellation = cancellationSnapshot.data() ?? {};
-      const ids = cancellationIds(cancellation);
-      const [requestSnapshot, mainEventSnapshot] = await transaction.getAll(
-        db.collection("providerRequests").doc(ids.providerRequestId),
-        db.collection("mainEvents").doc(ids.mainEventId),
-      );
-      if (!requestSnapshot.exists || !mainEventSnapshot.exists) throw gatewayLinkageInvalid();
-      const providerRequest = requestSnapshot.data() ?? {};
-      const mainEvent = mainEventSnapshot.data() ?? {};
-      const bindings = readRefundOperationBindings(cancellation);
-      if (bindings !== null ? bindings.length !== 1 :
-        !Array.isArray(cancellation.refundOperationIds) || cancellation.refundOperationIds.length !== 1) {
-        throw reconciliationRequired();
-      }
-      const paymentSet = await readTrustedProviderRequestPaymentSetInTransaction({
-        transaction, ...ids, providerRequest, mainEvent,
-        invalid: () => {throw gatewayLinkageInvalid();},
-      });
-      if (bindings === null && paymentSet.payments.length !== 1) throw reconciliationRequired();
-      const paymentId = bindings?.[0].paymentId ?? paymentSet.payments[0]?.id;
-      if (!paymentId) throw gatewayLinkageInvalid();
-      const operationId = requireOperationId(bindings?.[0].refundOperationId ?? cancellation.refundOperationId);
-      const paymentReference = db.collection("payments").doc(paymentId);
-      const [paymentSnapshot, operationSnapshot] = await transaction.getAll(
-        paymentReference, paymentReference.collection("refunds").doc(operationId),
-      );
-      if (!paymentSnapshot.exists || !operationSnapshot.exists) throw operationNotFound();
-      const payment = paymentSnapshot.data() ?? {};
-      const operation = operationSnapshot.data() ?? {};
-      assertPolicyOperationLinkage({
-        cancellationRequestId, cancellation, ids, paymentId, payment, operationId,
-        operation, providerRequest, mainEvent,
-      });
-      assertAdminReconciliationEvidence(operation, operationId, cancellation);
-      await readRefundOperationSetRecordsInTransaction({
-        transaction, cancellationRequestId, cancellation, ids, providerRequest, mainEvent,
-      });
-      const accounting = readRefundAccounting(payment, positiveCentavos(payment.amountInCentavos));
-      if (payment.refundAccountingSchemaVersion !== REFUND_ACCOUNTING_SCHEMA_VERSION) {
-        throw reconciliationRequired();
-      }
-      if (operation.status === "completed" && (
-        !(operation.completedAt instanceof Timestamp) ||
-        operation.gatewayStatus !== "succeeded" || cancellation.status !== "refund_completed" ||
-        accounting.refundedAmountInCentavos < positiveCentavos(operation.amountInCentavos) ||
-        payment.status !== derivePaymentRefundStatus({
-          originalPaidAmountInCentavos: positiveCentavos(payment.amountInCentavos),
-          completedRefundAmountInCentavos: accounting.refundedAmountInCentavos,
-        })
-      )) throw reconciliationRequired();
-      if (operation.status === "completed") {
-        writeAuditLogInTransaction(transaction, {
-          actorId: actor.uid, actorRole: "admin", action: "refund_reconciliation.replayed",
-          targetCollection: "payments", targetId: paymentId, source: "admin_reconciliation",
-          metadata: {cancellationRequestId, refundOperationId: operationId},
-        });
-      }
-      return {paymentId, operationId, gatewayRefundId: operation.gatewayRefundId as string,
-        completed: operation.status === "completed"};
+    const prepared = await prepareExistingRefundReconciliation({
+      cancellationRequestId,
+      actorId: actor.uid,
+      source: "admin_reconciliation",
     });
     if (prepared.completed) return {
       cancellationRequestId, refundOperationId: prepared.operationId,
@@ -271,6 +215,89 @@ export const reconcileProviderRequestRefund = onCall(
     };
   },
 );
+
+export async function prepareExistingRefundReconciliation(input: {
+  cancellationRequestId: string;
+  actorId: string;
+  source: "admin_reconciliation" | "automatic_reconciliation";
+}): Promise<{
+  paymentId: string;
+  operationId: string;
+  gatewayRefundId: string;
+  completed: boolean;
+}> {
+  return db.runTransaction(async (transaction) => {
+    const cancellationSnapshot = await transaction.get(db.collection(
+      "providerRequestCancellationRequests",
+    ).doc(input.cancellationRequestId));
+    if (!cancellationSnapshot.exists) throw operationNotFound();
+    const cancellation = cancellationSnapshot.data() ?? {};
+    const ids = cancellationIds(cancellation);
+    const [requestSnapshot, mainEventSnapshot] = await transaction.getAll(
+      db.collection("providerRequests").doc(ids.providerRequestId),
+      db.collection("mainEvents").doc(ids.mainEventId),
+    );
+    if (!requestSnapshot.exists || !mainEventSnapshot.exists) throw gatewayLinkageInvalid();
+    const providerRequest = requestSnapshot.data() ?? {};
+    const mainEvent = mainEventSnapshot.data() ?? {};
+    const bindings = readRefundOperationBindings(cancellation);
+    if (bindings !== null ? bindings.length !== 1 :
+      !Array.isArray(cancellation.refundOperationIds) || cancellation.refundOperationIds.length !== 1) {
+      throw reconciliationRequired();
+    }
+    const paymentSet = await readTrustedProviderRequestPaymentSetInTransaction({
+      transaction, ...ids, providerRequest, mainEvent,
+      invalid: () => {throw gatewayLinkageInvalid();},
+    });
+    if (bindings === null && paymentSet.payments.length !== 1) throw reconciliationRequired();
+    const paymentId = bindings?.[0].paymentId ?? paymentSet.payments[0]?.id;
+    if (!paymentId) throw gatewayLinkageInvalid();
+    const operationId = requireOperationId(bindings?.[0].refundOperationId ?? cancellation.refundOperationId);
+    const paymentReference = db.collection("payments").doc(paymentId);
+    const [paymentSnapshot, operationSnapshot] = await transaction.getAll(
+      paymentReference, paymentReference.collection("refunds").doc(operationId),
+    );
+    if (!paymentSnapshot.exists || !operationSnapshot.exists) throw operationNotFound();
+    const payment = paymentSnapshot.data() ?? {};
+    const operation = operationSnapshot.data() ?? {};
+    assertPolicyOperationLinkage({
+      cancellationRequestId: input.cancellationRequestId, cancellation, ids, paymentId, payment, operationId,
+      operation, providerRequest, mainEvent,
+    });
+    assertAdminReconciliationEvidence(operation, operationId, cancellation);
+    await readRefundOperationSetRecordsInTransaction({
+      transaction, cancellationRequestId: input.cancellationRequestId, cancellation, ids, providerRequest, mainEvent,
+    });
+    const accounting = readRefundAccounting(payment, positiveCentavos(payment.amountInCentavos));
+    if (payment.refundAccountingSchemaVersion !== REFUND_ACCOUNTING_SCHEMA_VERSION) {
+      throw reconciliationRequired();
+    }
+    if (operation.status === "completed" && (
+      !(operation.completedAt instanceof Timestamp) ||
+      operation.gatewayStatus !== "succeeded" || cancellation.status !== "refund_completed" ||
+      accounting.refundedAmountInCentavos < positiveCentavos(operation.amountInCentavos) ||
+      payment.status !== derivePaymentRefundStatus({
+        originalPaidAmountInCentavos: positiveCentavos(payment.amountInCentavos),
+        completedRefundAmountInCentavos: accounting.refundedAmountInCentavos,
+      })
+    )) throw reconciliationRequired();
+    if (operation.status === "completed") {
+      writeAuditLogInTransaction(transaction, {
+        actorId: input.actorId,
+        actorRole: input.source === "automatic_reconciliation" ? "system" : "admin",
+        action: "refund_reconciliation.replayed",
+        targetCollection: "payments", targetId: paymentId, source: input.source,
+        metadata: {cancellationRequestId: input.cancellationRequestId, refundOperationId: operationId},
+      });
+    }
+    return {
+      paymentId,
+      operationId,
+      gatewayRefundId: operation.gatewayRefundId as string,
+      completed: operation.status === "completed",
+    };
+  });
+}
 
 function assertAdminReconciliationEvidence(
   operation: Record<string, unknown>, operationId: string,
@@ -2864,7 +2891,7 @@ export async function reconcileGatewayRefund(input: {
   refundOperationId: string;
   refund: PayMongoRefundResource;
   actorId: string;
-  source: "refund_execution_response" | "paymongo_webhook" | "admin_reconciliation";
+  source: "refund_execution_response" | "paymongo_webhook" | "admin_reconciliation" | "automatic_reconciliation";
   webhookEventId?: string;
   webhookEventType?: string;
 }): Promise<{
@@ -3132,7 +3159,10 @@ export async function reconcileGatewayRefund(input: {
         mainEvent,
       });
 
-      if (input.source === "admin_reconciliation") {
+      if (
+        input.source === "admin_reconciliation" ||
+        input.source === "automatic_reconciliation"
+      ) {
         assertAdminReconciliationEvidence(operation, operationId, cancellation);
       }
 
@@ -3889,7 +3919,8 @@ export async function reconcileGatewayRefund(input: {
             input.source === "admin_reconciliation" ? "admin" : "system",
 
           action:
-            input.source === "admin_reconciliation"
+            input.source === "admin_reconciliation" ||
+            input.source === "automatic_reconciliation"
               ? "refund_reconciliation.completed"
               : input.source === "paymongo_webhook"
               ? "refund_webhook.reconciled"
@@ -4278,6 +4309,12 @@ function updateCancellationRefundStatus(
     );
   }
 
+  const schedulePatch =
+    nextStatus === "refund_processing"
+      ? initialRefundStatusCheckPatch(cancellation, Date.now())
+      : clearedRefundStatusCheckPatch();
+  const dueAt = schedulePatch.refundStatusCheckDueAt;
+
   transaction.update(
     cancellationReference,
     {
@@ -4290,6 +4327,17 @@ function updateCancellationRefundStatus(
           ? {
               refundCompletedAt:
                 timestamp,
+            }
+          : {}
+      ),
+
+      ...schedulePatch,
+
+      ...(
+        typeof dueAt === "number"
+          ? {
+              refundStatusCheckDueAt:
+                Timestamp.fromMillis(dueAt),
             }
           : {}
       ),
@@ -4736,7 +4784,9 @@ function writeRefundAudit(
 ): void {
   writeAuditLogInTransaction(transaction, {
     actorId: input.actorId,
-    actorRole: input.source === "paymongo_webhook" ? "system" : "admin",
+    actorRole: input.source === "paymongo_webhook" || input.source === "automatic_reconciliation"
+      ? "system"
+      : "admin",
     action,
     targetCollection: "payments",
     targetId: input.paymentId,

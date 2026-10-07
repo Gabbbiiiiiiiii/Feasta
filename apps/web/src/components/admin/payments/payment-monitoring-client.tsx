@@ -277,7 +277,7 @@ function PaymentMonitoringClient({
         !item.expectedUpdatedAtMillis
       ) {
         setAttentionError(
-          "This payout recovery case is no longer safe to repair. Refresh Finance attention.",
+          "This payout recovery case is no longer safe to repair. Refresh Payment issues.",
         );
         return;
       }
@@ -287,7 +287,7 @@ function PaymentMonitoringClient({
           [
             "Repair this Provider payout setup?",
             "",
-            "Continue only because you already confirmed that no matching PayMongo test child account exists.",
+            "Continue only after you have confirmed that no matching test payout account exists.",
             "",
             "This does not make the Provider payout-ready. It only allows a safe payout setup retry.",
           ].join("\n"),
@@ -598,7 +598,7 @@ const handleRefundRequested =
       },
       {
         id: "issues",
-        header: "Review",
+        header: "Record issue",
         cell: (payment) =>
           payment.issues.length > 0 ? (
             <PaymentIssueBadges
@@ -651,8 +651,8 @@ const handleRefundRequested =
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Administration"
-        title="Payment Monitoring"
-        description="Monitor Customer payments, Provider payout health, reconciliation cases, transaction issues, and refund eligibility."
+        title="Payments"
+        description="View customer payments, provider payouts, refunds, and payment issues."
       />
 
             <section
@@ -660,7 +660,8 @@ const handleRefundRequested =
         aria-label="Payment statistics"
       >
         <SummaryCard
-          label="Customer collected"
+          label="Currently paid amount"
+          supportingMetric="Payments currently marked paid"
           value={
             page.statistics
               .confirmedVolumeFormatted
@@ -672,7 +673,7 @@ const handleRefundRequested =
         />
 
         <SummaryCard
-          label="Pending / Processing"
+          label="Pending payments"
           value={
             page.statistics
               .pendingProcessingCount
@@ -696,7 +697,7 @@ const handleRefundRequested =
         />
 
         <SummaryCard
-          label="Failed payouts"
+          label="Failed provider payouts"
           value={
             page.statistics
               .failedPayoutCount
@@ -708,7 +709,7 @@ const handleRefundRequested =
         />
 
         <SummaryCard
-          label="Reconciliation cases"
+          label="Payments to review"
           value={
             page.statistics
               .reconciliationRequiredCount
@@ -760,7 +761,7 @@ const handleRefundRequested =
         activeFilters={activeFilters}
         loading={isPending}
         searchLabel="Search payment records"
-        searchPlaceholder="Payment, booking, provider-request, or PayMongo ID"
+        searchPlaceholder="Search payment or booking reference"
         filterControls={
           <>
             <FilterSelect

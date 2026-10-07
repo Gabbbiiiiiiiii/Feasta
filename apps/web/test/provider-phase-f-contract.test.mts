@@ -194,6 +194,7 @@ test("provider agreement is visible inline and registration clears stale onboard
   const [
     form,
     agreementPage,
+    agreementComponent,
     agreementData,
   ] = await Promise.all([
     webSource(
@@ -203,13 +204,16 @@ test("provider agreement is visible inline and registration clears stale onboard
       "app/provider-agreement/page.tsx",
     ),
     webSource(
+      "components/provider/provider-agreement-acceptance.tsx",
+    ),
+    webSource(
       "lib/provider/provider-agreement.ts",
     ),
   ]);
 
   assert.match(
     form,
-    /PROVIDER_AGREEMENT_SECTIONS/u,
+    /ProviderAgreementAcceptanceSection/u,
   );
 
   assert.match(
@@ -234,6 +238,16 @@ test("provider agreement is visible inline and registration clears stale onboard
 
   assert.match(
     agreementPage,
+    /ProviderAgreementAcceptanceSection/u,
+  );
+
+  assert.match(
+    agreementComponent,
+    /Electronic Acceptance/u,
+  );
+
+  assert.match(
+    agreementData,
     /PROVIDER_AGREEMENT_SECTIONS/u,
   );
 

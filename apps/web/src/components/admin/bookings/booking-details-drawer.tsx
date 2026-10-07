@@ -84,7 +84,7 @@ function BookingDetailsDrawer({
             />
 
             <BookingStatusBadge
-              status={booking.paymentStatus}
+              kind="payment" status={booking.paymentStatus}
             />
           </div>
 
@@ -249,7 +249,7 @@ function BookingDetailsDrawer({
             </h2>
 
             <p className="mt-1 text-sm text-muted-foreground">
-              Verified PayMongo payment records
+              Verified payment records
             </p>
           </div>
 
@@ -354,7 +354,7 @@ function ProviderRequestCard({
         </div>
 
         <BookingStatusBadge
-          status={request.status}
+          kind="provider" status={request.status}
           className="shrink-0"
         />
       </div>
@@ -405,7 +405,7 @@ function ProviderRequestCard({
           <dd className="mt-1">
             {request.paymentStatus ? (
               <BookingStatusBadge
-                status={request.paymentStatus}
+                kind="payment" status={request.paymentStatus}
               />
             ) : (
               <span className="font-semibold">
@@ -450,7 +450,7 @@ function PaymentCard({
         </div>
 
         <BookingStatusBadge
-          status={payment.status}
+          kind="payment" status={payment.status}
           className="shrink-0"
         />
       </div>

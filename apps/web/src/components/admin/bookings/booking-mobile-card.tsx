@@ -140,7 +140,7 @@ function BookingMobileCard({
           </p>
 
           <BookingStatusBadge
-            status={booking.paymentStatus}
+            kind="payment" status={booking.paymentStatus}
             className="mt-1"
           />
         </div>

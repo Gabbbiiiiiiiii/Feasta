@@ -59,15 +59,11 @@ function PaymentFinanceAttention({
             id="finance-attention-heading"
             className="text-lg font-black"
           >
-            Finance attention
+            Payment issues
           </h2>
 
           <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Review failed Provider payouts,
-            settlement reconciliation cases,
-            and payout setup recovery cases.
-            Customer payment status remains a
-            separate financial truth.
+            Review failed provider payouts and payment records that need attention.
           </p>
         </div>
 
@@ -83,7 +79,7 @@ function PaymentFinanceAttention({
         >
           {loading
             ? "Refreshing..."
-            : "Refresh attention"}
+            : "Refresh"}
         </Button>
       </div>
 
@@ -93,7 +89,7 @@ function PaymentFinanceAttention({
           role="alert"
         >
           <p className="font-bold text-destructive">
-            Finance attention could not be refreshed
+            Payment issues could not be refreshed
           </p>
 
           <p className="mt-1 text-sm text-destructive">
@@ -105,14 +101,11 @@ function PaymentFinanceAttention({
       {queue.items.length === 0 ? (
         <div className="mt-4 rounded-lg border border-dashed border-border p-4">
           <p className="font-bold">
-            No finance cases require attention
+            No payment issues require attention
           </p>
 
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            No failed Provider payout,
-            reconciliation-required settlement,
-            or payout setup recovery records
-            currently require review.
+            No payouts or payment records currently need review.
           </p>
         </div>
       ) : (
@@ -131,7 +124,7 @@ function PaymentFinanceAttention({
                 ? "Failed Provider payout"
                 : item.kind ===
                     "reconciliation_required"
-                  ? "Settlement reconciliation"
+                  ? "Payout to review"
                   : "Payout setup recovery";
 
             return (
@@ -160,10 +153,10 @@ function PaymentFinanceAttention({
                     <p className="mt-1 break-words text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {item.recordState ===
                         "invalid"
-                        ? "Validation issue"
+                        ? "Record issue"
                         : isPayoutSetupRecovery
-                          ? "Admin recovery required"
-                          : "Trusted linkage"}
+                          ? "Setup needs attention"
+                          : "Ready for review"}
                     </p>
                   </div>
 
@@ -186,7 +179,7 @@ function PaymentFinanceAttention({
                               linkedPayment,
                             )
                           : item.paymentId ??
-                            "Not safely linked"
+                            "Payment not found"
                     }
                   />
 
@@ -200,31 +193,9 @@ function PaymentFinanceAttention({
                     }
                   />
 
-                  <AttentionField
-                    label="Settlement ID"
-                    value={
-                      isPayoutSetupRecovery
-                        ? "Not applicable"
-                        : item.settlementId ??
-                          "Not recorded"
-                    }
-                    code={
-                      !isPayoutSetupRecovery
-                    }
-                  />
 
-                  <AttentionField
-                    label="Payout attempt"
-                    value={
-                      isPayoutSetupRecovery
-                        ? "Not applicable"
-                        : item.payoutAttemptId ??
-                          "Not applicable"
-                    }
-                    code={
-                      !isPayoutSetupRecovery
-                    }
-                  />
+
+
 
                   <AttentionField
                     label="Last updated"
@@ -241,8 +212,8 @@ function PaymentFinanceAttention({
                         ? "Failed payout"
                         : item.kind ===
                             "reconciliation_required"
-                          ? "Reconciliation required"
-                          : "Ambiguous payout setup"
+                          ? "Review needed"
+                          : "Payout setup needs review"
                     }
                   />
                 </dl>
@@ -286,7 +257,7 @@ function PaymentFinanceAttention({
                     <p className="mt-4 text-sm font-semibold text-destructive">
                       This payout recovery case
                       did not pass validation.
-                      Refresh Finance attention
+                      Refresh Payment issues
                       before taking any action.
                     </p>
                   )
@@ -306,10 +277,7 @@ function PaymentFinanceAttention({
                   </Button>
                 ) : (
                   <p className="mt-4 text-sm font-semibold text-destructive">
-                    The linked payment cannot
-                    be opened because the
-                    finance linkage did not
-                    pass validation.
+                    The payment details do not match this record. Refresh and review the issue before continuing.
                   </p>
                 )}
               </article>
@@ -318,12 +286,7 @@ function PaymentFinanceAttention({
         </div>
       )}
 
-      <p className="mt-4 text-xs leading-5 text-muted-foreground">
-        Finance Attention can perform only
-        guarded Admin recovery actions.
-        It cannot rewrite trusted financial
-        amounts or mark a Provider payout-ready.
-      </p>
+
     </section>
   );
 }

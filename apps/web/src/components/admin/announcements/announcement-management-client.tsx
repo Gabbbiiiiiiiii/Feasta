@@ -355,7 +355,7 @@ function AnnouncementManagementClient({
         open={drawerOpen}
         onOpenChange={setDrawerOpen}
         title={selected?.title ?? "Announcement details"}
-        description="Review publication content, audience, lifecycle, and trusted administrative metadata."
+        description="Review the announcement, audience, status, and publication details."
         footer={selected ? (
           <div className="grid w-full gap-2 sm:grid-cols-2">
             {selected.status === "draft" ? (
@@ -409,7 +409,7 @@ function AnnouncementManagementClient({
             open={archiveOpen}
             onOpenChange={setArchiveOpen}
             title="Archive this announcement?"
-            description="Archived announcements remain in the immutable audit trail and cannot be edited or republished."
+            description="Archived announcements stay in the activity history and cannot be edited or republished."
             destructive
             confirmLabel="Archive announcement"
             loadingLabel="Archiving"

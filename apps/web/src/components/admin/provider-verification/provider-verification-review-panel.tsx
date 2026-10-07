@@ -11,7 +11,8 @@ import {
 import Image from "next/image";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
-import {useRef, useState} from "react";
+import {useEffect, useRef, useState} from "react";
+import {providerVerificationLabel} from "@/lib/admin/provider-verification/provider-verification-labels";
 
 import {feastaToast} from "@/components/feedback/toast";
 import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
@@ -43,9 +44,13 @@ type PendingDecision = {
 function ProviderVerificationReviewPanel({
   application,
   serviceCategoryOptions,
+  onBusyChange,
+  onUpdated,
 }: {
   application: ProviderVerificationReviewDetail;
   serviceCategoryOptions: readonly ServiceCategoryOption[];
+  onBusyChange?: (busy: boolean) => void;
+  onUpdated?: () => Promise<void>;
 }) {
   const router = useRouter();
   const [remarks, setRemarks] = useState("");
@@ -54,6 +59,10 @@ function ProviderVerificationReviewPanel({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const decisionKeys = useRef(new Map<ProviderReviewAction, string>());
+  useEffect(() => {
+    onBusyChange?.(submitting);
+    return () => onBusyChange?.(false);
+  }, [submitting, onBusyChange]);
 
   const decide = async () => {
     if (!pendingDecision || submitting) return;
@@ -84,9 +93,10 @@ function ProviderVerificationReviewPanel({
       feastaToast.success(
         result.idempotentReplay
           ? "This decision was already saved."
-          : `Provider status updated to ${humanize(result.status)}.`,
+          : `Provider status updated to ${providerVerificationLabel(result.status)}.`,
       );
-      router.refresh();
+      if (onUpdated) await onUpdated();
+      else router.refresh();
     } catch (caught) {
       const message = caught instanceof Error
         ? caught.message
@@ -125,13 +135,13 @@ function ProviderVerificationReviewPanel({
           <h3 id="review-status-heading" className="text-lg font-bold">
             Review status
           </h3>
-          <StatusBadge status={application.status} />
+          <StatusBadge status={application.status} label={providerVerificationLabel(application.status)} />
         </div>
         <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
           <Detail label="Submitted" value={application.submittedAt} />
           <Detail label="Last reviewed" value={application.reviewedAt} />
           <Detail
-            label="Reviewer ID"
+            label="Reviewer reference"
             value={application.reviewedBy ?? "Not assigned"}
           />
           <Detail
@@ -262,7 +272,7 @@ function ProviderVerificationReviewPanel({
           Verification documents
         </h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Files open through an admin-authorized, non-cacheable server route.
+          Review the documents submitted with this application.
         </p>
         {application.documents.length === 0 ? (
           <p className="mt-4 rounded-lg border border-warning/40 bg-warning/10 p-3">
@@ -279,9 +289,11 @@ function ProviderVerificationReviewPanel({
                   <div className="min-w-0">
                     <p className="break-words font-semibold">
                       {document.title}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
                       {document.requirementKind === "one_of"
-                        ? " (one of required alternatives)"
-                        : document.isRequired ? " (required)" : " (optional)"}
+                        ? "One of the required documents"
+                        : document.isRequired ? "Required" : "Optional"}
                     </p>
                     <p className="mt-1 break-all text-sm text-muted-foreground">
                       {document.fileName} · {document.fileSize} ·{" "}
@@ -303,7 +315,7 @@ function ProviderVerificationReviewPanel({
                       rel="noopener noreferrer"
                     >
                       <ExternalLink aria-hidden="true" />
-                      Securely view
+                      View document
                     </a>
                   </Button>
                   <Button asChild variant="secondary" size="compact">
@@ -319,23 +331,15 @@ function ProviderVerificationReviewPanel({
         )}
       </section>
 
-      <TaxProfileReviewSection
-        providerId={
-          application.providerId
-        }
-        taxProfile={
-          application.taxProfile
-        }
-      />
+      <details className="rounded-card border border-border bg-card p-4">
+        <summary className="cursor-pointer font-bold">Additional business information</summary>
+        <p className="mt-2 text-sm text-muted-foreground">Tax information is separate from provider approval.</p>
+        <TaxProfileReviewSection providerId={application.providerId} taxProfile={application.taxProfile} />
+      </details>
 
       <section aria-labelledby="decision-heading" className="rounded-card border border-border bg-card p-4 shadow-card">
-        <h3 id="decision-heading" className="text-lg font-bold">
-          Administrative decision
-        </h3>
-        <label
-          htmlFor="provider-review-remarks"
-          className="mt-4 grid gap-2 text-sm font-semibold"
-        >
+        <h3 id="decision-heading" className="text-lg font-bold">Review decision</h3>
+        <label htmlFor="provider-review-remarks" className="mt-4 grid gap-2 text-sm font-semibold">
           Admin remarks
           <Textarea
             id="provider-review-remarks"
@@ -343,12 +347,11 @@ function ProviderVerificationReviewPanel({
             maxLength={2000}
             disabled={submitting}
             onChange={(event) => setRemarks(event.currentTarget.value)}
-            placeholder="Add review context. Rejection, resubmission, and suspension require at least 10 characters."
+            placeholder="Explain your decision. Rejection, updated documents, suspension, and restoration require at least 10 characters."
           />
         </label>
         <p className="mt-2 text-sm text-muted-foreground">
-          Remarks are included in the immutable audit trail and the provider
-          notification when supplied.
+          Your remarks are saved in the activity history and may be included in the provider notification.
         </p>
         {error ? (
           <p role="alert" className="mt-3 text-sm font-semibold text-destructive">
@@ -371,11 +374,11 @@ function ProviderVerificationReviewPanel({
           Verification history
         </h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          Immutable status, document, and decision events with audit references.
+          History of verification updates and administrator decisions.
         </p>
         {application.history.length === 0 ? (
           <p className="mt-4 text-sm text-muted-foreground">
-            No structured history is available for this legacy application.
+            No verification updates have been recorded yet.
           </p>
         ) : (
           <ol className="mt-4 grid gap-3">
@@ -415,14 +418,14 @@ function ProviderVerificationReviewPanel({
                   </p>
                 ) : null}
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Actor: {humanize(entry.actorRole)} · {entry.actorId}
+                  {humanize(entry.actorRole)}
                 </p>
                 {entry.auditLogId !== "Unavailable" ? (
                   <Link
                     className="mt-2 inline-flex min-h-12 items-center text-sm font-semibold text-primary-strong underline underline-offset-4"
                     href={`/admin/audit-logs/${entry.auditLogId}`}
                   >
-                    View audit log {entry.auditLogId}
+                    View activity details
                   </Link>
                 ) : null}
               </li>
@@ -875,14 +878,13 @@ function DecisionActions({
             label: "Approve provider",
             title: "Approve this provider?",
             description:
-              "The server will revalidate every required document and Storage " +
-              "object before activating public-provider eligibility.",
+              "Required documents will be checked before the provider can offer services on FEASTA.",
             destructive: false,
           },
           {
             action: "require_resubmission",
-            label: "Request resubmission",
-            title: "Request document resubmission?",
+            label: "Request updated documents",
+            title: "Request updated documents?",
             description:
               "The provider becomes inactive and may replace verification " +
               "documents. Meaningful remarks are required.",
@@ -890,7 +892,7 @@ function DecisionActions({
           },
           {
             action: "reject",
-            label: "Reject provider",
+            label: "Reject application",
             title: "Reject this provider?",
             description:
               "The provider remains inactive. Meaningful rejection remarks " +
@@ -921,7 +923,7 @@ function DecisionActions({
   if (actions.length === 0) {
     return (
       <p className="mt-4 rounded-lg bg-muted p-3 text-sm text-muted-foreground">
-        No administrative transition is available from this status.
+        No review action is available for this application right now.
       </p>
     );
   }
@@ -1026,6 +1028,7 @@ function listLabel(values: readonly string[]): string {
 }
 
 function humanize(value: string): string {
+  if (value === "resubmission_required") return "Updated documents needed";
   return value.replaceAll("_", " ").replace(/\b\w/gu, (letter) =>
     letter.toUpperCase()
   );

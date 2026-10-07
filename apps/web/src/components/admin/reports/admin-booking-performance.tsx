@@ -1,5 +1,4 @@
 import {
-  ArrowRight,
   CalendarClock,
   CheckCircle2,
   Clock3,
@@ -30,10 +29,10 @@ export function AdminBookingPerformance({
     <section aria-labelledby="booking-performance-heading" className="grid gap-4">
       <div>
         <h2 id="booking-performance-heading" className="text-xl font-black">
-          Booking performance
+          Booking activity
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Booking demand, lifecycle outcomes, provider responses, and conversion through event completion.
+          Review booking status and provider responses.
         </p>
       </div>
 
@@ -71,7 +70,7 @@ export function AdminBookingPerformance({
         />
       </div>
 
-      <BookingFunnel report={report} />
+
     </section>
   );
 }
@@ -219,7 +218,7 @@ function BookingStatusDistribution({report}: {report: AdminBookingPerformanceDat
     <article className="rounded-card border border-border bg-card p-4 shadow-card sm:p-5">
       <h3 className="font-bold">Booking status distribution</h3>
       <p className="mt-1 text-sm text-muted-foreground">
-        Current lifecycle status of bookings created during this period.
+        Current status of bookings created during this period.
       </p>
       <div className="mt-5 grid gap-3">
         {report.statusDistribution.map((point) => (
@@ -244,46 +243,6 @@ function BookingStatusDistribution({report}: {report: AdminBookingPerformanceDat
           </div>
         ))}
       </div>
-    </article>
-  );
-}
-
-function BookingFunnel({report}: {report: AdminBookingPerformanceData}) {
-  return (
-    <article className="rounded-card border border-border bg-card p-4 shadow-card sm:p-5">
-      <h3 className="font-bold">Booking conversion funnel</h3>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Distinct bookings progressing from creation through completed events. A stage may decrease when records remain at earlier lifecycle states.
-      </p>
-      <ol className="mt-5 grid gap-3 lg:grid-cols-6">
-        {report.funnel.map((stage, index) => (
-          <li key={stage.id} className="relative min-w-0">
-            <div className="h-full rounded-lg border border-border bg-background p-4">
-              <div className="flex items-start justify-between gap-2">
-                <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-xs font-black text-primary-foreground">
-                  {index + 1}
-                </span>
-                {index < report.funnel.length - 1 ? (
-                  <ArrowRight
-                    aria-hidden="true"
-                    className="hidden size-4 text-muted-foreground lg:block"
-                  />
-                ) : null}
-              </div>
-              <p className="mt-4 text-sm font-bold">{stage.label}</p>
-              <p className="mt-1 text-2xl font-black">{formatCount(stage.count)}</p>
-              <p className="mt-2 text-xs text-muted-foreground">
-                {index === 0
-                  ? "Starting cohort"
-                  : `${(stage.conversionFromPrevious ?? 0).toFixed(1)}% from previous`}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {stage.conversionFromCreated.toFixed(1)}% of created
-              </p>
-            </div>
-          </li>
-        ))}
-      </ol>
     </article>
   );
 }

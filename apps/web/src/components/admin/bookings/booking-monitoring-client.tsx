@@ -44,6 +44,10 @@ import {
 import {
   PageHeading,
 } from "@/components/layout/page-heading";
+import {useAdminAutoRefresh} from "@/lib/admin/use-admin-auto-refresh";
+import {CancellationManagementClient} from "@/components/admin/bookings/cancellation-management-client";
+import type {AdminCancellationQueue} from "@/lib/admin/cancellations/admin-cancellation-types";
+import {adminBookingStatusLabels, adminBookingPaymentLabels, adminBookingStatusLabel, adminBookingPaymentLabel} from "@/lib/admin/bookings/admin-booking-labels";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import type {
@@ -58,6 +62,7 @@ import type {
 type BookingMonitoringClientProps = {
   initialPage: AdminBookingPage;
   supplementalContent?: ReactNode;
+  initialCancellationQueue?: AdminCancellationQueue;
 };
 
 const FIRST_PAGE_CURSOR = "__first_page__";
@@ -89,6 +94,7 @@ const dateFormatter =
 function BookingMonitoringClient({
   initialPage,
   supplementalContent,
+  initialCancellationQueue,
 }: BookingMonitoringClientProps) {
   const [page, setPage] =
     useState(initialPage);
@@ -118,6 +124,16 @@ function BookingMonitoringClient({
     useTransition();
 
   const requestIdRef = useRef(0);
+
+  const refreshBookings = useAdminAutoRefresh(async (isCurrent, afterMutation) => {
+    const requestId = requestIdRef.current;
+    const result = afterMutation
+      ? await loadAdminBookingsAction(filters, {freshStatistics: true})
+      : await loadAdminBookingsAction(filters);
+    if (!isCurrent() || requestId !== requestIdRef.current) return;
+    setPage(result);
+    setSelectedBooking(current => current ? result.bookings.find(booking => booking.id === current.id) ?? current : null);
+  }, JSON.stringify(filters), isPending);
 
   const openBooking = useCallback(
     (booking: AdminBooking) => {
@@ -225,7 +241,7 @@ function BookingMonitoringClient({
         cell: (booking) => (
           <div className="min-w-[8rem]">
             <BookingStatusBadge
-              status={booking.paymentStatus}
+              kind="payment" status={booking.paymentStatus}
             />
 
             <p className="mt-2 font-semibold">
@@ -403,7 +419,7 @@ function BookingMonitoringClient({
 
     if (filters.status !== "all") {
       labels.push(
-        `Status: ${formatLabel(
+        `Status: ${adminBookingStatusLabel(
           filters.status,
         )}`,
       );
@@ -411,7 +427,7 @@ function BookingMonitoringClient({
 
     if (filters.paymentStatus !== "all") {
       labels.push(
-        `Payment: ${formatLabel(
+        `Payment: ${adminBookingPaymentLabel(
           filters.paymentStatus,
         )}`,
       );
@@ -445,11 +461,12 @@ function BookingMonitoringClient({
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Administration"
-        title="Booking Monitoring"
+        title="Bookings"
         description="Monitor customer events, provider responses, and payment progress across FEASTA."
       />
 
       {supplementalContent}
+      {initialCancellationQueue ? <CancellationManagementClient initialQueue={initialCancellationQueue} onUpdated={() => refreshBookings(true)} /> : null}
 
       <section
         className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
@@ -467,7 +484,7 @@ function BookingMonitoringClient({
         />
 
         <SummaryCard
-          label="Pending approval"
+          label="Waiting for provider"
           value={page.statistics.pendingApproval.toLocaleString(
             "en-PH",
           )}
@@ -489,7 +506,8 @@ function BookingMonitoringClient({
         />
 
         <SummaryCard
-          label="Confirmed revenue"
+          label="Paid booking amount"
+          supportingMetric="Payments currently marked paid"
           value={currencyFormatter.format(
             page.statistics.totalPaidAmount,
           )}
@@ -527,30 +545,7 @@ function BookingMonitoringClient({
               <option value="all">
                 All booking statuses
               </option>
-              <option value="pending_provider_approval">
-                Pending provider approval
-              </option>
-              <option value="needs_provider_replacement">
-                Needs provider replacement
-              </option>
-              <option value="waiting_for_down_payment">
-                Waiting for payment
-              </option>
-              <option value="confirmed">
-                Confirmed
-              </option>
-              <option value="in_progress">
-                In progress
-              </option>
-              <option value="completed">
-                Completed
-              </option>
-              <option value="cancelled">
-                Cancelled
-              </option>
-              <option value="expired">
-                Expired
-              </option>
+              {Object.entries(adminBookingStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </FilterSelect>
 
             <FilterSelect
@@ -569,30 +564,7 @@ function BookingMonitoringClient({
               <option value="all">
                 All payment statuses
               </option>
-              <option value="unpaid">
-                Unpaid
-              </option>
-              <option value="pending">
-                Pending
-              </option>
-              <option value="processing">
-                Processing
-              </option>
-              <option value="partially_paid">
-                Partially paid
-              </option>
-              <option value="paid">
-                Paid
-              </option>
-              <option value="failed">
-                Failed
-              </option>
-              <option value="expired">
-                Expired
-              </option>
-              <option value="refunded">
-                Refunded
-              </option>
+              {Object.entries(adminBookingPaymentLabels).filter(([value]) => value !== "partially_refunded").map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </FilterSelect>
 
             <FilterSelect

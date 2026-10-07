@@ -62,7 +62,7 @@ test(
   () => {
     assert.match(
       attention,
-      /Finance attention/u,
+      /Payment issues/u,
     );
 
     assert.match(
@@ -72,7 +72,7 @@ test(
 
     assert.match(
       attention,
-      /Settlement reconciliation/u,
+      /Payout to review/u,
     );
 
     assert.match(
@@ -117,7 +117,7 @@ test(
 
     assert.match(
       attention,
-      /Refresh attention/u,
+      /"Refresh"/u,
     );
   },
 );
@@ -181,17 +181,12 @@ test(
 
     assert.match(
       attention,
-      /guarded Admin recovery actions/u,
+      /item\.recordState\s*===\s*"valid"[\s\S]*item\.providerId[\s\S]*item\.expectedUpdatedAtMillis/u,
     );
 
     assert.match(
       attention,
-      /cannot rewrite trusted financial/u,
-    );
-
-    assert.match(
-      attention,
-      /mark a Provider payout-ready/u,
+      /did not pass validation[\s\S]*Refresh Payment issues/u,
     );
   },
 );

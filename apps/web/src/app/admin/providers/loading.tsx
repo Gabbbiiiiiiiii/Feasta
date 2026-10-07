@@ -15,7 +15,7 @@ export default function AdminProvidersLoading() {
         ))}
       </div>
       <LoadingSkeleton className="h-52 rounded-card" />
-      <TableLoadingSkeleton caption="Provider verification queue" />
+      <TableLoadingSkeleton caption="Provider verification" />
     </div>
   );
 }

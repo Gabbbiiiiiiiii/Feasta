@@ -5,7 +5,6 @@ import {
   CalendarCheck,
   CheckCircle2,
   CircleDollarSign,
-  Clock3,
   Printer,
   Users,
   UserRoundCheck,
@@ -148,7 +147,7 @@ export function AdminReportsExecutiveClient({
             </h1>
 
             <p className="mt-1 text-[9pt] text-[#5F554F]">
-              Reports and Insights · Authorized operational data
+              Reports. Authorized operational data.
             </p>
           </div>
 
@@ -207,8 +206,8 @@ export function AdminReportsExecutiveClient({
       >
         <PageHeading
           eyebrow="Administration"
-          title="Reports and Insights"
-          description="Review booking activity, provider participation, payment performance, and trusted financial movements using bounded administrative data."
+          title="Reports"
+          description="Review bookings, customer payments, FEASTA revenue, and provider activity."
         />
         <div className="grid w-full shrink-0 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
             <Button
@@ -372,14 +371,14 @@ export function AdminReportsExecutiveClient({
           role="status"
           className="rounded-card border border-border bg-card p-4 text-sm text-muted-foreground shadow-card"
         >
-          No booking or payment activity was recorded for this period. The values below are accurate zeros, not placeholder data.
+          No booking or payment activity was recorded for this period.
         </div>
       ) : null}
 
       <section aria-labelledby="executive-overview-heading">
         <div className="mb-4">
           <h2 id="executive-overview-heading" className="text-xl font-black">
-            Executive overview
+            Overview
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Operational totals and comparison trends for the selected period.
@@ -424,16 +423,17 @@ export function AdminReportsExecutiveClient({
             icon={<UserRoundCheck className="size-5" />}
           />
           <MetricCard
-            label="Confirmed payment volume"
+            label="Currently paid amount"
             value={report.executive.confirmedPaymentVolume.formattedValue}
             metric={report.executive.confirmedPaymentVolume}
             icon={<CircleDollarSign className="size-5" />}
           />
-          <MetricCard
-            label="Average paid payment"
-            value={report.executive.averagePaidPayment.formattedValue}
-            metric={report.executive.averagePaidPayment}
-            icon={<Clock3 className="size-5" />}
+          <SummaryCard
+            label="FEASTA Revenue"
+            value={report.financial
+              ? new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"}).format(report.financial.ledger.commissionNetMovementInCentavos / 100)
+              : "Not available"}
+            icon={<CircleDollarSign className="size-5" />}
           />
         </div>
       </section>
@@ -456,27 +456,7 @@ export function AdminReportsExecutiveClient({
         }
       />
 
-      <section
-        aria-labelledby="metric-definitions-heading"
-        className="rounded-card border border-border bg-card p-5 shadow-card"
-      >
-        <h2 id="metric-definitions-heading" className="text-lg font-bold">
-          Metric definitions
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          These definitions keep administrative reporting consistent and auditable.
-        </p>
-        <dl className="mt-4 grid gap-4 md:grid-cols-2">
-          {report.definitions.map((definition) => (
-            <div key={definition.id} className="rounded-lg border border-border p-4">
-              <dt className="font-bold">{definition.label}</dt>
-              <dd className="mt-1 text-sm leading-6 text-muted-foreground">
-                {definition.description}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </section>
+
 
       <footer
         data-print-footer
@@ -488,7 +468,7 @@ export function AdminReportsExecutiveClient({
           </p>
 
           <p>
-            Confidential · Authorized administrative use only
+            Confidential. Authorized administrative use only.
           </p>
         </div>
       </footer>
@@ -497,8 +477,8 @@ export function AdminReportsExecutiveClient({
         data-print-hidden
         className="text-xs text-muted-foreground"
       >
-        Generated {formatGeneratedAt(report.generatedAt)} ·{" "}
-        {report.timeZone} · {report.currency}
+        Generated {formatGeneratedAt(report.generatedAt)}.{" "}
+        {report.timeZone}. {report.currency}
       </p>
     </div>
   );

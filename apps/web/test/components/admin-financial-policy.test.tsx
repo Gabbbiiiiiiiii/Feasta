@@ -229,7 +229,7 @@ describe(
 
         fireEvent.change(
           screen.getByLabelText(
-            "Internal reason",
+            "Reason for changes",
           ),
           {
             target: {
@@ -278,7 +278,7 @@ describe(
 
         fireEvent.change(
           screen.getByLabelText(
-            "Internal reason",
+            "Reason for changes",
           ),
           {
             target: {
@@ -316,7 +316,7 @@ describe(
 
         fireEvent.change(
           screen.getByLabelText(
-            "Internal reason",
+            "Reason for changes",
           ),
           {
             target: {
@@ -443,7 +443,7 @@ describe(
 
         fireEvent.change(
           screen.getByLabelText(
-            "Internal reason",
+            "Reason for changes",
           ),
           {
             target: {
@@ -515,7 +515,7 @@ describe(
 
         expect(
           screen.getByLabelText(
-            "Internal reason",
+            "Reason for changes",
           ),
         ).toHaveValue("");
       },

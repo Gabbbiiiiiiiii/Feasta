@@ -124,8 +124,10 @@ test("backend revalidates Customer ownership and exact callable inputs", async (
     assert.match(source, /requireAuth\(request\)/u);
     assert.match(source, /requireRole/u);
     assert.match(source, /canonicalRequestLinkageReason/u);
-    assert.match(source, /canonicalPaymentLinkageReason/u);
   }
+
+  assert.match(preflight, /canonicalPaymentLinkageReason/u);
+  assert.match(submit, /readTrustedProviderRequestPaymentSetInTransaction/u);
   assert.match(preflight, /const INPUT_FIELDS = new Set\(\["providerRequestId"\]\)/u);
   assert.match(submit, /"providerRequestId",\s*"reason",\s*"idempotencyKey"/u);
   assert.match(submit, /existing\.customerId !== input\.actorUid/u);

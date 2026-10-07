@@ -350,8 +350,8 @@ describe("ApplicationShell", () => {
       "Complaints",
       "Announcements",
       "Reports",
-      "Audit Logs",
-      "File Maintenance",
+      "Activity logs",
+      "Platform setup",
       "Settings",
     ]);
     expect(within(desktopNav).getByRole("link", {name: "Dashboard"})).toHaveClass("h-10");

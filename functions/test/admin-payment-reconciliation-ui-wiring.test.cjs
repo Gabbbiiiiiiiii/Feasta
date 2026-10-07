@@ -1,4 +1,4 @@
-const test =
+﻿const test =
   require("node:test");
 
 const assert =
@@ -211,12 +211,12 @@ test(
 
     assert.match(
       drawer,
-      /Reconciliation required/u,
+      /Review needed/u,
     );
 
     assert.match(
       drawer,
-      /does not by itself mean the Provider\s+has been paid/u,
+      /This does not change the Customer\s+payment status/u,
     );
   },
 );

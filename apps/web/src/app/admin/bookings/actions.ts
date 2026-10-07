@@ -15,10 +15,11 @@ import { requireAdmin } from "@/lib/auth/session";
 
 export async function loadAdminBookingsAction(
   filters: AdminBookingFilters,
+  options?: {freshStatistics?: boolean},
 ): Promise<AdminBookingPage> {
   await requireAdmin();
 
-  return getAdminBookingPage(filters);
+  return getAdminBookingPage(filters, options);
 }
 
 export async function loadAdminBookingDetailsAction(

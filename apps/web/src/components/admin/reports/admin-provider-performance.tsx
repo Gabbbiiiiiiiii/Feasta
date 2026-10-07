@@ -40,8 +40,7 @@ export function AdminProviderPerformance({
           Provider performance
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Provider participation, request outcomes, service delivery, ratings,
-          and provider-associated payment volume for the selected period.
+          Review provider requests, completed events, ratings, and customer payments.
         </p>
       </div>
 
@@ -65,9 +64,9 @@ export function AdminProviderPerformance({
           icon={<CalendarCheck2 className="size-5" />}
         />
         <ProviderMetricCard
-          label="Confirmed payment volume"
+          label="Currently paid amount"
           value={formatCentavos(totals.paymentVolume)}
-          detail="Provider-associated; not FEASTA revenue"
+          detail="Customer payments for provider services"
           icon={<WalletCards className="size-5" />}
         />
       </div>
@@ -111,8 +110,7 @@ function ProviderRanking({
     <article className="rounded-card border border-border bg-card p-4 shadow-card sm:p-5">
       <h3 className="font-bold">Provider activity ranking</h3>
       <p className="mt-1 text-sm text-muted-foreground">
-        Ordered by confirmed payment volume, then completed events. This is an
-        operational ranking, not a FEASTA revenue ranking.
+        Ranked by currently paid customer payments for provider services, then by completed events.
       </p>
       <ol className="mt-5 grid gap-4">
         {ranked.map((provider, index) => (
