@@ -132,6 +132,7 @@ function BookingDetailsDrawer({
               }
             />
           </dl>
+          {(booking.status === "cancelled" || (booking.providerRequests.length > 0 && booking.providerRequests.every(request => request.status === "cancelled"))) && booking.outstandingAmount === 0 ? <p className="mt-2 text-sm text-muted-foreground">No amount due</p> : null}
         </section>
 
         <section

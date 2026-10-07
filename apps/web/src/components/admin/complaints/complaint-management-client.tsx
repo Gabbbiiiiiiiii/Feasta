@@ -536,6 +536,11 @@ function ComplaintManagementClient({
       </section>
 
       <FilterToolbar
+        suggestionScope={JSON.stringify(filters)}
+        loadSuggestions={async (search) => {
+          const result = await loadAdminComplaintsAction({...filters, search, cursor: null, pageSize: 6});
+          return result.complaints.slice(0, 6).map(r => ({key: r.id, label: r.complainantName, context: [r.category, r.status].join(" · "), value: r.id}));
+        }}
         searchValue={
           searchValue
         }

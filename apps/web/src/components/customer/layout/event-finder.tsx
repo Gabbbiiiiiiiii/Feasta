@@ -7,7 +7,8 @@ import {useEffect, useRef, useState, type FormEvent} from "react";
 import {EventVenueInput} from "@/components/landing/event-venue-input";
 import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {Button} from "@/components/ui/button";
-import {Input} from "@/components/ui/input";
+import {SearchInput} from "@/components/forms/search-input";
+import {loadMarketplaceSuggestionsAction} from "@/app/customer/search/actions";
 import {Select} from "@/components/ui/select";
 import {
   manilaDateValue,
@@ -32,6 +33,7 @@ export function EventFinder({
   serviceCategoryOptions?: readonly ServiceCategoryOption[];
 }) {
   const router = useRouter();
+  const [search, setSearch] = useState(new URLSearchParams(query).get("q") ?? "");
   const parameters = new URLSearchParams(query);
   // A fixed lower bound keeps URL-derived defaults identical during SSR and hydration.
   // The canonical provider parser validates against today's date on submission.
@@ -148,7 +150,7 @@ export function EventFinder({
             <label htmlFor="event-finder-search" className="mb-2 block text-xs font-bold text-feasta-text-secondary">
               Search approved providers
             </label>
-            <Input id="event-finder-search" type="search" name="q" minLength={2} maxLength={80} defaultValue={parameters.get("q") ?? ""} placeholder="Search providers or services" className={controlClass} />
+            <SearchInput loadSuggestions={value => loadMarketplaceSuggestionsAction(value, query)} suggestionScope={query} onSuggestionSelect={item => { router.push(item.value); onFind(); }} value={search} onChange={event => setSearch(event.target.value)} id="event-finder-search" name="q" minLength={2} maxLength={80} placeholder="Search providers or services" className={controlClass} />
           </div>
           <div className="min-w-0">
             <label htmlFor="event-finder-provider-type" className="mb-2 block text-xs font-bold text-feasta-text-secondary">

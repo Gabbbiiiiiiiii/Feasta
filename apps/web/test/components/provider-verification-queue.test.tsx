@@ -246,7 +246,7 @@ describe("provider verification queue", () => {
       level: 1,
       name: "Provider verification",
     })).toBeInTheDocument();
-    expect(screen.getByRole("searchbox", {
+    expect(screen.getByRole("combobox", {
       name: "Search provider verification applications",
     })).toBeInTheDocument();
     expect(screen.getByRole("combobox", {

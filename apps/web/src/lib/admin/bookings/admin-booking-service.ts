@@ -1,4 +1,5 @@
 import "server-only";
+import {bookingOutstanding} from "./booking-outstanding";
 
 import {
   AggregateField,
@@ -757,15 +758,7 @@ function mapBookingDocument(
     totalPaidAmount,
     totalRefundedAmount,
 
-    outstandingAmount:
-      roundCurrency(
-        Math.max(
-          0,
-          totalAmount -
-            totalPaidAmount +
-            totalRefundedAmount,
-        ),
-      ),
+    outstandingAmount: bookingOutstanding(normalizeMainEventStatus(data.status), totalAmount, providerRequests, payments),
 
     providerRequests,
     payments,

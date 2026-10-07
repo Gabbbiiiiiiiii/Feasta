@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import {useRouter} from "next/navigation";
 import {
   Activity,
   CircleCheckBig,
@@ -51,6 +52,7 @@ const DEFAULT_FILTERS: AdminAuditLogFilters = {
 function AuditLogBrowserClient({
   initialPage,
 }: AuditLogBrowserClientProps) {
+  const router = useRouter();
   const [page, setPage] = useState(initialPage);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [filterOptions, setFilterOptions] = useState(
@@ -231,6 +233,12 @@ function AuditLogBrowserClient({
       </p>
 
       <FilterToolbar
+        onSuggestionSelect={item => router.push(`/admin/audit-logs/${encodeURIComponent(item.key)}`)}
+        suggestionScope={JSON.stringify(filters)}
+        loadSuggestions={async (search) => {
+          const result = await loadAdminAuditLogsAction({...filters, search, cursor: null, pageSize: 6});
+          return result.auditLogs.slice(0, 6).map(r => ({key: r.id, label: r.summary, context: [r.action, r.actorRole, r.outcome].filter(Boolean).join(" · "), value: r.action}));
+        }}
         searchValue={searchValue}
         onSearchChange={setSearchValue}
         onSearchSubmit={(search) => applyFilters({search})}

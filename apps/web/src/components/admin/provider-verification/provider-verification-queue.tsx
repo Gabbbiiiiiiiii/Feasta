@@ -178,6 +178,12 @@ function ProviderVerificationQueue({
       </div>
 
       <FilterToolbar
+        suggestionScope={JSON.stringify(filters)}
+        loadSuggestions={async (search) => {
+          const result = await loadProviderVerificationQueueAction({...filters, search, cursor: null, direction: "next"}, null);
+          return result.page.items.slice(0, 6).map(r => ({key: r.id, label: r.businessName, context: [r.providerServiceType, r.status].join(" · "), value: r.businessName}));
+        }}
+        onSuggestionSelect={item => navigate({selected: item.key}, false)}
         searchValue={search}
         onSearchChange={setSearch}
         onSearchSubmit={(value) => navigate({q: value || null, selected: null})}

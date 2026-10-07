@@ -247,7 +247,7 @@ describe("customer marketplace search presentation", () => {
       />,
     );
     fireEvent.change(
-      screen.getByRole("searchbox", {name: "Search approved providers"}),
+      screen.getByRole("combobox", {name: "Search approved providers"}),
       {target: {value: "stale search"}},
     );
 
@@ -266,7 +266,7 @@ describe("customer marketplace search presentation", () => {
       />,
     );
 
-    expect(screen.getByRole("searchbox", {name: "Search approved providers"})).toHaveValue("venue");
+    expect(screen.getByRole("combobox", {name: "Search approved providers"})).toHaveValue("venue");
     expect(screen.getByRole("combobox", {name: "Provider Type"})).toHaveValue("addon");
     expect(screen.getByRole("combobox", {name: "Service Category"})).toHaveValue("venue_provider");
     expect(
@@ -286,7 +286,7 @@ describe("customer marketplace search presentation", () => {
       </>,
     );
 
-    expect(screen.getByRole("searchbox", {name: "Search approved providers"})).toHaveAttribute("maxlength", "80");
+    expect(screen.getByRole("combobox", {name: "Search approved providers"})).toHaveAttribute("maxlength", "80");
     fireEvent.click(screen.getByText("More filters"));
     const serviceTypeFilter = screen.getByRole("combobox", {name: "Provider Type"});
     expect(serviceTypeFilter).toHaveTextContent("Catering");

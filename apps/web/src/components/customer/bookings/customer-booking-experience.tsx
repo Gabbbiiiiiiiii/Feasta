@@ -44,7 +44,7 @@ import {CustomerBookingMobileCard} from "@/components/customer/bookings/customer
 import {CursorPagination} from "@/components/data/cursor-pagination";
 import {DataTable, type DataTableColumn} from "@/components/data/data-table";
 import {SummaryCard} from "@/components/data/summary-card";
-import {SearchInput} from "@/components/forms/search-input";
+import {SearchInput, type SuggestionLoader} from "@/components/forms/search-input";
 import {PageHeading} from "@/components/layout/page-heading";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
@@ -467,6 +467,11 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
       </section>
 
       <CustomerBookingFilterToolbar
+        suggestionScope={JSON.stringify(filters)}
+        loadSuggestions={async (search) => {
+          const result = await loadCustomerBookingsAction({...filters, search, cursor: null, pageSize: 6});
+          return result.bookings.slice(0, 6).map(r => ({key: r.id, label: r.bookingCode, context: [r.providerName, r.status, r.paymentStatus].join(" · "), value: r.bookingCode}));
+        }}
         searchValue={searchValue}
         onSearchChange={(value) => setSearchValue(value.slice(0, MAX_SEARCH_LENGTH))}
         onSearchSubmit={(search) => updateFilters({search: search.slice(0, MAX_SEARCH_LENGTH)})}
@@ -546,6 +551,8 @@ function SummaryIcon({icon}: {icon: ReactNode}) {
 }
 
 function CustomerBookingFilterToolbar({
+  loadSuggestions,
+  suggestionScope,
   searchValue,
   onSearchChange,
   onSearchSubmit,
@@ -556,6 +563,8 @@ function CustomerBookingFilterToolbar({
   status,
   onStatusChange,
 }: {
+  loadSuggestions: SuggestionLoader;
+  suggestionScope: string;
   searchValue: string;
   onSearchChange: (value: string) => void;
   onSearchSubmit: (value: string) => void;
@@ -589,6 +598,9 @@ function CustomerBookingFilterToolbar({
             Exact booking code or ID
           </label>
           <SearchInput
+            loadSuggestions={loadSuggestions}
+            suggestionScope={suggestionScope}
+            onSuggestionSelect={item => { onSearchChange(item.value); onSearchSubmit(item.value); }}
             id={searchId}
             aria-label="Search by exact booking code or booking ID"
             aria-describedby={searchHintId}

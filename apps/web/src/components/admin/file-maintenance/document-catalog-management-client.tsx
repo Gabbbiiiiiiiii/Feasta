@@ -22,6 +22,8 @@ import {
   SingletonAgreementDialog,
 } from "@/components/admin/file-maintenance/agreement-type-dialogs";
 import {DataTable, type DataTableColumn} from "@/components/data/data-table";
+import {matchingSuggestions} from "@/components/forms/search-suggestions";
+import type {SuggestionLoader} from "@/components/forms/search-input";
 import {FilterToolbar} from "@/components/data/filter-toolbar";
 import {feastaToast} from "@/components/feedback/toast";
 import {FormField} from "@/components/forms/form-field";
@@ -524,6 +526,7 @@ export function AgreementTemplateManagement({
   return (
     <>
     <CatalogSection
+      loadSuggestions={async query => matchingSuggestions(query, agreements.map(r => ({key: r.code, label: r.name, searchText: [r.name, r.code, r.version].join(" "), context: r.code + " · " + r.version, value: r.name})))}
       title="Agreements and contracts"
       description="Choose an agreement type, then draft and publish versions for that agreement. Provider onboarding uses the published Provider Agreement type."
       actionLabel="Add agreement"
@@ -1085,6 +1088,7 @@ export function BusinessDocumentManagement({
 
   return (
     <CatalogSection
+      loadSuggestions={async query => matchingSuggestions(query, documents.filter(r => status === "all" || r.status === status).map(r => ({key: r.code, label: r.name, searchText: [r.name, r.code, r.description].join(" "), context: r.code + " · " + r.status, value: r.name})))}
       title="Business documents"
       description="Define the files providers upload. Requirement rules decide who must provide each document. A document with no rules remains an optional upload."
       actionLabel="Add business document"
@@ -1608,6 +1612,7 @@ function confirmLifecycle<T extends {code: string; status: DocumentCatalogStatus
 }
 
 function CatalogSection<T>({
+  loadSuggestions,
   title,
   description,
   actionLabel,
@@ -1643,6 +1648,7 @@ function CatalogSection<T>({
   actionLabel: string;
   extraActions?: ReactNode;
   onCreate: () => void;
+  loadSuggestions: SuggestionLoader;
   searchValue: string;
   onSearchChange: (value: string) => void;
   onSearchSubmit: (value: string) => void;
@@ -1691,6 +1697,8 @@ function CatalogSection<T>({
         </div>
       </div>
       <FilterToolbar
+        suggestionScope={status ?? "all"}
+        loadSuggestions={loadSuggestions}
         searchValue={searchValue}
         onSearchChange={onSearchChange}
         onSearchSubmit={onSearchSubmit}

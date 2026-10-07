@@ -519,6 +519,11 @@ function BookingMonitoringClient({
       </section>
 
       <FilterToolbar
+        suggestionScope={JSON.stringify(filters)}
+        loadSuggestions={async (search) => {
+          const result = await loadAdminBookingsAction({...filters, search, cursor: null, pageSize: 6});
+          return result.bookings.slice(0, 6).map(r => ({key: r.id, label: r.reference, context: [r.customer.fullName, ...r.providerRequests.map(p => p.providerName), r.status, r.paymentStatus].join(" · "), value: r.reference}));
+        }}
         searchValue={searchValue}
         onSearchChange={setSearchValue}
         onSearchSubmit={(search) =>

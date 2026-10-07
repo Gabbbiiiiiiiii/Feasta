@@ -231,7 +231,7 @@ describe("customer marketplace header", () => {
     fireEvent.click(more);
     expect(screen.getByRole("option", {name: "All provider types"})).toHaveValue("all");
     expect(screen.getByRole("option", {name: "Catering provider"})).toHaveValue("catering");
-    fireEvent.change(screen.getByRole("searchbox", {name: "Search approved providers"}), {target: {value: "garden venue"}});
+    fireEvent.change(screen.getByRole("combobox", {name: "Search approved providers"}), {target: {value: "garden venue"}});
     fireEvent.change(screen.getByRole("combobox", {name: "Provider Type"}), {target: {value: "addon"}});
     fireEvent.change(screen.getByRole("combobox", {name: "Service Category"}), {target: {value: "venue_provider"}});
     fireEvent.click(screen.getByRole("button", {name: "Find Services"}));

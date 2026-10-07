@@ -327,6 +327,11 @@ export function CustomerPaymentsClient({
       </section>
 
       <FilterToolbar
+        suggestionScope={status}
+        loadSuggestions={async (search) => {
+          const result = await loadCustomerPaymentsAction({search, status, cursor: null, pageSize: 6});
+          return result.payments.slice(0, 6).map(r => ({key: r.id, label: r.bookingCode || "Payment record", context: [r.providerName, r.formattedAmount, r.status].join(" · "), value: r.paymentId}));
+        }}
         searchValue={search}
         onSearchChange={setSearch}
         onSearchSubmit={applySearch}

@@ -752,6 +752,11 @@ const handleRefundRequested =
       />
 
       <FilterToolbar
+        suggestionScope={JSON.stringify(filters)}
+        loadSuggestions={async (search) => {
+          const result = await loadAdminPaymentsAction({...filters, search, cursor: null, pageSize: 6});
+          return result.payments.slice(0, 6).map(r => ({key: r.id, label: r.bookingCode || "Payment record", context: [r.customerName, r.providerName, r.formattedAmount, r.status].join(" · "), value: r.paymentId}));
+        }}
         searchValue={searchValue}
         onSearchChange={setSearchValue}
         onSearchSubmit={(search) =>

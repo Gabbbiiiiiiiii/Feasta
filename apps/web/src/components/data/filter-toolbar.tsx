@@ -2,11 +2,14 @@
 
 import {useId, type FormEvent, type ReactNode} from "react";
 
-import {SearchInput} from "@/components/forms/search-input";
+import {SearchInput, type SuggestionLoader, type SearchSuggestion} from "@/components/forms/search-input";
 import {Button} from "@/components/ui/button";
 import {cn} from "@/lib/utils";
 
 type FilterToolbarProps = {
+  loadSuggestions?: SuggestionLoader;
+  onSuggestionSelect?: (suggestion: SearchSuggestion) => void;
+  suggestionScope?: string;
   searchValue: string;
   onSearchChange: (value: string) => void;
   onSearchSubmit: (value: string) => void;
@@ -22,6 +25,9 @@ type FilterToolbarProps = {
 };
 
 function FilterToolbar({
+  loadSuggestions,
+  onSuggestionSelect,
+  suggestionScope,
   searchValue,
   onSearchChange,
   onSearchSubmit,
@@ -47,6 +53,9 @@ function FilterToolbar({
       <form onSubmit={submit} role="search" className="grid min-w-0 gap-3 lg:grid-cols-[minmax(16rem,1fr)_auto]">
         <div className="grid min-w-0 gap-2">
           <SearchInput
+            loadSuggestions={loadSuggestions}
+            suggestionScope={suggestionScope}
+            onSuggestionSelect={(item) => { onSearchChange(item.value); if (onSuggestionSelect) onSuggestionSelect(item); else onSearchSubmit(item.value); }}
             aria-label={searchLabel}
             aria-describedby={searchHint ? searchHintId : undefined}
             placeholder={searchPlaceholder}

@@ -27,7 +27,10 @@ import type {
 
 const mocks = vi.hoisted(() => ({
   load: vi.fn(),
+  push: vi.fn(),
 }));
+
+vi.mock("next/navigation", () => ({useRouter: () => ({push: mocks.push})}));
 
 vi.mock("@/app/admin/audit-logs/actions", () => ({
   loadAdminAuditLogsAction: mocks.load,

@@ -2,6 +2,8 @@
 
 import {useEffect, useState, type ComponentProps, type Dispatch, type SetStateAction} from "react";
 import {Button} from "@/components/ui/button";
+import {SearchInput} from "@/components/forms/search-input";
+import {matchingSuggestions} from "@/components/forms/search-suggestions";
 import {Input} from "@/components/ui/input";
 import {Select} from "@/components/ui/select";
 import {Textarea} from "@/components/ui/textarea";
@@ -149,7 +151,11 @@ export function ProviderMenuManager() {
     {!open && error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     {menu.images.length ? <div role="search" aria-label="Filter menu images" className="flex flex-wrap items-end gap-3">
       <label className="grid min-w-0 flex-1 basis-64 gap-1 text-sm font-semibold">Search menu images
-        <Input type="search" placeholder="Search menu images..." value={search} onChange={(event) => setSearch(event.target.value)} />
+        <SearchInput
+          aria-label="Search menu images"
+          suggestionScope={titleFilter}
+          loadSuggestions={async query => matchingSuggestions(query, menu.images.filter(r => !titleFilter || r.category === titleFilter).map(r => ({key: r.id, label: r.title || "Menu item", searchText: [r.title, r.category, r.description, ...(r.servingOptions ?? []).flatMap(option => [option.name, option.description])].filter(Boolean).join(" "), context: r.category, value: r.title || query})))}
+          onSuggestionSelect={item => setSearch(item.value)} placeholder="Search menu images..." value={search} onChange={(event) => setSearch(event.target.value)} />
       </label>
       {categories.length ? <label className="grid min-w-0 flex-1 basis-48 gap-1 text-sm font-semibold">Category
         <Select value={titleFilter} onChange={(event) => setTitleFilter(event.target.value)}>

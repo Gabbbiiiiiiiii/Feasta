@@ -11,6 +11,8 @@ import {useRouter} from "next/navigation";
 import {useEffect, useRef, useState, type FormEvent, type ReactNode} from "react";
 
 import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
+import {SearchInput} from "@/components/forms/search-input";
+import {loadMarketplaceSuggestionsAction} from "@/app/customer/search/actions";
 import {Button} from "@/components/ui/button";
 import {PROVIDER_SERVICE_TYPE_OPTIONS} from "@/lib/customer/providers/provider-catalog";
 import {providerDiscoveryHref} from "@/lib/customer/providers/provider-query";
@@ -153,16 +155,18 @@ export function MarketplaceSearch() {
             <span className="font-medium text-feasta-text-tertiary">Optional</span>
           </span>
           <span className="relative">
-            <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8E7068]" />
-            <input
+            <SearchInput
+              aria-label="Provider or service (optional)"
+              loadSuggestions={query => loadMarketplaceSuggestionsAction(query, "service=" + draft.serviceType)}
+              suggestionScope={draft.serviceType}
+              onSuggestionSelect={item => router.push(item.value)}
               id="home-marketplace-search"
-              type="search"
               minLength={2}
               maxLength={80}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search by provider or service"
-              className={`${controlClass} pl-9`}
+              className={controlClass}
             />
           </span>
         </label>

@@ -232,6 +232,11 @@ function AnnouncementManagementClient({
       </section>
 
       <FilterToolbar
+        suggestionScope={JSON.stringify(filters)}
+        loadSuggestions={async (search) => {
+          const result = await loadAdminAnnouncementsAction({...filters, search, cursor: null, pageSize: 6});
+          return result.announcements.slice(0, 6).map(r => ({key: r.id, label: r.title, context: [r.audience, r.status].join(" · "), value: r.title}));
+        }}
         searchValue={searchValue}
         onSearchChange={setSearchValue}
         onSearchSubmit={(search) => applyFilters({search})}

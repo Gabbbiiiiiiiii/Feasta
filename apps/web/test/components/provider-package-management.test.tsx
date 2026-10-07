@@ -215,7 +215,7 @@ it("does not invent category options for untitled catalog images", async () => {
   mocks.load.mockResolvedValue({revision: 1, images: [menu.images[2]]});
   render(<ProviderMenuManager />);
   await screen.findByRole("article", {name: "Menu image 1"});
-  expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  expect(screen.queryByRole("combobox", {name: "Category"})).not.toBeInTheDocument();
 });
 
 it.each([

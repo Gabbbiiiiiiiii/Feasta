@@ -79,6 +79,7 @@ it("keeps combined filters, unsent search text and current data through refresh 
   fireEvent.change(screen.getByLabelText("Search by exact booking code"), {target: {value: "BK-unsent"}});
   const expected = {...mocks.load.mock.lastCall![0]} as AdminBookingFilters;
   expect(expected).toMatchObject({status: "waiting_for_down_payment", paymentStatus: "processing", date: "upcoming"});
+  await act(async () => {await vi.advanceTimersByTimeAsync(275);});
   const readsBefore = mocks.load.mock.calls.length;
   await act(async () => {await vi.advanceTimersByTimeAsync(5_000);});
   expect(mocks.load).toHaveBeenCalledTimes(readsBefore + 1);
@@ -112,4 +113,28 @@ it("preserves pagination and the open drawer while polling and clears the cursor
   await act(async () => {fireEvent.change(screen.getByLabelText("Booking status"), {target: {value: "waiting_for_down_payment"}});});
   expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({status: "waiting_for_down_payment", cursor: null}));
   expect(screen.getByText("Page 1")).toBeInTheDocument();
+});
+
+
+it("keeps open suggestions through refresh and applies exact selection with active filters", async () => {
+  vi.useFakeTimers();
+  mocks.load.mockResolvedValue({...page, bookings: [booking]});
+  show();
+  fireEvent.change(screen.getByLabelText("Booking status"), {target: {value: "confirmed"}});
+  await act(async () => {await Promise.resolve();});
+  const input = screen.getByRole("combobox", {name: "Search by exact booking code"});
+  fireEvent.focus(input);
+  fireEvent.change(input, {target: {value: "BK-001"}});
+  await act(async () => {await vi.advanceTimersByTimeAsync(275);});
+  expect(within(screen.getByRole("listbox")).getByRole("option", {name: /BK-001/})).toBeInTheDocument();
+  expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({search: "BK-001", status: "confirmed", cursor: null, pageSize: 6}));
+  const reads = mocks.load.mock.calls.length;
+  await act(async () => {await vi.advanceTimersByTimeAsync(5000);});
+  expect(mocks.load).toHaveBeenCalledTimes(reads + 1);
+  expect(input).toHaveValue("BK-001");
+  expect(within(screen.getByRole("listbox")).getByRole("option")).toBeInTheDocument();
+  fireEvent.click(within(screen.getByRole("listbox")).getByRole("option"));
+  await act(async () => {await Promise.resolve();});
+  expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({search: "BK-001", status: "confirmed", cursor: null, pageSize: 10}));
+  expect(screen.getAllByRole("button", {name: "View booking BK-001"}).length).toBeGreaterThan(0);
 });

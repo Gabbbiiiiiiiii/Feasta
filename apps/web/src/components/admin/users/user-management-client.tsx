@@ -632,6 +632,11 @@ const confirmAccountAction =
       </section>
 
       <FilterToolbar
+        suggestionScope={JSON.stringify(filters)}
+        loadSuggestions={async (search) => {
+          const result = await loadAdminUsersAction({...filters, search, cursor: null, pageSize: 6});
+          return result.users.slice(0, 6).map(r => ({key: r.id, label: r.fullName, context: [r.email, r.role, r.accountStatus].join(" · "), value: r.email || r.fullName}));
+        }}
         searchValue={searchValue}
         onSearchChange={setSearchValue}
         onSearchSubmit={(search) => {
