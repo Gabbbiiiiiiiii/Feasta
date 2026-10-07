@@ -7,107 +7,104 @@
    Phase 0A — Public + Application Foundation
 
    Design direction:
-   "A digital event-planning space where local services come together
-   around one celebration."
+   Clean marketplace surfaces in emerald, white, and silver.
+   Premium comes from restraint, not metallic gold.
 
    IMPORTANT:
    - Keep existing semantic token names for compatibility.
    - Keep the canonical FEASTA brand palette centralized in semantic tokens.
-   - Public pages may use the warmer celebration surfaces below.
-   - Admin / provider / customer application pages can continue using
-     background, card, muted, border, etc.
+   - Do not introduce gold, champagne, bronze, or warm ivory brand colors.
+   - Warning, error, and info status colors stay semantic.
    ========================================================================== */
 
 :root {
   color-scheme: light;
 
   /* ------------------------------------------------------------------------
-     CORE BRAND
+     EMERALD + SILVER BRAND
      ------------------------------------------------------------------------ */
 
   /*
    * Canonical FEASTA brand colors. Components consume the semantic
    * application tokens below instead of maintaining a second color scale.
+   *
+   * Deep Forest #073520, Deep Emerald #093B26, Dark Emerald #10492E,
+   * Emerald #0B6953, Bright Emerald #087159, Soft Emerald #24754A,
+   * Light Emerald #50C878.
    */
 
   /* ------------------------------------------------------------------------
-     WARM NEUTRALS
-
-     Instead of a cold gray application, FEASTA uses slightly warm neutrals.
-     This keeps event photography, food, flowers, decor and deep cherry
-     branding visually connected.
-     ------------------------------------------------------------------------ */
-
-  --feasta-cream-50: #fffdfb;
-  --feasta-cream-100: #fffaf6;
-  --feasta-cream-200: #fff6f0;
-  --feasta-cream-300: #f9eee7;
-
-  --feasta-stone-50: #faf9f8;
-  --feasta-stone-100: #f6f3f1;
-  --feasta-stone-200: #ebe5e1;
-  --feasta-stone-300: #ddd4cf;
-  --feasta-stone-400: #aaa09a;
-  --feasta-stone-500: #7c716b;
-  --feasta-stone-600: #625852;
-  --feasta-stone-700: #4c423d;
-  --feasta-stone-800: #352d29;
-  --feasta-stone-900: #241d1a;
-  --feasta-stone-950: #181310;
-
-  /* ------------------------------------------------------------------------
-     EXISTING APPLICATION TOKENS
+     APPLICATION TOKENS
 
      These names are intentionally preserved because existing FEASTA
      components already depend on them.
      ------------------------------------------------------------------------ */
 
-  --background: #faf9f7;
-  --foreground: #2b211d;
+  --background: #f7f8f8;
+  --foreground: #123b30;
 
   --card: #ffffff;
-  --card-foreground: #2b211d;
+  --card-foreground: #123b30;
 
-  --primary: #550b14;
+  --popover: #ffffff;
+  --popover-foreground: #123b30;
+
+  --primary: #093b26;
   --primary-foreground: #ffffff;
-  --primary-hover: #450910;
-  --primary-pressed: #36070c;
-  --primary-strong: #450910;
-  --primary-tint: #f7f0f2;
-  --primary-tint-strong: #eddde0;
+  --primary-hover: #10492e;
+  --primary-pressed: #073520;
+  --primary-strong: #093b26;
+  --primary-tint: #e8f1ee;
+  --primary-tint-strong: #d4e7df;
 
-  --secondary: var(--primary-tint);
-  --secondary-foreground: #2b211d;
+  --secondary: #f3f4f4;
+  --secondary-foreground: #123b30;
 
-  --muted: #f3efec;
-  --muted-foreground: #6f655f;
+  --muted: #edefef;
+  --muted-foreground: #667a74;
 
-  --border: #e8e1dc;
-  --input: #8c817a;
-  --ring: #550b14;
+  --accent: #e8f1ee;
+  --accent-foreground: #093b26;
+
+  --border: #d9dedc;
+  --input: #d9dedc;
+  --ring: #087159;
+
+  --link: #0b6953;
+  --link-hover: #093b26;
+  --link-active: #073520;
+
+  --placeholder: #6b7d78;
+
+  --table-hover: #f7f9f8;
 
   /* ------------------------------------------------------------------------
-     PUBLIC / CELEBRATION SURFACES
+     PUBLIC SURFACES
 
-     These are additional tokens for the redesigned FEASTA public experience.
-     They do not replace the application's normal card/background colors.
+     Cool white and silver. These do not replace card/background tokens.
      ------------------------------------------------------------------------ */
 
-  --feasta-canvas: #fffdfb;
-  --feasta-canvas-warm: #fff8f3;
+  --feasta-canvas: #f7f8f8;
+  --feasta-canvas-warm: #ffffff;
   --feasta-surface: #ffffff;
-  --feasta-surface-soft: #fff7f2;
-  --feasta-surface-muted: #f7f3f0;
-  --feasta-surface-strong: #2b211d;
+  --feasta-surface-soft: #f3f4f4;
+  --feasta-surface-muted: #edefef;
+  --feasta-surface-strong: #073520;
 
-  --feasta-text: #2b211d;
-  --feasta-text-secondary: #6f655f;
-  --feasta-text-tertiary: #938984;
+  --feasta-text: #123b30;
+  --feasta-text-secondary: #49665e;
+  --feasta-text-tertiary: #6b7d78;
   --feasta-text-on-dark: #ffffff;
 
-  --feasta-divider: #eee6e1;
-  --feasta-border-soft: #eee8e4;
-  --feasta-border-strong: #d8ccc6;
+  --feasta-divider: #edefef;
+  --feasta-border-soft: #d9dedc;
+  --feasta-border-strong: #c8cecc;
+
+  --feasta-sidebar: #ffffff;
+  --feasta-sidebar-foreground: #123b30;
+  --feasta-sidebar-muted: #667a74;
+  --feasta-sidebar-active: #e8f1ee;
+  --feasta-sidebar-indicator: #0b6953;
 
   /* ------------------------------------------------------------------------
      SEMANTIC STATUS COLORS
@@ -129,22 +126,22 @@
   --info-foreground: #ffffff;
   --info-subtle: #eff6ff;
 
-  --disabled: #d7cec8;
+  --disabled: #f3f4f4;
 
   /* ------------------------------------------------------------------------
      OVERLAYS
      ------------------------------------------------------------------------ */
 
-  --overlay: rgb(24 19 16 / 62%);
-  --overlay-soft: rgb(24 19 16 / 32%);
-  --overlay-strong: rgb(24 19 16 / 76%);
+  --overlay: rgb(30 30 30 / 30%);
+  --overlay-soft: rgb(30 30 30 / 20%);
+  --overlay-strong: rgb(30 30 30 / 45%);
 
   /* ------------------------------------------------------------------------
      LOADING
      ------------------------------------------------------------------------ */
 
-  --skeleton: #f1ece8;
-  --skeleton-highlight: #faf7f4;
+  --skeleton: #e5e7e7;
+  --skeleton-highlight: #f8f9f9;
 
   /* ------------------------------------------------------------------------
      RADIUS
@@ -180,35 +177,35 @@
      ------------------------------------------------------------------------ */
 
   --feasta-shadow-xs:
-    0 1px 2px rgb(43 33 29 / 4%);
+    0 1px 2px rgb(0 53 32 / 4%);
 
   --feasta-shadow-card:
-    0 1px 2px rgb(43 33 29 / 5%),
-    0 4px 12px rgb(43 33 29 / 3%);
+    0 1px 2px rgb(0 53 32 / 5%),
+    0 4px 12px rgb(0 53 32 / 4%);
 
   --feasta-shadow-card-hover:
-    0 8px 24px rgb(43 33 29 / 8%),
-    0 2px 8px rgb(43 33 29 / 4%);
+    0 8px 24px rgb(0 53 32 / 8%),
+    0 2px 8px rgb(0 53 32 / 4%);
 
   --feasta-shadow-floating:
-    0 10px 32px rgb(43 33 29 / 11%),
-    0 2px 8px rgb(43 33 29 / 5%);
+    0 10px 32px rgb(0 53 32 / 10%),
+    0 2px 8px rgb(0 53 32 / 5%);
 
   --feasta-shadow-modal:
-    0 24px 64px rgb(43 33 29 / 18%),
-    0 8px 24px rgb(43 33 29 / 8%);
+    0 24px 64px rgb(30 30 30 / 16%),
+    0 8px 24px rgb(30 30 30 / 8%);
 
   --feasta-shadow-brand-subtle:
-    0 3px 12px rgb(85 11 20 / 6%);
+    0 3px 12px rgb(9 59 38 / 8%);
 
   --feasta-shadow-brand-soft:
-    0 7px 18px rgb(85 11 20 / 16%);
+    0 7px 18px rgb(9 59 38 / 14%);
 
   --feasta-shadow-brand:
-    0 10px 28px rgb(85 11 20 / 20%);
+    0 10px 28px rgb(0 53 32 / 16%);
 
   --feasta-shadow-brand-strong:
-    0 14px 34px rgb(85 11 20 / 28%);
+    0 14px 34px rgb(7 53 32 / 22%);
 
   /* ------------------------------------------------------------------------
      MOTION
@@ -255,6 +252,9 @@
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
 
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary-hover: var(--primary-hover);
@@ -269,9 +269,19 @@
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
 
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
+  --color-link: var(--link);
+  --color-link-hover: var(--link-hover);
+  --color-link-active: var(--link-active);
+
+  --color-placeholder: var(--placeholder);
+  --color-table-hover: var(--table-hover);
 
   /* Public FEASTA surfaces */
   --color-feasta-canvas: var(--feasta-canvas);
@@ -288,6 +298,12 @@
   --color-feasta-divider: var(--feasta-divider);
   --color-feasta-border-soft: var(--feasta-border-soft);
   --color-feasta-border-strong: var(--feasta-border-strong);
+
+  --color-feasta-sidebar: var(--feasta-sidebar);
+  --color-feasta-sidebar-foreground: var(--feasta-sidebar-foreground);
+  --color-feasta-sidebar-muted: var(--feasta-sidebar-muted);
+  --color-feasta-sidebar-active: var(--feasta-sidebar-active);
+  --color-feasta-sidebar-indicator: var(--feasta-sidebar-indicator);
 
   /* Semantic */
   --color-destructive: var(--destructive);
@@ -448,8 +464,16 @@ button:not(:disabled),
     An unlayered rule beats those utilities and leaves dark text on red.
   */
   a {
-    color: inherit;
+    color: var(--link);
     text-decoration: none;
+  }
+
+  a:hover {
+    color: var(--link-hover);
+  }
+
+  a:active {
+    color: var(--link-active);
   }
 
   h1,
@@ -702,12 +726,12 @@ textarea::placeholder {
   background:
     radial-gradient(
       circle at 92% 4%,
-      rgb(85 11 20 / 8%),
+      rgb(8 113 89 / 8%),
       transparent 28rem
     ),
     radial-gradient(
       circle at 8% 42%,
-      rgb(237 221 224 / 45%),
+      rgb(232 241 238 / 70%),
       transparent 26rem
     ),
     var(--feasta-canvas);
@@ -744,7 +768,7 @@ textarea::placeholder {
   background:
     radial-gradient(
       circle at 20% 10%,
-      rgb(85 11 20 / 18%),
+      rgb(80 200 120 / 16%),
       transparent 38%
     );
 }
@@ -879,7 +903,7 @@ textarea::placeholder {
     overflow: visible !important;
 
     background: #ffffff !important;
-    color: #2b211d !important;
+    color: #123b30 !important;
   }
 
   body {

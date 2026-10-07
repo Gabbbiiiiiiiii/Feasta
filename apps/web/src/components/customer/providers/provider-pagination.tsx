@@ -24,7 +24,7 @@ export function ProviderPagination({
   return (
     <nav
       aria-label="Provider results pagination"
-      className="flex flex-col gap-4 rounded-[22px] border border-feasta-border-soft bg-white px-5 py-4 shadow-[0_5px_20px_rgb(43_33_29/0.03)] sm:flex-row sm:items-center sm:justify-between sm:px-6"
+      className="flex flex-col gap-4 rounded-[22px] border border-feasta-border-soft bg-white px-5 py-4 shadow-[0_5px_20px_rgb(0_75_59/0.03)] sm:flex-row sm:items-center sm:justify-between sm:px-6"
     >
       <div>
         <p

@@ -551,7 +551,7 @@ function openMenuItem(
                       title,
                     )
                   }
-                  className="group overflow-hidden rounded-2xl border border-feasta-border-soft bg-card text-left shadow-[0_4px_18px_rgb(43_33_29/0.035)] transition-[transform,border-color,box-shadow] duration-normal hover:-translate-y-1 hover:border-primary/20 hover:shadow-[0_16px_36px_rgb(43_33_29/0.085)] motion-reduce:transform-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                  className="group overflow-hidden rounded-2xl border border-feasta-border-soft bg-card text-left shadow-[0_4px_18px_rgb(0_75_59/0.035)] transition-[transform,border-color,box-shadow] duration-normal hover:-translate-y-1 hover:border-primary/20 hover:shadow-[0_16px_36px_rgb(0_75_59/0.085)] motion-reduce:transform-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img

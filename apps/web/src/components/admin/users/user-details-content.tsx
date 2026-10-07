@@ -757,7 +757,7 @@ function UserDetailsContent({
                 <span className="inline-flex items-center gap-2">
                   <Clock3
                     aria-hidden="true"
-                    className="size-4 text-amber-500"
+                    className="size-4 text-primary"
                   />
                   {formatDate(user.lastLoginAt)}
                 </span>

@@ -1158,7 +1158,7 @@ function discardAndLeave() {
           PAGE INTRO
          ============================================================ */}
 
-      <section className="relative overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white p-5 shadow-[0_10px_34px_rgb(43_33_29/0.045)] sm:p-7 lg:p-8">
+      <section className="relative overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white p-5 shadow-[0_10px_34px_rgb(0_75_59/0.045)] sm:p-7 lg:p-8">
         <div
           aria-hidden="true"
           className="pointer-events-none absolute -right-28 -top-32 size-72 rounded-full bg-primary/[0.055] blur-3xl"
@@ -1205,7 +1205,7 @@ function discardAndLeave() {
 
       <nav
         aria-label="Booking progress"
-        className="rounded-[22px] border border-feasta-border-soft bg-white p-4 shadow-[0_5px_20px_rgb(43_33_29/0.03)] sm:p-5"
+        className="rounded-[22px] border border-feasta-border-soft bg-white p-4 shadow-[0_5px_20px_rgb(0_75_59/0.03)] sm:p-5"
       >
         <ol className="grid gap-2 sm:grid-cols-4">
           {STEPS.map((item) => {
@@ -1280,7 +1280,7 @@ function discardAndLeave() {
           {step === 1 ? (
             <section
               aria-labelledby="event-details-title"
-              className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(43_33_29/0.04)] sm:p-6 lg:p-7"
+              className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6 lg:p-7"
             >
               <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
                 Step 1 of 4
@@ -1537,7 +1537,7 @@ function discardAndLeave() {
           {step === 2 ? (
             <section
               aria-labelledby="package-customization-title"
-              className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(43_33_29/0.04)] sm:p-6 lg:p-7"
+              className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6 lg:p-7"
             >
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="max-w-2xl">
@@ -1735,7 +1735,7 @@ function discardAndLeave() {
           {step === 3 ? (
             <section
               aria-labelledby="event-services-title"
-              className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(43_33_29/0.04)] sm:p-6 lg:p-7"
+              className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6 lg:p-7"
             >
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="max-w-2xl">
@@ -2151,7 +2151,7 @@ function discardAndLeave() {
            ============================================================ */}
 
         <aside className="min-w-0 lg:sticky lg:top-24">
-          <section className="overflow-hidden rounded-[22px] border border-feasta-border-soft bg-white shadow-[0_8px_26px_rgb(43_33_29/0.04)]">
+          <section className="overflow-hidden rounded-[22px] border border-feasta-border-soft bg-white shadow-[0_8px_26px_rgb(0_75_59/0.04)]">
             {packageRecord.imageUrl ? (
               // Public package image URL is normalized server-side.
               // eslint-disable-next-line @next/next/no-img-element
@@ -2376,7 +2376,7 @@ function discardAndLeave() {
 
       {leaveDialogOpen ? (
         <div
-          className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4"
+          className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4 backdrop-blur-sm"
           role="presentation"
           onMouseDown={(event) => {
             if (
@@ -2734,7 +2734,7 @@ function EventServiceCard({
         "transition-[border-color,background-color,box-shadow,transform]",
         selected
           ? "border-primary/35 bg-secondary shadow-brand-subtle"
-          : "border-feasta-border-soft bg-white hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-[0_7px_20px_rgb(43_33_29/0.05)]",
+          : "border-feasta-border-soft bg-white hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-[0_7px_20px_rgb(0_75_59/0.05)]",
         disabled
           ? "cursor-not-allowed opacity-60"
           : "cursor-pointer",
@@ -2970,7 +2970,7 @@ function BookingReview({
   return (
     <section
       aria-labelledby="booking-review-title"
-      className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(43_33_29/0.04)] sm:p-6 lg:p-7"
+      className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6 lg:p-7"
     >
       <div className="max-w-3xl">
         <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">

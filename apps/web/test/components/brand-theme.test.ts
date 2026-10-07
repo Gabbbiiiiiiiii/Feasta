@@ -62,14 +62,26 @@ function contrastRatio(first: string, second: string): number {
 
 describe("FEASTA brand theme contract", () => {
   it("defines the canonical semantic brand palette", () => {
-    expect(cssToken("primary")).toBe("#550b14");
-    expect(cssToken("primary-hover")).toBe("#450910");
-    expect(cssToken("primary-pressed")).toBe("#36070c");
-    expect(cssToken("primary-strong")).toBe("#450910");
+    expect(cssToken("primary")).toBe("#093b26");
+    expect(cssToken("primary-hover")).toBe("#10492e");
+    expect(cssToken("primary-pressed")).toBe("#073520");
+    expect(cssToken("primary-strong")).toBe("#093b26");
     expect(cssToken("primary-foreground")).toBe("#ffffff");
-    expect(cssToken("primary-tint")).toBe("#f7f0f2");
-    expect(cssToken("primary-tint-strong")).toBe("#eddde0");
-    expect(cssToken("ring")).toBe("#550b14");
+    expect(cssToken("primary-tint")).toBe("#e8f1ee");
+    expect(cssToken("primary-tint-strong")).toBe("#d4e7df");
+    expect(cssToken("background")).toBe("#f7f8f8");
+    expect(cssToken("foreground")).toBe("#123b30");
+    expect(cssToken("secondary")).toBe("#f3f4f4");
+    expect(cssToken("muted")).toBe("#edefef");
+    expect(cssToken("accent")).toBe("#e8f1ee");
+    expect(cssToken("border")).toBe("#d9dedc");
+    expect(cssToken("ring")).toBe("#087159");
+    expect(cssToken("link")).toBe("#0b6953");
+    expect(cssToken("feasta-sidebar")).toBe("#ffffff");
+    expect(cssToken("feasta-sidebar-foreground")).toBe("#123b30");
+    expect(cssToken("feasta-sidebar-muted")).toBe("#667a74");
+    expect(cssToken("feasta-sidebar-active")).toBe("#e8f1ee");
+    expect(cssToken("feasta-sidebar-indicator")).toBe("#0b6953");
 
     expect(globalStyles).toContain(
       "--color-primary-tint: var(--primary-tint)",
@@ -120,13 +132,46 @@ describe("FEASTA brand theme contract", () => {
     }
 
     for (const centralizedBrandLiteral of [
+      "#093b26",
+      "#10492e",
+      "#073520",
+      "#0b6953",
+      "#087159",
+      "#e8f1ee",
+      "#d4e7df",
+    ]) {
+      expect(customerSource).not.toContain(centralizedBrandLiteral);
+    }
+
+    for (const removedBrandLiteral of [
+      "#d4af37",
+      "#daa520",
+      "#b48916",
+      "#a67c11",
+      "#9a7717",
+      "#8e6b0a",
+      "#eadcae",
+      "#e7d59a",
+      "#e8c95d",
+      "#fff6cd",
+      "#ae8959",
+      "#be9c67",
+      "#c1a767",
+      "#e8d097",
+      "#be9b66",
+      "#a98455",
       "#550b14",
       "#450910",
       "#36070c",
       "#f7f0f2",
       "#eddde0",
+      "#fffdfb",
+      "#fff8f3",
+      "#fff6f0",
+      "#2b211d",
+      "#241d1a",
     ]) {
-      expect(customerSource).not.toContain(centralizedBrandLiteral);
+      expect(source).not.toContain(removedBrandLiteral);
     }
   });
 
@@ -164,9 +209,11 @@ describe("FEASTA brand theme contract", () => {
     expect(button).toContain(
       "bg-primary text-primary-foreground hover:bg-primary-hover active:bg-primary-pressed",
     );
+    expect(navigation).toContain("bg-feasta-sidebar");
+    expect(navigation).toContain("bg-feasta-sidebar-active");
+    expect(navigation).toContain("bg-feasta-sidebar-indicator");
     expect(navigation).toContain("bg-primary-tint");
     expect(navigation).toContain("text-primary-strong");
-    expect(navigation).toContain("focus-visible:ring-primary/40");
   });
 
   it("loads Plus Jakarta Sans for interface text and Playfair Display for accents", () => {

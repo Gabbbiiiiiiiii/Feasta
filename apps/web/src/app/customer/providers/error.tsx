@@ -10,7 +10,7 @@ export default function CustomerProvidersError({reset}: {reset: () => void}) {
         kind="load"
         description="The Event Services directory could not be loaded. Please try again."
         onRetry={reset}
-        className="border-[#E8C9BE] bg-white shadow-[0_4px_18px_rgba(92,45,29,0.06)]"
+        className="border-feasta-border-strong bg-white shadow-[0_4px_18px_rgba(0,75,59,0.06)]"
       />
     </ProviderDirectoryShell>
   );

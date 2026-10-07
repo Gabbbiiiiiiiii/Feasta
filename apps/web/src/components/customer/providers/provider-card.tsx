@@ -84,11 +84,11 @@ export function ProviderCard({
       className={[
         "group relative flex h-full min-w-0 flex-col overflow-hidden",
         "rounded-[22px] border border-feasta-border-soft bg-white",
-        "shadow-[0_4px_18px_rgb(43_33_29/0.035)]",
+        "shadow-[0_4px_18px_rgb(0_75_59/0.035)]",
         "transition-[transform,border-color,box-shadow]",
         "duration-normal",
         "hover:-translate-y-1 hover:border-primary/20",
-        "hover:shadow-[0_16px_36px_rgb(43_33_29/0.085)]",
+        "hover:shadow-[0_16px_36px_rgb(0_75_59/0.085)]",
         "motion-reduce:transform-none",
       ].join(" ")}
     >
@@ -207,7 +207,7 @@ export function ProviderCard({
 
               <h3
                 aria-label={provider.businessName}
-                className="mt-1.5 min-h-10 line-clamp-2 break-words text-base font-extrabold leading-tight tracking-[-0.025em] text-foreground transition-colors group-hover:text-primary-strong"
+                className="mt-1.5 min-h-10 line-clamp-2 break-words text-base font-extrabold leading-tight tracking-[-0.025em] text-primary transition-colors group-hover:text-primary-pressed"
               >
                 <Link
                   href={profileHref}

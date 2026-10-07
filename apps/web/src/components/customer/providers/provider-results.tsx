@@ -152,7 +152,7 @@ export function ProviderResults({
         />
         <section
           aria-label="Provider results"
-          className="relative grid min-h-[360px] place-items-center overflow-hidden rounded-[26px] border border-feasta-border-soft bg-white px-6 py-12 text-center shadow-[0_8px_28px_rgb(43_33_29/0.035)]"
+          className="relative grid min-h-[360px] place-items-center overflow-hidden rounded-[26px] border border-feasta-border-soft bg-white px-6 py-12 text-center shadow-[0_8px_28px_rgb(0_75_59/0.035)]"
         >
         <div
           aria-hidden="true"
@@ -271,7 +271,7 @@ export function ProviderResults({
           RESULT HEADER
          ================================================================ */}
 
-      <header className="rounded-[22px] border border-feasta-border-soft bg-white p-4 shadow-[0_5px_20px_rgb(43_33_29/0.03)] sm:px-5">
+      <header className="rounded-[22px] border border-feasta-border-soft bg-white p-4 shadow-[0_5px_20px_rgb(0_75_59/0.03)] sm:px-5">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">

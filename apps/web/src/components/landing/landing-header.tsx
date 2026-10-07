@@ -90,7 +90,7 @@ export function LandingHeader() {
         "duration-300 ease-out motion-reduce:transition-none",
         isVisible ? "translate-y-0" : "-translate-y-full",
         isScrolled
-          ? "border-b border-feasta-border-soft bg-white/92 shadow-[0_8px_32px_rgb(43_33_29/0.06)] backdrop-blur-xl"
+          ? "border-b border-feasta-border-soft bg-white/92 shadow-[0_8px_32px_rgb(0_53_32/0.06)] backdrop-blur-xl"
           : "border-b border-transparent bg-white/96",
       ].join(" ")}
     >

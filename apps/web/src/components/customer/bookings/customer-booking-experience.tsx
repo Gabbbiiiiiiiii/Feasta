@@ -304,7 +304,7 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
       {submittedBookingId ? (
         <section
           aria-labelledby="submitted-booking-title"
-          className="relative overflow-hidden rounded-[24px] border border-success/20 bg-success/[0.055] p-5 shadow-[0_8px_28px_rgb(43_33_29/0.035)] sm:p-6"
+          className="relative overflow-hidden rounded-[24px] border border-success/20 bg-success/[0.055] p-5 shadow-[0_8px_28px_rgb(0_75_59/0.035)] sm:p-6"
         >
           <div
             aria-hidden="true"
@@ -542,11 +542,7 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
 }
 
 function SummaryIcon({icon}: {icon: ReactNode}) {
-  return (
-    <span className="grid size-9 place-items-center rounded-xl bg-primary-tint text-primary">
-      {icon}
-    </span>
-  );
+  return icon;
 }
 
 function CustomerBookingFilterToolbar({

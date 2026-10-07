@@ -80,7 +80,7 @@ export function ProviderProfile({
         {backLabel}
       </Link>
 
-      <header className="overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white shadow-[0_16px_44px_rgb(43_33_29/0.08)]">
+      <header className="overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white shadow-[0_16px_44px_rgb(0_75_59/0.08)]">
         {/* Cover */}
         <div className="relative h-[clamp(13rem,30vw,22rem)] overflow-hidden bg-feasta-surface-muted">
           {provider.coverImageUrl ? (
@@ -110,7 +110,7 @@ export function ProviderProfile({
         {/* Identity */}
         <div className="p-5 sm:p-7 lg:p-9">
           <div className="grid min-w-0 items-start gap-5 sm:grid-cols-[auto_minmax(0,1fr)] lg:grid-cols-[auto_minmax(0,1fr)_auto]">
-            <div className="grid size-24 shrink-0 place-items-center overflow-hidden rounded-[22px] border-4 border-white bg-feasta-canvas shadow-[0_10px_28px_rgb(43_33_29/0.16)] sm:size-28">
+            <div className="grid size-24 shrink-0 place-items-center overflow-hidden rounded-[22px] border-4 border-white bg-feasta-canvas shadow-[0_10px_28px_rgb(0_75_59/0.16)] sm:size-28">
               {provider.logoUrl ? (
                 // Provider media is restricted by the canonical public provider normalizer.
                 // eslint-disable-next-line @next/next/no-img-element
@@ -204,7 +204,7 @@ export function ProviderProfile({
               PHASE 3B — ABOUT THE PROVIDER
             ================================================================ */}
 
-          <section className="min-w-0 rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(43_33_29/0.035)] sm:p-6 lg:p-7">
+          <section className="min-w-0 rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(0_75_59/0.035)] sm:p-6 lg:p-7">
             <div className="max-w-3xl">
               <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
                 About this provider
@@ -230,7 +230,7 @@ export function ProviderProfile({
               PHASE 3B — SERVICES + EVENT FIT
             ================================================================ */}
 
-          <section className="min-w-0 rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(43_33_29/0.035)] sm:p-6 lg:p-7">
+          <section className="min-w-0 rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(0_75_59/0.035)] sm:p-6 lg:p-7">
             <div className="max-w-3xl">
               <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
                 Services for your event
@@ -383,7 +383,7 @@ export function ProviderProfile({
         <aside className="min-w-0 md:sticky md:top-24">
           <section
             aria-labelledby="provider-planning-details"
-            className="overflow-hidden rounded-[24px] border border-feasta-border-soft bg-white shadow-[0_8px_26px_rgb(43_33_29/0.045)]"
+            className="overflow-hidden rounded-[24px] border border-feasta-border-soft bg-white shadow-[0_8px_26px_rgb(0_75_59/0.045)]"
           >
             {/* ================================================================
                 PLANNING HEADER
@@ -563,7 +563,7 @@ export function ProviderProfile({
       {capabilities.catering && detail.setups && detail.setups.length > 0 ? <ProviderSetupGallery setups={detail.setups} /> : null}
 
       <section
-        className="relative min-w-0 overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white shadow-[0_10px_34px_rgb(43_33_29/0.055)]"
+        className="relative min-w-0 overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white shadow-[0_10px_34px_rgb(0_75_59/0.055)]"
         aria-labelledby="provider-next-step"
       >
         <div
@@ -669,7 +669,7 @@ function PackageSection({
 }) {
   return (
     <section
-      className="relative min-w-0 overflow-hidden rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(43_33_29/0.04)] sm:p-6 lg:p-7"
+      className="relative min-w-0 overflow-hidden rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6 lg:p-7"
       aria-labelledby="provider-packages"
     >
       <div

@@ -81,7 +81,7 @@ export default function ProviderLoginPage() {
         <section
           className="
             relative hidden overflow-hidden
-            bg-[#2b211d]
+            bg-feasta-surface-strong text-white
             px-12 py-12
             lg:flex lg:flex-col
             xl:px-20 xl:py-16
@@ -108,7 +108,7 @@ export default function ProviderLoginPage() {
                 focus-visible:ring-2
                 focus-visible:ring-primary
                 focus-visible:ring-offset-4
-                focus-visible:ring-offset-[#2b211d]
+                focus-visible:ring-offset-feasta-surface-strong
               "
             >
               <Image
@@ -116,7 +116,7 @@ export default function ProviderLoginPage() {
                 alt="FEASTA"
                 width={586}
                 height={202}
-                className="h-7 w-auto object-contain sm:h-8"
+                className="h-7 w-auto rounded-md bg-white px-2 py-1 object-contain sm:h-8"
                 priority
               />
             </Link>

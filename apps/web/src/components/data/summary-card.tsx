@@ -18,12 +18,12 @@ function SummaryCard({label, value, supportingMetric, trend, icon, loading = fal
     <section className={cn("min-w-0 max-w-full overflow-hidden rounded-card border border-border bg-card p-4 shadow-card sm:p-5", className)} aria-label={label}>
       <div className="flex min-w-0 items-start justify-between gap-3">
         <p className="min-w-0 break-words text-sm font-semibold text-muted-foreground">{label}</p>
-        {icon ? <span aria-hidden="true" className="shrink-0 text-primary-strong">{icon}</span> : null}
+        {icon ? <span aria-hidden="true" className="grid size-10 shrink-0 place-items-center rounded-xl bg-accent text-primary">{icon}</span> : null}
       </div>
       {loading ? (
         <LoadingSkeleton className="mt-4 h-10 w-2/3" label={`Loading ${label}`} />
       ) : (
-        <p className="mt-3 min-w-0 break-words text-2xl font-black tracking-tight sm:text-3xl">{value ?? "—"}</p>
+        <p className="mt-3 min-w-0 break-words text-2xl font-black tracking-tight text-primary sm:text-3xl">{value ?? "—"}</p>
       )}
       {!loading && supportingMetric != null ? (
         <p className="mt-3 break-words text-sm text-muted-foreground">{supportingMetric}</p>

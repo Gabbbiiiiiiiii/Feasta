@@ -59,7 +59,7 @@ export function MarketplacePackageSection({
               mt-1
               text-2xl font-black
               tracking-[-0.025em]
-              text-[#261814]
+              text-foreground
               sm:text-3xl
             "
           >
@@ -70,7 +70,7 @@ export function MarketplacePackageSection({
             className="
               mt-2 max-w-2xl
               text-sm leading-6
-              text-[#695C56]
+              text-feasta-text-secondary
             "
           >
             Explore real packages published by approved
@@ -131,13 +131,13 @@ export function MarketplacePackageSection({
                 group min-w-0
                 overflow-hidden
                 rounded-2xl
-                border border-[#E2BFB5]/70
+                border border-feasta-border-strong/70
                 bg-white
-                shadow-[0_5px_16px_rgba(38,24,20,0.06)]
+                shadow-[0_5px_16px_rgba(0,75,59,0.06)]
                 transition
                 duration-200
                 hover:-translate-y-1
-                hover:shadow-[0_12px_28px_rgba(38,24,20,0.11)]
+                hover:shadow-[0_12px_28px_rgba(0,53,32,0.10)]
               "
             >
               <div
@@ -146,7 +146,7 @@ export function MarketplacePackageSection({
                   aspect-[16/9]
                   place-items-center
                   overflow-hidden
-                  bg-[#F8DDD5]
+                  bg-primary-tint
                 "
               >
                 {imageUrl ? (
@@ -217,7 +217,7 @@ export function MarketplacePackageSection({
                       line-clamp-2
                       text-lg font-black
                       leading-tight
-                      text-[#261814]
+                      text-foreground
                     "
                   >
                     {packageRecord.name}
@@ -226,11 +226,11 @@ export function MarketplacePackageSection({
                   <p
                     className="
                       mt-1 truncate
-                      text-sm text-[#695C56]
+                      text-sm text-feasta-text-secondary
                     "
                   >
                     By{" "}
-                    <span className="font-semibold text-[#261814]">
+                    <span className="font-semibold text-foreground">
                       {packageRecord.providerName}
                     </span>
                   </p>
@@ -242,7 +242,7 @@ export function MarketplacePackageSection({
                       line-clamp-3
                       break-words
                       text-sm leading-6
-                      text-[#695C56]
+                      text-feasta-text-secondary
                     "
                   >
                     {packageRecord.description}
@@ -254,7 +254,7 @@ export function MarketplacePackageSection({
                     flex min-w-0
                     flex-wrap items-end
                     justify-between gap-3
-                    border-t border-[#E2BFB5]/60
+                    border-t border-feasta-border-strong/60
                     pt-4
                   "
                 >
@@ -263,7 +263,7 @@ export function MarketplacePackageSection({
                       className="
                         flex min-w-0
                         items-center gap-2
-                        text-sm text-[#695C56]
+                        text-sm text-feasta-text-secondary
                       "
                     >
                       <CalendarDays
@@ -289,7 +289,7 @@ export function MarketplacePackageSection({
                     <p
                       className="
                         text-xs font-semibold
-                        text-[#695C56]
+                        text-feasta-text-secondary
                       "
                     >
                       Package price
@@ -320,7 +320,7 @@ export function MarketplacePackageSection({
           inline-flex min-h-11
           items-center justify-center gap-2
           rounded-xl
-          border border-[#E2BFB5]
+          border border-feasta-border-strong
           bg-white
           px-4
           text-sm font-bold

@@ -27,7 +27,7 @@ const volumeSeries = [
   {
     key: "collectedVolumeInCentavos",
     label: "Total customer payments",
-    color: "#ff5f35",
+    color: "#087159",
   },
   {
     key: "currentlyPaidVolumeInCentavos",
@@ -37,7 +37,7 @@ const volumeSeries = [
   {
     key: "refundedAmountInCentavos",
     label: "Refunded",
-    color: "#b45309",
+    color: "#667A74",
   },
 ] as const;
 

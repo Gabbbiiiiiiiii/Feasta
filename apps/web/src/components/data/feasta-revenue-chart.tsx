@@ -196,7 +196,7 @@ function FeastaRevenueChart({
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   selected
                     ? "bg-primary text-primary-foreground"
-                    : "text-[#9297A8] hover:bg-muted hover:text-foreground",
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
                 {range}
@@ -221,7 +221,7 @@ function FeastaRevenueChart({
             }}
           >
             <CartesianGrid
-              stroke="#E9ECF2"
+              stroke="#EDEFEF"
               strokeDasharray="3 4"
             />
 
@@ -231,7 +231,7 @@ function FeastaRevenueChart({
               tickLine={false}
               tickMargin={10}
               tick={{
-                fill: "#9297A8",
+                fill: "#667A74",
                 fontSize: 12,
               }}
             />
@@ -249,14 +249,14 @@ function FeastaRevenueChart({
               tickFormatter={formatYAxis}
               width={62}
               tick={{
-                fill: "#9297A8",
+                fill: "#667A74",
                 fontSize: 12,
               }}
             />
 
             <Tooltip
               cursor={{
-                stroke: "#D7DAE2",
+                stroke: "#D9DEDC",
                 strokeWidth: 1,
               }}
               formatter={(value) => [
@@ -268,16 +268,16 @@ function FeastaRevenueChart({
               contentStyle={{
                 padding: "12px",
                 border:
-                  "1px solid #ECEEF2",
+                  "1px solid #D9DEDC",
                 borderRadius: "14px",
                 backgroundColor:
                   "#FFFFFF",
                 boxShadow:
-                  "0 10px 25px rgba(15, 23, 42, 0.08)",
+                  "0 10px 25px rgba(0, 53, 32, 0.08)",
               }}
               labelStyle={{
                 marginBottom: "6px",
-                color: "#6B7280",
+                color: "#667A74",
               }}
             />
 
@@ -285,12 +285,12 @@ function FeastaRevenueChart({
               type="monotone"
               dataKey="revenueInCentavos"
               name="FEASTA Revenue"
-              stroke="#111827"
+              stroke="#087159"
               strokeWidth={2.5}
               dot={false}
               activeDot={{
                 r: 5,
-                fill: "#111827",
+                fill: "#087159",
                 stroke: "#FFFFFF",
                 strokeWidth: 2,
               }}

@@ -136,23 +136,23 @@ export function AdminReportsExecutiveClient({
         data-print-header
         className="hidden"
       >
-        <div className="flex items-start justify-between gap-8 border-b-2 border-[#2B211D] pb-4">
+        <div className="flex items-start justify-between gap-8 border-b-2 border-foreground pb-4">
           <div>
             <p className="text-[10pt] font-black tracking-[0.14em] text-primary">
               FEASTA
             </p>
 
-            <h1 className="mt-1 text-[20pt] font-black text-[#2B211D]">
+            <h1 className="mt-1 text-[20pt] font-black text-foreground">
               Administrative Report
             </h1>
 
-            <p className="mt-1 text-[9pt] text-[#5F554F]">
+            <p className="mt-1 text-[9pt] text-feasta-text-secondary">
               Reports. Authorized operational data.
             </p>
           </div>
 
-          <div className="text-right text-[8.5pt] leading-5 text-[#5F554F]">
-            <p className="font-bold text-[#2B211D]">
+          <div className="text-right text-[8.5pt] leading-5 text-feasta-text-secondary">
+            <p className="font-bold text-foreground">
               FEASTA Platform
             </p>
             <p>Ormoc City, Philippines</p>
@@ -161,9 +161,9 @@ export function AdminReportsExecutiveClient({
           </div>
         </div>
 
-        <dl className="mt-4 grid grid-cols-2 gap-x-10 gap-y-2 border-b border-[#D8D0CA] pb-4 text-[9pt]">
+        <dl className="mt-4 grid grid-cols-2 gap-x-10 gap-y-2 border-b border-border pb-4 text-[9pt]">
           <div className="flex justify-between gap-4">
-            <dt className="font-semibold text-[#5F554F]">
+            <dt className="font-semibold text-feasta-text-secondary">
               Reporting period
             </dt>
             <dd className="text-right font-bold">
@@ -172,7 +172,7 @@ export function AdminReportsExecutiveClient({
           </div>
 
           <div className="flex justify-between gap-4">
-            <dt className="font-semibold text-[#5F554F]">
+            <dt className="font-semibold text-feasta-text-secondary">
               Comparison
             </dt>
             <dd className="text-right font-bold">
@@ -182,7 +182,7 @@ export function AdminReportsExecutiveClient({
           </div>
 
           <div className="flex justify-between gap-4">
-            <dt className="font-semibold text-[#5F554F]">
+            <dt className="font-semibold text-feasta-text-secondary">
               Trend grouping
             </dt>
             <dd className="text-right capitalize">
@@ -191,7 +191,7 @@ export function AdminReportsExecutiveClient({
           </div>
 
           <div className="flex justify-between gap-4">
-            <dt className="font-semibold text-[#5F554F]">
+            <dt className="font-semibold text-feasta-text-secondary">
               Generated
             </dt>
             <dd className="text-right">
@@ -462,7 +462,7 @@ export function AdminReportsExecutiveClient({
         data-print-footer
         className="hidden"
       >
-        <div className="mt-8 flex items-center justify-between border-t border-[#D8D0CA] pt-3 text-[8pt] text-[#6F655F]">
+        <div className="mt-8 flex items-center justify-between border-t border-border pt-3 text-[8pt] text-muted-foreground">
           <p>
             FEASTA Administrative Report
           </p>

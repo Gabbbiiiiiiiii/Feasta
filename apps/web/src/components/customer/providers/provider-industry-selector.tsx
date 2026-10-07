@@ -72,7 +72,7 @@ export function ProviderIndustrySelector({
       className={[
         "sticky z-30 w-full max-w-full overflow-hidden",
         "rounded-[22px] border border-feasta-border-soft bg-white/95",
-        "shadow-[0_10px_30px_rgb(43_33_29/0.075)] backdrop-blur-md",
+        "shadow-[0_10px_30px_rgb(0_75_59/0.075)] backdrop-blur-md",
       ].join(" ")}
     >
       <div className="flex w-full min-w-0 items-center gap-3 p-3">
@@ -161,7 +161,7 @@ function CategoryArrow({
       disabled={!visible}
       aria-label={label}
       className={cn(
-        "grid size-10 shrink-0 place-items-center rounded-full border border-feasta-border-soft bg-white text-primary-strong shadow-[0_4px_14px_rgb(43_33_29/0.12)] outline-none transition-[transform,background-color,opacity] focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
+        "grid size-10 shrink-0 place-items-center rounded-full border border-feasta-border-soft bg-white text-primary-strong shadow-[0_4px_14px_rgb(0_75_59/0.12)] outline-none transition-[transform,background-color,opacity] focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
         visible
           ? "opacity-100 hover:scale-105 hover:bg-secondary"
           : "pointer-events-none w-0 border-0 p-0 opacity-0",

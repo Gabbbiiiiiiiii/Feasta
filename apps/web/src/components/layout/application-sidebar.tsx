@@ -66,7 +66,8 @@ const SidebarNavigationItem = memo(
             "group relative flex items-center",
             "transition-colors duration-150",
             "focus-visible:outline-none",
-            "focus-visible:ring-2 focus-visible:ring-primary/40",
+            "focus-visible:ring-2 focus-visible:ring-feasta-sidebar-indicator",
+            "focus-visible:ring-offset-2 focus-visible:ring-offset-feasta-sidebar",
             compact ? "h-10 rounded-lg" : "h-13 rounded-xl",
             collapsed
               ? "justify-center px-2"
@@ -74,15 +75,15 @@ const SidebarNavigationItem = memo(
                 ? "gap-2.5 px-2.5"
                 : "gap-3 px-3",
             active
-              ? "bg-primary-tint text-primary-strong"
-              : "text-slate-600 hover:bg-slate-50 hover:text-slate-950",
+              ? "bg-feasta-sidebar-active text-primary-strong"
+              : "text-feasta-sidebar-foreground hover:bg-secondary hover:text-feasta-sidebar-foreground",
           )}
         >
           {active && (
             <span
               aria-hidden="true"
               className={cn(
-                "absolute left-0 w-0.75 rounded-r-full bg-primary",
+                "absolute left-0 w-0.75 rounded-r-full bg-feasta-sidebar-indicator",
                 compact ? "inset-y-2" : "inset-y-3",
               )}
             />
@@ -94,11 +95,11 @@ const SidebarNavigationItem = memo(
               "transition-colors duration-150",
               compact ? "size-7" : "size-9",
               active
-                ? "bg-primary-tint-strong text-primary"
+                ? "text-feasta-sidebar-indicator"
                 : [
-                    "text-slate-500",
-                    "group-hover:bg-white",
-                    "group-hover:text-primary",
+                    "text-feasta-text-secondary",
+                    "group-hover:bg-secondary",
+                    "group-hover:text-feasta-sidebar-foreground",
                   ],
             )}
           >
@@ -143,7 +144,7 @@ const SidebarDisabledNavigationItem = memo(
           aria-label={accessibleLabel}
           title={collapsed ? accessibleLabel : undefined}
           className={cn(
-            "flex cursor-not-allowed items-center text-slate-400",
+            "flex cursor-not-allowed items-center text-feasta-sidebar-muted/55",
             compact ? "h-10 rounded-lg" : "h-13 rounded-xl",
             collapsed
               ? "justify-center px-2"
@@ -154,7 +155,7 @@ const SidebarDisabledNavigationItem = memo(
         >
           <span
             className={cn(
-              "grid shrink-0 place-items-center rounded-lg text-slate-400",
+              "grid shrink-0 place-items-center rounded-lg text-feasta-sidebar-muted/55",
               compact ? "size-7" : "size-9",
             )}
           >
@@ -176,7 +177,7 @@ const SidebarDisabledNavigationItem = memo(
 
           <span
             className={cn(
-              "rounded-full bg-slate-100 px-2 py-0.5 text-[0.625rem] font-semibold text-slate-500",
+              "rounded-full bg-secondary px-2 py-0.5 text-[0.625rem] font-semibold text-feasta-sidebar-muted",
               collapsed && "sr-only",
             )}
           >
@@ -228,7 +229,7 @@ function ApplicationSidebarComponent({
     <aside
       className={cn(
         "sticky top-0 hidden h-dvh shrink-0 flex-col overflow-hidden",
-        "border-r border-slate-200/80 bg-white",
+        "border-r border-border bg-feasta-sidebar text-feasta-sidebar-foreground",
         "transition-[width] duration-200 ease-out md:flex",
         collapsed
           ? "w-[var(--sidebar-collapsed)]"
@@ -239,14 +240,18 @@ function ApplicationSidebarComponent({
       <header
         className={cn(
           "flex h-18 shrink-0 items-center",
-          "border-b border-slate-100",
+          "border-b border-border",
           collapsed
             ? "justify-center px-3"
             : "px-5",
         )}
       >
-        <div className="min-w-0">
-          <Brand role={role} compact={collapsed} />
+        <div className="min-w-0 rounded-lg bg-white px-2 py-1">
+          <Brand
+            role={role}
+            compact={collapsed}
+            className="focus-visible:ring-feasta-sidebar-indicator focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+          />
         </div>
       </header>
 
@@ -281,7 +286,7 @@ function ApplicationSidebarComponent({
                   <h2
                     id={headingId}
                     className={cn(
-                      "font-bold uppercase text-slate-400",
+                      "font-bold uppercase text-feasta-sidebar-muted",
                       compact
                         ? "mb-1 px-2.5 text-[0.6875rem] tracking-[0.08em]"
                         : "mb-2 px-3 text-[0.6875rem] tracking-[0.14em]",
@@ -324,7 +329,7 @@ function ApplicationSidebarComponent({
 
       <footer
         className={cn(
-          "shrink-0 border-t border-slate-200/80",
+          "shrink-0 border-t border-border",
           compact ? "p-2" : "p-3",
         )}
       >
@@ -339,11 +344,12 @@ function ApplicationSidebarComponent({
           aria-expanded={!collapsed}
           className={cn(
             "flex w-full items-center",
-            "text-sm font-medium text-slate-500",
+            "text-sm font-medium text-feasta-sidebar-muted",
             "transition-colors duration-150",
-            "hover:bg-slate-100 hover:text-slate-900",
+            "hover:bg-secondary hover:text-feasta-sidebar-foreground",
             "focus-visible:outline-none",
-            "focus-visible:ring-2 focus-visible:ring-primary/40",
+            "focus-visible:ring-2 focus-visible:ring-feasta-sidebar-indicator",
+            "focus-visible:ring-offset-2 focus-visible:ring-offset-feasta-sidebar",
             compact ? "h-10 rounded-lg" : "h-11 rounded-xl",
             collapsed
               ? "justify-center"

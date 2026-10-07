@@ -19,7 +19,7 @@ export function PackageFilterForm({
   return (
     <section
       aria-labelledby="package-filter-title"
-      className="rounded-[22px] border border-feasta-border-soft bg-white p-4 shadow-[0_5px_20px_rgb(43_33_29/0.03)] sm:p-5"
+      className="rounded-[22px] border border-feasta-border-soft bg-white p-4 shadow-[0_5px_20px_rgb(0_75_59/0.03)] sm:p-5"
     >
       <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-md">

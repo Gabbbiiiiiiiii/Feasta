@@ -12,7 +12,7 @@ export function PackageDirectoryShell({
   return (
     <div className="-mx-4 -my-6 min-h-[calc(100dvh-4rem)] bg-feasta-canvas px-4 py-6 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
       <div className="mx-auto w-full max-w-[1320px] min-w-0">
-        <section className="relative overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white px-5 py-7 shadow-[0_10px_34px_rgb(43_33_29/0.045)] sm:px-7 sm:py-8 lg:px-9 lg:py-10">
+        <section className="relative overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white px-5 py-7 shadow-[0_10px_34px_rgb(0_75_59/0.045)] sm:px-7 sm:py-8 lg:px-9 lg:py-10">
           <div
             aria-hidden="true"
             className="pointer-events-none absolute -right-24 -top-28 size-72 rounded-full bg-primary/[0.055] blur-3xl"

@@ -346,7 +346,7 @@ export default async function HomePage() {
               id="start-your-event"
               className="scroll-mt-28 pt-12 sm:pt-14 lg:pt-16"
             >
-              <div className="rounded-[28px] border border-feasta-border-soft bg-white p-5 shadow-[0_18px_55px_rgb(43_33_29/0.07)] sm:p-7 lg:p-8">
+              <div className="rounded-[28px] border border-feasta-border-soft bg-white p-5 shadow-[0_18px_55px_rgb(0_53_32/0.07)] sm:p-7 lg:p-8">
                 <div className="grid gap-7 xl:grid-cols-[0.72fr_1.28fr] xl:items-end">
                   <div className="max-w-md">
                     <p className="feasta-eyebrow">
@@ -408,11 +408,11 @@ export default async function HomePage() {
                   className={[
                     "group relative flex h-[220px] items-end overflow-hidden",
                     "rounded-[22px] border border-feasta-border-soft bg-muted",
-                    "shadow-[0_4px_16px_rgb(43_33_29/0.06)]",
+                    "shadow-[0_4px_16px_rgb(0_53_32/0.06)]",
                     "transition-[transform,border-color,box-shadow]",
                     "duration-normal",
                     "hover:-translate-y-0.5 hover:border-primary/25",
-                    "hover:shadow-[0_14px_34px_rgb(43_33_29/0.12)]",
+                    "hover:shadow-[0_14px_34px_rgb(0_53_32/0.12)]",
                     "focus-visible:outline-none focus-visible:ring-2",
                     "focus-visible:ring-primary focus-visible:ring-offset-2",
                     "motion-reduce:transform-none",
@@ -512,11 +512,11 @@ export default async function HomePage() {
                   className={[
                     "group flex h-full flex-col overflow-hidden",
                     "rounded-[22px] border border-feasta-border-soft bg-white",
-                    "shadow-[0_4px_16px_rgb(43_33_29/0.055)]",
+                    "shadow-[0_4px_16px_rgb(0_53_32/0.055)]",
                     "transition-[transform,border-color,box-shadow]",
                     "duration-normal",
                     "hover:-translate-y-0.5 hover:border-primary/25",
-                    "hover:shadow-[0_14px_32px_rgb(43_33_29/0.1)]",
+                    "hover:shadow-[0_14px_32px_rgb(0_53_32/0.1)]",
                     "focus-visible:outline-none focus-visible:ring-2",
                     "focus-visible:ring-primary focus-visible:ring-offset-2",
                     "motion-reduce:transform-none",
@@ -620,7 +620,7 @@ export default async function HomePage() {
                 return (
                   <li
                     key={step.number}
-                    className="rounded-[22px] border border-feasta-border-soft bg-white p-5 shadow-[0_4px_16px_rgb(43_33_29/0.045)] sm:p-6"
+                    className="rounded-[22px] border border-feasta-border-soft bg-white p-5 shadow-[0_4px_16px_rgb(0_53_32/0.045)] sm:p-6"
                   >
                     <div className="flex items-center justify-between gap-4">
                       <span className="text-sm font-extrabold tracking-[0.12em] text-primary-strong">

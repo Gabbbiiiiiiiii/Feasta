@@ -5,7 +5,7 @@ import {cn} from "@/lib/utils";
 function LoadingSpinner({label = "Loading", className}: {label?: string; className?: string}) {
   return (
     <span className={cn("inline-flex items-center gap-2", className)} role="status" aria-label={label}>
-      <LoaderCircle aria-hidden="true" className="size-6 animate-spin text-primary-strong motion-reduce:animate-none" />
+      <LoaderCircle aria-hidden="true" className="size-6 animate-spin text-primary motion-reduce:animate-none" />
       <span aria-hidden="true" className="sr-only">{label}</span>
     </span>
   );

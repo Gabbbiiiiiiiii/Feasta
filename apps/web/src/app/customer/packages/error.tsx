@@ -10,7 +10,7 @@ export default function CustomerPackagesError({reset}: {reset: () => void}) {
         kind="load"
         description="The package marketplace could not be loaded. Please try again."
         onRetry={reset}
-        className="border-[#E8C9BE] bg-white shadow-card"
+        className="border-feasta-border-strong bg-white shadow-card"
       />
     </PackageDirectoryShell>
   );

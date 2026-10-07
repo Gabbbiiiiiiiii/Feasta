@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import {ProviderMessageIndicator} from "@/components/layout/provider-message-indicator";
+import {cn} from "@/lib/utils";
 
 import {LogoutButton} from "@/components/auth/logout-button";
 import {NotificationMenu} from "@/components/layout/notification-menu";
@@ -32,13 +33,17 @@ type ApplicationHeaderProps = {
 type BrandProps = {
   role: ShellRole;
   compact?: boolean;
+  className?: string;
 };
 
-function Brand({role, compact = false}: BrandProps) {
+function Brand({role, compact = false, className}: BrandProps) {
   return (
     <Link
       href={roleHome[role]}
-      className="inline-flex min-h-12 items-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      className={cn(
+        "inline-flex min-h-12 items-center rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+        className,
+      )}
       aria-label={`FEASTA ${roleLabels[role]} home`}
     >
       <Image
@@ -85,7 +90,7 @@ function ApplicationHeader({
   }, []);
 
   return (
-    <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85">
+    <header className="sticky top-0 z-30 border-b border-muted bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/90">
       <div className="flex min-h-16 min-w-0 items-center gap-2 px-4 sm:gap-3 sm:px-6 md:px-8">
         <div className="md:hidden">
           <Brand role={role} />

@@ -60,11 +60,11 @@ export function PublicPackageCard({
       className={[
         "group relative flex h-full min-w-0 flex-col overflow-hidden",
         "rounded-[22px] border border-feasta-border-soft bg-white",
-        "shadow-[0_4px_18px_rgb(43_33_29/0.035)]",
+        "shadow-[0_4px_18px_rgb(0_75_59/0.035)]",
         "transition-[transform,border-color,box-shadow]",
         "duration-normal",
         "hover:-translate-y-1 hover:border-primary/20",
-        "hover:shadow-[0_16px_36px_rgb(43_33_29/0.085)]",
+        "hover:shadow-[0_16px_36px_rgb(0_75_59/0.085)]",
         "motion-reduce:transform-none",
       ].join(" ")}
     >
@@ -115,7 +115,7 @@ export function PublicPackageCard({
       <div className="flex min-w-0 flex-1 flex-col p-4">
         <div className="min-w-0">
           <div className="flex items-start justify-between gap-4">
-            <Heading aria-label={packageRecord.name} className={`${compact ? "line-clamp-2 min-h-10 text-base" : "text-lg"} min-w-0 break-words font-extrabold leading-tight tracking-[-0.025em] text-foreground transition-colors group-hover:text-primary-strong`}>
+            <Heading aria-label={packageRecord.name} className={`${compact ? "line-clamp-2 min-h-10 text-base" : "text-lg"} min-w-0 break-words font-extrabold leading-tight tracking-[-0.025em] text-primary transition-colors group-hover:text-primary-pressed`}>
               <Link
                 href={packageHref}
                 aria-label={`View ${packageRecord.name} package details`}

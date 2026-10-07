@@ -268,7 +268,7 @@ function ProviderAuthBenefit({
 
 function CustomerAuthBrandPanel() {
   return (
-    <aside className="relative hidden min-h-[680px] overflow-hidden bg-[#3a241d] p-10 text-white lg:flex lg:flex-col lg:justify-between">
+    <aside className="relative hidden min-h-[680px] overflow-hidden bg-feasta-surface-strong p-10 text-white lg:flex lg:flex-col lg:justify-between">
       <div
         aria-hidden="true"
         className="absolute -left-20 -top-24 size-72 rounded-full bg-primary/20"
@@ -283,7 +283,7 @@ function CustomerAuthBrandPanel() {
         <Link
           href="/"
           aria-label="FEASTA home"
-          className="inline-flex w-fit items-center rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground"
+          className="inline-flex w-fit items-center rounded-lg bg-white px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-foreground"
         >
           <Image
             src="/images/feasta_logo.svg"

@@ -32,7 +32,7 @@ function ApplicationShell({
   return (
     <div
         data-application-shell
-        className="min-h-dvh overflow-x-clip bg-[#F7F8FA] text-foreground"
+        className="min-h-dvh overflow-x-clip bg-background text-foreground"
       >
       <a
         data-print-hidden
@@ -52,7 +52,7 @@ function ApplicationShell({
           />
         </div>
 
-        <div className="min-w-0 max-w-full flex-1 bg-[#F7F8FA] pb-24 md:pb-0">
+        <div className="min-w-0 max-w-full flex-1 bg-background pb-24 md:pb-0">
           <div className="contents print:hidden">
             <ApplicationHeader
               role={role}
@@ -78,7 +78,7 @@ function ApplicationShell({
             data-print-main
             id="main-content"
             tabIndex={-1}
-            className="mx-auto min-h-[calc(100dvh-4rem)] w-full min-w-0 max-w-7xl bg-[#F7F8FA] px-4 py-6 sm:px-6 md:px-8 lg:px-10"
+            className="mx-auto min-h-[calc(100dvh-4rem)] w-full min-w-0 max-w-7xl bg-background px-4 py-6 sm:px-6 md:px-8 lg:px-10"
           >
             {children}
           </main>

@@ -195,7 +195,7 @@ export function LoginForm({
 
 function CustomerLoginBrandPanel() {
   return (
-    <aside className="relative hidden min-h-dvh overflow-hidden bg-[#3a241d] px-12 py-14 text-white lg:flex lg:flex-col xl:px-20 xl:py-16">
+    <aside className="relative hidden min-h-dvh overflow-hidden bg-feasta-surface-strong px-12 py-14 text-white lg:flex lg:flex-col xl:px-20 xl:py-16">
       <div
         aria-hidden="true"
         className="absolute -left-20 -top-20 size-72 rounded-full bg-primary/10"
@@ -218,7 +218,7 @@ function CustomerLoginBrandPanel() {
             width={586}
             height={202}
             priority
-            className="h-[42px] w-auto object-contain"
+            className="h-[42px] w-auto rounded-md bg-white px-2 py-1 object-contain"
           />
         </Link>
 

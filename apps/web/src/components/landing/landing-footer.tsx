@@ -13,12 +13,12 @@ const footerLinkClassName = [
   "hover:text-white",
   "focus-visible:outline-none focus-visible:ring-2",
   "focus-visible:ring-primary focus-visible:ring-offset-2",
-  "focus-visible:ring-offset-[#241d1a]",
+  "focus-visible:ring-offset-feasta-surface-strong",
 ].join(" ");
 
 export function LandingFooter() {
   return (
-    <footer className="relative overflow-hidden bg-[#241d1a] text-white">
+    <footer className="relative overflow-hidden bg-feasta-surface-strong text-white">
       {/* Decorative brand glow */}
       <div
         aria-hidden="true"
@@ -48,7 +48,7 @@ export function LandingFooter() {
                 "inline-flex items-center gap-2.5 rounded-lg",
                 "focus-visible:outline-none focus-visible:ring-2",
                 "focus-visible:ring-primary focus-visible:ring-offset-2",
-                "focus-visible:ring-offset-[#241d1a]",
+                "focus-visible:ring-offset-feasta-surface-strong",
               ].join(" ")}
             >
               <Image
@@ -56,7 +56,7 @@ export function LandingFooter() {
                 alt="Feasta"
                 width={586}
                 height={202}
-                className="h-8 w-auto object-contain"
+                className="h-8 w-auto rounded-md bg-white px-2 py-1 object-contain"
               />
             </Link>
 

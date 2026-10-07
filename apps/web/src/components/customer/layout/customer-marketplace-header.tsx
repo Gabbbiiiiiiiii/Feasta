@@ -119,7 +119,7 @@ export function CustomerMarketplaceHeader({
 
   return (
     <>
-      <header ref={headerRef} className="sticky top-0 z-40 border-b border-feasta-border-soft bg-white/95 shadow-[0_6px_24px_rgb(43_33_29/0.04)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/90">
+      <header ref={headerRef} className="sticky top-0 z-40 border-b border-muted bg-white/95 shadow-[0_6px_24px_rgb(0_75_59/0.04)] backdrop-blur-xl supports-[backdrop-filter]:bg-white/90">
         <div className="mx-auto w-full max-w-[90rem] px-4 sm:px-6 lg:px-8">
           <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] grid-rows-[4rem_auto_auto] items-center gap-x-3 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] md:grid-rows-[4rem_auto] md:gap-x-4">
             <MarketplaceBrand pathname={pathname} />
@@ -288,8 +288,8 @@ function marketplaceNavigationClass(active: boolean): string {
   return cn(
     "inline-flex min-h-10 shrink-0 items-center rounded-full px-4 text-sm font-bold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
     active
-      ? "bg-secondary text-primary-strong"
-      : "text-feasta-text-secondary hover:bg-feasta-surface-soft hover:text-foreground",
+      ? "bg-accent text-primary"
+      : "text-foreground hover:bg-accent hover:text-link",
   );
 }
 

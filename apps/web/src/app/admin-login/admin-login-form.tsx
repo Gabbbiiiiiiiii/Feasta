@@ -122,7 +122,7 @@ export function AdminLoginForm({
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#F5F6F8] px-5 py-10">
+    <main className="flex min-h-screen items-center justify-center bg-background px-5 py-10">
       <section
         className={cn(
           "w-full max-w-115",

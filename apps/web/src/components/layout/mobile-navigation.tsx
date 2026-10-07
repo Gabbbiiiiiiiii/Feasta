@@ -174,7 +174,7 @@ function ProviderMobileNavigation({
                   {group.label ? (
                     <h2
                       id={headingId}
-                      className="mb-2 px-2 text-[0.6875rem] font-bold uppercase tracking-[0.14em] text-slate-400"
+                      className="mb-2 px-2 text-[0.6875rem] font-bold uppercase tracking-[0.14em] text-muted-foreground"
                     >
                       {group.label}
                     </h2>
@@ -260,7 +260,7 @@ function ProviderDrawerLink({
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
           active
             ? "bg-primary-tint text-primary-strong"
-            : "text-slate-600 hover:bg-slate-50 hover:text-slate-950",
+            : "text-muted-foreground hover:bg-secondary hover:text-foreground",
         )}
       >
         <Icon aria-hidden="true" className="size-5 shrink-0" />
@@ -282,11 +282,11 @@ function ProviderDrawerDisabledItem({
       <div
         aria-disabled="true"
         aria-label={`${item.label} - ${item.disabledReason}`}
-        className="flex min-h-12 cursor-not-allowed items-center gap-3 rounded-xl px-3 text-sm font-medium text-slate-400"
+        className="flex min-h-12 cursor-not-allowed items-center gap-3 rounded-xl px-3 text-sm font-medium text-muted-foreground"
       >
         <Icon aria-hidden="true" className="size-5 shrink-0" />
         <span className="min-w-0 flex-1 truncate">{item.label}</span>
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[0.625rem] font-semibold text-slate-500">
+        <span className="rounded-full bg-muted px-2 py-0.5 text-[0.625rem] font-semibold text-muted-foreground">
           {item.disabledReason}
         </span>
       </div>

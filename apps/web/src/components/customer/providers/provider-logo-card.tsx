@@ -160,7 +160,7 @@ export function ProviderLogoCard({
             {categoryLabel}
           </p>
 
-          <h3 className="mt-1.5 line-clamp-2 min-h-10 break-words text-sm font-extrabold leading-5 tracking-[-0.02em] text-foreground transition-colors group-hover:text-primary-strong">
+          <h3 className="mt-1.5 line-clamp-2 min-h-10 break-words text-sm font-extrabold leading-5 tracking-[-0.02em] text-primary transition-colors group-hover:text-primary-pressed">
             {provider.businessName}
           </h3>
 

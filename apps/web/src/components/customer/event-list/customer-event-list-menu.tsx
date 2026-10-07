@@ -342,7 +342,7 @@ export function CustomerEventListMenu() {
               "border-l",
               "border-feasta-border-soft",
               "bg-white",
-              "shadow-[-8px_0_26px_rgb(43_33_29/0.07)]",
+              "shadow-[-8px_0_26px_rgb(0_75_59/0.07)]",
               "transition-transform",
               "duration-300",
               "ease-[cubic-bezier(0.22,1,0.36,1)]",
@@ -380,7 +380,7 @@ export function CustomerEventListMenu() {
                     "grid size-12 shrink-0",
                     "place-items-center",
                     "rounded-[14px]",
-                    "bg-[#FFF1EC]",
+                    "bg-primary-tint",
                     "text-primary-strong",
                   ].join(" ")}
                 >
@@ -476,7 +476,7 @@ export function CustomerEventListMenu() {
                     "mx-auto grid size-14",
                     "place-items-center",
                     "rounded-[14px]",
-                    "bg-[#FFF1EC]",
+                    "bg-primary-tint",
                     "text-primary-strong",
                   ].join(" ")}
                 >
@@ -646,7 +646,7 @@ export function CustomerEventListMenu() {
                           "border-feasta-border-soft",
                           "bg-white",
                           "p-3.5",
-                          "shadow-[0_2px_10px_rgb(43_33_29/0.035)]",
+                          "shadow-[0_2px_10px_rgb(0_75_59/0.035)]",
                         ].join(" ")}
                       >
                         <Link
@@ -664,7 +664,7 @@ export function CustomerEventListMenu() {
                             "place-items-center",
                             "overflow-hidden",
                             "rounded-[14px]",
-                            "bg-[#FFF3EE]",
+                            "bg-secondary",
                             "outline-none",
                             "focus-visible:ring-2",
                             "focus-visible:ring-primary",
@@ -796,7 +796,7 @@ export function CustomerEventListMenu() {
                               "border-feasta-border-soft",
                               "bg-white",
                               "p-3.5",
-                              "shadow-[0_2px_10px_rgb(43_33_29/0.035)]",
+                              "shadow-[0_2px_10px_rgb(0_75_59/0.035)]",
                             ].join(
                               " ",
                             )}
@@ -808,7 +808,7 @@ export function CustomerEventListMenu() {
                                 "shrink-0",
                                 "place-items-center",
                                 "rounded-[14px]",
-                                "bg-[#FFF3EE]",
+                                "bg-secondary",
                                 "text-primary-strong",
                               ].join(
                                 " ",
@@ -948,7 +948,7 @@ export function CustomerEventListMenu() {
                     "border",
                     "border-dashed",
                     "border-primary/30",
-                    "bg-[#FFF9F7]",
+                    "bg-feasta-canvas",
                     "px-5",
                     "text-sm",
                     "font-semibold",
@@ -956,7 +956,7 @@ export function CustomerEventListMenu() {
                     "outline-none",
                     "transition-[border-color,background-color,color]",
                     "hover:border-primary/50",
-                    "hover:bg-[#FFF3EE]",
+                    "hover:bg-secondary",
                     "hover:text-primary-strong",
                     "focus-visible:ring-2",
                     "focus-visible:ring-primary",
@@ -1058,13 +1058,13 @@ export function CustomerEventListMenu() {
                       "text-sm",
                       "font-semibold",
                       "!text-white",
-                      "shadow-[0_8px_20px_rgb(176_47_0/0.14)]",
+                      "shadow-[0_8px_20px_rgb(9_59_38/0.14)]",
                       "outline-none",
                       "transition-[transform,background-color,box-shadow]",
                       "duration-200",
                       "hover:-translate-y-0.5",
                       "hover:bg-primary-hover",
-                      "hover:shadow-[0_10px_24px_rgb(176_47_0/0.18)]",
+                      "hover:shadow-[0_10px_24px_rgb(9_59_38/0.18)]",
                       "focus-visible:ring-2",
                       "focus-visible:ring-primary",
                       "focus-visible:ring-offset-2",
@@ -1108,7 +1108,7 @@ export function CustomerEventListMenu() {
                     "items-center",
                     "gap-2.5",
                     "rounded-xl",
-                    "bg-[#FFF9F7]",
+                    "bg-feasta-canvas",
                     "px-3.5 py-3",
                   ].join(" ")}
                 >

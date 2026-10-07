@@ -1020,7 +1020,7 @@ export function CustomerEventListReview() {
   if (items.length === 0) {
     return (
       <main className="mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
-        <section className="rounded-[24px] border border-feasta-border-soft bg-white p-6 text-center shadow-[0_8px_28px_rgb(43_33_29/0.04)] sm:p-8">
+        <section className="rounded-[24px] border border-feasta-border-soft bg-white p-6 text-center shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-8">
           <h1 className="text-2xl font-extrabold text-foreground">
             Your Event List is empty
           </h1>
@@ -1096,7 +1096,7 @@ export function CustomerEventListReview() {
           </p>
         </header>
 
-        <section className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(43_33_29/0.04)] sm:p-6">
+        <section className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-primary-strong">
@@ -1243,7 +1243,7 @@ export function CustomerEventListReview() {
                 key={
                   group.providerId
                 }
-                className="overflow-hidden rounded-[24px] border border-feasta-border-soft bg-white shadow-[0_8px_28px_rgb(43_33_29/0.04)]"
+                className="overflow-hidden rounded-[24px] border border-feasta-border-soft bg-white shadow-[0_8px_28px_rgb(0_75_59/0.04)]"
               >
                 <header className="flex items-center gap-3 border-b border-feasta-divider bg-feasta-canvas px-5 py-4 sm:px-6">
                   <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-secondary text-primary-strong">
@@ -1507,7 +1507,7 @@ export function CustomerEventListReview() {
           />
         ) : null}
 
-        <section className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(43_33_29/0.04)] sm:p-6">
+        <section className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-xs font-extrabold uppercase tracking-[0.09em] text-feasta-text-tertiary">
@@ -1560,7 +1560,7 @@ export function CustomerEventListReview() {
               href={
                 existingPackageSubmitHref
               }
-              className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-white shadow-[0_8px_20px_rgb(176_47_0/0.14)] outline-none transition-[transform,background-color,box-shadow] hover:-translate-y-0.5 hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transform-none"
+              className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-white shadow-[0_8px_20px_rgb(9_59_38/0.14)] outline-none transition-[transform,background-color,box-shadow] hover:-translate-y-0.5 hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transform-none"
             >
               Continue to Submit Booking
 
@@ -1577,7 +1577,7 @@ export function CustomerEventListReview() {
                   onClick={
                     openEventEditor
                   }
-                  className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-white shadow-[0_8px_20px_rgb(176_47_0/0.14)] outline-none transition hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                  className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-white shadow-[0_8px_20px_rgb(9_59_38/0.14)] outline-none transition hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                 >
                   Complete Event Details
 
@@ -1614,7 +1614,7 @@ export function CustomerEventListReview() {
                     onClick={() =>
                       void submitCustomMenuBooking()
                     }
-                    className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-white shadow-[0_8px_20px_rgb(176_47_0/0.14)] outline-none transition-[transform,background-color,box-shadow,opacity] enabled:hover:-translate-y-0.5 enabled:hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transform-none"
+                    className="mt-6 flex min-h-[52px] w-full items-center justify-center gap-2 rounded-full bg-primary px-6 text-sm font-semibold text-white shadow-[0_8px_20px_rgb(9_59_38/0.14)] outline-none transition-[transform,background-color,box-shadow,opacity] enabled:hover:-translate-y-0.5 enabled:hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transform-none"
                   >
                     {isSubmitting
                       ? "Submitting booking..."
@@ -2259,7 +2259,7 @@ function RefundPolicySection({
   onRetry: () => void;
 }) {
   return (
-    <section className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(43_33_29/0.04)] sm:p-6">
+    <section className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6">
       <p className="text-xs font-extrabold uppercase tracking-[0.1em] text-primary-strong">
         Refund policy
       </p>

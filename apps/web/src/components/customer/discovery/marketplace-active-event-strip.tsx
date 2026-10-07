@@ -57,10 +57,10 @@ function ActiveEventStrip({
         flex min-w-0
         flex-col gap-4
         rounded-2xl
-        border border-[#E2BFB5]
+        border border-feasta-border-strong
         bg-white
         px-4 py-4
-        shadow-[0_5px_16px_rgba(38,24,20,0.06)]
+        shadow-[0_5px_16px_rgba(0,75,59,0.06)]
         sm:flex-row
         sm:items-center
         sm:justify-between
@@ -105,7 +105,7 @@ function ActiveEventStrip({
             className="
               mt-0.5 truncate
               text-base font-black
-              text-[#261814]
+              text-foreground
               sm:text-lg
             "
           >
@@ -117,7 +117,7 @@ function ActiveEventStrip({
               mt-1 flex min-w-0
               flex-wrap items-center
               gap-x-4 gap-y-1
-              text-sm text-[#695C56]
+              text-sm text-feasta-text-secondary
             "
           >
             <span className="inline-flex items-center gap-1.5">
@@ -162,8 +162,8 @@ function ActiveEventStrip({
           shrink-0 items-center
           justify-center gap-2
           rounded-xl
-          border border-[#E2BFB5]
-          bg-[#FFF8F6]
+          border border-feasta-border-strong
+          bg-background
           px-4
           text-sm font-bold
           text-primary

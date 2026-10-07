@@ -85,7 +85,7 @@ export function MarketplaceSearch() {
       onSubmit={submit}
       noValidate
       aria-label="Plan a new event"
-      className="rounded-2xl border border-white/80 bg-white p-3 shadow-[0_10px_28px_rgba(38,24,20,0.12)] sm:p-4"
+      className="rounded-2xl border border-white/80 bg-white p-3 shadow-[0_10px_28px_rgba(0,53,32,0.08)] sm:p-4"
     >
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.2fr_1fr_0.8fr_0.8fr_0.75fr]">
         <PlanningField id="home-service-type" label="Service type" error={errors.serviceType} icon={<Search aria-hidden="true" />}>
@@ -159,9 +159,9 @@ export function MarketplaceSearch() {
         </PlanningField>
       </div>
 
-      <div className="mt-3 grid gap-3 border-t border-[#E2BFB5]/60 pt-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
+      <div className="mt-3 grid gap-3 border-t border-feasta-border-strong/60 pt-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end">
         <label className="grid gap-1.5" htmlFor="home-marketplace-search">
-          <span className="flex items-center gap-2 text-xs font-bold text-[#5A413A]">
+          <span className="flex items-center gap-2 text-xs font-bold text-feasta-text-secondary">
             Provider or service
             <span className="font-medium text-feasta-text-tertiary">Optional</span>
           </span>
@@ -186,7 +186,7 @@ export function MarketplaceSearch() {
           </span>
         </label>
 
-        <p className="inline-flex min-h-11 items-center gap-2 text-xs font-semibold text-[#5A413A]">
+        <p className="inline-flex min-h-11 items-center gap-2 text-xs font-semibold text-feasta-text-secondary">
           <MapPin aria-hidden="true" className="size-4 text-primary" />
           Ormoc City, Leyte
         </p>
@@ -209,7 +209,7 @@ function PlanningField({id, label, error, icon, children}: {
 }) {
   return (
     <div className="grid min-w-0 gap-1.5">
-      <label className="inline-flex items-center gap-1.5 text-xs font-bold text-[#5A413A] [&_svg]:size-3.5 [&_svg]:text-primary" htmlFor={id}>
+      <label className="inline-flex items-center gap-1.5 text-xs font-bold text-feasta-text-secondary [&_svg]:size-3.5 [&_svg]:text-primary" htmlFor={id}>
         {icon}
         {label}
       </label>

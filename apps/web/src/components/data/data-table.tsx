@@ -107,7 +107,7 @@ function DataTable<T>({
       <div className={cn("max-w-full overflow-x-auto overscroll-x-contain rounded-card border border-border bg-card shadow-card", renderMobileRow && "hidden md:block")}> 
         <table className="w-full min-w-[42rem] border-collapse text-left">
           <caption className="sr-only">{caption}</caption>
-          <thead className="border-b border-border bg-muted/70">
+          <thead className="border-b border-muted bg-secondary text-foreground">
             <tr>
               {columns.map((column) => {
                 const activeSort = sort?.columnId === column.id ? sort.direction : undefined;
@@ -144,9 +144,9 @@ function DataTable<T>({
               {rowActions ? <th scope="col" className="px-4 py-3 text-right text-sm font-bold">{rowActionsLabel}</th> : null}
             </tr>
           </thead>
-          <tbody className="divide-y divide-border">
+          <tbody className="divide-y divide-muted">
             {rows.map((row) => (
-              <tr key={getRowId(row)} className="hover:bg-secondary/60 focus-within:bg-secondary/60">
+              <tr key={getRowId(row)} className="hover:bg-table-hover focus-within:bg-accent">
                 {columns.map((column) => (
                   <td key={column.id} className={cn("max-w-md px-4 py-4 align-top text-sm", column.cellClassName)}>
                     {column.cell(row)}

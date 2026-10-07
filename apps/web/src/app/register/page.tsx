@@ -24,7 +24,7 @@ function CustomerRegistrationScreen() {
     <main className="min-h-screen bg-white">
       <div className="grid min-h-screen lg:grid-cols-[minmax(420px,0.9fr)_minmax(560px,1.1fr)]">
         {/* LEFT BRAND PANEL */}
-        <section className="relative hidden overflow-hidden bg-[#2b211d] px-12 py-12 lg:flex lg:flex-col xl:px-20 xl:py-16">
+        <section className="relative hidden overflow-hidden bg-feasta-surface-strong px-12 py-12 text-white lg:flex lg:flex-col xl:px-20 xl:py-16">
           <div
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 feasta-brand-ambient"
@@ -34,7 +34,7 @@ function CustomerRegistrationScreen() {
             <Link
               href="/"
               aria-label="FEASTA home"
-              className="inline-flex w-fit items-center rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-[#2b211d]"
+              className="inline-flex w-fit items-center rounded-[10px] bg-white px-2 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-4 focus-visible:ring-offset-feasta-surface-strong"
             >
               <Image
                 src="/images/feasta_logo.svg"
@@ -152,7 +152,7 @@ function RegistrationFallback() {
   return (
     <main className="min-h-screen bg-white">
       <div className="grid min-h-screen lg:grid-cols-[minmax(440px,0.88fr)_minmax(620px,1.12fr)]">
-        <div className="hidden bg-[#2b211d] lg:block" />
+        <div className="hidden bg-feasta-surface-strong lg:block" />
 
         <section className="flex min-h-screen items-center justify-center px-6 py-10 sm:px-10 lg:px-16 xl:px-24">
           <div

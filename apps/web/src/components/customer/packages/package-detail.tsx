@@ -118,7 +118,7 @@ export function PackageDetail({
           PACKAGE HERO
          ================================================================ */}
 
-      <section className="overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white shadow-[0_14px_42px_rgb(43_33_29/0.065)]">
+      <section className="overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white shadow-[0_14px_42px_rgb(0_75_59/0.065)]">
         <div className="relative grid aspect-[16/7] min-h-[240px] place-items-center overflow-hidden bg-feasta-surface-muted">
           {primaryImage ? (
             // Public package image URLs are normalized before reaching this component.
@@ -275,7 +275,7 @@ export function PackageDetail({
 
       <section
         aria-labelledby="package-event-fit"
-        className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(43_33_29/0.035)] sm:p-6 lg:p-7"
+        className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(0_75_59/0.035)] sm:p-6 lg:p-7"
       >
         <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
           Event fit
@@ -322,7 +322,7 @@ export function PackageDetail({
       {serviceOptions.length > 0 ? (
         <section
           aria-labelledby="package-service-options"
-          className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(43_33_29/0.035)] sm:p-6 lg:p-7"
+          className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(0_75_59/0.035)] sm:p-6 lg:p-7"
         >
           <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
             Catering service tiers
@@ -379,7 +379,7 @@ export function PackageDetail({
       {themeOptions.length > 0 ? (
         <section
           aria-labelledby="package-theme-options"
-          className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(43_33_29/0.035)] sm:p-6 lg:p-7"
+          className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(0_75_59/0.035)] sm:p-6 lg:p-7"
         >
           <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
             Theme options
@@ -423,7 +423,7 @@ export function PackageDetail({
 
       {inclusionGroups.length > 0 ? <section
         aria-labelledby="package-inclusions"
-        className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(43_33_29/0.035)] sm:p-6 lg:p-7"
+        className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(0_75_59/0.035)] sm:p-6 lg:p-7"
       >
         <div className="max-w-3xl">
           <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
@@ -473,7 +473,7 @@ export function PackageDetail({
 
       <section
         aria-labelledby="package-provider"
-        className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(43_33_29/0.035)] sm:p-6 lg:p-7"
+        className="rounded-[24px] border border-feasta-border-soft bg-white p-5 shadow-[0_6px_22px_rgb(0_75_59/0.035)] sm:p-6 lg:p-7"
       >
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
           <div className="max-w-3xl">
@@ -593,7 +593,7 @@ export function PackageDetail({
 
       <section
         aria-labelledby="package-next-step"
-        className="relative overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white shadow-[0_10px_34px_rgb(43_33_29/0.055)]"
+        className="relative overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white shadow-[0_10px_34px_rgb(0_75_59/0.055)]"
       >
         <div
           aria-hidden="true"

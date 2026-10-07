@@ -51,7 +51,7 @@ export function ProviderEventContextPanel({
   return (
     <section
       aria-labelledby="marketplace-event-context-title"
-      className="rounded-[22px] border border-primary/15 bg-secondary/70 p-4 shadow-[0_5px_20px_rgb(43_33_29/0.03)] sm:p-5"
+      className="rounded-[22px] border border-primary/15 bg-secondary/70 p-4 shadow-[0_5px_20px_rgb(0_75_59/0.03)] sm:p-5"
     >
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">

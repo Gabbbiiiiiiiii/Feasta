@@ -17,7 +17,7 @@ type AdminBookingPerformanceProps = {
 };
 
 const chartSeries = [
-  {key: "created", label: "Created", color: "#ff5f35"},
+  {key: "created", label: "Created", color: "#087159"},
   {key: "confirmed", label: "Confirmed", color: "#2563eb"},
   {key: "completed", label: "Completed", color: "#15803d"},
 ] as const;

@@ -24,7 +24,7 @@ export function CustomerMarketplaceShell({
   return (
     <div
       data-customer-marketplace-shell
-      className="min-h-dvh overflow-x-clip bg-[#FFF8F6] text-[#261814]"
+      className="min-h-dvh overflow-x-clip bg-background text-foreground"
     >
       <a
         href="#main-content"
