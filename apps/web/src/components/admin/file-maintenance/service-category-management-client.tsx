@@ -7,7 +7,6 @@ import {
   PowerOff,
   Trash2,
 } from "lucide-react";
-import {matchingSuggestions} from "@/components/forms/search-suggestions";
 import {
   useMemo,
   useState,
@@ -503,8 +502,6 @@ function ServiceCategoryManagementClient({
       )}
 
       <FilterToolbar
-        suggestionScope={status}
-        loadSuggestions={async query => matchingSuggestions(query, categories.filter(r => status === "all" || r.status === status).map(r => ({key: r.code, label: r.name, searchText: r.name + " " + r.code, context: r.code + " · " + r.status, value: r.name})))}
         searchValue={searchValue}
         onSearchChange={setSearchValue}
         onSearchSubmit={setSearch}

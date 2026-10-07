@@ -1,5 +1,7 @@
 "use client";
 
+import {formatEventTime} from "@/lib/presentation/event-time";
+
 import {
   CalendarDays,
   Eye,
@@ -76,7 +78,7 @@ function BookingMobileCard({
             {formatDate(booking.eventDate)}
 
             {booking.eventTime
-              ? ` · ${booking.eventTime}`
+              ? ` · ${formatEventTime(booking.eventTime)}`
               : ""}
           </dd>
         </div>

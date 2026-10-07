@@ -1,5 +1,7 @@
 "use client";
 
+import {formatEventTime} from "@/lib/presentation/event-time";
+
 import {
   CalendarDays,
   CreditCard,
@@ -104,7 +106,7 @@ function BookingDetailsDrawer({
                 formatDateOnly(
                   booking.eventDate,
                 ),
-                booking.eventTime,
+                formatEventTime(booking.eventTime),
               ]
                 .filter(Boolean)
                 .join(" · ")}
@@ -173,6 +175,7 @@ function BookingDetailsDrawer({
             Financial summary
           </h2>
 
+          {booking.totalPaidAmount === null || booking.totalRefundedAmount === null ? <p className="text-sm text-muted-foreground">Completed refund accounting is unavailable for a legacy payment. Financial totals cannot be determined.</p> : null}
           <dl className="grid grid-cols-2 gap-3">
             <FinancialItem
               label="Estimated total"
@@ -529,7 +532,7 @@ function FinancialItem({
   tone = "default",
 }: {
   label: string;
-  value: number;
+  value: number | null;
   tone?: "default" | "success" | "warning" | "primary";
 }) {
   const toneClass = {
@@ -548,7 +551,7 @@ function FinancialItem({
       <dd
         className={`mt-2 truncate text-lg font-black ${toneClass}`}
       >
-        {currencyFormatter.format(value)}
+        {value === null ? "Unavailable" : currencyFormatter.format(value)}
       </dd>
     </div>
   );

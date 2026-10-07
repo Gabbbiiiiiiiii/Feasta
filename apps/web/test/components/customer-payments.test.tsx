@@ -156,7 +156,7 @@ describe("customer payments", () => {
     mocks.loadPayments.mockResolvedValue({...initialPage, payments: []});
     render(<CustomerPaymentsClient initialPage={initialPage} />);
 
-    fireEvent.change(screen.getByRole("combobox", {name: /search payments/iu}), {
+    fireEvent.change(screen.getByRole("searchbox", {name: /search payments/iu}), {
       target: {value: "FEASTA-1001"},
     });
     fireEvent.click(screen.getByRole("button", {name: "Search"}));

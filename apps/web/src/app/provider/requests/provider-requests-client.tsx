@@ -7,7 +7,6 @@ import {
   Clock3,
   Eye,
 } from "lucide-react";
-import {matchingSuggestions} from "@/components/forms/search-suggestions";
 import Link from "next/link";
 import {
   useMemo,
@@ -419,8 +418,6 @@ export function ProviderRequestsClient({
       </section>
 
       <FilterToolbar
-        loadSuggestions={async query => matchingSuggestions(query, initialRequests.map(r => ({key: r.id, label: r.customer.name, searchText: [r.customer.name, r.package?.name, r.event.eventType, r.status, r.customer.email, r.event.venueAddress, r.event.city, r.type].filter(Boolean).join(" "), context: [r.package?.name, r.event.eventType, r.status].filter(Boolean).join(" · "), value: r.customer.name})))}
-        onSuggestionSelect={item => { setSelectedRequest(initialRequests.find(r => r.id === item.key) ?? null); }}
         searchValue={search}
         onSearchChange={setSearch}
         onSearchSubmit={

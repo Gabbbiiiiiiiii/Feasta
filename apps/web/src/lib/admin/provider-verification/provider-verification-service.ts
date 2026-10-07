@@ -481,7 +481,9 @@ export async function getProviderVerificationQueue(
   }
 
   const searchToken = normalizeSearchToken(filters.search);
-  if (searchToken) {
+  // Stored prefixes begin at two characters. One character is not a token,
+  // and scanning a fixed 200-row window would omit later matches.
+  if (searchToken.length >= 2) {
     query = query.where("searchTokens", "array-contains", searchToken);
   }
 

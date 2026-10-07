@@ -696,47 +696,52 @@ async function searchOwnedPayments(
   customerId: string,
   filters: NormalizedFilters,
 ): Promise<QueryDocumentSnapshot<DocumentData>[]> {
+  // Payment and booking ID prefixes are matched only within this customer's
+  // payments, so another customer's earlier ID cannot fill the result limit.
   const directDocumentPromise = SAFE_DOCUMENT_ID.test(filters.search)
     ? adminDb
         .collection(COLLECTIONS.payments)
         .doc(filters.search)
         .get()
     : Promise.resolve(null);
-  const bookingPaymentsPromise = adminDb
+  const ownedPaymentsPromise = adminDb
     .collection(COLLECTIONS.payments)
-    .where("bookingId", "==", filters.search)
-    .limit(filters.pageSize)
+    .where("customerId", "==", customerId)
     .get();
-  const [directDocument, bookingPayments] = await Promise.all([
+  const [directDocument, ownedPayments] = await Promise.all([
     directDocumentPromise,
-    bookingPaymentsPromise,
+    ownedPaymentsPromise,
   ]);
   const documents = new Map<
     string,
     QueryDocumentSnapshot<DocumentData>
   >();
 
-  if (directDocument?.exists) {
+  const matchesSearch = (document: QueryDocumentSnapshot<DocumentData>) => {
+    const data = document.data();
+    const bookingId = typeof data.bookingId === "string" ? data.bookingId : "";
+    return document.id === filters.search || bookingId.startsWith(filters.search);
+  };
+
+  for (const document of ownedPayments.docs) {
+    if (matchesSearch(document)) documents.set(document.id, document);
+  }
+
+  if (
+    directDocument?.exists &&
+    directDocument.data()?.customerId === customerId &&
+    matchesSearch(directDocument as QueryDocumentSnapshot<DocumentData>)
+  ) {
     documents.set(
       directDocument.id,
       directDocument as QueryDocumentSnapshot<DocumentData>,
     );
   }
 
-  for (const document of bookingPayments.docs) {
-    documents.set(document.id, document);
-  }
-
-  return [...documents.values()]
-    .filter((document) => {
-      const data = document.data();
-
-      return (
-        data.customerId === customerId &&
-        (filters.status === "all" || data.status === filters.status)
-      );
-    })
-    .slice(0, filters.pageSize);
+  return [...documents.values()].filter((document) => {
+    const data = document.data();
+    return filters.status === "all" || data.status === filters.status;
+  });
 }
 
 async function getCustomerPaymentStatistics(

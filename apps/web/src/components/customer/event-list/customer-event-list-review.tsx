@@ -1412,10 +1412,8 @@ export function CustomerEventListReview() {
                                 }{" "}
                                 ·{" "}
                                 {
-                                  item.configuration
-                                    .event
-                                    .eventTime
-                                }{" "}
+                                  formatCustomerEventTime(item.configuration.event.eventTime)
+}{" "}
                                 ·{" "}
                                 {
                                   item.configuration

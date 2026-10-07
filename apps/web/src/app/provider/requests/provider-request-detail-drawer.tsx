@@ -1,5 +1,7 @@
 "use client";
 
+import {formatEventTime} from "@/lib/presentation/event-time";
+
 import {
   CalendarDays,
   Clock3,
@@ -172,7 +174,7 @@ export function ProviderRequestDetailDrawer({
             }
             label="Event time"
             value={
-              request.event.eventTime ??
+              formatEventTime(request.event.eventTime) ||
               "Not provided"
             }
           />

@@ -2621,21 +2621,29 @@ function applyPaymentFilters(
 async function searchPaymentDocuments(
   search: string,
 ): Promise<DocumentSnapshot<DocumentData>[]> {
+  // Booking and request references use a bounded prefix. PayMongo resource
+  // IDs stay exact so a short prefix does not become a gateway-id search.
   const collection = adminDb.collection(COLLECTIONS.payments);
 
   const [directSnapshot, bookingId, mainEventId, providerRequestId, gatewayId] =
     await Promise.all([
       collection.doc(search).get(),
       collection
-        .where("bookingId", "==", search)
+        .where("bookingId", ">=", search)
+        .where("bookingId", "<=", search + "\uf8ff")
+        .orderBy("bookingId")
         .limit(SEARCH_RESULT_LIMIT)
         .get(),
       collection
-        .where("mainEventId", "==", search)
+        .where("mainEventId", ">=", search)
+        .where("mainEventId", "<=", search + "\uf8ff")
+        .orderBy("mainEventId")
         .limit(SEARCH_RESULT_LIMIT)
         .get(),
       collection
-        .where("providerRequestId", "==", search)
+        .where("providerRequestId", ">=", search)
+        .where("providerRequestId", "<=", search + "\uf8ff")
+        .orderBy("providerRequestId")
         .limit(SEARCH_RESULT_LIMIT)
         .get(),
       collection

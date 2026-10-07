@@ -1,5 +1,7 @@
 "use client";
 
+import {formatEventTime} from "@/lib/presentation/event-time";
+
 import {
   CalendarCheck,
   CalendarClock,
@@ -133,7 +135,7 @@ function BookingMonitoringClient({
     if (!isCurrent() || requestId !== requestIdRef.current) return;
     setPage(result);
     setSelectedBooking(current => current ? result.bookings.find(booking => booking.id === current.id) ?? current : null);
-  }, JSON.stringify(filters), isPending);
+  }, JSON.stringify(filters), isPending || searchValue.trim() !== filters.search.trim());
 
   const openBooking = useCallback(
     (booking: AdminBooking) => {
@@ -192,7 +194,7 @@ function BookingMonitoringClient({
             </p>
 
             <p className="mt-1 text-muted-foreground">
-              {booking.eventTime ||
+              {formatEventTime(booking.eventTime) ||
                 "Time not provided"}
             </p>
           </div>
@@ -245,9 +247,7 @@ function BookingMonitoringClient({
             />
 
             <p className="mt-2 font-semibold">
-              {currencyFormatter.format(
-                booking.totalPaidAmount,
-              )}
+              {(booking.totalPaidAmount === null ? "Unavailable" : currencyFormatter.format(booking.totalPaidAmount))}
             </p>
           </div>
         ),
@@ -507,10 +507,8 @@ function BookingMonitoringClient({
 
         <SummaryCard
           label="Paid booking amount"
-          supportingMetric="Payments currently marked paid"
-          value={currencyFormatter.format(
-            page.statistics.totalPaidAmount,
-          )}
+          supportingMetric={page.statistics.totalPaidAmount === null ? "See booking details for completed refund accounting" : "Retained funds after completed refunds"}
+          value={(page.statistics.totalPaidAmount === null ? "Unavailable" : currencyFormatter.format(page.statistics.totalPaidAmount))}
           icon={
             <PhilippinePeso className="size-5" />
           }
@@ -519,10 +517,8 @@ function BookingMonitoringClient({
       </section>
 
       <FilterToolbar
-        suggestionScope={JSON.stringify(filters)}
-        loadSuggestions={async (search) => {
-          const result = await loadAdminBookingsAction({...filters, search, cursor: null, pageSize: 6});
-          return result.bookings.slice(0, 6).map(r => ({key: r.id, label: r.reference, context: [r.customer.fullName, ...r.providerRequests.map(p => p.providerName), r.status, r.paymentStatus].join(" · "), value: r.reference}));
+        onSearchInvalidate={() => {
+          requestIdRef.current += 1;
         }}
         searchValue={searchValue}
         onSearchChange={setSearchValue}
@@ -531,7 +527,7 @@ function BookingMonitoringClient({
         }
         onClearFilters={clearFilters}
         activeFilters={activeFilters}
-        searchLabel="Search by exact booking code"
+        searchLabel="Search by booking code prefix"
         searchPlaceholder="Enter booking code, for example BK-123ABC"
         loading={isPending}
         filterControls={

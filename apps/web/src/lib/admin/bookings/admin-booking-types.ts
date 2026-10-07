@@ -83,6 +83,7 @@ export type AdminBookingPayment = {
 
   amount: number;
   amountInCentavos: number;
+  refundedAmountInCentavos?: number | null;
   currency: string;
 
   status: PaymentStatus;
@@ -136,9 +137,9 @@ export type AdminBooking = {
   expiredProviderRequestCount: number;
 
   totalAmount: number;
-  totalPaidAmount: number;
-  totalRefundedAmount: number;
-  outstandingAmount: number;
+  totalPaidAmount: number | null;
+  totalRefundedAmount: number | null;
+  outstandingAmount: number | null;
 
   providerRequests: AdminBookingProviderRequest[];
   payments: AdminBookingPayment[];
@@ -164,8 +165,8 @@ export type AdminBookingStatistics = {
   pendingProviderRequests: number;
   confirmedProviderRequests: number;
 
-  totalPaidAmount: number;
-  totalRefundedAmount: number;
+  totalPaidAmount: number | null;
+  totalRefundedAmount: number | null;
 };
 
 export type AdminBookingFilters = {

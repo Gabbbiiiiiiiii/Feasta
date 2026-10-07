@@ -76,15 +76,15 @@ it("keeps combined filters, unsent search text and current data through refresh 
   for (const [label, value] of [["Booking status", "waiting_for_down_payment"], ["Payment status", "processing"], ["Event date", "upcoming"]]) {
     await act(async () => {fireEvent.change(screen.getByLabelText(label), {target: {value}});});
   }
-  fireEvent.change(screen.getByLabelText("Search by exact booking code"), {target: {value: "BK-unsent"}});
-  const expected = {...mocks.load.mock.lastCall![0]} as AdminBookingFilters;
+  fireEvent.change(screen.getByLabelText("Search by booking code prefix"), {target: {value: "BK-unsent"}});
+  const expected = {...mocks.load.mock.lastCall![0], search: "BK-unsent", cursor: null} as AdminBookingFilters;
   expect(expected).toMatchObject({status: "waiting_for_down_payment", paymentStatus: "processing", date: "upcoming"});
   await act(async () => {await vi.advanceTimersByTimeAsync(275);});
   const readsBefore = mocks.load.mock.calls.length;
   await act(async () => {await vi.advanceTimersByTimeAsync(5_000);});
   expect(mocks.load).toHaveBeenCalledTimes(readsBefore + 1);
   expect(mocks.load).toHaveBeenLastCalledWith(expected);
-  expect(screen.getByLabelText("Search by exact booking code")).toHaveValue("BK-unsent");
+  expect(screen.getByLabelText("Search by booking code prefix")).toHaveValue("BK-unsent");
   expect(screen.getByText(/Status: Waiting for payment/)).toBeInTheDocument();
   expect(screen.getByText(/Payment: Awaiting payment confirmation/)).toBeInTheDocument();
   mocks.load.mockRejectedValueOnce(new Error("offline"));
@@ -116,25 +116,28 @@ it("preserves pagination and the open drawer while polling and clears the cursor
 });
 
 
-it("keeps open suggestions through refresh and applies exact selection with active filters", async () => {
-  vi.useFakeTimers();
-  mocks.load.mockResolvedValue({...page, bookings: [booking]});
-  show();
-  fireEvent.change(screen.getByLabelText("Booking status"), {target: {value: "confirmed"}});
-  await act(async () => {await Promise.resolve();});
-  const input = screen.getByRole("combobox", {name: "Search by exact booking code"});
-  fireEvent.focus(input);
-  fireEvent.change(input, {target: {value: "BK-001"}});
+it("searches actual booking rows while preserving filters and auto-refresh", async () => {
+  vi.useFakeTimers(); mocks.load.mockResolvedValue({...page, bookings: [booking]}); show();
+  await act(async () => { fireEvent.change(screen.getByLabelText("Booking status"), {target: {value: "confirmed"}}); });
+  const input = screen.getByRole("searchbox", {name: "Search by booking code prefix"});
+  fireEvent.change(input, {target: {value: "BK-0"}});
   await act(async () => {await vi.advanceTimersByTimeAsync(275);});
-  expect(within(screen.getByRole("listbox")).getByRole("option", {name: /BK-001/})).toBeInTheDocument();
-  expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({search: "BK-001", status: "confirmed", cursor: null, pageSize: 6}));
-  const reads = mocks.load.mock.calls.length;
-  await act(async () => {await vi.advanceTimersByTimeAsync(5000);});
-  expect(mocks.load).toHaveBeenCalledTimes(reads + 1);
-  expect(input).toHaveValue("BK-001");
-  expect(within(screen.getByRole("listbox")).getByRole("option")).toBeInTheDocument();
-  fireEvent.click(within(screen.getByRole("listbox")).getByRole("option"));
-  await act(async () => {await Promise.resolve();});
-  expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({search: "BK-001", status: "confirmed", cursor: null, pageSize: 10}));
+  expect(screen.queryByRole("listbox")).toBeNull();
+  expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({search: "BK-0", status: "confirmed", cursor: null, pageSize: 10}));
   expect(screen.getAllByRole("button", {name: "View booking BK-001"}).length).toBeGreaterThan(0);
+  await act(async () => {await vi.advanceTimersByTimeAsync(5000);});
+  expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({search: "BK-0", status: "confirmed"})); expect(input).toHaveValue("BK-0");
+});
+
+it("formats the booking drawer event clock using AM/PM", () => {
+  render(<BookingMonitoringClient initialPage={{...page, bookings: [{...booking, eventDate: "2026-10-07T00:00:00+08:00", eventTime: "06:38"}]}} />);
+  fireEvent.click(screen.getAllByRole("button", {name: "View booking BK-001"})[0]);
+  expect(within(screen.getByRole("dialog", {name: "Booking BK-001"})).getByText("October 7, 2026 · 6:38 AM")).toBeInTheDocument();
+});
+it("keeps an open booking drawer through live searches", async () => {
+  vi.useFakeTimers(); render(<BookingMonitoringClient initialPage={{...page, bookings: [booking]}} />);
+  fireEvent.click(screen.getAllByRole("button", {name: "View booking BK-001"})[0]);
+  fireEvent.change(screen.getByRole("searchbox", {hidden: true}), {target: {value: "b"}});
+  await act(async () => {await vi.advanceTimersByTimeAsync(275);});
+  expect(screen.getByRole("dialog", {name: "Booking BK-001"})).toBeInTheDocument();
 });

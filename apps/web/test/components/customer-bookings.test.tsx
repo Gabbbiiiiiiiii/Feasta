@@ -69,7 +69,7 @@ describe("customer booking history and details", () => {
       checkoutOptions: balance ? [{choice: "remaining_balance", amount: 75000}] :
         [{choice: "minimum", amount: 26000}, {choice: "full", amount: 101000}],
     })];
-    mocks.loadDetails.mockResolvedValueOnce(details);
+    mocks.loadDetails.mockResolvedValue(details);
     render(<CustomerBookingExperience initialPage={pageFixture()} />);
     fireEvent.click(screen.getAllByRole("button", {name: "View booking FEA-2026-0001"})[0]);
     const button = await screen.findByRole("button", {name: choice === "minimum" ? /Pay minimum payment .*26,000/ :
@@ -105,7 +105,7 @@ describe("customer booking history and details", () => {
     render(<CustomerBookingExperience initialPage={pageFixture()} />);
 
     await user.type(
-      screen.getByRole("combobox", {name: "Search by exact booking code or booking ID"}),
+      screen.getByRole("searchbox", {name: "Search by booking code prefix or booking ID"}),
       "FEA-2026-0001",
     );
     await user.click(screen.getByRole("button", {name: "Search"}));
@@ -184,7 +184,7 @@ describe("customer booking history and details", () => {
       checkoutOptions: [{choice: "full", amount: 100000}],
       initialPaymentExplanation: "Full payment is required because fewer than 49 hours remained before the event when this booking was accepted.",
     })];
-    mocks.loadDetails.mockResolvedValueOnce(details);
+    mocks.loadDetails.mockResolvedValue(details);
     render(<CustomerBookingExperience initialPage={pageFixture()} />);
     fireEvent.click(screen.getAllByRole("button", {name: "View booking FEA-2026-0001"})[0]);
     expect(await screen.findByRole("button", {name: /Pay full payment/})).toBeVisible();
@@ -284,8 +284,8 @@ describe("customer booking history and details", () => {
     expect(screen.getByRole("region", {name: "Filter bookings"})).toBeInTheDocument();
     expect(screen.getByRole("table", {name: "Customer booking history"})).toBeInTheDocument();
     expect(screen.getByLabelText("Customer booking history, mobile view")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", {name: "Search by exact booking code or booking ID"})).toHaveAccessibleDescription(
-      "Searches only your bookings using an exact booking code or booking ID.",
+    expect(screen.getByRole("searchbox", {name: "Search by booking code prefix or booking ID"})).toHaveAccessibleDescription(
+      "Searches only your bookings using a booking code prefix or booking ID.",
     );
     expect(screen.getAllByLabelText("Status: Awaiting payment").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Accepted provider requests require an upfront payment. Review each request's payment status.").length).toBeGreaterThan(0);
@@ -415,7 +415,7 @@ describe("customer booking history and details", () => {
     await user.selectOptions(screen.getByLabelText("Booking status"), "awaiting_provider");
     await waitFor(() => expect(screen.getByLabelText("Booking status")).toBeEnabled());
     await user.type(
-      screen.getByRole("combobox", {name: "Search by exact booking code or booking ID"}),
+      screen.getByRole("searchbox", {name: "Search by booking code prefix or booking ID"}),
       "  FEA-2026-0001  ",
     );
     await user.keyboard("{Enter}");
@@ -483,7 +483,7 @@ describe("customer booking history and details", () => {
 
     mocks.loadBookings.mockResolvedValueOnce(pageFixture([], null));
     await user.type(
-      screen.getByRole("combobox", {name: "Search by exact booking code or booking ID"}),
+      screen.getByRole("searchbox", {name: "Search by booking code prefix or booking ID"}),
       "MISSING-BOOKING",
     );
     await user.click(screen.getByRole("button", {name: "Search"}));

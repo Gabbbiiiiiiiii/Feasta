@@ -39,6 +39,7 @@ export function parseProviderDiscoveryFilters(
   }, minimumDate);
   const planningContext = parseCustomerPlanningContext(parameters, minimumDate);
   return {
+    // Provider name tokens start at two characters. Shorter text is not a search.
     search: search.length >= 2 ? search : "",
     serviceType,
     category: serviceCategoryValue(

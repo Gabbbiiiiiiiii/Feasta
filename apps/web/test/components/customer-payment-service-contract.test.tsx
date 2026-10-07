@@ -44,11 +44,13 @@ describe("customer payment service contract", () => {
     );
   });
 
-  it("keeps list and search reads bounded", () => {
+  it("keeps list reads page-bounded and search reads owner-scoped", () => {
     expect(service).toContain("MAX_PAGE_SIZE = 30");
     expect(service).toContain("filters.pageSize + 1");
-    expect(service).toContain(".limit(filters.pageSize)");
     expect(service).toContain("FieldPath.documentId()");
+    expect(service).toContain("searchOwnedPayments");
+    expect(service).toContain('.where("customerId", "==", customerId)');
+    expect(service).toContain("directDocument.data()?.customerId === customerId");
   });
 
   it("rechecks ownership before returning normalized payment records", () => {

@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import {useRouter} from "next/navigation";
 import {
   Activity,
   CircleCheckBig,
@@ -12,6 +11,7 @@ import {
 import {
   useCallback,
   useMemo,
+  useRef,
   useState,
   useTransition,
 } from "react";
@@ -52,7 +52,6 @@ const DEFAULT_FILTERS: AdminAuditLogFilters = {
 function AuditLogBrowserClient({
   initialPage,
 }: AuditLogBrowserClientProps) {
-  const router = useRouter();
   const [page, setPage] = useState(initialPage);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [filterOptions, setFilterOptions] = useState(
@@ -64,19 +63,21 @@ function AuditLogBrowserClient({
   ]);
   const [pageError, setPageError] = useState<string>();
   const [isPending, startTransition] = useTransition();
-
+  const pageRequestId = useRef(0);
   const loadPage = useCallback(
     (
       nextFilters: AdminAuditLogFilters,
       cursor: string | null,
       history: (string | null)[],
     ) => {
+      const requestId = ++pageRequestId.current;
       setPageError(undefined);
       const request = {...nextFilters, cursor};
 
       startTransition(async () => {
         try {
           const result = await loadAdminAuditLogsAction(request);
+          if (requestId !== pageRequestId.current) return;
           setPage(result);
           setFilters(request);
           setCursorHistory(history);
@@ -84,6 +85,7 @@ function AuditLogBrowserClient({
             mergeFilterOptions(current, result.filterOptions),
           );
         } catch {
+          if (requestId !== pageRequestId.current) return;
           setPageError(
             "Activities could not be loaded. Please try again.",
           );
@@ -233,11 +235,8 @@ function AuditLogBrowserClient({
       </p>
 
       <FilterToolbar
-        onSuggestionSelect={item => router.push(`/admin/audit-logs/${encodeURIComponent(item.key)}`)}
-        suggestionScope={JSON.stringify(filters)}
-        loadSuggestions={async (search) => {
-          const result = await loadAdminAuditLogsAction({...filters, search, cursor: null, pageSize: 6});
-          return result.auditLogs.slice(0, 6).map(r => ({key: r.id, label: r.summary, context: [r.action, r.actorRole, r.outcome].filter(Boolean).join(" · "), value: r.action}));
+        onSearchInvalidate={() => {
+          pageRequestId.current += 1;
         }}
         searchValue={searchValue}
         onSearchChange={setSearchValue}

@@ -1,19 +1,18 @@
 import type {AdminBookingPayment, AdminBookingProviderRequest} from "./admin-booking-types";
+import {bookingPaymentTotals} from "./booking-payment-accounting";
 
-/** Presentation only: refunded payments are history, never a new obligation. */
-export function bookingOutstanding(status: string, estimatedTotal: number,
-  requests: readonly AdminBookingProviderRequest[], payments: readonly AdminBookingPayment[]): number {
+export function bookingOutstanding(status: string, estimatedTotal: number, requests: readonly AdminBookingProviderRequest[], payments: readonly AdminBookingPayment[]): number | null {
   if (status === "cancelled") return 0;
   const inactive = new Set(["cancelled", "rejected", "expired"]);
   if (requests.length) {
-    const due = requests.filter(request => !inactive.has(request.status)).reduce((sum, request) => {
-      const paid = payments.filter(payment => payment.providerRequestId === request.id && payment.status === "paid")
-        .reduce((total, payment) => total + payment.amountInCentavos, 0);
-      return sum + Math.max(0, Math.round(request.subtotal * 100) - paid);
-    }, 0);
-    return due / 100;
+    let outstanding = 0;
+    for (const request of requests.filter(item => !inactive.has(item.status))) {
+      const {paid} = bookingPaymentTotals(payments.filter(payment => payment.providerRequestId === request.id));
+      if (paid === null) return null;
+      outstanding += Math.max(0, Math.round(request.subtotal * 100) - Math.round(paid * 100));
+    }
+    return outstanding / 100;
   }
-  const paid = payments.filter(payment => payment.status === "paid")
-    .reduce((sum, payment) => sum + payment.amountInCentavos, 0);
-  return Math.max(0, Math.round(estimatedTotal * 100) - paid) / 100;
+  const {paid} = bookingPaymentTotals(payments);
+  return paid === null ? null : Math.max(0, Math.round(estimatedTotal * 100) - Math.round(paid * 100)) / 100;
 }

@@ -1,3 +1,5 @@
+
+import {formatEventTime} from "@/lib/presentation/event-time";
 import {
   PROVIDER_SERVICE_TYPES,
   type ProviderServiceType,
@@ -250,16 +252,7 @@ export function formatCustomerEventDate(value: string): string {
   }).format(date);
 }
 
-export function formatCustomerEventTime(value: string): string {
-  const [hour = "0", minute = "0"] = value.split(":");
-  const date = new Date(Date.UTC(2020, 0, 1, Number(hour), Number(minute)));
-  return new Intl.DateTimeFormat("en-PH", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: "UTC",
-  }).format(date);
-}
+export const formatCustomerEventTime = formatEventTime;
 
 function isCanonicalDate(value: string): boolean {
   if (!DATE_PATTERN.test(value)) return false;

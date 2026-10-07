@@ -1,5 +1,7 @@
 "use client";
 
+import {formatEventTime} from "@/lib/presentation/event-time";
+
 import {CalendarDays, Clock3, CreditCard, PackageOpen, UserRound} from "lucide-react";
 
 import {DetailDrawer} from "@/components/data";
@@ -92,7 +94,7 @@ export function ProviderPaymentDetailDrawer({
             <DetailRow
               icon={<Clock3 className="size-4" />}
               label="Event time"
-              value={payment.eventTime ?? "Not provided"}
+              value={formatEventTime(payment.eventTime) || "Not provided"}
             />
           </DrawerSection>
 

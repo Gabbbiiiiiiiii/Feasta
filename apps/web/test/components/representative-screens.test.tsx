@@ -47,7 +47,7 @@ describe("representative application screens", () => {
 
     expect(screen.getByRole("heading", {level: 1, name: "Find event providers"})).toBeInTheDocument();
     fireEvent.click(screen.getByText("More filters"));
-    expect(screen.getByRole("combobox", {name: "Search approved providers"})).toBeInTheDocument();
+    expect(screen.getByRole("searchbox", {name: "Search approved providers"})).toBeInTheDocument();
     expect(screen.getByRole("combobox", {name: "Provider Type"})).toBeInTheDocument();
     expect(screen.getByRole("combobox", {name: "Service Category"})).toBeInTheDocument();
     expect(screen.getByText("No public providers yet.")).toBeInTheDocument();

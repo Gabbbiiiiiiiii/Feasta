@@ -22,19 +22,21 @@ test("customer booking reads derive ownership from the trusted session", async (
   assert.doesNotMatch(actions, /customerId/u);
 });
 
-test("exact search cannot return another customer's booking", async () => {
+test("prefix search cannot return another customer's booking", async () => {
   const service = await source(
     "lib/customer/bookings/customer-booking-service.ts",
   );
+  const start = service.indexOf("async function searchOwnedBookings");
+  const end = service.indexOf("async function getCustomerBookingStatistics");
+  const search = service.slice(start, end);
 
-  assert.match(service, /SAFE_DOCUMENT_ID/u);
-  assert.match(service, /\.doc\(filters\.search\)/u);
-  assert.match(
-    service,
-    /\.where\("bookingCode", "==", filters\.search\.toUpperCase\(\)\)/u,
-  );
-  assert.match(service, /data\.customerId === customerId/u);
-  assert.match(service, /\.limit\(1\)/u);
+  assert.ok(start >= 0 && end > start);
+  assert.match(search, /SAFE_DOCUMENT_ID/u);
+  assert.match(search, /\.doc\(filters\.search\)/u);
+  assert.match(search, /\.where\("customerId", "==", customerId\)/u);
+  assert.match(search, /data\.customerId === customerId/u);
+  assert.match(search, /code\.startsWith\(prefix\)/u);
+  assert.doesNotMatch(search, /\.where\("bookingCode"/u);
   assert.match(service, /\.slice\(0, filters\.pageSize\)/u);
 });
 

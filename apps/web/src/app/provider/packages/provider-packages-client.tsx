@@ -20,8 +20,8 @@ import {
 import {
   PageHeading,
 } from "@/components/layout/page-heading";
+import {useLiveSearch} from "@/lib/search/use-live-search";
 import {SearchInput} from "@/components/forms/search-input";
-import {matchingSuggestions} from "@/components/forms/search-suggestions";
 import {Select} from "@/components/ui/select";
 import {ProviderPackageCard} from "./provider-package-card";
 import {
@@ -93,6 +93,8 @@ export function ProviderPackagesClient({
     search,
     setSearch,
   ] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState(search);
+  const live = useLiveSearch(search, setAppliedSearch);
 
   const [eventFilter, setEventFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -206,7 +208,7 @@ export function ProviderPackagesClient({
 
   const eventTypes = useMemo(() => [...new Set(packages.map((item) => item.eventType))].sort(), [packages]);
   const filteredPackages = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const term = appliedSearch.trim().toLowerCase();
     const result = packages.filter((item) =>
       (!eventFilter || item.eventType === eventFilter) &&
       (!statusFilter || item.status === statusFilter) &&
@@ -217,7 +219,7 @@ export function ProviderPackagesClient({
     if (sort === "price-high") result.sort((a, b) => b.price - a.price);
     if (sort === "name") result.sort((a, b) => a.name.localeCompare(b.name));
     return result;
-  }, [packages, search, eventFilter, statusFilter, sort]);
+  }, [packages, appliedSearch, eventFilter, statusFilter, sort]);
 
   const publishedCount =
     useMemo(
@@ -386,10 +388,24 @@ export function ProviderPackagesClient({
         <div className="grid items-end gap-3 sm:grid-cols-2 md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
           <label className="grid min-w-0 gap-1 text-sm font-semibold">Search packages
             <SearchInput
-          aria-label="Search packages"
-          suggestionScope={eventFilter + ":" + statusFilter}
-          loadSuggestions={async query => matchingSuggestions(query, packages.filter(r => (!eventFilter || r.eventType === eventFilter) && (!statusFilter || r.status === statusFilter)).map(r => ({key: r.id, label: r.name, searchText: [r.name, r.eventType, r.description].join(" "), context: r.eventType + " · " + r.status, value: r.name})))}
-          onSuggestionSelect={item => setSearch(item.value)} placeholder="Search packages..." value={search} onChange={(event) => setSearch(event.target.value)} />
+              aria-label="Search packages"
+              placeholder="Search packages..."
+              value={search}
+              onChange={(event) => {
+                live.change(event.target.value);
+                setSearch(event.target.value);
+              }}
+              onClear={search ? () => {
+                live.change("");
+                setSearch("");
+              } : undefined}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  live.submit();
+                }
+              }}
+            />
           </label>
           <label className="grid min-w-0 gap-1 text-sm font-semibold">Event type
             <Select value={eventFilter} onChange={(event) => setEventFilter(event.target.value)}>

@@ -1,4 +1,5 @@
 import "server-only";
+import {bookingFinancialStatistics, bookingPaymentTotals, PARTIAL_REFUND_STATISTICS_LIMIT} from "./booking-payment-accounting";
 import {bookingOutstanding} from "./booking-outstanding";
 
 import {
@@ -313,13 +314,8 @@ function applyBookingFilters(
 async function searchBookings(
   filters: NormalizedFilters,
 ): Promise<AdminBooking[]> {
-  /*
-   * Booking search is intentionally exact and indexed.
-   *
-   * Firestore does not provide efficient arbitrary substring
-   * searching. The UI should describe this field as a booking-code
-   * search instead of downloading the entire collection.
-   */
+  // Indexed booking-code prefix. Status and date filters apply to this page.
+  // Search does not continue past pageSize, so hasMore stays false.
   const directDocumentPromise = adminDb
     .collection(COLLECTIONS.mainEvents)
     .doc(filters.search)
@@ -327,8 +323,10 @@ async function searchBookings(
 
   const bookingCodePromise = adminDb
     .collection(COLLECTIONS.mainEvents)
-    .where("bookingCode", "==", filters.search)
-    .limit(1)
+    .where("bookingCode", ">=", filters.search)
+    .where("bookingCode", "<=", filters.search + "\uf8ff")
+    .orderBy("bookingCode")
+    .limit(filters.pageSize)
     .get();
 
   const [
@@ -593,20 +591,7 @@ function mapBookingDocument(
       finiteNumber(data.totalAmount),
     );
 
-  const totalPaidAmount =
-    sumPaymentAmounts(
-      payments.filter(
-        (payment) => payment.status === "paid",
-      ),
-    );
-
-  const totalRefundedAmount =
-    sumPaymentAmounts(
-      payments.filter(
-        (payment) =>
-          payment.status === "refunded",
-      ),
-    );
+  const {paid: totalPaidAmount, refunded: totalRefundedAmount} = bookingPaymentTotals(payments);
 
   const customer =
     mapBookingCustomer(data);
@@ -930,6 +915,7 @@ function mapPaymentDocument(
 
     amount,
     amountInCentavos,
+    refundedAmountInCentavos: typeof data.refundedAmountInCentavos === "number" ? data.refundedAmountInCentavos : null,
 
     currency:
       stringValue(data.currency) || "PHP",
@@ -1005,8 +991,7 @@ async function queryAdminBookingStatistics(): Promise<AdminBookingStatistics> {
     totalRequests,
     pendingRequests,
     confirmedRequests,
-    paidAmount,
-    refundedAmount,
+    financialTotals,
   ] = await Promise.all([
     mainEvents.count().get(),
 
@@ -1074,19 +1059,7 @@ async function queryAdminBookingStatistics(): Promise<AdminBookingStatistics> {
       .count()
       .get(),
 
-    payments
-      .where("status", "==", "paid")
-      .aggregate({
-        amount: AggregateField.sum("amount"),
-      })
-      .get(),
-
-    payments
-      .where("status", "==", "refunded")
-      .aggregate({
-        amount: AggregateField.sum("amount"),
-      })
-      .get(),
+    queryBookingFinancialStatistics(payments),
   ]);
 
   return {
@@ -1124,16 +1097,76 @@ async function queryAdminBookingStatistics(): Promise<AdminBookingStatistics> {
     confirmedProviderRequests:
       confirmedRequests.data().count,
 
-    totalPaidAmount:
-      aggregateNumber(
-        paidAmount.data().amount,
-      ),
-
-    totalRefundedAmount:
-      aggregateNumber(
-        refundedAmount.data().amount,
-      ),
+    totalPaidAmount: financialTotals.paid,
+    totalRefundedAmount: financialTotals.refunded,
   };
+}
+
+/**
+ * Platform totals stay on single-field indexes.
+ * Fully paid and fully refunded amounts use the existing status sum of `amount`.
+ * Partial refunds are document reads, capped at 101 so an exact total is not guessed past 100 rows.
+ */
+async function queryBookingFinancialStatistics(payments: Query<DocumentData>) {
+  const [paidSnapshot, refundedSnapshot, partialSnapshot] = await Promise.all([
+    payments.where("status", "==", "paid").aggregate({
+      amount: AggregateField.sum("amount"),
+    }).get(),
+    payments.where("status", "==", "refunded").aggregate({
+      amount: AggregateField.sum("amount"),
+    }).get(),
+    payments
+      .where("status", "==", "partially_refunded")
+      .select("amount", "amountInCentavos", "refundedAmountInCentavos", "status")
+      .limit(PARTIAL_REFUND_STATISTICS_LIMIT + 1)
+      .get(),
+  ]);
+
+  if (partialSnapshot.size > PARTIAL_REFUND_STATISTICS_LIMIT) {
+    return {paid: null, refunded: null};
+  }
+
+  const paidPesos = readAggregatePesos(paidSnapshot.data().amount);
+  const refundedPesos = readAggregatePesos(refundedSnapshot.data().amount);
+  if (paidPesos === null || refundedPesos === null) return {paid: null, refunded: null};
+
+  const partials: Pick<AdminBookingPayment, "status" | "amountInCentavos" | "refundedAmountInCentavos">[] = [];
+  for (const document of partialSnapshot.docs) {
+    const data = document.data();
+    const amountInCentavos = partialOriginalCentavos(data);
+    if (amountInCentavos === null) return {paid: null, refunded: null};
+    partials.push({
+      status: "partially_refunded",
+      amountInCentavos,
+      refundedAmountInCentavos: typeof data.refundedAmountInCentavos === "number"
+        ? data.refundedAmountInCentavos
+        : null,
+    });
+  }
+
+  return bookingFinancialStatistics({
+    paid: {grossPesos: paidPesos},
+    refunded: {grossPesos: refundedPesos},
+    partialCount: partials.length,
+    partials,
+  });
+}
+
+function readAggregatePesos(value: unknown): number | null {
+  if (value == null) return 0;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** One pesos-to-centavos conversion when the canonical centavo field is absent. Invalid canonical amounts are not repaired. */
+function partialOriginalCentavos(data: DocumentData): number | null {
+  if (typeof data.amountInCentavos === "number") {
+    return Number.isSafeInteger(data.amountInCentavos) && data.amountInCentavos >= 0
+      ? data.amountInCentavos
+      : null;
+  }
+  if (typeof data.amount !== "number" || !Number.isFinite(data.amount) || data.amount < 0) return null;
+  const centavos = Math.round(data.amount * 100);
+  return Number.isSafeInteger(centavos) ? centavos : null;
 }
 
 function getAdminBookingStatistics(): Promise<
@@ -1497,28 +1530,6 @@ function integerValue(
     Number.isSafeInteger(value)
     ? value
     : fallback;
-}
-
-function aggregateNumber(
-  value: unknown,
-): number {
-  return finiteNumber(value);
-}
-
-function roundCurrency(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
-function sumPaymentAmounts(
-  payments: readonly AdminBookingPayment[],
-): number {
-  return roundCurrency(
-    payments.reduce(
-      (total, payment) =>
-        total + payment.amount,
-      0,
-    ),
-  );
 }
 
 function countRequestStatus(

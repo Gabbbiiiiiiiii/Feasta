@@ -2,14 +2,13 @@
 
 import {useId, type FormEvent, type ReactNode} from "react";
 
-import {SearchInput, type SuggestionLoader, type SearchSuggestion} from "@/components/forms/search-input";
+import {SearchInput} from "@/components/forms/search-input";
 import {Button} from "@/components/ui/button";
+import {useLiveSearch} from "@/lib/search/use-live-search";
 import {cn} from "@/lib/utils";
 
 type FilterToolbarProps = {
-  loadSuggestions?: SuggestionLoader;
-  onSuggestionSelect?: (suggestion: SearchSuggestion) => void;
-  suggestionScope?: string;
+  onSearchInvalidate?: () => void;
   searchValue: string;
   onSearchChange: (value: string) => void;
   onSearchSubmit: (value: string) => void;
@@ -25,9 +24,7 @@ type FilterToolbarProps = {
 };
 
 function FilterToolbar({
-  loadSuggestions,
-  onSuggestionSelect,
-  suggestionScope,
+  onSearchInvalidate,
   searchValue,
   onSearchChange,
   onSearchSubmit,
@@ -42,9 +39,20 @@ function FilterToolbar({
   className,
 }: FilterToolbarProps) {
   const searchHintId = useId();
+  const live = useLiveSearch(searchValue, onSearchSubmit, onSearchInvalidate);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onSearchSubmit(searchValue.trim());
+    if (loading) return;
+    live.submit();
+  };
+  const clearSearch = () => {
+    if (onClearSearch) {
+      live.beginClear();
+      onClearSearch();
+      return;
+    }
+    live.change("");
+    onSearchChange("");
   };
   const hasFilters = searchValue.trim().length > 0 || activeFilters.length > 0;
 
@@ -53,16 +61,16 @@ function FilterToolbar({
       <form onSubmit={submit} role="search" className="grid min-w-0 gap-3 lg:grid-cols-[minmax(16rem,1fr)_auto]">
         <div className="grid min-w-0 gap-2">
           <SearchInput
-            loadSuggestions={loadSuggestions}
-            suggestionScope={suggestionScope}
-            onSuggestionSelect={(item) => { onSearchChange(item.value); if (onSuggestionSelect) onSuggestionSelect(item); else onSearchSubmit(item.value); }}
             aria-label={searchLabel}
             aria-describedby={searchHint ? searchHintId : undefined}
             placeholder={searchPlaceholder}
             value={searchValue}
-            disabled={loading}
-            onChange={(event) => onSearchChange(event.currentTarget.value)}
-            onClear={searchValue.trim() ? onClearSearch ?? onClearFilters : undefined}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              live.change(value);
+              onSearchChange(value);
+            }}
+            onClear={searchValue ? clearSearch : undefined}
           />
           {searchHint ? (
             <p id={searchHintId} className="text-xs leading-5 text-muted-foreground">
@@ -85,7 +93,7 @@ function FilterToolbar({
             <p className="text-sm text-muted-foreground">No filters applied</p>
           )}
         </div>
-        <Button className="w-full sm:w-auto" variant="ghost" size="compact" disabled={!hasFilters || loading} onClick={onClearFilters}>
+        <Button className="w-full sm:w-auto" variant="ghost" size="compact" disabled={!hasFilters} onClick={onClearFilters}>
           Clear filters
         </Button>
       </div>

@@ -17,11 +17,23 @@ vi.mock("@/lib/firebase/admin", () => {
     orderBy(...order: unknown[]) {const next = this.copy(); next.orders.push(order); return next;}
     startAfter(...cursor: unknown[]) {const next = this.copy(); next.cursor = cursor; return next;}
     limit() {return this;}
+    select() {return this;}
     count() {const next = this.copy(); next.mode = "count"; return next;}
     aggregate() {const next = this.copy(); next.mode = "sum"; return next;}
     async get() {
       state.queries.push(this);
-      return {docs: [], data: () => ({count: 0, amount: this.conditions.some(c => c[2] === "paid") ? 26000 : 5000})};
+      const paid = this.conditions.some((condition) => condition[2] === "paid");
+      const refunded = this.conditions.some((condition) => condition[2] === "refunded");
+      return {
+        docs: [],
+        size: 0,
+        data: () => ({
+          count: 0,
+          amount: paid ? 26000 : 5000,
+          gross: paid ? 26000 : refunded ? 5000 : 0,
+          refunded: 0,
+        }),
+      };
     }
   }
   return {adminDb: {collection: (name: string) => new Query(name)}};

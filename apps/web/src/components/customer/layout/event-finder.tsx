@@ -8,7 +8,7 @@ import {EventVenueInput} from "@/components/landing/event-venue-input";
 import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {Button} from "@/components/ui/button";
 import {SearchInput} from "@/components/forms/search-input";
-import {loadMarketplaceSuggestionsAction} from "@/app/customer/search/actions";
+import {useLiveSearch} from "@/lib/search/use-live-search";
 import {Select} from "@/components/ui/select";
 import {
   manilaDateValue,
@@ -40,6 +40,26 @@ export function EventFinder({
   const planning = parseCustomerPlanningContext(Object.fromEntries(parameters), "");
   const [eventDate, setEventDate] = useState(planning?.eventDate ?? "");
   const dateInput = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const live = useLiveSearch(search, (value) => {
+    const next = new URLSearchParams(query);
+    for (const name of Array.from(next.keys())) {
+      if (name.startsWith("eventVenue")) next.delete(name);
+    }
+    if (formRef.current) {
+      for (const [name, entry] of new FormData(formRef.current)) {
+        if (typeof entry === "string") next.set(name, entry);
+      }
+    }
+    const trimmed = value.trim();
+    if (trimmed) next.set("q", trimmed);
+    else next.delete("q");
+    next.delete("cursor");
+    router.replace(
+      providerDiscoveryHref(parseProviderDiscoveryFilters(Object.fromEntries(next))),
+      {scroll: false},
+    );
+  });
   const category = parameters.get("category");
   const serviceType = parameters.get("service");
   const hasAdditionalFilters = Boolean(parameters.get("q")) ||
@@ -51,6 +71,7 @@ export function EventFinder({
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    live.acknowledge();
     const submitter = (event.nativeEvent as SubmitEvent).submitter;
     const clearFilters = submitter?.getAttribute("value") === "clear-filters";
     if (dateInput.current) dateInput.current.min = manilaDateValue();
@@ -76,6 +97,7 @@ export function EventFinder({
 
   return (
     <form
+      ref={formRef}
       action="/customer/providers"
       method="get"
       role="search"
@@ -150,7 +172,23 @@ export function EventFinder({
             <label htmlFor="event-finder-search" className="mb-2 block text-xs font-bold text-feasta-text-secondary">
               Search approved providers
             </label>
-            <SearchInput loadSuggestions={value => loadMarketplaceSuggestionsAction(value, query)} suggestionScope={query} onSuggestionSelect={item => { router.push(item.value); onFind(); }} value={search} onChange={event => setSearch(event.target.value)} id="event-finder-search" name="q" minLength={2} maxLength={80} placeholder="Search providers or services" className={controlClass} />
+            <SearchInput
+              value={search}
+              onChange={(event) => {
+                live.change(event.target.value);
+                setSearch(event.target.value);
+              }}
+              onClear={search ? () => {
+                live.change("");
+                setSearch("");
+              } : undefined}
+              id="event-finder-search"
+              name="q"
+              minLength={1}
+              maxLength={80}
+              placeholder="Search providers or services"
+              className={controlClass}
+            />
           </div>
           <div className="min-w-0">
             <label htmlFor="event-finder-provider-type" className="mb-2 block text-xs font-bold text-feasta-text-secondary">

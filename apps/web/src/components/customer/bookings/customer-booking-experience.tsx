@@ -44,7 +44,8 @@ import {CustomerBookingMobileCard} from "@/components/customer/bookings/customer
 import {CursorPagination} from "@/components/data/cursor-pagination";
 import {DataTable, type DataTableColumn} from "@/components/data/data-table";
 import {SummaryCard} from "@/components/data/summary-card";
-import {SearchInput, type SuggestionLoader} from "@/components/forms/search-input";
+import {useLiveSearch} from "@/lib/search/use-live-search";
+import {SearchInput} from "@/components/forms/search-input";
 import {PageHeading} from "@/components/layout/page-heading";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
@@ -275,7 +276,7 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
   }, [cursorHistory, filters, loadPage, pageNumber]);
 
   const activeFilters = [
-    filters.search ? `Exact booking: ${boundedText(filters.search, "", 80)}` : "",
+    filters.search ? `Booking prefix: ${boundedText(filters.search, "", 80)}` : "",
     filters.status !== "all" ? `Status: ${bookingStatusLabel(filters.status)}` : "",
   ].filter(Boolean);
   const previousCursor = cursorHistory.at(-1) ?? null;
@@ -467,10 +468,8 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
       </section>
 
       <CustomerBookingFilterToolbar
-        suggestionScope={JSON.stringify(filters)}
-        loadSuggestions={async (search) => {
-          const result = await loadCustomerBookingsAction({...filters, search, cursor: null, pageSize: 6});
-          return result.bookings.slice(0, 6).map(r => ({key: r.id, label: r.bookingCode, context: [r.providerName, r.status, r.paymentStatus].join(" · "), value: r.bookingCode}));
+        onSearchInvalidate={() => {
+          requestIdRef.current += 1;
         }}
         searchValue={searchValue}
         onSearchChange={(value) => setSearchValue(value.slice(0, MAX_SEARCH_LENGTH))}
@@ -551,9 +550,8 @@ function SummaryIcon({icon}: {icon: ReactNode}) {
 }
 
 function CustomerBookingFilterToolbar({
-  loadSuggestions,
-  suggestionScope,
   searchValue,
+  onSearchInvalidate,
   onSearchChange,
   onSearchSubmit,
   onClearSearch,
@@ -563,9 +561,8 @@ function CustomerBookingFilterToolbar({
   status,
   onStatusChange,
 }: {
-  loadSuggestions: SuggestionLoader;
-  suggestionScope: string;
   searchValue: string;
+  onSearchInvalidate?: () => void;
   onSearchChange: (value: string) => void;
   onSearchSubmit: (value: string) => void;
   onClearSearch: () => void;
@@ -578,9 +575,11 @@ function CustomerBookingFilterToolbar({
   const searchId = useId();
   const searchHintId = useId();
   const hasFilters = searchValue.trim().length > 0 || activeFilters.length > 0;
+  const live = useLiveSearch(searchValue, onSearchSubmit, onSearchInvalidate);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onSearchSubmit(searchValue.trim());
+    if (loading) return;
+    live.submit();
   };
 
   return (
@@ -595,33 +594,35 @@ function CustomerBookingFilterToolbar({
       >
         <div className="grid min-w-0 gap-1.5">
           <label htmlFor={searchId} className="text-xs font-bold text-foreground">
-            Exact booking code or ID
+            Booking code prefix or ID
           </label>
           <SearchInput
-            loadSuggestions={loadSuggestions}
-            suggestionScope={suggestionScope}
-            onSuggestionSelect={item => { onSearchChange(item.value); onSearchSubmit(item.value); }}
             id={searchId}
-            aria-label="Search by exact booking code or booking ID"
+            aria-label="Search by booking code prefix or booking ID"
             aria-describedby={searchHintId}
-            placeholder="Enter an exact booking code or booking ID"
+            placeholder="Enter a booking code prefix or booking ID"
             value={searchValue}
-            disabled={loading}
             clearLabel="Clear booking search input"
             className="min-h-12 rounded-xl py-2.5 text-sm"
-            onChange={(event) => onSearchChange(event.currentTarget.value)}
-            onClear={searchValue.trim() ? onClearSearch : undefined}
+            onChange={(event) => {
+              live.change(event.currentTarget.value);
+              onSearchChange(event.currentTarget.value);
+            }}
+            onClear={searchValue ? () => {
+              live.beginClear();
+              onClearSearch();
+            } : undefined}
           />
           <p id={searchHintId} className="text-[0.6875rem] leading-4 text-muted-foreground">
-            Searches only your bookings using an exact booking code or booking ID.
+            Searches only your bookings using a booking code prefix or booking ID.
           </p>
         </div>
         <Button
           type="submit"
           size="compact"
+          className="w-full sm:w-auto"
           loading={loading}
           loadingLabel="Searching"
-          className="w-full sm:w-auto"
         >
           Search
         </Button>
@@ -700,7 +701,7 @@ function CustomerBookingEmptyState({
   const description = initial ?
     "Your submitted event requests will appear here." :
     search ?
-      "Check the exact booking code or booking ID, then search again." :
+      "Check the booking code prefix or booking ID, then search again." :
       "Choose another status or show all bookings.";
 
   return (

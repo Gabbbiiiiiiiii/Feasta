@@ -8,7 +8,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import {usePathname, useRouter, useSearchParams} from "next/navigation";
-import {useMemo, useState, useTransition} from "react";
+import {useMemo, useRef, useState, useTransition} from "react";
 
 import {
   CursorPagination,
@@ -84,11 +84,14 @@ const columns: readonly DataTableColumn<ProviderVerificationQueueItem>[] = [
 
 function ProviderVerificationQueue({
   page: initialPage,
-  filters,
+  filters: initialFilters,
   summary: initialSummary,
   selected: initialSelected,
   serviceCategoryOptions,
 }: ProviderVerificationQueueProps) {
+  const [filters, setFilters] = useState(initialFilters);
+  const searchGeneration = useRef(0);
+  const [pageError, setPageError] = useState<string>();
   const [data, setData] = useState({page: initialPage, summary: initialSummary, selected: initialSelected});
   const {page, summary, selected} = data;
   const router = useRouter();
@@ -99,9 +102,10 @@ function ProviderVerificationQueue({
   const [reviewBusy, setReviewBusy] = useState(false);
 
   const refreshQueue = useAdminAutoRefresh(async (isCurrent) => {
-    const next = await loadProviderVerificationQueueAction(filters, initialSelected?.id ?? null);
-    if (isCurrent()) setData(current => ({...next, selected: next.selected ?? current.selected}));
-  }, JSON.stringify({filters, selected: initialSelected?.id}), isPending || reviewBusy);
+    const version = searchGeneration.current;
+    const next = await loadProviderVerificationQueueAction(filters, selected?.id ?? null);
+    if (isCurrent() && version === searchGeneration.current) setData(current => ({...next, selected: next.selected ?? current.selected}));
+  }, JSON.stringify({filters, selected: initialSelected?.id}), isPending || reviewBusy || search.trim() !== filters.search.trim());
 
   const activeFilters = useMemo(() => [
     ...(filters.search ? [`Search: ${filters.search}`] : []),
@@ -118,6 +122,7 @@ function ProviderVerificationQueue({
     resetCursor = true,
   ) => {
     const params = new URLSearchParams(currentSearchParams.toString());
+    if (filters.search) params.set("q", filters.search); else params.delete("q");
     for (const [key, value] of Object.entries(updates)) {
       if (value) params.set(key, value);
       else params.delete(key);
@@ -178,15 +183,24 @@ function ProviderVerificationQueue({
       </div>
 
       <FilterToolbar
-        suggestionScope={JSON.stringify(filters)}
-        loadSuggestions={async (search) => {
-          const result = await loadProviderVerificationQueueAction({...filters, search, cursor: null, direction: "next"}, null);
-          return result.page.items.slice(0, 6).map(r => ({key: r.id, label: r.businessName, context: [r.providerServiceType, r.status].join(" · "), value: r.businessName}));
-        }}
-        onSuggestionSelect={item => navigate({selected: item.key}, false)}
         searchValue={search}
         onSearchChange={setSearch}
-        onSearchSubmit={(value) => navigate({q: value || null, selected: null})}
+        onSearchInvalidate={() => {
+          searchGeneration.current += 1;
+        }}
+        onSearchSubmit={(value) => {
+          const version = ++searchGeneration.current;
+          const nextFilters = {...filters, search: value, cursor: null, direction: "next" as const};
+          setPageError(undefined);
+          startTransition(async () => {
+            try {
+              const next = await loadProviderVerificationQueueAction(nextFilters, selected?.id ?? null);
+              if (version !== searchGeneration.current) return;
+              setFilters(nextFilters);
+              setData(current => ({...next, selected: next.selected ?? current.selected}));
+            } catch { if (version === searchGeneration.current) setPageError("Applications could not be loaded. Please try again."); }
+          });
+        }}
         onClearFilters={() => {
           setSearch("");
           navigate({
@@ -282,6 +296,7 @@ function ProviderVerificationQueue({
         rows={page.items}
         getRowId={(item) => item.id}
         caption="Provider verification"
+        error={pageError}
         loading={isPending}
         emptyTitle="No verification applications"
         emptyDescription="No applications match the selected filters."

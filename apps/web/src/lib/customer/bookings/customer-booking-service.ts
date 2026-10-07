@@ -394,41 +394,48 @@ async function searchOwnedBookings(
   customerId: string,
   filters: NormalizedFilters,
 ): Promise<CustomerBooking[]> {
+  const prefix = filters.search.toUpperCase();
+  // Prefix matching stays inside this customer's bookings. A global booking-code
+  // range would read other customers and could hide this customer's match.
   const directDocumentPromise = SAFE_DOCUMENT_ID.test(filters.search)
     ? adminDb
         .collection(COLLECTIONS.mainEvents)
         .doc(filters.search)
         .get()
     : Promise.resolve(null);
-  const bookingCodePromise = adminDb
+  const ownedSnapshotPromise = adminDb
     .collection(COLLECTIONS.mainEvents)
-    .where("bookingCode", "==", filters.search.toUpperCase())
-    .limit(1)
+    .where("customerId", "==", customerId)
     .get();
-  const [directDocument, bookingCodeSnapshot] = await Promise.all([
+  const [directDocument, ownedSnapshot] = await Promise.all([
     directDocumentPromise,
-    bookingCodePromise,
+    ownedSnapshotPromise,
   ]);
   const documents = new Map<string, DocumentSnapshot<DocumentData>>();
 
-  if (directDocument?.exists) {
-    documents.set(directDocument.id, directDocument);
+  for (const document of ownedSnapshot.docs) {
+    const data = document.data() ?? {};
+    const code = stringValue(data.bookingCode).toUpperCase();
+    if (document.id === filters.search || code.startsWith(prefix)) {
+      documents.set(document.id, document);
+    }
   }
 
-  for (const document of bookingCodeSnapshot.docs) {
-    documents.set(document.id, document);
+  if (directDocument?.exists) {
+    const data = directDocument.data() ?? {};
+    const code = stringValue(data.bookingCode).toUpperCase();
+    if (
+      data.customerId === customerId &&
+      (directDocument.id === filters.search || code.startsWith(prefix))
+    ) {
+      documents.set(directDocument.id, directDocument);
+    }
   }
 
   return [...documents.values()]
-    .filter((document) => {
-      const data = document.data() ?? {};
-
-      return (
-        data.customerId === customerId &&
-        statusMatchesFilter(data.status, filters.status)
-      );
-    })
-    .slice(0, filters.pageSize)
+    .filter((document) =>
+      statusMatchesFilter(document.data()?.status, filters.status),
+    )
     .map(mapBookingDocument);
 }
 

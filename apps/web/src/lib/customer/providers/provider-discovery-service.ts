@@ -42,6 +42,9 @@ export async function getPublicProviderPage(
     query = query.where("providerCategory", "==", filters.category);
   }
   const searchToken = normalizedSearchToken(filters.search);
+  // Prefix tokens are stored from two characters upward. A one-character
+  // array-contains query cannot match "bagong", and a 200-document sample
+  // would drop later matches, so text search starts at two characters.
   if (searchToken.length >= 2) {
     query = query.where("searchTokens", "array-contains", searchToken);
   }

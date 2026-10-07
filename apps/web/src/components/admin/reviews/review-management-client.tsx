@@ -309,10 +309,8 @@ function ReviewManagementClient({
       </section>
 
       <FilterToolbar
-        suggestionScope={JSON.stringify(filters)}
-        loadSuggestions={async (search) => {
-          const result = await loadAdminReviewsAction({...filters, search, cursor: null, pageSize: 6});
-          return result.reviews.slice(0, 6).map(r => ({key: r.id, label: r.customerName + " · " + r.providerName, context: [r.bookingCode, r.packageName, r.moderationStatus].filter(Boolean).join(" · "), value: r.reviewId}));
+        onSearchInvalidate={() => {
+          pageRequestId.current += 1;
         }}
         searchValue={searchValue}
         onSearchChange={setSearchValue}

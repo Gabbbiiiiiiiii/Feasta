@@ -11,6 +11,7 @@ import {
 import {
   useCallback,
   useMemo,
+  useRef,
   useState,
   useTransition,
   type FormEvent,
@@ -91,20 +92,24 @@ function AnnouncementManagementClient({
   const [mutation, setMutation] = useState<string>();
   const [isPending, startTransition] = useTransition();
 
+  const pageRequestId = useRef(0);
   const loadPage = useCallback((
     nextFilters: AdminAnnouncementFilters,
     cursor: string | null,
     history: (string | null)[],
   ) => {
-    setPageError(undefined);
+    const requestId = ++pageRequestId.current;
+      setPageError(undefined);
     const request = {...nextFilters, cursor};
     startTransition(async () => {
       try {
         const result = await loadAdminAnnouncementsAction(request);
-        setPage(result);
+        if (requestId !== pageRequestId.current) return;
+            setPage(result);
         setFilters(request);
         setCursorHistory(history);
       } catch (error: unknown) {
+            if (requestId !== pageRequestId.current) return;
         setPageError(errorMessage(error));
       }
     });
@@ -232,10 +237,8 @@ function AnnouncementManagementClient({
       </section>
 
       <FilterToolbar
-        suggestionScope={JSON.stringify(filters)}
-        loadSuggestions={async (search) => {
-          const result = await loadAdminAnnouncementsAction({...filters, search, cursor: null, pageSize: 6});
-          return result.announcements.slice(0, 6).map(r => ({key: r.id, label: r.title, context: [r.audience, r.status].join(" · "), value: r.title}));
+        onSearchInvalidate={() => {
+          pageRequestId.current += 1;
         }}
         searchValue={searchValue}
         onSearchChange={setSearchValue}

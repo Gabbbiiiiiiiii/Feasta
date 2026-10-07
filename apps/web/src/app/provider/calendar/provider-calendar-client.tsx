@@ -1,5 +1,7 @@
 "use client";
 
+import {formatEventTime} from "@/lib/presentation/event-time";
+
 import {
   CalendarDays,
   ChevronLeft,
@@ -765,7 +767,7 @@ function CalendarEventCard({
             <Clock3 className="size-4" />
           }
           value={
-            event.event.eventTime ??
+            formatEventTime(event.event.eventTime) ||
             "Time not provided"
           }
         />

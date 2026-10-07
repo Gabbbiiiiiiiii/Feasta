@@ -2,8 +2,8 @@
 
 import {useEffect, useState, type ComponentProps, type Dispatch, type SetStateAction} from "react";
 import {Button} from "@/components/ui/button";
+import {useLiveSearch} from "@/lib/search/use-live-search";
 import {SearchInput} from "@/components/forms/search-input";
-import {matchingSuggestions} from "@/components/forms/search-suggestions";
 import {Input} from "@/components/ui/input";
 import {Select} from "@/components/ui/select";
 import {Textarea} from "@/components/ui/textarea";
@@ -32,12 +32,14 @@ export function ProviderMenuManager() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState(search);
+  const live = useLiveSearch(search, setAppliedSearch);
   const [titleFilter, setTitleFilter] = useState("");
   const categories = [...new Set(menu.images.map((image) => image.category?.trim()).filter(Boolean) as string[])].sort();
   const filteredImages = menu.images.filter((image) =>
     (!titleFilter || image.category === titleFilter) &&
     [image.title, image.description, image.category, ...(image.servingOptions ?? []).flatMap((option) => [option.name, option.description])]
-      .filter(Boolean).join(" ").toLowerCase().includes(search.trim().toLowerCase()));
+      .filter(Boolean).join(" ").toLowerCase().includes(appliedSearch.trim().toLowerCase()));
   useEffect(() => {
     let active = true;
     loadProviderMenuAction().then((loaded) => { if (active) setMenu(loaded); })
@@ -153,9 +155,23 @@ export function ProviderMenuManager() {
       <label className="grid min-w-0 flex-1 basis-64 gap-1 text-sm font-semibold">Search menu images
         <SearchInput
           aria-label="Search menu images"
-          suggestionScope={titleFilter}
-          loadSuggestions={async query => matchingSuggestions(query, menu.images.filter(r => !titleFilter || r.category === titleFilter).map(r => ({key: r.id, label: r.title || "Menu item", searchText: [r.title, r.category, r.description, ...(r.servingOptions ?? []).flatMap(option => [option.name, option.description])].filter(Boolean).join(" "), context: r.category, value: r.title || query})))}
-          onSuggestionSelect={item => setSearch(item.value)} placeholder="Search menu images..." value={search} onChange={(event) => setSearch(event.target.value)} />
+          placeholder="Search menu images..."
+          value={search}
+          onChange={(event) => {
+            live.change(event.target.value);
+            setSearch(event.target.value);
+          }}
+          onClear={search ? () => {
+            live.change("");
+            setSearch("");
+          } : undefined}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              live.submit();
+            }
+          }}
+        />
       </label>
       {categories.length ? <label className="grid min-w-0 flex-1 basis-48 gap-1 text-sm font-semibold">Category
         <Select value={titleFilter} onChange={(event) => setTitleFilter(event.target.value)}>

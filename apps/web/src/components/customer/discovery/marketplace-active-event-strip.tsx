@@ -1,3 +1,5 @@
+
+import {formatEventTime} from "@/lib/presentation/event-time";
 import {
   ArrowRight,
   CalendarDays,
@@ -134,7 +136,7 @@ function ActiveEventStrip({
                   className="size-4 text-primary"
                 />
 
-                {booking.eventTime}
+                {formatEventTime(booking.eventTime)}
               </span>
             ) : null}
 

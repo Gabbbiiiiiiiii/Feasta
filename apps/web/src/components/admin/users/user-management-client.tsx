@@ -227,7 +227,7 @@ function UserManagementClient({
     if (!isCurrent() || requestId !== queryRequestId.current) return;
     setPage(result);
     setSelectedUser(current => current ? result.users.find(user => user.id === current.id) ?? current : null);
-  }, JSON.stringify(filters), isPending || accountMutationPending);
+  }, JSON.stringify(filters), isPending || accountMutationPending || searchValue.trim() !== filters.search.trim());
 
   const loadSelectedUserDetails =
     useCallback((
@@ -632,10 +632,8 @@ const confirmAccountAction =
       </section>
 
       <FilterToolbar
-        suggestionScope={JSON.stringify(filters)}
-        loadSuggestions={async (search) => {
-          const result = await loadAdminUsersAction({...filters, search, cursor: null, pageSize: 6});
-          return result.users.slice(0, 6).map(r => ({key: r.id, label: r.fullName, context: [r.email, r.role, r.accountStatus].join(" · "), value: r.email || r.fullName}));
+        onSearchInvalidate={() => {
+          queryRequestId.current += 1;
         }}
         searchValue={searchValue}
         onSearchChange={setSearchValue}

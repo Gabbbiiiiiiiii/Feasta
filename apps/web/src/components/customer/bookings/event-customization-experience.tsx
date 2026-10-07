@@ -1,5 +1,7 @@
 "use client";
 
+import {formatEventTime} from "@/lib/presentation/event-time";
+
 import {
   ArrowLeft,
   ArrowRight,
@@ -2226,8 +2228,8 @@ function discardAndLeave() {
                     label="Time"
                     value={
                       draft.eventEndTime
-                        ? `${draft.eventTime} – ${draft.eventEndTime}`
-                        : draft.eventTime
+                        ? `${formatEventTime(draft.eventTime)} – ${formatEventTime(draft.eventEndTime)}`
+                        : formatEventTime(draft.eventTime)
                     }
                   />
                 ) : null}
@@ -4224,51 +4226,6 @@ function formatEventDate(
   return formatPhilippineDate(value);
 }
 
-function formatEventTime(
-  value: string,
-): string {
-  const match =
-    /^(\d{2}):(\d{2})$/u.exec(
-      value,
-    );
-
-  if (!match) {
-    return value;
-  }
-
-  const hours =
-    Number(match[1]);
-
-  const minutes =
-    Number(match[2]);
-
-  if (
-    hours < 0 ||
-    hours > 23 ||
-    minutes < 0 ||
-    minutes > 59
-  ) {
-    return value;
-  }
-
-  const date =
-    new Date(2000, 0, 1);
-
-  date.setHours(
-    hours,
-    minutes,
-    0,
-    0,
-  );
-
-  return new Intl.DateTimeFormat(
-    "en-PH",
-    {
-      hour: "numeric",
-      minute: "2-digit",
-    },
-  ).format(date);
-}
 
 function formatCurrency(
   amount: number,

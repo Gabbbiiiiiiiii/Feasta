@@ -1,3 +1,5 @@
+
+import {formatEventTime} from "@/lib/presentation/event-time";
 import type {MainEventStatus} from "@feasta/shared-types";
 
 import {
@@ -71,18 +73,7 @@ function formatBookingTimeRange(start: string, end: string): string {
   return formattedStart || formattedEnd || "Time not provided";
 }
 
-function formatClockTime(value: string): string {
-  const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/u.exec(value.trim());
-  if (!match) return boundedText(value, "", 20);
-
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour > 23 || minute > 59) return "";
-
-  const suffix = hour >= 12 ? "PM" : "AM";
-  const displayHour = hour % 12 || 12;
-  return `${displayHour}:${String(minute).padStart(2, "0")} ${suffix}`;
-}
+const formatClockTime = formatEventTime;
 
 function formatCurrency(value: number): string {
   return currencyFormatter.format(

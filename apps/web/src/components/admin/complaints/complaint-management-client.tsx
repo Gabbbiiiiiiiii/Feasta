@@ -11,6 +11,7 @@ import {
 import {
   useCallback,
   useMemo,
+  useRef,
   useState,
   useTransition,
 } from "react";
@@ -176,6 +177,7 @@ function ComplaintManagementClient({
     startTransition,
   ] = useTransition();
 
+  const pageRequestId = useRef(0);
   const loadPage = useCallback(
     (
       nextFilters:
@@ -184,6 +186,7 @@ function ComplaintManagementClient({
       history:
         (string | null)[],
     ) => {
+      const requestId = ++pageRequestId.current;
       setPageError(undefined);
 
       const request = {
@@ -199,6 +202,7 @@ function ComplaintManagementClient({
                 request,
               );
 
+            if (requestId !== pageRequestId.current) return;
             setPage(result);
             setFilters(request);
             setCursorHistory(
@@ -207,6 +211,7 @@ function ComplaintManagementClient({
           } catch (
             caughtError: unknown
           ) {
+            if (requestId !== pageRequestId.current) return;
             setPageError(
               errorMessage(
                 caughtError,
@@ -536,10 +541,8 @@ function ComplaintManagementClient({
       </section>
 
       <FilterToolbar
-        suggestionScope={JSON.stringify(filters)}
-        loadSuggestions={async (search) => {
-          const result = await loadAdminComplaintsAction({...filters, search, cursor: null, pageSize: 6});
-          return result.complaints.slice(0, 6).map(r => ({key: r.id, label: r.complainantName, context: [r.category, r.status].join(" · "), value: r.id}));
+        onSearchInvalidate={() => {
+          pageRequestId.current += 1;
         }}
         searchValue={
           searchValue

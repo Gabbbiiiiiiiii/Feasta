@@ -955,16 +955,10 @@ export async function getAdminUserPage(
     .orderBy("createdAt", "desc")
     .orderBy(FieldPath.documentId(), "desc");
 
-  /*
-   * Search intentionally matches the current Flutter
-   * behavior: retrieve all filtered users, attach provider
-   * information, and search in memory.
-   *
-   * Replace this with normalized search terms or an
-   * external search service before the collection becomes
-   * large.
-   */
-  if (filters.search.length >= 2) {
+  // The filtered account query is searched in memory, including one character.
+  // A fixed first-page cap would hide later matches, so this read is complete
+  // for the active role and status filters.
+  if (filters.search.length >= 1) {
     const snapshot = await query.get();
 
     let users = snapshot.docs
@@ -981,18 +975,6 @@ export async function getAdminUserPage(
 
     return {
       users,
-      statistics: await statisticsPromise,
-      nextCursor: null,
-      hasMore: false,
-    };
-  }
-
-  if (
-    filters.search.length > 0 &&
-    filters.search.length < 2
-  ) {
-    return {
-      users: [],
       statistics: await statisticsPromise,
       nextCursor: null,
       hasMore: false,

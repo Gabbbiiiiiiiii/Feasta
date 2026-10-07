@@ -1,5 +1,7 @@
 "use client";
 
+import {formatEventTime} from "@/lib/presentation/event-time";
+
 import {
   CalendarCheck2,
   CircleDollarSign,
@@ -105,7 +107,7 @@ export function ProviderBookingsClient({
       cell: (booking) => (
         <span>
           <span className="block font-medium">{formatDate(booking.eventDate)}</span>
-          <span className="text-muted-foreground">{booking.eventTime ?? "Time not provided"}</span>
+          <span className="text-muted-foreground">{formatEventTime(booking.eventTime) || "Time not provided"}</span>
         </span>
       ),
     },
@@ -450,7 +452,7 @@ function BookingMobileCard({
       <dl className="grid grid-cols-2 gap-3 text-sm">
         <div>
           <dt className="text-muted-foreground">Date & time</dt>
-          <dd className="mt-1 font-medium">{formatDate(booking.eventDate)} · {booking.eventTime ?? "TBA"}</dd>
+          <dd className="mt-1 font-medium">{formatDate(booking.eventDate)} · {formatEventTime(booking.eventTime) || "TBA"}</dd>
         </div>
         <div>
           <dt className="text-muted-foreground">Amount</dt>

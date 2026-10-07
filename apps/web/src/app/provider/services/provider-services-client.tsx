@@ -3,7 +3,6 @@
 import type {
   ServiceCategoryCode,
 } from "@feasta/shared-types";
-import {matchingSuggestions} from "@/components/forms/search-suggestions";
 
 import type {
   ServiceCategoryOption,
@@ -558,7 +557,6 @@ export function ProviderServicesClient({
       ) : null}
 
       <FilterToolbar
-        loadSuggestions={async query => matchingSuggestions(query, services.map(r => ({key: r.id, label: r.name, searchText: [r.name, r.description, serviceCategoryName(r.category), formatPricingType(r.pricingType)].join(" "), context: serviceCategoryName(r.category) + " · " + r.status, value: r.name})))}
         searchValue={search}
         onSearchChange={setSearch}
         onSearchSubmit={

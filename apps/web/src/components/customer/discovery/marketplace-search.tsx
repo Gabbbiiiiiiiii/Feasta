@@ -12,7 +12,7 @@ import {useEffect, useRef, useState, type FormEvent, type ReactNode} from "react
 
 import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
 import {SearchInput} from "@/components/forms/search-input";
-import {loadMarketplaceSuggestionsAction} from "@/app/customer/search/actions";
+import {useLiveSearch} from "@/lib/search/use-live-search";
 import {Button} from "@/components/ui/button";
 import {PROVIDER_SERVICE_TYPE_OPTIONS} from "@/lib/customer/providers/provider-catalog";
 import {providerDiscoveryHref} from "@/lib/customer/providers/provider-query";
@@ -39,6 +39,18 @@ export function MarketplaceSearch() {
   }, []);
   const [draft, setDraft] = useState(INITIAL_DRAFT);
   const [search, setSearch] = useState("");
+  const live = useLiveSearch(search, (value) => {
+    const validation = validateCustomerEventContext(draft, manilaDateValue());
+    if (!validation.context) return;
+    const normalizedSearch = value.trim().replace(/\s+/gu, " ").slice(0, 80);
+    router.push(providerDiscoveryHref({
+      search: normalizedSearch.length >= 2 ? normalizedSearch : "",
+      serviceType: validation.context.serviceType,
+      category: "all",
+      cursor: null,
+      eventContext: validation.context,
+    }));
+  });
   const [errors, setErrors] = useState<CustomerEventContextErrors>({});
 
   function updateDraft(field: keyof CustomerEventContextDraft, value: string) {
@@ -53,15 +65,14 @@ export function MarketplaceSearch() {
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    live.acknowledge();
     const validation = validateCustomerEventContext(draft, manilaDateValue());
     setErrors(validation.errors);
     if (!validation.context) return;
 
-    const normalizedSearch = search.trim().length >= 2
-      ? search.trim().replace(/\s+/gu, " ").slice(0, 80)
-      : "";
+    const normalizedSearch = search.trim().replace(/\s+/gu, " ").slice(0, 80);
     router.push(providerDiscoveryHref({
-      search: normalizedSearch,
+      search: normalizedSearch.length >= 2 ? normalizedSearch : "",
       serviceType: validation.context.serviceType,
       category: "all",
       cursor: null,
@@ -157,14 +168,18 @@ export function MarketplaceSearch() {
           <span className="relative">
             <SearchInput
               aria-label="Provider or service (optional)"
-              loadSuggestions={query => loadMarketplaceSuggestionsAction(query, "service=" + draft.serviceType)}
-              suggestionScope={draft.serviceType}
-              onSuggestionSelect={item => router.push(item.value)}
               id="home-marketplace-search"
-              minLength={2}
+              minLength={1}
               maxLength={80}
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                live.change(event.target.value);
+                setSearch(event.target.value);
+              }}
+              onClear={search ? () => {
+                live.change("");
+                setSearch("");
+              } : undefined}
               placeholder="Search by provider or service"
               className={controlClass}
             />

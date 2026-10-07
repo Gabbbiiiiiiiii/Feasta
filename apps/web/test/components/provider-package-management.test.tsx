@@ -146,11 +146,11 @@ it("filters loaded records by actual events, status, name and description, and c
   expect(screen.getByText("No packages match your filters.")).toBeVisible();
   await user.click(screen.getAllByRole("button", {name: "Clear filters"})[0]!);
   fireEvent.change(screen.getByLabelText("Search packages"), {target: {value: "zeta"}});
-  expect(cardNames()).toEqual([base.name]);
+  await waitFor(() => expect(cardNames()).toEqual([base.name]));
   fireEvent.change(screen.getByLabelText("Search packages"), {target: {value: "family"}});
-  expect(cardNames()).toHaveLength(3);
+  await waitFor(() => expect(cardNames()).toHaveLength(3));
   fireEvent.change(screen.getByLabelText("Search packages"), {target: {value: "wedding"}});
-  expect(cardNames()).toEqual(["Alpha wedding"]);
+  await waitFor(() => expect(cardNames()).toEqual(["Alpha wedding"]));
   expect(mocks.list).toHaveBeenCalledTimes(1);
 });
 
@@ -204,11 +204,11 @@ it("uses real catalog images, publication flags, and saved title/category filter
   expect(within(screen.getByRole("article", {name: "Pasta"})).getByLabelText("Status: Draft")).toBeVisible();
   expect(screen.queryByRole("option", {name: "Seafood"})).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Search menu images"), {target: {value: "Pasta"}});
-  expect(cardNames()).toEqual(["Pasta"]);
+  await waitFor(() => expect(cardNames()).toEqual(["Pasta"]));
   fireEvent.change(screen.getByLabelText("Search menu images"), {target: {value: "chicken"}});
-  expect(cardNames()).toEqual(["Chicken"]);
+  await waitFor(() => expect(cardNames()).toEqual(["Chicken"]));
   fireEvent.click(screen.getByRole("button", {name: "Clear menu filters"}));
-  expect(cardNames()).toEqual(["Chicken", "Pasta", "Menu image 3"]);
+  await waitFor(() => expect(cardNames()).toEqual(["Chicken", "Pasta", "Menu image 3"]));
 });
 
 it("does not invent category options for untitled catalog images", async () => {

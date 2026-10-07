@@ -1,5 +1,7 @@
 "use client";
 
+import {formatEventTime} from "@/lib/presentation/event-time";
+
 import {
   CalendarDays,
   Clock3,
@@ -106,7 +108,7 @@ export function ProviderBookingDetailDrawer({
             <DetailRow
               icon={<Clock3 className="size-4" />}
               label="Time"
-              value={booking.eventTime ?? "Not provided"}
+              value={formatEventTime(booking.eventTime) || "Not provided"}
             />
             <DetailRow
               icon={<Users className="size-4" />}
