@@ -2420,6 +2420,23 @@
           "order": "ASCENDING"
         }
       ]
-    }  ],
+    },
+    {
+      "collectionGroup": "financialLedgerEntries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "entryType", "order": "ASCENDING"},
+        {"fieldPath": "ordinaryCommissionAdjustmentInCentavos", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "financialLedgerEntries",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "entryType", "order": "ASCENDING"},
+        {"fieldPath": "feastaCancellationFeeEarnedInCentavos", "order": "ASCENDING"}
+      ]
+    }
+  ],
   "fieldOverrides": []
 }

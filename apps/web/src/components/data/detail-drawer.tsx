@@ -34,7 +34,7 @@ function DetailDrawer({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
-      <DialogContent className="inset-y-0 right-0 left-auto top-0 h-dvh max-h-dvh w-[min(100vw,32rem)] max-w-[100vw] translate-x-0 translate-y-0 content-start overflow-x-hidden rounded-none sm:rounded-l-dialog border-y-0 border-r-0 p-0">
+      <DialogContent className="inset-y-0 right-0 left-auto top-0 h-dvh max-h-dvh w-[min(100vw,32rem)] max-w-[100vw] translate-x-0 translate-y-0 content-start overflow-x-hidden rounded-none border-y-0 border-r-0 p-0 transition-[transform,opacity] duration-200 ease-out data-[state=closed]:translate-x-4 data-[state=closed]:opacity-0 data-[state=open]:translate-x-0 data-[state=open]:opacity-100 sm:rounded-l-dialog">
         <DialogHeader className="border-b border-border p-4 pr-16 sm:p-6 sm:pr-16">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>

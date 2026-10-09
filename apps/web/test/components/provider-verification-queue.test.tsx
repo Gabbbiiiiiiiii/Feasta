@@ -266,6 +266,80 @@ describe("provider verification queue", () => {
     })).toBeInTheDocument();
   });
 
+  it("opens provider review without a route refresh", async () => {
+    queueLoad.mockResolvedValueOnce({
+      page,
+      selected,
+      summary: {
+        submitted: 1,
+        underReview: 0,
+        approvedToday: 0,
+        needsResubmission: 0,
+      },
+    });
+
+    render(
+      <ProviderVerificationQueue
+        page={page}
+        filters={filters}
+        summary={{
+          submitted: 1,
+          underReview: 0,
+          approvedToday: 0,
+          needsResubmission: 0,
+        }}
+        selected={null}
+        serviceCategoryOptions={
+          TEST_SERVICE_CATEGORY_OPTIONS
+        }
+      />,
+    );
+
+    fireEvent.click(
+      screen.getAllByRole(
+        "button",
+        {
+          name:
+            "Review A very long FEASTA catering provider business name",
+        },
+      )[0],
+    );
+
+    expect(push).not.toHaveBeenCalled();
+
+    const drawer =
+      screen.getByRole(
+        "dialog",
+        {
+          name:
+            "A very long FEASTA catering provider business name",
+        },
+      );
+
+    expect(
+      within(drawer).getByText(
+        "Loading application...",
+      ),
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(queueLoad).toHaveBeenCalledWith(
+        filters,
+        selected.id,
+      );
+    });
+
+    await waitFor(() => {
+      expect(
+        within(drawer).getByText(
+          "Ada Lovelace",
+        ),
+      ).toBeInTheDocument();
+    });
+
+    expect(push).not.toHaveBeenCalled();
+  });
+
   it("persists server filter and pagination state in the URL", () => {
     render(
       <ProviderVerificationQueue

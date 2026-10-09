@@ -29,6 +29,8 @@ import {
   type DataTableColumn,
 } from "@/components/data";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import {
   ConfirmationDialog,
 } from "@/components/shared/confirmation-dialog";
@@ -908,8 +910,8 @@ const confirmAccountAction =
           userModalView === "access" &&
           pendingAccountAction !== null
         }
-        contentClassName="grid max-h-[90dvh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-xl"
-        bodyClassName="overflow-y-auto overscroll-contain pr-3 [scrollbar-gutter:stable]"
+        contentClassName="grid max-h-[92dvh] grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-2xl"
+        bodyClassName="overflow-y-auto overscroll-contain px-1 pb-1 pr-3 [scrollbar-gutter:stable]"
         onOpenChange={(open) => {
           if (!open) {
             closeAccessManagement();
@@ -964,103 +966,206 @@ const confirmAccountAction =
             </div>
 
             {accessDecision !== "restore" ? (
-              <label className="grid gap-2">
-                <span className="font-semibold">Reason for restriction</span>
-                <select aria-label="Reason for restriction" aria-describedby={restrictionReason ? "restriction-reason-description" : undefined} value={restrictionReason} onChange={(event) => setRestrictionReason(event.currentTarget.value as RestrictionReason | "")} className="min-h-11 rounded-lg border border-border bg-card px-3 text-sm">
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between gap-3">
+                  <label
+                    htmlFor="restriction-reason"
+                    className="font-semibold text-foreground"
+                  >
+                    Reason for restriction
+                  </label>
+
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Required
+                  </span>
+                </div>
+
+                <Select
+                  id="restriction-reason"
+                  aria-label="Reason for restriction"
+                  aria-describedby="restriction-reason-description"
+                  value={restrictionReason}
+                  onChange={(event) =>
+                    setRestrictionReason(
+                      event.currentTarget.value as RestrictionReason | "",
+                    )
+                  }
+                  className="bg-background"
+                >
                   <option value="">Select a reason</option>
-                  {restrictionReasons.map(reason => <option key={reason} value={reason}>{reason}</option>)}
-                </select>
-                {restrictionReason ? <span id="restriction-reason-description" className="text-sm text-muted-foreground">{restrictionReasonDescriptions[restrictionReason]}</span> : null}
-              </label>
+
+                  {restrictionReasons.map((reason) => (
+                    <option key={reason} value={reason}>
+                      {reason}
+                    </option>
+                  ))}
+                </Select>
+
+                <p
+                  id="restriction-reason-description"
+                  className="text-sm leading-5 text-muted-foreground"
+                >
+                  {restrictionReason
+                    ? restrictionReasonDescriptions[restrictionReason]
+                    : "Choose the reason that best explains why this account should temporarily lose access."}
+                </p>
+              </div>
             ) : null}
 
-            <label className="grid gap-2">
-              <span className="font-semibold text-foreground">
-                Explanation for the user
-              </span>
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <label
+                  htmlFor="account-user-explanation"
+                  className="font-semibold text-foreground"
+                >
+                  Explanation for the user
+                </label>
 
-              <span className="text-sm text-muted-foreground">
-                This message may be shown to the
-                account owner. Do not include
-                confidential investigation details.
-              </span>
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                  Required · 10–500
+                </span>
+              </div>
 
-              <p className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-                Both explanations are required and must contain at least 10 characters.
+              <p
+                id="account-user-explanation-help"
+                className="text-sm leading-5 text-muted-foreground"
+              >
+                This may be shown to the account owner. Keep it clear,
+                respectful, and free of confidential investigation details.
               </p>
 
-              <textarea
+              <Textarea
+                id="account-user-explanation"
                 value={userExplanation}
                 onChange={(event) =>
-                  setUserExplanation(
-                    event.target.value,
+                  setUserExplanation(event.currentTarget.value)
+                }
+                rows={4}
+                maxLength={500}
+                aria-describedby="account-user-explanation-help account-user-explanation-count"
+                aria-invalid={
+                  normalizedUserExplanation.length > 0 &&
+                  (
+                    normalizedUserExplanation.length < 10 ||
+                    (
+                      restrictionReason === "Other" &&
+                      !meaningfulRestrictionExplanation(
+                        normalizedUserExplanation,
+                      )
+                    )
                   )
                 }
-                rows={3}
-                maxLength={500}
-                placeholder="Explain the access decision clearly and respectfully."
-                className="min-h-24 w-full resize-y rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                placeholder="Explain why access is being restricted and what the user should know."
+                className="min-h-28 resize-none bg-background"
               />
 
-              <span
-                className={cn(
-                  "text-right text-xs",
-                  normalizedUserExplanation.length > 0 &&
-                    normalizedUserExplanation.length < 10
-                    ? "text-destructive"
-                    : "text-muted-foreground",
-                )}
+              <div
+                id="account-user-explanation-count"
+                className="flex min-h-5 items-start justify-between gap-4 text-xs"
               >
-                {restrictionReason === "Other" && normalizedUserExplanation.length >= 10 && !meaningfulRestrictionExplanation(normalizedUserExplanation) ? "Enter a clear explanation, not a placeholder. " : ""}
-                {normalizedUserExplanation.length}/500
-                {normalizedUserExplanation.length < 10
-                  ? " · Minimum 10"
-                  : ""}
-              </span>
-            </label>
+                <span
+                  className={cn(
+                    normalizedUserExplanation.length > 0 &&
+                      (
+                        normalizedUserExplanation.length < 10 ||
+                        (
+                          restrictionReason === "Other" &&
+                          !meaningfulRestrictionExplanation(
+                            normalizedUserExplanation,
+                          )
+                        )
+                      )
+                      ? "text-destructive"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {normalizedUserExplanation.length > 0 &&
+                  normalizedUserExplanation.length < 10
+                    ? "Enter at least 10 characters."
+                    : restrictionReason === "Other" &&
+                        normalizedUserExplanation.length >= 10 &&
+                        !meaningfulRestrictionExplanation(
+                          normalizedUserExplanation,
+                        )
+                      ? "Use a clear explanation instead of a placeholder."
+                      : "Keep the message factual and easy to understand."}
+                </span>
 
-            <label className="grid gap-2">
-              <span className="font-semibold text-foreground">
-                {accessDecision === "restore" ? "Reason for restoration" : "Internal note"}
-              </span>
+                <span className="shrink-0 text-muted-foreground">
+                  {normalizedUserExplanation.length}/500
+                </span>
+              </div>
+            </div>
 
-              <span className="text-sm text-muted-foreground">
-                Private audit information visible
-                only to authorized administrators.
-              </span>
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between gap-3">
+                <label
+                  htmlFor="account-internal-reason"
+                  className="font-semibold text-foreground"
+                >
+                  {accessDecision === "restore"
+                    ? "Reason for restoration"
+                    : "Internal note"}
+                </label>
 
-              <p className="rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-                Both explanations are required and must contain at least 10 characters.
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                  Required · 10–1000
+                </span>
+              </div>
+
+              <p
+                id="account-internal-reason-help"
+                className="text-sm leading-5 text-muted-foreground"
+              >
+                Private audit information visible only to authorized
+                administrators. Record the evidence or operational reason
+                supporting the decision.
               </p>
 
-              <textarea
+              <Textarea
+                id="account-internal-reason"
                 value={internalReason}
                 onChange={(event) =>
-                  setInternalReason(
-                    event.target.value,
-                  )
+                  setInternalReason(event.currentTarget.value)
                 }
-                rows={3}
+                rows={4}
                 maxLength={1000}
-                placeholder="Record the evidence, policy, request, or operational reason supporting this decision."
-                className="min-h-24 w-full resize-y rounded-xl border border-input bg-background px-4 py-3 text-sm text-foreground outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20"
+                aria-describedby="account-internal-reason-help account-internal-reason-count"
+                aria-invalid={
+                  normalizedInternalReason.length > 0 &&
+                  normalizedInternalReason.length < 10
+                }
+                placeholder={
+                  accessDecision === "restore"
+                    ? "Record why the restriction can now be safely removed."
+                    : "Record the evidence, policy, report, or operational reason for this restriction."
+                }
+                className="min-h-28 resize-none bg-background"
               />
 
-              <span
-                className={cn(
-                  "text-right text-xs",
-                  normalizedInternalReason.length > 0 &&
-                    normalizedInternalReason.length < 10
-                    ? "text-destructive"
-                    : "text-muted-foreground",
-                )}
+              <div
+                id="account-internal-reason-count"
+                className="flex min-h-5 items-start justify-between gap-4 text-xs"
               >
-                {normalizedInternalReason.length}/1000
-                {normalizedInternalReason.length < 10
-                  ? " · Minimum 10"
-                  : ""}
-              </span>
-            </label>
+                <span
+                  className={cn(
+                    normalizedInternalReason.length > 0 &&
+                      normalizedInternalReason.length < 10
+                      ? "text-destructive"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {normalizedInternalReason.length > 0 &&
+                  normalizedInternalReason.length < 10
+                    ? "Enter at least 10 characters."
+                    : "This note is not shown to the account owner."}
+                </span>
+
+                <span className="shrink-0 text-muted-foreground">
+                  {normalizedInternalReason.length}/1000
+                </span>
+              </div>
+            </div>
 
             {accountActionError ? (
               <p

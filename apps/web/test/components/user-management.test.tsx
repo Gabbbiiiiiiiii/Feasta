@@ -337,7 +337,37 @@ describe(
 
         expect(screen.queryByRole("radio")).not.toBeInTheDocument();
         expect(screen.queryByText("Restore account access")).not.toBeInTheDocument();
-        await user.selectOptions(screen.getByLabelText("Reason for restriction"), "Account security concern");
+        const restrictionReasonField =
+          screen.getByLabelText(
+            "Reason for restriction",
+          );
+
+        expect(
+          restrictionReasonField,
+        ).toHaveClass("min-h-14");
+
+        await user.selectOptions(
+          restrictionReasonField,
+          "Account security concern",
+        );
+
+        expect(
+          screen.queryByText(
+            "Both explanations are required and must contain at least 10 characters.",
+          ),
+        ).not.toBeInTheDocument();
+
+        expect(
+          screen.getByLabelText(
+            /Explanation for the user/i,
+          ),
+        ).toHaveClass("min-h-28");
+
+        expect(
+          screen.getByLabelText(
+            /Internal note|Reason for restoration/i,
+          ),
+        ).toHaveClass("min-h-28");
 
         const confirm =
           screen.getByRole(

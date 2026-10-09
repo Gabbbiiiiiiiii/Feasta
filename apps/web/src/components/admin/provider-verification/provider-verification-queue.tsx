@@ -100,12 +100,23 @@ function ProviderVerificationQueue({
   const [search, setSearch] = useState(filters.search);
   const [isPending, startTransition] = useTransition();
   const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewTarget, setReviewTarget] =
+    useState<ProviderVerificationQueueItem | null>(
+      initialSelected
+        ? initialPage.items.find(
+            (item) => item.id === initialSelected.id,
+          ) ?? null
+        : null,
+    );
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string>();
+  const reviewRequestId = useRef(0);
 
   const refreshQueue = useAdminAutoRefresh(async (isCurrent) => {
     const version = searchGeneration.current;
     const next = await loadProviderVerificationQueueAction(filters, selected?.id ?? null);
     if (isCurrent() && version === searchGeneration.current) setData(current => ({...next, selected: next.selected ?? current.selected}));
-  }, JSON.stringify({filters, selected: initialSelected?.id}), isPending || reviewBusy || search.trim() !== filters.search.trim());
+  }, JSON.stringify({filters, selected: selected?.id}), isPending || reviewBusy || reviewLoading || search.trim() !== filters.search.trim());
 
   const activeFilters = useMemo(() => [
     ...(filters.search ? [`Search: ${filters.search}`] : []),
@@ -136,8 +147,96 @@ function ProviderVerificationQueue({
     });
   };
 
-  const selectApplication = (item: ProviderVerificationQueueItem) => {
-    navigate({selected: item.id}, false);
+  const syncSelectedUrl = (selectedId: string | null) => {
+    const params = new URLSearchParams(window.location.search);
+
+    if (selectedId) {
+      params.set("selected", selectedId);
+    } else {
+      params.delete("selected");
+    }
+
+    const query = params.toString();
+
+    window.history.replaceState(
+      window.history.state,
+      "",
+      query ? `${pathname}?${query}` : pathname,
+    );
+  };
+
+  const selectApplication = (
+    item: ProviderVerificationQueueItem,
+  ) => {
+    const requestId = reviewRequestId.current + 1;
+    reviewRequestId.current = requestId;
+
+    setReviewTarget(item);
+    setReviewError(undefined);
+    setReviewLoading(true);
+
+    setData((current) => ({
+      ...current,
+      selected:
+        current.selected?.id === item.id
+          ? current.selected
+          : null,
+    }));
+
+    syncSelectedUrl(item.id);
+
+    void loadProviderVerificationQueueAction(
+      filters,
+      item.id,
+    )
+      .then((next) => {
+        if (reviewRequestId.current !== requestId) {
+          return;
+        }
+
+        if (!next.selected) {
+          throw new Error(
+            "The provider application could not be loaded.",
+          );
+        }
+
+        setData((current) => ({
+          ...current,
+          selected: next.selected,
+        }));
+      })
+      .catch((caughtError: unknown) => {
+        if (reviewRequestId.current !== requestId) {
+          return;
+        }
+
+        setReviewError(
+          caughtError instanceof Error &&
+            caughtError.message.trim()
+            ? caughtError.message
+            : "The provider application could not be loaded.",
+        );
+      })
+      .finally(() => {
+        if (reviewRequestId.current === requestId) {
+          setReviewLoading(false);
+        }
+      });
+  };
+
+  const closeApplicationReview = () => {
+    reviewRequestId.current += 1;
+
+    setReviewTarget(null);
+    setReviewLoading(false);
+    setReviewError(undefined);
+
+    setData((current) => ({
+      ...current,
+      selected: null,
+    }));
+
+    syncSelectedUrl(null);
   };
 
   return (
@@ -306,8 +405,15 @@ function ProviderVerificationQueue({
             size="compact"
             onClick={() => selectApplication(item)}
             aria-label={`Review ${item.businessName}`}
+            loading={
+              reviewLoading &&
+              reviewTarget?.id === item.id
+            }
+            loadingLabel="Opening"
           >
-            <Eye aria-hidden="true" />Review</Button>
+            <Eye aria-hidden="true" />
+            Review
+          </Button>
         )}
         renderMobileRow={(item) => (
           <article className="grid min-w-0 gap-3 rounded-card border border-border bg-card p-4 shadow-card">
@@ -340,6 +446,11 @@ function ProviderVerificationQueue({
               fullWidth
               onClick={() => selectApplication(item)}
               aria-label={`Review ${item.businessName}`}
+              loading={
+                reviewLoading &&
+                reviewTarget?.id === item.id
+              }
+              loadingLabel="Opening"
             >
               <Eye aria-hidden="true" />
               Review application
@@ -366,14 +477,71 @@ function ProviderVerificationQueue({
       />
 
       <DetailDrawer
-        open={selected != null}
+        open={selected != null || reviewTarget != null}
         onOpenChange={(open) => {
-          if (!open) navigate({selected: null}, false);
+          if (!open) {
+            closeApplicationReview();
+          }
         }}
-        title={selected?.business.name ?? "Provider verification"}
+        title={
+          selected?.business.name ??
+          reviewTarget?.businessName ??
+          "Provider verification"
+        }
         description="Provider application review"
       >
-        {selected ? (
+        {reviewLoading ? (
+          <div
+            className="grid gap-5 py-1"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <div>
+              <p className="font-semibold text-foreground">
+                Loading application...
+              </p>
+
+              <p className="mt-1 text-sm text-muted-foreground">
+                The review panel will be ready in a moment.
+              </p>
+            </div>
+
+            <div
+              className="grid animate-pulse gap-3"
+              aria-hidden="true"
+            >
+              <div className="h-28 rounded-xl bg-muted" />
+              <div className="h-40 rounded-xl bg-muted" />
+              <div className="h-32 rounded-xl bg-muted" />
+            </div>
+          </div>
+        ) : reviewError ? (
+          <div
+            role="alert"
+            className="rounded-xl border border-destructive/30 bg-destructive/5 p-4"
+          >
+            <p className="font-semibold text-destructive">
+              Application could not be opened
+            </p>
+
+            <p className="mt-1 text-sm text-muted-foreground">
+              {reviewError}
+            </p>
+
+            {reviewTarget ? (
+              <Button
+                type="button"
+                variant="secondary"
+                className="mt-4"
+                onClick={() =>
+                  selectApplication(reviewTarget)
+                }
+              >
+                Try again
+              </Button>
+            ) : null}
+          </div>
+        ) : selected ? (
           <ProviderVerificationReviewPanel
             application={selected}
             serviceCategoryOptions={serviceCategoryOptions}
