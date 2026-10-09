@@ -1,0 +1,443 @@
+import {render, screen} from "@testing-library/react";
+import {describe, expect, it, vi} from "vitest";
+import {assertHydration} from "../helpers/assert-hydration";
+import {parseProviderDiscoveryFilters, providerProfileHref} from "@/lib/customer/providers/provider-query";
+
+import {PackageFilterForm} from "@/components/customer/packages/package-filter-form";
+import {PackagePagination} from "@/components/customer/packages/package-pagination";
+import {PackageResults} from "@/components/customer/packages/package-results";
+import {PublicPackageCard} from "@/components/customer/packages/public-package-card";
+import {PackageDetail} from "@/components/customer/packages/package-detail";
+import {normalizePublicProvider} from "@/lib/customer/providers/provider-normalization";
+import {normalizePublicPackageCustomization} from "@/lib/customer/discovery/public-package-normalization";
+import type {
+  PackageDiscoveryFilters,
+  PackageDiscoveryPage,
+  PublicPackage,
+} from "@/lib/customer/discovery/marketplace-types";
+import {normalizePublicPackage} from "@/lib/customer/discovery/public-package-normalization";
+import {
+  packageDiscoveryHref,
+  parsePackageDirectoryReturnHref,
+  parsePackageDiscoveryFilters,
+} from "@/lib/customer/discovery/package-query";
+
+const filters: PackageDiscoveryFilters = {
+  eventType: "wedding",
+  cursor: null,
+};
+
+const packageRecord: PublicPackage = {
+  id: "package-one",
+  providerId: "provider-one",
+  providerName: "A Very Long FEASTA Catering Provider Name",
+  name: "An Extensive Wedding Celebration Package Name That Wraps Safely",
+  description: "A real published package description for customer comparison.",
+  eventType: "wedding",
+  price: 45000,
+  paymentPolicy: "full_payment",
+  depositPercentage: 100,
+  imageUrl: "https://images.example.test/package.webp",
+  minimumGuests: 50,
+  maximumGuests: 150,
+  inclusions: ["Buffet menu", "Event styling", "Service staff"],
+};
+
+describe("customer package marketplace", () => {
+  it.each(["deposit_then_balance", "full_payment"] as const)("shows published %s terms on cards and details", (paymentPolicy) => {
+    const provider = normalizePublicProvider("provider-one", {
+      ownerId: "owner", businessName: "Provider", providerServiceType: "catering",
+      verificationStatus: "approved", publiclyVisible: true, isActive: true,
+    }, {role: "provider", providerId: "provider-one", accountStatus: "active"})!;
+    const record = {...packageRecord, paymentPolicy, depositPercentage: paymentPolicy === "full_payment" ? 100 : 50};
+    render(<><PublicPackageCard packageRecord={record} marketplaceHref="/customer/packages" /><PackageDetail detail={{provider, packageRecord: record, customization: {foods: [], decorations: [], furniture: [], services: []}}} /></>);
+    const expected = paymentPolicy === "full_payment" ? "Full payment" : "Deposit + balance";
+    expect(screen.getAllByText(expected)).toHaveLength(2);
+    if (paymentPolicy === "deposit_then_balance") {
+      expect(screen.getAllByText("50% deposit + remaining balance")).toHaveLength(2);
+      expect(screen.getAllByText("Balance due 24 hours before event")).toHaveLength(2);
+      expect(screen.queryByText("Full payment")).not.toBeInTheDocument();
+    } else expect(screen.queryByText("Deposit + balance")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/deposit \?|schema|basis points|short_notice/);
+  });
+
+  it.each([false, true])("renders only populated inclusion groups (populated: %s)", (populated) => {
+    const provider = normalizePublicProvider("provider-one", {
+      ownerId: "owner", businessName: "Provider", providerServiceType: "catering",
+      verificationStatus: "approved", publiclyVisible: true, isActive: true,
+    }, {role: "provider", providerId: "provider-one", accountStatus: "active"})!;
+    const customization = normalizePublicPackageCustomization(populated ? {
+      foodInclusions: ["Rice"], serviceInclusions: ["Setup"], decorInclusions: [], furnitureInclusions: [],
+    } : {});
+    render(<PackageDetail detail={{provider, packageRecord: {...packageRecord, inclusions: populated ? ["Rice", "Setup"] : []}, customization}} />);
+    expect(screen.getByRole("heading", {level: 1, name: packageRecord.name})).toBeVisible();
+    expect(screen.getAllByText("Full payment").length).toBeGreaterThan(0);
+    expect(screen.getByText("100% due after booking acceptance")).toBeVisible();
+    expect(screen.queryByRole("heading", {name: "Decor inclusions"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", {name: "Furniture inclusions"})).not.toBeInTheDocument();
+    if (populated) {
+      expect(screen.getByRole("heading", {name: "Food inclusions"})).toBeVisible();
+      expect(screen.getByRole("heading", {name: "Service inclusions"})).toBeVisible();
+      expect(screen.getByText("Rice")).toBeVisible();
+      expect(screen.getByText("Setup")).toBeVisible();
+    } else {
+      expect(screen.queryByRole("region", {name: "What comes with this package."})).not.toBeInTheDocument();
+      expect(screen.queryByText("Package inclusions")).not.toBeInTheDocument();
+    }
+  });
+  it("keeps card destinations stable across midnight while query validation still rejects past dates", async () => {
+    vi.useFakeTimers({toFake: ["Date"]});
+    vi.setSystemTime(new Date("2026-09-05T15:59:59Z"));
+    const href = "/customer/providers?eventDate=2026-09-05&eventTime=10%3A00&eventEndTime=12%3A00&guestCount=50";
+    const profile = providerProfileHref("provider-one", href);
+    let links: string[] = [];
+    try {
+      await assertHydration(<PublicPackageCard packageRecord={packageRecord} marketplaceHref={href} />, (container) => {
+        links = Array.from(container.querySelectorAll("a"), (link) => link.getAttribute("href") ?? "");
+        vi.setSystemTime(new Date("2026-09-05T16:00:01Z"));
+      }, (container) => {
+        expect(Array.from(container.querySelectorAll("a"), (link) => link.getAttribute("href") ?? "")).toEqual(links);
+        expect(providerProfileHref("provider-one", href)).toBe(profile);
+        expect(parseProviderDiscoveryFilters({eventDate: "2026-09-05", eventTime: "10:00", eventEndTime: "12:00", guestCount: "50"}).eventContext).toBeUndefined();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("parses only canonical event filters and bounded cursors", () => {
+    expect(parsePackageDiscoveryFilters({
+      event: ["wedding", "birthday"],
+      cursor: "safe_cursor-1",
+    })).toEqual({eventType: "wedding", cursor: "safe_cursor-1"});
+    expect(parsePackageDiscoveryFilters({
+      event: "unsupported",
+      cursor: "../document/path",
+    })).toEqual({eventType: "all", cursor: null});
+    expect(packageDiscoveryHref(filters, "next_cursor")).toBe(
+      "/customer/packages?event=wedding&cursor=next_cursor",
+    );
+    expect(packageDiscoveryHref(filters)).toBe(
+      "/customer/packages?event=wedding",
+    );
+    expect(parsePackageDirectoryReturnHref(
+      "/customer/packages?event=wedding&unknown=value",
+    )).toBe("/customer/packages?event=wedding");
+    expect(parsePackageDirectoryReturnHref("https://evil.test/customer/packages"))
+      .toBe("/customer/packages");
+  });
+
+  it.each([2, 1])("projects configured deposit terms for package version %s without booking eligibility", (version) => {
+    const normalized = normalizePublicPackage("terms-package", {
+      providerId: "provider-one", name: "Deposit package", price: 2000,
+      isActive: true, isPublished: true, providerPubliclyVisible: true, status: "published",
+      paymentPolicy: "deposit_then_balance", depositPercentage: 35,
+      paymentTermsSchemaVersion: version, balanceDueDaysBeforeEvent: version === 2 ? null : 7,
+      financialSnapshot: {grossAmountInCentavos: 1}, initialPaymentEligibility: "short_notice",
+    }, new Map([["provider-one", "Provider"]]));
+    expect(normalized).toMatchObject({paymentPolicy: "deposit_then_balance", depositPercentage: 35, balanceDueDaysBeforeEvent: version === 2 ? null : 7});
+    expect(normalized).not.toHaveProperty("financialSnapshot");
+    expect(normalized).not.toHaveProperty("initialPaymentEligibility");
+  });
+
+  it("normalizes only public package fields with bounded customer details", () => {
+    const raw = {
+      providerId: "provider-one",
+      name: "Wedding package",
+      description: "Published package",
+      eventType: "wedding",
+      price: 45000,
+      imageUrl: "https://images.example.test/package.webp",
+      minimumGuests: 50,
+      maximumGuests: 150,
+      foodInclusions: ["Buffet menu"],
+      serviceInclusions: ["Service staff"],
+      internalNotes: "never public",
+      downPaymentPercentage: 30,
+      isActive: true,
+      isPublished: true,
+      providerPubliclyVisible: true,
+      status: "published",
+      isDeleted: false,
+    };
+    const normalized = normalizePublicPackage(
+      "package-one",
+      raw,
+      new Map([["provider-one", "Ana Events"]]),
+    );
+    expect(normalized).toMatchObject({
+      name: "Wedding package",
+      minimumGuests: 50,
+      maximumGuests: 150,
+      inclusions: ["Buffet menu", "Service staff"],
+    });
+    expect(normalized).not.toHaveProperty("internalNotes");
+    expect(normalized).not.toHaveProperty("downPaymentPercentage");
+    for (const hidden of [
+      {...raw, isActive: false},
+      {...raw, isPublished: false},
+      {...raw, providerPubliclyVisible: false},
+      {...raw, status: "draft"},
+      {...raw, isDeleted: true},
+    ]) {
+      expect(normalizePublicPackage(
+        "package-one",
+        hidden,
+        new Map([["provider-one", "Ana Events"]]),
+      )).toBeNull();
+    }
+    expect(normalizePublicPackage("package-one", raw, new Map())).toBeNull();
+  });
+
+  it("renders real package fields and a canonical provider link without fake claims", () => {
+    render(
+      <PublicPackageCard
+        compactPreview
+        packageRecord={packageRecord}
+        marketplaceHref="/customer/packages?event=wedding"
+      />,
+    );
+    expect(screen.getByRole("heading", {name: packageRecord.name}))
+      .toHaveClass("break-words");
+    expect(screen.getByRole("link", {name: packageRecord.providerName}))
+      .toHaveAttribute(
+        "href",
+        "/customer/providers/provider-one?returnTo=%2Fcustomer%2Fpackages%3Fevent%3Dwedding",
+      );
+    expect(screen.getByAltText(
+      `${packageRecord.name} package from ${packageRecord.providerName}`,
+    )).toBeInTheDocument();
+    expect(screen.getByText("50–150 guests")).toBeVisible();
+    expect(screen.queryByText("Buffet menu")).not.toBeInTheDocument();
+    expect(screen.getByText(packageRecord.description!)).toBeVisible();
+    expect(screen.getAllByText("Wedding")).toHaveLength(1);
+    expect(screen.queryByText(/rating|available near you|best seller|discount/iu))
+      .not.toBeInTheDocument();
+    expect(screen.getByRole("article").querySelector("a button, button a"))
+      .toBeNull();
+  });
+
+  it("renders empty results and filter submissions without stale cursors", () => {
+    const emptyPage: PackageDiscoveryPage = {
+      packages: [],
+      previousCursor: null,
+      nextCursor: null,
+      pageSize: 12,
+    };
+    render(
+      <>
+        <PackageFilterForm filters={filters} />
+        <PackageResults page={emptyPage} filters={filters} />
+      </>,
+    );
+    const form = screen.getByRole("form", {name: "Package event type filter"});
+    expect(form).toHaveAttribute("action", "/customer/packages");
+    expect(new FormData(form as HTMLFormElement).has("cursor")).toBe(false);
+    expect(screen.getByRole("heading", {name: "No packages match this event type."}))
+      .toBeVisible();
+  });
+
+  it("keeps discovery details and navigation while omitting inclusion lists", () => {
+    render(<PackageResults filters={filters} page={{packages: [{...packageRecord, imageUrl: null, inclusions: [...packageRecord.inclusions, "Venue setup"]}], previousCursor: null, nextCursor: null, pageSize: 12}} />);
+    expect(screen.getByRole("article")).toHaveClass("relative");
+    expect(screen.getByText("Package image")).toBeVisible();
+    // One event badge on the card; the results header also shows the active filter.
+    expect(screen.getByRole("article")).not.toHaveTextContent("EventWedding");
+    expect(screen.getByRole("article").parentElement).toHaveClass("grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))]");
+    expect(screen.getByText("50–150 guests")).toBeVisible();
+    expect(screen.queryByText("Buffet menu")).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    expect(screen.queryByText("Event styling")).not.toBeInTheDocument();
+    expect(screen.queryByText("+2 more")).not.toBeInTheDocument();
+    expect(screen.queryByText("Service staff")).not.toBeInTheDocument();
+    expect(screen.queryByText("Venue setup")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Price: ₱45,000")).toBeVisible();
+    expect(screen.getByRole("link", {name: `View ${packageRecord.name} package details`})).toHaveAttribute("href", "/customer/packages/package-one");
+    expect(screen.getByText("View package")).toBeVisible();
+    expect(screen.getByText(packageRecord.description!)).toBeVisible();
+  });
+
+  it("keeps expanded cards available to existing callers", () => {
+    render(<PublicPackageCard packageRecord={packageRecord} marketplaceHref="/customer/providers" showProvider={false} headingLevel="h3" />);
+    expect(screen.getByText(packageRecord.description!)).toBeVisible();
+    expect(screen.getAllByText("Wedding")).toHaveLength(2);
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+  });
+
+  it.each([0, 1, 2, 5])("omits %s inclusions from compact discovery cards", (count) => {
+    const inclusions = ["Buffet menu", "Event styling", "Service staff", "Venue setup", "Lighting"].slice(0, count);
+    render(<PublicPackageCard compactPreview packageRecord={{...packageRecord, inclusions}} marketplaceHref="/customer/packages" />);
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
+    expect(screen.queryByText(/\+\d+ more/)).not.toBeInTheDocument();
+  });
+
+  it("preserves filters in previous and next pagination links", () => {
+    render(
+      <PackagePagination
+        filters={filters}
+        page={{
+          packages: [packageRecord],
+          previousCursor: "previous_cursor",
+          nextCursor: "next_cursor",
+          pageSize: 12,
+        }}
+      />,
+    );
+    expect(screen.getByRole("link", {name: /previous/iu})).toHaveAttribute(
+      "href",
+      "/customer/packages?event=wedding&cursor=previous_cursor",
+    );
+    expect(screen.getByRole("link", {name: /next/iu})).toHaveAttribute(
+      "href",
+      "/customer/packages?event=wedding&cursor=next_cursor",
+    );
+  });
+
+  it("normalizes service tiers and themes without trusting mismatched prices", () => {
+    const names = new Map([["provider-one", "Ana Events"]]);
+    const published = {
+      providerId: "provider-one",
+      name: "Wedding package",
+      description: "Published package",
+      eventType: "wedding",
+      price: 45000,
+      serviceOptions: {
+        drop_off: {price: 45000, includedServices: ["Packed meals"]},
+        full_service: {price: 62000, includedServices: ["On-site staff"]},
+        express: {price: 1000, includedServices: ["Ignored"]},
+      },
+      themeOptions: [
+        {
+          id: "garden",
+          name: "Garden",
+          description: "Outdoor styling",
+          imageUrls: ["https://images.example.test/garden.webp"],
+        },
+        {
+          id: "garden",
+          name: "Duplicate",
+          description: "Should be dropped",
+          imageUrls: ["https://images.example.test/duplicate.webp"],
+        },
+      ],
+      imageUrl: "https://images.example.test/package.webp",
+      minimumGuests: 50,
+      maximumGuests: 150,
+      isActive: true,
+      isPublished: true,
+      providerPubliclyVisible: true,
+      status: "published",
+      isDeleted: false,
+    };
+    expect(normalizePublicPackage("package-one", published, names)).toMatchObject({
+      price: 45000,
+      serviceOptions: {
+        drop_off: {price: 45000, includedServices: ["Packed meals"]},
+        full_service: {price: 62000, includedServices: ["On-site staff"]},
+      },
+      themeOptions: [
+        {
+          id: "garden",
+          name: "Garden",
+          description: "Outdoor styling",
+          imageUrls: ["https://images.example.test/garden.webp"],
+        },
+      ],
+    });
+    expect(normalizePublicPackage(
+      "package-one",
+      {...published, price: 44000},
+      names,
+    )?.price).toBeNull();
+    expect(normalizePublicPackage(
+      "package-one",
+      {
+        ...published,
+        serviceOptions: undefined,
+        themeOptions: undefined,
+        price: 45000,
+      },
+      names,
+    )).toMatchObject({
+      price: 45000,
+      serviceOptions: {},
+      themeOptions: [],
+    });
+  });
+
+  it("renders published service tiers and themes without making a booking selection", () => {
+    const provider = normalizePublicProvider("provider-one", {
+      ownerId: "owner", businessName: "Provider", providerServiceType: "catering",
+      verificationStatus: "approved", publiclyVisible: true, isActive: true,
+    }, {role: "provider", providerId: "provider-one", accountStatus: "active"})!;
+    const themed = {
+      ...packageRecord,
+      serviceOptions: {
+        drop_off: {price: 45000, includedServices: ["Packed meals"]},
+        buffet_setup: {price: 52000, includedServices: []},
+      },
+      themeOptions: [
+        {
+          id: "garden",
+          name: "Garden",
+          description: "Outdoor styling",
+          imageUrls: ["https://images.example.test/garden.webp"],
+        },
+        {
+          id: "classic",
+          name: "Classic",
+          description: "",
+          imageUrls: [],
+        },
+      ],
+    };
+    render(
+      <PackageDetail
+        detail={{
+          provider,
+          packageRecord: themed,
+          customization: {foods: [], decorations: [], furniture: [], services: []},
+        }}
+      />,
+    );
+    expect(screen.getByText("Starting from")).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Available service levels"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Drop-Off Catering"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Buffet Setup"})).toBeVisible();
+    expect(screen.getByText("Packed meals")).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Explore the available visual styles"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Garden"})).toBeVisible();
+    expect(screen.getByText("No reference images available.")).toBeVisible();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("keeps legacy package cards readable when no service tiers exist", () => {
+    render(
+      <PublicPackageCard
+        packageRecord={packageRecord}
+        marketplaceHref="/customer/packages"
+      />,
+    );
+    expect(screen.getByText("Package price")).toBeVisible();
+    expect(screen.queryByText("Starting from")).not.toBeInTheDocument();
+    expect(screen.queryByText("Drop-Off Catering")).not.toBeInTheDocument();
+  });
+
+  it("shows published service-tier labels on marketplace cards", () => {
+    render(
+      <PublicPackageCard
+        packageRecord={{
+          ...packageRecord,
+          serviceOptions: {
+            drop_off: {price: 45000, includedServices: []},
+            full_service: {price: 62000, includedServices: []},
+          },
+        }}
+        marketplaceHref="/customer/packages"
+      />,
+    );
+    expect(screen.getByText("Starting from")).toBeVisible();
+    expect(screen.getByText("Drop-Off Catering")).toBeVisible();
+    expect(screen.getByText("Full-Service Catering")).toBeVisible();
+  });
+});

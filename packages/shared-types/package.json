@@ -1,0 +1,62 @@
+{
+  "name": "@feasta/shared-types",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./documents": {
+      "types": "./dist/documents/index.d.cts",
+      "import": "./dist/documents/index.cjs",
+      "require": "./dist/documents/index.cjs"
+    },
+    "./documents/agreement-types": {
+      "types": "./dist/documents/agreement-types.d.cts",
+      "import": "./dist/documents/agreement-types.cjs",
+      "require": "./dist/documents/agreement-types.cjs"
+    },
+    "./documents/agreement-text": {
+      "types": "./dist/documents/agreement-text.d.cts",
+      "import": "./dist/documents/agreement-text.cjs",
+      "require": "./dist/documents/agreement-text.cjs"
+    },
+    "./documents/agreement-summary": {
+      "types": "./dist/documents/agreement-summary.d.cts",
+      "import": "./dist/documents/agreement-summary.cjs",
+      "require": "./dist/documents/agreement-summary.cjs"
+    },
+    "./documents/agreement-version-order": {
+      "types": "./dist/documents/agreement-version-order.d.cts",
+      "import": "./dist/documents/agreement-version-order.cjs",
+      "require": "./dist/documents/agreement-version-order.cjs"
+    },
+    "./documents/document-catalog-policy": {
+      "types": "./dist/documents/document-catalog-policy.d.cts",
+      "import": "./dist/documents/document-catalog-policy.cjs",
+      "require": "./dist/documents/document-catalog-policy.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "pnpm build && node --test test/*.test.mjs",
+    "clean": "rimraf dist"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "typesVersions": {
+    "*": {
+      "documents": [
+        "dist/documents/index.d.cts"
+      ],
+      "documents/*": [
+        "dist/documents/*.d.cts"
+      ]
+    }
+  }
+}
