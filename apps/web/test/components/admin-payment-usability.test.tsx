@@ -16,7 +16,7 @@ vi.mock("@/app/admin/payments/actions", () => ({
   loadAdminPaymentDetailsAction: vi.fn(),
   loadAdminFinanceAttentionQueueAction: vi.fn(),
 }));
-vi.mock("@/lib/admin/payments/admin-payment-client", () => ({repairAmbiguousProviderPayoutSetup: vi.fn()}));
+vi.mock("@/lib/admin/payments/admin-payment-client", () => ({repairAmbiguousProviderPayoutSetup: vi.fn(), retryFailedProviderDisbursement: vi.fn()}));
 
 const payment: AdminPayment = {
   id: "payment_b38b84603355ec4e87de373fbe7ef0a4", paymentId: "payment_b38b84603355ec4e87de373fbe7ef0a4",

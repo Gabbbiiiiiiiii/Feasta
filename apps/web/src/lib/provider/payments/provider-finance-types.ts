@@ -118,7 +118,13 @@ export type ProviderSettlementSummary = {
   reconciliationRequiredCount: number;
 };
 
+export type ProviderDisbursementView = {
+  id: string; status: string; amountInCentavos: number | null;
+  eligibleAt: string | null; trigger: string;
+};
+
 export type ProviderFinanceOverview = {
+  disbursements?: ProviderDisbursementView[];
   payoutAccount: ProviderPayoutAccountView;
 
   earnings: ProviderEarning[];

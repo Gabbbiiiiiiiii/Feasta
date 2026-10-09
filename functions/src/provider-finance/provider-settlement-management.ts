@@ -552,7 +552,7 @@ export async function reserveProviderSettlementForPayout(
   );
 }
 
-function fullySettledPaymentIds(
+export function fullySettledPaymentIds(
   providerRequest: UnknownRecord,
 ): string[] {
   const financialSnapshot =

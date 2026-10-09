@@ -1,3 +1,4 @@
+import {Timestamp} from "firebase-admin/firestore";
 import {assertBalanceEnforcementAllowsProgress} from "../payments/remaining-balance-enforcement-domain.js";
 import {effectiveBookingStageV3, frozenBookingPolicyTimingV3} from "../bookings/booking-policy-v3.js";
 import {scheduledEventStart} from "../payments/canonical-balance-timing.js";
@@ -87,6 +88,10 @@ import {
   assertProviderRequestFullySettledForServiceStart,
   releaseProviderRequestEarningsForSettlementInTransaction,
 } from "../provider-finance/provider-settlement-management.js";
+
+import {
+  scheduleCompletedProviderRequestDisbursementInTransaction,
+} from "../provider-finance/provider-disbursement-management.js";
 
 type LifecycleTarget =
   | "in_progress"
@@ -194,6 +199,8 @@ async function updateProviderBookingLifecycle(
     const mainEventReference = db
       .collection("mainEvents")
       .doc(mainEventId);
+    // Trusted server instant captured once; retries reuse the completion authority.
+    const completionInstant = new Date();
     const result = await db.runTransaction(
       async (transaction) => {
         const requestSnapshot =
@@ -465,6 +472,18 @@ async function updateProviderBookingLifecycle(
          * Provider earnings become available for payout reservation.
          */
         if (targetStatus === "completed") {
+          /*
+           * Read Provider-disbursement settings before settlement-release
+           * writes so the Firestore transaction preserves read-before-write
+           * ordering.
+           */
+          const platformSettingsSnapshot =
+            await transaction.get(
+              db
+                .collection("appSettings")
+                .doc("platform"),
+            );
+
           await releaseProviderRequestEarningsForSettlementInTransaction({
             transaction,
 
@@ -479,6 +498,32 @@ async function updateProviderBookingLifecycle(
 
             customerId:
               authorized.customerId,
+
+            timestamp,
+          });
+
+          scheduleCompletedProviderRequestDisbursementInTransaction({
+            transaction,
+
+            providerRequestId,
+
+            providerRequest:
+              authorized.requestData,
+
+            mainEventId,
+
+            providerId,
+
+            customerId:
+              authorized.customerId,
+
+            completedAt:
+              completionInstant,
+
+            platformSettings:
+              platformSettingsSnapshot.exists
+                ? platformSettingsSnapshot.data() ?? {}
+                : null,
 
             timestamp,
           });
@@ -505,7 +550,7 @@ async function updateProviderBookingLifecycle(
               );
           }
         } else {
-          requestUpdate.completedAt = timestamp;
+          requestUpdate.completedAt = Timestamp.fromDate(completionInstant);
           if (v3) {
             requestUpdate.lifecycleNextTransitionAt = null;
             if (authorized.status === "confirmed") requestUpdate.startedAt = authorized.requestData.eventStartAt;

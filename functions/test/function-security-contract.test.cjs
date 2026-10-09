@@ -15,6 +15,7 @@ test("v3 scheduler is bounded, server-owned and validates payment and provider a
 });
 
 const policies = [
+  ["retryFailedProviderDisbursement", "provider-finance/provider-disbursement-admin.ts", ["requireAuth(request)", "requireRole", "USER_ROLES.admin", "enforceCallableRateLimit", "appCheckCallableOptions", "prepareFailedProviderDisbursementRetry"]],
   ["reconcileProviderRequestRefund", "refunds/refund-execution.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "secrets: [payMongoSecretKey]", "retrievePayMongoRefund", "assertAdminReconciliationEvidence", "writeAuditLogInTransaction"]],
   ["ensureUserProfile", "auth/ensure-user-profile.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions"]],
   ["ensureProviderIdentity", "auth/ensure-provider-identity.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions", "isAuthoritativeAuthPhone", "passwordLinked", "authEmail !== submittedEmail", "requireProviderConsent"]],
@@ -515,6 +516,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "reactivateServiceCategory",
   "reconcileProviderRequestRefund",
   "reconcileBookingPolicyV3",
+  "reconcileProviderDisbursements",
   "reconcileRemainingBalanceLifecycle",
   "reconcileUnresolvedRefundStatuses",
   "refreshProviderPayoutAccount",
@@ -528,10 +530,12 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "reverseGeocode",
   "reviewProviderTaxProfile",
   "reviewProviderVerification",
+  "retryFailedProviderDisbursement",
   "revokeAllAccountSessions",
   "revokeAllCustomerSessions",
   "saveProviderOnboardingDraft",
   "saveProviderPayoutActivationProfile",
+  "scheduleProviderDefaultCompensation",
   "searchPlaces",
   "sendChatMessage",
   "setPackageRefundPolicyOverride",

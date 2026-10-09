@@ -514,6 +514,30 @@ export function ProviderFinancePanel({
         )}
       </section>
 
+      {(finance.disbursements?.length ?? 0) > 0 ? (
+        <section className="grid gap-3" aria-labelledby="provider-payouts-heading">
+          <h2 id="provider-payouts-heading" className="text-xl font-bold">Provider payouts</h2>
+          {finance.disbursements?.map(payout => (
+            <article key={payout.id} className="rounded-card border border-border bg-card p-4">
+              <p className="font-semibold">{({scheduled: "Scheduled", held: "On hold",
+                ready: "Ready for payout", reserved: "Processing", processing: "On the way",
+                paid: "Paid", failed: "Failed / delayed", reconciliation_required: "Under financial review",
+                cancelled: "Cancelled"} as Record<string, string>)[payout.status] ?? "Under financial review"}</p>
+              {payout.amountInCentavos !== null ? <p>{formatCentavos(payout.amountInCentavos)}</p> : null}
+              {payout.eligibleAt ? <p className="text-sm text-muted-foreground">Expected payout eligibility: {new Intl.DateTimeFormat("en-PH", {
+                timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric",
+              }).format(new Date(payout.eligibleAt))}</p> : null}
+              <p className="mt-1 text-sm text-muted-foreground">
+                {payout.trigger === "payment_default_compensation"
+                  ? "Eligible from 10:00 AM Manila on the first banking day after refund finalization."
+                  : "Eligible from 10:00 AM Manila on the third banking day after completion."}
+                {" "}Actual transfer timing depends on processing and payout readiness.
+              </p>
+            </article>
+          ))}
+        </section>
+      ) : null}
+
       <section
         className="grid gap-4"
         aria-labelledby="provider-settlements-heading"

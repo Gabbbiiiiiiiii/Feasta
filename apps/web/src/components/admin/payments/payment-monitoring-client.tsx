@@ -18,6 +18,7 @@ import {
 
 import {
   repairAmbiguousProviderPayoutSetup,
+  retryFailedProviderDisbursement,
 } from "@/lib/admin/payments/admin-payment-client";
 
 import {
@@ -30,6 +31,7 @@ import {
 } from "@/components/admin/payments/payment-details-drawer";
 import {
   PaymentFinanceAttention,
+  canRetryFailedDisbursement,
 } from "@/components/admin/payments/payment-finance-attention";
 import {
   formatPaymentDate,
@@ -61,6 +63,7 @@ import {
 import {
   SummaryCard,
 } from "@/components/data/summary-card";
+import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
 import {PageHeading} from "@/components/layout/page-heading";
 import {Button} from "@/components/ui/button";
 import {Select} from "@/components/ui/select";
@@ -120,6 +123,9 @@ function PaymentMonitoringClient({
     repairingAttentionId,
     setRepairingAttentionId,
   ] = useState<string | null>(null);
+
+  const [retryTarget, setRetryTarget] = useState<AdminFinanceAttentionQueue["items"][number] | null>(null);
+  const [retryingAttentionId, setRetryingAttentionId] = useState<string | null>(null);
 
   const [filters, setFilters] =
     useState<AdminPaymentFilters>(
@@ -319,6 +325,30 @@ function PaymentMonitoringClient({
     },
     [],
   );
+
+  const retryFailedPayout = async () => {
+    const current = attentionQueue.items.find(item => item.id === retryTarget?.id);
+    if (!current || !canRetryFailedDisbursement(current) || !current.providerDisbursementId ||
+        repairingAttentionId || retryingAttentionId) {
+      setAttentionError("This payout changed or is no longer safe to retry. Refresh Provider payout issues.");
+      setRetryTarget(null);
+      return;
+    }
+    const requestId = ++attentionRequestId.current;
+    setAttentionLoading(false);
+    setRetryingAttentionId(current.id);
+    setAttentionError(undefined);
+    try {
+      await retryFailedProviderDisbursement({providerDisbursementId: current.providerDisbursementId});
+      const refreshed = await loadAdminFinanceAttentionQueueAction();
+      if (attentionRequestId.current === requestId) setAttentionQueue(refreshed);
+    } catch (error: unknown) {
+      setAttentionError(errorMessage(error));
+    } finally {
+      setRetryingAttentionId(null);
+      setRetryTarget(null);
+    }
+  };
 
   const applyFilters = useCallback(
     (
@@ -608,6 +638,8 @@ function PaymentMonitoringClient({
       <PaymentFinanceAttention
         statistics={page.statistics}
         queue={attentionQueue}
+        retryingItemId={retryingAttentionId}
+        onRetryFailedDisbursement={(item) => { if (canRetryFailedDisbursement(item)) setRetryTarget(item); }}
         loading={attentionLoading}
         error={attentionError}
         repairingItemId={
@@ -623,6 +655,11 @@ function PaymentMonitoringClient({
           repairPayoutSetup
         }
       />
+
+      <ConfirmationDialog open={retryTarget !== null} onOpenChange={(open) => { if (!open) setRetryTarget(null); }}
+        title="Retry failed Provider payout?"
+        description="This retry prepares financial revalidation. A new payout attempt is created only after financial revalidation succeeds."
+        confirmLabel="Prepare payout retry" loading={retryingAttentionId !== null} onConfirm={retryFailedPayout} />
 
       <FilterToolbar
         onSearchInvalidate={() => {

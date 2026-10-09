@@ -152,3 +152,24 @@ function payoutRepairErrorMessage(
 
   return "The payout setup could not be repaired safely.";
 }
+export async function retryFailedProviderDisbursement(input: {providerDisbursementId: string}): Promise<{prepared: true}> {
+  await auth.authStateReady();
+  if (!auth.currentUser) throw new WebAuthenticationError("Your admin session has expired. Please sign in again.", "session_expired");
+  const providerDisbursementId = input.providerDisbursementId;
+  if (!/^[A-Za-z0-9_-]{1,220}$/u.test(providerDisbursementId)) throw new Error("The Provider payout reference is invalid.");
+  initializeBrowserAppCheck();
+  const callable = httpsCallable<{providerDisbursementId: string}, {prepared: true}>(
+    functions, "retryFailedProviderDisbursement", {timeout: 30_000});
+  try {
+    return (await callable({providerDisbursementId})).data;
+  } catch (error: unknown) {
+    const code = error instanceof FirebaseError ? normalizeCallableCode(error.code) : "unknown";
+    const message = code === "failed-precondition" || code === "not-found" ?
+      "This payout changed or is no longer authoritatively failed. Refresh Provider payout issues." :
+      code === "unauthenticated" ? "Your admin session has expired. Please sign in again." :
+      code === "permission-denied" ? "Only an authorized FEASTA Admin can retry this payout." :
+      code === "resource-exhausted" ? "Too many payout retries were requested. Wait a moment and try again." :
+      "The trusted payout retry service could not prepare this retry safely. Refresh Provider payout issues.";
+    throw new Error(message);
+  }
+}

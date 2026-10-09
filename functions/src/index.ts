@@ -1085,3 +1085,11 @@ export {
 export {getCurrentLegalAgreement} from "./documents/current-legal-agreement.js";
 export {reconcileBookingPolicyV3} from "./bookings/booking-lifecycle-v3.js";
 export {getBookingPaymentAgreementDisclosures} from "./bookings/submit-booking-request.js";
+
+export {
+  reconcileProviderDisbursements,
+} from "./provider-finance/provider-disbursement-reconciliation.js";
+
+export {scheduleProviderDefaultCompensation} from "./provider-finance/provider-disbursement-compensation.js";
+
+export {retryFailedProviderDisbursement} from "./provider-finance/provider-disbursement-admin.js";

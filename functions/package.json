@@ -16,7 +16,8 @@
     "seed:service-categories": "pnpm build && node lib/scripts/seed-service-categories.js",
     "serve": "pnpm build && firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions",
-    "test:deployment-runtime": "node scripts/verify-deployment-runtime.cjs"
+    "test:deployment-runtime": "node scripts/verify-deployment-runtime.cjs",
+    "test:p13-b:emulator": "pnpm build && firebase emulators:exec --config ../firebase.p13-b.test.json --project demo-feasta-phase3 --only firestore \"node --test --test-concurrency=1 test/emulator/provider-disbursement.integration.cjs test/emulator/provider-disbursement-security.integration.cjs\""
   },
   "dependencies": {
     "@google-cloud/functions-framework": "5.0.2",

@@ -396,6 +396,28 @@ export function reserveProviderSettlementPayout(
   };
 }
 
+// Validate actual persisted records before interpreting trusted gateway outcomes.
+export function assertProviderSettlementPayoutOutcomeState(input: {
+  settlement: UnknownRecord; earning: UnknownRecord; payoutAttempt: UnknownRecord;
+}, requireAvailableFunds = true): void {
+  const settlement = validateSettlement(input.settlement);
+  const attempt = validatePayoutAttempt(input.payoutAttempt);
+  const earning = validateEarning(settlement.earningId, input.earning);
+  const pair = `${settlement.status}/${attempt.status}`;
+  const review = pair === "reconciliation_required/ambiguous";
+  if (!["reserved/reserved", "reserved/dispatching", "reserved/submitted", "reserved/processing",
+    "processing/submitted", "processing/processing", "reconciliation_required/ambiguous"].includes(pair) ||
+      settlement.reconciliationRequired !== review ||
+      (review ? settlement.reconciliationReason !== "payout_outcome_ambiguous" : settlement.reconciliationReason != null) ||
+      settlement.activePayoutAttemptId !== attempt.payoutAttemptId ||
+      attempt.settlementId !== settlement.settlementId || attempt.earningId !== settlement.earningId ||
+      attempt.providerId !== settlement.providerId || attempt.amountInCentavos <= 0 ||
+      attempt.amountInCentavos !== settlement.reservedAmountInCentavos || settlement.paidOutAmountInCentavos !== 0 ||
+      (requireAvailableFunds && (earning.pendingAmountInCentavos !== 0 || earning.availableAmountInCentavos < attempt.amountInCentavos))) {
+    throw settlementInvalid("Persisted payout outcome state is invalid.");
+  }
+}
+
 /*
  * Marks a payout as successfully settled.
  *
@@ -445,23 +467,8 @@ export function completeProviderSettlementPayout(
     );
   }
 
-  if (
-    settlement.status !== "reserved" &&
-    settlement.status !== "processing"
-  ) {
-    throw settlementInvalid(
-      "Provider settlement is not awaiting payout completion.",
-    );
-  }
-
-  if (
-    attempt.status !== "submitted" &&
-    attempt.status !== "processing"
-  ) {
-    throw settlementInvalid(
-      "Payout attempt is not awaiting completion.",
-    );
-  }
+  assertProviderSettlementPayoutOutcomeState(input);
+  if (attempt.status === "dispatching") throw settlementInvalid("Payout attempt is not awaiting completion.");
 
   const amount =
     attempt.amountInCentavos;
@@ -590,6 +597,9 @@ export function failProviderSettlementPayout(
       "Payout failure linkage is invalid.",
     );
   }
+
+  // Unknown outcomes preserve locks even when earning buckets need review.
+  assertProviderSettlementPayoutOutcomeState(input, input.certainty !== "ambiguous");
 
   const amount =
     attempt.amountInCentavos;

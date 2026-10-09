@@ -157,6 +157,9 @@ export type AdminFinanceAttentionRecordState =
 
 export type AdminFinanceAttentionItem = {
   id: string;
+  providerDisbursementId?: string | null;
+  canonicalDisbursementStatus?: string | null;
+  failedDisbursementRetryEligible?: boolean;
 
   kind: AdminFinanceAttentionKind;
 

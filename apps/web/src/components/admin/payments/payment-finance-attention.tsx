@@ -27,6 +27,9 @@ type PaymentFinanceAttentionProps = {
   repairingItemId:
     string | null;
 
+  retryingItemId?: string | null;
+  onRetryFailedDisbursement?: (item: FinanceAttentionItem) => void;
+
   onRefresh: () => void;
 
   onViewPayment: (
@@ -44,6 +47,8 @@ function PaymentFinanceAttention({
   loading,
   error,
   repairingItemId,
+  retryingItemId = null,
+  onRetryFailedDisbursement,
   onRefresh,
   onViewPayment,
   onRepairPayoutSetup,
@@ -54,7 +59,7 @@ function PaymentFinanceAttention({
       aria-labelledby="finance-attention-heading"
       aria-busy={
         loading ||
-        repairingItemId !== null
+        (repairingItemId !== null || retryingItemId !== null)
       }
     >
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
@@ -77,7 +82,7 @@ function PaymentFinanceAttention({
           size="compact"
           disabled={
             loading ||
-            repairingItemId !== null
+            (repairingItemId !== null || retryingItemId !== null)
           }
           onClick={onRefresh}
         >
@@ -254,6 +259,13 @@ function PaymentFinanceAttention({
                   </dl>
                 </details>
 
+                {canRetryFailedDisbursement(item) && onRetryFailedDisbursement ? (
+                  <Button type="button" variant="secondary" size="compact" className="mt-4 mr-2"
+                    disabled={loading || repairingItemId !== null || retryingItemId !== null}
+                    onClick={() => onRetryFailedDisbursement(item)}>
+                    {retryingItemId === item.id ? "Preparing retry..." : "Retry failed payout"}
+                  </Button>
+                ) : null}
                 {isPayoutSetupRecovery ? (
                   item.recordState === "valid" &&
                   item.providerId &&
@@ -265,7 +277,7 @@ function PaymentFinanceAttention({
                       className="mt-4"
                       disabled={
                         loading ||
-                        repairingItemId !== null
+                        (repairingItemId !== null || retryingItemId !== null)
                       }
                       onClick={() =>
                         onRepairPayoutSetup(
@@ -349,3 +361,9 @@ export {
   PaymentFinanceAttention,
   type PaymentFinanceAttentionProps,
 };
+
+export function canRetryFailedDisbursement(item: FinanceAttentionItem): boolean {
+  return item.recordState === "valid" && item.kind === "failed_payout" && item.status === "failed" &&
+    item.canonicalDisbursementStatus === "failed" && item.failedDisbursementRetryEligible === true &&
+    typeof item.providerDisbursementId === "string" && /^[A-Za-z0-9_-]{1,220}$/u.test(item.providerDisbursementId);
+}

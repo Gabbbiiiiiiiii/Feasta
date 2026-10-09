@@ -1200,6 +1200,15 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // P13 Provider disbursements are canonical server-managed money-movement records.
+    match /providerDisbursementAttempts/{attemptId} {
+      allow read, write: if false;
+    }
+
+    match /providerDisbursements/{disbursementId} {
+      allow read, write: if false;
+    }
+
     match /financialLedgerEntries/{ledgerEntryId} {
       /*
        * P8 financial-ledger entries are immutable accounting evidence.

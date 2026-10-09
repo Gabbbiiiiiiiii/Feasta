@@ -7,6 +7,10 @@ import {
   type PackagePaymentTermsSnapshot,
 } from "../payments/package-payment-terms.js";
 
+import {
+  PROVIDER_DISBURSEMENT_POLICY_VERSION,
+} from "../provider-finance/provider-disbursement-policy.js";
+
 const BASIS_POINTS_SCALE =
   10_000;
 
@@ -54,6 +58,9 @@ type ProviderRequestFinancialSnapshot = {
 
   financialPolicyVersion:
     number;
+
+  providerDisbursementPolicyVersion:
+    1;
 
   providerTaxType:
     PlatformTaxStatus | null;
@@ -200,6 +207,9 @@ export function buildProviderRequestFinancialSnapshot(
     platformVatRateBps,
 
     financialPolicyVersion,
+
+    providerDisbursementPolicyVersion:
+      PROVIDER_DISBURSEMENT_POLICY_VERSION,
 
     providerTaxType:
       providerTax.taxType,

@@ -1,3 +1,4 @@
+import {processProviderTransferWebhook} from "../provider-finance/provider-disbursement-webhook.js";
 import {
   defineSecret,
 } from "firebase-functions/params";
@@ -108,7 +109,7 @@ export const payMongoWebhook = onRequest(
 
     try {
       const result =
-        await processPayMongoWebhook(
+        await processProviderTransferWebhook(rawBody) ?? await processPayMongoWebhook(
           rawBody,
         );
 

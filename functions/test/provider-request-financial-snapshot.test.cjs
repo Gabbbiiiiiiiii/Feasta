@@ -110,6 +110,9 @@ test(
         financialPolicyVersion:
           1,
 
+        providerDisbursementPolicyVersion:
+          1,
+
         providerTaxType:
           null,
 

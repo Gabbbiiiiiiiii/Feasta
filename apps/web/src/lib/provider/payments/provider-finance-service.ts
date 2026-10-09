@@ -123,6 +123,7 @@ Promise<ProviderFinanceOverview> {
     earningsSnapshot,
     aggregateSnapshot,
     settlementsSnapshot,
+    disbursementsSnapshot,
   ] = await Promise.all([
     payoutReference.get(),
 
@@ -159,6 +160,7 @@ Promise<ProviderFinanceOverview> {
       .get(),
 
     settlementsQuery.get(),
+    adminDb.collection("providerDisbursements").where("providerId", "==", providerId).get(),
   ]);
 
   const aggregate =
@@ -190,6 +192,15 @@ Promise<ProviderFinanceOverview> {
       );
 
   return {
+    disbursements: disbursementsSnapshot.docs.flatMap(document => {
+      const data = document.data();
+      if (data.schemaVersion !== 1 || data.policyVersion !== 1 || data.providerId !== providerId ||
+          data.disbursementId !== document.id || data.currency !== "PHP") return [];
+      return [{id: document.id, status: String(data.status),
+        amountInCentavos: Number.isSafeInteger(data.amountInCentavos) ? data.amountInCentavos : null,
+        eligibleAt: data.payoutEligibleAt instanceof Timestamp ? data.payoutEligibleAt.toDate().toISOString() : null,
+        trigger: String(data.trigger)}];
+    }).sort((a, b) => String(b.eligibleAt).localeCompare(String(a.eligibleAt))).slice(0, 20),
     payoutAccount:
       normalizePayoutAccount(
         payoutSnapshot.exists

@@ -203,6 +203,7 @@ export async function getAdminFinanceAttentionQueue(): Promise<
   failedPayoutSnapshot,
   reconciliationSnapshot,
   ambiguousPayoutSetupSnapshot,
+  disbursementSnapshot,
 ] = await Promise.all([
     adminDb
       .collection(
@@ -246,17 +247,20 @@ export async function getAdminFinanceAttentionQueue(): Promise<
         FINANCE_ATTENTION_PER_KIND_LIMIT,
       )
       .get(),
+    adminDb.collection("providerDisbursements")
+      .where("status", "in", ["held", "ready", "failed", "processing", "reconciliation_required"])
+      .limit(FINANCE_ATTENTION_TOTAL_LIMIT).get(),
   ]);
 
   const failedPayoutCandidates =
     await Promise.all(
-      failedPayoutSnapshot.docs.map(
+      failedPayoutSnapshot.docs.filter(document => document.data().externalAttemptId == null).map(
         mapFailedPayoutAttentionCandidate,
       ),
     );
 
   const reconciliationCandidates =
-    reconciliationSnapshot.docs.map(
+    reconciliationSnapshot.docs.filter(document => document.data().providerDisbursementId == null).map(
       mapReconciliationAttentionCandidate,
     );
 
@@ -265,7 +269,41 @@ export async function getAdminFinanceAttentionQueue(): Promise<
       mapAmbiguousPayoutSetupAttentionCandidate,
     );
 
+  const disbursementCandidates: AdminFinanceAttentionCandidate[] = disbursementSnapshot.docs.flatMap(document => {
+    const data = document.data();
+    const updatedAt = isoDateValue(data.updatedAt);
+    const stuck = data.status === "processing" && updatedAt && Date.now() - new Date(updatedAt).getTime() > 24 * 60 * 60 * 1000;
+    if (!["held", "failed", "reconciliation_required"].includes(data.status) && !stuck &&
+        !(data.status === "ready" && data.transportReady === false)) return [];
+    const amount = adminCentavos(data.amountInCentavos);
+    const retryEligible = data.status === "failed" && data.schemaVersion === 1 && data.policyVersion === 1 &&
+      data.disbursementId === document.id && /^[A-Za-z0-9_-]{1,220}$/u.test(document.id) && data.currency === "PHP" &&
+      [data.providerId, data.providerRequestId, data.mainEventId, data.customerId].every(
+        id => typeof id === "string" && /^[A-Za-z0-9:_-]{1,220}$/u.test(id)) && amount !== null && amount > 0 &&
+      ["completed_booking", "payment_default_compensation"].includes(data.trigger) &&
+      isoDateValue(data.payoutEligibleAt) !== null &&
+      isoDateValue(data.trigger === "completed_booking" ? data.completedBookingAt : data.financialFinalizedAt) !== null &&
+      data.activePayoutAttemptId === null && Number.isSafeInteger(data.attemptSequence) && data.attemptSequence > 0 &&
+      Array.isArray(data.sourceSettlementIds) && data.sourceSettlementIds.length > 0 && data.sourceSettlementIds.length <= 10 &&
+      data.sourceSettlementIds.every((id: unknown) => typeof id === "string" && /^[A-Za-z0-9:_-]{1,220}$/u.test(id)) &&
+      new Set(data.sourceSettlementIds).size === data.sourceSettlementIds.length &&
+      Array.isArray(data.sourcePaymentIds) && data.sourcePaymentIds.length === data.sourceSettlementIds.length &&
+      data.sourcePaymentIds.every((id: unknown) => typeof id === "string" && /^[A-Za-z0-9:_-]{1,220}$/u.test(id)) &&
+      new Set(data.sourcePaymentIds).size === data.sourcePaymentIds.length;
+    return [{id: `disbursement:${document.id}`, providerDisbursementId: document.id,
+      canonicalDisbursementStatus: data.status, failedDisbursementRetryEligible: retryEligible, kind: data.status === "failed" ? "failed_payout" : "reconciliation_required",
+      recordState: data.schemaVersion === 1 && data.policyVersion === 1 && data.disbursementId === document.id && data.currency === "PHP" ? "valid" : "invalid",
+      paymentId: nullableString(data.sourcePaymentIds?.[0]), providerId: nullableString(data.providerId),
+      settlementId: null, payoutAttemptId: nullableString(data.activePayoutAttemptId),
+      status: data.status === "failed" ? "failed" : "reconciliation_required",
+      amountInCentavos: amount, formattedAmount: formatOptionalCentavos(amount), updatedAt,
+      reason: stuck ? "Provider transfer is awaiting trusted gateway reconciliation." :
+        data.status === "ready" ? "Provider amount is payable; verified payout transport or destination is unavailable." :
+        data.status === "failed" ? "Provider transfer failed authoritatively; review before a new attempt." :
+        "Provider payout needs financial review.", expectedUpdatedAtMillis: null}];
+  });
   const candidates = [
+    ...disbursementCandidates,
     ...failedPayoutCandidates,
     ...reconciliationCandidates,
     ...ambiguousPayoutSetupCandidates,
@@ -2985,6 +3023,7 @@ async function queryAdminPaymentStatistics(): Promise<
     reconciliationCases,
     partialCount,
     partials,
+    aggregateFailed, aggregateFailedMembers, aggregateReview, aggregateReviewMembers,
   ] =
     await Promise.all([
       payments
@@ -3071,6 +3110,10 @@ async function queryAdminPaymentStatistics(): Promise<
       payments.where("status", "==", "partially_refunded").count().get(),
       payments.where("status", "==", "partially_refunded")
         .limit(PARTIAL_REFUND_STATISTICS_LIMIT).get(),
+      adminDb.collection("providerDisbursements").where("status", "==", "failed").count().get(),
+      payoutAttempts.where("status", "==", "failed").where("externalDispatchAllowed", "==", false).count().get(),
+      adminDb.collection("providerDisbursements").where("status", "==", "reconciliation_required").count().get(),
+      settlements.where("status", "==", "reconciliation_required").where("externalDispatchAllowed", "==", false).count().get(),
     ]);
 
   const totals = bookingFinancialStatistics({
@@ -3106,11 +3149,10 @@ async function queryAdminPaymentStatistics(): Promise<
       expired.data().count,
 
     failedPayoutCount:
-      failedPayouts.data().count,
+      failedPayouts.data().count - aggregateFailedMembers.data().count + aggregateFailed.data().count,
 
     reconciliationRequiredCount:
-      reconciliationCases.data()
-        .count,
+      reconciliationCases.data().count - aggregateReviewMembers.data().count + aggregateReview.data().count,
 
     refundedAmountInCentavos,
 
