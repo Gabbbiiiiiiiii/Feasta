@@ -1,5 +1,5 @@
 import {randomUUID, createHash} from "node:crypto";
-import {frozenCanonicalBalanceTiming} from "./canonical-balance-timing.js";
+import {remainingBalanceHardDeadline} from "./canonical-balance-timing.js";
 import {readBalanceDeadlineAttempt} from "./remaining-balance-enforcement-reader.js";
 import {remainingBalanceDeadlinePassed} from "./remaining-balance-enforcement-domain.js";
 import {FieldValue, Timestamp} from "firebase-admin/firestore";
@@ -39,13 +39,15 @@ export async function createDurableCheckout(
       const requestSnapshot = await transaction.get(db.collection("providerRequests").doc(payment.providerRequestId));
       const request = requestSnapshot.data();
       if (!request || request.status !== "confirmed") throw reconciliationRequired();
-      if (request.remainingBalanceTimingSchemaVersion === 2) newAttemptDeadline = frozenCanonicalBalanceTiming(request).dueAt;
-      if (request.remainingBalanceTimingSchemaVersion === 2 && new Date(Date.now()) >= frozenCanonicalBalanceTiming(request).dueAt) {
+      if (request.remainingBalanceTimingSchemaVersion === 2 || request.remainingBalanceTimingSchemaVersion === 3) {
+        newAttemptDeadline = remainingBalanceHardDeadline(request);
+      }
+      if (newAttemptDeadline && new Date(Date.now()) >= newAttemptDeadline) {
         deadlineReached = true;
         const parent = await transaction.get(db.collection("mainEvents").doc(payment.mainEventId));
         const classified = await readBalanceDeadlineAttempt({transaction, providerRequestId: payment.providerRequestId,
           providerRequest: request, mainEvent: parent.data() ?? {}});
-        if (classified.kind === "none") throw remainingBalanceDeadlinePassed();
+        if (classified.kind === "none" || classified.kind === "terminal_unsuccessful") throw remainingBalanceDeadlinePassed();
         if (classified.kind !== "existing") throw reconciliationRequired();
       }
     }

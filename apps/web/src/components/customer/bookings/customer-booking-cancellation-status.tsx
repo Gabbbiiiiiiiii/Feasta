@@ -73,7 +73,7 @@ function CustomerBookingCancellationStatus({
     return (
       <section aria-label={`Cancellation and refund status for ${safeProviderName}`} className="rounded-xl border border-border bg-muted/25 p-3.5" role="status">
         <p className="text-sm font-bold">Cancellation and refund status</p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">Loading trusted status…</p>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">Loading status…</p>
       </section>
     );
   }
@@ -99,7 +99,7 @@ function CustomerBookingCancellationStatus({
         <ShieldCheck aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0">
           <p className="text-sm font-bold">No cancellation request</p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">No cancellation or refund workflow is recorded for this Provider service.</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">You have not requested a cancellation for this service.</p>
         </div>
       </section>
     );

@@ -85,8 +85,17 @@ import {
 } from "@/lib/customer/bookings/customer-booking-review";
 
 describe("customer booking dedicated detail page", () => {
+  it("uses neutral payment availability copy in a provider acceptance timeline", () => {
+    const entry = normalizeCustomerBookingTimelineData("accepted", {
+      type: "provider_accepted", createdAt: "2026-10-08T00:00:00Z",
+      description: "Provider accepted your request. Down payment is now available.",
+    });
+    expect(entry?.description).toBe("Provider accepted your request. Payment is now available.");
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.createCheckout.mockReset();
     mocks.openChat.mockResolvedValue({
       chatRoomId: "request-1",
       providerRequestId: "request-1",
@@ -108,6 +117,46 @@ describe("customer booking dedicated detail page", () => {
     });
   });
 
+  it("shows a prospective balance inside deposit checkout before any payment", () => {
+    const result = detailResult();
+    result.details.providerRequests = [providerRequestFixture({
+      amount: 5000, downPaymentAmount: 2500, downPaymentPercentage: 50, remainingBalance: 2500,
+      checkoutOptions: [{choice: "minimum", amount: 2500}, {choice: "full", amount: 5000}],
+      remainingBalanceStatus: "not_due", remainingBalanceDueAt: "2026-10-14T23:21:00.000Z",
+    })];
+    render(<CustomerBookingDetailPage result={result} />);
+    const deposit = screen.getByRole("region", {name: "Pay deposit"});
+    expect(deposit).toHaveTextContent("₱2,500.00 now");
+    expect(deposit).toHaveTextContent("50% of the service price");
+    expect(deposit).toHaveTextContent("Remaining after payment: ₱2,500.00");
+    expect(deposit).toHaveTextContent("Oct 15, 2026");
+    expect(deposit).toHaveTextContent("7:21");
+    expect(screen.getByRole("region", {name: "Pay in full"})).toHaveTextContent("No remaining balance after this payment.");
+    expect(screen.getByText("Minimum payment today").closest("div")).toHaveTextContent("₱2,500.00");
+    expect(screen.queryByLabelText("Remaining balance for Maria's Catering")).not.toBeInTheDocument();
+  });
+
+  it.each(["deposit_settled", "fully_settled"])("shows only an actual outstanding balance after %s", (settlementStatus) => {
+    const result = detailResult();
+    result.details.providerRequests = [providerRequestFixture({
+      status: "confirmed", paymentStatus: "paid", settlementStatus,
+      amount: 5000, downPaymentAmount: 2500, remainingBalance: 2500,
+      outstandingAmountInCentavos: settlementStatus === "deposit_settled" ? 250000 : 0,
+      grossSettledAmountInCentavos: settlementStatus === "deposit_settled" ? 250000 : 500000,
+      checkoutOptions: [], remainingBalanceStatus: settlementStatus === "deposit_settled" ? "not_due" : "paid",
+      remainingBalanceDueAt: "2026-10-14T23:21:00.000Z",
+    })];
+    render(<CustomerBookingDetailPage result={result} />);
+    const balance = screen.queryByLabelText("Remaining balance for Maria's Catering");
+    if (settlementStatus === "deposit_settled") {
+      expect(balance).toHaveTextContent("₱2,500.00");
+      expect(balance).toHaveTextContent("Oct 15, 2026");
+    } else {
+      expect(balance).not.toBeInTheDocument();
+      expect(screen.queryByText("Payment options will appear when they are available.")).not.toBeInTheDocument();
+    }
+  });
+
   it.each(["minimum", "full"] as const)("presents partial upfront choices using option amounts and sends %s", async (choice) => {
     const result = detailResult();
     result.details.providerRequests = [providerRequestFixture({
@@ -116,27 +165,45 @@ describe("customer booking dedicated detail page", () => {
     mocks.createCheckout.mockResolvedValueOnce({paymentId: "payment_test", providerRequestId: "request-1",
       bookingId: "owned-booking-001", checkoutUrl: "https://checkout.paymongo.com/test", created: true});
     render(<CustomerBookingDetailPage result={result} />);
-    expect(screen.getByRole("button", {name: /Pay minimum payment .*26,000/})).toBeVisible();
-    expect(screen.getByRole("button", {name: /Pay full payment .*101,000/})).toBeVisible();
-    expect(screen.queryByRole("button", {name: /Pay remaining balance/})).not.toBeInTheDocument();
-    expect(screen.getByText("Pay the minimum required amount now, or pay this Provider request in full.")).toBeVisible();
-    for (const label of ["Required upfront payment", "Remaining balance", "Upfront rate"]) expect(screen.getByText(label)).toBeVisible();
-    expect(screen.getByText("Each provider request is paid separately. Available payment options are based on the payment terms saved with that request.")).toBeVisible();
+    expect(screen.getByRole("button", {name: /Pay .*26,000/})).toBeVisible();
+    expect(screen.getByRole("button", {name: /Pay full .*101,000/})).toBeVisible();
+    expect(screen.queryByRole("button", {name: /Pay balance/})).not.toBeInTheDocument();
+    expect(screen.getByText("Choose a deposit or pay the entire service price now.")).toBeVisible();
+    expect(screen.getByText("Minimum payment today")).toBeVisible();
+    expect(screen.getByText("Includes the deposit and any services payable upfront.")).toBeVisible();
+    expect(screen.getByText("Original payment terms")).toBeVisible();
+    expect(screen.getByText("View the available payment options for each service below.")).toBeVisible();
     expect(document.body).not.toHaveTextContent(/historical|New bookings use full payment after the provider accepts/);
-    fireEvent.click(screen.getByRole("button", {name: choice === "minimum" ? /Pay minimum payment/ : /Pay full payment/}));
+    fireEvent.click(screen.getByRole("button", {name: choice === "minimum" ? /^Pay deposit/ : /Pay full/}));
     await waitFor(() => expect(mocks.createCheckout).toHaveBeenCalledWith("request-1", choice));
   });
 
-  it("shows only Full Payment with the frozen short-notice explanation", () => {
+  it("shows only full payment with secondary original terms and the saved short-notice explanation", async () => {
     const result = detailResult();
     result.details.providerRequests = [providerRequestFixture({
       checkoutOptions: [{choice: "full", amount: 100000}],
       initialPaymentExplanation: "Full payment is required because fewer than 2 days remained before the event when this booking was accepted.",
+      remainingBalanceStatus: "not_due",
+      remainingBalanceDueAt: "2026-08-08T16:00:00.000Z",
     })];
     render(<CustomerBookingDetailPage result={result} />);
-    expect(screen.getByRole("button", {name: /Pay full payment/})).toBeVisible();
-    expect(screen.queryByRole("button", {name: /Pay minimum payment/})).not.toBeInTheDocument();
-    expect(screen.getByText(/fewer than 2 days remained before the event/)).toBeVisible();
+    expect(screen.getByRole("button", {name: /^Pay ₱/})).toBeVisible();
+    expect(screen.queryByRole("button", {name: /Pay full/})).not.toBeInTheDocument();
+    expect(screen.getByText(/less than 2 days away when this booking was accepted/)).toBeVisible();
+    expect(screen.getAllByRole("button", {name: /^Pay /})).toHaveLength(1);
+    expect(screen.queryByLabelText("Remaining balance for Maria's Catering")).not.toBeInTheDocument();
+    expect(await screen.findByText("You have not requested a cancellation for this service.")).toBeVisible();
+    const due = screen.getByText("Amount due now").closest("div");
+    expect(due).toHaveTextContent("₱100,000.00");
+    expect(screen.queryByText("Required upfront payment")).not.toBeInTheDocument();
+    expect(screen.queryByText("A provider service requires an upfront payment")).not.toBeInTheDocument();
+    const terms = screen.getByText("Original payment terms").closest("details");
+    expect(terms).not.toHaveAttribute("open");
+    fireEvent.click(screen.getByText("Original payment terms"));
+    // The financial snapshot remains available as secondary context.
+    expect(terms).toHaveTextContent("Deposit amount₱25,000.00");
+    expect(document.body).not.toHaveTextContent(/Provider settlement|Customer-safe|trusted payment confirmation|booking payment state|â|Â/u);
+
   });
 
   it("shows only the projected remaining-balance choice after settled minimum payment", async () => {
@@ -152,8 +219,9 @@ describe("customer booking dedicated detail page", () => {
     render(<CustomerBookingDetailPage result={result} />);
     const buttons = screen.getAllByRole("button", {name: /^Pay /});
     expect(buttons).toHaveLength(1);
-    expect(buttons[0]).toHaveTextContent(/Pay remaining balance .*75,000/);
-    expect(screen.getByLabelText("Status: Upfront payment confirmed")).toBeVisible();
+    expect(buttons[0]).toHaveTextContent(/Pay balance .*75,000/);
+    expect(screen.getByText("Remaining balance due").closest("div")).toHaveTextContent("₱75,000.00");
+    expect(screen.getByLabelText("Status: Deposit paid")).toBeVisible();
     expect(screen.queryByLabelText("Status: Full payment confirmed")).not.toBeInTheDocument();
     fireEvent.click(buttons[0]);
     await waitFor(() => expect(mocks.createCheckout).toHaveBeenCalledWith("request-1", "remaining_balance"));
@@ -172,7 +240,7 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.getByRole("heading", {name: "Booking details"})).toBeVisible();
     expect(screen.getByRole("link", {name: "Back to bookings"})).toHaveAttribute("href", "/customer/bookings");
     const currentState = screen.getByRole("heading", {
-      name: "A provider service requires an upfront payment",
+      name: "Payment is required to continue with your booking.",
     }).closest("section");
     expect(currentState).not.toBeNull();
     expect(within(currentState as HTMLElement).getByLabelText("Status: Awaiting payment")).toBeVisible();
@@ -181,21 +249,21 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.getAllByText("Maria's Catering").length).toBeGreaterThan(0);
     expect(screen.getByText("Package: Premium Wedding Package")).toBeVisible();
     expect(screen.getByText("Catering")).toBeVisible();
-    expect(screen.getByText("Accepted — upfront payment required")).toBeVisible();
+    expect(screen.getByText("Accepted - payment required")).toBeVisible();
     expect(screen.getByText(/Response received Aug 1, 2026/u)).toBeVisible();
     expect(screen.getAllByText(/125,000\.00/u).length).toBeGreaterThan(0);
     expect(screen.getAllByLabelText("Status: Awaiting payment").length).toBeGreaterThan(0);
-    expect(screen.getByText("Review each provider request and choose from the payment options currently available for that request.")).toBeVisible();
-    expect(screen.getByRole("heading", {name: "Provider requests"})).toBeVisible();
+    expect(screen.getByText("Review each booked service and choose from its available payment options.")).toBeVisible();
+    expect(screen.getByRole("heading", {name: /Booked services?/})).toBeVisible();
     expect(screen.queryByText("Primary provider")).not.toBeInTheDocument();
 
     const timeline = screen.getByRole("heading", {name: "Booking timeline"}).closest("section");
     expect(timeline).not.toBeNull();
     expect(within(timeline as HTMLElement).getByRole("list", {name: "Booking activity"})).toBeInTheDocument();
 
-    expect(screen.getByRole("button", {name: /pay minimum .*25,000\.00/iu})).toBeVisible();
+    expect(screen.getByRole("button", {name: /pay .*25,000\.00/iu})).toBeVisible();
     expect(screen.getByRole("button", {
-      name: "Review cancellation options for Maria's Catering's service",
+      name: "Cancellation options for Maria's Catering's service",
     })).toBeVisible();
     expect(screen.queryByRole("button", {name: /cancel (?:this )?booking|refund now/iu}))
       .not.toBeInTheDocument();
@@ -232,17 +300,17 @@ describe("customer booking dedicated detail page", () => {
     render(<CustomerBookingDetailPage result={result} />);
 
     expect(screen.getByRole("heading", {
-      name: "A provider service requires full payment",
+      name: "Payment is required to continue with your booking.",
     })).toBeVisible();
-    expect(screen.getByText("Accepted — payment required")).toBeVisible();
+    expect(screen.getByText("Accepted - payment required")).toBeVisible();
     expect(screen.getByLabelText("Status: Full payment required")).toBeVisible();
-    expect(screen.getByText("Full Payment")).toBeVisible();
-    expect(screen.queryByRole("button", {name: /pay minimum/iu})).not.toBeInTheDocument();
+    expect(screen.getAllByText("Full payment required")[0]).toBeVisible();
+    expect(screen.queryByRole("button", {name: /pay full/iu})).not.toBeInTheDocument();
     expect(screen.queryByRole("button", {name: /remaining balance/iu})).not.toBeInTheDocument();
     expect(screen.queryByText("Required down payment")).not.toBeInTheDocument();
     expect(screen.queryByText("Down payment rate")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", {name: /pay full payment .*125,000\.00/iu}));
+    fireEvent.click(screen.getByRole("button", {name: /pay .*125,000\.00/iu}));
 
     expect(mocks.createCheckout).toHaveBeenCalledTimes(1);
     expect(mocks.createCheckout).toHaveBeenCalledWith("request-1", "full");
@@ -255,7 +323,7 @@ describe("customer booking dedicated detail page", () => {
     expect(requestCard).not.toBeNull();
     expect(
       within(requestCard as HTMLElement).getByRole("button", {
-        name: /pay minimum .*25,000\.00/iu,
+        name: /pay .*25,000\.00/iu,
       }),
     ).toBeVisible();
   });
@@ -300,7 +368,7 @@ describe("customer booking dedicated detail page", () => {
 
     render(<CustomerBookingDetailPage result={result} />);
     const selectedTrigger = screen.getByRole("button", {
-      name: "Review cancellation options for Photo Studio's service",
+      name: "Cancellation options for Photo Studio's service",
     });
     const cateringCard = screen.getByRole("heading", {name: "Maria's Catering"})
       .closest("article");
@@ -511,7 +579,7 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.getByRole("heading", {
       name: "Some provider services are confirmed",
     })).toBeVisible();
-    expect(screen.getByLabelText("Status: Upfront payment required")).toBeVisible();
+    expect(screen.getByLabelText("Status: Initial payment required")).toBeVisible();
   });
 
   it("presents a zero-down confirmed request without an unpaid state", () => {
@@ -559,15 +627,17 @@ describe("customer booking dedicated detail page", () => {
       status: "confirmed",
       paymentStatus: "paid",
       checkoutOptions: [{choice: "remaining_balance", amount: 75_000}],
+      settlementStatus: "deposit_settled",
+      outstandingAmountInCentavos: 7_500_000,
       paymentId: "internal-payment-id-must-not-render",
       paidAt: "2026-08-03T02:30:00.000Z",
     })];
 
     const {container} = render(<CustomerBookingDetailPage result={result} />);
 
-    expect(screen.getByText(/pay the remaining balance securely through FEASTA when eligible/u)).toBeVisible();
-    expect(screen.getByRole("button", {name: /pay remaining balance/iu})).toBeVisible();
-    expect(screen.getByRole("link", {name: "View Payments"})).toHaveAttribute(
+    expect(screen.getByText("Payment options will appear when they are available.")).toBeVisible();
+    expect(screen.getByRole("button", {name: /pay balance/iu})).toBeVisible();
+    expect(screen.getByRole("link", {name: "View payments"})).toHaveAttribute(
       "href",
       "/customer/payments",
     );
@@ -617,7 +687,7 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.getByRole("button", {
       name: "Leave a review for Maria's Catering",
     })).toBeVisible();
-    expect(screen.getByRole("link", {name: "View Payments"})).toBeVisible();
+    expect(screen.getByRole("link", {name: "View payments"})).toBeVisible();
     expect(screen.getByRole("link", {
       name: "View Maria's Catering provider profile",
     })).toBeVisible();
@@ -902,7 +972,7 @@ describe("customer booking dedicated detail page", () => {
     mocks.createCheckout.mockReturnValueOnce(pending.promise);
     render(<CustomerBookingDetailPage result={detailResult()} />);
 
-    const button = screen.getByRole("button", {name: /pay minimum .*25,000\.00/iu});
+    const button = screen.getByRole("button", {name: /pay .*25,000\.00/iu});
     fireEvent.click(button);
     fireEvent.click(button);
 
@@ -922,12 +992,11 @@ describe("customer booking dedicated detail page", () => {
     );
     render(<CustomerBookingDetailPage result={detailResult()} />);
 
-    fireEvent.click(screen.getByRole("button", {name: /pay minimum .*25,000\.00/iu}));
-
+    fireEvent.click(screen.getByRole("button", {name: /pay .*25,000\.00/iu}));
     await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith(
       "This payment is no longer available. Refresh the booking to see its latest status.",
     ));
-    expect(screen.getByRole("button", {name: /pay minimum .*25,000\.00/iu})).toBeEnabled();
+    expect(screen.getByRole("button", {name: /pay .*25,000\.00/iu})).toBeEnabled();
     expect(mocks.redirectCheckout).not.toHaveBeenCalled();
   });
 

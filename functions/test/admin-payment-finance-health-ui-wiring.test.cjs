@@ -23,6 +23,7 @@ const service = read(
 const client = read(
   "apps/web/src/components/admin/payments/payment-monitoring-client.tsx",
 );
+const attention = read("apps/web/src/components/admin/payments/payment-finance-attention.tsx");
 
 test("P11 Payment Monitoring exposes finance-health statistics", () => {
   for (const field of [
@@ -44,18 +45,18 @@ test("P11 finance-health counts use bounded Firestore aggregate queries", () => 
 
 test("P11 Payment Monitoring clearly separates failed Customer payments and Provider payouts", () => {
   for (const label of [
-    "Currently paid amount",
+    "Paid amount",
     "Failed payments",
-    "Failed provider payouts",
-    "Payments to review",
     "Refunded amount",
   ]) {
     assert.match(client, new RegExp(label, "u"));
   }
+  assert.match(attention, /Failed provider payouts/u);
+  assert.match(attention, /Payouts needing review/u);
 });
 
 test("P11 Payment Monitoring exposes the existing issue filter", () => {
-  assert.match(client, /label="Record review"/u);
+  assert.match(client, /label="Review status"/u);
   assert.match(client, /value="with_issues"/u);
   assert.match(client, /value="without_issues"/u);
   assert.match(client, /filters\.issue/u);

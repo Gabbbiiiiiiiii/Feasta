@@ -25,6 +25,7 @@ export type BookingMenuSelectionInput = {
 };
 
 type SubmitBookingRequestBase = {
+  agreementAcknowledgements?: readonly {providerId: string; agreementKey: string}[];
   clientRequestId: string;
   providerId: string;
 
@@ -193,6 +194,10 @@ function normalizeBookingSubmissionError(
     "functions/",
     "",
   );
+  const agreementReason = (error as FirebaseError & {details?: {reason?: unknown}}).details?.reason;
+  if (agreementReason === "BOOKING_PAYMENT_AGREEMENT_CHANGED" || agreementReason === "BOOKING_PAYMENT_AGREEMENT_REQUIRED") {
+    return Object.assign(new Error("Booking terms changed. Review and acknowledge the current agreement again."), {reason: agreementReason});
+  }
 
   const refundPolicyReason = bookingRefundPolicyReason(error);
   if (refundPolicyReason) {

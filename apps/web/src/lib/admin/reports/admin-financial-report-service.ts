@@ -156,6 +156,8 @@ async function queryAdminFinancialReport(
         .select(
           "schemaVersion",
           "entryType",
+          "ordinaryCommissionAdjustmentInCentavos", "feastaCancellationFeeEarnedInCentavos", "providerEconomicEntitlementInCentavos",
+          "paymentDefaultAllocation", "customerRefundCompletedInCentavos", "commissionEarnedAfterInCentavos",
           "ledgerEntryId",
           "paymentId",
           "providerRequestId",
@@ -489,10 +491,23 @@ export function normalizeLedgerRow(
     return null;
   }
 
-  if (
-    data.entryType ===
-      "payment_settled"
-  ) {
+  if (data.entryType === "payment_default_allocation_completed") {
+    const adjustment = money(data.ordinaryCommissionAdjustmentInCentavos);
+    const fee = money(data.feastaCancellationFeeEarnedInCentavos);
+    const comp = money(data.providerEconomicEntitlementInCentavos);
+    const allocation = data.paymentDefaultAllocation;
+    if (adjustment === null || fee === null || comp === null || data.commissionEarnedAfterInCentavos !== 0 ||
+      !allocation || allocation.schemaVersion !== 1 || allocation.feastaCancellationFeeAmountInCentavos !== fee ||
+      allocation.providerReservationCompAmountInCentavos !== comp ||
+      allocation.customerDefaultRefundAmountInCentavos !== data.customerRefundCompletedInCentavos) return null;
+    return {ledgerEntryId, entryType: "payment_default_allocation_completed", paymentId, providerRequestId, mainEventId, providerId,
+      currency: "PHP", grossAmountInCentavos: 0, refundAmountInCentavos: 0,
+      commissionAccruedInCentavos: 0, commissionReversedInCentavos: adjustment,
+      feastaCancellationFeeEarnedInCentavos: fee, providerReservationCompInCentavos: comp,
+      providerVatAccruedInCentavos: 0, providerVatReversedInCentavos: 0, platformVatAccruedInCentavos: 0,
+      platformVatReversedInCentavos: 0, withholdingAccruedInCentavos: 0, withholdingReversedInCentavos: 0, createdAt};
+  }
+  if (data.entryType === "payment_settled") {
     const gross =
       positiveMoney(
         data.grossAmountInCentavos,

@@ -169,7 +169,9 @@ export function createAdminReportCsv(
       ["Customer payments after refunds (PHP)", centavos(financial.ledger.customerCashMovementInCentavos)],
       ["FEASTA fees before refunds (PHP)", centavos(financial.ledger.commissionAccruedInCentavos)],
       ["Refunded FEASTA fees (PHP)", centavos(financial.ledger.commissionReversedInCentavos)],
-      ["FEASTA Revenue (PHP)", centavos(financial.ledger.commissionNetMovementInCentavos)],
+      ["FEASTA Revenue (PHP)", centavos(financial.ledger.feastaRevenueInCentavos ?? financial.ledger.commissionNetMovementInCentavos)],
+      ["FEASTA cancellation/platform fee (PHP)", centavos(financial.ledger.feastaCancellationFeeInCentavos ?? 0)],
+      ["Provider reservation compensation (PHP)", centavos(financial.ledger.providerReservationCompInCentavos ?? 0)],
       ["Provider VAT accrued (PHP)", centavos(financial.ledger.providerVatAccruedInCentavos)],
       ["Provider VAT reversed (PHP)", centavos(financial.ledger.providerVatReversedInCentavos)],
       ["FEASTA VAT accrued (PHP)", centavos(financial.ledger.platformVatAccruedInCentavos)],
@@ -206,6 +208,7 @@ export function createAdminReportCsv(
       "Provider VAT reversed (PHP)",
       "FEASTA VAT accrued (PHP)",
       "FEASTA VAT reversed (PHP)",
+      "FEASTA cancellation/platform fee (PHP)", "Provider reservation compensation (PHP)",
     ]);
 
     for (
@@ -226,6 +229,8 @@ export function createAdminReportCsv(
         centavos(row.providerVatReversedInCentavos),
         centavos(row.platformVatAccruedInCentavos),
         centavos(row.platformVatReversedInCentavos),
+        centavos(row.feastaCancellationFeeEarnedInCentavos ?? 0),
+        centavos(row.providerReservationCompInCentavos ?? 0),
       ]);
     }
 

@@ -56,7 +56,7 @@ import type {
   AdminBooking,
   AdminBookingDateFilter,
   AdminBookingFilters,
-  AdminBookingOverallPaymentStatus,
+  AdminBookingPaymentFilter,
   AdminBookingPage,
   AdminBookingStatusFilter,
 } from "@/lib/admin/bookings/admin-booking-types";
@@ -558,14 +558,14 @@ function BookingMonitoringClient({
                   paymentStatus:
                     value as
                       | "all"
-                      | AdminBookingOverallPaymentStatus,
+                      | AdminBookingPaymentFilter,
                 })
               }
             >
               <option value="all">
                 All payment statuses
               </option>
-              {Object.entries(adminBookingPaymentLabels).filter(([value]) => value !== "partially_refunded").map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              {Object.entries(adminBookingPaymentLabels).filter(([value]) => !["partially_refunded", "unavailable"].includes(value)).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </FilterSelect>
 
             <FilterSelect

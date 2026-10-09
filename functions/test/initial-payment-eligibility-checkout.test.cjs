@@ -34,8 +34,9 @@ const {evaluateInitialPaymentEligibility} = require("../lib/payments/initial-pay
 
 function seed(acceptanceTime, legacy = false) {
   writes = []; records = new Map();
-  const frozen = buildBookingPaymentPolicySnapshot({platformSettings: null,
-    serviceCategoryCode: "catering_service", serviceCategory: {}, packageId: "package_test", packageData: {}});
+  const frozen = {...buildBookingPaymentPolicySnapshot({platformSettings: null,
+    serviceCategoryCode: "catering_service", serviceCategory: {}, packageId: "package_test", packageData: {}}),
+    depositMinimumNoticeHours: 48}; // Historical v1 snapshot, independent of new-booking defaults.
   const terms = {schemaVersion: 2, source: "canonical_package", paymentPolicy: "deposit_then_balance",
     depositRateBps: 3000, balanceDueDaysBeforeEvent: null, balanceDueHoursBeforeEvent: 24, usesLegacyPaymentTerms: false};
   const eligibility = evaluateInitialPaymentEligibility({eventDate: new Date("2026-10-25T00:00:00+08:00"),

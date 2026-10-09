@@ -45,8 +45,8 @@ export function bookingConfirmationPresentation(
   ).length;
   const allConfirmed = statuses.length > 0 &&
     statuses.every((status) => status === "confirmed");
-  const hasWaitingPayment = statuses.some((status) =>
-    status === "waiting_for_down_payment",
+  const hasWaitingPayment = providerRequests.some((request) =>
+    request.status === "waiting_for_down_payment" || request.checkoutOptions.length > 0,
   );
   const hasAwaitingProvider = statuses.some((status) =>
     status === "pending" || status === "accepted",
@@ -99,7 +99,7 @@ export function bookingConfirmationPresentation(
       eyebrow: "Verification in progress",
       title: "A provider payment is still processing",
       description:
-        "FEASTA is waiting for authoritative payment confirmation. The affected provider service is not confirmed yet.",
+        "FEASTA is waiting for payment confirmation. The affected provider service is not confirmed yet.",
       tone: "info",
     };
   }
@@ -127,31 +127,10 @@ export function bookingConfirmationPresentation(
   }
 
   if (hasWaitingPayment || booking.status === "waiting_for_down_payment") {
-    const partialUpfront = providerRequests.some((request) =>
-      request.status === "waiting_for_down_payment" &&
-      hasPartialUpfrontPayment({
-        amount: request.amount,
-        upfrontAmount: request.downPaymentAmount,
-      }),
-    ) || (
-      providerRequests.length === 0 &&
-      hasPartialUpfrontPayment({
-        amount: booking.estimatedEventTotal,
-        upfrontAmount: booking.downPaymentAmount,
-      })
-    );
-
-    return partialUpfront ? {
+    return {
       eyebrow: "Payment needed",
-      title: "A provider service requires an upfront payment",
-      description:
-        "Review each provider request and choose from the payment options currently available for that request.",
-      tone: "warning",
-    } : {
-      eyebrow: "Payment needed",
-      title: "A provider service requires full payment",
-      description:
-        "Review each provider request and pay the full amount shown for that request.",
+      title: "Payment is required to continue with your booking.",
+      description: "Review each booked service and choose from its available payment options.",
       tone: "warning",
     };
   }
@@ -213,7 +192,7 @@ export function providerPaymentPresentation(
       label: "Payment processing",
       status: "processing",
       description:
-        "FEASTA is waiting for authoritative payment confirmation before confirming this provider service.",
+        "FEASTA is waiting for payment confirmation before confirming this provider service.",
       showPaidAt: false,
       showRefundedAt: false,
     };
@@ -233,13 +212,13 @@ export function providerPaymentPresentation(
     };
   }
 
-  if (request.paymentStatus === "paid") {
+  if (request.paymentStatus === "paid" || request.paymentStatus === "partially_paid") {
     return {
-      label: partialUpfront ? "Upfront payment confirmed" : "Full payment confirmed",
+      label: request.settlementStatus === "deposit_settled" ? "Deposit paid" : request.settlementStatus === "fully_settled" ? "Full payment confirmed" : partialUpfront ? "Upfront payment confirmed" : "Full payment confirmed",
       status: "paid",
       description: partialUpfront
-        ? "FEASTA has authoritative confirmation of this provider upfront payment."
-        : "FEASTA has authoritative confirmation of this full payment.",
+        ? "Your initial payment is confirmed."
+        : "Your full payment is confirmed.",
       showPaidAt: true,
       showRefundedAt: false,
     };
@@ -269,18 +248,18 @@ export function providerPaymentPresentation(
   }
 
   if (request.status === "waiting_for_down_payment") {
-    return partialUpfront ? {
-      label: "Upfront payment required",
+    return request.checkoutOptions.some((option) => option.choice === "minimum") ? {
+      label: "Initial payment required",
       status: "waiting_for_down_payment",
       description:
-        "Pay the minimum required amount now, or pay this Provider request in full using the available secure actions.",
+        "Choose from the available payment options.",
       showPaidAt: false,
       showRefundedAt: false,
     } : {
       label: "Full payment required",
       status: "waiting_for_down_payment",
       description:
-        "Complete the full payment using the secure action for this provider request.",
+        "The full amount is required to continue.",
       showPaidAt: false,
       showRefundedAt: false,
     };

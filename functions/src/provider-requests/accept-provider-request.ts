@@ -1,6 +1,7 @@
 import {loadBookingPaymentPolicySnapshot} from "../bookings/load-booking-payment-policy.js";
+import {bookingPolicyTimingV3, frozenBookingPolicyTimingV3, balanceStatusV3} from "../bookings/booking-policy-v3.js";
 import {requireBookingPaymentPolicySnapshot} from "../bookings/booking-payment-eligibility-policy.js";
-import {evaluateInitialPaymentEligibility} from "../payments/initial-payment-eligibility.js";
+import {evaluateInitialPaymentEligibility, enforceInitialPaymentEligibility} from "../payments/initial-payment-eligibility.js";
 import {BALANCE_DUE_HOURS_BEFORE_EVENT, canonicalBalanceTiming, canonicalBalanceSchedule, scheduledEventStart} from "../payments/canonical-balance-timing.js";
 import {
   Timestamp,
@@ -420,8 +421,28 @@ export const acceptProviderRequest = onCall(
             bookingPaymentPolicySnapshot = await loadBookingPaymentPolicySnapshot({transaction, packageId, packageData,
               platformSettings: platformSettingsSnapshot.data() ?? null});
           }
-          const initialPaymentEligibility = packagePaymentTerms ||
+          const submissionEligibilityFrozen = authorized.requestData.initialPaymentEligibilitySchemaVersion === 2;
+          const timingV3 = authorized.requestData.remainingBalanceTimingSchemaVersion === 3
+            ? frozenBookingPolicyTimingV3(authorized.requestData) : null;
+          if (submissionEligibilityFrozen) {
+            enforceInitialPaymentEligibility(authorized.requestData, "full");
+            const timing = bookingPolicyTimingV3(scheduledEventStart(
+              acceptanceSnapshot.eventDate.toDate(), acceptanceSnapshot.eventTime));
+            if (acceptanceTime >= timing.hardPaymentDeadlineAt &&
+              authorized.requestData.settlementStatus !== "fully_settled") {
+              throw new HttpsError("failed-precondition",
+                "This request can no longer be accepted because its payment deadline has passed.",
+                {reason: "booking_acceptance_payment_deadline_passed"});
+            }
+          }
+          if (timingV3 && acceptanceTime >= timingV3.hardPaymentDeadlineAt &&
+            authorized.requestData.settlementStatus !== "fully_settled") {
+            throw new HttpsError("failed-precondition", "This request's payment deadline has passed.",
+              {reason: "booking_acceptance_payment_deadline_passed"});
+          }
+          const initialPaymentEligibility = !submissionEligibilityFrozen && (packagePaymentTerms ||
             financialSnapshot.requiredUpfrontAmountInCentavos === financialSnapshot.grossAmountInCentavos
+          )
             ? evaluateInitialPaymentEligibility({
                 eventDate: acceptanceSnapshot.eventDate.toDate(), eventTime: acceptanceSnapshot.eventTime,
                 acceptanceTime, packagePaymentTerms, bookingPaymentPolicySnapshot,
@@ -448,7 +469,7 @@ export const acceptProviderRequest = onCall(
            * explicit legacy records instead of receiving invented
            * due dates.
            */
-          const canonicalTiming = packagePaymentTerms?.schemaVersion === 2 &&
+          const canonicalTiming = !timingV3 && packagePaymentTerms?.schemaVersion === 2 &&
             packagePaymentTerms.paymentPolicy === "deposit_then_balance" && financialSnapshot.remainingBalanceInCentavos > 0
             ? canonicalBalanceTiming(acceptanceSnapshot.eventDate.toDate(), acceptanceSnapshot.eventTime) : null;
           const remainingBalanceTiming = canonicalTiming
@@ -547,18 +568,24 @@ export const acceptProviderRequest = onCall(
           // Reuse the existing payment expiry field, starting only when the
           // entire lineup is ready and never extending beyond event start.
           const eventStart = scheduledEventStart(acceptanceSnapshot.eventDate.toDate(), acceptanceSnapshot.eventTime);
-          const paymentDeadline = Timestamp.fromMillis(Math.min(
+          const legacyPaymentDeadline = Timestamp.fromMillis(Math.min(
             acceptanceTime.getTime() + PROVIDER_PAYMENT_HOLD_WINDOW_MS,
             eventStart.getTime(),
           ));
+          const paymentDeadline = timingV3 ? Timestamp.fromMillis(Math.min(legacyPaymentDeadline.toMillis(),
+            timingV3.hardPaymentDeadlineAt.getTime())) : legacyPaymentDeadline;
 
           for (const override of overrides) {
             if (override.providerRequestId === providerRequestId) continue;
+            const related = allRequestsSnapshot.docs.find((document) => document.id === override.providerRequestId)?.data();
+            const relatedDeadline = related?.remainingBalanceTimingSchemaVersion === 3
+              ? Timestamp.fromMillis(Math.min(legacyPaymentDeadline.toMillis(), frozenBookingPolicyTimingV3(related).hardPaymentDeadlineAt.getTime()))
+              : legacyPaymentDeadline;
             transaction.update(
               db.collection("providerRequests").doc(override.providerRequestId),
               {
                 status: override.status,
-                expiresAt: override.status === "waiting_for_down_payment" ? paymentDeadline : null,
+                expiresAt: override.status === "waiting_for_down_payment" ? relatedDeadline : null,
                 confirmedAt: override.status === "confirmed" ? serverTimestamp() : null,
                 updatedAt: serverTimestamp(),
               },
@@ -640,6 +667,23 @@ export const acceptProviderRequest = onCall(
                         .graceEndsAt,
                     )
                   : null,
+
+              // V3 timestamps were frozen at submission. Never reconstruct them
+              // from a later acceptance clock or overwrite them with v2/null.
+              ...(timingV3 ? {
+                remainingBalanceTimingSchemaVersion: 3, balanceDueHoursBeforeEvent: 48,
+                eventStartAt: authorized.requestData.eventStartAt,
+                remainingBalanceDueAt: authorized.requestData.remainingBalanceDueAt,
+                hardPaymentDeadlineAt: authorized.requestData.hardPaymentDeadlineAt,
+                preparationStartsAt: authorized.requestData.preparationStartsAt,
+                depositEligibilityCutoffAt: authorized.requestData.depositEligibilityCutoffAt,
+                remainingBalanceGraceEndsAt: authorized.requestData.hardPaymentDeadlineAt,
+                remainingBalanceNextCheckAt: Timestamp.fromDate(timingV3.remainingBalanceDueAt),
+                lifecycleNextTransitionAt: Timestamp.fromDate(timingV3.preparationStartsAt),
+                remainingBalanceStatus: financialSnapshot.remainingBalanceInCentavos > 0
+                  ? balanceStatusV3({...timingV3, now: acceptanceTime,
+                      outstandingAmountInCentavos: financialSnapshot.remainingBalanceInCentavos}) : "not_applicable",
+              } : {}),
 
               expiresAt:
                 nextStatus ===

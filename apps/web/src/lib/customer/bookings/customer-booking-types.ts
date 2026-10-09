@@ -37,6 +37,7 @@ export type CustomerRemainingBalanceStatus =
   | "paid"
   | "cancelled";
 export type CustomerBookingProviderRequest = {
+  bookingPolicy?: import("@/lib/payments/booking-policy-v3-presentation").BookingPolicyPresentation | null;
   checkoutOptions: CustomerBookingPaymentOption[];
   initialPaymentExplanation?: string | null;
   balanceEnforcement?: {label: string; explanation: string | null} | null;

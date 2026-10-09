@@ -1,4 +1,5 @@
 import {TriangleAlert} from "lucide-react";
+import {BookingPolicySummary} from "@/components/shared/booking-policy-summary";
 import type {ReactNode} from "react";
 
 import {
@@ -19,6 +20,7 @@ import type {
   CustomerBookingProviderRequest,
   CustomerBookingService,
 } from "@/lib/customer/bookings/customer-booking-types";
+import {customerBookingPaymentPresentation, formatCustomerBalanceDeadline} from "@/lib/customer/bookings/customer-booking-payment-presentation";
 import {hasPartialUpfrontPayment} from "@/lib/payments/customer-payment-presentation";
 import {cn} from "@/lib/utils";
 
@@ -55,6 +57,7 @@ function CustomerBookingProviderRequestCard({
       null;
   const responseTimestamp = providerRequestResponseTimestamp(request);
   const paymentPresentation = providerPaymentPresentation(request);
+  const checkoutPresentation = customerBookingPaymentPresentation(request);
   const partialUpfront = hasPartialUpfrontPayment({
     amount: request.amount,
     upfrontAmount: request.downPaymentAmount,
@@ -65,7 +68,8 @@ function CustomerBookingProviderRequestCard({
       "grid min-w-0 gap-4 rounded-card border border-border bg-card p-4 shadow-none",
       !compact && "sm:p-5",
     )}>
-      {request.balanceEnforcement ? <div role="status" className="grid gap-1 text-sm">
+      <BookingPolicySummary policy={request.bookingPolicy} />
+      {!request.bookingPolicy && request.balanceEnforcement ? <div role="status" className="grid gap-1 text-sm">
         <p className="font-bold">{request.balanceEnforcement.label}</p>
         {request.balanceEnforcement.explanation ? <p>{request.balanceEnforcement.explanation}</p> : null}
       </div> : null}
@@ -96,7 +100,7 @@ function CustomerBookingProviderRequestCard({
         outcomeClassName(request.status),
       )}>
         <p className="text-sm font-bold">
-          {providerRequestOutcomeLabel(request)}
+          {request.status === "waiting_for_down_payment" ? "Accepted - payment required" : providerRequestOutcomeLabel(request)}
         </p>
         {request.status === "completed" && request.completedAt ? (
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -109,23 +113,32 @@ function CustomerBookingProviderRequestCard({
         ) : null}
       </div>
 
-      <dl className={cn(
-        "grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border",
-        !compact && "xl:grid-cols-4",
-      )}>
-        <FinancialMetric label="Service amount" value={formatCurrency(request.amount)} />
-        {partialUpfront ? <>
-          <FinancialMetric label="Required upfront payment" value={formatCurrency(request.downPaymentAmount)} />
-          <FinancialMetric label="Remaining balance" value={formatCurrency(request.remainingBalance)} />
-          <FinancialMetric label="Upfront rate" value={formatPercentage(request.downPaymentPercentage)} />
-        </> : (
-          <FinancialMetric label="Full payment" value={formatCurrency(request.downPaymentAmount)} />
-        )}
+      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
+        <FinancialMetric label="Total service price" value={formatCurrency(request.amount)} />
+        {checkoutPresentation.currentAmount !== null ? <FinancialMetric label={checkoutPresentation.dueLabel} value={formatCurrency(checkoutPresentation.currentAmount)} /> : null}
       </dl>
-      {partialUpfront && request.remainingBalanceStatus && request.remainingBalanceStatus !== "not_applicable" ? (
-        <RemainingBalanceLifecycle
-          request={request}
-        />
+      {paymentAction}
+      {checkoutPresentation.showRemainingBalance ? (
+        <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
+          <FinancialMetric label="Deposit paid" value={formatCurrency((request.grossSettledAmountInCentavos ?? 0) / 100)} />
+          <FinancialMetric label="Remaining balance" value={formatCurrency((request.outstandingAmountInCentavos ?? 0) / 100)} />
+          {request.remainingBalanceDueAt ? <FinancialMetric label="Balance due" value={formatCustomerBalanceDeadline(request.remainingBalanceDueAt)} /> : null}
+        </dl>
+      ) : null}
+      {partialUpfront ? (
+        <details className="rounded-xl border border-border p-3 text-sm text-muted-foreground">
+          <summary className="cursor-pointer font-semibold">Original payment terms</summary>
+          <dl className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
+            <FinancialMetric label="Payment terms" value={partialUpfront ? "Deposit + remaining balance" : "Full payment"} />
+            <FinancialMetric label="Deposit amount" value={formatCurrency(request.downPaymentAmount)} />
+            <FinancialMetric label="Remaining amount" value={formatCurrency(request.remainingBalance)} />
+            <FinancialMetric label="Deposit rate" value={formatPercentage(request.downPaymentPercentage)} />
+            {request.remainingBalanceDueAt && partialUpfront ? <FinancialMetric label="Balance deadline" value={formatCustomerBalanceDeadline(request.remainingBalanceDueAt)} /> : null}
+          </dl>
+        </details>
+      ) : null}
+      {checkoutPresentation.showRemainingBalance && request.remainingBalanceStatus && request.remainingBalanceStatus !== "not_applicable" ? (
+        <RemainingBalanceLifecycle request={request} />
       ) : null}
 
       {durableConfirmation ? (
@@ -135,7 +148,7 @@ function CustomerBookingProviderRequestCard({
         >
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
-              <h4 className="text-sm font-black">Provider payment</h4>
+              <h4 className="text-sm font-black">Payment</h4>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
                 {paymentPresentation.description}
               </p>
@@ -155,15 +168,14 @@ function CustomerBookingProviderRequestCard({
             <PaymentDate label="Refunded" value={request.refundedAt} />
           ) : null}
 
-          {partialUpfront && request.remainingBalance > 0 ? (
+          {checkoutPresentation.showRemainingBalance ? (
             <p className="border-t border-border pt-3 text-xs leading-5 text-muted-foreground">
-              You can pay the remaining balance securely through FEASTA when eligible.
+              Payment options will appear when they are available.
             </p>
           ) : null}
         </section>
       ) : null}
 
-      {paymentAction}
       {messageAction || providerAction ? (
         <div className="grid gap-2 sm:grid-cols-2">
           {messageAction}
@@ -221,15 +233,6 @@ function CustomerBookingProviderRequestCard({
   );
 }
 
-const balanceDateFormatter =
-  new Intl.DateTimeFormat(
-    "en-PH",
-    {
-      dateStyle: "medium",
-      timeZone: "Asia/Manila",
-    },
-  );
-
 function RemainingBalanceLifecycle({
   request,
 }: {
@@ -265,9 +268,6 @@ function RemainingBalanceLifecycle({
             Remaining balance
           </h4>
 
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            FEASTA tracks this balance separately from Provider settlement.
-          </p>
         </div>
 
         <span className="inline-flex shrink-0 rounded-full border border-border bg-card px-2.5 py-1 text-xs font-bold">
@@ -306,8 +306,8 @@ function RemainingBalanceLifecycle({
 
         {request.remainingBalanceDueAt ? (
           <FinancialMetric
-            label="Balance due"
-            value={formatBalanceDate(
+            label="Due"
+            value={formatCustomerBalanceDeadline(
               request.remainingBalanceDueAt,
             )}
           />
@@ -320,7 +320,7 @@ function RemainingBalanceLifecycle({
         ) ? (
           <FinancialMetric
             label="Overdue from"
-            value={formatBalanceDate(
+            value={formatCustomerBalanceDeadline(
               request.remainingBalanceGraceEndsAt,
             )}
           />
@@ -328,8 +328,7 @@ function RemainingBalanceLifecycle({
       </dl>
 
       <p className="text-xs leading-5 text-muted-foreground">
-        Secure checkout availability is controlled separately by the
-        booking payment state. An overdue balance may still be payable.
+        Payment options will appear when they are available.
       </p>
     </section>
   );
@@ -371,20 +370,6 @@ function remainingBalanceStatusLabel(
   }
 }
 
-function formatBalanceDate(
-  value: string,
-): string {
-  const date =
-    new Date(value);
-
-  return Number.isNaN(
-    date.getTime(),
-  )
-    ? "Date unavailable"
-    : balanceDateFormatter.format(
-        date,
-      );
-}
 function FinancialMetric({label, value}: {label: string; value: string}) {
   return (
     <div className="min-w-0 bg-card p-3">

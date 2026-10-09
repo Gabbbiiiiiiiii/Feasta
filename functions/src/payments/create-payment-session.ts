@@ -1,7 +1,7 @@
 import {enforceInitialPaymentEligibility} from "./initial-payment-eligibility.js";
 import {readBalanceDeadlineAttempt} from "./remaining-balance-enforcement-reader.js";
 import {remainingBalanceDeadlinePassed} from "./remaining-balance-enforcement-domain.js";
-import {frozenCanonicalBalanceTiming} from "./canonical-balance-timing.js";
+import {remainingBalanceHardDeadline} from "./canonical-balance-timing.js";
 import {
   HttpsError,
   onCall,
@@ -548,11 +548,12 @@ export async function createPaymentSessionForCustomer(
 
       // Check recovery and new reservations. A logical pending payment alone
       // cannot bypass the deadline while the hourly worker has not run.
-      if (paymentChoice === "remaining_balance" && providerRequest.remainingBalanceTimingSchemaVersion === 2 &&
-        new Date(Date.now()) >= frozenCanonicalBalanceTiming(providerRequest).dueAt) {
+      if (paymentChoice === "remaining_balance" &&
+        [2, 3].includes(Number(providerRequest.remainingBalanceTimingSchemaVersion)) &&
+        new Date(Date.now()) >= remainingBalanceHardDeadline(providerRequest)) {
         const attempt = await readBalanceDeadlineAttempt({transaction, providerRequestId,
           providerRequest, mainEvent: booking});
-        if (attempt.kind === "none") throw remainingBalanceDeadlinePassed();
+        if (attempt.kind === "none" || attempt.kind === "terminal_unsuccessful") throw remainingBalanceDeadlinePassed();
         if (attempt.kind !== "existing") throw new HttpsError("failed-precondition",
           "Payment attempt requires reconciliation.", {reason: "CHECKOUT_RECONCILIATION_REQUIRED"});
       }
@@ -931,12 +932,12 @@ export async function createPaymentSessionForCustomer(
       currency: PAYMENT_CURRENCY,
       description:
         paymentChoice === "full"
-          ? "FEASTA provider full payment"
+          ? "FEASTA Booking Payment"
           : paymentChoice === "remaining_balance"
-            ? "FEASTA provider remaining balance"
-            : "FEASTA provider minimum payment",
-      successUrl: input.successUrl,
-      cancelUrl: input.cancelUrl,
+            ? "FEASTA Remaining Balance"
+            : "FEASTA Booking Deposit",
+      successUrl: correlatedReturnUrl(input.successUrl, paymentId),
+      cancelUrl: correlatedReturnUrl(input.cancelUrl, paymentId),
     }, createCheckout);
   } catch (error) {
     if (error instanceof HttpsError && error.code === "failed-precondition") throw error;
@@ -1024,8 +1025,8 @@ function validateRemainingBalanceTimingSnapshot(
   const request =
     input.providerRequest;
 
-  if (request.remainingBalanceTimingSchemaVersion === 2) {
-    try { frozenCanonicalBalanceTiming(request); } catch {
+  if (request.remainingBalanceTimingSchemaVersion === 2 || request.remainingBalanceTimingSchemaVersion === 3) {
+    try { remainingBalanceHardDeadline(request); } catch {
       throw new HttpsError("failed-precondition", "The remaining-balance schedule is invalid.");
     }
     // Early payment is deliberately allowed for the exact frozen v2 deadline.
@@ -1640,7 +1641,15 @@ async function recordCheckoutFailure(
   ).catch(() => null);
 }
 
-function trustedRedirectUrl(
+export function correlatedReturnUrl(base: string, paymentId: string): string {
+  const url = new URL(base);
+  url.searchParams.set("ref", paymentId);
+  url.searchParams.delete("providerRequestId");
+  url.searchParams.delete("bookingId");
+  return url.toString();
+}
+
+export function trustedRedirectUrl(
   name:
     | "PAYMENT_SUCCESS_URL"
     | "PAYMENT_CANCEL_URL",
@@ -1658,13 +1667,15 @@ function trustedRedirectUrl(
   const url = new URL(value);
 
   if (
-    url.protocol !== "https:" &&
-    process.env.FUNCTIONS_EMULATOR !==
-      "true"
+    url.username || url.password ||
+    !(url.origin === "https://feasta-web.vercel.app" ||
+      (process.env.FUNCTIONS_EMULATOR === "true" &&
+        ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) &&
+        ["http:", "https:"].includes(url.protocol)))
   ) {
     throw new HttpsError(
       "failed-precondition",
-      `${name} must use HTTPS.`,
+      `${name} must use the trusted FEASTA origin.`,
     );
   }
 

@@ -337,6 +337,7 @@ function ProviderRequestCard({
 }) {
   return (
     <article className="grid min-w-0 gap-3 rounded-card border border-border p-4">
+      <BookingPolicySummary policy={request.bookingPolicy} audience="admin" />
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary-tint text-primary-strong">
@@ -348,7 +349,7 @@ function ProviderRequestCard({
 
           <div className="min-w-0">
             <h3 className="truncate font-bold">
-              {request.providerName}
+            {request.providerName}
             </h3>
 
             <p className="mt-1 text-sm capitalize text-muted-foreground">
@@ -413,7 +414,7 @@ function ProviderRequestCard({
               />
             ) : (
               <span className="font-semibold">
-                Unpaid
+                Unavailable
               </span>
             )}
           </dd>
@@ -621,3 +622,4 @@ export {
   BookingDetailsDrawer,
   type BookingDetailsDrawerProps,
 };
+import {BookingPolicySummary} from "@/components/shared/booking-policy-summary";

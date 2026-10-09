@@ -433,6 +433,31 @@ export function CustomerEventListReview() {
     isCompleteEventSchedule(
       schedule,
     );
+  const [bookingAgreements, setBookingAgreements] = useState<BookingAgreementDisclosure[]>([]);
+  const [agreementKeys, setAgreementKeys] = useState<Record<string, string>>({});
+  const [agreementError, setAgreementError] = useState<string | null>(null);
+  const [agreementNonce, setAgreementNonce] = useState(0);
+  const [loadedAgreementSelection, setLoadedAgreementSelection] = useState<string | null>(null);
+  const agreementSelection = schedule && customMenuEligible ? JSON.stringify({clientRequestId: "agreement-preview",
+    cateringSelectionType: "custom_menu", providerId: customMenuProviderId, eventType: schedule.eventType,
+    eventDate: schedule.eventDate, eventTime: schedule.eventTime, eventLocation: schedule.eventLocation,
+    eventAddress: schedule.eventAddress, menuSelections: customMenuItems.map(item => ({menuItemId: item.menuItemId, servingOptionId: item.servingOptionId}))
+      .sort((a, b) => `${a.menuItemId}:${a.servingOptionId}`.localeCompare(`${b.menuItemId}:${b.servingOptionId}`)),
+    addonIds: [], willArrangeOwnAddOns: false, policyAcknowledgements: []}) : null;
+  useEffect(() => {
+    let active = true;
+    void Promise.resolve().then(async () => {
+      if (!active) return;
+      setBookingAgreements([]); setAgreementKeys({}); setAgreementError(null); setLoadedAgreementSelection(null);
+      if (!agreementSelection) return;
+      try {
+        const result = await getCustomerBookingPaymentAgreements(JSON.parse(agreementSelection));
+        if (active) { setBookingAgreements(result); setLoadedAgreementSelection(agreementSelection); }
+      } catch (error) { if (active) setAgreementError(error instanceof Error ? error.message : "Agreement could not be loaded."); }
+    });
+    return () => { active = false; };
+  }, [agreementSelection, agreementNonce]);
+  const agreementsReady = loadedAgreementSelection === agreementSelection && bookingAgreements.length > 0 && bookingAgreements.every(item => agreementKeys[item.providerId] === item.agreementKey);
 
   const configuredPackage =
     items.find(
@@ -800,6 +825,10 @@ export function CustomerEventListReview() {
   }
 
   async function submitCustomMenuBooking() {
+    if (!agreementsReady) {
+      setSubmissionError("Review and acknowledge the current Booking & Payment Agreement before submitting.");
+      return;
+    }
     setSubmissionError(
       null,
     );
@@ -972,7 +1001,7 @@ export function CustomerEventListReview() {
 
       const result =
         await submitCustomerBookingRequest(
-          input,
+          {...input, agreementAcknowledgements: bookingAgreements.map(({providerId, agreementKey}) => ({providerId, agreementKey}))},
         );
 
       clearItems();
@@ -984,6 +1013,9 @@ export function CustomerEventListReview() {
       );
     }
     catch (error) {
+      if ((error as {reason?: string})?.reason?.startsWith("BOOKING_PAYMENT_AGREEMENT_")) {
+        setAgreementKeys({}); setBookingAgreements([]); setAgreementNonce(value => value + 1);
+      }
       if (
         bookingSubmissionRequiresRefundPolicyRefresh(
           error,
@@ -1478,6 +1510,9 @@ export function CustomerEventListReview() {
           )}
         </div>
 
+        {customMenuEligible && <BookingPaymentAgreementReview agreements={loadedAgreementSelection === agreementSelection ? bookingAgreements : []} acknowledged={agreementKeys}
+          error={agreementError} onReload={() => setAgreementNonce(value => value + 1)}
+          onChange={(id, key) => setAgreementKeys(current => { const next = {...current}; if (key) next[id] = key; else delete next[id]; return next; })} />}
         {customMenuEligible ? (
           <RefundPolicySection
             status={
@@ -1610,6 +1645,7 @@ export function CustomerEventListReview() {
                       refundPolicyStatus !==
                         "ready" ||
                       !everyPolicyAcknowledged
+                      || !agreementsReady
                     }
                     onClick={() =>
                       void submitCustomMenuBooking()
@@ -2716,3 +2752,5 @@ function packageReviewHref(
     ? `${pathname}?${serialized}`
     : pathname;
 }
+import {getCustomerBookingPaymentAgreements, type BookingAgreementDisclosure} from "@/lib/customer/bookings/customer-booking-agreement";
+import {BookingPaymentAgreementReview} from "@/components/customer/bookings/booking-payment-agreement-review";

@@ -15,6 +15,9 @@ export type PublicPackage = {
   description: string | null;
   eventType: string | null;
   price: number | null;
+  paymentPolicy?: "full_payment" | "deposit_then_balance" | null;
+  depositPercentage?: number | null;
+  balanceDueDaysBeforeEvent?: number | null;
   serviceOptions?: PackageServiceOptions;
   themeOptions?: readonly PackageThemeOption[];
   imageUrl: string | null;

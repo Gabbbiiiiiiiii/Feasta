@@ -83,7 +83,7 @@ test(
     assert.equal(
       resolved.policy.payment
         .depositMinimumNoticeHours,
-      48,
+      72,
     );
 
     assert.equal(
@@ -95,8 +95,9 @@ test(
     assert.equal(
       resolved.policy.preparation
         .leadTimeHours,
-      72,
+      24,
     );
+    assert.equal(resolved.policy.preparation.providerStartsManually, false);
 
     assert.equal(
       resolved.policy.sameDay

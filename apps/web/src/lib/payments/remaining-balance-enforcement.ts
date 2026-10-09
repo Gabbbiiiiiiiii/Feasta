@@ -1,4 +1,5 @@
 type StoredRecord = Readonly<Record<string, unknown>>;
+import {bookingPolicyV3Presentation} from "./booking-policy-v3-presentation";
 export function balanceEnforcementPresentation(request: StoredRecord, role: "customer" | "provider") {
   if (request.remainingBalanceTimingSchemaVersion !== 2 || request.remainingBalanceEnforcementSchemaVersion !== 1) return null;
   const state = request.remainingBalanceEnforcement as {status?: string} | undefined;
@@ -20,6 +21,12 @@ export function balanceEnforcementPresentation(request: StoredRecord, role: "cus
 }
 
 export function balanceEnforcementBlocksActions(request: StoredRecord, now = Date.now()): boolean {
+  if (request.remainingBalanceTimingSchemaVersion === 3) {
+    const policy = bookingPolicyV3Presentation(request, new Date(now));
+    if (!policy || ["hold", "review", "cancelled", "completed"].includes(policy.state)) return true;
+    if (request.settlementStatus === "fully_settled" && request.outstandingAmountInCentavos === 0) return false;
+    return now >= Date.parse(policy.deadlineAt);
+  }
   if (request.remainingBalanceTimingSchemaVersion !== 2) return false;
   const state = request.remainingBalanceEnforcement as {status?: string} | undefined;
   if (request.remainingBalanceEnforcementSchemaVersion != null &&

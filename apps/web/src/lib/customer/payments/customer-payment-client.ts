@@ -89,8 +89,6 @@ export function redirectToCustomerPaymentCheckout(
 
   rememberCustomerPaymentReturn({
     paymentId: result.paymentId,
-    providerRequestId: result.providerRequestId,
-    bookingId: result.bookingId,
   });
 
   window.location.assign(checkoutUrl);
@@ -99,6 +97,11 @@ export function redirectToCustomerPaymentCheckout(
 export function readCustomerPaymentReturnContext():
   CustomerPaymentReturnLookup | null {
   try {
+    const params = new URL(window.location.href).searchParams;
+    if (params.has("ref")) {
+      const paymentId = params.get("ref");
+      return isSafeDocumentId(paymentId) ? {paymentId} : null;
+    }
     const raw = window.sessionStorage.getItem(
       PAYMENT_RETURN_STORAGE_KEY,
     );
@@ -110,8 +113,6 @@ export function readCustomerPaymentReturnContext():
 
     if (
       !isSafeDocumentId(value.paymentId) ||
-      !isSafeDocumentId(value.providerRequestId) ||
-      !isSafeDocumentId(value.bookingId) ||
       typeof createdAt !== "number" ||
       !Number.isFinite(createdAt) ||
       createdAt > Date.now() + 60_000 ||
@@ -123,8 +124,6 @@ export function readCustomerPaymentReturnContext():
 
     return {
       paymentId: value.paymentId,
-      providerRequestId: value.providerRequestId,
-      bookingId: value.bookingId,
     };
   } catch {
     clearCustomerPaymentReturnContext();

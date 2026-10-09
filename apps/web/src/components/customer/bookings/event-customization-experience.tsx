@@ -63,6 +63,7 @@ import {
 } from "@/lib/customer/bookings/customer-refund-policy-client";
 
 import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
+import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
 import {PriceDisplay} from "@/components/shared/price-display";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
@@ -286,6 +287,32 @@ const submissionIdentityRef =
   const [acknowledgedPolicyKeys, setAcknowledgedPolicyKeys] =
     useState<Record<string, string>>({});
   const refundPolicyGenerationRef = useRef(0);
+  const [agreements, setAgreements] = useState<BookingAgreementDisclosure[]>([]);
+  const [agreementAcknowledged, setAgreementAcknowledged] = useState<Record<string, string>>({});
+  const [agreementError, setAgreementError] = useState<string | null>(null);
+  const [agreementReload, setAgreementReload] = useState(0);
+  const [loadedAgreementInput, setLoadedAgreementInput] = useState<string | null>(null);
+  let agreementInputJSON: string | null = null;
+  if (step === 4) {
+    try { agreementInputJSON = JSON.stringify(buildSubmissionInput("agreement-preview", [])); } catch { /* Event validation owns these errors. */ }
+  }
+  useEffect(() => {
+    let current = true;
+    void Promise.resolve().then(async () => {
+      if (!current) return;
+      setAgreements([]); setAgreementAcknowledged({}); setAgreementError(null); setLoadedAgreementInput(null);
+      if (!agreementInputJSON) return;
+      try {
+        const result = await getCustomerBookingPaymentAgreements(JSON.parse(agreementInputJSON));
+        if (current) { setAgreements(result); setLoadedAgreementInput(agreementInputJSON); }
+      } catch (error) {
+        if (current) setAgreementError(error instanceof Error ? error.message : "Booking agreement could not be loaded.");
+      }
+    });
+    return () => { current = false; };
+  }, [agreementInputJSON, agreementReload]);
+  const everyAgreementAcknowledged = loadedAgreementInput === agreementInputJSON && agreements.length > 0 && agreements.every(agreement =>
+    agreementAcknowledged[agreement.providerId] === agreement.agreementKey);
 
   const loadRefundPolicyDisclosures = useCallback(async (
     notice: string | null = null,
@@ -446,10 +473,16 @@ const submissionIdentityRef =
       packageRecord.id,
     )}`;
 
+  const estimatedServicePrice = offerSelection.serviceTier
+    ? offerSelection.displayedServicePrice
+    : packageRecord.price;
+
   const selectedCustomizationCount =
     customizationDraft.selectedFoods.length +
     customizationDraft.selectedDecorations.length +
-    customizationDraft.selectedFurniture.length;
+    customizationDraft.selectedFurniture.length +
+    Number(offerSelection.serviceTier !== null) +
+    Number(offerSelection.packageThemeId !== null);
 
   const selectedEventServices =
     eventServices.filter((service) =>
@@ -806,6 +839,10 @@ function navigateToSubmittedBooking(
 }
 
 async function handleSubmitBooking() {
+  if (!everyAgreementAcknowledged) {
+    setSubmissionError("Review and acknowledge each Booking & Payment Agreement before submitting.");
+    return;
+  }
   if (planningOnly) return;
   if (
     isSubmitting ||
@@ -878,6 +915,7 @@ async function handleSubmitBooking() {
           refundPolicyResult.policies,
         ),
       );
+    input.agreementAcknowledgements = agreements.map(({providerId, agreementKey}) => ({providerId, agreementKey}));
 
     const selectedProviderIds = [
       provider.id,
@@ -925,6 +963,13 @@ async function handleSubmitBooking() {
 
     navigateToSubmittedBooking(result);
   } catch (error) {
+    if ((error as {reason?: string})?.reason?.startsWith("BOOKING_PAYMENT_AGREEMENT_")) {
+      setAgreementAcknowledged({});
+      setAgreements([]);
+      setAgreementReload(value => value + 1);
+      setSubmissionError("Booking terms changed. Review the refreshed agreement and acknowledge it again.");
+      return;
+    }
     if (
       bookingSubmissionRequiresRefundPolicyRefresh(
         error,
@@ -2098,7 +2143,7 @@ function discardAndLeave() {
                 customerArrangedAddOnsNote
               }
               serviceTierLabel={bookingCustomizationReviewLabel(offerSelection.serviceTier)}
-              displayedServicePrice={offerSelection.displayedServicePrice}
+              displayedServicePrice={estimatedServicePrice}
               packageThemeName={
                 offerSelection.availableThemes.find(
                   (theme) => theme.id === offerSelection.packageThemeId,
@@ -2115,6 +2160,12 @@ function discardAndLeave() {
                 submissionResult
               }
               refundPolicyStatus={refundPolicyStatus}
+              agreementReady={everyAgreementAcknowledged}
+              agreementReview={<BookingPaymentAgreementReview agreements={loadedAgreementInput === agreementInputJSON ? agreements : []} acknowledged={agreementAcknowledged}
+                error={agreementError} onReload={() => setAgreementReload(value => value + 1)}
+                onChange={(providerId, key) => setAgreementAcknowledged(current => {
+                  const next = {...current}; if (key) next[providerId] = key; else delete next[providerId]; return next;
+                })} />}
               refundPolicyResult={refundPolicyResult}
               refundPolicyError={refundPolicyError}
               refundPolicyNotice={refundPolicyNotice}
@@ -2186,23 +2237,23 @@ function discardAndLeave() {
               </p>
 
               <div className="mt-5 border-t border-feasta-divider pt-4">
+                {offerSelection.serviceTier ? (
+                  <p className="mb-3 text-xs leading-5 text-feasta-text-secondary">
+                    Selected service: {bookingCustomizationReviewLabel(offerSelection.serviceTier)}
+                  </p>
+                ) : null}
                 <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
-                  Package price
+                  Estimated service price
                 </p>
 
                 <PriceDisplay
                   amount={
-                    packageRecord.price
+                    estimatedServicePrice
                   }
                   className="mt-1"
                 />
 
-                {offerSelection.serviceTier ? (
-                  <p className="mt-3 text-xs leading-5 text-feasta-text-secondary">
-                    Selected service level: {bookingCustomizationReviewLabel(offerSelection.serviceTier)}.
-                    The service price on that choice is display-only and is not the booking total.
-                  </p>
-                ) : null}
+                <div className="mt-3"><PackagePaymentTerms source={packageRecord} /></div>
               </div>
 
               <div className="mt-4 grid gap-3 border-t border-feasta-divider pt-4">
@@ -2263,8 +2314,9 @@ function discardAndLeave() {
                 ) : null}
               </div>
 
-              {selectedCustomizationCount >
-              0 ? (
+              {customizationDraft.selectedFoods.length +
+              customizationDraft.selectedDecorations.length +
+              customizationDraft.selectedFurniture.length > 0 ? (
                 <div className="mt-4 border-t border-feasta-divider pt-4">
                   <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
                     Customization
@@ -2877,6 +2929,8 @@ function BookingReview({
   submissionError,
   submissionResult,
   refundPolicyStatus,
+  agreementReady,
+  agreementReview,
   refundPolicyResult,
   refundPolicyError,
   refundPolicyNotice,
@@ -2930,6 +2984,8 @@ function BookingReview({
     SubmitBookingRequestResult | null;
 
   refundPolicyStatus: RefundPolicyStatus;
+  agreementReady: boolean;
+  agreementReview: React.ReactNode;
 
   refundPolicyResult: CustomerRefundPolicyDisclosureResult | null;
 
@@ -2953,8 +3009,8 @@ function BookingReview({
     () => Promise<void>;
 }) {
   const estimatedTotal =
-    packageRecord.price !== null
-      ? packageRecord.price +
+    displayedServicePrice !== null
+      ? displayedServicePrice +
         selectedEventServicesSubtotal
       : null;
 
@@ -3085,12 +3141,12 @@ function BookingReview({
 
             <div className="sm:text-right">
               <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
-                Package price
+                Estimated service price
               </p>
 
               <PriceDisplay
                 amount={
-                  packageRecord.price
+                  displayedServicePrice
                 }
                 className="mt-1"
               />
@@ -3109,11 +3165,11 @@ function BookingReview({
             />
             <div className="mt-4">
               <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
-                Displayed service price
+                Estimated service price
               </p>
               <PriceDisplay amount={displayedServicePrice} className="mt-1" />
               <p className="mt-2 text-xs leading-5 text-feasta-text-secondary">
-                This is the published price already loaded with the package. It is not submitted as the booking total.
+                This estimate is based on your current selection. FEASTA verifies the final amount when you submit.
               </p>
             </div>
             {packageThemeName ? (
@@ -3300,6 +3356,7 @@ function BookingReview({
           )}
         </ReviewSection>
 
+        {agreementReview}
         <RefundPolicyReview
           status={refundPolicyStatus}
           result={refundPolicyResult}
@@ -3327,9 +3384,9 @@ function BookingReview({
 
             <div className="mt-5 grid gap-3">
               <EstimateRow
-                label="Package"
+                label="Estimated service price"
                 value={
-                  packageRecord.price
+                  displayedServicePrice
                 }
               />
 
@@ -3345,7 +3402,7 @@ function BookingReview({
               <div className="flex items-end justify-between gap-4">
                 <div>
                   <p className="text-sm font-extrabold text-foreground">
-                    Displayed estimated total
+                    Estimated total
                   </p>
 
                   <p className="mt-1 max-w-lg text-xs leading-5 text-feasta-text-secondary">
@@ -3461,6 +3518,7 @@ function BookingReview({
               isSubmitting ||
               submissionResult !== null ||
               !everyPolicyAcknowledged
+              || !agreementReady
             }
             aria-describedby="booking-refund-policy-submit-requirement"
             aria-busy={
@@ -4285,3 +4343,5 @@ function manilaDateParts(date: Date): {
     day: value("day"),
   };
 }
+import {getCustomerBookingPaymentAgreements, type BookingAgreementDisclosure} from "@/lib/customer/bookings/customer-booking-agreement";
+import {BookingPaymentAgreementReview} from "./booking-payment-agreement-review";

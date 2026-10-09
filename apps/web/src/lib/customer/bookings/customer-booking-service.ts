@@ -1,4 +1,6 @@
 import "server-only";
+import {bookingPolicyV3Presentation} from "@/lib/payments/booking-policy-v3-presentation";
+import {hasBookingSettlement, projectBookingPayment} from "@/lib/payments/booking-payment-projection";
 import {customerBookingCheckoutOptions} from "./customer-booking-checkout-options";
 import {customerInitialPaymentExplanation} from "./customer-booking-initial-payment-eligibility";
 import {balanceEnforcementPresentation} from "@/lib/payments/remaining-balance-enforcement";
@@ -554,7 +556,8 @@ function mapProviderRequestDocument(
     downPaymentPercentage: finiteNumber(data.downPaymentPercentage),
     remainingBalance: finiteNumber(data.remainingBalance),
     status: normalizeProviderRequestStatus(data.status),
-    paymentStatus: stringValue(data.paymentStatus) || "unpaid",
+    paymentStatus: ["refunded", "partially_refunded"].includes(stringValue(data.paymentStatus)) ? stringValue(data.paymentStatus) :
+      hasBookingSettlement(data) ? projectBookingPayment(data) ?? "unavailable" : stringValue(data.paymentStatus) || "unpaid",
     paymentId: nullableString(data.paymentId),
     settlementStatus:
       nullableString(
@@ -588,6 +591,7 @@ function mapProviderRequestDocument(
     checkoutOptions: customerBookingCheckoutOptions(document.id, data, mainEventStatus),
     initialPaymentExplanation: customerInitialPaymentExplanation(data),
     balanceEnforcement: balanceEnforcementPresentation(data, "customer"),
+    bookingPolicy: bookingPolicyV3Presentation(data),
     rejectionReason: nullableString(data.rejectionReason),
     cancellationReason: nullableString(data.cancellationReason),
     requestedAt: isoDateValue(data.requestedAt),

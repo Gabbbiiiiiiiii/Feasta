@@ -33,6 +33,10 @@ vi.mock("@/lib/customer/bookings/customer-booking-submission-client", () => ({
 }));
 
 vi.mock("@/lib/firebase/client", () => ({auth: {}, functions: {}, initializeBrowserAppCheck: vi.fn()}));
+vi.mock("@/lib/customer/bookings/customer-booking-agreement", async () => {
+  const {bookingAgreementFixture} = await import("./booking-agreement-fixture");
+  return {getCustomerBookingPaymentAgreements: vi.fn(async (input: {providerId: string}) => [bookingAgreementFixture(input.providerId)])};
+});
 
 vi.mock("@/lib/customer/bookings/customer-refund-policy-client", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/lib/customer/bookings/customer-refund-policy-client")>(),
@@ -311,6 +315,8 @@ async function reachReview({selectAddon = false}: {selectAddon?: boolean} = {}) 
   fireEvent.click(screen.getByRole("button", {name: "Review booking"}));
   await screen.findByRole("heading", {name: "Review your booking request"});
   await waitFor(() => expect(mocks.loadDisclosures).toHaveBeenCalled());
+  const agreement = await screen.findByRole("checkbox", {name: /I have reviewed and agree to the booking/u});
+  fireEvent.click(agreement); // This suite isolates the separate voluntary-refund policy gate.
 }
 
 function disclosureResult(policies: readonly CustomerRefundPolicyDisclosure[]) {

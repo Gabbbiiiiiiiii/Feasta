@@ -1,5 +1,14 @@
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 import {assertBalanceEnforcementAllowsProgress} from "../payments/remaining-balance-enforcement-domain.js";
+import {frozenBookingPolicyTimingV3} from "../bookings/booking-policy-v3.js";
+
+export function assertManualPreparationPolicy(request: Readonly<Record<string, unknown>>): void {
+  if (request.remainingBalanceTimingSchemaVersion === 3) {
+    frozenBookingPolicyTimingV3(request);
+    throw new HttpsError("failed-precondition", "Preparation starts automatically under this booking's saved policy.",
+      {reason: "automatic_preparation_policy"});
+  }
+}
 
 import {
   classifyProviderRequestRefundPolicyEvidence,
@@ -172,6 +181,7 @@ async function advanceStage(input: {
       authorized,
       mainEventSnapshot,
     });
+    assertManualPreparationPolicy(authorized.requestData);
 
     const classification =
       classifyProviderRequestRefundPolicyEvidence(authorized.requestData);

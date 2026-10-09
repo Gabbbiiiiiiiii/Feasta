@@ -176,8 +176,6 @@ export type CustomerPaymentReturnKind =
 
 export type CustomerPaymentReturnLookup = {
   paymentId: string;
-  providerRequestId: string;
-  bookingId: string;
 };
 
 export type CustomerPaymentReturnDetails = {

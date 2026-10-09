@@ -3,6 +3,7 @@
 import type {
   ReactNode,
 } from "react";
+import {BookingPolicySummary} from "@/components/shared/booking-policy-summary";
 
 import {
   PaymentIssueBadges,
@@ -38,9 +39,6 @@ type PaymentDetailsDrawerProps = {
   onOpenChange: (open: boolean) => void;
   onRetry: () => void;
 
-  onRequestRefund: (
-    payment: AdminPayment,
-  ) => void;
 };
 
 function PaymentDetailsDrawer({
@@ -51,7 +49,6 @@ function PaymentDetailsDrawer({
   error,
   onOpenChange,
   onRetry,
-  onRequestRefund,
 }: PaymentDetailsDrawerProps) {
   const visiblePayment =
     details?.payment ?? payment;
@@ -62,28 +59,12 @@ function PaymentDetailsDrawer({
       onOpenChange={onOpenChange}
       title="Payment details"
       description={
-        visiblePayment
-          ? `Review transaction ${visiblePayment.paymentId}.`
-          : "Review payment transaction information."
+        visiblePayment?.bookingCode
+          ? `View payment information for ${visiblePayment.bookingCode}.`
+          : "View payment information."
       }
       footer={
         <>
-          {details?.payment
-            .refundEligibility.eligible ? (
-            <Button
-              type="button"
-              variant="destructive"
-              size="compact"
-              onClick={() =>
-                onRequestRefund(
-                  details.payment,
-                )
-              }
-            >
-              Request refund
-            </Button>
-          ) : null}
-
           <Button
             type="button"
             variant="secondary"
@@ -97,6 +78,7 @@ function PaymentDetailsDrawer({
         </>
       }
     >
+      <BookingPolicySummary policy={visiblePayment?.bookingPolicy} audience="admin" />
       {loading ? (
         <PaymentDetailsLoading />
       ) : error ? (
@@ -184,7 +166,7 @@ function PaymentDetailsContent({
               id="payment-summary-heading"
               className="break-words text-lg font-black"
             >
-              Payment summary
+              Payment overview
             </h2>
 
             <p className="mt-1 break-words text-sm text-muted-foreground">
@@ -207,6 +189,10 @@ function PaymentDetailsContent({
           )}
         </p>
 
+        <p className="mt-2 text-sm text-muted-foreground">
+          Last updated: {formatPaymentDate(payment.updatedAt)}
+        </p>
+
         {payment.issues.length > 0 ? (
           <div className="mt-4">
             <PaymentIssueBadges
@@ -215,31 +201,6 @@ function PaymentDetailsContent({
           </div>
         ) : null}
       </section>
-
-      <DetailsSection
-        title="Payment summary"
-      >
-        <DetailsGrid>
-          <DetailField
-            label="Payment type"
-            value={formatPaymentType(
-              payment.paymentType,
-            )}
-          />
-
-          <DetailField
-            label="Currency"
-            value={payment.currency}
-          />
-
-          <DetailField
-            label="Last updated"
-            value={formatPaymentDate(
-              payment.updatedAt,
-            )}
-          />
-        </DetailsGrid>
-      </DetailsSection>
 
       <DetailsSection
         title="Booking"
@@ -255,7 +216,7 @@ function PaymentDetailsContent({
           <DetailField
             label="Booking status"
             value={
-              details.booking.status ??
+              financeStatusLabel(details.booking.status) ??
               "Not available"
             }
           />
@@ -263,8 +224,7 @@ function PaymentDetailsContent({
           <DetailField
             label="Booking payment status"
             value={
-              details.booking
-                .paymentStatus ??
+              financeStatusLabel(details.booking.paymentStatus) ??
               "Not available"
             }
           />
@@ -272,8 +232,7 @@ function PaymentDetailsContent({
           <DetailField
             label="Provider response"
             value={
-              details.providerRequest
-                .status ??
+              financeStatusLabel(details.providerRequest.status) ??
               "Not available"
             }
           />
@@ -320,7 +279,7 @@ function PaymentDetailsContent({
       </DetailsSection>
 
       <DetailsSection
-        title="Transaction timeline"
+        title="Payment timeline"
       >
         {timeline.length > 0 ? (
           <ol className="grid gap-3">
@@ -351,35 +310,9 @@ function PaymentDetailsContent({
       <DetailsSection
         title="Refund information"
       >
-        <div
-          className={[
-            "rounded-lg border p-4",
-            payment.refundEligibility
-              .eligible
-              ? [
-                  "border-success",
-                  "bg-success-subtle",
-                ].join(" ")
-              : [
-                  "border-border",
-                  "bg-muted/50",
-                ].join(" "),
-          ].join(" ")}
-        >
-          <p className="font-bold">
-            {payment.refundEligibility
-              .eligible
-              ? "Eligible for refund request"
-              : "Not eligible for refund"}
-          </p>
-
-          <p className="mt-2 text-sm text-muted-foreground">
-            {refundEligibilityMessage(
-              payment.refundEligibility
-                .reason,
-            )}
-          </p>
-        </div>
+        <p className="rounded-lg border border-border bg-muted/50 p-4 font-bold">
+          {refundMonitoringLabel(payment)}
+        </p>
       </DetailsSection>
 
       <DetailsSection title="Provider payout">
@@ -403,7 +336,7 @@ function PaymentDetailsContent({
 
       <details className="rounded-lg border border-border p-4">
         <summary className="cursor-pointer font-semibold">
-          Additional payment details
+          Additional details
         </summary>
         <div className="mt-4 grid gap-6">
           <DetailsSection title="Payment update history">
@@ -442,6 +375,9 @@ function PaymentDetailsContent({
           <DetailsSection title="Support references">
             <DetailsGrid>
               <DetailField label="Payment reference" value={payment.paymentId} code />
+              {payment.id !== payment.paymentId ? (
+                <DetailField label="Payment record reference" value={payment.id} code />
+              ) : null}
               <DetailField
                 label="Payment service reference"
                 value={payment.gatewayResourceId ?? "Not available"}
@@ -468,61 +404,61 @@ function PaymentDetailsContent({
             </DetailsGrid>
           </DetailsSection>
 
+          <DetailsSection
+            title="Activity history"
+          >
+            {details.auditHistory.length >
+            0 ? (
+              <ol className="grid gap-3">
+                {details.auditHistory.map(
+                  (entry) => (
+                    <li
+                      key={entry.id}
+                      className="rounded-lg border border-border p-3"
+                    >
+                      <p className="break-words font-bold">
+                        {entry.action}
+                      </p>
+
+                      <p className="mt-1 break-words text-sm text-muted-foreground">
+                        {entry.actorRole} - {entry.actorId}
+                      </p>
+
+                      {entry.beforeStatus ||
+                      entry.afterStatus ? (
+                        <p className="mt-2 text-sm">
+                          {entry.beforeStatus ?? "Unknown"}
+                          {" to "}
+                          {entry.afterStatus ?? "Unknown"}
+                        </p>
+                      ) : null}
+
+                      {entry.reason ? (
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          Reason: {entry.reason}
+                        </p>
+                      ) : null}
+
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {formatPaymentDate(
+                          entry.createdAt,
+                        )}
+                      </p>
+                    </li>
+                  ),
+                )}
+              </ol>
+            ) : (
+              <EmptyDetailMessage>
+                No payment activities have been recorded yet.
+              </EmptyDetailMessage>
+            )}
+          </DetailsSection>
           <AdminFinancialOverview details={details} />
           <ProviderFinanceDetails details={details} />
         </div>
       </details>
 
-      <DetailsSection
-        title="Activity history"
-      >
-        {details.auditHistory.length >
-        0 ? (
-          <ol className="grid gap-3">
-            {details.auditHistory.map(
-              (entry) => (
-                <li
-                  key={entry.id}
-                  className="rounded-lg border border-border p-3"
-                >
-                  <p className="break-words font-bold">
-                    {entry.action}
-                  </p>
-
-                  <p className="mt-1 break-words text-sm text-muted-foreground">
-                    {entry.actorRole} - {entry.actorId}
-                  </p>
-
-                  {entry.beforeStatus ||
-                  entry.afterStatus ? (
-                    <p className="mt-2 text-sm">
-                      {entry.beforeStatus ?? "Unknown"}
-                      {" to "}
-                      {entry.afterStatus ?? "Unknown"}
-                    </p>
-                  ) : null}
-
-                  {entry.reason ? (
-                    <p className="mt-2 text-sm text-muted-foreground">
-                      Reason: {entry.reason}
-                    </p>
-                  ) : null}
-
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {formatPaymentDate(
-                      entry.createdAt,
-                    )}
-                  </p>
-                </li>
-              ),
-            )}
-          </ol>
-        ) : (
-          <EmptyDetailMessage>
-            No payment activities have been recorded yet.
-          </EmptyDetailMessage>
-        )}
-      </DetailsSection>
     </div>
   );
 }
@@ -1110,11 +1046,11 @@ function ProviderFinanceDetails({
               />
 
               <DetailField
-                label="Reconciliation"
+                label="Review status"
                 value={
                   settlement.reconciliationRequired
-                    ? "Required"
-                    : "Not required"
+                    ? "Needs review"
+                    : "No issues"
                 }
               />
 
@@ -1545,37 +1481,15 @@ function PaymentDetailsLoading() {
   );
 }
 
-function refundEligibilityMessage(
-  reason:
-    AdminPayment["refundEligibility"]["reason"],
-): string {
-  const messages: Record<
-    AdminPayment["refundEligibility"]["reason"],
-    string
-  > = {
-    eligible:
-      "This paid transaction can proceed to the secured refund workflow.",
-
-    refund_pending:
-      "A refund has already been requested and is awaiting confirmation from the payment service.",
-
-    not_paid:
-      "Only successfully paid transactions can be refunded.",
-
-    already_refunded:
-      "This transaction has already been refunded.",
-
-    missing_gateway_reference:
-      "The payment service reference is missing.",
-
-    invalid_amount:
-      "The payment amount is invalid.",
-
-    invalid_currency:
-      "Only Philippine peso payments are currently supported.",
-  };
-
-  return messages[reason];
+export function refundMonitoringLabel(payment: AdminPayment): string {
+  if (payment.refundPending) return "Refund pending";
+  if (payment.refundedAmountFormatted) {
+    return `${payment.status === "refunded" ? "Refunded" : "Partially refunded"}: ${payment.refundedAmountFormatted}`;
+  }
+  if (payment.status === "refunded") return "Refunded";
+  if (payment.status === "partially_refunded") return "Partially refunded — amount unavailable";
+  if (payment.refundEligibility.reason === "refund_pending") return "Refund pending";
+  return "No refund recorded";
 }
 
 export {

@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto";
 import {HttpsError} from "firebase-functions/v2/https";
-import {frozenCanonicalBalanceTiming} from "./canonical-balance-timing.js";
-import {checkoutAttemptKey} from "./checkout-attempt-domain.js";
+import {remainingBalanceHardDeadline} from "./canonical-balance-timing.js";
+import {checkoutAttemptKey, isAuthoritativelyTerminalUnsuccessful} from "./checkout-attempt-domain.js";
 import {canonicalPaymentLinkageReason} from "./payment-lifecycle.js";
 import {paymentIdForProviderRequestChoice} from "./payment-obligation.js";
 
@@ -9,14 +9,16 @@ type RecordData = Readonly<Record<string, unknown>>;
 export type BalanceEnforcementStatus = "clear" | "on_hold" | "cancellation_pending" |
   "refund_processing" | "refunded" | "reconciliation_required";
 export type BalanceEnforcementReason = "balance_paid" | "balance_unpaid_no_attempt" |
-  "payment_in_flight_at_deadline" | "payment_settled_after_hold" | "gateway_terminal_outcome_unproven";
+  "payment_in_flight_at_deadline" | "payment_settled_after_hold" | "gateway_terminal_outcome_unproven" |
+  "balance_payment_terminal_unsuccessful";
 export type BalanceEnforcement<T = unknown> = {
   status: BalanceEnforcementStatus; reason: BalanceEnforcementReason; dueAt: T; evaluatedAt: T;
   paymentId: string | null; checkoutAttemptId: string | null;
   cancellationRequestId: string | null; refundId: string | null;
+  hardPaymentDeadlineAt?: T;
 };
 export type BalanceAttemptClassification = {
-  kind: "none" | "existing" | "reconciliation_required";
+  kind: "none" | "existing" | "terminal_unsuccessful" | "reconciliation_required";
   paymentId: string; checkoutAttemptId: string | null;
 };
 
@@ -36,7 +38,8 @@ export function classifyBalanceDeadlineAttempt(input: {
   const paymentId = paymentIdForProviderRequestChoice(providerRequestId, "remaining_balance");
   const result = (kind: BalanceAttemptClassification["kind"], checkoutAttemptId: string | null = null) =>
     ({kind, paymentId, checkoutAttemptId});
-  const {dueAt} = frozenCanonicalBalanceTiming(request);
+  const dueAt = remainingBalanceHardDeadline(request);
+  const v3 = request.remainingBalanceTimingSchemaVersion === 3;
   if (!payment) return result(attempts.length || input.gatewaySuccessCount ? "reconciliation_required" : "none");
   if (canonicalPaymentLinkageReason({paymentId, providerRequestId,
     mainEventId: String(request.mainEventId), customerId: String(request.customerId),
@@ -58,9 +61,22 @@ export function classifyBalanceDeadlineAttempt(input: {
     const firstDispatchAt = storedDate(data.firstDispatchAt);
     if (data.attemptId !== id || data.paymentId !== paymentId ||
       data.idempotencyKey !== checkoutAttemptKey(paymentId, id) || !firstDispatchAt ||
-      firstDispatchAt > dueAt || !["unresolved", "outstanding", "success", "failed", "expired"].includes(String(data.resolution))) {
+      (v3 ? firstDispatchAt >= dueAt : firstDispatchAt > dueAt) ||
+      !["unresolved", "outstanding", "success", "failed", "expired"].includes(String(data.resolution))) {
       return result("reconciliation_required", current.id);
     }
+  }
+  if (v3) {
+    // Only exhaustive irreversible attestation proves failure. Status labels/GET
+    // observations and network timeouts never cancel a potentially paid booking.
+    const unresolved = attempts.filter(({data}) => !isAuthoritativelyTerminalUnsuccessful(data));
+    if (!unresolved.length) return result("terminal_unsuccessful", current.id);
+    if (unresolved.some(({data}) => data.resolution === "success" ||
+      ["failed", "expired", "cancelled"].includes(String(data.observedCheckoutStatus)) ||
+      ["failed", "expired"].includes(String(data.resolution)) || data.unsuccessfulObservation != null)) {
+      return result("reconciliation_required", current.id);
+    }
+    return result(["pending", "processing"].includes(String(payment.status)) ? "existing" : "reconciliation_required", current.id);
   }
   const unsuccessful = ["failed", "expired", "cancelled"].includes(String(payment.status)) ||
     attempts.some(({data}) => ["failed", "expired", "success"].includes(String(data.resolution)) ||
@@ -89,24 +105,27 @@ export function balanceEnforcementPaymentOutcomeUpdate(input: {
   now?: Date;
 }): Record<string, unknown> {
   const {request, settlementUpdate, status, timestamp} = input;
-  if (request.remainingBalanceTimingSchemaVersion !== 2 || request.status !== "confirmed" ||
-    (input.now ?? new Date()) < frozenCanonicalBalanceTiming(request).dueAt) return {};
+  if (![2, 3].includes(Number(request.remainingBalanceTimingSchemaVersion)) || request.status !== "confirmed" ||
+    (input.now ?? new Date(Date.now())) < remainingBalanceHardDeadline(request)) return {};
   const previous = request.remainingBalanceEnforcement as BalanceEnforcement | undefined;
   const paid = status === "paid" && settlementUpdate.settlementStatus === "fully_settled" &&
     settlementUpdate.outstandingAmountInCentavos === 0;
-  if (!paid && status !== "failed" && status !== "expired") return {};
+  if (!paid && status !== "failed" && status !== "expired" && status !== "cancelled") return {};
   return {remainingBalanceEnforcementSchemaVersion: 1, remainingBalanceEnforcement: {
     ...previous, status: paid ? "clear" : "reconciliation_required",
     reason: paid ? previous && previous.status !== "clear" ? "payment_settled_after_hold" : "balance_paid"
       : "gateway_terminal_outcome_unproven",
     dueAt: request.remainingBalanceDueAt, evaluatedAt: timestamp,
+    ...(request.remainingBalanceTimingSchemaVersion === 3 ? {hardPaymentDeadlineAt: request.hardPaymentDeadlineAt} : {}),
     paymentId: request.remainingBalancePaymentId ?? null, checkoutAttemptId: previous?.checkoutAttemptId ?? null,
     cancellationRequestId: null, refundId: null,
-  }, ...(paid ? {remainingBalanceStatus: "paid"} : {})};
+  }, ...(request.remainingBalanceTimingSchemaVersion === 3 ? {
+    remainingBalanceNextCheckAt: timestamp, lifecycleNextTransitionAt: timestamp,
+  } : {}), ...(paid ? {remainingBalanceStatus: "paid"} : {})};
 }
 
 export function assertBalanceEnforcementAllowsProgress(request: RecordData): void {
-  if (request.remainingBalanceTimingSchemaVersion !== 2) return;
+  if (request.remainingBalanceTimingSchemaVersion !== 2 && request.remainingBalanceTimingSchemaVersion !== 3) return;
   const enforcement = request.remainingBalanceEnforcement as BalanceEnforcement | undefined;
   if (request.remainingBalanceEnforcementSchemaVersion != null &&
     (request.remainingBalanceEnforcementSchemaVersion !== 1 || !enforcement || enforcement.status !== "clear")) {
@@ -115,7 +134,7 @@ export function assertBalanceEnforcementAllowsProgress(request: RecordData): voi
   }
   // Also enforce while the hourly worker has not reached this booking yet.
   if (request.status === "confirmed" && request.initialPaymentChoice === "minimum" &&
-    Date.now() >= frozenCanonicalBalanceTiming(request).dueAt.getTime() &&
+    Date.now() >= remainingBalanceHardDeadline(request).getTime() &&
     (request.settlementStatus !== "fully_settled" || request.outstandingAmountInCentavos !== 0)) {
     throw new HttpsError("failed-precondition", "The remaining balance must be confirmed before this booking can progress.",
       {reason: "remaining_balance_enforcement_blocked"});

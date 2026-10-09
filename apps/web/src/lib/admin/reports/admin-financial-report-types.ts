@@ -9,9 +9,12 @@ import type {
 
 export type AdminFinancialLedgerEntryType =
   | "payment_settled"
+  | "payment_default_allocation_completed"
   | "refund_completed";
 
 export type AdminFinancialLedgerRow = {
+  feastaCancellationFeeEarnedInCentavos?: number;
+  providerReservationCompInCentavos?: number;
   ledgerEntryId: string;
   entryType: AdminFinancialLedgerEntryType;
 
@@ -99,6 +102,9 @@ export type AdminGatewayFeeEvidenceRow = {
 };
 
 export type AdminFinancialLedgerSummary = {
+  feastaCancellationFeeInCentavos?: number;
+  providerReservationCompInCentavos?: number;
+  feastaRevenueInCentavos?: number;
   paymentSettlementCount: number;
   completedRefundCount: number;
 

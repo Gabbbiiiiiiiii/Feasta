@@ -5,6 +5,8 @@ import type {PackagePaymentTermsSnapshot} from "./package-payment-terms.js";
 import type {CustomerPaymentChoice} from "./payment-obligation.js";
 
 export type InitialPaymentEligibility<T> = {
+  authorityTimeSource?: "booking_submission";
+  submittedAt?: T;
   evaluatedAt: T;
   eventStartAt: T;
   depositAllowed: boolean;
@@ -13,6 +15,23 @@ export type InitialPaymentEligibility<T> = {
   mode: "minimum_or_full" | "full_only";
   reason: "deposit_eligible" | "package_full_payment" | "deposit_disabled" | "short_notice";
 };
+
+/** The caller supplies its once-captured server time, never browser input. */
+export function evaluateSubmissionPaymentEligibility(input: {
+  eventDate: Date; eventTime: string; submissionTime: Date;
+  packagePaymentTerms: PackagePaymentTermsSnapshot | null;
+  bookingPaymentPolicySnapshot: unknown;
+}): InitialPaymentEligibility<Date> {
+  const eligibility = evaluateInitialPaymentEligibility({...input, acceptanceTime: input.submissionTime});
+  const depositMinimumNoticeHours = 72;
+  const eligible = input.packagePaymentTerms?.paymentPolicy === "deposit_then_balance" &&
+    eligibility.depositAllowed && eligibility.eventStartAt.getTime() - input.submissionTime.getTime() >=
+    depositMinimumNoticeHours * 3_600_000;
+  return {...eligibility, authorityTimeSource: "booking_submission", submittedAt: new Date(input.submissionTime),
+    depositMinimumNoticeHours, depositEligible: eligible, mode: eligible ? "minimum_or_full" : "full_only",
+    reason: eligibility.reason === "package_full_payment" || eligibility.reason === "deposit_disabled"
+      ? eligibility.reason : eligible ? "deposit_eligible" : "short_notice"};
+}
 
 export function evaluateInitialPaymentEligibility(input: {
   eventDate: Date; eventTime: string; acceptanceTime: Date;
@@ -45,7 +64,8 @@ export function enforceInitialPaymentEligibility(
   if (request.initialPaymentEligibilitySchemaVersion == null && request.initialPaymentEligibility == null &&
     request.bookingPaymentPolicySnapshot == null) return; // Legacy accepted requests.
   const data = request.initialPaymentEligibility as InitialPaymentEligibility<{toDate?: () => Date}> | null;
-  if (request.initialPaymentEligibilitySchemaVersion !== 1 || !data ||
+  const submissionBased = request.initialPaymentEligibilitySchemaVersion === 2;
+  if ((!submissionBased && request.initialPaymentEligibilitySchemaVersion !== 1) || !data ||
     !["minimum_or_full", "full_only"].includes(data.mode) ||
     data.depositEligible !== (data.mode === "minimum_or_full") ||
     typeof data.depositAllowed !== "boolean" ||
@@ -60,13 +80,19 @@ export function enforceInitialPaymentEligibility(
   const eventStartAt = date(data.eventStartAt);
   if (!(evaluatedAt instanceof Date) || !(eventStartAt instanceof Date) ||
     !Number.isFinite(evaluatedAt.getTime()) || !Number.isFinite(eventStartAt.getTime())) throw invalidEligibility();
+  if (submissionBased) {
+    const submittedAt = date(data.submittedAt ?? null);
+    if (data.authorityTimeSource !== "booking_submission" || !submittedAt ||
+      submittedAt.getTime() !== evaluatedAt.getTime() || data.depositMinimumNoticeHours !== 72) throw invalidEligibility();
+  }
   if (data.reason !== "package_full_payment") {
     const policy = requireBookingPaymentPolicySnapshot(request.bookingPaymentPolicySnapshot);
-    if (data.depositAllowed !== policy.depositAllowed || data.depositMinimumNoticeHours !== policy.depositMinimumNoticeHours) {
+    const minimumNoticeHours = submissionBased ? 72 : policy.depositMinimumNoticeHours;
+    if (data.depositAllowed !== policy.depositAllowed || data.depositMinimumNoticeHours !== minimumNoticeHours) {
       throw invalidEligibility();
     }
     const eligible = policy.depositAllowed && eventStartAt.getTime() - evaluatedAt.getTime() >=
-      policy.depositMinimumNoticeHours * 60 * 60 * 1000;
+      minimumNoticeHours * 60 * 60 * 1000;
     const reason = !policy.depositAllowed ? "deposit_disabled" : eligible ? "deposit_eligible" : "short_notice";
     if (data.depositEligible !== eligible || data.reason !== reason) throw invalidEligibility();
   } else if (data.mode !== "full_only") throw invalidEligibility();

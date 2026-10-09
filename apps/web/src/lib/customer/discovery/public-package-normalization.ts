@@ -98,6 +98,9 @@ export function normalizePublicPackage(
             .length === 0
           ? legacyPrice
           : null,
+    paymentPolicy: value.paymentPolicy === "full_payment" || value.paymentPolicy === "deposit_then_balance" ? value.paymentPolicy : null,
+    depositPercentage: typeof value.depositPercentage === "number" && Number.isFinite(value.depositPercentage) && value.depositPercentage > 0 && value.depositPercentage <= 100 ? value.depositPercentage : null,
+    balanceDueDaysBeforeEvent: value.paymentTermsSchemaVersion === 2 ? null : safeInteger(value.balanceDueDaysBeforeEvent, 1, 365),
     serviceOptions,
     themeOptions:
       normalizePackageThemeOptions(

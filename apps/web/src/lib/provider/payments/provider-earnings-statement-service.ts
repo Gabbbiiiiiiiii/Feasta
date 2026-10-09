@@ -604,6 +604,7 @@ function normalizeStatementEarning(
     providerRequestId,
     mainEventId,
     status,
+    economicSource: data.economicSource === "payment_default_reservation_compensation" ? "payment_default_reservation_compensation" : "service_earnings",
 
     currency:
       "PHP",

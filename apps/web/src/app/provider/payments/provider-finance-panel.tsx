@@ -459,6 +459,7 @@ export function ProviderFinancePanel({
                           {formatDateTime(
                             earning.createdAt,
                           )}
+                          <p>{earning.economicSource === "payment_default_reservation_compensation" ? "Reservation compensation" : "Service earnings"}</p>
                         </td>
 
                         <td className="px-4 py-3">

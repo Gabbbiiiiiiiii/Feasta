@@ -10,6 +10,7 @@ export type AdminBookingStatusFilter =
   | MainEventStatus;
 
 export type AdminBookingOverallPaymentStatus =
+  | "unavailable"
   | "unpaid"
   | "pending"
   | "processing"
@@ -21,7 +22,7 @@ export type AdminBookingOverallPaymentStatus =
 
 export type AdminBookingPaymentFilter =
   | "all"
-  | AdminBookingOverallPaymentStatus;
+  | Exclude<AdminBookingOverallPaymentStatus, "unavailable">;
 
 export type AdminBookingDateFilter =
   | "all"
@@ -45,6 +46,7 @@ export type AdminBookingCustomer = {
 };
 
 export type AdminBookingProviderRequest = {
+  bookingPolicy?: import("@/lib/payments/booking-policy-v3-presentation").BookingPolicyPresentation | null;
   id: string;
   mainEventId: string;
   providerId: string;
@@ -62,7 +64,7 @@ export type AdminBookingProviderRequest = {
   downPaymentAmount: number;
 
   paymentId: string | null;
-  paymentStatus: PaymentStatus | null;
+  paymentStatus: PaymentStatus | "partially_paid" | "unpaid" | null;
 
   acceptedAt: string | null;
   confirmedAt: string | null;

@@ -9,6 +9,7 @@ import type {
 } from "@/lib/customer/bookings/customer-booking-types";
 
 const CUSTOMER_TIMELINE_TYPES = [
+  "preparation_started", "remaining_balance_due", "payment_default_cancelled",
   "provider_accepted",
   "provider_rejected",
   "in_progress",
@@ -56,14 +57,16 @@ export function normalizeCustomerBookingTimelineData(
       `${storedDescription ?? "The provider declined this request."} Provider explanation: ${rejectionReason}`,
       MAX_TIMELINE_DESCRIPTION_LENGTH,
     ) :
-    storedDescription;
+    storedDescription?.replace(/Down payment is now available\./giu, "Payment is now available.") ?? null;
   const providerRequestId = nullableString(data.providerRequestId);
 
   return {
     id,
     type,
     status: optionalMainEventStatus(data.status),
-    title: storedTitle || customerTimelineTitle(type),
+    title: type === "payment_confirmed" && data.paymentChoice === "minimum" ? "Deposit payment confirmed." :
+      type === "payment_confirmed" && ["full", "remaining_balance"].includes(String(data.paymentChoice)) ? "Full payment confirmed." :
+      storedTitle || customerTimelineTitle(type),
     description,
     actorRole: customerTimelineActorRole(data.createdByRole, type),
     providerName: providerRequestId ?
@@ -93,6 +96,9 @@ function normalizeTimelineType(value: unknown): CustomerTimelineType | null {
 
 function customerTimelineTitle(type: CustomerTimelineType | null): string {
   switch (type) {
+    case "preparation_started": return "Preparation Period";
+    case "remaining_balance_due": return "Remaining balance due";
+    case "payment_default_cancelled": return "Booking automatically cancelled";
     case "payment_confirmed":
       return "Payment confirmed";
     case "payment_failed":

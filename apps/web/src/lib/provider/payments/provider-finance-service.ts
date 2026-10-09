@@ -569,6 +569,7 @@ function normalizeEarning(
   return {
     earningId:
       document.id,
+    economicSource: data.economicSource === "payment_default_reservation_compensation" ? "payment_default_reservation_compensation" : "service_earnings",
 
     paymentId,
     providerRequestId,

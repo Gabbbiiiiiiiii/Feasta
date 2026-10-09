@@ -27,13 +27,29 @@ import {
 const PAYMENT_RETURN_STORAGE_KEY = "feasta.customer.payment-return.v1";
 const lookup = {
   paymentId: "payment_context_12345678",
-  providerRequestId: "request_context_12345678",
-  bookingId: "booking_context_12345678",
 };
 
 describe("customer payment return context", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
+    window.history.replaceState({}, "", "/customer/payments");
+  });
+
+  it("resolves URL correlation without origin-local storage", () => {
+    window.history.replaceState({}, "", `/customer/payments?payment=success&ref=${lookup.paymentId}`);
+    expect(readCustomerPaymentReturnContext()).toEqual(lookup);
+  });
+
+  it("resolves cancelled correlation without changing transaction state", () => {
+    window.history.replaceState({}, "", `/customer/payments?payment=cancelled&ref=${lookup.paymentId}`);
+    expect(readCustomerPaymentReturnContext()).toEqual(lookup);
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it("fails closed for invalid URL correlation rather than using stale storage", () => {
+    window.sessionStorage.setItem(PAYMENT_RETURN_STORAGE_KEY, JSON.stringify({...lookup, createdAt: Date.now()}));
+    window.history.replaceState({}, "", "/customer/payments?payment=success&ref=invalid");
+    expect(readCustomerPaymentReturnContext()).toBeNull();
   });
 
   it("retains valid same-tab context across return-page rechecks", () => {
@@ -90,8 +106,8 @@ describe("customer payment return context", () => {
   it("rejects an untrusted checkout URL before storing return context or navigating", () => {
     expect(() => redirectToCustomerPaymentCheckout({
       paymentId: lookup.paymentId,
-      providerRequestId: lookup.providerRequestId,
-      bookingId: lookup.bookingId,
+      providerRequestId: "request_context_12345678",
+      bookingId: "booking_context_12345678",
       checkoutUrl: "https://attacker.example/checkout",
       created: true,
     })).toThrow("The payment checkout URL is invalid.");

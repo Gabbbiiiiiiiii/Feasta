@@ -122,7 +122,7 @@ it("renders real package metrics, media, prices, guests and lifecycle actions", 
   expect(within(draft).getByText(/12,000/)).toBeVisible();
   expect(
     within(draft).getByText(
-      "20% deposit ? Balance due 24 hours before scheduled event start",
+      "20% deposit + remaining balance",
     ),
   ).toBeVisible();
   expect(within(draft).getByRole("button", {name: `Edit ${base.name}`})).toBeEnabled();

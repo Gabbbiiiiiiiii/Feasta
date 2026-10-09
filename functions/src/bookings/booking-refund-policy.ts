@@ -2,6 +2,7 @@ import {
   Timestamp,
 } from "firebase-admin/firestore";
 import {HttpsError} from "firebase-functions/v2/https";
+import {effectiveBookingStageV3, frozenBookingPolicyTimingV3} from "./booking-policy-v3.js";
 
 import {
   effectiveRefundPolicyKey,
@@ -594,6 +595,7 @@ export function classifyProviderRequestRefundPolicyEvidence(
 
 export function requireRefundEligibilityState(
   request: Readonly<UnknownRecord>,
+  now: Date = new Date(Date.now()),
 ): RefundEligibilityState<Timestamp> {
   if (
     classifyProviderRequestRefundPolicyEvidence(request).status !==
@@ -607,7 +609,7 @@ export function requireRefundEligibilityState(
 
   const eligibility = request.refundEligibilityState as UnknownRecord;
 
-  return {
+  const stored: RefundEligibilityState<Timestamp> = {
     schemaVersion: REFUND_ELIGIBILITY_STATE_SCHEMA_VERSION,
     currentStage:
       eligibility.currentStage as RefundEligibilityStage,
@@ -616,6 +618,14 @@ export function requireRefundEligibilityState(
     activeCancellationRequestId:
       eligibility.activeCancellationRequestId as string | null,
   };
+  if (request.remainingBalanceTimingSchemaVersion !== 3 || stored.activeCancellationRequestId !== null ||
+    request.status === "cancelled" || request.status === "completed") return stored;
+  const stage = effectiveBookingStageV3({request, now});
+  const currentStage = stage === "service_started" || stage === "preparation_started" ? stage : "preparation_not_started";
+  const timing = frozenBookingPolicyTimingV3(request);
+  return {...stored, currentStage, stageSequence: currentStage === "service_started" ? 2 : currentStage === "preparation_started" ? 1 : 0,
+    enteredAt: currentStage === "service_started" ? Timestamp.fromDate(timing.eventStartAt) :
+      currentStage === "preparation_started" ? Timestamp.fromDate(timing.preparationStartsAt) : stored.enteredAt};
 }
 
 function requireExactRecord(

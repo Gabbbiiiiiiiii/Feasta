@@ -31,22 +31,26 @@ type UnknownRecord =
  * Canonical P5 requests must be fully Customer-settled before
  * service fulfillment begins.
  *
- * Historical requests without settlementSchemaVersion=1 retain
+ * Historical requests without canonical settlement evidence retain
  * their existing lifecycle behavior.
  */
 export function assertProviderRequestFullySettledForServiceStart(
   providerRequest: UnknownRecord,
 ): void {
-  if (
-    providerRequest.settlementSchemaVersion !==
-      1
-  ) {
-    return;
+  const hasSettlement = ["settlementSchemaVersion", "settlementStatus",
+    "grossSettledAmountInCentavos", "outstandingAmountInCentavos"]
+    .some((field) => providerRequest[field] != null);
+  if (!hasSettlement) return;
+  if (providerRequest.settlementSchemaVersion !== 1) {
+    throw settlementPrecondition("The booking must be fully settled before starting service.");
   }
 
   fullySettledPaymentIds(
     providerRequest,
   );
+  if (providerRequest.settlementStatus !== "fully_settled") {
+    throw settlementPrecondition("The booking must be fully settled before starting service.");
+  }
 }
 
 /*

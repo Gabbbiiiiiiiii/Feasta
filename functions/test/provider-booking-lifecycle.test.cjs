@@ -295,3 +295,65 @@ function queryDocument(id, status) {
     data: () => ({status}),
   };
 }
+
+
+test("cancelled, completed and already-started requests cannot transition to service start", () => {
+  for (const status of ["cancelled", "completed", "in_progress"]) {
+    assert.throws(() => assertLifecycleTransition(status, "confirmed", "in_progress"), {code: "failed-precondition"});
+  }
+});
+
+
+test("Start Event callable enforces every guard against isolated in-memory records", async () => {
+  const auth = require("../lib/shared/auth.js");
+  const roles = require("../lib/shared/authorization.js");
+  const rate = require("../lib/shared/rate-limit.js");
+  const {db} = require("../lib/shared/firestore.js");
+  const {markProviderBookingInProgress} = require("../lib/provider-requests/update-provider-booking-lifecycle.js");
+  const saved = [auth.requireAuth, roles.requireRole, rate.enforceCallableRateLimit, db.collection, db.runTransaction];
+  let actor = "owner_test", records, writes;
+  auth.requireAuth = () => ({uid: actor});
+  roles.requireRole = async () => {};
+  rate.enforceCallableRateLimit = async () => {};
+  const snapshot = (name, id) => ({id, exists: Boolean(records[name + "/" + id]), data: () => records[name + "/" + id]});
+  db.collection = (name) => ({
+    doc: (id) => ({name, id, get: async () => snapshot(name, id)}),
+    where: () => ({query: true}),
+  });
+  db.runTransaction = async (callback) => callback({
+    get: async (ref) => ref.query ? {size: 1, docs: [snapshot("providerRequests", "request_test")]} : snapshot(ref.name, ref.id),
+    update: () => {writes++; throw Error("unexpected write");},
+    create: () => {writes++; throw Error("unexpected write");},
+  });
+  try {
+    for (const kind of ["future", "outstanding", "not_fully_settled", "malformed", "locked", "unauthorized", "cancelled", "completed", "in_progress"]) {
+      actor = kind === "unauthorized" ? "another_owner" : "owner_test";
+      writes = 0;
+      const request = {
+        providerRequestId: "request_test", mainEventId: "event_test", bookingId: "event_test", customerId: "customer_test",
+        providerId: "provider_test", type: "catering", status: "confirmed", amount: 5000, downPaymentAmount: 2500, guestCount: 50,
+        eventDate: {toDate: () => new Date(kind === "future" ? "2099-10-16T00:00:00+08:00" : "2020-10-16T00:00:00+08:00")}, eventTime: "07:21",
+        settlementSchemaVersion: 1, settlementStatus: "fully_settled", grossSettledAmountInCentavos: 500000, outstandingAmountInCentavos: 0,
+        initialPaymentChoice: "full", initialPaymentId: "payment_test",
+        financialSnapshot: {schemaVersion: 1, currency: "PHP", grossAmountInCentavos: 500000, remainingBalanceInCentavos: 0},
+      };
+      if (kind === "outstanding") Object.assign(request, {settlementStatus: "deposit_settled", grossSettledAmountInCentavos: 250000, outstandingAmountInCentavos: 250000});
+      if (kind === "not_fully_settled") request.settlementStatus = "deposit_settled";
+      if (kind === "malformed") request.settlementSchemaVersion = 2;
+      if (kind === "locked") request.activeCancellationRequestId = "cancellation_" + "a".repeat(40);
+      if (["cancelled", "completed", "in_progress"].includes(kind)) request.status = kind;
+      records = {
+        "providerRequests/request_test": request,
+        "providers/provider_test": {ownerId: "owner_test", verificationStatus: "approved", isActive: true, isSuspended: false, isDeleted: false},
+        "mainEvents/event_test": {mainEventId: "event_test", bookingId: "event_test", customerId: "customer_test", providerRequestIds: ["request_test"], status: "confirmed"},
+      };
+      const message = {future: /has not been reached/, outstanding: /remaining payment/, not_fully_settled: /fully settled/,
+        malformed: /fully settled/, locked: /locked by cancellation/, unauthorized: /do not own/,
+        cancelled: /every assigned provider has accepted/, completed: /confirmed provider booking/, in_progress: /already in progress/}[kind];
+      await assert.rejects(markProviderBookingInProgress.run({data: {providerRequestId: "request_test"}}), message, kind);
+      assert.equal(writes, 0, kind);
+    }
+  } finally {
+    [auth.requireAuth, roles.requireRole, rate.enforceCallableRateLimit, db.collection, db.runTransaction] = saved;
+  }
+});

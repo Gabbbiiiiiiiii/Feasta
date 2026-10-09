@@ -142,6 +142,8 @@ export const reconcileRemainingBalanceLifecycle =
                 const providerRequest =
                   snapshot.data() ??
                   {};
+                // V3 has its own bounded minute worker and separate hard deadline.
+                if (providerRequest.remainingBalanceTimingSchemaVersion === 3) return false;
 
                 if (
                   cancellationActive(

@@ -85,7 +85,7 @@ describe("customer payment service contract", () => {
     expect(client).not.toMatch(/customerId\s*:/u);
   });
 
-  it("stores only bounded checkout identifiers for a same-tab payment return", () => {
+  it("stores only the bounded payment reference for a same-tab payment return", () => {
     expect(client).toContain(
       'PAYMENT_RETURN_STORAGE_KEY = "feasta.customer.payment-return.v1"',
     );
@@ -98,12 +98,8 @@ describe("customer payment service contract", () => {
     expect(client).toContain(
       "paymentId: result.paymentId",
     );
-    expect(client).toContain(
-      "providerRequestId: result.providerRequestId",
-    );
-    expect(client).toContain(
-      "bookingId: result.bookingId",
-    );
+    expect(client).not.toContain("providerRequestId: result.providerRequestId");
+    expect(client).not.toContain("bookingId: result.bookingId");
     expect(client).toContain(
       "window.sessionStorage.setItem(",
     );
@@ -135,7 +131,7 @@ describe("customer payment service contract", () => {
       "providerRequest.customerId !== customer.uid",
     );
     expect(service).toContain(
-      "providerRequest.paymentId !== lookup.paymentId",
+      "!providerRequestContainsPayment(providerRequest, lookup.paymentId)",
     );
     expect(service).toContain(
       "mainEvent.customerId !== customer.uid",

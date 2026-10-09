@@ -149,7 +149,7 @@ ServiceBookingPolicy = {
       5_000,
 
     depositMinimumNoticeHours:
-      48,
+      72,
 
     balanceDueHoursBeforeEvent:
       BALANCE_DUE_HOURS_BEFORE_EVENT,
@@ -159,13 +159,13 @@ ServiceBookingPolicy = {
     enabled: true,
 
     leadTimeHours:
-      72,
+      24,
 
     requiresFullPayment:
       true,
 
     providerStartsManually:
-      true,
+      false,
   },
 
   sameDay: {

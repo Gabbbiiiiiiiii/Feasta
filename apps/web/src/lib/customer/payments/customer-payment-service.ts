@@ -429,9 +429,9 @@ export async function getCustomerPaymentReturnDetails(
     paymentSnapshot.id !== lookup.paymentId ||
     payment.paymentId !== lookup.paymentId ||
     payment.customerId !== customer.uid ||
-    mainEventId !== lookup.bookingId ||
-    bookingId !== lookup.bookingId ||
-    providerRequestId !== lookup.providerRequestId ||
+    !SAFE_DOCUMENT_ID.test(mainEventId) ||
+    bookingId !== mainEventId ||
+    !SAFE_DOCUMENT_ID.test(providerRequestId) ||
     !providerId ||
     !["provider_down_payment", "provider_balance"].includes(payment.paymentType) ||
     payment.gateway !== "paymongo"
@@ -466,7 +466,7 @@ export async function getCustomerPaymentReturnDetails(
     providerRequest.bookingId !== mainEventId ||
     providerRequest.customerId !== customer.uid ||
     providerRequest.providerId !== providerId ||
-    providerRequest.paymentId !== lookup.paymentId ||
+    !providerRequestContainsPayment(providerRequest, lookup.paymentId) ||
     mainEventSnapshot.id !== mainEventId ||
     mainEvent.mainEventId !== mainEventId ||
     mainEvent.bookingId !== mainEventId ||
@@ -662,34 +662,15 @@ function normalizeFilters(
   };
 }
 
-function normalizeReturnLookup(
-  input: unknown,
-): CustomerPaymentReturnLookup {
-  if (
-    !input ||
-    typeof input !== "object" ||
-    Array.isArray(input)
-  ) {
+function normalizeReturnLookup(input: unknown): CustomerPaymentReturnLookup {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new CustomerPaymentReturnUnavailableError();
   }
-
-  const candidate = input as Record<string, unknown>;
-  const paymentId = stringValue(candidate.paymentId);
-  const providerRequestId = stringValue(candidate.providerRequestId);
-  const bookingId = stringValue(candidate.bookingId);
-
-  if (
-    !SAFE_DOCUMENT_ID.test(paymentId) ||
-    paymentId.length < 8 ||
-    !SAFE_DOCUMENT_ID.test(providerRequestId) ||
-    providerRequestId.length < 8 ||
-    !SAFE_DOCUMENT_ID.test(bookingId) ||
-    bookingId.length < 8
-  ) {
+  const paymentId = stringValue((input as Record<string, unknown>).paymentId);
+  if (!SAFE_DOCUMENT_ID.test(paymentId) || paymentId.length < 8) {
     throw new CustomerPaymentReturnUnavailableError();
   }
-
-  return {paymentId, providerRequestId, bookingId};
+  return {paymentId};
 }
 
 async function searchOwnedPayments(

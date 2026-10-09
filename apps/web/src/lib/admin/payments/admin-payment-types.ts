@@ -64,6 +64,7 @@ export type AdminPaymentRefundEligibility = {
 };
 
 export type AdminPayment = {
+  bookingPolicy?: import("@/lib/payments/booking-policy-v3-presentation").BookingPolicyPresentation | null;
   id: string;
   paymentId: string;
 
@@ -98,6 +99,9 @@ export type AdminPayment = {
   expiredAt: string | null;
   refundedAt: string | null;
 
+  refundedAmountFormatted?: string | null;
+  refundPending?: boolean;
+
   lastWebhookEventId: string | null;
 
   issues: AdminPaymentIssue[];
@@ -107,13 +111,13 @@ export type AdminPayment = {
 };
 
 export type AdminPaymentStatistics = {
-  confirmedVolumeInCentavos: number;
+  confirmedVolumeInCentavos: number | null;
   pendingProcessingCount: number;
   failedPaymentCount: number;
   failedExpiredCount: number;
   failedPayoutCount: number;
   reconciliationRequiredCount: number;
-  refundedAmountInCentavos: number;
+  refundedAmountInCentavos: number | null;
 
   confirmedVolumeFormatted: string;
   refundedAmountFormatted: string;
@@ -551,17 +555,4 @@ export type AdminPaymentDetails = {
 
   webhooks: AdminPaymentWebhookEvent[];
   auditHistory: AdminPaymentAuditEntry[];
-};
-
-export type AdminPaymentRefundInput = {
-  paymentId: string;
-  reason: string;
-  idempotencyKey: string;
-};
-
-export type AdminPaymentRefundResult = {
-  paymentId: string;
-  refundId: string;
-  awaitingWebhook: boolean;
-  idempotentReplay: boolean;
 };

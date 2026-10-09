@@ -17,7 +17,7 @@ const issueConfiguration: Record<
   }
 > = {
   stale_processing: {
-    label: "Processing delayed",
+    label: "Payment taking longer than expected",
     description:
       "This payment has remained in processing longer than expected.",
     tone: "warning",
@@ -31,9 +31,9 @@ const issueConfiguration: Record<
   },
 
   missing_provider_request: {
-    label: "Provider request not found",
+    label: "Provider booking record not found",
     description:
-      "The linked provider request could not be found.",
+      "The linked provider booking record could not be found.",
     tone: "destructive",
   },
 
@@ -59,7 +59,7 @@ const issueConfiguration: Record<
   },
 
   booking_status_mismatch: {
-    label: "Booking details do not match",
+    label: "Payment does not match booking",
     description:
       "The payment and booking payment statuses are inconsistent.",
     tone: "destructive",
@@ -80,7 +80,7 @@ function PaymentIssueBadges({
   if (issues.length === 0) {
     return showHealthyState ? (
       <Badge tone="success">
-        No detected issues
+        No issues
       </Badge>
     ) : null;
   }

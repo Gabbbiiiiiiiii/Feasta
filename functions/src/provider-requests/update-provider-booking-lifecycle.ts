@@ -1,4 +1,18 @@
 import {assertBalanceEnforcementAllowsProgress} from "../payments/remaining-balance-enforcement-domain.js";
+import {effectiveBookingStageV3, frozenBookingPolicyTimingV3} from "../bookings/booking-policy-v3.js";
+import {scheduledEventStart} from "../payments/canonical-balance-timing.js";
+
+export function assertV3CompletionTime(request: Readonly<Record<string, unknown>>, now: Date): void {
+  const start = frozenBookingPolicyTimingV3(request).eventStartAt;
+  const date = request.eventDate as {toDate?: () => Date} | null;
+  if (typeof request.eventEndTime !== "string" || typeof date?.toDate !== "function" || !Number.isFinite(now.getTime())) {
+    throw new HttpsError("failed-precondition", "The scheduled service completion time is invalid.");
+  }
+  let end = scheduledEventStart(date.toDate(), request.eventEndTime);
+  if (end <= start) end = new Date(end.getTime() + 86_400_000);
+  if (now < end) throw new HttpsError("failed-precondition", "The scheduled service has not reached its completion time.");
+}
+import {readTrustedProviderRequestPaymentSetInTransaction} from "../payments/provider-request-payment-reader.js";
 import {
   HttpsError,
   onCall,
@@ -316,7 +330,12 @@ async function updateProviderBookingLifecycle(
           assertEligibilityLifecycleInvariant({
             providerRequestStatus: authorized.status,
             state: eligibilityState,
+            timingSchemaVersion: authorized.requestData.remainingBalanceTimingSchemaVersion,
           });
+        }
+
+        if (authorized.status === targetStatus && targetStatus === "in_progress") {
+          throw new HttpsError("failed-precondition", "The event is already in progress.");
         }
 
         if (authorized.status === targetStatus) {
@@ -350,12 +369,14 @@ async function updateProviderBookingLifecycle(
         }
 
         if (targetStatus === "in_progress") {
+          const eventDate = authorized.requestData.eventDate as {toDate?: () => Date} | undefined;
+          assertScheduledEventStartReached(eventDate?.toDate?.() ?? new Date(NaN), authorized.requestData.eventTime);
           assertBalanceEnforcementAllowsProgress(authorized.requestData);
           /*
            * Canonical P5 bookings cannot begin fulfillment with
            * Customer money still outstanding.
            *
-           * Legacy requests without settlementSchemaVersion=1 keep
+           * Legacy requests without canonical settlement evidence keep
            * their historical lifecycle behavior.
            */
           assertProviderRequestFullySettledForServiceStart(
@@ -380,9 +401,31 @@ async function updateProviderBookingLifecycle(
   }
 }
 
+        const v3 = authorized.requestData.remainingBalanceTimingSchemaVersion === 3;
+        const effectiveStarted = v3 && effectiveBookingStageV3({request: authorized.requestData,
+          now: new Date(Date.now())}) === "service_started";
+        if (v3) {
+          frozenBookingPolicyTimingV3(authorized.requestData);
+          assertBalanceEnforcementAllowsProgress(authorized.requestData);
+          assertProviderRequestFullySettledForServiceStart(authorized.requestData);
+          if (!effectiveStarted) throw new HttpsError("failed-precondition", "The booking cannot progress before its scheduled event start.");
+          const paymentSet = await readTrustedProviderRequestPaymentSetInTransaction({transaction, providerRequestId,
+            providerRequest: authorized.requestData, mainEventId, customerId: authorized.customerId, providerId,
+            mainEvent, invalid: () => {throw new HttpsError("failed-precondition", "The booking's financial authority requires reconciliation.");}});
+          if (paymentSet.mode !== "p5" || !paymentSet.settlement.fullySettled ||
+            paymentSet.settlement.outstandingAmountInCentavos !== 0) {
+            throw new HttpsError("failed-precondition", "The booking must be fully settled before progression.");
+          }
+          if (!areAllAssignedProvidersAccepted(calculateMainEventRequestSummary(allRequestsSnapshot.docs, currentMainEventStatus))) {
+            throw new HttpsError("failed-precondition", "Every assigned provider must accept before service starts.");
+          }
+          if (targetStatus === "completed") {
+            assertV3CompletionTime(authorized.requestData, new Date(Date.now()));
+          }
+        }
         assertLifecycleTransition(
-          authorized.status,
-          currentMainEventStatus,
+          targetStatus === "completed" && effectiveStarted ? "in_progress" : authorized.status,
+          targetStatus === "completed" && effectiveStarted && currentMainEventStatus === "confirmed" ? "in_progress" : currentMainEventStatus,
           targetStatus,
         );
 
@@ -402,7 +445,8 @@ async function updateProviderBookingLifecycle(
           summary.status !==
             currentMainEventStatus &&
           !isMainEventStatusTransitionAllowed(
-            currentMainEventStatus,
+            targetStatus === "completed" && effectiveStarted && currentMainEventStatus === "confirmed"
+              ? "in_progress" : currentMainEventStatus,
             summary.status,
           )
         ) {
@@ -462,6 +506,11 @@ async function updateProviderBookingLifecycle(
           }
         } else {
           requestUpdate.completedAt = timestamp;
+          if (v3) {
+            requestUpdate.lifecycleNextTransitionAt = null;
+            if (authorized.status === "confirmed") requestUpdate.startedAt = authorized.requestData.eventStartAt;
+            if (eligibilityState) requestUpdate.refundEligibilityState = eligibilityState;
+          }
         }
 
         transaction.update(
@@ -501,6 +550,7 @@ async function updateProviderBookingLifecycle(
         ) {
           mainEventUpdate.completedAt =
             timestamp;
+          if (v3 && currentMainEventStatus === "confirmed") mainEventUpdate.startedAt = authorized.requestData.eventStartAt;
         }
 
         transaction.update(
@@ -638,6 +688,18 @@ async function updateProviderBookingLifecycle(
       "internal",
       "Unable to update the provider booking.",
     );
+  }
+}
+
+export function assertScheduledEventStartReached(eventDate: Date, eventTime: unknown, now = new Date()): void {
+  let start: Date;
+  try {
+    start = scheduledEventStart(eventDate, eventTime);
+  } catch {
+    throw new HttpsError("failed-precondition", "The scheduled event start is invalid.");
+  }
+  if (!Number.isFinite(now.getTime()) || now.getTime() < start.getTime()) {
+    throw new HttpsError("failed-precondition", "The scheduled event start has not been reached.");
   }
 }
 

@@ -335,6 +335,7 @@ async function submitCancellation(input: {
       assertEligibilityLifecycleInvariant({
         providerRequestStatus,
         state: eligibilityState,
+        timingSchemaVersion: providerRequest.remainingBalanceTimingSchemaVersion,
       });
     }
 

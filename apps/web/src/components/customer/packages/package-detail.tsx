@@ -18,6 +18,7 @@ import type {ReactNode} from "react";
 
 import {PackageEventListAction} from "@/components/customer/event-list/package-event-list-action";
 import {CustomerAuthLink} from "@/components/customer/layout/customer-auth-provider";
+import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
 import {PriceDisplay} from "@/components/shared/price-display";
 import {
   CATERING_PACKAGE_SERVICE_TIERS,
@@ -234,13 +235,7 @@ export function PackageDetail({
               className="mt-2"
             />
 
-            <p className="mt-3 text-sm font-bold text-foreground">
-              Full Payment
-            </p>
-            <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
-              You pay the full amount after the provider accepts your request.
-              The exact amount due comes from the accepted provider request.
-            </p>
+            <div className="mt-3"><PackagePaymentTerms source={packageRecord} /></div>
 
             <CustomerAuthLink returnTo={bookingHref}
               href={bookingHref}
@@ -637,8 +632,8 @@ export function PackageDetail({
                 Your request is submitted to the
                 selected providers for review first.
                 Payment becomes available only after
-                a provider accepts the request. New
-                bookings use Full Payment.
+                a provider accepts the request. Available
+                payment options are shown after acceptance.
               </p>
             </div>
           </div>

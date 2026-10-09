@@ -15,13 +15,13 @@ const paymentTypeLabels: Record<
   string
 > = {
   provider_down_payment:
-    "Provider down payment",
+    "Down payment",
   provider_balance:
-    "Provider balance",
+    "Remaining balance",
   refund:
     "Refund",
   adjustment:
-    "Adjustment",
+    "Payment adjustment",
 };
 
 const paymentGatewayLabels: Record<
@@ -64,8 +64,15 @@ export function paymentBookingLabel(input: {
   mainEventId: string;
 }): string {
   return (
-    input.bookingCode ??
-    input.mainEventId ??
-    "Unavailable"
+    input.bookingCode?.trim() ||
+    "Booking unavailable"
   );
+}
+
+/** Display a shortened existing reference; exact IDs remain in support details. */
+export function paymentReferenceLabel(input: {paymentId: string}): string {
+  const reference = input.paymentId;
+  return reference.length > 20
+    ? `${reference.slice(0, 12)}…${reference.slice(-6)}`
+    : reference;
 }

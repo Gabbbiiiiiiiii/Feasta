@@ -139,7 +139,7 @@ export function ProviderEarningsStatementClient({
               </p>
 
               <p className="mt-1 text-muted-foreground">
-                Statement period · Asia/Manila
+                Statement period - Asia/Manila
               </p>
             </div>
           </div>
@@ -355,6 +355,7 @@ export function ProviderEarningsStatementClient({
                           <p className="mt-1 max-w-[180px] truncate font-mono text-[11px] text-muted-foreground">
                             {row.paymentId}
                           </p>
+                          <p>{row.economicSource === "payment_default_reservation_compensation" ? "Reservation compensation" : "Service earnings"}</p>
                         </td>
 
                         <td className="px-3 py-3">
@@ -540,6 +541,7 @@ function downloadStatementCsv(
     "Confirmed Settlement Paid Out PHP",
     "Settlement Paid Out At",
     "Reconciliation Required",
+    "Entitlement source",
   ];
 
   const rows =

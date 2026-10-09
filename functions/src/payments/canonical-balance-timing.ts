@@ -1,8 +1,18 @@
 import type {RemainingBalanceSchedule} from "./remaining-balance-domain.js";
+import {frozenBookingPolicyTimingV3} from "../bookings/booking-policy-v3.js";
 
 export const BALANCE_DUE_HOURS_BEFORE_EVENT = 24;
 export const BALANCE_REMINDER_HOURS_BEFORE_DUE = 24;
 const HOUR_MS = 60 * 60 * 1000;
+
+/** Deadline authority is explicit. V2's due date remains its historical deadline. */
+export function remainingBalanceHardDeadline(request: Readonly<Record<string, unknown>>): Date {
+  switch (request.remainingBalanceTimingSchemaVersion) {
+  case 3: return frozenBookingPolicyTimingV3(request).hardPaymentDeadlineAt;
+  case 2: return frozenCanonicalBalanceTiming(request).dueAt;
+  default: throw new Error("Canonical remaining-balance timing version is invalid.");
+  }
+}
 
 /** Resolve the authoritative event calendar and clock in FEASTA's timezone. */
 export function scheduledEventStart(eventDate: Date, eventTime: unknown): Date {

@@ -101,7 +101,7 @@ function buildSummarySheet(sheet: Worksheet, report: AdminReportResult): void {
   if (report.financial) {
     keyValue(sheet, "FEASTA fees before refunds", report.financial.ledger.commissionAccruedInCentavos / 100, currencyFormat());
     keyValue(sheet, "Refunded FEASTA fees", report.financial.ledger.commissionReversedInCentavos / 100, currencyFormat());
-    keyValue(sheet, "FEASTA Revenue", report.financial.ledger.commissionNetMovementInCentavos / 100, currencyFormat());
+    keyValue(sheet, "FEASTA Revenue", (report.financial.ledger.feastaRevenueInCentavos ?? report.financial.ledger.commissionNetMovementInCentavos) / 100, currencyFormat());
     keyValue(sheet, "Fee basis", "Platform and service fees after completed refunds, before payment processing costs");
   } else keyValue(sheet, "FEASTA Revenue", "Not available");
   finishSheet(sheet);
@@ -223,7 +223,9 @@ function buildFinancialSheet(
     ["Customer payments after refunds", financial.ledger.customerCashMovementInCentavos],
     ["FEASTA fees before refunds", financial.ledger.commissionAccruedInCentavos],
     ["Refunded FEASTA fees", financial.ledger.commissionReversedInCentavos],
-    ["FEASTA Revenue", financial.ledger.commissionNetMovementInCentavos],
+    ["FEASTA Revenue", financial.ledger.feastaRevenueInCentavos ?? financial.ledger.commissionNetMovementInCentavos],
+    ["FEASTA cancellation/platform fee", financial.ledger.feastaCancellationFeeInCentavos ?? 0],
+    ["Provider reservation compensation", financial.ledger.providerReservationCompInCentavos ?? 0],
     ["Provider tax before refunds", financial.ledger.providerVatAccruedInCentavos],
     ["Refunded provider tax", financial.ledger.providerVatReversedInCentavos],
     ["Provider tax after refunds", financial.ledger.providerVatNetMovementInCentavos],
@@ -244,6 +246,7 @@ function buildFinancialSheet(
     "Created", "Entry type", "Ledger entry ID", "Payment ID", "Provider ID",
     "Customer payment", "Refund", "FEASTA fees before refunds", "Refunded FEASTA fees",
     "Provider tax movement", "FEASTA tax movement", "Withholding movement",
+    "FEASTA cancellation/platform fee", "Provider reservation compensation",
   ]);
   for (const row of financial.ledgerRows) {
     const excelRow = sheet.addRow([
@@ -259,11 +262,13 @@ function buildFinancialSheet(
       (row.providerVatAccruedInCentavos - row.providerVatReversedInCentavos) / 100,
       (row.platformVatAccruedInCentavos - row.platformVatReversedInCentavos) / 100,
       (row.withholdingAccruedInCentavos - row.withholdingReversedInCentavos) / 100,
+      (row.feastaCancellationFeeEarnedInCentavos ?? 0) / 100,
+      (row.providerReservationCompInCentavos ?? 0) / 100,
     ]);
     excelRow.getCell(1).numFmt = "mmm d, yyyy h:mm AM/PM";
-    for (let column = 6; column <= 12; column += 1) excelRow.getCell(column).numFmt = currencyFormat();
+    for (let column = 6; column <= 14; column += 1) excelRow.getCell(column).numFmt = currencyFormat();
   }
-  addFilter(sheet, headerRow, 12);
+  addFilter(sheet, headerRow, 14);
   sheet.addRow([]);
   section(sheet, "Provider earnings created in this period", 10);
   headerRow = tableHeader(sheet, [

@@ -54,6 +54,8 @@ export type ProviderBookingService = {
 };
 
 export type ProviderBooking = {
+  automaticLifecycle?: boolean;
+  bookingPolicy?: import("@/lib/payments/booking-policy-v3-presentation").BookingPolicyPresentation | null;
   balanceEnforcement?: {label: string; explanation: string | null} | null;
   providerRequestId: string;
   mainEventId: string;
@@ -62,7 +64,8 @@ export type ProviderBooking = {
 
   providerRequestStatus: ProviderRequestStatus;
   mainEventStatus: MainEventStatus;
-  paymentStatus: PaymentStatus | null;
+  paymentStatus: PaymentStatus | "partially_paid" | "unpaid" | null;
+  canStartEvent?: boolean;
   requestType: ProviderRequestType;
 
   eventType: string;
@@ -84,7 +87,7 @@ export type ProviderBooking = {
   acceptedAmount: number | null;
   downPaymentAmount: number;
   paymentAmount: number | null;
-  remainingBalance: number;
+  remainingBalance: number | null;
   currency: string;
   payment: ProviderBookingPayment | null;
 

@@ -55,6 +55,10 @@ vi.mock("@/lib/customer/bookings/customer-refund-policy-client", async (importOr
 }));
 
 import {EventCustomizationExperience} from "@/components/customer/bookings/event-customization-experience";
+vi.mock("@/lib/customer/bookings/customer-booking-agreement", async () => {
+  const {bookingAgreementFixture} = await import("./booking-agreement-fixture");
+  return {getCustomerBookingPaymentAgreements: vi.fn(async (input: {providerId: string}) => [bookingAgreementFixture(input.providerId)])};
+});
 
 const PROVIDER_ID = "provider_primary_private_123";
 const PACKAGE_ID = "package_wedding_12345678";
@@ -428,11 +432,11 @@ describe("customer booking customization flow", () => {
       name: "Review the displayed cost before submission.",
     }).closest("section");
     expect(estimate).not.toBeNull();
-    expect(within(estimate as HTMLElement).getAllByText(/100,000/u).length).toBeGreaterThan(0);
-    expect(within(estimate as HTMLElement).queryByText(/180,000/u)).not.toBeInTheDocument();
+    expect(within(estimate as HTMLElement).getAllByText(/180,000/u).length).toBeGreaterThan(0);
+    expect(within(estimate as HTMLElement).queryByText(/100,000/u)).not.toBeInTheDocument();
     expect(screen.getAllByText(/180,000/u).length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole("checkbox", {name: /I have reviewed/u}));
+    for (const checkbox of await screen.findAllByRole("checkbox", {name: /I have reviewed/u})) await user.click(checkbox);
     await user.click(screen.getByRole("button", {name: "Submit booking request"}));
     await waitFor(() => expect(mocks.submitBooking).toHaveBeenCalledTimes(1));
     const payload = mocks.submitBooking.mock.calls[0][0] as Record<string, unknown>;
@@ -448,6 +452,42 @@ describe("customer booking customization flow", () => {
     expect(JSON.stringify(payload)).not.toContain("180000");
     expect(JSON.stringify(payload)).not.toContain("180,000");
     expect(JSON.stringify(payload)).not.toContain("Lanterns");
+  });
+
+  it("synchronizes 2000 and 5000 service estimates through tier changes and navigation", async () => {
+    const user = userEvent.setup();
+    const detail = detailFixture({serviceOptions: {
+      drop_off: {price: 2000, includedServices: ["Delivery"]},
+      buffet_setup: {price: 5000, includedServices: ["Setup"]},
+    }});
+    detail.packageRecord.price = 2000;
+    render(<EventCustomizationExperience detail={detail} eventServices={[]} />);
+    fillEventDetails();
+    expect(await screen.findByText("Maria's Catering is available")).toBeVisible();
+    await user.click(screen.getByRole("button", {name: "Continue"}));
+    const sidebar = screen.getByText("Your package").closest("aside")!;
+    await user.click(screen.getByRole("radio", {name: /Drop-Off Catering/u}));
+    expect(sidebar).toHaveTextContent("2,000");
+    await user.click(screen.getByRole("radio", {name: /Buffet Setup/u}));
+    expect(sidebar).toHaveTextContent("5,000");
+    expect(sidebar).not.toHaveTextContent("2,000");
+    expect(screen.getByText("selection").parentElement).toHaveTextContent("1 selection");
+    await user.click(screen.getByRole("radio", {name: /Drop-Off Catering/u}));
+    expect(sidebar).toHaveTextContent("2,000");
+    expect(sidebar).not.toHaveTextContent("5,000");
+    await user.click(screen.getByRole("radio", {name: /Buffet Setup/u}));
+    await user.click(screen.getByRole("button", {name: "Continue"}));
+    await user.click(screen.getByRole("button", {name: "Review booking"}));
+    expect(await screen.findByRole("heading", {name: "Review your booking request"})).toBeVisible();
+    const estimate = screen.getByRole("heading", {name: "Review the displayed cost before submission."}).closest("section")!;
+    expect(estimate).toHaveTextContent("5,000");
+    expect(estimate).not.toHaveTextContent("2,000");
+    expect(sidebar).toHaveTextContent("5,000");
+    await user.click(screen.getByRole("button", {name: "Back"}));
+    await user.click(screen.getByRole("button", {name: "Back"}));
+    expect(screen.getByRole("radio", {name: /Buffet Setup/u})).toBeChecked();
+    expect(sidebar).toHaveTextContent("5,000");
+    expect(sidebar).not.toHaveTextContent("2,000");
   });
 
   it("restores a draft against the current package and drops stale selections", async () => {

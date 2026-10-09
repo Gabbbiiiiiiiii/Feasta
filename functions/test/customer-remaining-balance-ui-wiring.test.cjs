@@ -98,7 +98,7 @@ test(
 
     assert.match(
       source,
-      /An overdue balance may still be payable/u,
+      /Payment options will appear when they are available/u,
     );
 
     assert.doesNotMatch(

@@ -302,7 +302,8 @@ async function cancellationOptions(
         "PAYMENT_RECONCILIATION_REQUIRED", null, policy, null);
     }
     const eligibility = requireRefundEligibilityState(providerRequest);
-    assertEligibilityLifecycleInvariant({providerRequestStatus: status, state: eligibility});
+    assertEligibilityLifecycleInvariant({providerRequestStatus: status, state: eligibility,
+      timingSchemaVersion: providerRequest.remainingBalanceTimingSchemaVersion});
     const cancellationEvidence = {
       policyEvidenceStatus:
         "policy_backed",

@@ -14,6 +14,7 @@ import {
   formatPaymentDate,
   formatPaymentType,
   paymentBookingLabel,
+  paymentReferenceLabel,
 } from "@/components/admin/payments/payment-formatters";
 import {
   PaymentStatusBadge,
@@ -39,12 +40,12 @@ function PaymentMobileCard({
         "border-border bg-card p-4",
         "shadow-card",
       ].join(" ")}
-      aria-label={`Payment ${payment.paymentId}`}
+      aria-label={`Payment ${paymentReferenceLabel(payment)}`}
     >
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate text-sm font-bold text-foreground">
-            {payment.paymentId}
+            {paymentReferenceLabel(payment)}
           </p>
 
           <p className="mt-1 truncate text-sm text-muted-foreground">
@@ -127,16 +128,12 @@ function PaymentMobileCard({
 
           <div className="min-w-0">
             <dt className="font-semibold text-muted-foreground">
-              {payment.status === "paid"
-                ? "Paid at"
-                : "Created at"}
+              Date
             </dt>
 
             <dd className="break-words font-medium">
               {formatPaymentDate(
-                payment.status === "paid"
-                  ? payment.paidAt
-                  : payment.createdAt,
+                payment.paidAt ?? payment.createdAt,
               )}
             </dd>
           </div>
@@ -159,7 +156,7 @@ function PaymentMobileCard({
         onClick={() =>
           onViewDetails(payment)
         }
-        aria-label={`View payment ${payment.paymentId} details`}
+        aria-label={`View payment ${paymentReferenceLabel(payment)} details`}
       >
         View details
       </Button>

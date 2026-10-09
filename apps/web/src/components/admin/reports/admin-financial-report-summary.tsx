@@ -24,7 +24,9 @@ export function AdminFinancialReportSummary({report}: {
       <FinancialCard label="Customer payments after refunds" amount={ledger.customerCashMovementInCentavos} />
       <FinancialCard label="FEASTA fees before refunds" amount={ledger.commissionAccruedInCentavos} />
       <FinancialCard label="Refunded FEASTA fees" amount={ledger.commissionReversedInCentavos} />
-      <FinancialCard label="FEASTA Revenue" amount={ledger.commissionNetMovementInCentavos} />
+      <FinancialCard label="FEASTA Revenue" amount={ledger.feastaRevenueInCentavos ?? ledger.commissionNetMovementInCentavos} />
+      <FinancialCard label="FEASTA cancellation/platform fee" amount={ledger.feastaCancellationFeeInCentavos ?? 0} />
+      <FinancialCard label="Provider reservation compensation" amount={ledger.providerReservationCompInCentavos ?? 0} />
     </div>
     <p className="text-xs text-muted-foreground">FEASTA Revenue is before payment processing costs.</p>
     {hasVat ? <div className="grid gap-4 sm:grid-cols-2">

@@ -1,4 +1,11 @@
 import {loadBookingPaymentPolicySnapshot} from "./load-booking-payment-policy.js";
+import {evaluateSubmissionPaymentEligibility} from "../payments/initial-payment-eligibility.js";
+import {bookingPolicyV3Evidence} from "./booking-policy-v3.js";
+import {
+  buildBookingPaymentAgreement,
+  bookingPaymentAgreementDisclosure,
+  assertBookingPaymentAgreementAcknowledgements,
+} from "./booking-payment-agreement.js";
 import {createHash} from "node:crypto";
 
 import {getAuth} from "firebase-admin/auth";
@@ -9,6 +16,7 @@ import {
 import {
   HttpsError,
   onCall,
+  type CallableRequest,
 } from "firebase-functions/v2/https";
 
 import {
@@ -157,19 +165,34 @@ export const submitBookingRequest = onCall(
     ...appCheckCallableOptions,
     timeoutSeconds: 30,
   },
-  async (request) => {
+  (request) => handleBookingSelection(request, false),
+);
+
+export const getBookingPaymentAgreementDisclosures = onCall(
+  {...appCheckCallableOptions, timeoutSeconds: 30},
+  (request) => handleBookingSelection(request, true),
+);
+
+async function handleBookingSelection(request: CallableRequest, disclosureOnly: boolean) {
     const actor = requireAuth(request);
 
     await requireRole(actor.uid, ["customer"]);
 
     await enforceCallableRateLimit(request, {
-      scope: "bookings.submit",
-      limit: 8,
+      scope: disclosureOnly ? "bookings.paymentAgreementDisclosure" : "bookings.submit",
+      limit: disclosureOnly ? 30 : 8,
       windowSeconds: 10 * 60,
     });
 
     try {
       const input = asRecord(request.data);
+      const selectionFields = new Set(["clientRequestId", "providerId", "packageId", "cateringSelectionType",
+        "serviceTier", "packageThemeId", "eventType", "eventDate", "eventTime", "eventEndTime", "eventLocation", "eventAddress",
+        "guestCount", "selectedFoods", "selectedDecorations", "selectedFurniture", "menuSelections", "addonIds", "specialRequest",
+        "willArrangeOwnAddOns", "customerArrangedAddOnsNote", "policyAcknowledgements", "agreementAcknowledgements"]);
+      if (Object.keys(input).some(field => !selectionFields.has(field))) {
+        throw new HttpsError("invalid-argument", "Booking selection contains unsupported fields.");
+      }
 
       rejectClientBookingFinancialAuthority(
         input,
@@ -696,6 +719,16 @@ export const submitBookingRequest = onCall(
           const bookingPaymentPolicySnapshot = cateringSelectionType === "package"
             ? await loadBookingPaymentPolicySnapshot({transaction, packageId, packageData})
             : null;
+          const submissionEligibility = evaluateSubmissionPaymentEligibility({eventDate, eventTime,
+            submissionTime, packagePaymentTerms, bookingPaymentPolicySnapshot});
+          const canonicalPolicyEvidence = {...bookingPolicyV3Evidence(submissionEligibility.eventStartAt, Timestamp.fromDate),
+            lifecycleNextTransitionAt: null, remainingBalanceNextCheckAt: null};
+          const initialPaymentEligibilityEvidence = {
+            initialPaymentEligibilitySchemaVersion: 2,
+            initialPaymentEligibility: {...submissionEligibility,
+              evaluatedAt: Timestamp.fromDate(submissionTime), submittedAt: Timestamp.fromDate(submissionTime),
+              eventStartAt: Timestamp.fromDate(submissionEligibility.eventStartAt)},
+          };
 
           const packageDownPaymentPercentage =
             packagePaymentTerms.depositRateBps / 100;
@@ -973,10 +1006,7 @@ export const submitBookingRequest = onCall(
               ProviderRequestRefundPolicyEvidence<FieldValue>
             >();
 
-          if (
-            refundPolicyRolloutMode ===
-              "required"
-          ) {
+          if (refundPolicyRolloutMode === "required") {
             const relationships:
               BookingRefundPolicyRelationship[] = [
                 {
@@ -1017,7 +1047,7 @@ export const submitBookingRequest = onCall(
                 relationships,
               );
 
-            assertRefundPolicyAcknowledgements(
+            if (!disclosureOnly) assertRefundPolicyAcknowledgements(
               policies,
               policyAcknowledgements,
             );
@@ -1114,6 +1144,68 @@ export const submitBookingRequest = onCall(
             ...marketplaceAddOnsByProvider
               .entries(),
           ];
+
+          const agreements = [
+            buildBookingPaymentAgreement({customerId: actor.uid, providerId: cateringProviderId,
+              providerName: stringValue(cateringProvider.businessName),
+              serviceNames:
+                cateringServices.map(
+                  (service) => service.name,
+                ),
+
+              serviceTierLabel:
+                resolvedPackageOffer
+                  .selection
+                  .serviceTierLabel ??
+                null,
+              selection: {cateringSelectionType, packageId, services: cateringServices,
+                offer: resolvedPackageOffer.selection, guestCount: resolvedGuestCount,
+                selectedFoods, selectedDecorations, selectedFurniture},
+              eventStartAt: submissionEligibility.eventStartAt, eventEndTime,
+              grossAmountInCentavos: Math.round(cateringSubtotal * 100),
+              requiredUpfrontAmountInCentavos: Math.round(cateringDownPaymentAmount * 100),
+              depositEligible: submissionEligibility.depositEligible,
+              eligibilityReason: submissionEligibility.reason,
+              paymentPolicy: {packagePaymentTerms, bookingPaymentPolicySnapshot},
+              refundPolicy: refundPolicyEvidence.get(cateringProviderId)?.refundPolicySnapshot ?? null}),
+            ...marketplaceRequestEntries.map(([providerId, addons]) => buildBookingPaymentAgreement({
+              customerId: actor.uid, providerId, providerName: marketplaceProviders.get(providerId)!.businessName,
+              serviceNames:
+                addons
+                  .map(serviceFromAddOn)
+                  .map(
+                    (service) =>
+                      service.name,
+                  ),
+
+              serviceTierLabel: null,
+              selection: {services: addons.map(serviceFromAddOn)}, eventStartAt: submissionEligibility.eventStartAt,
+              eventEndTime, grossAmountInCentavos: Math.round(calculateServiceTotal(addons.map(serviceFromAddOn)) * 100),
+              requiredUpfrontAmountInCentavos: Math.round(calculateServiceTotal(addons.map(serviceFromAddOn)) * 100),
+              depositEligible: false, paymentPolicy: {paymentPolicy: "full_payment"},
+              refundPolicy: refundPolicyEvidence.get(providerId)?.refundPolicySnapshot ?? null})),
+          ];
+          if (disclosureOnly) {
+            return {
+              bookingId,
+              mainEventId:
+                bookingId,
+
+              providerRequestIds: [],
+
+              created: false,
+
+              agreements:
+                agreements.map(
+                  bookingPaymentAgreementDisclosure,
+                ),
+            };
+          }
+          assertBookingPaymentAgreementAcknowledgements(agreements, input.agreementAcknowledgements);
+          const frozenAgreement = (providerId: string) => ({bookingPaymentAgreement: {
+            ...agreements.find(agreement => agreement.providerId === providerId)!,
+            agreedAt: Timestamp.fromDate(submissionTime),
+          }});
 
           for (
             const [
@@ -1316,6 +1408,9 @@ export const submitBookingRequest = onCall(
               ...resolvedPackageOffer.selection,
 
               packagePaymentTerms,
+              ...initialPaymentEligibilityEvidence,
+              ...canonicalPolicyEvidence,
+              ...frozenAgreement(cateringProviderId),
               ...(bookingPaymentPolicySnapshot ? {
                 bookingPaymentPolicySnapshot,
                 bookingPaymentPolicyCapturedAt: serverTimestamp(),
@@ -1461,6 +1556,8 @@ export const submitBookingRequest = onCall(
               ...resolvedPackageOffer.selection,
 
               packagePaymentTerms,
+              ...initialPaymentEligibilityEvidence,
+              ...canonicalPolicyEvidence,
               ...(bookingPaymentPolicySnapshot ? {
                 bookingPaymentPolicySnapshot,
                 bookingPaymentPolicyCapturedAt: serverTimestamp(),
@@ -1623,6 +1720,8 @@ export const submitBookingRequest = onCall(
                     .businessName,
 
                 type: "addon",
+                ...canonicalPolicyEvidence,
+                ...frozenAgreement(marketplaceProvider.providerId),
                 packageId: null,
                 packageName: null,
 
@@ -1756,8 +1855,7 @@ export const submitBookingRequest = onCall(
         "Unable to submit booking.",
       );
     }
-  },
-);
+}
 
 function parseCateringSelectionType(
   value: unknown,

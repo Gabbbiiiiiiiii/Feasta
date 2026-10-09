@@ -50,7 +50,7 @@ it.each(Object.keys(adminBookingStatusLabels))("queries the exact booking status
   expect(list().conditions).toContainEqual(["status", "==", status]);
 });
 
-it.each(Object.keys(adminBookingPaymentLabels).filter(value => value !== "partially_refunded"))(
+it.each(Object.keys(adminBookingPaymentLabels).filter(value => !["partially_refunded", "unavailable"].includes(value)))(
   "queries the persisted booking payment status %s", async paymentStatus => {
     await getAdminBookingPage({...filters, paymentStatus: paymentStatus as AdminBookingFilters["paymentStatus"]});
     expect(list().conditions).toContainEqual(["paymentStatus", "==", paymentStatus]);

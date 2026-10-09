@@ -9,8 +9,9 @@ import {requireProviderRequestDocuments, requireActiveProviderRequest} from "../
 import {classifyProviderRequestRefundPolicyEvidence, requireRefundEligibilityState} from "../bookings/booking-refund-policy.js";
 import {legacyActiveCancellationRequestId} from "../cancellations/refund-cancellation-domain.js";
 import {executeRefund} from "../refunds/refund-execution.js";
-import {reserveSystemDepositRefund, settledDepositRefundEvidence, SYSTEM_BALANCE_REFUND_SOURCE} from "../refunds/system-balance-deadline-refund.js";
-import {frozenCanonicalBalanceTiming} from "./canonical-balance-timing.js";
+import {reserveSystemDepositRefund, settledDepositRefundEvidence, preflightPaymentDefaultAccounting,
+  SYSTEM_BALANCE_REFUND_SOURCE} from "../refunds/system-balance-deadline-refund.js";
+import {remainingBalanceHardDeadline} from "./canonical-balance-timing.js";
 import {readTrustedProviderRequestPaymentSetInTransaction} from "./provider-request-payment-reader.js";
 import {readBalanceDeadlineAttempt} from "./remaining-balance-enforcement-reader.js";
 import {balanceDeadlineCancellationId, type BalanceEnforcement, type BalanceEnforcementStatus,
@@ -22,8 +23,9 @@ export async function evaluateRemainingBalanceEnforcement(providerRequestId: str
   return db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(ref);
     const request = snapshot.data();
-    if (!request || request.remainingBalanceTimingSchemaVersion !== 2 || request.initialPaymentChoice !== "minimum") return null;
-    const {dueAt} = frozenCanonicalBalanceTiming(request);
+    if (!request || ![2, 3].includes(Number(request.remainingBalanceTimingSchemaVersion)) || request.initialPaymentChoice !== "minimum") return null;
+    const v3 = request.remainingBalanceTimingSchemaVersion === 3;
+    const dueAt = remainingBalanceHardDeadline(request);
     if (now < dueAt) return null;
     const old = request.remainingBalanceEnforcement as BalanceEnforcement | undefined;
     if (request.status === "cancelled") {
@@ -35,10 +37,13 @@ export async function evaluateRemainingBalanceEnforcement(providerRequestId: str
       paymentId: string | null = null, checkoutAttemptId: string | null = null,
       cancellationRequestId: string | null = null, refundId: string | null = null) => {
       const state: BalanceEnforcement<Timestamp> = {status, reason, dueAt: Timestamp.fromDate(dueAt),
+        ...(v3 ? {hardPaymentDeadlineAt: Timestamp.fromDate(dueAt)} : {}),
         evaluatedAt: Timestamp.fromDate(now), paymentId, checkoutAttemptId, cancellationRequestId, refundId};
       if (request.remainingBalanceEnforcementSchemaVersion === 1 && old?.status === status && old.reason === reason &&
         old.paymentId === paymentId && old.checkoutAttemptId === checkoutAttemptId) return;
       transaction.update(ref, {remainingBalanceEnforcementSchemaVersion: 1, remainingBalanceEnforcement: state,
+        ...(v3 ? {remainingBalanceNextCheckAt: status === "clear" ? null : Timestamp.fromMillis(now.getTime() + 60_000),
+          lifecycleNextTransitionAt: status === "clear" ? Timestamp.fromDate(now) : request.lifecycleNextTransitionAt ?? null} : {}),
         updatedAt: serverTimestamp(), ...(status === "clear" ? {remainingBalanceStatus: "paid"} : {})});
       writeAuditLogInTransaction(transaction, {actorId: "feasta", actorRole: "system",
         action: "payment.remaining_balance_enforcement", targetCollection: "providerRequests", targetId: providerRequestId,
@@ -59,6 +64,7 @@ export async function evaluateRemainingBalanceEnforcement(providerRequestId: str
     let summary: ReturnType<typeof calculateMainEventRequestSummary>;
     let parentStatus: NonNullable<ReturnType<typeof parseMainEventStatus>>;
     let parentRef: FirebaseFirestore.DocumentReference;
+    let terminalAttempt = false;
     try {
       parentRef = db.collection("mainEvents").doc(request.mainEventId);
       const [parent, requests, provider] = await Promise.all([
@@ -84,18 +90,20 @@ export async function evaluateRemainingBalanceEnforcement(providerRequestId: str
         record("reconciliation_required", "gateway_terminal_outcome_unproven", old.paymentId, old.checkoutAttemptId);
         return null;
       }
-      if (attempt.kind !== "none") {
-        const held = attempt.kind === "existing" && old?.status !== "reconciliation_required";
+      if (attempt.kind !== "none" && attempt.kind !== "terminal_unsuccessful") {
+        const held = attempt.kind === "existing" && (v3 || old?.status !== "reconciliation_required");
         record(held ? "on_hold" : "reconciliation_required",
           held ? "payment_in_flight_at_deadline" : "gateway_terminal_outcome_unproven",
           attempt.paymentId, attempt.checkoutAttemptId);
         return null;
       }
+      terminalAttempt = attempt.kind === "terminal_unsuccessful";
       const policy = classifyProviderRequestRefundPolicyEvidence(request);
       if (policy.status === "invalid" || (policy.status === "policy_backed"
         ? requireRefundEligibilityState(request).activeCancellationRequestId : legacyActiveCancellationRequestId(request)) !== null ||
         request.approvedCancellationRequestId != null) throw new Error("Cancellation already active.");
       evidence = settledDepositRefundEvidence({providerRequestId, providerRequest: request, paymentSet});
+      await preflightPaymentDefaultAccounting({transaction, providerRequestId, providerRequest: request, evidence});
       const parsed = parseMainEventStatus(mainEvent.status);
       if (!parsed) throw new Error("Invalid event status.");
       parentStatus = parsed;
@@ -111,17 +119,31 @@ export async function evaluateRemainingBalanceEnforcement(providerRequestId: str
     // webhook settlement force a fresh decision instead of cancelling settled money.
     const refundId = await reserveSystemDepositRefund({transaction, cancellationRequestId, providerRequestId,
       providerRequest: request, evidence});
-    record("cancellation_pending", "balance_unpaid_no_attempt", evidence.paymentId, null, cancellationRequestId, refundId);
+    record("cancellation_pending", terminalAttempt ? "balance_payment_terminal_unsuccessful" : "balance_unpaid_no_attempt",
+      evidence.paymentId, null, cancellationRequestId, refundId);
     transaction.update(ref, {status: "cancelled", cancelledAt: serverTimestamp(), statusUpdatedAt: serverTimestamp(),
       cancellationReason: "remaining_balance_unpaid_at_deadline", cancellationSource: SYSTEM_BALANCE_REFUND_SOURCE,
       cancellationActor: "system", approvedCancellationRequestId: cancellationRequestId, latestCancellationRequestId: cancellationRequestId,
+      ...(v3 ? {remainingCollectibleAmountInCentavos: 0, remainingBalanceStatus: "cancelled",
+        lifecycleNextTransitionAt: null} : {}),
       updatedAt: serverTimestamp()});
     transaction.update(parentRef!, {...summary!, updatedAt: serverTimestamp(),
       ...(summary!.status !== parentStatus! ? {statusUpdatedAt: serverTimestamp()} : {})});
     createNotificationWithIdInTransaction(transaction, `${cancellationRequestId}_provider_cancelled`, {
-      userId: request.providerOwnerId, title: "Cancelled · Payment Incomplete",
-      message: "This Provider service was cancelled because no remaining-balance payment was started by the deadline.",
+      userId: request.providerOwnerId, title: "Booking cancelled - payment incomplete",
+      message: v3 ? `The booking was automatically cancelled because the Customer's remaining balance was not settled by the deadline. Reservation compensation: ${new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"}).format(paymentDefaultAllocation(evidence.amountInCentavos).providerReservationCompAmountInCentavos / 100)}; subject to refund completion.`
+        : "This Provider service was cancelled because no remaining-balance payment was started by the deadline.",
       type: "booking", relatedId: providerRequestId, relatedCollection: "providerRequests",
+    });
+    if (v3) createNotificationWithIdInTransaction(transaction, `${cancellationRequestId}_customer_cancelled`, {
+      userId: request.customerId, title: "Booking automatically cancelled",
+      message: `Your booking was automatically cancelled because the remaining balance was not settled by the payment deadline. Your refund of ${new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"}).format(paymentDefaultAllocation(evidence.amountInCentavos).customerDefaultRefundAmountInCentavos / 100)} is being processed.`,
+      type: "booking", relatedId: providerRequestId, relatedCollection: "providerRequests",
+    });
+    if (v3) transaction.create(parentRef!.collection("timeline").doc(`v3_default_${providerRequestId}`), {
+      type: "payment_default_cancelled", title: "Final payment deadline missed - booking automatically cancelled",
+      description: "The remaining balance was not settled by the final payment deadline. Refund processing.",
+      providerRequestId, providerId: request.providerId, createdAt: serverTimestamp(), createdByRole: "system", status: "cancelled",
     });
     return cancellationRequestId;
   });
@@ -133,3 +155,4 @@ export async function enforceRemainingBalanceDeadline(providerRequestId: string,
   if (!cancellationRequestId) return;
   await executeRefund({cancellationRequestId, actorId: "feasta"});
 }
+import {paymentDefaultAllocation} from "../bookings/booking-policy-v3.js";

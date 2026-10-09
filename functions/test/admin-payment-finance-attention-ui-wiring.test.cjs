@@ -62,7 +62,7 @@ test(
   () => {
     assert.match(
       attention,
-      /Payment issues/u,
+      /Provider payout issues/u,
     );
 
     assert.match(
@@ -77,7 +77,7 @@ test(
 
     assert.match(
       attention,
-      /Review reason/u,
+      /label="Recorded reason" value=\{item\.reason \?\? "No additional reason was recorded\."\}/u,
     );
   },
 );
@@ -186,7 +186,7 @@ test(
 
     assert.match(
       attention,
-      /did not pass validation[\s\S]*Refresh Payment issues/u,
+      /did not pass validation[\s\S]*Refresh Provider payout issues/u,
     );
   },
 );

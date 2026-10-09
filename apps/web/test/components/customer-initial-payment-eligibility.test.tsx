@@ -14,6 +14,19 @@ const request = (extra = {}) => ({status: "waiting_for_down_payment", paymentSta
 const options = (value: Record<string, unknown>) => customerBookingCheckoutOptions("request_test", value, "waiting_for_down_payment");
 
 describe("frozen initial-payment eligibility projection", () => {
+  it("reads submission v2 and explains the 72-hour submission cutoff", () => {
+    const submittedAt = "2026-10-13T10:00:01.000Z";
+    const evidence = {...eligibility("full_only", 72).initialPaymentEligibility,
+      authorityTimeSource: "booking_submission", submittedAt, evaluatedAt: submittedAt};
+    const saved = request({initialPaymentEligibilitySchemaVersion: 2, initialPaymentEligibility: evidence});
+    expect(options(saved)).toEqual([{choice: "full", amount: 1000}]);
+    expect(customerInitialPaymentExplanation(saved)).toBe(
+      "Full payment is required because the booking was submitted fewer than 3 days before the event.",
+    );
+    expect(options({...saved, acceptedAt: "2026-10-15T09:59:59.000Z"})).toEqual(options(saved));
+    expect(options({...saved, initialPaymentEligibility: {...evidence,
+      authorityTimeSource: "browser"}})).toEqual([]);
+  });
   it("uses correctly spaced saved payment policy wording", () => {
     expect(customerInitialPaymentExplanation(request({initialPaymentEligibilitySchemaVersion: 1,
       initialPaymentEligibility: {mode: "full_only", reason: "deposit_disabled", depositAllowed: false,

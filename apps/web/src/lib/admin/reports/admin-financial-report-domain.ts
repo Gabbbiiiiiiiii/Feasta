@@ -15,6 +15,8 @@ export function summarizeAdminFinancialLedger(
 ): AdminFinancialLedgerSummary {
   let paymentSettlementCount = 0;
   let completedRefundCount = 0;
+  let defaultFee = 0;
+  let reservationComp = 0;
 
   let grossCollected = 0;
   let completedRefunds = 0;
@@ -38,7 +40,7 @@ export function summarizeAdminFinancialLedger(
     ) {
       paymentSettlementCount +=
         1;
-    } else {
+    } else if (row.entryType === "refund_completed") {
       completedRefundCount +=
         1;
     }
@@ -48,6 +50,8 @@ export function summarizeAdminFinancialLedger(
         grossCollected,
         row.grossAmountInCentavos,
       );
+    defaultFee = addMoney(defaultFee, row.feastaCancellationFeeEarnedInCentavos ?? 0);
+    reservationComp = addMoney(reservationComp, row.providerReservationCompInCentavos ?? 0);
 
     completedRefunds =
       addMoney(
@@ -105,6 +109,9 @@ export function summarizeAdminFinancialLedger(
   }
 
   return {
+    feastaCancellationFeeInCentavos: defaultFee,
+    providerReservationCompInCentavos: reservationComp,
+    feastaRevenueInCentavos: subtractMoney(commissionAccrued, commissionReversed) + defaultFee,
     paymentSettlementCount,
     completedRefundCount,
 

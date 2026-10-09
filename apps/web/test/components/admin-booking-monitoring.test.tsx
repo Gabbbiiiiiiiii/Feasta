@@ -48,7 +48,7 @@ describe("booking status filters", () => {
   });
 });
 
-it.each(Object.entries(adminBookingPaymentLabels).filter(([value]) => value !== "partially_refunded"))(
+it.each(Object.entries(adminBookingPaymentLabels).filter(([value]) => !["partially_refunded", "unavailable"].includes(value)))(
   "passes payment %s unchanged and displays %s", async (value, label) => {
     show();
     expect(within(screen.getByLabelText("Payment status")).getByRole("option", {name: label})).toHaveValue(value);

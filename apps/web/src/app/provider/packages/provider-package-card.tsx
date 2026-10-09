@@ -1,3 +1,4 @@
+import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
 import {Archive, Edit3, Send, Users} from "lucide-react";
 import {Button} from "@/components/ui/button";
 import {ImagePlaceholder} from "@/components/shared/image-placeholder";
@@ -25,15 +26,7 @@ export function ProviderPackageCard({item, onEdit, onPublish, onArchive}: {
       <p className="text-xs font-semibold uppercase text-primary-strong">{humanize(item.eventType)}</p>
       <p className="flex items-center gap-2 text-sm text-muted-foreground"><Users aria-hidden="true" className="size-4 shrink-0" />{item.minimumGuests}–{item.maximumGuests} guests</p>
       <PriceDisplay amount={item.price} />
-      <p className="text-xs text-muted-foreground">
-        {item.paymentPolicy ===
-        "full_payment"
-          ? "Full Payment. Customers pay the full amount after you accept their booking request."
-          : item.paymentPolicy ===
-            "deposit_then_balance"
-            ? `${item.depositPercentage}% deposit ? Balance due 24 hours before scheduled event start`
-            : `Legacy payment terms · ${item.downPaymentPercentage}% down payment`}
-      </p>
+      <PackagePaymentTerms source={item} />
     </div>
     {item.status !== "archived" ? <div className="flex flex-wrap items-center gap-1 border-t border-border p-2">
       {item.status === "draft" ? <>

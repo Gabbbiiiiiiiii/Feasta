@@ -14,6 +14,7 @@ export const adminBookingStatusLabels: Record<MainEventStatus, string> = {
 };
 
 export const adminBookingPaymentLabels: Record<AdminBookingOverallPaymentStatus | PaymentStatus, string> = {
+  unavailable: "Unavailable",
   unpaid: "Unpaid",
   pending: "Preparing payment checkout",
   processing: "Awaiting payment confirmation",

@@ -4,7 +4,6 @@ import type {CustomerPaymentChoice} from "@feasta/shared-types";
 
 import {
   CalendarDays,
-  CreditCard,
   Info,
   MapPin,
   Users,
@@ -21,7 +20,7 @@ import {
   formatCount,
   formatCurrency,
 } from "@/components/customer/bookings/booking-formatters";
-import {customerPaymentChoiceActionLabel} from "@/lib/payments/customer-payment-presentation";
+import {CustomerBookingPaymentAction} from "./customer-booking-payment-action";
 import {CustomerBookingProviderRequestCard} from "@/components/customer/bookings/customer-booking-provider-request-card";
 import {DetailDrawer} from "@/components/data/detail-drawer";
 import {
@@ -34,7 +33,6 @@ import type {
   CustomerBooking,
   CustomerBookingDetails,
 } from "@/lib/customer/bookings/customer-booking-types";
-import {canStartCustomerBookingPayment} from "@/lib/customer/bookings/customer-booking-payment";
 import {
   createCustomerPaymentCheckout,
   redirectToCustomerPaymentCheckout,
@@ -242,7 +240,7 @@ function BookingDetailsContent({
         </div>
         <p className="flex min-w-0 items-start gap-2 text-xs leading-5 text-muted-foreground">
           <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-          <span>Each provider request is paid separately. Available payment options are based on the payment terms saved with that request.</span>
+          <span>View the available payment options for each service below.</span>
         </p>
       </section>
 
@@ -250,14 +248,14 @@ function BookingDetailsContent({
         <div className="flex min-w-0 items-end justify-between gap-3">
           <div>
           <h2 id="customer-provider-requests-heading" className="text-lg font-black">
-            Provider requests
+            {providerRequests.length === 1 ? "Booked service" : "Booked services"}
           </h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Each provider responds and handles payment independently.
+            Review your services and their next steps.
           </p>
           </div>
           <span className="shrink-0 rounded-full bg-primary-tint px-2.5 py-1 text-xs font-bold text-primary">
-            {formatCount(providerRequests.length)} {providerRequests.length === 1 ? "request" : "requests"}
+            {formatCount(providerRequests.length)} {providerRequests.length === 1 ? "service" : "services"}
           </span>
         </div>
 
@@ -278,45 +276,13 @@ function BookingDetailsContent({
                 key={request.id}
                 request={request}
                 compact
-                paymentAction={canStartCustomerBookingPayment(request, booking.id) ? (
-                  <div className="grid gap-2 border-t border-border pt-4">
-                    {request.checkoutOptions.length === 1 && request.checkoutOptions[0]?.choice === "full" ? (
-                      <p className="text-sm font-bold">Full Payment</p>
-                    ) : null}
-                    {request.checkoutOptions.length === 1 && request.checkoutOptions[0]?.choice === "full" && request.initialPaymentExplanation ? (
-                      <p className="text-xs leading-5 text-muted-foreground">{request.initialPaymentExplanation}</p>
-                    ) : null}
-                    {request.checkoutOptions.some((option) => option.choice === "minimum") &&
-                    request.checkoutOptions.some((option) => option.choice === "full") ? (
-                      <p className="text-xs leading-5 text-muted-foreground">
-                        Pay the minimum required amount now, or pay this Provider request in full.
-                      </p>
-                    ) : null}
-                    {request.checkoutOptions.map((option) => <Button
-                      key={option.choice}
-                      fullWidth
-                      loading={
-                        paymentRequestId === request.providerRequestId &&
-                        paymentRequestChoice === option.choice
-                      }
-                      loadingLabel="Creating secure checkout"
-                      disabled={paymentRequestId !== null}
-                      onClick={() => onPay(request.providerRequestId, option.choice)}
-                    >
-                      <CreditCard aria-hidden="true" className="size-5" />
-                      Pay {customerPaymentChoiceActionLabel(option.choice)} {formatCurrency(option.amount)}
-                    </Button>)}
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      Payment is completed on PayMongo. Your booking updates only after FEASTA verifies the payment.
-                    </p>
-                  </div>
-                ) : undefined}
+                paymentAction={<CustomerBookingPaymentAction request={request} bookingId={booking.id} paymentRequestId={paymentRequestId} paymentRequestChoice={paymentRequestChoice} onPay={onPay} />}
               />
             ))}
           </div>
         ) : (
           <p className="rounded-card border border-dashed border-border p-5 text-center text-sm text-muted-foreground">
-            No provider requests are attached to this booking.
+            No services are attached to this booking.
           </p>
         )}
       </section>

@@ -35,6 +35,7 @@ import {
   formatPaymentDate,
   formatPaymentType,
   paymentBookingLabel,
+  paymentReferenceLabel,
 } from "@/components/admin/payments/payment-formatters";
 import {
   PaymentIssueBadges,
@@ -42,10 +43,6 @@ import {
 import {
   PaymentMobileCard,
 } from "@/components/admin/payments/payment-mobile-card";
-
-import {
-  PaymentRefundDialog,
-} from "@/components/admin/payments/payment-refund-dialog";
 
 import {
   PaymentStatusBadge,
@@ -147,12 +144,6 @@ function PaymentMonitoringClient({
     useState<AdminPaymentDetails | null>(
       null,
     );
-
-  const [refundPayment, setRefundPayment] =
-    useState<AdminPayment | null>(null);
-
-  const [refundDialogOpen, setRefundDialogOpen] =
-    useState(false);
 
   const [drawerOpen, setDrawerOpen] =
     useState(false);
@@ -277,7 +268,7 @@ function PaymentMonitoringClient({
         !item.expectedUpdatedAtMillis
       ) {
         setAttentionError(
-          "This payout recovery case is no longer safe to repair. Refresh Payment issues.",
+          "This payout setup issue is no longer safe to repair. Refresh Provider payout issues.",
         );
         return;
       }
@@ -416,99 +407,6 @@ function PaymentMonitoringClient({
       }
     }, []);
 
-    const openRefundDialog = useCallback(
-  (payment: AdminPayment) => {
-    if (
-      !payment.refundEligibility
-        .eligible
-    ) {
-      return;
-    }
-
-    setRefundPayment(payment);
-    setRefundDialogOpen(true);
-  },
-  [],
-);
-
-const handleRefundDialogOpenChange =
-  useCallback((open: boolean) => {
-    setRefundDialogOpen(open);
-
-    if (!open) {
-      setRefundPayment(null);
-    }
-  }, []);
-
-const handleRefundRequested =
-  useCallback(
-    (payment: AdminPayment) => {
-      const requestId =
-        ++detailsRequestId.current;
-
-      setDetailsLoading(true);
-      setDetailsError(undefined);
-
-      void loadAdminPaymentDetailsAction(
-        payment.id,
-      )
-        .then((result) => {
-          if (
-            detailsRequestId.current !==
-            requestId
-          ) {
-            return;
-          }
-
-          const refreshedPayment =
-            result.details.payment;
-
-          setPaymentDetails(
-            result.details,
-          );
-
-          setSelectedPayment(
-            refreshedPayment,
-          );
-
-          setPage((currentPage) => ({
-            ...currentPage,
-            payments:
-              currentPage.payments.map(
-                (currentPayment) =>
-                  currentPayment.id ===
-                  refreshedPayment.id
-                    ? refreshedPayment
-                    : currentPayment,
-              ),
-          }));
-        })
-        .catch((caughtError: unknown) => {
-          if (
-            detailsRequestId.current !==
-            requestId
-          ) {
-            return;
-          }
-
-          setDetailsError(
-            errorMessage(
-              caughtError,
-            ),
-          );
-        })
-        .finally(() => {
-          if (
-            detailsRequestId.current ===
-            requestId
-          ) {
-            setDetailsLoading(false);
-          }
-        });
-    },
-    [],
-  );
-
   const columns = useMemo<
     readonly DataTableColumn<AdminPayment>[]
   >(
@@ -518,8 +416,8 @@ const handleRefundRequested =
         header: "Payment",
         cell: (payment) => (
           <div className="min-w-0">
-            <p className="break-all font-mono text-xs font-bold">
-              {payment.paymentId}
+            <p className="break-words text-sm font-semibold">
+              {paymentReferenceLabel(payment)}
             </p>
 
             <p className="mt-1 text-xs text-muted-foreground">
@@ -541,11 +439,7 @@ const handleRefundRequested =
               )}
             </p>
 
-            {payment.providerRequestId ? (
-              <p className="mt-1 max-w-48 truncate font-mono text-xs text-muted-foreground">
-                {payment.providerRequestId}
-              </p>
-            ) : null}
+
           </div>
         ),
       },
@@ -585,7 +479,7 @@ const handleRefundRequested =
       },
       {
         id: "createdAt",
-        header: "Transaction date",
+        header: "Date",
         sortable: true,
         cell: (payment) => (
           <span className="whitespace-nowrap text-sm">
@@ -598,7 +492,7 @@ const handleRefundRequested =
       },
       {
         id: "issues",
-        header: "Record issue",
+        header: "Issue",
         cell: (payment) =>
           payment.issues.length > 0 ? (
             <PaymentIssueBadges
@@ -606,7 +500,7 @@ const handleRefundRequested =
             />
           ) : (
             <span className="text-sm text-muted-foreground">
-              No detected issues
+              No issues
             </span>
           ),
       },
@@ -652,16 +546,16 @@ const handleRefundRequested =
       <PageHeading
         eyebrow="Administration"
         title="Payments"
-        description="View customer payments, provider payouts, refunds, and payment issues."
+        description="View payments, refunds, and provider payouts."
       />
 
             <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Payment statistics"
       >
         <SummaryCard
-          label="Currently paid amount"
-          supportingMetric="Payments currently marked paid"
+          label="Paid amount"
+          supportingMetric="Amount retained after completed refunds"
           value={
             page.statistics
               .confirmedVolumeFormatted
@@ -696,29 +590,7 @@ const handleRefundRequested =
           loading={isPending}
         />
 
-        <SummaryCard
-          label="Failed provider payouts"
-          value={
-            page.statistics
-              .failedPayoutCount
-          }
-          icon={
-            <CircleAlert className="size-5" />
-          }
-          loading={isPending}
-        />
 
-        <SummaryCard
-          label="Payments to review"
-          value={
-            page.statistics
-              .reconciliationRequiredCount
-          }
-          icon={
-            <CircleAlert className="size-5" />
-          }
-          loading={isPending}
-        />
 
         <SummaryCard
           label="Refunded amount"
@@ -734,6 +606,7 @@ const handleRefundRequested =
       </section>
 
       <PaymentFinanceAttention
+        statistics={page.statistics}
         queue={attentionQueue}
         loading={attentionLoading}
         error={attentionError}
@@ -799,6 +672,9 @@ const handleRefundRequested =
               <option value="refunded">
                 Refunded
               </option>
+              <option value="partially_refunded">
+                Partially refunded
+              </option>
             </FilterSelect>
 
             <FilterSelect
@@ -816,16 +692,16 @@ const handleRefundRequested =
                 All payment types
               </option>
               <option value="provider_down_payment">
-                Provider down payment
+                Down payment
               </option>
               <option value="provider_balance">
-                Provider balance
+                Remaining balance
               </option>
               <option value="refund">
                 Refund
               </option>
               <option value="adjustment">
-                Adjustment
+                Payment adjustment
               </option>
             </FilterSelect>
 
@@ -855,7 +731,7 @@ const handleRefundRequested =
             </FilterSelect>
 
             <FilterSelect
-              label="Record review"
+              label="Review status"
               value={filters.issue}
               disabled={isPending}
               onChange={(value) =>
@@ -867,15 +743,15 @@ const handleRefundRequested =
               }
             >
               <option value="all">
-                All records
+                All
               </option>
 
               <option value="with_issues">
-                With detected issues
+                Needs review
               </option>
 
               <option value="without_issues">
-                Without detected issues
+                No issues
               </option>
             </FilterSelect>
           </>
@@ -997,21 +873,9 @@ const handleRefundRequested =
             );
           }
         }}
-        onRequestRefund={
-          openRefundDialog
-        }
       />
 
-      <PaymentRefundDialog
-        payment={refundPayment}
-        open={refundDialogOpen}
-        onOpenChange={
-          handleRefundDialogOpenChange
-        }
-        onRefundRequested={
-          handleRefundRequested
-        }
-      />
+
     </div>
   );
 }
@@ -1091,8 +955,8 @@ function filterLabels(
     labels.push(
       filters.issue ===
         "with_issues"
-        ? "Review: With detected issues"
-        : "Review: Without detected issues",
+        ? "Review: Needs review"
+        : "Review: No issues",
     );
   }
 

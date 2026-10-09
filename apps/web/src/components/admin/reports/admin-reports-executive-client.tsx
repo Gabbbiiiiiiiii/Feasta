@@ -431,7 +431,7 @@ export function AdminReportsExecutiveClient({
           <SummaryCard
             label="FEASTA Revenue"
             value={report.financial
-              ? new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"}).format(report.financial.ledger.commissionNetMovementInCentavos / 100)
+              ? new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"}).format((report.financial.ledger.feastaRevenueInCentavos ?? report.financial.ledger.commissionNetMovementInCentavos) / 100)
               : "Not available"}
             icon={<CircleDollarSign className="size-5" />}
           />

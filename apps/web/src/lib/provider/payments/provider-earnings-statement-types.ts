@@ -44,6 +44,7 @@ export type ProviderEarningsStatementSettlement = {
 };
 
 export type ProviderEarningsStatementRow = {
+  economicSource?: "service_earnings" | "payment_default_reservation_compensation";
   earningId:
     string;
 

@@ -138,7 +138,7 @@ export function ProviderBookingsClient({
       cell: (booking) => (
         <StatusBadge
           status={booking.providerRequestStatus}
-          label={booking.balanceEnforcement?.label ?? (booking.providerRequestStatus === "pending" ? "Pending request" : undefined)}
+          label={booking.bookingPolicy?.label ?? booking.balanceEnforcement?.label ?? (booking.providerRequestStatus === "pending" ? "Pending request" : undefined)}
         />
       ),
     },
@@ -447,7 +447,7 @@ function BookingMobileCard({
           <h3 className="truncate font-bold">{booking.customerDisplayName}</h3>
           <p className="mt-1 text-sm text-muted-foreground">{formatLabel(booking.eventType)}</p>
         </div>
-        <StatusBadge status={booking.providerRequestStatus} label={booking.balanceEnforcement?.label} />
+        <StatusBadge status={booking.providerRequestStatus} label={booking.bookingPolicy?.label ?? booking.balanceEnforcement?.label} />
       </div>
       <dl className="grid grid-cols-2 gap-3 text-sm">
         <div>

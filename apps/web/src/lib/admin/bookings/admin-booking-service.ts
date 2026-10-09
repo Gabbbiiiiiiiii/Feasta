@@ -1,4 +1,5 @@
 import "server-only";
+import {hasBookingSettlement, projectBookingPayment} from "@/lib/payments/booking-payment-projection";
 import {bookingFinancialStatistics, bookingPaymentTotals, PARTIAL_REFUND_STATISTICS_LIMIT} from "./booking-payment-accounting";
 import {bookingOutstanding} from "./booking-outstanding";
 
@@ -607,8 +608,12 @@ function mapBookingDocument(
       data.status,
     ),
 
-    paymentStatus:
-      normalizeOverallPaymentStatus(
+    paymentStatus: providerRequests.some((request) => request.paymentStatus === null) ? "unavailable" :
+      payments.length > 0 && payments.every((payment) => payment.status === "refunded") ? "refunded" :
+      providerRequests.length > 0 && providerRequests.every((request) => ["unpaid", "partially_paid", "paid"].includes(request.paymentStatus ?? ""))
+      ? providerRequests.every((request) => request.paymentStatus === "paid") ? "paid" :
+        providerRequests.every((request) => request.paymentStatus === "unpaid") ? "unpaid" : "partially_paid"
+      : normalizeOverallPaymentStatus(
         data.paymentStatus,
         payments,
       ),
@@ -806,6 +811,7 @@ function mapProviderRequest(
     providers.get(providerId);
 
   return {
+    bookingPolicy: bookingPolicyV3Presentation(data),
     id: document.id,
 
     mainEventId:
@@ -856,9 +862,7 @@ function mapProviderRequest(
       nullableString(data.paymentId),
 
     paymentStatus:
-      normalizePaymentStatus(
-        data.paymentStatus,
-      ),
+      hasBookingSettlement(data) ? projectBookingPayment(data) : normalizePaymentStatus(data.paymentStatus),
 
     acceptedAt:
       isoDateValue(data.acceptedAt),
@@ -1610,3 +1614,4 @@ function dateMilliseconds(
 
   return Number.isNaN(result) ? 0 : result;
 }
+import {bookingPolicyV3Presentation} from "@/lib/payments/booking-policy-v3-presentation";

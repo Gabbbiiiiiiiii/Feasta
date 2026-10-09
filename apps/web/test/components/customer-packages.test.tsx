@@ -35,6 +35,8 @@ const packageRecord: PublicPackage = {
   description: "A real published package description for customer comparison.",
   eventType: "wedding",
   price: 45000,
+  paymentPolicy: "full_payment",
+  depositPercentage: 100,
   imageUrl: "https://images.example.test/package.webp",
   minimumGuests: 50,
   maximumGuests: 150,
@@ -42,6 +44,23 @@ const packageRecord: PublicPackage = {
 };
 
 describe("customer package marketplace", () => {
+  it.each(["deposit_then_balance", "full_payment"] as const)("shows published %s terms on cards and details", (paymentPolicy) => {
+    const provider = normalizePublicProvider("provider-one", {
+      ownerId: "owner", businessName: "Provider", providerServiceType: "catering",
+      verificationStatus: "approved", publiclyVisible: true, isActive: true,
+    }, {role: "provider", providerId: "provider-one", accountStatus: "active"})!;
+    const record = {...packageRecord, paymentPolicy, depositPercentage: paymentPolicy === "full_payment" ? 100 : 50};
+    render(<><PublicPackageCard packageRecord={record} marketplaceHref="/customer/packages" /><PackageDetail detail={{provider, packageRecord: record, customization: {foods: [], decorations: [], furniture: [], services: []}}} /></>);
+    const expected = paymentPolicy === "full_payment" ? "Full payment" : "Deposit + balance";
+    expect(screen.getAllByText(expected)).toHaveLength(2);
+    if (paymentPolicy === "deposit_then_balance") {
+      expect(screen.getAllByText("50% deposit + remaining balance")).toHaveLength(2);
+      expect(screen.getAllByText("Balance due 24 hours before event")).toHaveLength(2);
+      expect(screen.queryByText("Full payment")).not.toBeInTheDocument();
+    } else expect(screen.queryByText("Deposit + balance")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/deposit \?|schema|basis points|short_notice/);
+  });
+
   it.each([false, true])("renders only populated inclusion groups (populated: %s)", (populated) => {
     const provider = normalizePublicProvider("provider-one", {
       ownerId: "owner", businessName: "Provider", providerServiceType: "catering",
@@ -52,8 +71,8 @@ describe("customer package marketplace", () => {
     } : {});
     render(<PackageDetail detail={{provider, packageRecord: {...packageRecord, inclusions: populated ? ["Rice", "Setup"] : []}, customization}} />);
     expect(screen.getByRole("heading", {level: 1, name: packageRecord.name})).toBeVisible();
-    expect(screen.getAllByText("Full Payment").length).toBeGreaterThan(0);
-    expect(screen.getByText(/You pay the full amount after the provider accepts your request/)).toBeVisible();
+    expect(screen.getAllByText("Full payment").length).toBeGreaterThan(0);
+    expect(screen.getByText("100% due after booking acceptance")).toBeVisible();
     expect(screen.queryByRole("heading", {name: "Decor inclusions"})).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", {name: "Furniture inclusions"})).not.toBeInTheDocument();
     if (populated) {
@@ -105,6 +124,19 @@ describe("customer package marketplace", () => {
     )).toBe("/customer/packages?event=wedding");
     expect(parsePackageDirectoryReturnHref("https://evil.test/customer/packages"))
       .toBe("/customer/packages");
+  });
+
+  it.each([2, 1])("projects configured deposit terms for package version %s without booking eligibility", (version) => {
+    const normalized = normalizePublicPackage("terms-package", {
+      providerId: "provider-one", name: "Deposit package", price: 2000,
+      isActive: true, isPublished: true, providerPubliclyVisible: true, status: "published",
+      paymentPolicy: "deposit_then_balance", depositPercentage: 35,
+      paymentTermsSchemaVersion: version, balanceDueDaysBeforeEvent: version === 2 ? null : 7,
+      financialSnapshot: {grossAmountInCentavos: 1}, initialPaymentEligibility: "short_notice",
+    }, new Map([["provider-one", "Provider"]]));
+    expect(normalized).toMatchObject({paymentPolicy: "deposit_then_balance", depositPercentage: 35, balanceDueDaysBeforeEvent: version === 2 ? null : 7});
+    expect(normalized).not.toHaveProperty("financialSnapshot");
+    expect(normalized).not.toHaveProperty("initialPaymentEligibility");
   });
 
   it("normalizes only public package fields with bounded customer details", () => {

@@ -149,6 +149,9 @@ export function ProviderBookingDetailDrawer({
           </DrawerSection>
 
           <DrawerSection title="Pricing">
+            {booking.remainingBalance !== null ? (
+              <AmountRow label="Balance remaining" amount={booking.remainingBalance} />
+            ) : <DetailRow label="Balance remaining" value="Unavailable" />}
             <AmountRow label="Requested amount" amount={booking.requestedAmount} />
             {booking.acceptedAmount !== null ? (
               <AmountRow label="Accepted amount" amount={booking.acceptedAmount} />
@@ -177,7 +180,7 @@ export function ProviderBookingDetailDrawer({
                     Stage advancement is locked by an active cancellation request.
                   </div>
                 ) : null}
-                {booking.refundEligibility.canMarkPreparationStarted ? (
+                {!booking.automaticLifecycle && booking.refundEligibility.canMarkPreparationStarted ? (
                   <Button variant="secondary" disabled={actionPending} onClick={onPreparationStarted}>
                     Mark preparation started
                   </Button>
@@ -249,7 +252,11 @@ function LifecycleFooter({
   onStart: () => void;
   onComplete: () => void;
 }) {
-  if (booking.providerRequestStatus === "confirmed" && !booking.balanceEnforcement) {
+  if (booking.automaticLifecycle) {
+    return <><BookingPolicySummary policy={booking.bookingPolicy} audience="provider" />
+      {booking.bookingPolicy?.readyToComplete && <Button loading={pending} loadingLabel="Completing booking" onClick={onComplete}>Mark Completed</Button>}</>;
+  }
+  if (booking.providerRequestStatus === "confirmed" && booking.canStartEvent && !booking.balanceEnforcement) {
     return (
       <Button loading={pending} loadingLabel="Starting event" onClick={onStart}>
         Start Event
@@ -350,3 +357,4 @@ function formatDateValue(
     timeZone: "Asia/Manila",
   }).format(date);
 }
+import {BookingPolicySummary} from "@/components/shared/booking-policy-summary";

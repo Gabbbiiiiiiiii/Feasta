@@ -1,4 +1,9 @@
 import {db} from "../shared/firestore.js";
+import {paymentDefaultAllocation} from "../bookings/booking-policy-v3.js";
+import {paymentDefaultAccountingPlan} from "../payments/payment-default-accounting-domain.js";
+import {buildSuccessfulRefundFinancialLedgerPlan} from "../payments/financial-ledger.js";
+import {buildProviderEarningRefundPlan} from "../provider-finance/provider-earning-domain.js";
+import {settlementIdForEarning} from "../provider-finance/provider-settlement-domain.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {readRefundAccounting, gatewayRefundIdempotencyKey} from "./refund-accounting-domain.js";
 import {refundOperationKey} from "./refund-accounting.js";
@@ -32,7 +37,41 @@ export function settledDepositRefundEvidence(input: {
     initial.refundExecutionLock != null) throw invalid();
   const accounting = readRefundAccounting(initial, amount as number);
   if (accounting.refundedAmountInCentavos !== 0 || accounting.refundReservedAmountInCentavos !== 0) throw invalid();
-  return {paymentId, amountInCentavos: amount as number, gatewayPaymentId: initial.paymongoResourceId as string};
+  return {paymentId, amountInCentavos: amount as number, gatewayPaymentId: initial.paymongoResourceId as string,
+    payment: initial};
+}
+
+/** All reads and accounting checks precede cancellation and any gateway refund. */
+export async function preflightPaymentDefaultAccounting(input: {
+  transaction: FirebaseFirestore.Transaction; providerRequestId: string;
+  providerRequest: Readonly<Record<string, unknown>>; evidence: ReturnType<typeof settledDepositRefundEvidence>;
+}) {
+  const {transaction, providerRequest: request, evidence} = input;
+  if (request.remainingBalanceTimingSchemaVersion !== 3) return;
+  const payment = evidence.payment;
+  if (payment.providerEarningSchemaVersion !== 1 || typeof payment.providerEarningId !== "string" ||
+    !/^[A-Za-z0-9_-]+$/u.test(payment.providerEarningId)) throw invalid();
+  const [earningSnapshot, settlementSnapshot] = await transaction.getAll(
+    db.collection("providerEarnings").doc(payment.providerEarningId),
+    db.collection("providerSettlements").doc(settlementIdForEarning(payment.providerEarningId)));
+  const earning = earningSnapshot.data();
+  const settlement = settlementSnapshot.data();
+  if (!earning || (settlement && (settlement.reconciliationRequired || settlement.activePayoutAttemptId != null ||
+    settlement.reservedAmountInCentavos !== 0 || settlement.paidOutAmountInCentavos !== 0 ||
+    !["awaiting_availability", "ready"].includes(String(settlement.status))))) throw invalid();
+  const allocation = paymentDefaultAllocation(evidence.amountInCentavos);
+  const ledger = buildSuccessfulRefundFinancialLedgerPlan({paymentId: evidence.paymentId,
+    refundOperationId: "payment_default_preflight", mainEventId: String(request.mainEventId),
+    providerRequestId: input.providerRequestId, providerId: String(request.providerId), customerId: String(request.customerId),
+    refundAmountInCentavos: allocation.customerDefaultRefundAmountInCentavos, refundedBeforeInCentavos: 0,
+    payment, providerRequest: request, source: "automatic_reconciliation", webhookEventId: null, timestamp: null});
+  buildProviderEarningRefundPlan({paymentId: evidence.paymentId, earningId: payment.providerEarningId,
+    earning, refundFinancialLedgerRecord: ledger.ledgerRecord, timestamp: null});
+  paymentDefaultAccountingPlan({allocation, payment, request: {...request, status: "cancelled",
+    cancellationReason: "remaining_balance_unpaid_at_deadline"}, earning,
+    completedCustomerRefundInCentavos: allocation.customerDefaultRefundAmountInCentavos,
+    proportionalCommissionReversedInCentavos: Number(ledger.paymentUpdate.commissionReversedInCentavos),
+    timestamp: null, ledgerEntryId: "payment_default_preflight"});
 }
 
 /** Reserve the same operation-set contract consumed by executeRefund and refund webhooks. */
@@ -41,12 +80,14 @@ export async function reserveSystemDepositRefund(input: {
   providerRequest: Readonly<Record<string, unknown>>; evidence: ReturnType<typeof settledDepositRefundEvidence>;
 }) {
   const {transaction, cancellationRequestId, providerRequestId, providerRequest: request, evidence} = input;
-  const amount = evidence.amountInCentavos;
+  const paidDeposit = evidence.amountInCentavos;
+  const allocation = request.remainingBalanceTimingSchemaVersion === 3 ? paymentDefaultAllocation(paidDeposit) : null;
+  const amount = allocation?.customerDefaultRefundAmountInCentavos ?? paidDeposit;
   const operationKey = refundOperationKey({cancellationRequestId, logicalOperationKey: SYSTEM_BALANCE_REFUND_SOURCE});
   const plan = createRefundOperationReservationPlan({cancellationRequestId, operationKey, allocation: {
     requestedAmountInCentavos: amount, totalAllocatedAmountInCentavos: amount, allocations: [{
-      paymentId: evidence.paymentId, originalPaidAmountInCentavos: amount, completedRefundAmountInCentavos: 0,
-      reservedRefundAmountInCentavos: 0, availableRefundCapacityInCentavos: amount, allocatedRefundAmountInCentavos: amount,
+      paymentId: evidence.paymentId, originalPaidAmountInCentavos: paidDeposit, completedRefundAmountInCentavos: 0,
+      reservedRefundAmountInCentavos: 0, availableRefundCapacityInCentavos: paidDeposit, allocatedRefundAmountInCentavos: amount,
     }],
   }});
   const operationId = plan.refundOperationIds[0];
@@ -58,10 +99,10 @@ export async function reserveSystemDepositRefund(input: {
   const timestamp = serverTimestamp();
   const calculation = {
     schemaVersion: 1, calculationStatus: "calculated", policySource: SYSTEM_BALANCE_REFUND_SOURCE,
-    frozenStage: null, refundBasisPoints: 10000, originalPaidAmountInCentavos: amount,
+    frozenStage: null, refundBasisPoints: allocation ? 7000 : 10000, originalPaidAmountInCentavos: paidDeposit,
     targetTotalRefundAmountInCentavos: amount, completedRefundAmountInCentavos: 0,
     reservedRefundAmountInCentavos: 0, eligibleRefundAmountInCentavos: amount,
-    remainingRefundableAmountInCentavos: 0, currency: "PHP",
+    remainingRefundableAmountInCentavos: paidDeposit - amount, currency: "PHP",
   };
   transaction.create(operationRef, {
     schemaVersion: 1, paymentId: evidence.paymentId, providerRequestId, mainEventId: request.mainEventId,
@@ -73,6 +114,7 @@ export async function reserveSystemDepositRefund(input: {
     executionAttemptCount: 0, lastExecutionAt: null,
     refundOperationSetSchemaVersion: 1, refundOperationSetIndex: 0, refundOperationSetSize: 1,
     policySource: SYSTEM_BALANCE_REFUND_SOURCE,
+    ...(allocation ? {paymentDefaultAllocation: allocation} : {}),
   });
   transaction.update(paymentRef, {refundAccountingSchemaVersion: 1, refundedAmountInCentavos: 0,
     refundReservedAmountInCentavos: amount, updatedAt: timestamp});
@@ -87,8 +129,13 @@ export async function reserveSystemDepositRefund(input: {
     } : null,
     decision: {outcome: "approved", decidedAt: timestamp, reason: "remaining_balance_unpaid_at_deadline"},
     refundCalculation: calculation, refundOperationId: operationId, refundOperationIds: [operationId],
+    ...(allocation ? {paymentDefaultAllocation: allocation} : {}),
     refundOperationPlanSchemaVersion: 1, refundOperationBindings: [{paymentId: evidence.paymentId,
       refundOperationId: operationId, amountInCentavos: amount}],
+  });
+  if (allocation) transaction.update(db.collection("providerRequests").doc(providerRequestId), {
+    paymentDefaultAllocation: allocation, paymentDefaultAllocationFrozenAt: timestamp,
+    remainingCollectibleAmountInCentavos: 0, remainingBalanceStatus: "cancelled",
   });
   return operationId;
 }

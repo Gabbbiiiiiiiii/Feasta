@@ -1,4 +1,5 @@
 import {frozenCanonicalBalanceTiming, canonicalBalanceSchedule, balanceDeadlineMessage} from "./canonical-balance-timing.js";
+import {frozenBookingPolicyTimingV3, balanceStatusV3} from "../bookings/booking-policy-v3.js";
 import {
   createHash,
 } from "node:crypto";
@@ -83,6 +84,7 @@ export function remainingBalanceLifecyclePlan(
     input.providerRequest;
 
   if (
+    request.remainingBalanceTimingSchemaVersion !== 3 &&
     request.remainingBalanceTimingSchemaVersion !== 2 &&
     request.remainingBalanceTimingSchemaVersion !==
       1
@@ -178,6 +180,20 @@ export function remainingBalanceLifecyclePlan(
     remainingBalanceInCentavos -
     outstandingAmountInCentavos;
 
+  if (request.remainingBalanceTimingSchemaVersion === 3) {
+    const timing = frozenBookingPolicyTimingV3(request);
+    const status = balanceStatusV3({...timing, now: input.now, outstandingAmountInCentavos});
+    const nextStatus = status === "payment_confirmation_hold" ? "overdue" : status;
+    const changed = nextStatus !== currentStatus;
+    const dueNotification = changed && currentStatus === "not_due" && input.now >= timing.remainingBalanceDueAt &&
+      input.now < timing.hardPaymentDeadlineAt && outstandingAmountInCentavos > 0;
+    const reminder: RemainingBalanceReminder | null = dueNotification ? {stage: "due", title: "Remaining balance now due",
+      message: "Your remaining balance is now due. " + balanceDeadlineMessage(outstandingAmountInCentavos,
+        timing.hardPaymentDeadlineAt).replace("is due on", "must be paid by") + " Pay by this deadline to keep your booking confirmed."} : null;
+    return {currentStatus, nextStatus, changed, reminder,
+      notificationId: reminder ? remainingBalanceNotificationId(input.providerRequestId, "due") : null,
+      dueAt: timing.remainingBalanceDueAt, graceEndsAt: timing.hardPaymentDeadlineAt};
+  }
   if (request.remainingBalanceTimingSchemaVersion === 2) {
     const timing = frozenCanonicalBalanceTiming(request);
     const schedule = canonicalBalanceSchedule({...timing, remainingAmountInCentavos: outstandingAmountInCentavos, now: input.now});

@@ -3,6 +3,7 @@ import {SYSTEM_BALANCE_REFUND_SOURCE} from "./system-balance-deadline-refund.js"
 import type {BalanceEnforcement} from "../payments/remaining-balance-enforcement-domain.js";
 import {PAYMONGO_SAFE_RETRY_WINDOW_MS} from "../payments/checkout-attempt-domain.js";
 import {defineSecret} from "firebase-functions/params";
+import {paymentDefaultAccountingPlan, requirePaymentDefaultAllocation} from "../payments/payment-default-accounting-domain.js";
 import {
   HttpsError,
   onCall,
@@ -35,6 +36,7 @@ import {
 import {
   assertProviderSettlementRefundDispatchAllowed,
   buildProviderSettlementRefundUpdate,
+  buildProviderSettlementPlan,
   settlementIdForEarning,
 } from "../provider-finance/provider-settlement-domain.js";
 import {
@@ -3545,7 +3547,7 @@ export async function reconcileGatewayRefund(input: {
               )
           : null;
 
-      const providerEarningRefundPlan =
+      let providerEarningRefundPlan =
         refundFinancialLedgerPlan &&
         providerEarningReference &&
         providerEarningSnapshot?.exists
@@ -3566,6 +3568,25 @@ export async function reconcileGatewayRefund(input: {
               timestamp,
             })
           : null;
+
+      const paymentDefaultPlan = providerRequest.remainingBalanceTimingSchemaVersion === 3 &&
+        providerRequest.paymentDefaultAllocation != null
+        ? paymentDefaultAccountingPlan({allocation: providerRequest.paymentDefaultAllocation, payment,
+            request: providerRequest, earning: providerEarningSnapshot?.data() ?? {},
+            completedCustomerRefundInCentavos: nextCompleted, timestamp,
+            proportionalCommissionReversedInCentavos:
+              Number(refundFinancialLedgerPlan?.paymentUpdate.commissionReversedInCentavos ?? 0),
+            proportionalProviderEarningReversedInCentavos:
+              Number(providerEarningRefundPlan?.earningUpdate.reversedAmountInCentavos ?? 0),
+            ledgerEntryId: `payment_default_${operationId}`}) : null;
+      if (paymentDefaultPlan) {
+        if (!refundFinancialLedgerPlan || !providerEarningRefundPlan) throw accountingInvalid();
+        Object.assign(refundFinancialLedgerPlan.paymentUpdate, paymentDefaultPlan.paymentUpdate);
+        Object.assign(refundFinancialLedgerPlan.providerRequestUpdate, paymentDefaultPlan.providerRequestUpdate);
+        providerEarningRefundPlan = {paymentUpdate: {...providerEarningRefundPlan.paymentUpdate,
+          ...paymentDefaultPlan.paymentUpdate}, earningUpdate: {...providerEarningRefundPlan.earningUpdate,
+          ...paymentDefaultPlan.earningUpdate}};
+      }
 
       if (
         providerEarningReference &&
@@ -3702,6 +3723,11 @@ export async function reconcileGatewayRefund(input: {
         );
       }
 
+      if (paymentDefaultPlan) {
+        transaction.create(db.collection("financialLedgerEntries").doc(`payment_default_${operationId}`),
+          paymentDefaultPlan.ledgerRecord);
+      }
+
       if (
         providerEarningRefundPlan &&
         providerEarningReference
@@ -3722,6 +3748,11 @@ export async function reconcileGatewayRefund(input: {
           providerSettlementRefundUpdate,
         );
       }
+      if (paymentDefaultPlan && providerEarningReference && providerSettlementReference && !providerSettlementSnapshot?.exists) {
+        const settlementPlan = buildProviderSettlementPlan({earningId: providerEarningReference.id,
+          earning: {...providerEarningSnapshot?.data(), ...paymentDefaultPlan.earningUpdate}, timestamp});
+        transaction.create(providerSettlementReference, settlementPlan.settlementRecord);
+      }
 
       const bookingPaymentStatus =
         operationSetRecords === null
@@ -3741,6 +3772,7 @@ export async function reconcileGatewayRefund(input: {
           transaction.update(requestReference, {
             remainingBalanceEnforcement: {...providerRequest.remainingBalanceEnforcement,
               status: "refunded", evaluatedAt: timestamp}, remainingBalanceStatus: "cancelled", updatedAt: timestamp,
+            ...(paymentDefaultPlan ? {remainingBalanceNextCheckAt: null, remainingCollectibleAmountInCentavos: 0} : {}),
           });
         }
         updateCancellationRefundStatus(
@@ -3827,7 +3859,9 @@ export async function reconcileGatewayRefund(input: {
 
             message:
               cancellation.source === SYSTEM_BALANCE_REFUND_SOURCE
-                ? "Your settled initial deposit has been refunded."
+                ? providerRequest.remainingBalanceTimingSchemaVersion === 3
+                  ? "Your 70% refund of the settled initial deposit has been completed."
+                  : "Your settled initial deposit has been refunded."
                 : "Your approved Provider service refund was completed.",
 
             type:
@@ -4522,10 +4556,18 @@ function assertPolicyOperationLinkage(input: {
 }): void {
   if (input.cancellation.source === SYSTEM_BALANCE_REFUND_SOURCE) {
     const state = input.providerRequest.remainingBalanceEnforcement as BalanceEnforcement | undefined;
+    let expectedAmount = input.payment.amountInCentavos;
+    if (input.providerRequest.remainingBalanceTimingSchemaVersion === 3) {
+      const deposit = Number(input.payment.amountInCentavos);
+      const allocation = requirePaymentDefaultAllocation(input.providerRequest.paymentDefaultAllocation, deposit);
+      requirePaymentDefaultAllocation(input.operation.paymentDefaultAllocation, deposit);
+      requirePaymentDefaultAllocation(input.cancellation.paymentDefaultAllocation, deposit);
+      expectedAmount = allocation.customerDefaultRefundAmountInCentavos;
+    }
     if (input.providerRequest.remainingBalanceEnforcementSchemaVersion !== 1 ||
       state?.cancellationRequestId !== input.cancellationRequestId || state.refundId !== input.operationId ||
       input.operation.policySource !== SYSTEM_BALANCE_REFUND_SOURCE ||
-      input.payment.paymentChoice !== "minimum" || input.operation.amountInCentavos !== input.payment.amountInCentavos) {
+      input.payment.paymentChoice !== "minimum" || input.operation.amountInCentavos !== expectedAmount) {
       throw gatewayLinkageInvalid();
     }
   }

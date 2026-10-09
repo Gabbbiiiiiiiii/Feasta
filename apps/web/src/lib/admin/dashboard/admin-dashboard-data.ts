@@ -275,6 +275,8 @@ async function getRevenueByRange(): Promise<
     .where("createdAt", "<", Timestamp.fromDate(rangeEnd))
     .select(
       "schemaVersion", "entryType", "ledgerEntryId", "paymentId",
+      "ordinaryCommissionAdjustmentInCentavos", "feastaCancellationFeeEarnedInCentavos", "providerEconomicEntitlementInCentavos",
+      "paymentDefaultAllocation", "customerRefundCompletedInCentavos", "commissionEarnedAfterInCentavos",
       "providerRequestId", "mainEventId", "providerId", "currency",
       "grossAmountInCentavos", "refundAmountInCentavos",
       "commissionAccruedInCentavos", "commissionReversedInCentavos",
@@ -299,7 +301,7 @@ async function getRevenueByRange(): Promise<
 
     const recordedAt = new Date(row.createdAt);
     const amountInCentavos =
-      row.commissionAccruedInCentavos - row.commissionReversedInCentavos;
+      row.commissionAccruedInCentavos - row.commissionReversedInCentavos + (row.feastaCancellationFeeEarnedInCentavos ?? 0);
     const dayKey = createDayKey(recordedAt);
     const monthKey = createMonthKey(recordedAt);
 
@@ -410,6 +412,8 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     settingsSnapshot,
     commissionAccruedSnapshot,
     commissionReversedSnapshot,
+    defaultAdjustmentSnapshot,
+    defaultFeeSnapshot,
     totalBookingsSnapshot,
     customersSnapshot,
     providersSnapshot,
@@ -441,6 +445,10 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     adminDb.collection("financialLedgerEntries")
       .aggregate({ totalInCentavos: AggregateField.sum("commissionReversedInCentavos") })
       .get(),
+    adminDb.collection("financialLedgerEntries").where("entryType", "==", "payment_default_allocation_completed")
+      .aggregate({totalInCentavos: AggregateField.sum("ordinaryCommissionAdjustmentInCentavos")}).get(),
+    adminDb.collection("financialLedgerEntries").where("entryType", "==", "payment_default_allocation_completed")
+      .aggregate({totalInCentavos: AggregateField.sum("feastaCancellationFeeEarnedInCentavos")}).get(),
     adminDb.collection(FIRESTORE_COLLECTIONS.mainEvents)
       .count()
       .get(),
@@ -558,7 +566,10 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
   ) {
     throw new Error("Dashboard revenue totals are invalid.");
   }
-  const feastaRevenueInCentavos = commissionAccrued - commissionReversed;
+  const adjustment = defaultAdjustmentSnapshot.data().totalInCentavos;
+  const defaultFee = defaultFeeSnapshot.data().totalInCentavos;
+  if (![adjustment, defaultFee].every(value => Number.isSafeInteger(value) && value >= 0)) throw new Error("Dashboard default fee totals are invalid.");
+  const feastaRevenueInCentavos = commissionAccrued - commissionReversed - adjustment + defaultFee;
 
   const customerAccounts =
     customersSnapshot.data().count;

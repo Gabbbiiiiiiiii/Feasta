@@ -21,6 +21,7 @@ export async function reconcileCheckoutAttempts(input: {
   const initial = await paymentRef.collection("checkoutAttempts").get();
   for (const document of initial.docs) {
     const attempt = document.data();
+    if (isAuthoritativelyTerminalUnsuccessful(attempt)) continue;
     if (typeof attempt.paymongoCheckoutId !== "string") continue;
     try {
       const response = await (input.retrieve ?? retrievePayMongoCheckout)(

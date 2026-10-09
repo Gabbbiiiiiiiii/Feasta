@@ -88,6 +88,7 @@ function booking(
     providerId: "provider-1",
     customerId: "customer-1",
     providerRequestStatus: status,
+    canStartEvent: status === "confirmed",
     mainEventStatus: status === "completed"
       ? "completed"
       : status === "in_progress"
@@ -315,6 +316,17 @@ describe("provider bookings workspace", () => {
     });
   });
 
+  it.each(["partially_paid", "paid"] as const)("hides start for a future %s booking while preparation stays separate", async (paymentStatus) => {
+    const user = userEvent.setup();
+    const future = {...booking(), eventDate: "2026-10-16T00:00:00+08:00", paymentStatus, canStartEvent: false};
+    mocks.loadBooking.mockResolvedValueOnce(future);
+    renderWorkspace([future]);
+    await user.click(screen.getAllByRole("button", {name: "View booking for Ana Reyes"})[0]);
+    await screen.findByRole("dialog", {name: "Booking details"});
+    expect(screen.queryByRole("button", {name: "Start Event"})).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "Mark preparation started"})).toBeVisible();
+  });
+
   it("offers only canonical lifecycle actions for eligible statuses", async () => {
     const user = userEvent.setup();
     const records = [
@@ -406,5 +418,19 @@ describe("provider bookings workspace", () => {
     await user.click(screen.getAllByRole("button", {name: "View booking for Ana Reyes"})[0]);
     expect(await screen.findByText("Stage advancement is locked by an active cancellation request.")).toBeVisible();
     expect(screen.queryByRole("button", {name: "Mark preparation started"})).not.toBeInTheDocument();
+  });
+  it("v3 hides manual preparation and event start while retaining completion at the valid end", async () => {
+    const automatic = {...booking(), automaticLifecycle: true, bookingPolicy: {
+      label: "In Progress", state: "in_progress" as const, dueAt: "2026-09-13T04:00:00Z", deadlineAt: "2026-09-14T04:00:00Z",
+      preparationAt: "2026-09-14T04:00:00Z", eventAt: "2026-09-15T04:00:00Z", remainingAmountInCentavos: 0,
+      readyToComplete: true, allocation: null,
+    }};
+    mocks.loadBooking.mockResolvedValueOnce(automatic);
+    const user = userEvent.setup(); renderWorkspace([automatic]);
+    await user.click(screen.getAllByRole("button", {name: "View booking for Ana Reyes"})[0]);
+    expect(await screen.findByText("Ready to Complete")).toBeVisible();
+    expect(screen.queryByRole("button", {name: "Start Event"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: "Mark preparation started"})).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "Mark Completed"})).toBeVisible();
   });
 });

@@ -6,6 +6,14 @@ const test = require("node:test");
 const root = path.resolve(__dirname, "../src");
 const source = (relative) => readFileSync(path.join(root, relative), "utf8");
 
+test("v3 scheduler is bounded, server-owned and validates payment and provider authority", () => {
+  const worker = source("bookings/booking-lifecycle-v3.ts");
+  for (const control of ["onSchedule", "every 1 minutes", "secrets: [secret]", "limit(V3_SWEEP_LIMIT)",
+    "readTrustedProviderRequestPaymentSetInTransaction", "isApprovedProviderForOperations", "requireActiveProviderRequest",
+    "writeAuditLogInTransaction", "enforceRemainingBalanceDeadline"]) assert.ok(worker.includes(control), control);
+  assert.doesNotMatch(worker, /onCall\(/u);
+});
+
 const policies = [
   ["reconcileProviderRequestRefund", "refunds/refund-execution.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "secrets: [payMongoSecretKey]", "retrievePayMongoRefund", "assertAdminReconciliationEvidence", "writeAuditLogInTransaction"]],
   ["ensureUserProfile", "auth/ensure-user-profile.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions"]],
@@ -22,6 +30,7 @@ const policies = [
   ["revokeAllAccountSessions", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "enforceCallableRateLimit", "revokeRefreshTokens", "appCheckCallableOptions"]],
   ["deactivateProviderAccount", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "enforceCallableRateLimit", "activeProviderRequestStatuses", "revokeRefreshTokens", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["submitBookingRequest", "bookings/submit-booking-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "assertBookingSubmissionAllowed", "runTransaction", "appCheckCallableOptions"]],
+  ["getBookingPaymentAgreementDisclosures", "bookings/submit-booking-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "disclosureOnly", "buildBookingPaymentAgreement", "bookingPaymentAgreementDisclosure"]],
   [
     "getBookingRefundPolicyDisclosures",
     "bookings/get-booking-refund-policy-disclosures.ts",
@@ -480,6 +489,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "ensureUserProfile",
   "executeProviderRequestRefund",
   "getBookingRefundPolicyDisclosures",
+  "getBookingPaymentAgreementDisclosures",
   "getCurrentLegalAgreement",
   "getDirections",
   "getPlaceDetails",
@@ -504,6 +514,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "reactivateBusinessDocumentType",
   "reactivateServiceCategory",
   "reconcileProviderRequestRefund",
+  "reconcileBookingPolicyV3",
   "reconcileRemainingBalanceLifecycle",
   "reconcileUnresolvedRefundStatuses",
   "refreshProviderPayoutAccount",
@@ -636,4 +647,19 @@ test("required security rejection and decision events are instrumented", () => {
   const accountTrigger = source("auth/audit-account-security-state.ts");
   assert.ok(accountTrigger.includes("onDocumentUpdatedWithAuthContext"));
   assert.ok(accountTrigger.includes('collection("adminLogs")'));
+});
+
+
+test("booking agreement disclosure is sanitized before callable response", () => {
+  const body = source("bookings/submit-booking-request.ts");
+
+  assert.match(
+    body,
+    /bookingPaymentAgreementDisclosure/u,
+  );
+
+  assert.match(
+    body,
+    /agreements\s*:\s*agreements\.map\(\s*bookingPaymentAgreementDisclosure\s*,?\s*\)/su,
+  );
 });

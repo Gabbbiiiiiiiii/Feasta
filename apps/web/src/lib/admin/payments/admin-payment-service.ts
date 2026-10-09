@@ -38,6 +38,13 @@ import type {
 } from "@/lib/admin/payments/admin-payment-types";
 import {requireAdmin} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
+import {bookingPaymentStatusMismatch, matchesPaymentReview} from "./payment-review";
+import {hasBookingSettlement, projectBookingPayment} from "@/lib/payments/booking-payment-projection";
+import {
+  bookingPaymentAccounting,
+  bookingFinancialStatistics,
+  PARTIAL_REFUND_STATISTICS_LIMIT,
+} from "@/lib/admin/bookings/booking-payment-accounting";
 
 const COLLECTIONS = {
   payments: "payments",
@@ -808,7 +815,9 @@ export async function getAdminPaymentDetails(
       eventType: nullableString(bookingData.eventType),
       eventDate: isoDateValue(bookingData.eventDate),
       status: nullableString(bookingData.status),
-      paymentStatus: nullableString(bookingData.paymentStatus),
+      paymentStatus: Array.isArray(bookingData.providerRequestIds) && bookingData.providerRequestIds.length === 1 &&
+        bookingData.providerRequestIds[0] === payment.providerRequestId && hasBookingSettlement(providerRequestData)
+        ? projectBookingPayment(providerRequestData) : nullableString(bookingData.paymentStatus),
     },
     providerRequest: {
       exists: providerRequestSnapshot?.exists === true,
@@ -2748,6 +2757,7 @@ function mapPaymentDocument(
     providerRequestId
       ? relations.providerRequests.get(providerRequestId)?.data() ?? {}
       : {};
+  const bookingPolicy = bookingPolicyV3Presentation(providerRequestData);
   const providerData = relations.providers.get(providerId)?.data() ?? {};
   const customerData = relations.users.get(customerId)?.data() ?? {};
 
@@ -2795,12 +2805,25 @@ function mapPaymentDocument(
     issues.push("stale_processing");
   }
 
-  const bookingPaymentStatus = nullableString(bookingData.paymentStatus);
+  const bookingPaymentStatus = hasBookingSettlement(providerRequestData)
+    ? projectBookingPayment(providerRequestData)
+    : nullableString(bookingData.paymentStatus);
+  const requestFinancial = providerRequestData.financialSnapshot;
+  const expectedObligationAmount = data.paymentChoice === "minimum" ? requestFinancial?.requiredUpfrontAmountInCentavos :
+    data.paymentChoice === "full" ? requestFinancial?.grossAmountInCentavos :
+      data.paymentChoice === "remaining_balance" ? requestFinancial?.remainingBalanceInCentavos : null;
+  const invalidSettlementRelation = hasBookingSettlement(providerRequestData) && (
+    providerRequestData.mainEventId !== bookingId || providerRequestData.customerId !== customerId ||
+    providerRequestData.providerId !== providerId ||
+    !Array.isArray(bookingData.providerRequestIds) || !bookingData.providerRequestIds.includes(providerRequestId) ||
+    ![providerRequestData.initialPaymentId, providerRequestData.remainingBalancePaymentId, providerRequestData.paymentId].includes(document.id) ||
+    amountInCentavos > Number(providerRequestData.grossSettledAmountInCentavos) ||
+    (data.paymentChoice != null && amountInCentavos !== expectedObligationAmount)
+  );
 
   if (
-    status === "paid" &&
-    bookingPaymentStatus !== "partially_paid" &&
-    bookingPaymentStatus !== "paid"
+    bookingPaymentStatusMismatch(relations.bookings.has(bookingId), status, bookingPaymentStatus) ||
+    (status === "paid" && invalidSettlementRelation)
   ) {
     issues.push("booking_status_mismatch");
   }
@@ -2812,6 +2835,7 @@ function mapPaymentDocument(
   return {
     id: document.id,
     paymentId: nullableString(data.paymentId) ?? document.id,
+    bookingPolicy,
     bookingId:
       nullableString(data.bookingId) ??
       bookingId,
@@ -2842,6 +2866,17 @@ function mapPaymentDocument(
     failedAt: isoDateValue(data.failedAt),
     expiredAt: isoDateValue(data.expiredAt),
     refundedAt: isoDateValue(data.refundedAt),
+    refundedAmountFormatted: (() => {
+      const accounting = bookingPaymentAccounting({
+        status,
+        amountInCentavos,
+        refundedAmountInCentavos: data.refundedAmountInCentavos,
+      });
+      return accounting && accounting.refunded > 0
+        ? formatCentavos(accounting.refunded, currency)
+        : null;
+    })(),
+    refundPending: data.refundStatus === "requested" || data.refundStatus === "processing",
     lastWebhookEventId: nullableString(data.lastWebhookEventId),
     issues: [...new Set(issues)],
     refundEligibility: refundEligibility({
@@ -2948,6 +2983,8 @@ async function queryAdminPaymentStatistics(): Promise<
     refunded,
     failedPayouts,
     reconciliationCases,
+    partialCount,
+    partials,
   ] =
     await Promise.all([
       payments
@@ -3031,19 +3068,26 @@ async function queryAdminPaymentStatistics(): Promise<
         )
         .count()
         .get(),
+      payments.where("status", "==", "partially_refunded").count().get(),
+      payments.where("status", "==", "partially_refunded")
+        .limit(PARTIAL_REFUND_STATISTICS_LIMIT).get(),
     ]);
 
-  const confirmedVolumeInCentavos =
-    aggregateNumber(
-      paid.data()
-        .amountInCentavos,
-    );
-
-  const refundedAmountInCentavos =
-    aggregateNumber(
-      refunded.data()
-        .amountInCentavos,
-    );
+  const totals = bookingFinancialStatistics({
+    paid: {grossPesos: aggregateNumber(paid.data().amountInCentavos) / 100},
+    refunded: {grossPesos: aggregateNumber(refunded.data().amountInCentavos) / 100},
+    partialCount: partialCount.data().count,
+    partials: partials.docs.map((document) => {
+      const data = document.data();
+      return {
+        status: "partially_refunded",
+        amountInCentavos: canonicalAmountInCentavos(data),
+        refundedAmountInCentavos: data.refundedAmountInCentavos,
+      };
+    }),
+  });
+  const confirmedVolumeInCentavos = totals.paid === null ? null : Math.round(totals.paid * 100);
+  const refundedAmountInCentavos = totals.refunded === null ? null : Math.round(totals.refunded * 100);
 
   const failedPaymentCount =
     failed.data().count;
@@ -3071,13 +3115,13 @@ async function queryAdminPaymentStatistics(): Promise<
     refundedAmountInCentavos,
 
     confirmedVolumeFormatted:
-      formatCentavos(
+      confirmedVolumeInCentavos === null ? "Unavailable" : formatCentavos(
         confirmedVolumeInCentavos,
         "PHP",
       ),
 
     refundedAmountFormatted:
-      formatCentavos(
+      refundedAmountInCentavos === null ? "Unavailable" : formatCentavos(
         refundedAmountInCentavos,
         "PHP",
       ),
@@ -3183,15 +3227,7 @@ function paymentMatchesIssueFilter(
   payment: AdminPayment,
   filters: NormalizedFilters,
 ): boolean {
-  if (filters.issue === "with_issues") {
-    return payment.issues.length > 0;
-  }
-
-  if (filters.issue === "without_issues") {
-    return payment.issues.length === 0;
-  }
-
-  return true;
+  return matchesPaymentReview(payment.issues.length, filters.issue);
 }
 
 function comparePayments(
@@ -3449,3 +3485,4 @@ function chunkValues<T>(values: readonly T[], size: number): T[][] {
 
   return chunks;
 }
+import {bookingPolicyV3Presentation} from "@/lib/payments/booking-policy-v3-presentation";

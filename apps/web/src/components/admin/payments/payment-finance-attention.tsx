@@ -3,11 +3,13 @@
 import {
   formatPaymentDate,
   paymentBookingLabel,
+  paymentReferenceLabel,
 } from "@/components/admin/payments/payment-formatters";
 import {Button} from "@/components/ui/button";
 import type {
   AdminFinanceAttentionQueue,
   AdminPayment,
+  AdminPaymentStatistics,
 } from "@/lib/admin/payments/admin-payment-types";
 
 type FinanceAttentionItem =
@@ -17,6 +19,7 @@ type FinanceAttentionItem =
 
 type PaymentFinanceAttentionProps = {
   queue: AdminFinanceAttentionQueue;
+  statistics?: Pick<AdminPaymentStatistics, "failedPayoutCount" | "reconciliationRequiredCount">;
 
   loading: boolean;
   error?: string;
@@ -37,6 +40,7 @@ type PaymentFinanceAttentionProps = {
 
 function PaymentFinanceAttention({
   queue,
+  statistics,
   loading,
   error,
   repairingItemId,
@@ -59,11 +63,11 @@ function PaymentFinanceAttention({
             id="finance-attention-heading"
             className="text-lg font-black"
           >
-            Payment issues
+            Provider payout issues
           </h2>
 
           <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-            Review failed provider payouts and payment records that need attention.
+            Review provider payouts that failed or need attention.
           </p>
         </div>
 
@@ -83,13 +87,20 @@ function PaymentFinanceAttention({
         </Button>
       </div>
 
+      {statistics ? (
+        <dl className="mt-4 flex flex-wrap gap-6 text-sm">
+          <AttentionField label="Failed provider payouts" value={String(statistics.failedPayoutCount)} />
+          <AttentionField label="Payouts needing review" value={String(statistics.reconciliationRequiredCount)} />
+        </dl>
+      ) : null}
+
       {error ? (
         <div
           className="mt-4 rounded-lg border border-destructive/30 bg-destructive-subtle p-4"
           role="alert"
         >
           <p className="font-bold text-destructive">
-            Payment issues could not be refreshed
+            Provider payout issues could not be refreshed
           </p>
 
           <p className="mt-1 text-sm text-destructive">
@@ -101,11 +112,11 @@ function PaymentFinanceAttention({
       {queue.items.length === 0 ? (
         <div className="mt-4 rounded-lg border border-dashed border-border p-4">
           <p className="font-bold">
-            No payment issues require attention
+            No provider payout issues require attention
           </p>
 
           <p className="mt-1 text-sm leading-6 text-muted-foreground">
-            No payouts or payment records currently need review.
+            No provider payouts currently need review.
           </p>
         </div>
       ) : (
@@ -125,7 +136,7 @@ function PaymentFinanceAttention({
                 : item.kind ===
                     "reconciliation_required"
                   ? "Payout to review"
-                  : "Payout setup recovery";
+                  : "Payout setup issue";
 
             return (
               <article
@@ -153,10 +164,10 @@ function PaymentFinanceAttention({
                     <p className="mt-1 break-words text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {item.recordState ===
                         "invalid"
-                        ? "Record issue"
+                        ? "Problem found"
                         : isPayoutSetupRecovery
                           ? "Setup needs attention"
-                          : "Ready for review"}
+                          : "Needs review"}
                     </p>
                   </div>
 
@@ -178,8 +189,9 @@ function PaymentFinanceAttention({
                           ? paymentBookingLabel(
                               linkedPayment,
                             )
-                          : item.paymentId ??
-                            "Payment not found"
+                          : item.paymentId
+                            ? paymentReferenceLabel({paymentId: item.paymentId})
+                            : "Payment not found"
                     }
                   />
 
@@ -188,8 +200,7 @@ function PaymentFinanceAttention({
                     value={
                       linkedPayment
                         ?.providerName ??
-                      item.providerId ??
-                      "Not recorded"
+                      "Provider information unavailable"
                     }
                   />
 
@@ -205,14 +216,14 @@ function PaymentFinanceAttention({
                   />
 
                   <AttentionField
-                    label="Record status"
+                    label="Status"
                     value={
                       item.kind ===
                         "failed_payout"
                         ? "Failed payout"
                         : item.kind ===
                             "reconciliation_required"
-                          ? "Review needed"
+                          ? "Needs review"
                           : "Payout setup needs review"
                     }
                   />
@@ -220,14 +231,28 @@ function PaymentFinanceAttention({
 
                 <div className="mt-4 rounded-lg border border-border/70 bg-background/70 p-3">
                   <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                    Review reason
+                    Reason
                   </p>
 
                   <p className="mt-1 break-words text-sm leading-6">
-                    {item.reason ??
-                      "No additional reason was recorded."}
+                    {item.recordState === "invalid"
+                      ? "The provider payout information could not be verified."
+                      : isPayoutSetupRecovery
+                        ? "The provider payout account setup could not be confirmed."
+                        : item.kind === "failed_payout"
+                          ? "The payment to the provider failed."
+                          : "The provider payout needs review before continuing."}
                   </p>
                 </div>
+
+                <details className="mt-4 rounded-lg border border-border p-3">
+                  <summary className="cursor-pointer text-sm font-semibold">Additional details</summary>
+                  <dl className="mt-3 grid gap-3 text-sm">
+                    <AttentionField label="Provider reference" value={item.providerId ?? "Not recorded"} code />
+                    <AttentionField label="Payment reference" value={item.paymentId ?? "Not applicable"} code />
+                    <AttentionField label="Recorded reason" value={item.reason ?? "No additional reason was recorded."} />
+                  </dl>
+                </details>
 
                 {isPayoutSetupRecovery ? (
                   item.recordState === "valid" &&
@@ -257,7 +282,7 @@ function PaymentFinanceAttention({
                     <p className="mt-4 text-sm font-semibold text-destructive">
                       This payout recovery case
                       did not pass validation.
-                      Refresh Payment issues
+                      Refresh Provider payout issues
                       before taking any action.
                     </p>
                   )

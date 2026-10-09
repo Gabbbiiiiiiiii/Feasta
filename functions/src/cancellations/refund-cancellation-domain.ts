@@ -333,6 +333,7 @@ export function assertCancellationSubmissionAllowed(
 export function assertEligibilityLifecycleInvariant(input: {
   providerRequestStatus: ProviderRequestStatus;
   state: RefundEligibilityState<unknown>;
+  timingSchemaVersion?: unknown;
 }): void {
   const {providerRequestStatus, state} = input;
 
@@ -355,6 +356,7 @@ export function assertEligibilityLifecycleInvariant(input: {
 
   if (
     providerRequestStatus === "confirmed" &&
+    input.timingSchemaVersion !== 3 &&
     state.currentStage === "service_started"
   ) {
     throw policyEvidenceInvalid();

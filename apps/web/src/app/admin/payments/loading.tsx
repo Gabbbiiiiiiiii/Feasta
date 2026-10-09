@@ -17,15 +17,16 @@ export default function AdminPaymentsLoading() {
       <PageHeading
         eyebrow="Administration"
         title="Payments"
-        description="View customer payments, provider payouts, refunds, and payment issues."
+        description="View payments, refunds, and provider payouts."
       />
 
             <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Loading payment statistics"
       >
         <SummaryCard
-          label="Currently paid amount"
+          label="Paid amount"
+          supportingMetric="Amount retained after completed refunds"
           loading
         />
 
@@ -39,15 +40,7 @@ export default function AdminPaymentsLoading() {
           loading
         />
 
-        <SummaryCard
-          label="Failed provider payouts"
-          loading
-        />
 
-        <SummaryCard
-          label="Payments to review"
-          loading
-        />
 
         <SummaryCard
           label="Refunded amount"
@@ -57,7 +50,7 @@ export default function AdminPaymentsLoading() {
 
             <LoadingSkeleton
         className="h-64 w-full rounded-card"
-        label="Loading payment issues"
+        label="Loading provider payout issues"
       />
 
 <LoadingSkeleton

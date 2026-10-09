@@ -1,6 +1,7 @@
 import {fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {beforeEach, describe, expect, it, vi} from "vitest";
+import {ProviderPackageCard} from "@/app/provider/packages/provider-package-card";
 import {ProviderPackagesClient} from "@/app/provider/packages/provider-packages-client";
 import {ProviderPackageForm} from "@/app/provider/packages/provider-package-form";
 import {ImageGallery} from "@/components/customer/discovery/image-gallery";
@@ -44,6 +45,17 @@ beforeEach(() => {
 });
 
 describe("provider package modal and media", () => {
+  it.each(["deposit_then_balance", "full_payment"] as const)("renders compact canonical %s terms", (paymentPolicy) => {
+    render(<ProviderPackageCard item={{...record, paymentPolicy, depositPercentage: paymentPolicy === "full_payment" ? 100 : 50, balanceDueDaysBeforeEvent: null}} onEdit={vi.fn()} onPublish={vi.fn()} onArchive={vi.fn()} />);
+    expect(screen.getByText(paymentPolicy === "full_payment" ? "Full payment" : "Deposit + balance")).toBeVisible();
+    if (paymentPolicy === "deposit_then_balance") {
+      expect(screen.getByText("50% deposit + remaining balance")).toBeVisible();
+      expect(screen.getByText("Balance due 24 hours before event")).toBeVisible();
+      expect(screen.queryByText("Full payment")).not.toBeInTheDocument();
+    } else expect(screen.queryByText("Deposit + balance")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(/deposit \?|�/);
+  });
+
   it("retains all saved inclusion groups when editing an unrelated field", async () => {
     const inclusions = {foodInclusions: ["Rice"], decorInclusions: ["Backdrop"], furnitureInclusions: ["Chairs"], serviceInclusions: ["Setup"]};
     render(<ProviderPackageForm {...props} initialPackage={{...record, ...inclusions}} onSaved={vi.fn()} onCancel={vi.fn()} />);

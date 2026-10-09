@@ -1,4 +1,5 @@
 import "server-only";
+import {hasBookingSettlement, projectBookingPayment} from "@/lib/payments/booking-payment-projection";
 import {balanceEnforcementPresentation, balanceEnforcementBlocksActions} from "@/lib/payments/remaining-balance-enforcement";
 
 import {
@@ -504,9 +505,14 @@ function mapProviderBooking(
     providerId,
     customerId,
     providerRequestStatus: requestStatus,
+    automaticLifecycle: request.remainingBalanceTimingSchemaVersion === 3,
+    bookingPolicy: bookingPolicyV3Presentation(request),
     balanceEnforcement: balanceEnforcementPresentation(request, "provider"),
     mainEventStatus,
-    paymentStatus: payment?.status ?? null,
+    paymentStatus: hasBookingSettlement(request) && projectBookingPayment(request) === null ? null :
+      payment && ["refunded", "partially_refunded"].includes(payment.status) ? payment.status :
+        hasBookingSettlement(request) ? projectBookingPayment(request) : payment?.status ?? null,
+    canStartEvent: canStartProviderEvent(request, mainEvent, requestStatus, payment),
     requestType,
     eventType: optionalText(
       request.eventType ?? mainEvent.eventType,
@@ -545,7 +551,8 @@ function mapProviderBooking(
       : null,
     downPaymentAmount: nonNegativeMoney(request.downPaymentAmount),
     paymentAmount: payment?.amount ?? null,
-    remainingBalance: nonNegativeMoney(request.remainingBalance),
+    remainingBalance: requestStatus === "cancelled" || payment?.status === "refunded" ? 0 :
+      hasBookingSettlement(request) ? (projectBookingPayment(request) === null ? null : nonNegativeMoney(request.outstandingAmountInCentavos) / 100) : nonNegativeMoney(request.remainingBalance),
     currency: payment?.currency ?? optionalText(request.currency, 8) ?? "PHP",
     payment,
     createdAt,
@@ -566,6 +573,36 @@ function mapProviderBooking(
   };
 }
 
+function canStartProviderEvent(request: DocumentData, mainEvent: DocumentData, status: ProviderRequestStatus, payment: ProviderBookingPayment | null): boolean {
+  if (request.remainingBalanceTimingSchemaVersion === 3) return false;
+  const eligibility = mapRefundEligibility(request, status, payment);
+  if (status !== "confirmed" || !["confirmed", "in_progress"].includes(mainEvent.status) ||
+    eligibility.evidenceStatus === "invalid" || eligibility.activeCancellationLocked ||
+    balanceEnforcementBlocksActions(request) ||
+    (hasBookingSettlement(request) &&
+      (request.settlementSchemaVersion !== 1 || projectBookingPayment(request) !== "paid"))) return false;
+  if (hasBookingSettlement(request)) {
+    const financial = recordValue(request.financialSnapshot);
+    const remaining = financial?.remainingBalanceInCentavos;
+    const validId = (value: unknown) => typeof value === "string" && /^[A-Za-z0-9:_-]{1,220}$/u.test(value);
+    const choice = request.initialPaymentChoice;
+    const balanceId = request.remainingBalancePaymentId;
+    if (financial?.schemaVersion !== 1 || financial.currency !== "PHP" ||
+      !Number.isSafeInteger(remaining) || Number(remaining) < 0 ||
+      !["minimum", "full"].includes(choice) || !validId(request.initialPaymentId) ||
+      (choice === "minimum" && Number(remaining) > 0
+        ? !validId(balanceId) || balanceId === request.initialPaymentId
+        : balanceId != null)) return false;
+  }
+  const date = dateValue(request.eventDate);
+  const time = request.eventTime;
+  if (!date || typeof time !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/u.test(time)) return false;
+  const parts = new Intl.DateTimeFormat("en-CA", {timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit"}).formatToParts(date);
+  const part = (key: string) => parts.find((item) => item.type === key)?.value;
+  const start = new Date(`${part("year")}-${part("month")}-${part("day")}T${time}:00+08:00`);
+  return Number.isFinite(start.getTime()) && Date.now() >= start.getTime();
+}
+
 function mapRefundEligibility(
   request: DocumentData,
   requestStatus: ProviderRequestStatus,
@@ -580,7 +617,7 @@ function mapRefundEligibility(
     return {
       evidenceStatus: "legacy",
       currentStage: null,
-      activeCancellationLocked: optionalDocumentId(request.activeCancellationRequestId) !== null,
+      activeCancellationLocked: request.activeCancellationRequestId != null,
       canMarkPreparationStarted: false,
     };
   }
@@ -618,6 +655,7 @@ function mapRefundEligibility(
     currentStage: stage,
     activeCancellationLocked: activeCancellationId !== null,
     canMarkPreparationStarted:
+      request.remainingBalanceTimingSchemaVersion !== 3 &&
       stage === "preparation_not_started" &&
       activeCancellationId === null &&
       requestStatus === "confirmed" &&
@@ -953,3 +991,4 @@ function chunkValues<T>(
 
   return chunks;
 }
+import {bookingPolicyV3Presentation} from "@/lib/payments/booking-policy-v3-presentation";

@@ -6,7 +6,6 @@ import {
   Building2,
   CalendarDays,
   CircleCheckBig,
-  CreditCard,
   Info,
   MessageSquareText,
   PhilippinePeso,
@@ -25,7 +24,7 @@ import {
   formatCount,
   formatCurrency,
 } from "@/components/customer/bookings/booking-formatters";
-import {customerPaymentChoiceActionLabel} from "@/lib/payments/customer-payment-presentation";
+import {CustomerBookingPaymentAction} from "./customer-booking-payment-action";
 import {CustomerBookingCancellationDialog} from "@/components/customer/bookings/customer-booking-cancellation-dialog";
 import {CustomerBookingCancellationStatus} from "@/components/customer/bookings/customer-booking-cancellation-status";
 import {CustomerBookingProviderRequestCard} from "@/components/customer/bookings/customer-booking-provider-request-card";
@@ -34,7 +33,6 @@ import {feastaToast} from "@/components/feedback/toast";
 import {Button} from "@/components/ui/button";
 import {
   canStartCustomerBookingPayment,
-  isCustomerBookingPaymentProcessing,
 } from "@/lib/customer/bookings/customer-booking-payment";
 import {canCustomerReviewProviderRequest} from "@/lib/customer/bookings/customer-booking-review";
 import type {CustomerBookingDetails} from "@/lib/customer/bookings/customer-booking-types";
@@ -176,17 +174,17 @@ function CustomerBookingDetailContent({
         </div>
         <p className="mt-3 flex min-w-0 items-start gap-2 text-xs leading-5 text-muted-foreground">
           <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
-          <span>Each provider request is paid separately. Available payment options are based on the payment terms saved with that request.</span>
+          <span>View the available payment options for each service below.</span>
         </p>
       </DetailSection>
 
-      <DetailSection title="Provider requests" icon={<Users />}>
+      <DetailSection title={providerRequests.length === 1 ? "Booked service" : "Booked services"} icon={<Users />}>
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <p className="text-sm leading-6 text-muted-foreground">
-            Each provider responds and handles payment independently.
+            Review your services and their next steps.
           </p>
           <span className="rounded-full bg-primary-tint px-2.5 py-1 text-xs font-bold text-primary">
-            {formatCount(providerRequests.length)} {providerRequests.length === 1 ? "request" : "requests"}
+            {formatCount(providerRequests.length)} {providerRequests.length === 1 ? "service" : "services"}
           </span>
         </div>
         {providerRequests.length > 0 ? (
@@ -196,13 +194,13 @@ function CustomerBookingDetailContent({
                 key={request.id}
                 request={request}
                 durableConfirmation
-                paymentAction={paymentActionForRequest({
-                  request,
-                  bookingId: booking.id,
-                  paymentRequestId,
-                  paymentRequestChoice,
-                  onPay: startCheckout,
-                })}
+                paymentAction={<CustomerBookingPaymentAction
+                  request={request}
+                  bookingId={booking.id}
+                  paymentRequestId={paymentRequestId}
+                  paymentRequestChoice={paymentRequestChoice}
+                  onPay={startCheckout}
+                />}
                 messageAction={messageActionForRequest({
                   request,
                   booking,
@@ -232,20 +230,20 @@ function CustomerBookingDetailContent({
           </div>
         ) : (
           <p className="mt-4 rounded-card border border-dashed border-border p-5 text-center text-sm text-muted-foreground">
-            No provider requests are attached to this booking.
+            No services are attached to this booking.
           </p>
         )}
       </DetailSection>
 
       <DetailSection title="Next actions" icon={<WalletCards />}>
         <p className="text-sm leading-6 text-muted-foreground">
-          Review all Customer-safe payment records for this booking. Provider communication and profile actions remain available on each eligible service above.
+          View your payment history for this booking.
         </p>
         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
           <Button asChild variant="secondary" size="compact">
             <Link href="/customer/payments">
               <WalletCards aria-hidden="true" className="size-4" />
-              View Payments
+              View payments
             </Link>
           </Button>
         </div>
@@ -334,13 +332,13 @@ function cancellationActionForRequest({
         id={triggerId}
         variant="secondary"
         fullWidth
-        aria-label={`Review cancellation options for ${providerName}'s service`}
+        aria-label={`Cancellation options for ${providerName}'s service`}
         onClick={() => onCancel(request.providerRequestId, triggerId)}
       >
-        Review cancellation options
+        Cancellation options
       </Button>
       <p className="text-xs leading-5 text-muted-foreground">
-        This action applies only to this Provider service. FEASTA checks eligibility securely before allowing submission.
+        Cancellation options depend on this service and event date.
       </p>
     </div>
   );
@@ -478,79 +476,6 @@ function canMessageProviderRequest(
     request.mainEventId === booking.id &&
     SAFE_DOCUMENT_ID.test(request.providerId) &&
     isChatLifecycleEligible(request.status, booking.status);
-}
-
-function paymentActionForRequest({
-  request,
-  bookingId,
-  paymentRequestId,
-  paymentRequestChoice,
-  onPay,
-}: {
-  request: CustomerBookingDetails["providerRequests"][number];
-  bookingId: string;
-  paymentRequestId: string | null;
-  paymentRequestChoice: CustomerPaymentChoice | null;
-  onPay: (
-    providerRequestId: string,
-    paymentChoice: CustomerPaymentChoice,
-  ) => Promise<void>;
-}) {
-  if (isCustomerBookingPaymentProcessing(request)) {
-    return (
-      <div
-        className="rounded-xl border border-info/20 bg-info-subtle p-3.5"
-        role="status"
-      >
-        <p className="text-sm font-bold text-info">Payment processing</p>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          FEASTA is waiting for trusted payment confirmation. Another checkout cannot be started yet.
-        </p>
-      </div>
-    );
-  }
-
-  if (!canStartCustomerBookingPayment(request, bookingId)) return undefined;
-
-  const requestLoading =
-    paymentRequestId === request.providerRequestId;
-
-  const onlyFullPayment = request.checkoutOptions.length === 1 &&
-    request.checkoutOptions[0]?.choice === "full";
-
-  return (
-    <div className="grid gap-2 border-t border-border pt-4">
-      {onlyFullPayment ? (
-        <p className="text-sm font-bold">Full Payment</p>
-      ) : null}
-      {onlyFullPayment && request.initialPaymentExplanation ? (
-        <p className="text-xs leading-5 text-muted-foreground">{request.initialPaymentExplanation}</p>
-      ) : null}
-      {request.checkoutOptions.some((option) => option.choice === "minimum") &&
-      request.checkoutOptions.some((option) => option.choice === "full") ? (
-        <p className="text-xs leading-5 text-muted-foreground">
-          Pay the minimum required amount now, or pay this Provider request in full.
-        </p>
-      ) : null}
-      {request.checkoutOptions.map((option) => <Button
-        key={option.choice}
-        fullWidth
-        loading={
-          requestLoading &&
-          paymentRequestChoice === option.choice
-        }
-        loadingLabel="Preparing secure checkout…"
-        disabled={paymentRequestId !== null}
-        onClick={() => void onPay(request.providerRequestId, option.choice)}
-      >
-        <CreditCard aria-hidden="true" className="size-5" />
-        Pay {customerPaymentChoiceActionLabel(option.choice)} {formatCurrency(option.amount)}
-      </Button>)}
-      <p className="text-xs leading-5 text-muted-foreground">
-        You’ll continue to PayMongo. FEASTA updates this request only after trusted payment confirmation.
-      </p>
-    </div>
-  );
 }
 
 function DetailSection({

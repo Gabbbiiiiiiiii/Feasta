@@ -49,6 +49,7 @@ export type ProviderEarningStatus =
   | "reversed";
 
 export type ProviderEarning = {
+  economicSource?: "service_earnings" | "payment_default_reservation_compensation";
   earningId: string;
   paymentId: string;
   providerRequestId: string;
