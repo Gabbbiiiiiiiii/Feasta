@@ -2,7 +2,9 @@
 
 ## Status
 
-Repository-side P13-B orchestration implemented; external transport remains blocked by missing verified account configuration.
+P13-B orchestration is preserved. P13-C adds a server-owned PayMongo V2 simulator
+transport; it remains unavailable without explicit test configuration and existing
+Provider readiness. The separate external-dispatch flag must also authorize reservation.
 
 Real external money movement remains disabled until PayMongo sandbox
 disbursement/Workflow capability is verified for the FEASTA account.
@@ -90,7 +92,39 @@ A server Firestore trigger observes committed canonical payment-default finaliza
 
 ## PayMongo transport
 
-Current documented transfer boundary: one `POST /v2/batch_transfers` transfer per ProviderDisbursement. The repository has linked-account org IDs but no verified v2 source/destination account configuration. The server transport therefore returns `paymongo_verified_transfer_source_and_destination_missing` and performs no external HTTP requests.
+Current transfer boundary is one V2 batch transfer per ProviderDisbursement.
+P13-C supports wallet_transfer only, using a verified activated test wallet and an
+official simulator destination configured by the server. Linked-account org IDs
+remain readiness evidence, never bank destinations. The distinct workflow mode
+remains unavailable in this adapter.
+
+P13-C requires the dedicated PAYMONGO_DISBURSEMENT_TEST_SECRET_KEY to contain an
+sk_test_ credential, explicit frozen test mode, and livemode false
+wallet/transfer evidence. No live transport exists. The transport reads only this
+dedicated secret, and reconcileProviderDisbursements binds only this secret.
+Missing dedicated credentials or sk_live_ credentials fail before HTTP, with no
+fallback to PAYMONGO_SECRET_KEY. The shared key and existing customer payment,
+refund, webhook, remaining-balance lifecycle, and Provider onboarding bindings
+remain unchanged. P13-C E2E must never require changing the shared key. No remote
+Firebase secret was set by this correction. Configuration, HTTP retry,
+reconciliation and pending manual E2E details are in
+[the P13-C report](provider-disbursement-p13-c-report.md).
+
+When test mode is true, the server-owned
+providerDisbursementTestAllowedDisbursementId must be a valid FEASTA disbursement
+document ID matching the current disbursement exactly. Absent, malformed or
+mismatched values block reservation and external dispatch. This restriction is
+operational: financial readiness remains independent, and other ready payouts
+remain untouched. Reservation freezes the allowed ID into the attempt; settings
+changes cannot redirect an existing attempt.
+
+Before transfer creation, retrieve the test wallet account and balance. Require
+matching wallet identity, livemode false, activated status, valid PayMongo source
+account, and a safe nonnegative V2 balance.available in PHP centavos covering the
+entire attempt amount. Exact payout balance is accepted. Invalid or insufficient
+funding prevents transfer submission and supplies no terminal gateway failure.
+No fee is invented or deducted from Provider entitlement. Gateway fee-inclusive
+funding sufficiency is not claimed by this principal-only check.
 
 FEASTA must not invent an undocumented child-wallet transfer contract.
 
@@ -127,6 +161,10 @@ The trusted completion instant is captured on the server before the lifecycle tr
 
 Pending keeps reservations. Trusted success atomically completes existing settlement accounting and marks the aggregate paid. Terminal gateway failure releases reservations without paying earnings. Timeout/unknown remains locked for evidence-only reconciliation. Admin retry prepares a financial revalidation only after persisted terminal failure; the next reservation increments the attempt sequence. Client amounts/statuses/destination changes are rejected.
 
-Gateway success/failure enters through the existing signature-verified PayMongo route. The parser requires the standard event envelope and full test-mode transfer evidence. Real PayMongo account-specific payload/capability verification remains a sandbox prerequisite; no external E2E has been executed.
+Gateway success/failure enters through the existing signature-verified PayMongo
+route. The parser requires the standard event envelope and full test-mode
+evidence, supporting transfer-shaped and wallet_transaction resources. Real
+PayMongo account-specific verification remains a sandbox prerequisite; no
+external E2E has been executed.
 
 A later refund cannot automatically claw back paid Provider funds. Existing refund dispatch guards remain authoritative. Ordinary Provider suspension is not used as a financial hold.
