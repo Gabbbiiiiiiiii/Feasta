@@ -229,3 +229,31 @@ it.each([
   else expect(screen.queryByRole("heading", {name: "Menu & Catalog"})).not.toBeInTheDocument();
   await waitFor(() => { if (expected) expect(mocks.load).toHaveBeenCalled(); });
 });
+
+it("keeps six packages per page and resets pagination after filtering and sorting", async () => {
+  const user = userEvent.setup();
+  mocks.list.mockResolvedValue(Array.from({length: 8}, (_, index) => ({
+    ...base, id: `page-${index}`, name: `Package ${index + 1}`,
+    status: index < 6 ? "draft" : "published",
+    eventType: index < 6 ? "birthday" : "wedding",
+  })));
+  render(<ProviderPackagesClient {...props} />);
+  await screen.findByRole("article", {name: "Package 1"});
+  expect(cardNames()).toHaveLength(6);
+  await user.click(screen.getByRole("button", {name: "Next"}));
+  expect(cardNames()).toEqual(["Package 7", "Package 8"]);
+  fireEvent.change(screen.getByLabelText("Sort packages"), {target: {value: "oldest"}});
+  expect(cardNames()).toEqual(["Package 8", "Package 7", "Package 6", "Package 5", "Package 4", "Package 3"]);
+  await user.click(screen.getByRole("button", {name: "Next"}));
+  fireEvent.change(screen.getByLabelText("Status"), {target: {value: "published"}});
+  expect(cardNames()).toEqual(["Package 8", "Package 7"]);
+  expect(screen.queryByRole("navigation", {name: "Package pagination"})).not.toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Status"), {target: {value: ""}});
+  fireEvent.change(screen.getByLabelText("Event type"), {target: {value: "wedding"}});
+  expect(cardNames()).toHaveLength(2);
+  fireEvent.change(screen.getByLabelText("Event type"), {target: {value: ""}});
+  await user.click(screen.getByRole("button", {name: "Next"}));
+  fireEvent.change(screen.getByLabelText("Search packages"), {target: {value: "Package 8"}});
+  await waitFor(() => expect(cardNames()).toEqual(["Package 8"]));
+  expect(mocks.list).toHaveBeenCalledTimes(1);
+});

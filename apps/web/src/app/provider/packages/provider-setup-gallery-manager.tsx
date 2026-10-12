@@ -97,7 +97,7 @@ export function ProviderSetupGalleryManager() {
     } finally { setBusy(false); }
   }
 
-  return <section aria-labelledby="provider-setup-gallery-heading" className="grid min-w-0 gap-4 border-t border-border pt-8">
+  return <section aria-labelledby="provider-setup-gallery-heading" className="grid min-w-0 gap-3 border-t border-border pt-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="min-w-0">
         <h2 id="provider-setup-gallery-heading" className="text-xl font-bold">Setup gallery</h2>
@@ -111,7 +111,7 @@ export function ProviderSetupGalleryManager() {
     {loading ? <p role="status" className="text-sm text-muted-foreground">Loading setup gallery…</p> : null}
     <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15.5rem),1fr))] items-start gap-4">
       {gallery.setups.map((setup) => <article key={setup.id} aria-label={setup.title} className="min-w-0 self-start overflow-hidden rounded-card border border-border bg-card shadow-card">
-        <div className="relative h-48 overflow-hidden bg-muted">
+        <div className="relative h-32 overflow-hidden bg-muted">
           {setup.imageUrls[0] ? <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={setup.imageUrls[0]} alt={`${setup.title} photo`} className="absolute inset-0 size-full object-contain" loading="lazy" />
@@ -134,7 +134,7 @@ export function ProviderSetupGalleryManager() {
         </div>
       </article>)}
     </div>
-    {!loading && !error && gallery.setups.length === 0 ? <div className="grid justify-items-center gap-3 rounded-card border border-dashed border-border bg-card px-5 py-10 text-center">
+    {!loading && !error && gallery.setups.length === 0 ? <div className="grid justify-items-center gap-3 rounded-card border border-dashed border-border bg-card px-5 py-6 text-center">
       <Images aria-hidden="true" className="size-8 text-primary-strong" />
       <p className="text-sm text-muted-foreground">No setups yet. Add photos from a completed event when you want customers to see your work.</p>
     </div> : null}
