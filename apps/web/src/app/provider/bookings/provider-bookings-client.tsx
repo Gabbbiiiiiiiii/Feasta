@@ -2,28 +2,19 @@
 
 import {formatEventTime} from "@/lib/presentation/event-time";
 
-import {
-  CalendarCheck2,
-  CircleDollarSign,
-  Clock3,
-  Eye,
-  ListChecks,
-  PlayCircle,
-} from "lucide-react";
-import Link from "next/link";
+import {Eye} from "lucide-react";
 import {usePathname, useRouter} from "next/navigation";
-import {useMemo, useState} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
 
 import {
   CursorPagination,
   DataTable,
-  SummaryCard,
+  FilterToolbar,
   type DataTableColumn,
 } from "@/components/data";
 import {feastaToast} from "@/components/feedback/toast";
 import {PageHeading} from "@/components/layout/page-heading";
 import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
-import {phpFormatter} from "@/components/shared/price-display";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
 import {
@@ -46,6 +37,7 @@ import {
 import {ProviderBookingDetailDrawer} from "./provider-booking-detail-drawer";
 
 type ProviderBookingsClientProps = {
+  initialRequestId?: string;
   initialPage: ProviderBookingPage;
   initialFilters: ProviderBookingFilters;
 };
@@ -58,19 +50,20 @@ const filterOptions: readonly {
   value: ProviderBookingFilter;
   label: string;
 }[] = [
-  {value: "all", label: "All"},
-  {value: "accepted", label: "Awaiting Payment"},
-  {value: "confirmed", label: "Confirmed"},
   {value: "upcoming", label: "Upcoming"},
-  {value: "in_progress", label: "In Progress"},
-  {value: "completed", label: "Completed"},
-  {value: "cancelled", label: "Cancelled"},
+  {value: "waiting_payment", label: "Waiting for Payment"},
+  {value: "past", label: "Past Bookings"},
+  {value: "all", label: "All Bookings"},
 ];
 
 export function ProviderBookingsClient({
+  initialRequestId,
   initialPage,
   initialFilters,
 }: ProviderBookingsClientProps) {
+  const listGeneration = useRef(0);
+  const detailGeneration = useRef(0);
+  const [searchValue, setSearchValue] = useState(initialFilters.search ?? "");
   const pathname = usePathname();
   const router = useRouter();
   const [page, setPage] = useState(initialPage);
@@ -79,16 +72,26 @@ export function ProviderBookingsClient({
   const [pageNumber, setPageNumber] = useState(1);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(Boolean(initialRequestId));
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(initialRequestId ?? null);
   const [selectedBooking, setSelectedBooking] = useState<ProviderBooking | null>(null);
   const [timeline, setTimeline] = useState<ProviderBookingTimeline | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(Boolean(initialRequestId));
   const [detailError, setDetailError] = useState<string | null>(null);
   const [lifecycleAction, setLifecycleAction] = useState<LifecycleAction | null>(null);
   const [actionPending, setActionPending] = useState(false);
   const [preparationEvidence, setPreparationEvidence] = useState("");
   const [preparationKey, setPreparationKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!initialRequestId) return;
+    let active = true;
+    const generation = ++detailGeneration.current;
+    Promise.all([loadProviderBookingAction(initialRequestId), loadProviderBookingTimelineAction(initialRequestId)])
+      .then(([booking, entries]) => {if (active && generation === detailGeneration.current) {setSelectedBooking(booking); setTimeline(entries);}})
+      .catch(() => {if (active && generation === detailGeneration.current) setDetailError("The latest booking details could not be loaded. Please try again.");})
+      .finally(() => {if (active && generation === detailGeneration.current) setDetailLoading(false);});
+    return () => {active = false;};
+  }, [initialRequestId]);
 
   const columns = useMemo<readonly DataTableColumn<ProviderBooking>[]>(() => [
     {
@@ -112,25 +115,13 @@ export function ProviderBookingsClient({
       ),
     },
     {
-      id: "service",
-      header: "Service / Package",
-      cell: (booking) => booking.serviceSummary,
-    },
-    {
-      id: "amount",
-      header: "Amount",
-      cell: (booking) => (
-        <span className="font-semibold text-primary-strong">
-          {phpFormatter.format(booking.acceptedAmount ?? booking.requestedAmount)}
-        </span>
-      ),
-    },
-    {
       id: "payment",
       header: "Payment",
-      cell: (booking) => booking.paymentStatus
+      cell: (booking) => <div className="grid gap-1">{booking.paymentAttention
+        ? <span className="text-sm font-medium">{booking.paymentAttention}</span> : booking.paymentStatus
         ? <StatusBadge status={booking.paymentStatus} />
-        : <span className="text-muted-foreground">Not recorded</span>,
+        : <span className="text-muted-foreground">Not recorded</span>}
+        {booking.balanceEnforcement ? <span className="text-xs text-warning">{booking.balanceEnforcement.explanation ?? booking.balanceEnforcement.label}</span> : null}</div>,
     },
     {
       id: "status",
@@ -138,7 +129,7 @@ export function ProviderBookingsClient({
       cell: (booking) => (
         <StatusBadge
           status={booking.providerRequestStatus}
-          label={booking.bookingPolicy?.label ?? booking.balanceEnforcement?.label ?? (booking.providerRequestStatus === "pending" ? "Pending request" : undefined)}
+          label={(booking.providerRequestStatus === "pending" ? "Pending request" : undefined)}
         />
       ),
     },
@@ -149,32 +140,42 @@ export function ProviderBookingsClient({
     nextHistory: string[],
     nextPageNumber: number,
   ) => {
+    const generation = ++listGeneration.current;
+    setFilters(nextFilters);
+    setCursorHistory(nextHistory);
+    setPageNumber(nextPageNumber);
     setLoading(true);
     setLoadError(null);
 
     try {
       const result = await loadProviderBookingsAction(nextFilters);
+      if (generation !== listGeneration.current) return;
       setPage(result);
       setFilters(nextFilters);
       setCursorHistory(nextHistory);
       setPageNumber(nextPageNumber);
     } catch {
+      if (generation !== listGeneration.current) return;
       setLoadError("Bookings could not be loaded. Please try again.");
     } finally {
-      setLoading(false);
+      if (generation === listGeneration.current) setLoading(false);
     }
   };
 
   const selectFilter = (status: ProviderBookingFilter) => {
-    if (loading || status === filters.status) return;
+    if (status === filters.status && !filters.dashboard) return;
 
-    const nextFilters = {...filters, status, cursor: null};
-    const query = status === "all" ? "" : `?status=${encodeURIComponent(status)}`;
+    const nextFilters = {...filters, search: searchValue.trim(), dashboard: undefined, status, secondary: "all" as const, cursor: null};
+    const query = `?status=${encodeURIComponent(status)}${searchValue.trim() ? `&search=${encodeURIComponent(searchValue.trim())}` : ""}`;
     router.replace(`${pathname}${query}`, {scroll: false});
     void loadPage(nextFilters, [], 1);
   };
 
   const openBooking = async (providerRequestId: string) => {
+    const generation = ++detailGeneration.current;
+    setPreparationKey(null);
+    setPreparationEvidence("");
+    setLifecycleAction(null);
     setSelectedRequestId(providerRequestId);
     setSelectedBooking(null);
     setTimeline(null);
@@ -187,22 +188,25 @@ export function ProviderBookingsClient({
         loadProviderBookingAction(providerRequestId),
         loadProviderBookingTimelineAction(providerRequestId),
       ]);
+      if (generation !== detailGeneration.current) return;
       setSelectedBooking(bookingResult);
       setTimeline(timelineResult);
     } catch {
+      if (generation !== detailGeneration.current) return;
       setDetailError("The latest booking details could not be loaded. Please try again.");
     } finally {
-      setDetailLoading(false);
+      if (generation === detailGeneration.current) setDetailLoading(false);
     }
   };
 
   const refreshSelectedBooking = async () => {
     if (!selectedRequestId) return;
-
+    const generation = detailGeneration.current;
     const [bookingResult, timelineResult] = await Promise.all([
       loadProviderBookingAction(selectedRequestId),
       loadProviderBookingTimelineAction(selectedRequestId),
     ]);
+    if (generation !== detailGeneration.current) return;
     setSelectedBooking(bookingResult);
     setTimeline(timelineResult);
   };
@@ -258,47 +262,21 @@ export function ProviderBookingsClient({
 
   return (
     <div className="grid min-w-0 gap-6">
-      <PageHeading
-        title="Bookings"
-        description="Manage accepted, confirmed, upcoming, in-progress, and completed event bookings."
-        actions={(
-          <Button asChild variant="secondary" size="compact">
-            <Link href="/provider/requests">View pending requests</Link>
-          </Button>
-        )}
+      <PageHeading title="My Bookings" description="View your upcoming events, payments, and past bookings." />
+      <FilterToolbar searchValue={searchValue} onSearchChange={setSearchValue}
+        onSearchInvalidate={() => {listGeneration.current += 1; setLoading(false);}}
+        onSearchSubmit={search => void loadPage({...filters, search, cursor: null}, [], 1)}
+        onClearSearch={() => {setSearchValue(""); void loadPage({...filters, search: "", cursor: null}, [], 1);}}
+        onClearFilters={() => {setSearchValue(""); void loadPage({...filters, search: "", secondary: "all", cursor: null}, [], 1);}}
+        searchLabel="Search bookings" searchPlaceholder="Customer, booking reference, event, package or service"
+        searchHint="Search checks up to 150 booking records at a time. Use Next to continue through your history."
+        activeFilters={[...(filters.search ? [filters.search] : []), ...(filters.secondary && filters.secondary !== "all" ? [filters.secondary] : [])]}
+        loading={loading}
+        filterControls={filters.status === "past" || filters.status === "all" ? <label className="grid gap-1 text-sm">Booking filter
+          <select aria-label="Booking filter" value={filters.secondary ?? "all"} onChange={event => void loadPage({...filters, secondary: event.target.value as ProviderBookingFilters["secondary"], cursor: null}, [], 1)} className="rounded-lg border border-input bg-card p-2">
+            <option value="all">All statuses</option><option value="completed">Completed</option><option value="cancelled">Cancelled</option><option value="refunded">Refunded</option>
+          </select></label> : undefined}
       />
-
-      <section className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="Booking summary">
-        <Link href="/provider/requests" className="rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          <SummaryCard
-            label="Pending Requests"
-            value={page.summary.pending}
-            icon={<ListChecks className="size-5" />}
-          />
-        </Link>
-        <SummaryCard
-          label="Awaiting Payment"
-          value={page.summary.awaitingPayment}
-          icon={<CircleDollarSign className="size-5" />}
-        />
-        <SummaryCard
-          label="Confirmed / Upcoming"
-          value={page.summary.confirmed}
-          trend={{label: `${page.summary.upcoming} upcoming`, direction: "neutral"}}
-          icon={<CalendarCheck2 className="size-5" />}
-        />
-        <SummaryCard
-          label="In Progress"
-          value={page.summary.inProgress}
-          icon={<PlayCircle className="size-5" />}
-        />
-        <SummaryCard
-          label="Completed"
-          value={page.summary.completed}
-          icon={<Clock3 className="size-5" />}
-        />
-      </section>
-
       <section className="rounded-card border border-border bg-card p-3 shadow-card" aria-labelledby="provider-booking-filter-heading">
         <h2 id="provider-booking-filter-heading" className="sr-only">Filter bookings</h2>
         <div className="flex max-w-full gap-2 overflow-x-auto pb-1" role="group" aria-label="Booking status filters">
@@ -309,7 +287,6 @@ export function ProviderBookingsClient({
               size="compact"
               className="shrink-0"
               aria-pressed={filters.status === option.value}
-              disabled={loading}
               onClick={() => selectFilter(option.value)}
             >
               {option.label}
@@ -318,17 +295,19 @@ export function ProviderBookingsClient({
         </div>
       </section>
 
+      {filters.secondary === "disputed" ? <p role="status" className="text-sm text-muted-foreground">Dispute tracking is not available in the current booking records. Choose All statuses to review unresolved bookings and their updates.</p> : null}
+      {filters.status === "upcoming" ? <p className="text-sm text-muted-foreground">Events are ordered by date, then scheduled time within this page. Events awaiting a status update remain visible after their scheduled date.</p> : null}
       <DataTable
         columns={columns}
         rows={page.bookings}
         getRowId={(booking) => booking.providerRequestId}
         caption="Provider booking results"
-        loading={loading}
+        loading={loading || searchValue.trim() !== (filters.search ?? "").trim()}
         error={loadError ?? undefined}
         onRetry={() => void loadPage(filters, cursorHistory, pageNumber)}
         emptyTitle={emptyCopy.title}
         emptyDescription={emptyCopy.description}
-        rowActionsLabel="View booking"
+        rowActionsLabel="Action"
         rowActions={(booking) => (
           <Button
             variant="ghost"
@@ -337,7 +316,7 @@ export function ProviderBookingsClient({
             onClick={() => void openBooking(booking.providerRequestId)}
           >
             <Eye aria-hidden="true" className="size-4" />
-            View
+            View Details
           </Button>
         )}
         renderMobileRow={(booking) => (
@@ -345,10 +324,11 @@ export function ProviderBookingsClient({
         )}
       />
 
+      {page.hasMore && !loading ? <p role="status" className="text-sm text-muted-foreground">More booking records remain. Use Next to continue; this page may contain fewer matches.</p> : null}
       <CursorPagination
         previousCursor={previousCursor}
         nextCursor={page.nextCursor}
-        loading={loading}
+        loading={loading || Boolean(loadError) || searchValue.trim() !== (filters.search ?? "").trim()}
         pageLabel={`Page ${pageNumber}`}
         onPrevious={(cursor) => {
           const nextHistory = cursorHistory.slice(0, -1);
@@ -376,6 +356,7 @@ export function ProviderBookingsClient({
           if (!actionPending) {
             setDrawerOpen(open);
             if (!open) {
+              detailGeneration.current += 1;
               setSelectedRequestId(null);
               setSelectedBooking(null);
               setTimeline(null);
@@ -402,7 +383,7 @@ export function ProviderBookingsClient({
           ? "Record preparation started?"
           : lifecycleAction === "start" ? "Start this event?" : "Mark this event as completed?"}
         description={lifecycleAction === "prepare"
-          ? "This forward-only factual stage can affect the frozen policy calculation if the Customer later requests cancellation."
+          ? "Record that you have started preparing for this event? This information may be considered if the customer later requests a cancellation or refund. It does not automatically approve or determine a refund."
           : lifecycleAction === "start"
             ? "This booking will be marked as in progress and the customer will be notified."
             : "This confirms that your service for this booking has been completed."}
@@ -414,7 +395,7 @@ export function ProviderBookingsClient({
       >
         {lifecycleAction === "prepare" ? (
           <label className="grid gap-2" htmlFor="provider-preparation-evidence">
-            <span className="text-sm font-bold">Factual preparation note (optional)</span>
+            <span className="text-sm font-bold">Preparation note (optional)</span>
             <textarea
               id="provider-preparation-evidence"
               rows={4}
@@ -447,25 +428,18 @@ function BookingMobileCard({
           <h3 className="truncate font-bold">{booking.customerDisplayName}</h3>
           <p className="mt-1 text-sm text-muted-foreground">{formatLabel(booking.eventType)}</p>
         </div>
-        <StatusBadge status={booking.providerRequestStatus} label={booking.bookingPolicy?.label ?? booking.balanceEnforcement?.label} />
+        <StatusBadge status={booking.providerRequestStatus}  />
       </div>
       <dl className="grid grid-cols-2 gap-3 text-sm">
         <div>
           <dt className="text-muted-foreground">Date & time</dt>
           <dd className="mt-1 font-medium">{formatDate(booking.eventDate)} · {formatEventTime(booking.eventTime) || "TBA"}</dd>
         </div>
-        <div>
-          <dt className="text-muted-foreground">Amount</dt>
-          <dd className="mt-1 font-medium">{phpFormatter.format(booking.acceptedAmount ?? booking.requestedAmount)}</dd>
-        </div>
-        <div className="col-span-2">
-          <dt className="text-muted-foreground">Service / package</dt>
-          <dd className="mt-1 font-medium">{booking.serviceSummary}</dd>
-        </div>
+        <div><dt className="text-muted-foreground">Payment</dt><dd className="mt-1 font-medium">{booking.paymentAttention ?? (booking.paymentStatus ? formatLabel(booking.paymentStatus) : "Not recorded")}</dd></div>
       </dl>
       <Button variant="secondary" size="compact" onClick={onView} aria-label={`View booking for ${booking.customerDisplayName}`}>
         <Eye aria-hidden="true" className="size-4" />
-        View booking
+        View Details
       </Button>
     </article>
   );
@@ -474,15 +448,15 @@ function BookingMobileCard({
 function getEmptyCopy(status: ProviderBookingFilter): {title: string; description: string} {
   if (status === "all") {
     return {
-      title: "No bookings yet",
-      description: "Accepted and confirmed bookings will appear here after you process customer requests.",
+      title: "No bookings on this page",
+      description: "No matches in the records checked. If Next is available, continue to check more bookings.",
     };
   }
 
   const label = filterOptions.find((option) => option.value === status)?.label.toLowerCase() ?? "matching";
   return {
-    title: `No ${label} bookings`,
-    description: "No bookings currently match this status.",
+    title: `No ${label} bookings on this page`,
+    description: "No matches in the records checked. If Next is available, continue to check more bookings.",
   };
 }
 

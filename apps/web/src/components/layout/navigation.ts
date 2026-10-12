@@ -1,7 +1,6 @@
 import {
   Bell,
   Building2,
-  CalendarClock,
   CalendarDays,
   ChartNoAxesCombined,
   CircleUserRound,
@@ -100,39 +99,40 @@ const providerDashboardNavigation: NavigationLinkItem = {
 const providerBookingNavigation: readonly NavigationItem[] = [
   {
     kind: "link",
-    section: "BOOKINGS",
+    section: "Bookings & Schedule",
     label: "Booking Requests",
     href: "/provider/requests",
     icon: ClipboardList,
   },
   {
     kind: "link",
-    section: "BOOKINGS",
-    label: "Bookings",
+    section: "Bookings & Schedule",
+    label: "My Bookings",
     href: "/provider/bookings",
     icon: CalendarDays,
   },
   {
     kind: "link",
-    section: "BOOKINGS",
+    section: "Bookings & Schedule",
     label: "Calendar",
     href: "/provider/calendar",
+    activeRouteAliases: ["/provider/availability"],
     icon: CalendarDays,
   },
 ];
 
 const providerPackageNavigation: NavigationLinkItem = {
   kind: "link",
-  section: "SERVICES",
-  label: "Packages / Catalog",
+  section: "My Business",
+  label: "Packages & Services",
   href: "/provider/packages",
   icon: PackageOpen,
 };
 
 const providerServiceNavigation: NavigationLinkItem = {
   kind: "link",
-  section: "SERVICES",
-  label: "Event Services",
+  section: "My Business",
+  label: "Packages & Services",
   href: "/provider/services",
   icon: Store,
 };
@@ -140,44 +140,32 @@ const providerServiceNavigation: NavigationLinkItem = {
 const providerBusinessNavigation: readonly NavigationItem[] = [
   {
     kind: "link",
-    section: "BUSINESS",
-    label: "Availability",
-    href: "/provider/availability",
-    icon: CalendarClock,
-  },
-  {
-    kind: "link",
-    section: "BUSINESS",
-    label: "Payments & Payouts",
+    section: "My Business",
+    label: "Payments",
     href: "/provider/payments",
+    activeRouteAliases: ["/provider/refund-policy", "/provider/tax-profile"],
     icon: WalletCards,
   },
   {
     kind: "link",
-    section: "BUSINESS",
-    label: "Refund Policy",
-    href: "/provider/refund-policy",
-    icon: ScrollText,
-  },
-  {
-    kind: "link",
-    section: "BUSINESS",
+    section: "My Business",
     label: "Reviews",
     href: "/provider/reviews",
     icon: Star,
   },
   {
     kind: "link",
-    section: "BUSINESS",
+    section: "My Business",
     label: "Business Profile",
     href: "/provider/business-profile",
+    activeRouteAliases: ["/provider/verification", "/provider/status"],
     icon: Building2,
   },
 ];
 
 const providerVerificationNavigation: NavigationLinkItem = {
   kind: "link",
-  section: "ACCOUNT",
+  section: "Account",
   label: "Verification",
   href: "/provider/verification",
   activeRouteAliases: ["/provider/status"],
@@ -186,7 +174,7 @@ const providerVerificationNavigation: NavigationLinkItem = {
 
 const providerTaxProfileNavigation: NavigationLinkItem = {
   kind: "link",
-  section: "ACCOUNT",
+  section: "Account",
   label: "Tax Profile",
   href: "/provider/tax-profile",
   icon: FileCheck2,
@@ -194,8 +182,8 @@ const providerTaxProfileNavigation: NavigationLinkItem = {
 
 const providerAccountNavigation: NavigationLinkItem = {
   kind: "link",
-  section: "ACCOUNT",
-  label: "Account & Settings",
+  section: "Account",
+  label: "Settings",
   href: "/provider/account",
   icon: Settings2,
 };
@@ -279,8 +267,6 @@ export function getRoleNavigation(
     ...providerBookingNavigation,
     ...catalogNavigation,
     ...providerBusinessNavigation,
-    providerVerificationNavigation,
-    providerTaxProfileNavigation,
     providerAccountNavigation,
   ];
 }
@@ -290,7 +276,7 @@ function getProviderCatalogNavigation(
 ): readonly NavigationItem[] {
   if (providerServiceType === "catering") return [providerPackageNavigation];
   if (providerServiceType === "addon") return [providerServiceNavigation];
-  return [providerPackageNavigation, providerServiceNavigation];
+  return [{...providerPackageNavigation, activeRouteAliases: ["/provider/services"]}];
 }
 
 export function groupNavigationItems(

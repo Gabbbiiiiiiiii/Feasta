@@ -3,7 +3,8 @@ export type ProviderCalendarEventStatus =
   | "waiting_for_down_payment"
   | "payment_processing"
   | "confirmed"
-  | "in_progress";
+  | "in_progress"
+  | "completed";
 
 export type ProviderCalendarEvent = {
   id: string;
@@ -36,6 +37,7 @@ export type ProviderCalendarSettings = {
 
 export type ProviderCalendarData = {
   providerId: string;
+  month: string;
   settings: ProviderCalendarSettings;
   events: ProviderCalendarEvent[];
 };

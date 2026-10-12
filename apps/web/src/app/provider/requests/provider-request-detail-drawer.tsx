@@ -1,6 +1,7 @@
 "use client";
 
 import {formatEventTime} from "@/lib/presentation/event-time";
+import {requestStatusLabel} from "@/lib/provider/requests/provider-request-presentation";
 
 import {
   CalendarDays,
@@ -66,7 +67,7 @@ export function ProviderRequestDetailDrawer({
             "Review the customer's event requirements before responding."
         }
         footer={
-            request.status === "pending" ? (
+            request.status === "pending" && !request.responseUnavailableReason ? (
             <div className="flex w-full flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <Button
                 type="button"
@@ -74,7 +75,7 @@ export function ProviderRequestDetailDrawer({
                 disabled={actionPending}
                 onClick={onReject}
                 >
-                Reject request
+                Decline Request
                 </Button>
 
                 <Button
@@ -82,27 +83,29 @@ export function ProviderRequestDetailDrawer({
                 disabled={actionPending}
                 onClick={onAccept}
                 >
-                Accept request
+                Accept Request
                 </Button>
             </div>
             ) : null
         }
         >
       <div className="grid gap-6">
+        {request.responseUnavailableReason ? <p role="status" className="rounded-lg border border-border bg-muted/30 p-4 text-sm">{request.responseUnavailableReason}</p> : null}
         <section className="grid gap-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm text-muted-foreground">
-                Request
+                Booking reference
               </p>
 
               <p className="font-semibold">
-                {request.id}
+                {request.bookingReference ?? request.mainEventId}
               </p>
             </div>
 
             <StatusBadge
               status={request.status}
+              label={requestStatusLabel(request.status)}
             />
           </div>
         </section>
@@ -311,7 +314,7 @@ export function ProviderRequestDetailDrawer({
 
         {request.event.notes ? (
           <Section
-            title="Customer notes"
+          title="Special instructions"
           >
             <p className="whitespace-pre-wrap rounded-lg border border-border bg-muted/30 p-4 text-sm leading-6">
               {request.event.notes}
@@ -321,7 +324,7 @@ export function ProviderRequestDetailDrawer({
 
         {request.rejectionReason ? (
           <Section
-            title="Rejection reason"
+          title="Decline reason"
           >
             <p className="whitespace-pre-wrap rounded-lg border border-border p-4 text-sm leading-6">
               {request.rejectionReason}
@@ -330,7 +333,7 @@ export function ProviderRequestDetailDrawer({
         ) : null}
 
         <Section
-          title="Request history"
+          title="Booking updates"
         >
           <DetailRow
             label="Submitted"

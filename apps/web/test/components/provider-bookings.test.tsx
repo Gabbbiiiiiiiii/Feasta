@@ -51,6 +51,21 @@ vi.mock("@/components/feedback/toast", () => ({
 
 import {ProviderBookingsClient} from "@/app/provider/bookings/provider-bookings-client";
 
+it("opens an existing booking drawer from a dashboard deep link", async () => {
+  render(<ProviderBookingsClient initialRequestId="request-confirmed" initialPage={page([])} initialFilters={{status: "all", pageSize: 10}} />);
+  expect(await screen.findByRole("dialog")).toBeVisible();
+  await waitFor(() => expect(mocks.loadBooking).toHaveBeenCalledWith("request-confirmed"));
+  expect(mocks.loadTimeline).toHaveBeenCalledWith("request-confirmed");
+  expect(await within(screen.getByRole("dialog")).findByText("Ana Reyes")).toBeVisible();
+});
+
+it("clears the exact dashboard selection when another booking status is chosen", async () => {
+  render(<ProviderBookingsClient initialPage={page([])} initialFilters={{status: "accepted", dashboard: "payment", pageSize: 10}} />);
+  expect(screen.getByRole("heading", {name: "My Bookings"})).toBeVisible();
+  await userEvent.setup().click(screen.getByRole("button", {name: "All Bookings"}));
+  await waitFor(() => expect(mocks.loadPage).toHaveBeenCalledWith(expect.objectContaining({status: "all", dashboard: undefined, cursor: null})));
+});
+
 const timeline: ProviderBookingTimeline = {
   providerRequestId: "request-confirmed",
   mainEventId: "event-1",
@@ -214,22 +229,20 @@ describe("provider bookings workspace", () => {
   it("renders the server-backed summary, filters, table, and responsive card", () => {
     renderWorkspace();
 
-    expect(screen.getByRole("heading", {level: 1, name: "Bookings"})).toBeVisible();
-    expect(screen.getByRole("region", {name: "Awaiting Payment"})).toHaveTextContent("3");
-    expect(screen.getByRole("region", {name: "Confirmed / Upcoming"})).toHaveTextContent("4");
+    expect(screen.getByRole("heading", {level: 1, name: "My Bookings"})).toBeVisible();
+    expect(screen.queryByLabelText("Booking summary")).not.toBeInTheDocument();
     expect(screen.getByRole("group", {name: "Booking status filters"})).toBeVisible();
     expect(screen.getAllByText("Ana Reyes").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Birthday").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Celebration Package").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/₱25,000/u).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Celebration Package")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Provider booking results, mobile view")).toBeInTheDocument();
   });
 
   it("shows honest empty copy without fabricating records", () => {
-    renderWorkspace([], "in_progress");
+    renderWorkspace([], "upcoming");
 
-    expect(screen.getByText("No in progress bookings")).toBeVisible();
-    expect(screen.getByText("No bookings currently match this status.")).toBeVisible();
+    expect(screen.getByText("No upcoming bookings on this page")).toBeVisible();
+    expect(screen.getByText("No matches in the records checked. If Next is available, continue to check more bookings.")).toBeVisible();
   });
 
   it("maps filters to the server contract and resets the cursor", async () => {
@@ -243,24 +256,22 @@ describe("provider bookings workspace", () => {
       );
     });
 
-    await user.click(screen.getByRole("button", {name: "Awaiting Payment"}));
+    await user.click(screen.getByRole("button", {name: "Waiting for Payment"}));
     await waitFor(() => {
       expect(mocks.loadPage).toHaveBeenLastCalledWith(
-        expect.objectContaining({status: "accepted", cursor: null}),
+        expect.objectContaining({status: "waiting_payment", cursor: null}),
       );
     });
     expect(mocks.replace).toHaveBeenCalledWith(
-      "/provider/bookings?status=accepted",
+      "/provider/bookings?status=waiting_payment",
       {scroll: false},
     );
   });
 
   it.each([
-    ["Confirmed", "confirmed"],
-    ["Upcoming", "upcoming"],
-    ["In Progress", "in_progress"],
-    ["Completed", "completed"],
-    ["Cancelled", "cancelled"],
+        ["Upcoming", "upcoming"],
+    ["Waiting for Payment", "waiting_payment"],
+    ["Past Bookings", "past"],
   ] as const)("maps the %s filter to %s", async (label, status) => {
     const user = userEvent.setup();
     renderWorkspace();
@@ -324,7 +335,7 @@ describe("provider bookings workspace", () => {
     await user.click(screen.getAllByRole("button", {name: "View booking for Ana Reyes"})[0]);
     await screen.findByRole("dialog", {name: "Booking details"});
     expect(screen.queryByRole("button", {name: "Start Event"})).not.toBeInTheDocument();
-    expect(screen.getByRole("button", {name: "Mark preparation started"})).toBeVisible();
+    expect(screen.getByRole("button", {name: "Mark Preparation Started"})).toBeVisible();
   });
 
   it("offers only canonical lifecycle actions for eligible statuses", async () => {
@@ -386,7 +397,7 @@ describe("provider bookings workspace", () => {
     renderWorkspace();
 
     await user.click(screen.getAllByRole("button", {name: "View booking for Ana Reyes"})[0]);
-    await user.click(await screen.findByRole("button", {name: "Mark preparation started"}));
+    await user.click(await screen.findByRole("button", {name: "Mark Preparation Started"}));
     const confirmation = screen.getAllByRole("dialog").at(-1)!;
     await user.type(
       within(confirmation).getByRole("textbox"),
@@ -416,8 +427,8 @@ describe("provider bookings workspace", () => {
     renderWorkspace([locked]);
 
     await user.click(screen.getAllByRole("button", {name: "View booking for Ana Reyes"})[0]);
-    expect(await screen.findByText("Stage advancement is locked by an active cancellation request.")).toBeVisible();
-    expect(screen.queryByRole("button", {name: "Mark preparation started"})).not.toBeInTheDocument();
+    expect(await screen.findByText("Preparation updates are paused while a cancellation request is being reviewed.")).toBeVisible();
+    expect(screen.queryByRole("button", {name: "Mark Preparation Started"})).not.toBeInTheDocument();
   });
   it("v3 hides manual preparation and event start while retaining completion at the valid end", async () => {
     const automatic = {...booking(), automaticLifecycle: true, bookingPolicy: {
@@ -430,7 +441,41 @@ describe("provider bookings workspace", () => {
     await user.click(screen.getAllByRole("button", {name: "View booking for Ana Reyes"})[0]);
     expect(await screen.findByText("Ready to Complete")).toBeVisible();
     expect(screen.queryByRole("button", {name: "Start Event"})).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", {name: "Mark preparation started"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: "Mark Preparation Started"})).not.toBeInTheDocument();
     expect(screen.getByRole("button", {name: "Mark Completed"})).toBeVisible();
   });
+});
+
+it("ignores an older list response after a newer view loads", async () => {
+  let resolveOld!: (value: ProviderBookingPage) => void;
+  mocks.loadPage.mockImplementationOnce(() => new Promise(resolve => {resolveOld = resolve;})).mockResolvedValueOnce(page([{...booking(), customerDisplayName: "Latest customer"}]));
+  renderWorkspace();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", {name: "Waiting for Payment"}));
+  await user.click(screen.getByRole("button", {name: "Past Bookings"}));
+  await screen.findAllByText("Latest customer");
+  resolveOld(page([{...booking(), customerDisplayName: "Stale customer"}]));
+  await waitFor(() => expect(screen.queryByText("Stale customer")).not.toBeInTheDocument());
+  expect(screen.getByRole("button", {name: "Past Bookings"})).toHaveAttribute("aria-pressed", "true");
+});
+it("submits and clears search with the active view and a fresh cursor", async () => {
+  renderWorkspace([], "upcoming");
+  const user = userEvent.setup();
+  await user.type(screen.getByRole("searchbox", {name: "Search bookings"}), "Ana{Enter}");
+  await waitFor(() => expect(mocks.loadPage).toHaveBeenLastCalledWith(expect.objectContaining({search: "Ana", status: "upcoming", cursor: null})));
+  await user.click(screen.getByRole("button", {name: "Clear search"}));
+  await waitFor(() => expect(mocks.loadPage).toHaveBeenLastCalledWith(expect.objectContaining({search: "", status: "upcoming", cursor: null})));
+});
+
+it("ignores details from a booking closed before its response arrives", async () => {
+  let resolveOld!: (value: ProviderBooking) => void;
+  mocks.loadBooking.mockImplementationOnce(() => new Promise(resolve => {resolveOld = resolve;})).mockResolvedValueOnce({...booking(), customerDisplayName: "Latest details"});
+  renderWorkspace([booking(), booking("completed")]);
+  const user = userEvent.setup();
+  await user.click(screen.getAllByRole("button", {name: "View booking for Ana Reyes"})[0]);
+  await user.keyboard("{Escape}");
+  await user.click(screen.getAllByRole("button", {name: "View booking for Ana Reyes"})[1]);
+  await screen.findByText("Latest details");
+  resolveOld({...booking(), customerDisplayName: "Stale details"});
+  await waitFor(() => expect(screen.queryByText("Stale details")).not.toBeInTheDocument());
 });

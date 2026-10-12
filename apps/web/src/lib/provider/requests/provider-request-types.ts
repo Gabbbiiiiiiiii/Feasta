@@ -35,6 +35,8 @@ export type ProviderRequestService = {
 };
 
 export type ProviderRequestListItem = {
+  bookingReference?: string | null;
+  responseUnavailableReason?: string | null;
   id: string;
 
   mainEventId: string;
@@ -93,3 +95,7 @@ export type ProviderRequestStatusFilter =
 export type ProviderRequestTypeFilter =
   | "all"
   | ProviderRequestType;
+
+export type ProviderRequestFilter = "all" | "new" | "accepted" | "rejected" | "cancelled";
+export type ProviderRequestFilters = {status: ProviderRequestFilter; search: string; cursor?: string | null};
+export type ProviderRequestPage = {requests: ProviderRequestListItem[]; nextCursor: string | null; hasMore: boolean; skippedMalformedCount: number};

@@ -127,7 +127,7 @@ function overlappingBooking(overrides = {}) {
   };
 }
 
-test("same-day non-overlapping HH:mm ranges do not conflict", () => {
+test("same-day non-overlapping events are rejected by the daily limit", () => {
   const result = validate({
     providerData: provider({
       acceptsMultipleEventsPerDay: false,
@@ -143,8 +143,8 @@ test("same-day non-overlapping HH:mm ranges do not conflict", () => {
     }],
   });
 
-  assert.equal(result.available, true);
-  assert.equal(codes(result).includes("MAX_EVENTS_REACHED"), false);
+  assert.equal(result.available, false);
+  assert.equal(codes(result).includes("MAX_EVENTS_REACHED"), true);
   assert.equal(codes(result).includes("TIME_CONFLICT"), false);
 });
 
@@ -210,21 +210,31 @@ test("occupancy follows status and the stored payment hold deadline", () => {
     })).includes("TIME_CONFLICT"), status);
   }
 
-  assert.equal(validate({
+  const completedDay = validate({
     now,
-    request: request({
-      eventDate: new Date("2026-09-24T04:00:00+08:00"),
-    }),
-    existingBookings: [overlappingBooking({status: "completed"})],
-  }).available, true);
+    existingBookings: [overlappingBooking({
+      status: "completed",
+      eventTime: "16:00",
+      eventEndTime: "18:00",
+    })],
+  });
+  assert.equal(completedDay.available, false);
+  assert.ok(codes(completedDay).includes("MAX_EVENTS_REACHED"));
+  assert.equal(codes(completedDay).includes("TIME_CONFLICT"), false);
 
-  for (const status of ["cancelled", "rejected", "expired", "completed"]) {
+  for (const status of ["cancelled", "rejected", "expired"]) {
     assert.equal(providerRequestOccupiesAvailability({
       status,
       expiresAt: activeHold,
       now,
     }), false, status);
   }
+
+  assert.equal(providerRequestOccupiesAvailability({
+    status: "completed",
+    expiresAt: expiredHold,
+    now,
+  }), true);
 
   assert.equal(validate({
     now,
@@ -254,7 +264,7 @@ test("occupancy follows status and the stored payment hold deadline", () => {
   }), false);
 });
 
-test("conflict authority ignores generic staff, equipment, and daily event caps", () => {
+test("daily booking limit is independent of configurable capacity and staff counts", () => {
   const now = new Date("2026-08-20T12:00:00+08:00");
   const blocked = validate({
     now,
@@ -298,6 +308,7 @@ test("conflict authority ignores generic staff, equipment, and daily event caps"
     "payment_processing",
     "confirmed",
     "in_progress",
+    "completed",
   ]);
 });
 
@@ -343,7 +354,7 @@ test("rejects unsupported service capabilities and unapproved providers", () => 
   assert.ok(codes(unapproved).includes("PROVIDER_NOT_OPERATIONAL"));
 });
 
-test("detects authoritative HH:mm overlaps and rejects malformed time ranges", () => {
+test("rejects overlapping and adjacent same-day events and malformed times", () => {
   const overlap = validate({
     existingBookings: [{
       providerRequestId: "request_existing",
@@ -362,7 +373,9 @@ test("detects authoritative HH:mm overlaps and rejects malformed time ranges", (
       eventEndTime: "18:00",
     }],
   });
-  assert.equal(touching.available, true);
+  assert.equal(touching.available, false);
+  assert.ok(codes(touching).includes("MAX_EVENTS_REACHED"));
+  assert.equal(codes(touching).includes("TIME_CONFLICT"), false);
 
   const malformed = validate({
     request: request({eventTime: "noon", eventEndTime: ""}),

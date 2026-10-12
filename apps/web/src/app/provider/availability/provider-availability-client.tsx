@@ -200,6 +200,16 @@ export function ProviderAvailabilityClient({
 
   return (
     <div className="grid min-w-0 gap-6">
+      <div className="flex">
+        <Button
+          type="button"
+          variant="secondary"
+          size="compact"
+          onClick={() => router.push("/provider/calendar")}
+        >
+          ← Back to Calendar
+        </Button>
+      </div>
       <PageHeading
         eyebrow="Provider operations"
         title="Availability & Scheduling"

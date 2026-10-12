@@ -575,6 +575,12 @@ export const acceptProviderRequest = onCall(
           const paymentDeadline = timingV3 ? Timestamp.fromMillis(Math.min(legacyPaymentDeadline.toMillis(),
             timingV3.hardPaymentDeadlineAt.getTime())) : legacyPaymentDeadline;
 
+          // Serialize reservation changes for this provider.
+          // Concurrent acceptances and date-blocking updates must retry.
+          transaction.update(providerReference, {
+            availabilityReservationUpdatedAt: serverTimestamp(),
+          });
+
           for (const override of overrides) {
             if (override.providerRequestId === providerRequestId) continue;
             const related = allRequestsSnapshot.docs.find((document) => document.id === override.providerRequestId)?.data();
