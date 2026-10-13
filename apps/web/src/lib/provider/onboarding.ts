@@ -64,8 +64,7 @@ export function onboardingStepState(
   completedSteps: readonly number[],
 ): "completed" | "current" | "incomplete" {
   if (target.number === currentStep.number) return "current";
-  return completedSteps.includes(target.number) ||
-    target.number < currentStep.number
+  return completedSteps.includes(target.number)
     ? "completed"
     : "incomplete";
 }

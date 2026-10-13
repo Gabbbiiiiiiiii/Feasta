@@ -1,17 +1,15 @@
 "use client";
 
+
 type DocumentCatalogItem = {
   code: string;
   name: string;
 };
-import {FormEvent, useRef, useState} from "react";
+import {useEffect, useRef, useState} from "react";
 import {useRouter} from "next/navigation";
 
-import {FormField} from "@/components/forms/form-field";
 import {AuthStatus} from "@/components/auth/auth-status";
 import {Button} from "@/components/ui/button";
-import {Input} from "@/components/ui/input";
-import {Select} from "@/components/ui/select";
 import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {customerAuthenticationError} from "@/lib/auth/error-messages";
@@ -29,6 +27,15 @@ type VerificationDocumentSummary = {
   isRequired: boolean;
   requirement: string;
   fileSize: number | null;
+};
+
+type PendingDocumentUpload = {
+  fileName: string;
+  fileSize: number;
+  previewUrl: string;
+  isImage: boolean;
+  progress: number;
+  status: "uploading" | "uploaded" | "failed";
 };
 
 export function ProviderVerificationActions({
@@ -67,7 +74,18 @@ export function ProviderVerificationActions({
   const consentReady = consent == null ||
     (consent.termsAccepted && consent.privacyAccepted);
   const busy = useRef(false);
-  const documentFileInputRef = useRef<HTMLInputElement>(null);
+  const activeUploads = useRef(new Set<string>());
+  const previewUrls = useRef(new Set<string>());
+  const refreshAfterUploads = useRef(false);
+  const [uploads, setUploads] = useState<Record<string, PendingDocumentUpload>>({});
+
+  useEffect(() => {
+    const urls = previewUrls.current;
+    return () => {
+      for (const url of urls) URL.revokeObjectURL(url);
+      urls.clear();
+    };
+  }, []);
 
   const requiredDefinitions = documentCatalog.filter((definition) =>
     policy.requiredAll.includes(definition.code) ||
@@ -79,70 +97,93 @@ export function ProviderVerificationActions({
     !policy.requiredOneOf.some((group) => group.includes(definition.code)),
   );
 
-  const initialDocumentType =
-    requiredDefinitions[0]?.code ?? documentCatalog[0]?.code ?? "";
-
   const requiredRequirementCount =
     policy.requiredAll.length + policy.requiredOneOf.length;
+  const registeredTypes = new Set(documents.map((document) => document.documentType));
+  const requiredUploadedCount =
+    policy.requiredAll.filter((type) => registeredTypes.has(type)).length +
+    policy.requiredOneOf.filter((group) =>
+      group.some((type) => registeredTypes.has(type)),
+    ).length;
 
-  function prepareDocumentReplacement(
-    nextDocumentType: string,
-  ) {
-    setDocumentType(nextDocumentType);
-    setFile(null);
-
-    const input = documentFileInputRef.current;
-
-    if (input) {
-      input.value = "";
-
-      // Replace should behave like a file action, not a navigation
-      // hint. Open the system file picker immediately.
-      input.click();
-    }
-  }
   const submitKey = useRef(globalThis.crypto.randomUUID());
-  const [documentType, setDocumentType] =
-    useState(initialDocumentType);
-  const [file, setFile] = useState<File | null>(null);
-  const [action, setAction] = useState<"upload" | "remove" | "submit" | null>(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [action, setAction] = useState<"remove" | "submit" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const hasActiveUploads = Object.values(uploads).some(
+    (upload) => upload.status === "uploading",
+  );
 
-  async function upload(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (busy.current || !file || !editable) return;
-    busy.current = true;
-    setAction("upload");
+  async function uploadDocument(documentType: string, file: File) {
+    if (
+      !editable || reviewMode || busy.current ||
+      activeUploads.current.has(documentType)
+    ) return;
+
+    activeUploads.current.add(documentType);
+    const previewUrl = URL.createObjectURL(file);
+    previewUrls.current.add(previewUrl);
+    setUploads((previous) => ({
+      ...previous,
+      [documentType]: {
+        fileName: file.name,
+        fileSize: file.size,
+        previewUrl,
+        isImage: file.type.startsWith("image/"),
+        progress: 0,
+        status: "uploading",
+      },
+    }));
     setError(null);
     setMessage(null);
-    setUploadProgress(0);
+
     try {
       await uploadVerificationDocument({
         providerId,
         verificationId,
         documentType,
         file,
-        onProgress: setUploadProgress,
+        onProgress: (progress) => {
+          setUploads((previous) => {
+            const current = previous[documentType];
+            if (!current || current.previewUrl !== previewUrl) return previous;
+            return {
+              ...previous,
+              [documentType]: {...current, progress},
+            };
+          });
+        },
       });
-      setMessage(
-        documents.some((document) => document.documentType === documentType)
-          ? "The document was replaced successfully. Review it again before submitting."
-          : "The document was uploaded successfully. Review your documents before submitting.",
-      );
-      setFile(null);
-      router.refresh();
+      refreshAfterUploads.current = true;
+      setUploads((previous) => ({
+        ...previous,
+        [documentType]: {
+          ...previous[documentType],
+          progress: 100,
+          status: "uploaded",
+        },
+      }));
+      setMessage(`${file.name} uploaded successfully.`);
     } catch (caught) {
-      setError(customerAuthenticationError(caught));
+      setUploads((previous) => ({
+        ...previous,
+        [documentType]: {
+          ...previous[documentType],
+          status: "failed",
+        },
+      }));
+      setError(`${file.name}: ${customerAuthenticationError(caught)}`);
     } finally {
-      busy.current = false;
-      setAction(null);
+      activeUploads.current.delete(documentType);
+      if (activeUploads.current.size === 0 && refreshAfterUploads.current) {
+        refreshAfterUploads.current = false;
+        router.refresh();
+      }
     }
   }
 
   async function remove(document: VerificationDocumentSummary) {
-    if (busy.current || !editable) return;
+    if (busy.current || activeUploads.current.size > 0 || !editable) return;
     busy.current = true;
     setAction("remove");
     setError(null);
@@ -163,7 +204,7 @@ export function ProviderVerificationActions({
   }
 
   async function submit() {
-    if (busy.current || !canSubmit) return;
+    if (busy.current || activeUploads.current.size > 0 || !canSubmit) return;
     busy.current = true;
     setAction("submit");
     setError(null);
@@ -172,7 +213,27 @@ export function ProviderVerificationActions({
       router.replace("/provider/status");
       router.refresh();
     } catch (caught) {
-      setError(customerAuthenticationError(caught));
+      const details =
+        typeof caught === "object" && caught !== null &&
+        "details" in caught
+          ? caught.details
+          : null;
+
+      const invalidFields =
+        typeof details === "object" && details !== null &&
+        "missingOrInvalidProfileFields" in details &&
+        Array.isArray(details.missingOrInvalidProfileFields)
+          ? details.missingOrInvalidProfileFields
+          : [];
+
+      if (invalidFields.includes("guestCapacity")) {
+        setError(
+          "Your saved guest capacity does not match your selected services. " +
+          "Please review Capacity and Schedule before submitting.",
+        );
+      } else {
+        setError(customerAuthenticationError(caught));
+      }
     } finally {
       busy.current = false;
       setAction(null);
@@ -197,82 +258,12 @@ export function ProviderVerificationActions({
         {!reviewMode ? (
           <div className="shrink-0 rounded-lg border border-border bg-muted/40 px-4 py-2 text-sm">
             <span className="font-bold text-foreground">
-              {requiredRequirementCount}
+              {requiredUploadedCount} of {requiredRequirementCount}
             </span>{" "}
-            <span className="text-muted-foreground">
-              {requiredRequirementCount === 1
-                ? "required item"
-                : "required items"}
-            </span>
+            <span className="text-muted-foreground">uploaded</span>
           </div>
         ) : null}
       </div>
-      {!reviewMode ? (
-        <form
-          className="grid gap-4 lg:grid-cols-[minmax(16rem,0.9fr)_minmax(18rem,1.4fr)_auto] lg:items-end"
-          onSubmit={upload}
-        >
-          <FormField
-            label="Document type"
-            required
-            disabled={action !== null}
-          >
-            <Select
-              value={documentType}
-              onChange={(event) =>
-                setDocumentType(event.target.value)
-              }
-            >
-              {requiredDefinitions.length > 0 ? (
-                <optgroup label="Required documents">
-                  {requiredDefinitions.map((definition) => (
-                    <option key={definition.code} value={definition.code}>
-                      {definition.name}
-                      {requirementLabel(definition.code, policy)}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
-
-              {optionalDefinitions.length > 0 ? (
-                <optgroup label="Optional supporting documents">
-                  {optionalDefinitions.map((definition) => (
-                    <option key={definition.code} value={definition.code}>
-                      {definition.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
-            </Select>
-          </FormField>
-          <FormField label="Choose file" required disabled={action !== null}>
-            <Input
-              ref={documentFileInputRef}
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            />
-          </FormField>
-          <Button type="submit" loading={action === "upload"} loadingLabel="Uploading" disabled={!file || !editable || action !== null}>
-            {documents.some((document) => document.documentType === documentType)
-              ? "Replace"
-              : "Upload"}
-          </Button>
-        </form>
-      ) : null}
-      {action === "upload" ? (
-        <div className="grid gap-1" aria-live="polite">
-          <label className="text-sm font-medium" htmlFor="verification-upload-progress">
-            Uploading: {uploadProgress}%
-          </label>
-          <progress
-            id="verification-upload-progress"
-            className="h-2 w-full accent-primary"
-            max={100}
-            value={uploadProgress}
-          />
-        </div>
-      ) : null}
       <div className="grid gap-6" aria-label="Verification document status">
         <DocumentSection
           verificationId={verificationId}
@@ -284,7 +275,9 @@ export function ProviderVerificationActions({
           editable={editable}
           reviewMode={reviewMode}
           action={action}
-          onPrepareReplacement={prepareDocumentReplacement}
+          uploads={uploads}
+          hasActiveUploads={hasActiveUploads}
+          onUpload={uploadDocument}
           onRemove={remove}
         />
 
@@ -298,7 +291,9 @@ export function ProviderVerificationActions({
           editable={editable}
           reviewMode={reviewMode}
           action={action}
-          onPrepareReplacement={prepareDocumentReplacement}
+          uploads={uploads}
+          hasActiveUploads={hasActiveUploads}
+          onUpload={uploadDocument}
           onRemove={remove}
         />
       </div>
@@ -307,14 +302,6 @@ export function ProviderVerificationActions({
           tone="info"
           message="Documents are locked while submitted or under review. FEASTA must explicitly reopen the verification before changes are allowed."
         />
-      ) : null}
-      {consent ? (
-        <div className="rounded-lg border border-border bg-muted/40 p-4 text-sm">
-          <p className="font-semibold">Recorded consent</p>
-          <p className="mt-1 text-muted-foreground">
-            Terms {consent.termsPolicyVersion}: {consent.termsAccepted ? "accepted" : "not recorded"} · Privacy {consent.privacyPolicyVersion}: {consent.privacyAccepted ? "accepted" : "not recorded"}
-          </p>
-        </div>
       ) : null}
       {!consentReady ? (
         <AuthStatus
@@ -335,7 +322,7 @@ export function ProviderVerificationActions({
           <Button
             type="button"
             variant="secondary"
-            disabled={action !== null}
+            disabled={action !== null || hasActiveUploads}
             onClick={() =>
               router.replace(
                 "/provider/verification?stage=documents",
@@ -349,7 +336,7 @@ export function ProviderVerificationActions({
           <Button
             type="button"
             variant="secondary"
-            disabled={action !== null}
+            disabled={action !== null || hasActiveUploads}
             onClick={() => {
               // The provider may have visited Step 6 before the
               // canonical provider profile existed. Load the route
@@ -385,7 +372,8 @@ export function ProviderVerificationActions({
             loadingLabel="Submitting"
             disabled={
               !canSubmit ||
-              action !== null
+              action !== null ||
+              hasActiveUploads
             }
             onClick={() =>
               void submit()
@@ -399,7 +387,8 @@ export function ProviderVerificationActions({
             type="button"
             disabled={
               !canSubmit ||
-              action !== null
+              action !== null ||
+              hasActiveUploads
             }
             onClick={() =>
               router.replace(
@@ -426,7 +415,9 @@ function DocumentSection({
   editable,
   reviewMode,
   action,
-  onPrepareReplacement,
+  uploads,
+  hasActiveUploads,
+  onUpload,
   onRemove,
 }: {
   verificationId: string;
@@ -440,8 +431,10 @@ function DocumentSection({
   };
   editable: boolean;
   reviewMode: boolean;
-  action: "upload" | "remove" | "submit" | null;
-  onPrepareReplacement: (type: string) => void;
+  action: "remove" | "submit" | null;
+  uploads: Record<string, PendingDocumentUpload>;
+  hasActiveUploads: boolean;
+  onUpload: (type: string, file: File) => Promise<void>;
   onRemove: (document: VerificationDocumentSummary) => Promise<void>;
 }) {
   if (definitions.length === 0) return null;
@@ -461,6 +454,8 @@ function DocumentSection({
             (candidate) => candidate.documentType === definition.code,
           );
 
+          const upload = uploads[definition.code];
+          const pickerId = `verification-file-${verificationId}-${definition.code}`;
           const previewUrl = document
             ? `/api/provider/verifications/${encodeURIComponent(
                 verificationId,
@@ -482,20 +477,78 @@ function DocumentSection({
                     : ""}
                 </p>
 
-                {document ? (
-                  <p className="mt-1 break-all text-xs text-muted-foreground">
-                    {document.displayName}
-                  </p>
+                {upload ? (
+                  <div className="mt-2 flex min-w-0 items-center gap-3 rounded-md bg-muted/40 p-2">
+                    {upload.isImage ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={upload.previewUrl}
+                        alt={`Selected ${definition.name}`}
+                        className="h-12 w-12 shrink-0 rounded border border-border object-cover"
+                      />
+                    ) : (
+                      <span
+                        aria-hidden="true"
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded border border-border text-xs font-semibold"
+                      >
+                        PDF
+                      </span>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-medium" title={upload.fileName}>
+                        {upload.fileName}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatFileSize(upload.fileSize)} · {upload.status === "uploading"
+                          ? `Uploading ${upload.progress}%`
+                          : upload.status === "failed" ? "Upload failed" : "Uploaded"}
+                      </p>
+                    </div>
+                    <a
+                      href={upload.previewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      Preview
+                    </a>
+                  </div>
+                ) : document ? (
+                  <div className="mt-2 flex min-w-0 items-center gap-2">
+                    <span
+                      aria-hidden="true"
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-border bg-muted/40 text-[10px] font-semibold"
+                    >
+                      FILE
+                    </span>
+                    <p className="min-w-0 break-all text-xs text-muted-foreground">
+                      {document.displayName}
+                    </p>
+                  </div>
                 ) : null}
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <StatusBadge
-                  status={document?.status ?? "missing"}
-                  label={document ? undefined : "Not uploaded"}
-                />
+                {upload?.status === "uploading" ? (
+                  <span role="status" className="text-sm font-medium text-primary">
+                    Uploading {upload.progress}%
+                  </span>
+                ) : upload?.status === "failed" ? (
+                  <span role="status" className="text-sm font-medium text-destructive">
+                    Upload failed
+                  </span>
+                ) : upload?.status === "uploaded" ? (
+                  <span role="status" className="text-sm font-medium text-primary">
+                    Uploaded
+                  </span>
+                ) : (
+                  <StatusBadge
+                    status={document?.status ?? "missing"}
+                    label={document ? undefined : "Not uploaded"}
+                  />
+                )}
 
-                {document && previewUrl ? (
+                {document && previewUrl && !upload ? (
                   <Button
                     variant="secondary"
                     size="compact"
@@ -511,35 +564,36 @@ function DocumentSection({
                   </Button>
                 ) : null}
 
-                {!document && editable && !reviewMode ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="compact"
-                    disabled={action !== null}
-                    onClick={() =>
-                      onPrepareReplacement(
-                        definition.code,
-                      )
-                    }
-                  >
-                    Upload file
-                  </Button>
+                {editable && !reviewMode ? (
+                  <>
+                    <input
+                      id={pickerId}
+                      type="file"
+                      className="sr-only"
+                      aria-label={`Select ${definition.name} file`}
+                      accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
+                      disabled={action !== null || upload?.status === "uploading"}
+                      onChange={(event) => {
+                        const chosen = event.currentTarget.files?.[0];
+                        event.currentTarget.value = "";
+                        if (chosen) void onUpload(definition.code, chosen);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="compact"
+                      disabled={action !== null || upload?.status === "uploading"}
+                      onClick={() => globalThis.document.getElementById(pickerId)?.click()}
+                    >
+                      {upload?.status === "failed" ? "Try again" :
+                        document || upload?.status === "uploaded" ? "Replace" : "Upload file"}
+                    </Button>
+                  </>
                 ) : null}
 
                 {document && editable && !reviewMode ? (
                   <>
-                    <Button
-                      variant="secondary"
-                      size="compact"
-                      disabled={action !== null}
-                      onClick={() => {
-                        onPrepareReplacement(definition.code);
-                      }}
-                    >
-                      Replace
-                    </Button>
-
                     <ConfirmationDialog
                       title={`Remove ${document.displayName}?`}
                       description="The private file and its registration will be removed. You must upload it again if the policy requires it."
@@ -551,7 +605,7 @@ function DocumentSection({
                         <Button
                           variant="destructive"
                           size="compact"
-                          disabled={action !== null}
+                          disabled={action !== null || hasActiveUploads}
                         >
                           Remove
                         </Button>
@@ -560,26 +614,20 @@ function DocumentSection({
                   </>
                 ) : null}
               </div>
+              {upload?.status === "uploading" ? (
+                <progress
+                  className="h-2 w-full accent-primary sm:col-span-2"
+                  aria-label={`${definition.name} upload progress`}
+                  max={100}
+                  value={upload.progress}
+                />
+              ) : null}
             </article>
           );
         })}
       </div>
     </section>
   );
-}
-
-function requirementLabel(
-  type: string,
-  policy: {
-    requiredAll: readonly string[];
-    requiredOneOf: readonly (readonly string[])[];
-  },
-): string {
-  if (policy.requiredAll.includes(type)) return " (required)";
-  if (policy.requiredOneOf.some((group) => group.includes(type))) {
-    return " (one required)";
-  }
-  return "";
 }
 
 function requirementDescription(
