@@ -158,7 +158,7 @@ export function PackageResults({
         </div>
       </header>
 
-      <div className="grid min-w-0 auto-rows-fr grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] gap-4">
+      <div className="grid min-w-0 grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {page.packages.map((packageRecord) => (
           <PublicPackageCard
             key={packageRecord.id}

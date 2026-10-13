@@ -326,6 +326,7 @@ export function EventVenueInput({
         <div className="col-span-full min-w-0 max-w-full">
           <ProviderBusinessLocationMap
             compact
+            expandable
             initialCoordinates={mapCoordinates}
             disabled={false}
             ariaLabel="Adjust event location map"

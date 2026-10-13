@@ -85,10 +85,10 @@ export function ProviderCard({
         "group relative flex h-full min-w-0 flex-col overflow-hidden",
         "rounded-[22px] border border-feasta-border-soft bg-white",
         "shadow-[0_4px_18px_rgb(0_75_59/0.035)]",
-        "transition-[transform,border-color,box-shadow]",
-        "duration-normal",
-        "hover:-translate-y-1 hover:border-primary/20",
-        "hover:shadow-[0_16px_36px_rgb(0_75_59/0.085)]",
+        "transition-[transform,border-color,box-shadow,filter] duration-300 ease-in-out",
+        "relative z-0 hover:z-20 focus-within:z-20",
+        "hover:border-primary/20 motion-safe:hover:scale-105 motion-safe:hover:-translate-y-[10px] motion-safe:focus-within:scale-105 motion-safe:focus-within:-translate-y-[10px]",
+        "hover:shadow-[0_20px_25px_rgba(0,0,0,0.3)] hover:brightness-110 focus-within:shadow-[0_20px_25px_rgba(0,0,0,0.3)] focus-within:brightness-110",
         "motion-reduce:transform-none",
       ].join(" ")}
     >

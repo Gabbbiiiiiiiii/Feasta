@@ -62,7 +62,7 @@ export function ProviderLogoCard({
   return (
     <article
       aria-label={`${provider.businessName}, approved event service provider`}
-      className="group relative h-full min-w-0"
+      className="group relative z-0 h-full min-w-0 transition-[transform,filter] duration-300 ease-in-out hover:z-20 hover:brightness-110 focus-within:z-20 focus-within:brightness-110 motion-safe:hover:scale-105 motion-safe:hover:-translate-y-[10px] motion-safe:focus-within:scale-105 motion-safe:focus-within:-translate-y-[10px] motion-reduce:transform-none"
     >
       {favoriteState ? (
         <ProviderFavoriteControl
@@ -83,7 +83,7 @@ export function ProviderLogoCard({
           "border border-feasta-border-soft bg-white",
           "shadow-[0_1px_2px_rgb(0_0_0/0.08),0_4px_12px_rgb(0_0_0/0.05)] outline-none",
           "transition-[box-shadow] duration-300 ease-[cubic-bezier(0.2,0,0,1)]",
-          "hover:shadow-[0_6px_16px_rgb(0_0_0/0.12)]",
+          "hover:shadow-[0_20px_25px_rgba(0,0,0,0.3)] focus-visible:shadow-[0_20px_25px_rgba(0,0,0,0.3)]",
           "focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2",
           "motion-reduce:transition-none",
         ].join(" ")}
