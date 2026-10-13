@@ -14,7 +14,6 @@ import {
   manilaDateValue,
   parseCustomerPlanningContext,
 } from "@/lib/customer/planning/event-planning-context";
-import {PROVIDER_SERVICE_TYPE_OPTIONS} from "@/lib/customer/providers/provider-catalog";
 import type {ServiceCategoryOption} from "@/lib/service-categories/service-category-types";
 import {
   parseProviderDiscoveryFilters,
@@ -61,9 +60,6 @@ export function EventFinder({
     );
   });
   const category = parameters.get("category");
-  const serviceType = parameters.get("service");
-  const hasAdditionalFilters = Boolean(parameters.get("q")) ||
-    PROVIDER_SERVICE_TYPE_OPTIONS.some((option) => option.value === serviceType);
 
   useEffect(() => {
     if (dateInput.current) dateInput.current.min = manilaDateValue();
@@ -72,10 +68,8 @@ export function EventFinder({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     live.acknowledge();
-    const submitter = (event.nativeEvent as SubmitEvent).submitter;
-    const clearFilters = submitter?.getAttribute("value") === "clear-filters";
     if (dateInput.current) dateInput.current.min = manilaDateValue();
-    if (!clearFilters && !event.currentTarget.reportValidity()) return;
+    if (!event.currentTarget.reportValidity()) return;
     const values = new FormData(event.currentTarget);
     const nextParameters = new URLSearchParams(query);
     // Venue fields come from the existing selector, including clearing a selection.
@@ -84,9 +78,6 @@ export function EventFinder({
     }
     for (const [name, value] of values) {
       if (typeof value === "string") nextParameters.set(name, value);
-    }
-    if (clearFilters) {
-      for (const name of ["q", "service", "category"]) nextParameters.delete(name);
     }
     // Reuse category/search validation and planning serialization; changing filters
     // resets pagination. A date alone remains planning context, not availability.
@@ -112,7 +103,7 @@ export function EventFinder({
       <div className="mt-3 grid min-w-0 items-start gap-3">
         <EventVenueInput
           initialVenue={planning?.eventVenue}
-          placeholder="Select your location and where you want the event held"
+          placeholder="Enter where your event will take place"
           enableMap
         />
         <div className="grid min-w-0 items-start gap-3 sm:grid-cols-2 sm:gap-x-4 lg:grid-cols-[minmax(10rem,1fr)_minmax(0,1.35fr)_auto]">
@@ -135,7 +126,7 @@ export function EventFinder({
           </div>
           <div className="min-w-0">
             <label htmlFor="event-finder-service" className="mb-2 block text-xs font-bold text-feasta-text-secondary">
-              Service Category
+              Type of Service
             </label>
             <Select
               id="event-finder-service"
@@ -163,49 +154,28 @@ export function EventFinder({
         </div>
       </div>
 
-      <details className="mt-2" open={hasAdditionalFilters || undefined}>
-        <summary className="w-fit cursor-pointer rounded-lg py-1 text-xs font-bold text-feasta-text-secondary hover:text-primary-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          More filters
-        </summary>
-        <div className="mt-2 grid items-start gap-3 sm:grid-cols-2">
-          <div className="min-w-0">
-            <label htmlFor="event-finder-search" className="mb-2 block text-xs font-bold text-feasta-text-secondary">
-              Search approved providers
-            </label>
-            <SearchInput
-              value={search}
-              onChange={(event) => {
-                live.change(event.target.value);
-                setSearch(event.target.value);
-              }}
-              onClear={search ? () => {
-                live.change("");
-                setSearch("");
-              } : undefined}
-              id="event-finder-search"
-              name="q"
-              minLength={1}
-              maxLength={80}
-              placeholder="Search providers or services"
-              className={controlClass}
-            />
-          </div>
-          <div className="min-w-0">
-            <label htmlFor="event-finder-provider-type" className="mb-2 block text-xs font-bold text-feasta-text-secondary">
-              Provider Type
-            </label>
-            <Select id="event-finder-provider-type" name="service" defaultValue={PROVIDER_SERVICE_TYPE_OPTIONS.some((option) => option.value === serviceType) ? serviceType ?? "all" : "all"} className={controlClass}>
-              <option value="all">All provider types</option>
-              {PROVIDER_SERVICE_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label} provider</option>
-              ))}
-            </Select>
-          </div>
-          <button type="submit" value="clear-filters" formNoValidate className="w-fit rounded-lg py-2 text-xs font-bold text-primary-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            Clear filters
-          </button>
-        </div>
-      </details>
+      <div className="mt-3 min-w-0">
+        <label htmlFor="event-finder-search" className="mb-2 block text-xs font-bold text-feasta-text-secondary">
+          Search providers or services
+        </label>
+        <SearchInput
+          value={search}
+          onChange={(event) => {
+            live.change(event.target.value);
+            setSearch(event.target.value);
+          }}
+          onClear={search ? () => {
+            live.change("");
+            setSearch("");
+          } : undefined}
+          id="event-finder-search"
+          name="q"
+          minLength={1}
+          maxLength={80}
+          placeholder="Search by provider or service name"
+          className={controlClass}
+        />
+      </div>
 
       <p id="event-finder-planning-hint" className="sr-only">
         Location and date are saved with your event details. Availability also needs a time range and guest count.

@@ -1,6 +1,6 @@
 "use client";
 
-import {LocateFixed} from "lucide-react";
+import {LocateFixed, Maximize2, Minimize2} from "lucide-react";
 import {useEffect, useRef, useState} from "react";
 
 import {Button} from "@/components/ui/button";
@@ -37,6 +37,7 @@ export function ProviderBusinessLocationMap({
   markerTitle = "Business location",
   pinHint = "Click the map to place the red pin on your exact business location. Click another point to adjust it.",
   compact = false,
+  expandable = false,
 }: {
   initialCoordinates: Coordinates | null;
   disabled: boolean;
@@ -46,6 +47,7 @@ export function ProviderBusinessLocationMap({
   markerTitle?: string;
   pinHint?: string;
   compact?: boolean;
+  expandable?: boolean;
 }) {
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
@@ -64,6 +66,7 @@ export function ProviderBusinessLocationMap({
   const [resolveStatus, setResolveStatus] =
     useState<"idle" | "resolving">("idle");
   const [locating, setLocating] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [resolvedLocation, setResolvedLocation] =
     useState<ResolvedLocation | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -447,23 +450,44 @@ export function ProviderBusinessLocationMap({
       <div className="relative min-w-0 overflow-hidden rounded-xl border border-input bg-secondary">
         <div
           ref={mapElementRef}
-          className={compact
-            ? "h-32 w-full max-w-full overflow-hidden sm:h-36"
-            : "h-[clamp(15rem,34dvh,22.5rem)] w-full max-w-full overflow-hidden"}
+          className={expanded
+            ? "h-[60dvh] min-h-[320px] max-h-[700px] w-full max-w-full overflow-hidden"
+            : compact
+              ? "h-32 w-full max-w-full overflow-hidden sm:h-36"
+              : "h-[clamp(15rem,34dvh,22.5rem)] w-full max-w-full overflow-hidden"}
           aria-label={ariaLabel}
         />
 
         {compact ? (
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={locateDisabled}
-            onClick={locateCurrentPosition}
-            className="absolute right-2 top-2 z-10 h-8 min-h-8 rounded-full px-3 text-xs shadow"
-          >
-            <LocateFixed aria-hidden="true" className="size-3.5" />
-            {locating ? "Locating..." : "Locate me"}
-          </Button>
+          <div className="absolute right-2 top-2 z-10 flex flex-wrap justify-end gap-2">
+            {expandable ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setExpanded((current) => !current)}
+                aria-label={expanded ? "Minimize map" : "Expand map"}
+                aria-pressed={expanded}
+                className="h-8 min-h-8 rounded-full px-3 text-xs shadow"
+              >
+                {expanded ? (
+                  <Minimize2 aria-hidden="true" className="size-3.5" />
+                ) : (
+                  <Maximize2 aria-hidden="true" className="size-3.5" />
+                )}
+                {expanded ? "Minimize Map" : "Expand Map"}
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={locateDisabled}
+              onClick={locateCurrentPosition}
+              className="h-8 min-h-8 rounded-full px-3 text-xs shadow"
+            >
+              <LocateFixed aria-hidden="true" className="size-3.5" />
+              {locating ? "Locating..." : "Locate me"}
+            </Button>
+          </div>
         ) : null}
 
         {mapStatus === "loading" ? (

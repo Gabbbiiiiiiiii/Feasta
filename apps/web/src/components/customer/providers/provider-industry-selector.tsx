@@ -78,7 +78,7 @@ export function ProviderIndustrySelector({
       <div className="flex w-full min-w-0 items-center gap-3 p-3">
         <div className="hidden shrink-0 pl-1 sm:block">
           <p className="text-[10px] font-extrabold uppercase tracking-[0.13em] text-primary-strong">
-            Industries
+            Service Categories
           </p>
           <p className="mt-0.5 whitespace-nowrap text-xs font-semibold text-feasta-text-secondary">
             Choose a service
@@ -102,7 +102,7 @@ export function ProviderIndustrySelector({
           <div
             ref={scrollRef}
             className={[
-              "flex w-full min-w-0 max-w-full items-center gap-2",
+              "flex w-full min-w-0 max-w-full items-center gap-5 px-3 py-5",
               "overflow-x-auto overflow-y-hidden overscroll-x-contain scroll-smooth",
               "[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden",
             ].join(" ")}
@@ -199,10 +199,10 @@ function IndustryLink({
       href={href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "inline-flex min-h-10 shrink-0 items-center justify-center whitespace-nowrap rounded-full border px-4 text-xs font-extrabold outline-none transition-[transform,border-color,background-color,color,box-shadow] focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-reduce:transform-none",
+        "relative inline-flex min-h-10 shrink-0 items-center justify-center whitespace-nowrap rounded-full border px-4 text-xs font-extrabold outline-none transition-[transform,box-shadow] duration-300 ease-in hover:z-20 hover:shadow-[0_10px_15px_rgba(0,0,0,0.3)] focus-visible:z-20 focus-visible:shadow-[0_10px_15px_rgba(0,0,0,0.3)] focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 motion-safe:hover:scale-110 motion-safe:focus-visible:scale-110 motion-reduce:transform-none",
         active
           ? "border-primary bg-primary text-primary-foreground shadow-brand-soft"
-          : "border-feasta-border-soft bg-feasta-canvas text-foreground hover:-translate-y-0.5 hover:border-primary/25 hover:bg-secondary hover:text-primary-strong",
+          : "border-feasta-border-soft bg-feasta-canvas text-foreground hover:border-primary/25 hover:bg-secondary hover:text-primary-strong",
       )}
     >
       {label}

@@ -47,8 +47,8 @@ export function PublicPackageCard({
   const primaryImage = packageRecord.imageUrls?.[0] ?? packageRecord.imageUrl;
   const Heading = headingLevel;
   const guestRange = packageGuestRange(packageRecord);
-  const compact = compactPreview || layout === "provider-profile";
-  const inclusionLimit = 3;
+  const compact = compactPreview || layout === "provider-profile" || layout === "marketplace";
+  const inclusionLimit = 2;
   const serviceTiers =
     CATERING_PACKAGE_SERVICE_TIERS.filter(
       (tier) =>
@@ -59,19 +59,19 @@ export function PublicPackageCard({
   return (
     <article
       className={[
-        "group relative flex h-full min-w-0 flex-col overflow-hidden",
+        "group relative flex w-full max-w-[300px] min-w-0 flex-col overflow-hidden",
         "rounded-[22px] border border-feasta-border-soft bg-white",
         "shadow-[0_4px_18px_rgb(0_75_59/0.035)]",
-        "transition-[transform,border-color,box-shadow]",
-        "duration-normal",
-        "hover:-translate-y-1 hover:border-primary/20",
-        "hover:shadow-[0_16px_36px_rgb(0_75_59/0.085)]",
+        "transition-[transform,border-color,box-shadow,filter] duration-300 ease-in-out",
+        "relative z-0 hover:z-20 focus-within:z-20",
+        "hover:border-primary/20 motion-safe:hover:scale-105 motion-safe:hover:-translate-y-[10px] motion-safe:focus-within:scale-105 motion-safe:focus-within:-translate-y-[10px]",
+        "hover:shadow-[0_20px_25px_rgba(0,0,0,0.3)] hover:brightness-110 focus-within:shadow-[0_20px_25px_rgba(0,0,0,0.3)] focus-within:brightness-110",
         "motion-reduce:transform-none",
       ].join(" ")}
     >
       {/* Package image */}
 
-      <div className={`relative grid shrink-0 ${compact ? "aspect-[2/1]" : "aspect-[16/9]"} place-items-center overflow-hidden bg-feasta-surface-muted`}>
+      <div className={`relative grid shrink-0 ${compact ? "aspect-[3/1]" : "aspect-[16/9]"} place-items-center overflow-hidden bg-feasta-surface-muted`}>
         {primaryImage ? (
           // Package image URLs are HTTPS-only values from the public package boundary.
           // eslint-disable-next-line @next/next/no-img-element
@@ -113,10 +113,10 @@ export function PublicPackageCard({
 
       {/* Package content */}
 
-      <div className="flex min-w-0 flex-1 flex-col p-4">
+      <div className="flex min-w-0 flex-1 flex-col p-3">
         <div className="min-w-0">
           <div className="flex items-start justify-between gap-4">
-            <Heading aria-label={packageRecord.name} className={`${compact ? "line-clamp-2 min-h-10 text-base" : "text-lg"} min-w-0 break-words font-extrabold leading-tight tracking-[-0.025em] text-primary transition-colors group-hover:text-primary-pressed`}>
+            <Heading aria-label={packageRecord.name} className={`${compact ? "line-clamp-2 text-base" : "text-lg"} min-w-0 break-words font-extrabold leading-tight tracking-[-0.025em] text-primary transition-colors group-hover:text-primary-pressed`}>
               <Link
                 href={packageHref}
                 aria-label={`View ${packageRecord.name} package details`}
@@ -140,7 +140,7 @@ export function PublicPackageCard({
           </div>
 
           {showProvider ? (
-            <p className="mt-2 line-clamp-1 text-sm text-feasta-text-secondary">
+            <p className="mt-1 line-clamp-1 text-sm text-feasta-text-secondary">
               By{" "}
               <Link
                 href={providerProfileHref(
@@ -156,7 +156,7 @@ export function PublicPackageCard({
         </div>
 
         {packageRecord.description ? (
-          <p className={`${compact ? "mt-2 line-clamp-2" : "mt-3 line-clamp-3"} break-words text-sm leading-5 text-feasta-text-secondary`}>
+          <p className={`${compact ? "mt-1 line-clamp-2" : "mt-3 line-clamp-3"} break-words text-sm leading-5 text-feasta-text-secondary`}>
             {packageRecord.description}
           </p>
         ) : null}
@@ -252,7 +252,7 @@ export function PublicPackageCard({
 
         {/* Price */}
 
-        <div className="mt-auto pt-3">
+        <div className="mt-auto pt-2">
           {!compact && serviceTiers.length > 0 ? (
             <ul className="mb-3 flex flex-wrap gap-1.5">
               {serviceTiers.map((tier) => (
