@@ -4,10 +4,13 @@ import {ApplicationErrorState} from "@/components/feedback/application-states";
 import {ProviderOnboardingShell} from "@/components/provider/onboarding-shell";
 import {
   loadOwnedProviderVerification,
+  loadProviderOnboardingReview,
   requireProvider,
   requireVerifiedProviderIdentity,
 } from "@/lib/auth/session";
 import {PROVIDER_ONBOARDING_STEPS} from "@/lib/provider/onboarding";
+import {providerProfileCompletedSteps} from "@/lib/provider/onboarding-readiness";
+import {getActiveServiceCategoryOptions} from "@/lib/service-categories/service-category-service";
 
 import {ProviderVerificationActions} from "./provider-verification-actions";
 
@@ -38,8 +41,13 @@ export default async function ProviderVerificationPage({
   const requestedStage = (await searchParams).stage;
   const reviewing = requiredDocumentsReady && requestedStage !== "documents";
   const currentStep = PROVIDER_ONBOARDING_STEPS[reviewing ? 7 : 6];
+  const [profile, serviceCategories] = await Promise.all([
+    loadProviderOnboardingReview(account),
+    getActiveServiceCategoryOptions(),
+  ]);
+
   const completedSteps = [
-    1, 2, 3, 4, 5, 6,
+    ...providerProfileCompletedSteps(profile, serviceCategories),
     ...(requiredDocumentsReady ? [7] : []),
   ];
 

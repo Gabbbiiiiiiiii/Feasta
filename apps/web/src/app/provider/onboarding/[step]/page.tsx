@@ -15,9 +15,12 @@ import {
 } from "@/lib/provider/onboarding";
 
 import {getProviderOnboardingAgreement} from "@/lib/documents/document-catalog-service";
+import {providerAgreementClientData} from "@/lib/provider/provider-agreement-record";
 import {
   getActiveServiceCategoryOptions,
 } from "@/lib/service-categories/service-category-service";
+
+import {providerProfileCompletedSteps} from "@/lib/provider/onboarding-readiness";
 
 import {ProviderOnboardingStepForm} from "./provider-onboarding-step-form";
 
@@ -44,7 +47,7 @@ export default async function ProviderOnboardingStepPage({
       ? await getActiveServiceCategoryOptions()
       : [];
   const agreement = requestedStep?.number === 6
-    ? await getProviderOnboardingAgreement()
+    ? providerAgreementClientData(await getProviderOnboardingAgreement())
     : null;
 
   if (account.providerId) {
@@ -77,14 +80,24 @@ export default async function ProviderOnboardingStepPage({
         account,
       );
 
+    const progressCategories =
+      needsServiceCategories
+        ? serviceCategories
+        : await getActiveServiceCategoryOptions();
+
+    const completedSteps = providerProfileCompletedSteps(
+      review,
+      progressCategories,
+    );
+
     return (
       <ProviderOnboardingShell
         currentStep={requestedStep}
-        completedSteps={review.completedSteps}
+        completedSteps={completedSteps}
       >
         <ProviderOnboardingStepForm
           step={requestedStep}
-          draft={review}
+          draft={{...review, providerAgreementSnapshot: providerAgreementClientData(review.providerAgreementSnapshot ?? null)}}
           serviceCategories={
             serviceCategories
           }
@@ -120,7 +133,7 @@ export default async function ProviderOnboardingStepPage({
     >
       <ProviderOnboardingStepForm
         step={requestedStep}
-        draft={draft}
+        draft={{...draft, providerAgreementSnapshot: providerAgreementClientData(draft.providerAgreementSnapshot ?? null)}}
         serviceCategories={serviceCategories}
         agreement={agreement}
       />

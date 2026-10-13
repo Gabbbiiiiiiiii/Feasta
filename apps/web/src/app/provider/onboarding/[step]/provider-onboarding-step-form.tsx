@@ -44,7 +44,7 @@ import {
   type ProviderOnboardingDraft,
   type ProviderOnboardingStep,
 } from "@/lib/provider/onboarding";
-import type {AdminAgreementTemplate} from "@/lib/admin/file-maintenance/admin-document-catalog-types";
+import type {ProviderAgreementSnapshot} from "@/lib/provider/provider-agreement-record";
 import {authorizedRepresentativeName} from "@/lib/provider/provider-agreement-record";
 import type {
   ServiceCategoryOption,
@@ -82,7 +82,7 @@ export function ProviderOnboardingStepForm({
   step: ProviderOnboardingStep;
   draft: ProviderOnboardingDraft;
   serviceCategories?: readonly ServiceCategoryOption[];
-  agreement?: AdminAgreementTemplate | null;
+  agreement?: ProviderAgreementSnapshot | null;
   editingExistingApplication?: boolean;
 }) {
   const router = useRouter();
@@ -497,7 +497,7 @@ function StepFields({
   loading: boolean;
   editingExistingApplication: boolean;
   fieldErrors: Record<string, string>;
-  agreement: AdminAgreementTemplate | null;
+  agreement: ProviderAgreementSnapshot | null;
   acceptedCopyAvailable: boolean;
   onServiceOfferingEmptyChange: (empty: boolean) => void;
   selectedImages: {logo: File | null; cover: File | null};
@@ -1442,7 +1442,7 @@ function ProviderAgreementStep({
   error,
   onAcceptedChange,
 }: {
-  agreement: AdminAgreementTemplate | null;
+  agreement: ProviderAgreementSnapshot | null;
   businessName: string;
   representativeName: string;
   accepted: boolean;
@@ -1742,7 +1742,7 @@ function initialValues(draft: ProviderOnboardingDraft): FormValues {
 function stepPayload(
   step: number,
   values: FormValues,
-  agreement: AdminAgreementTemplate | null,
+  agreement: ProviderAgreementSnapshot | null,
 ): Record<string, unknown> {
   if (step === 1) return pick(values, ["ownerFirstName", "ownerLastName", "ownerPhone"]);
   if (step === 2) {

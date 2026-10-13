@@ -12,6 +12,39 @@ export type ProviderAgreementSnapshot = {
   acceptedAt?: unknown;
 };
 
+// Project server records onto the fields used by the onboarding client.
+export function providerAgreementClientData(
+  agreement: ProviderAgreementSnapshot | null,
+): ProviderAgreementSnapshot | null {
+  if (!agreement) return null;
+  const result: ProviderAgreementSnapshot = {
+    code: agreement.code,
+    name: agreement.name,
+    version: agreement.version,
+    effectiveDate: agreement.effectiveDate,
+    sections: cloneSections(agreement.sections),
+  };
+  const stamp = agreement.acceptedAt;
+  if (isRecord(stamp) && typeof stamp.seconds === "number" &&
+    Number.isFinite(stamp.seconds)) {
+    result.acceptedAt = {
+      seconds: stamp.seconds,
+      nanoseconds: typeof stamp.nanoseconds === "number" &&
+        Number.isFinite(stamp.nanoseconds) ? stamp.nanoseconds : 0,
+    };
+  } else {
+    const date = trustedTimestampDate(stamp);
+    if (date) {
+      const seconds = Math.floor(date.getTime() / 1000);
+      result.acceptedAt = {
+        seconds,
+        nanoseconds: (date.getTime() - seconds * 1000) * 1000000,
+      };
+    }
+  }
+  return result;
+}
+
 export type ProviderAgreementPdfAcceptance = {
   businessName: string;
   representativeName: string;
