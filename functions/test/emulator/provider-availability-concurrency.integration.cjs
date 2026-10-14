@@ -212,7 +212,19 @@ async function run() {
     );
     assert.equal(
       openOutcomes.filter((outcome) => outcome.status === "fulfilled").length,
+      0,
+      JSON.stringify(openSummary),
+    );
+    assert.equal(
+      openOutcomes.filter((outcome) => outcome.status === "rejected").length,
       2,
+      JSON.stringify(openSummary),
+    );
+    assert.ok(
+      openOutcomes.every((outcome) =>
+        outcome.status === "rejected" &&
+        /FAILED_PRECONDITION/u.test(outcome.reason.message)
+      ),
       JSON.stringify(openSummary),
     );
 
@@ -226,9 +238,82 @@ async function run() {
     ]);
     assert.deepEqual(
       openRequests.map((snapshot) => snapshot.data()?.status).sort(),
-      ["confirmed", "confirmed"],
+      ["pending", "pending"],
     );
 
+    // A separate unreserved Manila day must still allow one booking.
+    const eventDateMillis = typeof eventDate.toMillis === "function"
+      ? eventDate.toMillis()
+      : new Date(eventDate).getTime();
+
+    assert.ok(Number.isFinite(eventDateMillis));
+
+    const nextEventDate = Timestamp.fromMillis(
+      eventDateMillis + 24 * 60 * 60 * 1000,
+    );
+
+    await Promise.all([
+      seedRequest({
+        providerId,
+        requestId: "availability_request_five",
+        mainEventId: "availability_event_five",
+        customerId: "availability_customer_five",
+        eventDate: nextEventDate,
+        eventTime: "09:00",
+        eventEndTime: "12:00",
+      }),
+      seedRequest({
+        providerId,
+        requestId: "availability_request_six",
+        mainEventId: "availability_event_six",
+        customerId: "availability_customer_six",
+        eventDate: nextEventDate,
+        eventTime: "14:00",
+        eventEndTime: "17:00",
+      }),
+    ]);
+
+    const nextDayOutcomes = await Promise.allSettled([
+      callFunction(
+        "acceptProviderRequest",
+        owner,
+        {providerRequestId: "availability_request_five"},
+      ),
+      callFunction(
+        "acceptProviderRequest",
+        owner,
+        {providerRequestId: "availability_request_six"},
+      ),
+    ]);
+
+    const nextDaySummary = nextDayOutcomes.map((outcome) =>
+      outcome.status === "fulfilled"
+        ? "fulfilled"
+        : `rejected: ${outcome.reason?.message ?? "unknown"}`
+    );
+
+    assert.equal(
+      nextDayOutcomes.filter((outcome) => outcome.status === "fulfilled").length,
+      1,
+      JSON.stringify(nextDaySummary),
+    );
+
+    const nextDayRejected = nextDayOutcomes.filter(
+      (outcome) => outcome.status === "rejected",
+    );
+
+    assert.equal(nextDayRejected.length, 1, JSON.stringify(nextDaySummary));
+    assert.match(nextDayRejected[0].reason.message, /FAILED_PRECONDITION/u);
+
+    const nextDayRequests = await Promise.all([
+      db.collection("providerRequests").doc("availability_request_five").get(),
+      db.collection("providerRequests").doc("availability_request_six").get(),
+    ]);
+
+    assert.deepEqual(
+      nextDayRequests.map((snapshot) => snapshot.data()?.status).sort(),
+      ["confirmed", "pending"],
+    );
     console.log(
       "Provider availability concurrency integration passed.",
     );

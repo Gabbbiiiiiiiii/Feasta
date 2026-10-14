@@ -76,25 +76,16 @@ export function ProviderBookingDetailDrawer({
         </div>
       ) : booking ? (
         <div className="grid gap-6">
-          <DrawerSection title="Booking status">
+          <DrawerSection title="Booking Status">
             {booking.balanceEnforcement ? <div role="status" className="grid gap-1 text-sm">
               <p className="font-bold">{booking.balanceEnforcement.label}</p>
               {booking.balanceEnforcement.explanation ? <p>{booking.balanceEnforcement.explanation}</p> : null}
             </div> : null}
             <StatusRow label="Provider request" status={booking.providerRequestStatus} />
             <StatusRow label="Main event" status={booking.mainEventStatus} />
-            <StatusRow
-              label="Payment"
-              status={booking.paymentStatus}
-              emptyLabel="No payment recorded"
-            />
           </DrawerSection>
 
-          <DrawerSection title="Customer">
-            <DetailRow label="Customer" value={booking.customerDisplayName} />
-          </DrawerSection>
-
-          <DrawerSection title="Event">
+          <DrawerSection title="Event Details">
             <DetailRow
               icon={<CalendarDays className="size-4" />}
               label="Event"
@@ -124,7 +115,11 @@ export function ProviderBookingDetailDrawer({
             />
           </DrawerSection>
 
-          <DrawerSection title="Service">
+          <DrawerSection title="Customer Information">
+            <DetailRow label="Customer" value={booking.customerDisplayName} />
+          </DrawerSection>
+
+          <DrawerSection title="Package & Services">
             <DetailRow
               icon={<PackageOpen className="size-4" />}
               label={booking.packageName ? "Package" : "Service"}
@@ -148,7 +143,8 @@ export function ProviderBookingDetailDrawer({
             ) : null}
           </DrawerSection>
 
-          <DrawerSection title="Pricing">
+          <DrawerSection title="Payment Details">
+            {booking.paymentAttention ? <p role="status">{booking.paymentAttention}{booking.paymentAttention === "Payment Being Checked" ? " ? Please wait for the payment result." : ""}</p> : null}
             {booking.remainingBalance !== null ? (
               <AmountRow label="Balance remaining" amount={booking.remainingBalance} />
             ) : <DetailRow label="Balance remaining" value="Unavailable" />}
@@ -166,37 +162,35 @@ export function ProviderBookingDetailDrawer({
             />
           </DrawerSection>
 
-          <DrawerSection title="Cancellation-stage evidence">
+          {booking.refundEligibility.evidenceStatus !== "legacy" ? <DrawerSection title="Event Preparation">
             {booking.refundEligibility.evidenceStatus === "policy_backed" ? (
               <>
                 <DetailRow
-                  label="Factual service stage"
+                  label="Preparation Status"
                   value={booking.refundEligibility.currentStage
                     ? formatLabel(booking.refundEligibility.currentStage)
                     : "Unavailable"}
                 />
                 {booking.refundEligibility.activeCancellationLocked ? (
                   <div className="rounded-lg border border-warning bg-warning-subtle p-3 text-sm" role="status">
-                    Stage advancement is locked by an active cancellation request.
+                    Preparation updates are paused while a cancellation request is being reviewed.
                   </div>
                 ) : null}
                 {!booking.automaticLifecycle && booking.refundEligibility.canMarkPreparationStarted ? (
                   <Button variant="secondary" disabled={actionPending} onClick={onPreparationStarted}>
-                    Mark preparation started
+                    Mark Preparation Started
                   </Button>
                 ) : null}
                 <p className="text-sm text-muted-foreground">
                   This records factual preparation progress only. It does not approve a cancellation or choose any refund amount or percentage.
                 </p>
               </>
-            ) : booking.refundEligibility.evidenceStatus === "legacy" ? (
-              <p className="text-sm text-muted-foreground">This legacy booking has no policy-backed preparation stage. FEASTA handles any cancellation through manual review.</p>
             ) : (
-              <p className="text-sm text-warning">Preparation-stage evidence is unavailable and requires FEASTA review.</p>
+              <p className="text-sm text-warning">Preparation information is unavailable and requires FEASTA review.</p>
             )}
-          </DrawerSection>
+          </DrawerSection> : null}
 
-          <DrawerSection title="Timeline">
+          <DrawerSection title="Booking Updates">
             {timeline && timeline.entries.length > 0 ? (
               <ol className="relative grid gap-4 border-l border-border pl-5">
                 {[...timeline.entries]
@@ -215,12 +209,12 @@ export function ProviderBookingDetailDrawer({
                   ))}
               </ol>
             ) : (
-              <p className="text-sm text-muted-foreground">No timeline activity is available yet.</p>
+              <p className="text-sm text-muted-foreground">No booking updates are available yet.</p>
             )}
           </DrawerSection>
 
           {booking.rejectionReason || booking.cancellationReason ? (
-            <DrawerSection title="Activity / decision">
+            <DrawerSection title="Cancellation Details">
               {booking.rejectionReason ? (
                 <DetailRow label="Rejection reason" value={booking.rejectionReason} />
               ) : null}
@@ -264,7 +258,7 @@ function LifecycleFooter({
     );
   }
 
-  if (booking.providerRequestStatus === "in_progress") {
+  if (booking.providerRequestStatus === "in_progress" && booking.canCompleteEvent !== false && booking.mainEventStatus === "in_progress" && booking.refundEligibility.evidenceStatus !== "invalid" && !booking.refundEligibility.activeCancellationLocked && !booking.balanceEnforcement) {
     return (
       <Button loading={pending} loadingLabel="Completing booking" onClick={onComplete}>
         Mark Completed

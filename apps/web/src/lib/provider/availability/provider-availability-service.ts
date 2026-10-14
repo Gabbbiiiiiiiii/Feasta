@@ -52,8 +52,7 @@ Promise<ProviderAvailabilitySettings> {
 
   const capacityCapabilities =
     providerCapacityCapabilities(serviceCategories);
-  const acceptsMultipleEventsPerDay =
-    provider.acceptsMultipleEventsPerDay === true;
+
   const minimumGuests = integer(provider.minGuestsPerEvent, 0, 100_000, 0);
   const maximumGuests = integer(provider.maxGuestsPerEvent, 0, 100_000, 0);
 
@@ -69,10 +68,8 @@ Promise<ProviderAvailabilitySettings> {
       365,
       0,
     ),
-    acceptsMultipleEventsPerDay,
-    maxEventsPerDay: acceptsMultipleEventsPerDay
-      ? integer(provider.maxEventsPerDay, 1, 100, 1)
-      : 1,
+    acceptsMultipleEventsPerDay: false,
+    maxEventsPerDay: 1,
     guestCapacity: capacityCapabilities.requiresGuestCapacity
       ? {
           minimum: minimumGuests,

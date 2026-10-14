@@ -1,4 +1,6 @@
 import "server-only";
+import {bookingView, bookingMatchesView, bookingMatchesSecondary, bookingPaymentAttention, bookingScheduledStart, manilaDay} from "./provider-booking-projection";
+
 import {hasBookingSettlement, projectBookingPayment} from "@/lib/payments/booking-payment-projection";
 import {balanceEnforcementPresentation, balanceEnforcementBlocksActions} from "@/lib/payments/remaining-balance-enforcement";
 
@@ -32,7 +34,7 @@ import type {
   ProviderBookingPage,
   ProviderBookingPayment,
   ProviderBookingService,
-  ProviderBookingSummary,
+
   ProviderBookingTimeline,
   ProviderBookingTimelineEntry,
 } from "./provider-booking-types";
@@ -48,23 +50,6 @@ const MAX_PAGE_SIZE = 30;
 const MAX_TIMELINE_ENTRIES = 100;
 const SAFE_DOCUMENT_ID = /^[A-Za-z0-9_-]{1,160}$/u;
 
-const FILTER_STATUSES = {
-  pending: ["pending"],
-  accepted: [
-    "accepted",
-    "waiting_for_down_payment",
-    "payment_processing",
-  ],
-  confirmed: ["confirmed"],
-  upcoming: ["confirmed"],
-  in_progress: ["in_progress"],
-  completed: ["completed"],
-  cancelled: ["cancelled"],
-} as const satisfies Record<
-  Exclude<ProviderBookingFilter, "all">,
-  readonly ProviderRequestStatus[]
->;
-
 type NormalizedFilters = {
   status: ProviderBookingFilter;
   pageSize: number;
@@ -77,6 +62,9 @@ type BookingCursor = {
   sortField: "createdAt" | "eventDate";
   milliseconds: number;
   documentId: string;
+  fingerprint: string;
+  seconds: number;
+  nanoseconds: number;
 };
 
 type BookingRelations = {
@@ -87,143 +75,51 @@ type BookingRelations = {
   >;
 };
 
-export async function getProviderBookingPage(
-  input: Partial<ProviderBookingFilters> = {},
-): Promise<ProviderBookingPage> {
+export async function getProviderBookingPage(input: Partial<ProviderBookingFilters> = {}): Promise<ProviderBookingPage> {
   const account = await requireApprovedProvider();
   const providerId = normalizeDocumentId(account.providerId);
   const filters = normalizeFilters(input);
-  const useEventDate =
-    filters.status === "upcoming" ||
-    filters.dateFrom !== null ||
-    filters.dateTo !== null;
-  const sortField = useEventDate ? "eventDate" : "createdAt";
-  const sortDirection = useEventDate ? "asc" : "desc";
-  const summaryPromise = loadProviderBookingSummary(providerId);
-
-  let query: Query<DocumentData> = adminDb
-    .collection(COLLECTIONS.providerRequests)
-    .where("providerId", "==", providerId);
-
-  if (filters.status !== "all") {
-    const statuses = FILTER_STATUSES[filters.status];
-    query = statuses.length === 1
-      ? query.where("status", "==", statuses[0])
-      : query.where("status", "in", [...statuses]);
-  }
-
-  const effectiveDateFrom = filters.status === "upcoming"
-    ? laterDate(filters.dateFrom, new Date())
-    : filters.dateFrom;
-
-  if (effectiveDateFrom) {
-    query = query.where(
-      "eventDate",
-      ">=",
-      Timestamp.fromDate(effectiveDateFrom),
-    );
-  }
-
-  if (filters.dateTo) {
-    query = query.where(
-      "eventDate",
-      "<=",
-      Timestamp.fromDate(filters.dateTo),
-    );
-  }
-
-  query = query
-    .orderBy(sortField, sortDirection)
-    .orderBy(FieldPath.documentId(), sortDirection);
-
+  const status = bookingView(input.dashboard === "payment" ? "waiting_payment" : input.dashboard === "completed" ? "past" : input.dashboard === "upcoming" ? "upcoming" : filters.status);
+  const search = (input.search ?? "").trim().slice(0, 160).toLocaleLowerCase();
+  const secondary = input.dashboard === "completed" ? "completed" : input.secondary ?? "all";
+  if (secondary === "disputed") return {bookings: [], hasMore: false, nextCursor: null, skippedMalformedCount: 0};
+  const fingerprint = JSON.stringify([providerId, status, search, secondary, input.dateFrom ?? null, input.dateTo ?? null, filters.pageSize]);
+  const sortField = status === "upcoming" ? "eventDate" : "createdAt";
+  const sortDirection = status === "upcoming" ? "asc" : "desc";
+  let query: Query<DocumentData> = adminDb.collection(COLLECTIONS.providerRequests).where("providerId", "==", providerId);
+  if (status === "upcoming") query = query.where("status", "in", ["confirmed", "in_progress"]);
+  query = query.orderBy(sortField, sortDirection).orderBy(FieldPath.documentId(), sortDirection);
   const cursor = decodeCursor(filters.cursor);
-
-  if (cursor?.sortField === sortField) {
-    query = query.startAfter(
-      Timestamp.fromMillis(cursor.milliseconds),
-      cursor.documentId,
-    );
-  }
-
-  const snapshot = await query
-    .limit(filters.pageSize + 1)
-    .get();
-  const hasMore = snapshot.docs.length > filters.pageSize;
-  const documents = hasMore
-    ? snapshot.docs.slice(0, filters.pageSize)
-    : snapshot.docs;
-  const relations = await loadRelations(documents, providerId);
+  if (filters.cursor && !cursor) throw new Error("Booking page expired. Start from the first page.");
+  if (cursor && cursor.fingerprint !== fingerprint) throw new Error("Booking filters changed. Start from the first page.");
+  if (cursor) query = query.startAfter(new Timestamp(cursor.seconds, cursor.nanoseconds), cursor.documentId);
   const bookings: ProviderBooking[] = [];
   let skippedMalformedCount = 0;
-
-  for (const document of documents) {
-    const booking = mapProviderBooking(
-      document,
-      providerId,
-      relations,
-    );
-
-    if (booking) {
-      bookings.push(booking);
-    } else {
-      skippedMalformedCount += 1;
+  let consumed = 0;
+  let lastDocument: QueryDocumentSnapshot<DocumentData> | null = null;
+  let hasMore = false;
+  while (consumed < 150 && bookings.length < filters.pageSize) {
+    const snapshot = await query.limit(Math.min(30, 150 - consumed) + 1).get();
+    const documents = snapshot.docs.slice(0, Math.min(30, 150 - consumed));
+    const relations = await loadRelations(documents, providerId);
+    for (let index = 0; index < documents.length; index += 1) {
+      const document = documents[index];
+      consumed += 1;
+      lastDocument = document;
+      const booking = mapProviderBooking(document, providerId, relations);
+      if (!booking) skippedMalformedCount += 1;
+      else if (bookingMatchesView(status, booking) && bookingMatchesSecondary(secondary, booking) &&
+        (!filters.dateFrom || manilaDay(booking.eventDate) >= manilaDay(filters.dateFrom)) &&
+        (!filters.dateTo || manilaDay(booking.eventDate) <= manilaDay(filters.dateTo)) &&
+        (!search || [booking.customerDisplayName, booking.providerRequestId, booking.mainEventId, booking.eventType, booking.packageName ?? "", ...booking.services.map(service => service.name)].some(value => value.toLocaleLowerCase().includes(search)))) bookings.push(booking);
+      hasMore = index + 1 < snapshot.docs.length;
+      if (bookings.length === filters.pageSize) break;
     }
+    if (!hasMore || !lastDocument) break;
+    query = query.startAfter(lastDocument.data()[sortField], lastDocument.id);
   }
-
-  const lastDocument = documents.at(-1) ?? null;
-
-  return {
-    bookings,
-    summary: await summaryPromise,
-    nextCursor: hasMore && lastDocument
-      ? encodeCursor(lastDocument, sortField)
-      : null,
-    hasMore,
-    skippedMalformedCount,
-  };
-}
-
-async function loadProviderBookingSummary(
-  providerId: string,
-): Promise<ProviderBookingSummary> {
-  const baseQuery = adminDb
-    .collection(COLLECTIONS.providerRequests)
-    .where("providerId", "==", providerId);
-  const countStatus = (statuses: readonly ProviderRequestStatus[]) => {
-    const query = statuses.length === 1
-      ? baseQuery.where("status", "==", statuses[0])
-      : baseQuery.where("status", "in", [...statuses]);
-
-    return query.count().get();
-  };
-  const [
-    pending,
-    awaitingPayment,
-    confirmed,
-    upcoming,
-    inProgress,
-    completed,
-  ] = await Promise.all([
-    countStatus(FILTER_STATUSES.pending),
-    countStatus(FILTER_STATUSES.accepted),
-    countStatus(FILTER_STATUSES.confirmed),
-    baseQuery
-      .where("status", "==", "confirmed")
-      .where("eventDate", ">=", Timestamp.now())
-      .count()
-      .get(),
-    countStatus(FILTER_STATUSES.in_progress),
-    countStatus(FILTER_STATUSES.completed),
-  ]);
-
-  return {
-    pending: pending.data().count,
-    awaitingPayment: awaitingPayment.data().count,
-    confirmed: confirmed.data().count,
-    upcoming: upcoming.data().count,
-    inProgress: inProgress.data().count,
-    completed: completed.data().count,
-  };
+  if (status === "upcoming") bookings.sort((a, b) => bookingScheduledStart(a) - bookingScheduledStart(b) || a.providerRequestId.localeCompare(b.providerRequestId));
+  return {bookings, hasMore, nextCursor: hasMore && lastDocument ? encodeCursor(lastDocument, sortField, fingerprint) : null, skippedMalformedCount};
 }
 
 export async function getProviderBooking(
@@ -505,6 +401,7 @@ function mapProviderBooking(
     providerId,
     customerId,
     providerRequestStatus: requestStatus,
+    paymentAttention: bookingPaymentAttention(request, mainEvent, new Date()),
     automaticLifecycle: request.remainingBalanceTimingSchemaVersion === 3,
     bookingPolicy: bookingPolicyV3Presentation(request),
     balanceEnforcement: balanceEnforcementPresentation(request, "provider"),
@@ -513,6 +410,11 @@ function mapProviderBooking(
       payment && ["refunded", "partially_refunded"].includes(payment.status) ? payment.status :
         hasBookingSettlement(request) ? projectBookingPayment(request) : payment?.status ?? null,
     canStartEvent: canStartProviderEvent(request, mainEvent, requestStatus, payment),
+    canCompleteEvent: requestStatus === "in_progress" && mainEventStatus === "in_progress" &&
+      mapRefundEligibility(request, requestStatus, payment).evidenceStatus !== "invalid" &&
+      !mapRefundEligibility(request, requestStatus, payment).activeCancellationLocked &&
+      !balanceEnforcementBlocksActions(request) &&
+      (!hasBookingSettlement(request) || projectBookingPayment(request) === "paid"),
     requestType,
     eventType: optionalText(
       request.eventType ?? mainEvent.eventType,
@@ -644,6 +546,9 @@ function mapRefundEligibility(
     };
   }
 
+  const cancellationLocked = activeCancellationId !== null || request.activeCancellationRequestId != null ||
+    request.approvedCancellationRequestId != null || request.refundExecutionLock != null ||
+    request.reconciliationRequired === true || request.lifecycleReconciliationRequired === true;
   const paymentReady = nonNegativeMoney(request.downPaymentAmount) === 0 || (
     request.paymentStatus === "paid" &&
     payment?.status === "paid" &&
@@ -653,11 +558,11 @@ function mapRefundEligibility(
   return {
     evidenceStatus: "policy_backed",
     currentStage: stage,
-    activeCancellationLocked: activeCancellationId !== null,
+    activeCancellationLocked: cancellationLocked,
     canMarkPreparationStarted:
       request.remainingBalanceTimingSchemaVersion !== 3 &&
       stage === "preparation_not_started" &&
-      activeCancellationId === null &&
+      !cancellationLocked &&
       requestStatus === "confirmed" &&
       !balanceEnforcementBlocksActions(request) &&
       paymentReady,
@@ -783,9 +688,9 @@ function normalizeFilters(
     : DEFAULT_PAGE_SIZE;
 
   return {
-    status: isProviderBookingFilter(input.status) ? input.status : "all",
+    status: isProviderBookingFilter(input.status) ? input.status : "upcoming",
     pageSize,
-    cursor: optionalText(input.cursor, 1_000),
+    cursor: optionalText(input.cursor, 3_000),
     dateFrom: optionalInputDate(input.dateFrom, "dateFrom"),
     dateTo: optionalInputDate(input.dateTo, "dateTo"),
   };
@@ -795,6 +700,8 @@ function isProviderBookingFilter(
   value: unknown,
 ): value is ProviderBookingFilter {
   return [
+    "waiting_payment",
+    "past",
     "all",
     "pending",
     "accepted",
@@ -822,20 +729,21 @@ function optionalInputDate(value: unknown, field: string): Date | null {
   return parsed;
 }
 
-function laterDate(left: Date | null, right: Date): Date {
-  return left && left > right ? left : right;
-}
-
 function encodeCursor(
   document: QueryDocumentSnapshot<DocumentData>,
   sortField: BookingCursor["sortField"],
+  fingerprint: string,
 ): string | null {
-  const value = dateValue(document.data()[sortField]);
+  const stored = document.data()[sortField];
+  const value = dateValue(stored);
 
   if (!value) return null;
 
   const payload: BookingCursor = {
     sortField,
+    fingerprint,
+    seconds: stored instanceof Timestamp ? stored.seconds : Timestamp.fromDate(value).seconds,
+    nanoseconds: stored instanceof Timestamp ? stored.nanoseconds : Timestamp.fromDate(value).nanoseconds,
     milliseconds: value.getTime(),
     documentId: document.id,
   };
@@ -853,6 +761,9 @@ function decodeCursor(value: string | null): BookingCursor | null {
 
     if (
       (parsed.sortField !== "createdAt" && parsed.sortField !== "eventDate") ||
+      typeof parsed.fingerprint !== "string" ||
+      !Number.isSafeInteger(parsed.seconds) || !Number.isInteger(parsed.nanoseconds) ||
+      Number(parsed.nanoseconds) < 0 || Number(parsed.nanoseconds) >= 1_000_000_000 ||
       typeof parsed.milliseconds !== "number" ||
       !Number.isFinite(parsed.milliseconds) ||
       typeof parsed.documentId !== "string" ||
@@ -863,6 +774,9 @@ function decodeCursor(value: string | null): BookingCursor | null {
 
     return {
       sortField: parsed.sortField,
+      fingerprint: parsed.fingerprint,
+      seconds: parsed.seconds as number,
+      nanoseconds: parsed.nanoseconds as number,
       milliseconds: parsed.milliseconds,
       documentId: parsed.documentId,
     };

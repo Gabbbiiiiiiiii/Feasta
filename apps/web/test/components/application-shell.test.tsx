@@ -151,23 +151,10 @@ describe("ApplicationShell", () => {
       },
     );
 
-  expect(
-    both.some(
-      (item) =>
-        item.kind === "link" &&
-        item.href ===
-        "/provider/packages",
-    ),
-  ).toBe(true);
+  expect(both.filter((item) => item.kind === "link" && item.label === "Packages & Services")).toEqual([
+    expect.objectContaining({href: "/provider/packages", activeRouteAliases: ["/provider/services"]}),
+  ]);
 
-  expect(
-    both.some(
-      (item) =>
-        item.kind === "link" &&
-        item.href ===
-        "/provider/services",
-    ),
-  ).toBe(true);
 });
   it("renders role-specific navigation with an accessible active state", () => {
     render(
@@ -186,7 +173,7 @@ describe("ApplicationShell", () => {
     const mobileNav = screen.getByRole("navigation", {
       name: "Provider mobile navigation",
     });
-    expect(within(desktopNav).getByRole("link", {name: "Packages / Catalog"})).toHaveAttribute(
+    expect(within(desktopNav).getByRole("link", {name: "Packages & Services"})).toHaveAttribute(
       "aria-current",
       "page",
     );
@@ -236,22 +223,22 @@ describe("ApplicationShell", () => {
     expect(
       within(
         screen.getByRole("navigation", {name: "Provider primary navigation"}),
-      ).getByRole("link", {name: "Packages / Catalog"}),
+      ).getByRole("link", {name: "Packages & Services"}),
     ).toBeVisible();
     expect(
       within(
         screen.getByRole("navigation", {name: "Provider primary navigation"}),
-      ).getByRole("link", {name: "Bookings"}),
+      ).getByRole("link", {name: "My Bookings"}),
     ).toHaveAttribute("href", "/provider/bookings");
     expect(
       within(
         screen.getByRole("navigation", {name: "Provider primary navigation"}),
-      ).getByRole("link", {name: "Availability"}),
-    ).toHaveAttribute("href", "/provider/availability");
+      ).getByRole("link", {name: "Calendar"}),
+    ).toHaveAttribute("href", "/provider/calendar");
     expect(
       within(
         screen.getByRole("navigation", {name: "Provider primary navigation"}),
-      ).getByRole("link", {name: "Payments & Payouts"}),
+      ).getByRole("link", {name: "Payments"}),
     ).toHaveAttribute("href", "/provider/payments");
   });
 

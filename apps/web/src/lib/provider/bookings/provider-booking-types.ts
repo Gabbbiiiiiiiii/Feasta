@@ -14,6 +14,8 @@ export type ProviderRefundEligibilityView = {
 };
 
 export type ProviderBookingFilter =
+  | "waiting_payment"
+  | "past"
   | "all"
   | "pending"
   | "accepted"
@@ -24,6 +26,9 @@ export type ProviderBookingFilter =
   | "cancelled";
 
 export type ProviderBookingFilters = {
+  search?: string;
+  secondary?: "all" | "completed" | "cancelled" | "refunded" | "disputed";
+  dashboard?: import("../dashboard/provider-dashboard-types").ProviderDashboardView;
   status: ProviderBookingFilter;
   pageSize: number;
   cursor?: string | null;
@@ -54,6 +59,7 @@ export type ProviderBookingService = {
 };
 
 export type ProviderBooking = {
+  paymentAttention?: "Down Payment Due" | "Remaining Balance Due" | "Payment Being Checked" | null;
   automaticLifecycle?: boolean;
   bookingPolicy?: import("@/lib/payments/booking-policy-v3-presentation").BookingPolicyPresentation | null;
   balanceEnforcement?: {label: string; explanation: string | null} | null;
@@ -66,6 +72,7 @@ export type ProviderBooking = {
   mainEventStatus: MainEventStatus;
   paymentStatus: PaymentStatus | "partially_paid" | "unpaid" | null;
   canStartEvent?: boolean;
+  canCompleteEvent?: boolean;
   requestType: ProviderRequestType;
 
   eventType: string;
@@ -108,7 +115,7 @@ export type ProviderBooking = {
 
 export type ProviderBookingPage = {
   bookings: ProviderBooking[];
-  summary: ProviderBookingSummary;
+  summary?: ProviderBookingSummary;
   nextCursor: string | null;
   hasMore: boolean;
   skippedMalformedCount: number;

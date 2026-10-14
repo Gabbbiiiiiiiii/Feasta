@@ -29,6 +29,17 @@ describe("v3 booking presentation", () => {
     expect(bookingPolicyV3Presentation({...paid, status: "completed"}, event)?.state).toBe("completed");
     expect(bookingPolicyV3Presentation({...raw(), remainingBalanceTimingSchemaVersion: 2}, event)).toBeNull();
   });
+  it.each([
+    {activeCancellationRequestId: "locked"},
+    {approvedCancellationRequestId: "locked"},
+    {refundEligibilityState: {activeCancellationRequestId: "locked"}},
+    {refundExecutionLock: {id: "locked"}},
+  ])("withholds V3 completion after the service end for cancellation lock %j", (lock) => {
+    const paid = {...raw(), status: "in_progress", settlementStatus: "fully_settled", outstandingAmountInCentavos: 0};
+    const now = new Date(event.getTime() + 3 * 3_600_000);
+    expect(bookingPolicyV3Presentation(paid, now)?.readyToComplete).toBe(true);
+    expect(bookingPolicyV3Presentation({...paid, ...lock}, now)).toMatchObject({state: "review", readyToComplete: false});
+  });
   it.each([["cancellation_pending", "Processing"], ["refunded", "Refunded"], ["reconciliation_required", "Review required"]])(
     "shows trusted refund status %s and the actual default breakdown", (status, label) => {
       const policy = bookingPolicyV3Presentation({...raw(), status: "cancelled", cancellationReason: "remaining_balance_unpaid_at_deadline",

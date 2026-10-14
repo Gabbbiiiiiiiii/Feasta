@@ -75,7 +75,7 @@ test("Provider preparation UI is factual, forward-only, and non-financial", asyn
   assert.match(client, /targetStage: "preparation_started"/u);
   assert.doesNotMatch(client, /refundAmount|refundPercentage|refundBasisPoints|gatewayPaymentId/iu);
   assert.match(drawer, /factual preparation progress only/u);
-  assert.match(drawer, /locked by an active cancellation request/u);
+  assert.match(drawer, /Preparation updates are paused while a cancellation request is being reviewed\./u);
   assert.doesNotMatch(drawer, /Approve cancellation|Reject cancellation|Process refund|Retry refund/u);
   assert.match(backend, /requireRole\(actor\.uid, \[USER_ROLES\.provider\]\)/u);
   assert.match(backend, /targetStage !== "preparation_started"/u);
