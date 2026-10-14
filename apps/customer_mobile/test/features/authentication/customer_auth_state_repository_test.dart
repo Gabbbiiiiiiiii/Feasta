@@ -113,6 +113,53 @@ class TestSnapshot extends Fake
 }
 
 void main() {
+  for (final entry in {
+    'policy-version-outdated':
+        CustomerAuthLoadFailureKind.policyVersionOutdated,
+    'consent-required': CustomerAuthLoadFailureKind.consentRequired,
+    'unrecognized-reason': CustomerAuthLoadFailureKind.configuration,
+  }.entries) {
+    test(
+      'consent callable maps ${entry.key} before generic preconditions',
+      () async {
+        final store = TestStore();
+        final repository = FirebaseCustomerAuthStateRepository(
+          auth: TestAuth(),
+          firestore: store,
+          callable: (name, data) async {
+            expect(name, 'ensureUserProfile');
+            expect(data, {
+              'acceptedTerms': true,
+              'acceptedPrivacy': true,
+              'termsPolicyVersion': '1.1',
+              'privacyPolicyVersion': '1.2',
+            });
+            throw FirebaseFunctionsException(
+              code: 'failed-precondition',
+              message: 'Mock rejection',
+              details: {'reason': entry.key},
+            );
+          },
+        );
+        await expectLater(
+          repository.acceptConsent(
+            'one',
+            termsPolicyVersion: '1.1',
+            privacyPolicyVersion: '1.2',
+          ),
+          throwsA(
+            isA<CustomerAuthLoadFailure>().having(
+              (e) => e.kind,
+              'kind',
+              entry.value,
+            ),
+          ),
+        );
+        expect(store.reads, isEmpty);
+      },
+    );
+  }
+
   test(
     'initial restored-session replay does not cancel legitimate sign-out',
     () async {
@@ -490,7 +537,8 @@ void main() {
             );
           }
           accepted = true;
-          expect(data?['termsPolicyVersion'], '2026-07-29');
+          expect(data?['termsPolicyVersion'], '1.1');
+          expect(data?['privacyPolicyVersion'], '1.2');
           store.documents = {'users/one': profile, 'customers/one': {}};
         },
       );
@@ -507,7 +555,11 @@ void main() {
       expect(accepted, false);
       expect(store.reads, isEmpty);
       expect(calls, ['syncUserAuthState', 'ensureUserProfile']);
-      await repository.acceptConsent('one');
+      await repository.acceptConsent(
+        'one',
+        termsPolicyVersion: '1.1',
+        privacyPolicyVersion: '1.2',
+      );
       expect(accepted, true);
       expect(
         (await repository.loadAccount(

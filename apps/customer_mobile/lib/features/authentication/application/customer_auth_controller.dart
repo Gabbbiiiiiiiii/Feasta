@@ -406,16 +406,34 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
   bool get consentRequired => _consentRequired;
   int get consentGeneration => _identityGeneration;
+  int get consentRevision => _consentRevision;
+  bool get policiesOutdated => _policiesOutdated;
+  bool _policiesOutdated = false;
+  int _consentRevision = 0;
   bool _consentRequired = false;
 
-  Future<void> acceptConsent({int? expectedGeneration}) async {
+  Future<void> acceptConsent({
+    required String termsPolicyVersion,
+    required String privacyPolicyVersion,
+    int? expectedGeneration,
+    int? expectedRevision,
+  }) async {
+    if (_disposed ||
+        _signingOut ||
+        (expectedRevision != null && expectedRevision != _consentRevision)) {
+      return;
+    }
     if (expectedGeneration != null &&
         expectedGeneration != _identityGeneration) {
       return;
     }
     final identity = _identity;
     final generation = _identityGeneration;
-    if (identity == null || !_consentRequired) return;
+    if (identity == null ||
+        !_consentRequired ||
+        !_isCurrent(identity.uid, generation)) {
+      return;
+    }
     final consent = repository;
     if (consent is! CustomerConsentRepository) return;
     _consentRequired = false;
@@ -426,7 +444,11 @@ class CustomerAuthenticationController extends ChangeNotifier {
       ),
     );
     try {
-      await (consent as CustomerConsentRepository).acceptConsent(identity.uid);
+      await (consent as CustomerConsentRepository).acceptConsent(
+        identity.uid,
+        termsPolicyVersion: termsPolicyVersion,
+        privacyPolicyVersion: privacyPolicyVersion,
+      );
       if (_isCurrent(identity.uid, generation)) {
         await refresh(forceTokenRefresh: false);
       }
@@ -444,7 +466,11 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
   void _handleLoadFailure(CustomerAuthLoadFailureKind kind) {
     switch (kind) {
+      case CustomerAuthLoadFailureKind.policyVersionOutdated:
       case CustomerAuthLoadFailureKind.consentRequired:
+        _policiesOutdated =
+            kind == CustomerAuthLoadFailureKind.policyVersionOutdated;
+        _consentRevision++;
         _consentRequired = true;
         _setState(
           CustomerAuthenticationState(

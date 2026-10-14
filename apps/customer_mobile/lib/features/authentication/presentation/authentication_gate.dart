@@ -53,13 +53,22 @@ class AuthenticationGate extends StatelessWidget {
 
     if (controller.consentRequired && state.failure == null) {
       final generation = controller.consentGeneration;
+      final revision = controller.consentRevision;
+      final uid = controller.currentIdentity?.uid;
       return CustomerConsentScreen(
         loader: consentDocumentLoader,
-        key: ValueKey('customer-consent-$generation'),
-        onAccept: () =>
-            controller.acceptConsent(expectedGeneration: generation),
+        policiesOutdated: controller.policiesOutdated,
+        key: ValueKey('customer-consent-$generation-$revision'),
+        onAccept: (termsVersion, privacyVersion) => controller.acceptConsent(
+          termsPolicyVersion: termsVersion,
+          privacyPolicyVersion: privacyVersion,
+          expectedGeneration: generation,
+          expectedRevision: revision,
+        ),
         onDecline: () async {
-          if (generation == controller.consentGeneration) {
+          if (generation == controller.consentGeneration &&
+              revision == controller.consentRevision &&
+              uid == controller.currentIdentity?.uid) {
             await controller.signOut();
           }
         },

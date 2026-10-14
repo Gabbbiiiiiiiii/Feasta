@@ -36,6 +36,7 @@ class CustomerAccountLoadResult {
 
 enum CustomerAuthLoadFailureKind {
   consentRequired,
+  policyVersionOutdated,
   network,
   authorization,
   blocked,
@@ -72,7 +73,11 @@ abstract interface class CustomerAuthStateRepository {
 }
 
 abstract interface class CustomerConsentRepository {
-  Future<void> acceptConsent(String uid);
+  Future<void> acceptConsent(
+    String uid, {
+    required String termsPolicyVersion,
+    required String privacyPolicyVersion,
+  });
 }
 
 class FirebaseCustomerAuthStateRepository
@@ -105,7 +110,11 @@ class FirebaseCustomerAuthStateRepository
   String? _observedUid;
 
   @override
-  Future<void> acceptConsent(String uid) {
+  Future<void> acceptConsent(
+    String uid, {
+    required String termsPolicyVersion,
+    required String privacyPolicyVersion,
+  }) {
     final generation = _sessionGeneration;
     return AuthOperationCoordinator.shared.run(() async {
       _requireIdentity(uid);
@@ -114,8 +123,8 @@ class FirebaseCustomerAuthStateRepository
         await _call('ensureUserProfile', {
           'acceptedTerms': true,
           'acceptedPrivacy': true,
-          'termsPolicyVersion': '2026-07-29',
-          'privacyPolicyVersion': '2026-07-29',
+          'termsPolicyVersion': termsPolicyVersion,
+          'privacyPolicyVersion': privacyPolicyVersion,
         });
       } on FirebaseFunctionsException catch (error) {
         throw CustomerAuthLoadFailure(_callableFailureKind(error));
@@ -365,6 +374,11 @@ class FirebaseCustomerAuthStateRepository
   ) {
     final details = error.details;
     final reason = details is Map ? details['reason'] : null;
+    // Match the agreed stale-policy contract before generic preconditions.
+    if (error.code == 'failed-precondition' &&
+        reason == 'policy-version-outdated') {
+      return CustomerAuthLoadFailureKind.policyVersionOutdated;
+    }
     if (reason == 'consent-required') {
       return CustomerAuthLoadFailureKind.consentRequired;
     }
