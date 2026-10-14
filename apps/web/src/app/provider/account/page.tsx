@@ -15,7 +15,7 @@ export default async function ProviderAccountPage() {
     <div className="grid gap-6">
       <PageHeading
         eyebrow="Provider account"
-        title="Owner Account & Settings"
+        title="Settings"
         description="Manage owner identity, sign-in security, sessions, and account preferences."
       />
       <AccountManagementPanel profile={profile} />

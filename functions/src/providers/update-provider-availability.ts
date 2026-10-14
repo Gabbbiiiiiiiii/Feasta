@@ -25,6 +25,15 @@ import {
   isServiceCategoryCode,
   type ServiceCategoryCode,
 } from "../shared/service-category-code.js";
+import {Timestamp} from "firebase-admin/firestore";
+import {
+  AVAILABILITY_COUNTED_REQUEST_STATUSES,
+  manilaDateFromKey,
+  manilaDateKey,
+  manilaDateRange,
+  providerRequestOccupiesAvailability,
+} from "../provider-availability/validate-provider-availability.js";
+
 import {
   db,
 } from "../shared/firestore.js";
@@ -122,6 +131,23 @@ export const updateProviderAvailability =
           actor.uid,
         );
 
+      const parsedDate = manilaDateFromKey(date);
+      const dateRange = parsedDate ? manilaDateRange(parsedDate) : null;
+
+      if (!dateRange) {
+        throw new HttpsError(
+          "invalid-argument",
+          "The selected calendar date is invalid.",
+        );
+      }
+
+      if (date < manilaDateKey(new Date())) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Past calendar dates cannot be changed.",
+        );
+      }
+
       const result = await db.runTransaction(
         async (transaction) => {
           const providerSnapshot =
@@ -158,6 +184,50 @@ export const updateProviderAvailability =
               "failed-precondition",
               "Your provider account is not available for operations.",
             );
+          }
+
+          if (action === "mark_unavailable") {
+            const activeRequests = await transaction.get(
+              db.collection("providerRequests")
+                .where("providerId", "==", providerReference.id)
+                .where(
+                  "eventDate",
+                  ">=",
+                  Timestamp.fromDate(dateRange.start),
+                )
+                .where(
+                  "eventDate",
+                  "<",
+                  Timestamp.fromDate(dateRange.end),
+                )
+                .where(
+                  "status",
+                  "in",
+                  [...AVAILABILITY_COUNTED_REQUEST_STATUSES],
+                ),
+            );
+
+            const now = new Date();
+
+            const hasExistingReservation = activeRequests.docs.some(
+              (document) => {
+                const booking = document.data();
+
+                return providerRequestOccupiesAvailability({
+                  status: booking.status,
+                  acceptedAt: booking.acceptedAt,
+                  expiresAt: booking.expiresAt,
+                  now,
+                });
+              },
+            );
+
+            if (hasExistingReservation) {
+              throw new HttpsError(
+                "failed-precondition",
+                "This date already has a FEASTA reservation and cannot be manually blocked.",
+              );
+            }
           }
 
           const currentDates =
@@ -305,12 +375,12 @@ export const updateProviderAvailabilitySettings =
         );
 
       if (
-        !acceptsMultipleEventsPerDay &&
+        acceptsMultipleEventsPerDay ||
         maxEventsPerDay !== 1
       ) {
         throw new HttpsError(
           "invalid-argument",
-          "maxEventsPerDay must be 1 when multiple daily events are disabled.",
+          "FEASTA currently permits only one event per provider per day.",
         );
       }
 

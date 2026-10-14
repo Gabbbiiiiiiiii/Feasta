@@ -11,6 +11,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import {useRouter} from "next/navigation";
+import Link from "next/link";
 import {useMemo, useRef, useState} from "react";
 
 import {
@@ -255,7 +256,8 @@ export function ProviderBusinessProfileClient({
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Business"
-        title="Business Profile"
+          title="Business Profile"
+          actions={<Button asChild variant="secondary" size="compact"><Link href="/provider/verification">Business verification</Link></Button>}
         description="Manage the public business information customers use when evaluating your services."
       />
 

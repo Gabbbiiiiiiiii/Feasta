@@ -24,12 +24,20 @@ readonly ProviderCalendarEventStatus[] = [
   "payment_processing",
   "confirmed",
   "in_progress",
+  "completed",
 ];
 
-const MAX_CALENDAR_EVENTS = 200;
-
-export async function getProviderCalendarData():
+export async function getProviderCalendarData(month?: string):
 Promise<ProviderCalendarData> {
+  // The Philippines does not observe daylight saving time (UTC+08:00).
+  const currentMonth = new Date(Date.now() + 8 * 60 * 60 * 1000)
+    .toISOString().slice(0, 7);
+  const selectedMonth = month && /^(20|21)\d{2}-(0[1-9]|1[0-2])$/.test(month)
+    ? month : currentMonth;
+  const [year, monthNumber] = selectedMonth.split("-").map(Number);
+  const monthStart = new Date(`${selectedMonth}-01T00:00:00+08:00`);
+  const monthEnd = new Date(Date.UTC(year, monthNumber, 1) - 8 * 60 * 60 * 1000);
+
   const account =
     await requireApprovedProvider();
 
@@ -58,12 +66,19 @@ const [
       providerId,
     )
     .where(
+      "eventDate",
+      ">=",
+      Timestamp.fromDate(monthStart),
+    )
+    .where(
+      "eventDate",
+      "<",
+      Timestamp.fromDate(monthEnd),
+    )
+    .where(
       "status",
       "in",
       [...ACTIVE_EVENT_STATUSES],
-    )
-    .limit(
-      MAX_CALENDAR_EVENTS,
     )
     .get(),
 ]);
@@ -85,8 +100,10 @@ if (
   );
 }
 
+const nowMs = Date.now();
 const events =
   requestsSnapshot.docs
+    .filter((document) => calendarRequestOccupies(document.data(), nowMs))
     .map(
       (document) =>
         mapCalendarEvent(
@@ -109,6 +126,7 @@ const events =
 
   return {
     providerId,
+    month: selectedMonth,
 
     settings: {
       operatingDays:
@@ -127,27 +145,38 @@ const events =
           provider.unavailableDates,
         ),
 
-      acceptsMultipleEventsPerDay:
-        provider
-          .acceptsMultipleEventsPerDay ===
-        true,
-
-      maxEventsPerDay:
-        provider
-          .acceptsMultipleEventsPerDay ===
-        true
-          ? Math.max(
-              1,
-              normalizeNonNegativeInteger(
-                provider.maxEventsPerDay,
-                1,
-              ),
-            )
-          : 1,
+      acceptsMultipleEventsPerDay: false,
+      maxEventsPerDay: 1,
     },
 
     events,
   };
+}
+
+// Keep calendar reservations aligned with the booking availability rules.
+function timestampMs(value: unknown): number | null {
+  if (value instanceof Timestamp) return value.toMillis();
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.getTime();
+  return null;
+}
+
+function calendarRequestOccupies(
+  data: Record<string, unknown>,
+  nowMs: number,
+): boolean {
+  const status = data.status;
+  if (status === "confirmed" || status === "in_progress" || status === "completed") {
+    return true;
+  }
+  if (status !== "accepted" && status !== "waiting_for_down_payment" &&
+      status !== "payment_processing") return false;
+
+  const expiresAt = timestampMs(data.expiresAt);
+  if (expiresAt !== null) return expiresAt > nowMs;
+  if (status !== "accepted") return false;
+
+  const acceptedAt = timestampMs(data.acceptedAt);
+  return acceptedAt !== null && acceptedAt + 24 * 60 * 60 * 1000 > nowMs;
 }
 
 function mapCalendarEvent(

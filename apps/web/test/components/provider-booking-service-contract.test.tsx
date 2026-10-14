@@ -12,13 +12,6 @@ describe("provider booking service contract", () => {
     ),
     "utf8",
   );
-  const types = readFileSync(
-    join(
-      root,
-      "src/lib/provider/bookings/provider-booking-types.ts",
-    ),
-    "utf8",
-  );
   const indexes = readFileSync(
     join(root, "../../firebase/firestore.indexes.json"),
     "utf8",
@@ -80,32 +73,13 @@ describe("provider booking service contract", () => {
     expect(service).toContain("throw unavailableBooking()");
   });
 
-  it("maps UI filters to canonical request statuses", () => {
-    expect(service).toContain('pending: ["pending"]');
-    expect(service).toContain('"accepted",');
-    expect(service).toContain('"waiting_for_down_payment",');
-    expect(service).toContain('"payment_processing",');
-    expect(service).toContain('confirmed: ["confirmed"]');
-    expect(service).toContain('in_progress: ["in_progress"]');
-    expect(service).toContain('completed: ["completed"]');
-    expect(service).toContain('cancelled: ["cancelled"]');
-    expect(types).toContain('| "upcoming"');
-  });
-
-  it("keeps list reads bounded and cursor-paginated", () => {
-    expect(service).toContain("MAX_PAGE_SIZE = 30");
-    expect(service).toContain("filters.pageSize + 1");
+  it("uses bounded joined predicates and avoids redundant summaries", () => {
+    expect(service).toContain("consumed < 150");
+    expect(service).toContain("bookingMatchesView(status, booking)");
+    expect(service).toContain("cursor.fingerprint !== fingerprint");
     expect(service).toContain("FieldPath.documentId()");
-    expect(service).toContain("encodeCursor(");
-    expect(service).toContain("decodeCursor(");
-  });
-
-  it("uses bounded aggregation queries for exact provider summaries", () => {
-    expect(service).toContain("loadProviderBookingSummary(providerId)");
-    expect(service).toContain("query.count().get()");
-    expect(service).toContain("Timestamp.now()");
-    expect(types).toContain("export type ProviderBookingSummary");
-    expect(types).toContain("summary: ProviderBookingSummary");
+    expect(service).not.toContain("count().get()");
+    expect(service).not.toContain("getProviderDashboardRecords");
   });
 
   it("uses the canonical event timeline after ownership checks", () => {

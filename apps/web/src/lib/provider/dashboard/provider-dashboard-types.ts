@@ -1,16 +1,3 @@
-export type ProviderDashboardActivityPoint = {
-  date: string;
-  label: string;
-  confirmed: number;
-};
-
-export type ProviderDashboardSummary = {
-  activeRequests: number;
-  publishedPackages: number;
-  confirmedEvents: number;
-};
-
-export type ProviderDashboardData = {
-  summary: ProviderDashboardSummary;
-  bookingActivity: ProviderDashboardActivityPoint[];
-};
+export type ProviderDashboardView = "new" | "upcoming" | "payment" | "completed";
+export type ProviderDashboardItem = {id: string; customer: string; event: string; packageName: string | null; eventAt: string | null; status: string};
+export type ProviderDashboardData = {summary: Record<ProviderDashboardView, number>; upcomingEvents: ProviderDashboardItem[]; recentRequests: ProviderDashboardItem[]};

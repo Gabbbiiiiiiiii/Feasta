@@ -58,6 +58,7 @@ export default async function ProviderPackagesPage() {
 
   return (
     <div className="grid gap-6">
+    {account.provider.providerServiceType === "both" ? <nav aria-label="Packages and services" className="flex flex-wrap gap-4"><Link href="/provider/packages" aria-current="page" className="font-semibold underline">Packages</Link><Link href="/provider/services" className="font-semibold underline">Event Services</Link></nav> : null}
     {capabilities.packages ? <ProviderPackagesClient
       packageCategoryOptions={packageCategoryOptions}
       providerServiceType={account.provider.providerServiceType}

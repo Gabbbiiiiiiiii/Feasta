@@ -67,7 +67,8 @@ describe("provider navigation configuration", () => {
 
     const both = hrefs(providerContext({providerServiceType: "both"}));
     expect(both).toContain("/provider/packages");
-    expect(both).toContain("/provider/services");
+    expect(both).not.toContain("/provider/services");
+    expect(getRoleNavigation("provider", providerContext({providerServiceType: "both"})).find(item => item.kind === "link" && item.href === "/provider/packages")).toMatchObject({activeRouteAliases: ["/provider/services"]});
   });
 
   it("does not assume catering when provider context is missing", () => {
@@ -91,10 +92,9 @@ describe("provider navigation configuration", () => {
 
     expect(groups.map((group) => group.label)).toEqual([
       null,
-      "BOOKINGS",
-      "SERVICES",
-      "BUSINESS",
-      "ACCOUNT",
+      "Bookings & Schedule",
+      "My Business",
+      "Account",
     ]);
   });
 
@@ -138,7 +138,7 @@ describe("provider navigation configuration", () => {
       "/provider/account",
     ]);
     expect(hrefs(approvedProvider)).toContain("/provider/requests");
-    expect(hrefs(approvedProvider)).toContain("/provider/refund-policy");
+    expect(hrefs(approvedProvider)).not.toContain("/provider/refund-policy");
   });
 
   it("keeps active matching exact for the dashboard and nested for owned routes", () => {
@@ -149,7 +149,7 @@ describe("provider navigation configuration", () => {
   });
 
   it("treats verification and status routes as one navigation destination", () => {
-    const verification = getRoleNavigation("provider", approvedProvider).find(
+    const verification = getRoleNavigation("provider", providerContext({verificationStatus: "submitted"})).find(
       (item): item is NavigationLinkItem =>
         item.kind === "link" && item.label === "Verification",
     );
@@ -217,7 +217,7 @@ describe("provider navigation rendering", () => {
     expect(within(desktop).getAllByRole("link")).toHaveLength(2);
     expect(within(desktop).getByRole("link", {name: "Dashboard"}))
       .toHaveAttribute("href", "/provider");
-    expect(within(desktop).getByRole("link", {name: "Account & Settings"}))
+    expect(within(desktop).getByRole("link", {name: "Settings"}))
       .toHaveAttribute("href", "/provider/account");
     expect(within(desktop).queryByText(/Packages|Bookings|Payments|Messages/u))
       .not.toBeInTheDocument();
@@ -250,7 +250,7 @@ describe("provider navigation rendering", () => {
     });
     expect(within(desktop).getByRole("link", {name: "Dashboard"}))
       .toHaveAttribute("aria-current", "page");
-    expect(within(desktop).getByRole("link", {name: "Verification"}))
+    expect(within(desktop).getByRole("link", {name: "Business Profile"}))
       .not.toHaveAttribute("aria-current");
   });
 
@@ -270,10 +270,9 @@ describe("provider navigation rendering", () => {
       name: "Provider primary navigation",
     });
     for (const section of [
-      "BOOKINGS",
-      "SERVICES",
-      "BUSINESS",
-      "ACCOUNT",
+      "Bookings & Schedule",
+      "My Business",
+      "Account",
     ]) {
       expect(within(desktop).getByRole("heading", {name: section})).toBeVisible();
     }
@@ -283,14 +282,13 @@ describe("provider navigation rendering", () => {
     expect(within(desktop).getByRole("link", {name: "Dashboard"}))
       .not.toHaveAttribute("aria-current");
 
-    expect(within(desktop).getByRole("link", {name: "Bookings"}))
+    expect(within(desktop).getByRole("link", {name: "My Bookings"}))
       .toHaveAttribute("href", "/provider/bookings");
-    expect(within(desktop).getByRole("link", {name: "Availability"}))
-      .toHaveAttribute("href", "/provider/availability");
-    expect(within(desktop).getByRole("link", {name: "Payments & Payouts"}))
+    expect(within(desktop).getByRole("link", {name: "Calendar"}))
+      .toHaveAttribute("href", "/provider/calendar");
+    expect(within(desktop).getByRole("link", {name: "Payments"}))
       .toHaveAttribute("href", "/provider/payments");
-    expect(within(desktop).getByRole("link", {name: "Refund Policy"}))
-      .toHaveAttribute("href", "/provider/refund-policy");
+    expect(within(desktop).queryByRole("link", {name: "Refund Policy"})).not.toBeInTheDocument();
     expect(within(desktop).queryByText("Payments & Earnings"))
       .not.toBeInTheDocument();
     expect(within(desktop).queryByText("Coming soon")).not.toBeInTheDocument();
@@ -318,7 +316,7 @@ describe("provider navigation rendering", () => {
     const items = getRoleNavigation("provider", approvedProvider);
     const availability = items.find(
       (item): item is NavigationLinkItem =>
-        item.kind === "link" && item.href === "/provider/availability",
+        item.kind === "link" && item.href === "/provider/calendar",
     );
     const calendar = items.find(
       (item): item is NavigationLinkItem =>
@@ -330,7 +328,7 @@ describe("provider navigation rendering", () => {
     expect(isNavigationItemActive("/provider/availability/rules", availability!))
       .toBe(true);
     expect(isNavigationItemActive("/provider/availability/rules", calendar!))
-      .toBe(false);
+      .toBe(true);
   });
 
   it("keeps Payments distinct and active for nested workspace routes", () => {
@@ -341,11 +339,11 @@ describe("provider navigation rendering", () => {
     );
     const availability = items.find(
       (item): item is NavigationLinkItem =>
-        item.kind === "link" && item.href === "/provider/availability",
+        item.kind === "link" && item.href === "/provider/calendar",
     );
 
     expect(payments).toBeDefined();
-    expect(payments?.label).toBe("Payments & Payouts");
+    expect(payments?.label).toBe("Payments");
     expect(isNavigationItemActive("/provider/payments", payments!)).toBe(true);
     expect(isNavigationItemActive("/provider/payments/history", payments!)).toBe(true);
     expect(isNavigationItemActive("/provider/payments/history", availability!))
@@ -379,16 +377,15 @@ describe("provider navigation rendering", () => {
     const complete = screen.getByRole("navigation", {
       name: "Provider complete mobile navigation",
     });
-    expect(within(complete).getByRole("link", {name: "Packages / Catalog"}))
+    expect(within(complete).getByRole("link", {name: "Packages & Services"}))
       .toBeVisible();
-    expect(within(complete).getByRole("link", {name: "Bookings"}))
+    expect(within(complete).getByRole("link", {name: "My Bookings"}))
       .toHaveAttribute("href", "/provider/bookings");
-    expect(within(complete).getByRole("link", {name: "Availability"}))
-      .toHaveAttribute("href", "/provider/availability");
-    expect(within(complete).getByRole("link", {name: "Payments & Payouts"}))
+    expect(within(complete).getByRole("link", {name: "Calendar"}))
+      .toHaveAttribute("href", "/provider/calendar");
+    expect(within(complete).getByRole("link", {name: "Payments"}))
       .toHaveAttribute("href", "/provider/payments");
-    expect(within(complete).getByRole("link", {name: "Refund Policy"}))
-      .toHaveAttribute("href", "/provider/refund-policy");
+    expect(within(complete).queryByRole("link", {name: "Refund Policy"})).not.toBeInTheDocument();
     expect(within(complete).getByRole("link", {name: "Reviews"}))
       .toHaveAttribute("href", "/provider/reviews");
     expect(within(complete).getByRole("link", {name: "Business Profile"}))
@@ -411,7 +408,7 @@ describe("provider navigation rendering", () => {
     };
     document.addEventListener("click", preventDocumentNavigation);
     await user.click(within(reopened).getByRole("link", {
-      name: "Account & Settings",
+      name: "Settings",
     }));
     document.removeEventListener("click", preventDocumentNavigation);
     expect(screen.queryByRole("navigation", {
@@ -435,10 +432,8 @@ describe("provider navigation rendering", () => {
     const desktop = screen.getByRole("navigation", {
       name: "Provider primary navigation",
     });
-    expect(within(desktop).getByRole("link", {name: "Availability"}))
-      .toHaveAttribute("aria-current", "page");
     expect(within(desktop).getByRole("link", {name: "Calendar"}))
-      .not.toHaveAttribute("aria-current");
+      .toHaveAttribute("aria-current", "page");
 
     await user.click(screen.getByRole("button", {
       name: "More provider navigation",
@@ -446,7 +441,7 @@ describe("provider navigation rendering", () => {
     const complete = screen.getByRole("navigation", {
       name: "Provider complete mobile navigation",
     });
-    expect(within(complete).getByRole("link", {name: "Availability"}))
+    expect(within(complete).getByRole("link", {name: "Calendar"}))
       .toHaveAttribute("aria-current", "page");
   });
 
@@ -466,9 +461,9 @@ describe("provider navigation rendering", () => {
     const desktop = screen.getByRole("navigation", {
       name: "Provider primary navigation",
     });
-    expect(within(desktop).getByRole("link", {name: "Payments & Payouts"}))
+    expect(within(desktop).getByRole("link", {name: "Payments"}))
       .toHaveAttribute("aria-current", "page");
-    expect(within(desktop).getByRole("link", {name: "Availability"}))
+    expect(within(desktop).getByRole("link", {name: "Calendar"}))
       .not.toHaveAttribute("aria-current");
 
     await user.click(screen.getByRole("button", {
@@ -477,7 +472,7 @@ describe("provider navigation rendering", () => {
     const complete = screen.getByRole("navigation", {
       name: "Provider complete mobile navigation",
     });
-    const payments = within(complete).getByRole("link", {name: "Payments & Payouts"});
+    const payments = within(complete).getByRole("link", {name: "Payments"});
     expect(payments).toHaveAttribute("aria-current", "page");
 
     const preventDocumentNavigation = (event: MouseEvent) => {
@@ -629,7 +624,7 @@ describe("provider navigation rendering", () => {
     const desktop = screen.getByRole("navigation", {
       name: "Provider primary navigation",
     });
-    expect(within(desktop).getByRole("link", {name: "Bookings"}))
+    expect(within(desktop).getByRole("link", {name: "My Bookings"}))
       .toHaveAttribute("aria-current", "page");
     expect(within(desktop).getByRole("link", {name: "Booking Requests"}))
       .not.toHaveAttribute("aria-current");
@@ -640,7 +635,7 @@ describe("provider navigation rendering", () => {
     const complete = screen.getByRole("navigation", {
       name: "Provider complete mobile navigation",
     });
-    const bookings = within(complete).getByRole("link", {name: "Bookings"});
+    const bookings = within(complete).getByRole("link", {name: "My Bookings"});
     expect(bookings).toHaveAttribute("aria-current", "page");
 
     const preventDocumentNavigation = (event: MouseEvent) => {
@@ -670,7 +665,7 @@ describe("provider navigation rendering", () => {
     const desktop = screen.getByRole("navigation", {
       name: "Provider primary navigation",
     });
-    expect(within(desktop).getByRole("link", {name: "Verification"}))
+    expect(within(desktop).getByRole("link", {name: "Business Profile"}))
       .toHaveAttribute("aria-current", "page");
     expect(within(desktop).getByRole("link", {name: "Dashboard"}))
       .not.toHaveAttribute("aria-current");
@@ -681,7 +676,7 @@ describe("provider navigation rendering", () => {
     const mobile = screen.getByRole("navigation", {
       name: "Provider complete mobile navigation",
     });
-    expect(within(mobile).getByRole("link", {name: "Verification"}))
+    expect(within(mobile).getByRole("link", {name: "Business Profile"}))
       .toHaveAttribute("aria-current", "page");
     expect(within(mobile).getByRole("link", {name: "Dashboard"}))
       .not.toHaveAttribute("aria-current");

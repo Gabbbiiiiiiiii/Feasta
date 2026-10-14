@@ -8,6 +8,7 @@ import {
 import {
   ProviderServicesClient,
 } from "./provider-services-client";
+import Link from "next/link";
 
 export default async function ProviderServicesPage() {
   const account =
@@ -35,6 +36,8 @@ export default async function ProviderServicesPage() {
     );
 
   return (
+    <div className="grid gap-6">
+    {provider.providerServiceType === "both" ? <nav aria-label="Packages and services" className="flex flex-wrap gap-4"><Link href="/provider/packages" className="font-semibold underline">Packages</Link><Link href="/provider/services" aria-current="page" className="font-semibold underline">Event Services</Link></nav> : null}
     <ProviderServicesClient
       providerId={account.provider.id}
       serviceCategories={
@@ -44,5 +47,6 @@ export default async function ProviderServicesPage() {
         assignedServiceCategoryOptions
       }
     />
+    </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import {formatEventTime} from "@/lib/presentation/event-time";
+import Link from "next/link";
 
 import {
   CalendarDays,
@@ -73,12 +74,9 @@ export function ProviderCalendarClient({
     );
 
   const initialDate =
-    parseIsoDate(today);
+    parseIsoDate(`${initialData.month}-01`);
 
-  const [
-    visibleMonth,
-    setVisibleMonth,
-  ] = useState(
+  const [visibleMonth] = useState(
     new Date(
       initialDate.getFullYear(),
       initialDate.getMonth(),
@@ -89,7 +87,9 @@ export function ProviderCalendarClient({
   const [
     selectedDate,
     setSelectedDate,
-  ] = useState(today);
+  ] = useState(
+    initialData.month === today.slice(0, 7) ? today : `${initialData.month}-01`,
+  );
 
   const [
     unavailableDates,
@@ -180,24 +180,7 @@ export function ProviderCalendarClient({
       selectedDate,
     );
 
-  const capacity =
-    initialData.settings
-      .acceptsMultipleEventsPerDay
-      ? initialData.settings
-          .maxEventsPerDay
-      : 1;
-
-  const usedSlots =
-    selectedEvents.length;
-
-  const remainingSlots =
-    Math.max(
-      capacity - usedSlots,
-      0,
-    );
-
-  const isFull =
-    usedSlots >= capacity;
+  const capacity = 1;
 
   const canManageAvailability =
     selectedDate >= today;
@@ -241,40 +224,28 @@ export function ProviderCalendarClient({
     }
   }
 
-  function previousMonth() {
-    setVisibleMonth(
-      (current) =>
-        new Date(
-          current.getFullYear(),
-          current.getMonth() - 1,
-          1,
-        ),
+  function changeMonth(offset: number) {
+    const next = new Date(
+      visibleMonth.getFullYear(),
+      visibleMonth.getMonth() + offset,
+      1,
     );
+    router.push(`/provider/calendar?month=${toIsoDate(next).slice(0, 7)}`);
+  }
+
+  function previousMonth() {
+    changeMonth(-1);
   }
 
   function nextMonth() {
-    setVisibleMonth(
-      (current) =>
-        new Date(
-          current.getFullYear(),
-          current.getMonth() + 1,
-          1,
-        ),
-    );
+    changeMonth(1);
   }
 
   function goToToday() {
-    const date =
-      parseIsoDate(today);
-
-    setVisibleMonth(
-      new Date(
-        date.getFullYear(),
-        date.getMonth(),
-        1,
-      ),
-    );
-
+    if (initialData.month !== today.slice(0, 7)) {
+      router.push(`/provider/calendar?month=${today.slice(0, 7)}`);
+      return;
+    }
     setSelectedDate(today);
   }
 
@@ -287,6 +258,8 @@ export function ProviderCalendarClient({
           "Manage your business availability and review scheduled FEASTA events."
         }
         actions={
+          <div className="flex flex-wrap gap-2">
+          <Button asChild variant="secondary" size="compact"><Link href="/provider/availability">Availability settings</Link></Button>
           <Button
             type="button"
             variant="secondary"
@@ -296,49 +269,9 @@ export function ProviderCalendarClient({
             <CalendarDays className="size-4" />
             Today
           </Button>
+          </div>
         }
       />
-
-      <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
-        aria-label="Calendar settings"
-      >
-        <CalendarSummary
-          label="Operating days"
-          value={
-            initialData.settings
-              .operatingDays.length
-          }
-          description="days per week"
-        />
-
-        <CalendarSummary
-          label="Booking lead time"
-          value={
-            initialData.settings
-              .bookingLeadTimeDays
-          }
-          description="days minimum"
-        />
-
-        <CalendarSummary
-          label="Daily capacity"
-          value={capacity}
-          description={
-            capacity === 1
-              ? "event per day"
-              : "events per day"
-          }
-        />
-
-        <CalendarSummary
-          label="Blocked dates"
-          value={
-            unavailableDates.length
-          }
-          description="manually unavailable"
-        />
-      </section>
 
       <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(20rem,0.8fr)]">
         <section className="min-w-0 overflow-hidden rounded-card border border-border bg-card shadow-card">
@@ -382,7 +315,7 @@ export function ProviderCalendarClient({
           </header>
 
           <div className="overflow-x-auto">
-            <div className="min-w-[42rem] p-4 sm:p-5">
+            <div className="min-w-0 p-1.5 sm:p-5">
               <div className="grid grid-cols-7 border-b border-border">
                 {WEEKDAYS.map(
                   (weekday) => (
@@ -444,6 +377,11 @@ export function ProviderCalendarClient({
                     const full =
                       dayEvents.length >=
                       dayCapacity;
+                    const reservationLabel = dayEvents.some((event) =>
+                      event.status === "completed") ? "Completed" :
+                      dayEvents.some((event) => event.status === "confirmed" ||
+                        event.status === "in_progress") ? "Booked" :
+                      full ? "On hold" : "Available";
 
                     return (
                       <button
@@ -454,14 +392,15 @@ export function ProviderCalendarClient({
                             dateKey,
                           )
                         }
+                        aria-label={`${dateKey}: ${full ? reservationLabel : blocked ? "Blocked" : !operating ? "Closed" : "Available"}`}
                         aria-pressed={
                           selected
                         }
                         className={[
-                          "relative min-h-28 border-b border-r border-border/70 p-2 text-left transition-colors",
+                          "relative min-h-16 border-b border-r border-border/70 p-1 text-left transition-colors sm:min-h-28 sm:p-2",
                           "focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                           selected
-                            ? "bg-secondary"
+                            ? "bg-secondary ring-2 ring-inset ring-primary"
                             : "hover:bg-muted/50",
                           !operating ||
                           blocked
@@ -481,17 +420,17 @@ export function ProviderCalendarClient({
                             {day.getDate()}
                           </span>
 
-                          {blocked ? (
-                            <span className="rounded-full bg-destructive/10 px-2 py-1 text-[10px] font-bold text-destructive">
+                          {blocked && !full ? (
+                            <span className="size-2 shrink-0 overflow-hidden rounded-full bg-destructive text-[0px] sm:size-auto sm:bg-destructive/10 sm:px-2 sm:py-1 sm:text-[10px] font-bold text-destructive sm:text-destructive">
                               Blocked
                             </span>
-                          ) : !operating ? (
-                            <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-bold text-muted-foreground">
+                          ) : !operating && !full ? (
+                            <span className="size-2 shrink-0 overflow-hidden rounded-full bg-muted-foreground text-[0px] sm:size-auto sm:bg-muted sm:px-2 sm:py-1 sm:text-[10px] font-bold sm:text-muted-foreground">
                               Closed
                             </span>
                           ) : full ? (
-                            <span className="rounded-full bg-primary/10 px-2 py-1 text-[10px] font-bold text-primary-strong">
-                              Full
+                            <span className="size-2 shrink-0 overflow-hidden rounded-full bg-blue-600 text-[0px] sm:size-auto sm:bg-blue-100 sm:px-2 sm:py-1 sm:text-[10px] font-bold sm:text-blue-900 dark:sm:bg-blue-950 dark:sm:text-blue-200">
+                              {reservationLabel}
                             </span>
                           ) : null}
                         </div>
@@ -507,17 +446,6 @@ export function ProviderCalendarClient({
                               1
                                 ? "event"
                                 : "events"}
-                            </span>
-
-                            <span className="text-[11px] text-muted-foreground">
-                              {
-                                Math.max(
-                                  dayCapacity -
-                                    dayEvents.length,
-                                  0,
-                                )
-                              }{" "}
-                              slots remaining
                             </span>
                           </div>
                         ) : null}
@@ -537,17 +465,21 @@ export function ProviderCalendarClient({
 
             <Legend
               label="Selected"
-              className="bg-secondary"
+              className="bg-card ring-2 ring-primary"
             />
 
             <Legend
+              label="Reserved"
+              className="bg-blue-600"
+            />
+            <Legend
               label="Blocked"
-              className="bg-destructive/20"
+              className="bg-destructive"
             />
 
             <Legend
               label="Closed"
-              className="bg-muted"
+              className="bg-muted-foreground/70"
             />
           </footer>
         </section>
@@ -582,21 +514,9 @@ export function ProviderCalendarClient({
                 />
 
                 <InfoRow
-                  label="Scheduled events"
-                  value={`${usedSlots} / ${capacity}`}
+                  label="Reservations shown"
+                  value={String(selectedEvents.length)}
                 />
-
-                <InfoRow
-                  label="Remaining capacity"
-                  value={
-                    isFull
-                      ? "Full"
-                      : String(
-                          remainingSlots,
-                        )
-                  }
-                />
-
                 <InfoRow
                   label="Manual status"
                   value={
@@ -633,7 +553,8 @@ export function ProviderCalendarClient({
                 size="compact"
                 fullWidth
                 disabled={
-                  !canManageAvailability
+                  !canManageAvailability ||
+                  (selectedEvents.length > 0 && !isManuallyUnavailable)
                 }
                 loading={
                   actionPending
@@ -698,35 +619,6 @@ export function ProviderCalendarClient({
         </aside>
       </div>
     </div>
-  );
-}
-
-function CalendarSummary({
-  label,
-  value,
-  description,
-}: {
-  label: string;
-  value: number;
-  description: string;
-}) {
-  return (
-    <section
-      className="rounded-card border border-border bg-card p-4 shadow-card sm:p-5"
-      aria-label={label}
-    >
-      <p className="text-sm font-semibold text-muted-foreground">
-        {label}
-      </p>
-
-      <p className="mt-3 text-3xl font-black tracking-tight">
-        {value}
-      </p>
-
-      <p className="mt-1 text-sm text-muted-foreground">
-        {description}
-      </p>
-    </section>
   );
 }
 

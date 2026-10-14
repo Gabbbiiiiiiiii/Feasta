@@ -71,6 +71,7 @@ test('automatic preparation and event boundaries require fully settled unlocked 
   assert.equal(stage(event), 'service_started');
   for (const patch of [{outstandingAmountInCentavos: 1}, {settlementStatus: 'deposit_settled'},
     {remainingBalanceEnforcement: {status: 'on_hold'}}, {activeCancellationRequestId: 'locked'},
+    {approvedCancellationRequestId: 'locked'}, {refundExecutionLock: {id: 'locked'}},
     {refundEligibilityState: {activeCancellationRequestId: 'locked'}}]) assert.equal(stage(event, patch), 'blocked');
   assert.equal(stage(event, {status: 'cancelled'}), 'cancelled');
   assert.equal(stage(event.getTime() + 86400000), 'service_started'); // Completion remains provider-confirmed.

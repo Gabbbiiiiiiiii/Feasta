@@ -1,215 +1,49 @@
-import {
-  CalendarCheck2,
-  ClipboardCheck,
-  PackageOpen,
-} from "lucide-react";
+import {CalendarCheck2, ClipboardCheck, CircleDollarSign, CheckCircle2} from "lucide-react";
 import Link from "next/link";
-
-import {
-  LimitedProviderDashboard,
-} from "@/components/provider/limited-provider-dashboard";
-import {
-  ChartContainer,
-  SummaryCard,
-} from "@/components/data";
-import {
-  PageHeading,
-} from "@/components/layout/page-heading";
-import {
-  StatusBadge,
-} from "@/components/shared/status-badge";
-import {
-  Button,
-} from "@/components/ui/button";
-import {
-  requireProvider,
-  requireProviderIdentityAccess,
-} from "@/lib/auth/session";
-import {
-  getProviderDashboardData,
-} from "@/lib/provider/dashboard/provider-dashboard-service";
-import {
-  getLimitedProviderDashboardData,
-} from "@/lib/provider/dashboard/limited-provider-dashboard-service";
+import {LimitedProviderDashboard} from "@/components/provider/limited-provider-dashboard";
+import {SummaryCard} from "@/components/data";
+import {PageHeading} from "@/components/layout/page-heading";
+import {StatusBadge} from "@/components/shared/status-badge";
+import {requireProvider, requireProviderIdentityAccess} from "@/lib/auth/session";
+import {getProviderDashboardData} from "@/lib/provider/dashboard/provider-dashboard-service";
+import {getLimitedProviderDashboardData} from "@/lib/provider/dashboard/limited-provider-dashboard-service";
+import type {ProviderDashboardItem} from "@/lib/provider/dashboard/provider-dashboard-types";
 
 export default async function ProviderPage() {
-  const account = requireProviderIdentityAccess(
-    await requireProvider(),
-  );
-
-  if (!account.emailVerified) {
-    return (
-      <LimitedProviderDashboard
-        dashboard={await getLimitedProviderDashboardData()}
-      />
-    );
-  }
-
-  const dashboard =
-    await getProviderDashboardData();
-
-  const hasBookingActivity =
-    dashboard.bookingActivity.some(
-      (point) =>
-        point.confirmed > 0,
-    );
-
-  const maxActivity =
-    Math.max(
-      1,
-      ...dashboard.bookingActivity.map(
-        (point) =>
-          point.confirmed,
-      ),
-    );
-
-  return (
-    <div className="grid gap-6">
-      <PageHeading
-        eyebrow="Provider overview"
-        title="Business dashboard"
-        description={
-          "Monitor requests, packages, and confirmed events for your FEASTA business."
-        }
-        actions={
-          <Button
-            asChild
-            variant="secondary"
-          >
-            <Link href="/provider/verification">
-              View verification
-            </Link>
-          </Button>
-        }
-      />
-
-      <div
-        className="flex flex-wrap items-center gap-2"
-        aria-label="Provider status"
-      >
-        <span className="font-semibold">
-          Verification:
-        </span>
-
-        <StatusBadge status="approved" />
-      </div>
-
-      <section
-        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
-        aria-label="Business summary"
-      >
-        <SummaryCard
-          label="Active requests"
-          value={
-            dashboard.summary
-              .activeRequests
-          }
-          icon={
-            <ClipboardCheck className="size-6" />
-          }
-        />
-
-        <SummaryCard
-          label="Published packages"
-          value={
-            dashboard.summary
-              .publishedPackages
-          }
-          icon={
-            <PackageOpen className="size-6" />
-          }
-        />
-
-        <SummaryCard
-          label="Confirmed events"
-          value={
-            dashboard.summary
-              .confirmedEvents
-          }
-          icon={
-            <CalendarCheck2 className="size-6" />
-          }
-        />
-      </section>
-
-      <ChartContainer
-        title="Booking activity"
-        description={
-          "Confirmed provider events recorded during the last 7 days."
-        }
-        empty={!hasBookingActivity}
-        fallbackSummary={
-          hasBookingActivity
-            ? createActivitySummary(
-                dashboard.bookingActivity,
-              )
-            : "No confirmed booking activity is available for the last 7 days."
-        }
-      >
-        <div
-          className="flex min-h-64 min-w-[32rem] items-end gap-3 pt-6"
-          role="img"
-          aria-label="Confirmed booking activity for the last 7 days"
-        >
-          {dashboard.bookingActivity.map(
-            (point) => {
-              const height =
-                point.confirmed === 0
-                  ? 4
-                  : Math.max(
-                      12,
-                      Math.round(
-                        (point.confirmed /
-                          maxActivity) *
-                          100,
-                      ),
-                    );
-
-              return (
-                <div
-                  key={point.date}
-                  className="flex min-w-0 flex-1 flex-col items-center gap-2"
-                >
-                  <span className="text-sm font-bold text-foreground">
-                    {point.confirmed}
-                  </span>
-
-                  <div className="flex h-40 w-full items-end justify-center">
-                    <div
-                      className="w-full max-w-12 rounded-t-md bg-primary transition-[height]"
-                      style={{
-                        height: `${height}%`,
-                      }}
-                      title={
-                        `${point.label}: ` +
-                        `${point.confirmed} confirmed`
-                      }
-                    />
-                  </div>
-
-                  <span className="text-xs font-medium text-muted-foreground">
-                    {point.label}
-                  </span>
-                </div>
-              );
-            },
-          )}
-        </div>
-      </ChartContainer>
+  const account = requireProviderIdentityAccess(await requireProvider());
+  if (!account.emailVerified) return <LimitedProviderDashboard dashboard={await getLimitedProviderDashboardData()} />;
+  const dashboard = await getProviderDashboardData();
+  const cards = [
+    {key: "new", label: "New Requests", href: "/provider/requests?dashboard=new", icon: ClipboardCheck},
+    {key: "upcoming", label: "Upcoming Events", href: "/provider/bookings?status=upcoming&dashboard=upcoming", icon: CalendarCheck2},
+    {key: "payment", label: "Waiting for Payment", href: "/provider/bookings?status=accepted&dashboard=payment", icon: CircleDollarSign},
+    {key: "completed", label: "Completed Events", href: "/provider/bookings?status=completed&dashboard=completed", icon: CheckCircle2},
+  ] as const;
+  return <div className="grid min-w-0 gap-6">
+    <PageHeading title="Dashboard" description="Your booking requests and upcoming events at a glance." />
+    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Booking overview">
+      {cards.map(({key, label, href, icon: Icon}) => <Link key={key} href={href} className="rounded-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        <SummaryCard label={label} value={dashboard.summary[key]} icon={<Icon className="size-5" aria-hidden="true" />} />
+      </Link>)}
+    </section>
+    <div className="grid min-w-0 gap-6 lg:grid-cols-2">
+      <DashboardList title="Upcoming Events" items={dashboard.upcomingEvents} empty="No upcoming events" description="Confirmed future events will appear here." bookings />
+      <DashboardList title="Recent Booking Requests" items={dashboard.recentRequests} empty="No booking requests yet" description="New requests and their latest status will appear here." />
     </div>
-  );
+  </div>;
 }
-
-function createActivitySummary(
-  activity: readonly {
-    label: string;
-    confirmed: number;
-  }[],
-): string {
-  return activity
-    .map(
-      (point) =>
-        `${point.label}: ${point.confirmed} confirmed`,
-    )
-    .join(", ");
+function DashboardList({title, items, empty, description, bookings = false}: {
+  title: string; items: ProviderDashboardItem[]; empty: string; description: string; bookings?: boolean;
+}) {
+  return <section className="min-w-0 rounded-card border border-border bg-card p-4 shadow-card sm:p-5" aria-label={title}>
+    <h2 className="text-xl font-bold">{title}</h2>
+    {items.length === 0 ? <div className="py-8 text-sm"><p className="font-semibold">{empty}</p><p className="mt-2 text-muted-foreground">{description}</p></div> :
+      <ul className="mt-4 divide-y divide-border">{items.map(item => <li key={item.id}>
+        <Link href={`/provider/${bookings ? "bookings" : "requests"}?request=${encodeURIComponent(item.id)}`} className="grid gap-2 rounded-lg py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <div className="flex flex-wrap items-start justify-between gap-2"><span className="min-w-0 break-words font-semibold">{item.customer}</span><StatusBadge status={item.status} label={item.status === "pending" ? "New request" : item.status === "rejected" ? "Declined" : undefined} /></div>
+          <span className="break-words text-sm capitalize">{item.event}{item.packageName ? ` / ${item.packageName}` : ""}</span>
+          <span className="text-sm text-muted-foreground">{item.eventAt ? new Intl.DateTimeFormat("en-PH", {dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila"}).format(new Date(item.eventAt)) : "Event date not available"}</span>
+        </Link>
+      </li>)}</ul>}
+  </section>;
 }

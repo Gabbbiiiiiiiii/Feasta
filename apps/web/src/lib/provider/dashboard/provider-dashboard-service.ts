@@ -1,367 +1,52 @@
 import "server-only";
+import {FieldPath, type QueryDocumentSnapshot, type DocumentData} from "firebase-admin/firestore";
+import {requireApprovedProvider} from "@/lib/auth/session";
+import {adminDb} from "@/lib/firebase/admin";
+import {dashboardEventStart, dashboardMatches, storedDate} from "./provider-dashboard-projection";
+import type {ProviderDashboardData, ProviderDashboardItem, ProviderDashboardView} from "./provider-dashboard-types";
 
-import {
-  Timestamp,
-} from "firebase-admin/firestore";
-
-import {
-  requireApprovedProvider,
-} from "@/lib/auth/session";
-import {
-  adminDb,
-} from "@/lib/firebase/admin";
-
-import type {
-  ProviderDashboardActivityPoint,
-  ProviderDashboardData,
-} from "./provider-dashboard-types";
-
-const COLLECTIONS = {
-  providerRequests: "providerRequests",
-  packages: "packages",
-} as const;
-
-const ACTIVITY_DAYS = 7;
-const MAX_ACTIVITY_REQUESTS = 100;
-
-const ACTIVE_REQUEST_STATUSES = [
-  "pending",
-  "accepted",
-  "waiting_for_down_payment",
-  "payment_processing",
-  "confirmed",
-  "in_progress",
-] as const;
-
-const CONFIRMED_EVENT_STATUSES = [
-  "accepted",
-  "confirmed",
-  "in_progress",
-] as const;
-
-export async function getProviderDashboardData():
-Promise<ProviderDashboardData> {
-  const account =
-    await requireApprovedProvider();
-
-  const providerId =
-    requireDocumentId(
-      account.providerId,
-      "providerId",
-    );
-
-  const [
-    activeRequestsSnapshot,
-    publishedPackagesSnapshot,
-    confirmedEventsSnapshot,
-    recentRequestsSnapshot,
-  ] = await Promise.all([
-    adminDb
-      .collection(
-        COLLECTIONS.providerRequests,
-      )
-      .where(
-        "providerId",
-        "==",
-        providerId,
-      )
-      .where(
-        "status",
-        "in",
-        [...ACTIVE_REQUEST_STATUSES],
-      )
-      .count()
-      .get(),
-
-    adminDb
-      .collection(
-        COLLECTIONS.packages,
-      )
-      .where(
-        "providerId",
-        "==",
-        providerId,
-      )
-      .where(
-        "status",
-        "==",
-        "published",
-      )
-      .where(
-        "isActive",
-        "==",
-        true,
-      )
-      .count()
-      .get(),
-
-    adminDb
-      .collection(
-        COLLECTIONS.providerRequests,
-      )
-      .where(
-        "providerId",
-        "==",
-        providerId,
-      )
-      .where(
-        "status",
-        "in",
-        [...CONFIRMED_EVENT_STATUSES],
-      )
-      .count()
-      .get(),
-
-    adminDb
-      .collection(
-        COLLECTIONS.providerRequests,
-      )
-      .where(
-        "providerId",
-        "==",
-        providerId,
-      )
-      .orderBy(
-        "createdAt",
-        "desc",
-      )
-      .limit(
-        MAX_ACTIVITY_REQUESTS,
-      )
-      .get(),
-  ]);
-
-  return {
-    summary: {
-      activeRequests:
-        activeRequestsSnapshot
-          .data()
-          .count,
-
-      publishedPackages:
-        publishedPackagesSnapshot
-          .data()
-          .count,
-
-      confirmedEvents:
-        confirmedEventsSnapshot
-          .data()
-          .count,
-    },
-
-    bookingActivity:
-      buildBookingActivity(
-        recentRequestsSnapshot.docs.map(
-          (document) => ({
-            status:
-              typeof document.data().status ===
-              "string"
-                ? document.data().status
-                : "",
-
-            createdAt:
-              document.data().createdAt,
-          }),
-        ),
-      ),
+/** Walk all provider-scoped pages; counts never use a recent-record cap. */
+export async function getProviderDashboardRecords(providerId: string, now = new Date()) {
+  if (!/^[A-Za-z0-9_-]{1,160}$/u.test(providerId)) throw new Error("The provider account is unavailable.");
+  const documents: QueryDocumentSnapshot<DocumentData>[] = [];
+  const base = adminDb.collection("providerRequests").where("providerId", "==", providerId).orderBy(FieldPath.documentId());
+  let cursor: QueryDocumentSnapshot<DocumentData> | undefined;
+  for (;;) {
+    const page = await (cursor ? base.startAfter(cursor) : base).limit(500).get();
+    documents.push(...page.docs);
+    if (page.docs.length < 500) break;
+    cursor = page.docs.at(-1);
+  }
+  const ids = [...new Set(documents.map(doc => doc.data().mainEventId ?? doc.data().bookingId)
+    .filter((id): id is string => typeof id === "string" && /^[A-Za-z0-9_-]{1,160}$/u.test(id)))];
+  const events = new Map<string, DocumentData>();
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    const batch = await adminDb.getAll(...ids.slice(offset, offset + 100).map(id => adminDb.collection("mainEvents").doc(id)));
+    for (const event of batch) if (event.exists) events.set(event.id, event.data()!);
+  }
+  const matches = (document: QueryDocumentSnapshot<DocumentData>, view: ProviderDashboardView) => {
+    const data = document.data();
+    const event = events.get(data.mainEventId ?? data.bookingId) ?? null;
+    if (data.providerId !== providerId || (data.providerRequestId != null && data.providerRequestId !== document.id) ||
+      (Array.isArray(event?.providerRequestIds) && !event.providerRequestIds.includes(document.id))) return false;
+    return dashboardMatches(view, data, event, now);
   };
+  return {documents, matches};
 }
 
-function buildBookingActivity(
-  requests: readonly {
-    status: string;
-    createdAt: unknown;
-  }[],
-): ProviderDashboardActivityPoint[] {
-  const days =
-    createActivityDays();
-
-  const counts =
-    new Map(
-      days.map(
-        (day) => [
-          day.date,
-          0,
-        ],
-      ),
-    );
-
-  for (const request of requests) {
-    if (
-      !CONFIRMED_EVENT_STATUSES.includes(
-        request.status as
-          (typeof CONFIRMED_EVENT_STATUSES)[number],
-      )
-    ) {
-      continue;
-    }
-
-    const date =
-      timestampDate(
-        request.createdAt,
-      );
-
-    if (!date) {
-      continue;
-    }
-
-    const key =
-      manilaDateKey(date);
-
-    if (!counts.has(key)) {
-      continue;
-    }
-
-    counts.set(
-      key,
-      (counts.get(key) ?? 0) + 1,
-    );
-  }
-
-  return days.map(
-    (day) => ({
-      ...day,
-      confirmed:
-        counts.get(day.date) ?? 0,
-    }),
-  );
+export async function getProviderDashboardData(): Promise<ProviderDashboardData> {
+  const account = await requireApprovedProvider();
+  const {documents, matches} = await getProviderDashboardRecords(account.providerId!);
+  const select = (view: ProviderDashboardView) => documents.filter(doc => matches(doc, view));
+  const upcoming = select("upcoming").sort((a, b) => dashboardEventStart(a.data())!.getTime() - dashboardEventStart(b.data())!.getTime() || a.id.localeCompare(b.id));
+  const recent = [...documents].sort((a, b) => (storedDate(b.data().createdAt)?.getTime() ?? 0) - (storedDate(a.data().createdAt)?.getTime() ?? 0) || a.id.localeCompare(b.id));
+  return {summary: {new: select("new").length, upcoming: upcoming.length, payment: select("payment").length, completed: select("completed").length},
+    upcomingEvents: upcoming.slice(0, 5).map(item), recentRequests: recent.slice(0, 5).map(item)};
 }
-
-function createActivityDays():
-ProviderDashboardActivityPoint[] {
-  const now =
-    new Date();
-
-  const result:
-    ProviderDashboardActivityPoint[] =
-    [];
-
-  for (
-    let offset =
-      ACTIVITY_DAYS - 1;
-    offset >= 0;
-    offset -= 1
-  ) {
-    const date =
-      new Date(
-        now.getTime() -
-          offset *
-            24 *
-            60 *
-            60 *
-            1000,
-      );
-
-    result.push({
-      date:
-        manilaDateKey(date),
-
-      label:
-        new Intl.DateTimeFormat(
-          "en-PH",
-          {
-            weekday: "short",
-            timeZone:
-              "Asia/Manila",
-          },
-        ).format(date),
-
-      confirmed: 0,
-    });
-  }
-
-  return result;
-}
-
-function manilaDateKey(
-  date: Date,
-): string {
-  const parts =
-    new Intl.DateTimeFormat(
-      "en-CA",
-      {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        timeZone:
-          "Asia/Manila",
-      },
-    ).formatToParts(date);
-
-  const year =
-    parts.find(
-      (part) =>
-        part.type === "year",
-    )?.value;
-
-  const month =
-    parts.find(
-      (part) =>
-        part.type === "month",
-    )?.value;
-
-  const day =
-    parts.find(
-      (part) =>
-        part.type === "day",
-    )?.value;
-
-  if (
-    !year ||
-    !month ||
-    !day
-  ) {
-    return "";
-  }
-
-  return `${year}-${month}-${day}`;
-}
-
-function timestampDate(
-  value: unknown,
-): Date | null {
-  if (
-    value instanceof Timestamp
-  ) {
-    return value.toDate();
-  }
-
-  if (
-    value instanceof Date &&
-    !Number.isNaN(
-      value.getTime(),
-    )
-  ) {
-    return value;
-  }
-
-  return null;
-}
-
-function requireDocumentId(
-  value: unknown,
-  field: string,
-): string {
-  if (
-    typeof value !== "string"
-  ) {
-    throw new Error(
-      `The provider ${field} is invalid.`,
-    );
-  }
-
-  const normalized =
-    value.trim();
-
-  if (
-    normalized.length < 1 ||
-    normalized.length > 160 ||
-    normalized.includes("/")
-  ) {
-    throw new Error(
-      `The provider ${field} is invalid.`,
-    );
-  }
-
-  return normalized;
+function item(document: QueryDocumentSnapshot<DocumentData>): ProviderDashboardItem {
+  const data = document.data();
+  const text = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : null;
+  return {id: document.id, customer: [text(data.customerFirstName), text(data.customerLastName)].filter(Boolean).join(" ") || text(data.customerName) || "FEASTA customer",
+    event: text(data.eventType)?.replaceAll("_", " ") || "Event", packageName: text(data.packageName) ?? text(data.serviceName),
+    eventAt: dashboardEventStart(data)?.toISOString() ?? null, status: text(data.status) ?? "unknown"};
 }

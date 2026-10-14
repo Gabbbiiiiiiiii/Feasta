@@ -1,7 +1,10 @@
 import "server-only";
+import {dashboardMatches, dashboardEventStart, storedDate} from "../dashboard/provider-dashboard-projection";
+import {matchesRequestSearch} from "./provider-request-presentation";
 
 import {
   Timestamp,
+  FieldPath,
   type DocumentData,
   type QueryDocumentSnapshot,
 } from "firebase-admin/firestore";
@@ -25,63 +28,135 @@ import type {
   ProviderRequestListResult,
   ProviderRequestService,
   ProviderRequestSummary,
+  ProviderRequestPage,
+  ProviderRequestFilters,
+  ProviderRequestFilter,
 } from "./provider-request-types";
 
 const COLLECTIONS = {
   providerRequests: "providerRequests",
 } as const;
 
-const MAX_REQUESTS = 100;
 
-export async function getProviderRequests():
-Promise<ProviderRequestListResult> {
-  const account =
-    await requireApprovedProvider();
+const PAGE_SIZE = 10;
+const SCAN_BATCH_SIZE = 30;
+const MAX_FILTER_SCAN = 150;
+const FILTERS = ["all", "new", "accepted", "rejected", "cancelled"];
 
-  const providerId =
-    validDocumentId(
-      account.providerId,
-    );
+export function normalizeRequestFilters(input: Partial<ProviderRequestFilters>): ProviderRequestFilters {
+  return {status: FILTERS.includes(String(input.status)) ? input.status as ProviderRequestFilter : "all",
+    search: typeof input.search === "string" ? input.search.trim().slice(0, 160) : "", cursor: input.cursor ?? null};
+}
 
-  if (!providerId) {
-    throw new Error(
-      "The provider account is unavailable.",
-    );
+/** Bounded, provider-scoped server search. Continuation preserves access to the entire history. */
+export async function getProviderRequestPage(input: Partial<ProviderRequestFilters> = {}): Promise<ProviderRequestPage> {
+  const account = await requireApprovedProvider();
+  const providerId = validDocumentId(account.providerId);
+  if (!providerId) throw invalidProviderRequest();
+  const filters = normalizeRequestFilters(input);
+  const now = new Date();
+  const batchSize = filters.search || filters.status === "new" ? SCAN_BATCH_SIZE : PAGE_SIZE + 1;
+  let base = adminDb.collection(COLLECTIONS.providerRequests).where("providerId", "==", providerId);
+  if (filters.status !== "all") base = base.where("status", "==", filters.status === "new" ? "pending" : filters.status);
+  base = base.orderBy("createdAt", "desc").orderBy(FieldPath.documentId(), "desc");
+  const cursor = decodeRequestCursor(filters.cursor, providerId, filters);
+  if (cursor) base = base.startAfter(Timestamp.fromMillis(cursor.time), cursor.id);
+  let scanQuery = base;
+  let scanned = 0, exhausted = false, skippedMalformedCount = 0;
+  let last: QueryDocumentSnapshot<DocumentData> | null = null;
+  const matches: {document: QueryDocumentSnapshot<DocumentData>; request: ProviderRequestListItem}[] = [];
+  while (matches.length <= PAGE_SIZE && scanned < MAX_FILTER_SCAN && !exhausted) {
+    const batch = await scanQuery.limit(batchSize).get();
+    if (batch.docs.length === 0) {exhausted = true; break;}
+    const parents = filters.search || filters.status === "new" ? await requestParents(batch.docs) : new Map<string, DocumentData>();
+    for (const document of batch.docs) {
+      scanned++; last = document;
+      try {
+        const data = document.data();
+        const linkedParent = parents.get(data.mainEventId ?? data.bookingId) ?? null;
+        const parent = linkedParent?.customerId === data.customerId ? linkedParent : null;
+        const request = mapProviderRequest(document, providerId);
+        request.bookingReference = optionalText(data.bookingCode ?? data.bookingReference ?? parent?.bookingCode, 160);
+        if (parent) request.responseUnavailableReason = responseUnavailableReason({...data, providerRequestId: data.providerRequestId ?? document.id}, parent, now);
+        const current = parent != null && parent.customerId === data.customerId &&
+          (!Array.isArray(parent.providerRequestIds) || parent.providerRequestIds.includes(document.id));
+        if ((filters.status !== "new" || (current && dashboardMatches("new", data, parent, now))) && matchesRequestSearch(request, filters.search)) matches.push({document, request});
+      } catch {skippedMalformedCount++;}
+      if (matches.length > PAGE_SIZE || scanned >= MAX_FILTER_SCAN) break;
+    }
+    if (matches.length > PAGE_SIZE || scanned >= MAX_FILTER_SCAN) break;
+    exhausted = batch.docs.length < batchSize;
+    if (!exhausted && last) scanQuery = base.startAfter(last.data().createdAt, last.id);
   }
+  const visible = matches.slice(0, PAGE_SIZE);
+  const hasMore = matches.length > PAGE_SIZE || !exhausted;
+  const next = matches.length > PAGE_SIZE ? visible.at(-1)?.document : last;
+  return {requests: visible.map(item => item.request), hasMore, skippedMalformedCount,
+    nextCursor: hasMore && next ? encodeRequestCursor(next, providerId, filters) : null};
+}
 
-  const snapshot =
-    await adminDb
-      .collection(
-        COLLECTIONS.providerRequests,
-      )
-      .where(
-        "providerId",
-        "==",
-        providerId,
-      )
-      .orderBy(
-        "createdAt",
-        "desc",
-      )
-      .limit(MAX_REQUESTS)
-      .get();
+async function requestParents(documents: QueryDocumentSnapshot<DocumentData>[]) {
+  const ids = [...new Set(documents.map(doc => validDocumentId(doc.data().mainEventId ?? doc.data().bookingId)).filter((id): id is string => id !== null))];
+  const parents = new Map<string, DocumentData>();
+  if (ids.length) {
+    const snapshots = await adminDb.getAll(...ids.map(id => adminDb.collection("mainEvents").doc(id)));
+    for (const snapshot of snapshots) if (snapshot.exists) parents.set(snapshot.id, snapshot.data()!);
+  }
+  return parents;
+}
 
-  const requests =
-    snapshot.docs.map(
-      (document) =>
-        mapProviderRequest(
-          document,
-          providerId,
-        ),
-    );
+export async function getProviderRequestDetail(requestId: string): Promise<ProviderRequestListItem> {
+  const account = await requireApprovedProvider();
+  const providerId = validDocumentId(account.providerId), id = validDocumentId(requestId);
+  if (!providerId || !id) throw invalidProviderRequest();
+  const snapshot = await adminDb.collection(COLLECTIONS.providerRequests).where("providerId", "==", providerId).where(FieldPath.documentId(), "==", id).get();
+  const document = snapshot.docs[0];
+  if (!document) throw new Error("This booking request is unavailable.");
+  const parents = await requestParents([document]);
+  const data = document.data(), linkedParent = parents.get(data.mainEventId ?? data.bookingId) ?? null;
+  const parent = linkedParent?.customerId === data.customerId ? linkedParent : null;
+  const request = mapProviderRequest(document, providerId);
+  request.bookingReference = optionalText(data.bookingCode ?? data.bookingReference ?? parent?.bookingCode, 160);
+  request.responseUnavailableReason = responseUnavailableReason({...data, providerRequestId: data.providerRequestId ?? document.id}, parent, new Date());
+  return request;
+}
 
-  return {
-    requests,
-    summary:
-      calculateSummary(
-        requests,
-      ),
-  };
+function responseUnavailableReason(data: DocumentData, parent: DocumentData | null, now: Date): string | null {
+  if (data.status === "cancelled" || parent?.status === "cancelled") return "This booking has been cancelled.";
+  const expiry = storedDate(data.expiresAt), parentExpiry = storedDate(parent?.expiresAt);
+  if (data.status === "expired" || parent?.status === "expired" ||
+    (data.status === "pending" && ((expiry && expiry <= now) || (parentExpiry && parentExpiry <= now)))) return "This request has expired.";
+  if (data.status !== "pending") return "This request has already been responded to. You can review its booking updates below.";
+  if (!parent || parent.customerId !== data.customerId ||
+    (Array.isArray(parent.providerRequestIds) && !parent.providerRequestIds.includes(data.providerRequestId)) ||
+    !["pending_provider_approval", "needs_provider_replacement"].includes(String(parent.status))) return "This booking has changed and cannot be responded to. Please refresh or contact FEASTA support.";
+  const start = dashboardEventStart(data);
+  if (!start || start <= now) return "The event's scheduled start has passed or its schedule needs review.";
+  if (!dashboardMatches("new", data, parent, now)) return "This booking is being reviewed or cancelled. Responses are temporarily unavailable.";
+  return null;
+}
+
+function encodeRequestCursor(document: QueryDocumentSnapshot<DocumentData>, providerId: string, filters: ProviderRequestFilters): string {
+  const time = storedDate(document.data().createdAt)?.getTime();
+  if (time == null) throw invalidProviderRequest();
+  return Buffer.from(JSON.stringify({time, id: document.id, providerId, status: filters.status, search: filters.search.toLowerCase()})).toString("base64url");
+}
+function decodeRequestCursor(value: unknown, providerId: string, filters: ProviderRequestFilters): {time: number; id: string} | null {
+  if (value == null || value === "") return null;
+  try {
+    if (typeof value !== "string" || value.length > 1500) throw invalidProviderRequest();
+    const data = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (data.providerId !== providerId || data.status !== filters.status || data.search !== filters.search.toLowerCase() ||
+      !validDocumentId(data.id) || !Number.isSafeInteger(data.time) || Math.abs(data.time) > 8640000000000000) throw invalidProviderRequest();
+    return {time: data.time, id: data.id};
+  } catch {throw new Error("This search page is no longer available. Start your search again.");}
+}
+
+/** Compatibility for existing callers; the interactive page uses cursor pagination. */
+export async function getProviderRequests(options: {newRequests?: boolean; requestId?: string} = {}): Promise<ProviderRequestListResult> {
+  const page = await getProviderRequestPage({status: options.newRequests ? "new" : "all"});
+  if (options.requestId && !page.requests.some(item => item.id === options.requestId)) page.requests.push(await getProviderRequestDetail(options.requestId));
+  return {requests: page.requests, summary: calculateSummary(page.requests)};
 }
 
 function mapProviderRequest(
@@ -229,13 +304,13 @@ function mapProviderRequest(
 
       venueAddress:
         optionalText(
-          data.eventAddress,
+          data.venueAddress ?? data.eventAddress,
           500,
         ),
 
       city:
         optionalText(
-          data.eventLocation,
+          data.city ?? data.eventLocation,
           200,
         ),
 

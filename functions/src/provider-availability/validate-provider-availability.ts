@@ -23,6 +23,7 @@ export const AVAILABILITY_COUNTED_REQUEST_STATUSES = [
   "payment_processing",
   "confirmed",
   "in_progress",
+  "completed",
 ] as const satisfies readonly ProviderRequestStatus[];
 
 /**
@@ -35,6 +36,7 @@ export const PROVIDER_PAYMENT_HOLD_WINDOW_MS = 24 * 60 * 60 * 1_000;
 const COMMITTED_REQUEST_STATUSES = [
   "confirmed",
   "in_progress",
+  "completed",
 ] as const satisfies readonly ProviderRequestStatus[];
 
 const TEMPORARY_HOLD_REQUEST_STATUSES = [
@@ -90,8 +92,8 @@ export type ExistingProviderBooking = {
 /**
  * Whether a stored provider request currently occupies its event slot.
  *
- * Pending, rejected, cancelled, expired, and completed requests do not.
- * Confirmed and in-progress requests do. An accepted unpaid request
+ * Pending, rejected, cancelled, and expired requests do not.
+ * Confirmed, in-progress, and completed requests do. An accepted unpaid request
  * occupies only while its stored expiresAt is still ahead of now. A
  * lineup-incomplete accepted request has no expiresAt, so that hold
  * instead ends one payment window after acceptedAt.
@@ -270,9 +272,9 @@ export function validateProviderAvailability(
   );
 
   /*
-   * Callers load requests for one Asia/Manila event date. A conflict
-   * is an overlap of the stored HH:mm eventTime and eventEndTime.
-   * Touching endpoints do not overlap. Daily event counts are not used.
+   * Callers load occupancy for one Asia/Manila calendar date.
+   * A provider may serve only one FEASTA event on that date.
+   * Preserve specific time-overlap errors for existing callers.
    */
   const requestedRange = parseTimeRange(
     input.request.eventTime,
@@ -299,6 +301,18 @@ export function validateProviderAvailability(
       "TIME_CONFLICT",
       "The event time overlaps another active booking.",
       "eventTime",
+    ));
+  }
+
+  if (
+    requestedRange !== null &&
+    occupyingBookings.length > 0 &&
+    !issues.some((item) => item.code === "TIME_CONFLICT")
+  ) {
+    issues.push(issue(
+      "MAX_EVENTS_REACHED",
+      "This provider already has an active booking on this date.",
+      "eventDate",
     ));
   }
 
