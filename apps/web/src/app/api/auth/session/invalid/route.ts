@@ -3,6 +3,7 @@ import {NextResponse} from "next/server";
 import {
   destroySession,
   homeForAccount,
+  isInvalidSessionError,
   SESSION_COOKIE_NAME,
   verifySessionCookie,
 } from "@/lib/auth/session";
@@ -23,8 +24,13 @@ export async function GET(request: Request) {
     try {
       const account = await verifySessionCookie(cookie);
       return NextResponse.redirect(new URL(homeForAccount(account), url.origin));
-    } catch {
-      // Only invalid, expired, revoked, or disabled sessions are cleared here.
+    } catch (error) {
+      if (!isInvalidSessionError(error)) {
+        return NextResponse.json(
+          {error: "Session verification is temporarily unavailable. Please reload to try again."},
+          {status: 503, headers: {"Cache-Control": "no-store", "Retry-After": "5"}},
+        );
+      }
     }
   }
 

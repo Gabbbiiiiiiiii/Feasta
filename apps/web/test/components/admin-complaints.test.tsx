@@ -343,3 +343,41 @@ function complaintFixture(): AdminComplaint {
       "2026-08-07T00:00:00.000Z",
   };
 }
+
+describe("complaint read recovery", () => {
+  beforeEach(() => { mocks.load.mockReset(); });
+  it("retries the failed page with its filters and pagination history", async () => {
+    const user = userEvent.setup();
+    const first = {...pageFixture(), nextCursor: "complaints-page-2", hasMore: true};
+    mocks.load.mockResolvedValueOnce(first).mockRejectedValueOnce(new Error("Read failed")).mockResolvedValueOnce(pageFixture([{...complaintFixture(), id: "page-two", complainantName: "Second Page Customer"}]));
+    render(<ComplaintManagementClient initialPage={pageFixture()} />);
+    await user.selectOptions(screen.getByLabelText("Status"), "submitted");
+    await waitFor(() => expect(screen.getByRole("button", {name: "Next"})).toBeEnabled());
+    await user.click(screen.getByRole("button", {name: "Next"}));
+    expect(await screen.findByText("Read failed")).toBeVisible();
+    expect(screen.queryByText("No complaints submitted")).not.toBeInTheDocument();
+    const failedRequest = mocks.load.mock.calls[1][0];
+    expect(failedRequest).toMatchObject({status: "submitted", cursor: "complaints-page-2"});
+    await user.click(screen.getByRole("button", {name: "Try again"}));
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(3));
+    expect(mocks.load.mock.calls[2][0]).toEqual(failedRequest);
+    expect((await screen.findAllByText("Second Page Customer"))[0]).toBeVisible();
+    expect(screen.getByLabelText("Status")).toHaveValue("submitted");
+    mocks.load.mockResolvedValueOnce(first);
+    await user.click(screen.getByRole("button", {name: "Previous"}));
+    await waitFor(() => expect(mocks.load.mock.calls[3][0]).toMatchObject({status: "submitted", cursor: null}));
+  });
+  it("retries a failed new filter rather than the previous successful query", async () => {
+    const user = userEvent.setup();
+    mocks.load.mockRejectedValueOnce(new Error("Filtered read failed")).mockResolvedValueOnce(pageFixture([]));
+    render(<ComplaintManagementClient initialPage={pageFixture()} />);
+    await user.selectOptions(screen.getByLabelText("Priority"), "urgent");
+    expect(await screen.findByText("Filtered read failed")).toBeVisible();
+    await user.click(screen.getByRole("button", {name: "Try again"}));
+    await waitFor(() => expect(mocks.load).toHaveBeenCalledTimes(2));
+    expect(mocks.load.mock.calls[1][0]).toEqual(mocks.load.mock.calls[0][0]);
+    expect(mocks.load.mock.calls[1][0]).toMatchObject({priority: "urgent", cursor: null});
+    expect(screen.getByLabelText("Priority")).toHaveValue("urgent");
+    expect(await screen.findByText("No matching complaints")).toBeVisible();
+  });
+});

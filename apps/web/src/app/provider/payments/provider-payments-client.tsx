@@ -9,7 +9,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import {usePathname, useRouter} from "next/navigation";
-import {useMemo, useState} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
 
 import {
   CursorPagination,
@@ -111,6 +111,8 @@ export function ProviderPaymentsClient({
   const [selectedPayment, setSelectedPayment] = useState<ProviderPaymentDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const detailRequestId = useRef(0);
+  useEffect(() => () => { detailRequestId.current += 1; }, []);
 
   const columns = useMemo<readonly DataTableColumn<ProviderPayment>[]>(() => [
     {
@@ -194,6 +196,7 @@ export function ProviderPaymentsClient({
   };
 
   const openPayment = async (paymentId: string) => {
+    const requestId = ++detailRequestId.current;
     setSelectedPaymentId(paymentId);
     setSelectedPayment(null);
     setDetailError(null);
@@ -201,11 +204,14 @@ export function ProviderPaymentsClient({
     setDrawerOpen(true);
 
     try {
-      setSelectedPayment(await loadProviderPaymentAction(paymentId));
+      const result = await loadProviderPaymentAction(paymentId);
+      if (requestId !== detailRequestId.current) return;
+      setSelectedPayment(result);
     } catch {
+      if (requestId !== detailRequestId.current) return;
       setDetailError("The latest payment details could not be loaded. Please try again.");
     } finally {
-      setDetailLoading(false);
+      if (requestId === detailRequestId.current) setDetailLoading(false);
     }
   };
 
@@ -384,6 +390,8 @@ export function ProviderPaymentsClient({
         onOpenChange={(open) => {
           setDrawerOpen(open);
           if (!open) {
+            detailRequestId.current += 1;
+            setDetailLoading(false);
             setSelectedPaymentId(null);
             setSelectedPayment(null);
             setDetailError(null);

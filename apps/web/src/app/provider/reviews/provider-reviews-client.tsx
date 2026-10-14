@@ -2,7 +2,7 @@
 
 import {Eye, MessageSquareQuote, Star} from "lucide-react";
 import {usePathname, useRouter} from "next/navigation";
-import {useMemo, useRef, useState} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
 
 import {
   CursorPagination,
@@ -70,6 +70,8 @@ export function ProviderReviewsClient({
     useState<ProviderReviewDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const detailRequestId = useRef(0);
+  useEffect(() => () => { detailRequestId.current += 1; }, []);
   const reviewTrigger = useRef<HTMLButtonElement | null>(null);
 
   const columns = useMemo<readonly DataTableColumn<ProviderReview>[]>(() => [
@@ -160,6 +162,7 @@ export function ProviderReviewsClient({
     trigger?: HTMLButtonElement,
   ) => {
     if (trigger) reviewTrigger.current = trigger;
+    const requestId = ++detailRequestId.current;
     setSelectedReviewId(reviewId);
     setSelectedReview(null);
     setDetailError(null);
@@ -167,11 +170,14 @@ export function ProviderReviewsClient({
     setDrawerOpen(true);
 
     try {
-      setSelectedReview(await loadProviderReviewAction(reviewId));
+      const result = await loadProviderReviewAction(reviewId);
+      if (requestId !== detailRequestId.current) return;
+      setSelectedReview(result);
     } catch {
+      if (requestId !== detailRequestId.current) return;
       setDetailError("Review details could not be loaded. Please try again.");
     } finally {
-      setDetailLoading(false);
+      if (requestId === detailRequestId.current) setDetailLoading(false);
     }
   };
 
@@ -302,6 +308,8 @@ export function ProviderReviewsClient({
         onOpenChange={(open) => {
           setDrawerOpen(open);
           if (!open) {
+            detailRequestId.current += 1;
+            setDetailLoading(false);
             setSelectedReviewId(null);
             setSelectedReview(null);
             setDetailError(null);

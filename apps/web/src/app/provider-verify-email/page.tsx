@@ -138,10 +138,12 @@ export default function ProviderVerifyEmailPage() {
 
     try {
       await logoutWebSession();
+      router.replace("/provider-login");
+    } catch {
+      setError("Sign out could not be completed. Please try again.");
     } finally {
       actionInProgress.current = false;
       setAction(null);
-      router.replace("/provider-login");
     }
   }
 

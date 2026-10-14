@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -178,6 +179,8 @@ function ComplaintManagementClient({
   ] = useTransition();
 
   const pageRequestId = useRef(0);
+  useEffect(() => () => { pageRequestId.current += 1; }, []);
+  const retryRequest = useRef<{filters: AdminComplaintFilters; cursor: string | null; history: (string | null)[]} | null>(null);
   const loadPage = useCallback(
     (
       nextFilters:
@@ -186,6 +189,7 @@ function ComplaintManagementClient({
       history:
         (string | null)[],
     ) => {
+      retryRequest.current = {filters: nextFilters, cursor, history};
       const requestId = ++pageRequestId.current;
       setPageError(undefined);
 
@@ -672,6 +676,10 @@ function ComplaintManagementClient({
         caption="FEASTA complaint records"
         loading={isPending}
         error={pageError}
+        onRetry={() => {
+          const request = retryRequest.current;
+          if (request) loadPage(request.filters, request.cursor, request.history);
+        }}
         emptyTitle={
           activeFilters.length > 0
             ? "No matching complaints"

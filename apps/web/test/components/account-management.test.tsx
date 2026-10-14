@@ -51,6 +51,15 @@ const baseProfile: AccountManagementProfile = {
 };
 
 describe("shared account management", () => {
+  it("shows a rejected logout without navigating away", async () => {
+    const user = userEvent.setup();
+    mocks.logout.mockRejectedValueOnce(new Error("offline"));
+    render(<AccountManagementPanel profile={baseProfile} />);
+    await user.click(screen.getByRole("button", {name: "Sign out"}));
+    expect(await screen.findByRole("alert")).toHaveTextContent("We could not complete that request");
+    expect(mocks.replace).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", {name: "Sign out"})).toBeEnabled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     for (const mock of [

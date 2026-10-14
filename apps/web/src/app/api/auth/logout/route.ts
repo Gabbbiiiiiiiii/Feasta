@@ -3,6 +3,7 @@ import {NextResponse} from "next/server";
 import {adminAuth} from "@/lib/firebase/admin";
 import {
   destroySession,
+  isInvalidSessionError,
   SESSION_COOKIE_NAME,
   verifySessionCookie,
 } from "@/lib/auth/session";
@@ -24,10 +25,18 @@ export async function POST(request: Request) {
 
   if (value) {
     try {
-      const user = await verifySessionCookie(decodeURIComponent(value));
+      let decodedValue: string;
+      try { decodedValue = decodeURIComponent(value); }
+      catch { decodedValue = value; }
+      const user = await verifySessionCookie(decodedValue);
       await adminAuth.revokeRefreshTokens(user.uid);
-    } catch {
-      // Expired/revoked cookies are cleared just like valid cookies.
+    } catch (error) {
+      if (!isInvalidSessionError(error)) {
+        return NextResponse.json(
+          {error: "Sign out could not be completed. Please try again."},
+          {status: 503, headers: {"Cache-Control": "no-store", "Retry-After": "5"}},
+        );
+      }
     }
   }
 

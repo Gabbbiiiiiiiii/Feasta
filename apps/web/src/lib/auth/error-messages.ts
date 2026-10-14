@@ -4,6 +4,9 @@ export function customerAuthenticationError(error: unknown): string {
   const reason = typeof error === "object" && error !== null && "reason" in error
     ? String(error.reason)
     : "";
+  if (reason === "logout_failed") {
+    return "Sign out could not be completed. Please try again.";
+  }
   if (reason === "wrong_role") {
     return authenticationGatePresentation("forbiddenRole").message;
   }

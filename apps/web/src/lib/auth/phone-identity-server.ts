@@ -5,6 +5,8 @@ import type {UserRecord} from "firebase-admin/auth";
 
 import {adminAuth, adminDb} from "@/lib/firebase/admin";
 
+export class PhoneIdentityError extends Error {}
+
 /** Server-only confirmation of Firebase ownership and FEASTA projection integrity. */
 export async function requireServerPhoneIdentityOwnership(
   authUser: UserRecord,
@@ -20,7 +22,7 @@ export async function requireServerPhoneIdentityOwnership(
     (expectedPhoneNumber !== undefined &&
       normalizePhilippineMobile(expectedPhoneNumber) !== phoneNumber)
   ) {
-    throw new Error("The verified mobile identity is inconsistent.");
+    throw new PhoneIdentityError("The verified mobile identity is inconsistent.");
   }
 
   const projectionVariants = phoneProjectionVariants(phoneNumber);
@@ -43,7 +45,7 @@ export async function requireServerPhoneIdentityOwnership(
       (document) => document.data().ownerId !== authUser.uid,
     );
   if (conflict) {
-    throw new Error("The mobile identity relationship is inconsistent.");
+    throw new PhoneIdentityError("The mobile identity relationship is inconsistent.");
   }
   return phoneNumber;
 }
