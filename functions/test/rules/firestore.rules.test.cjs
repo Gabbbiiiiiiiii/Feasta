@@ -12,6 +12,7 @@ const {
   getDocs,
   query,
   serverTimestamp,
+  Timestamp,
   setDoc,
   updateDoc,
   where,
@@ -26,6 +27,41 @@ const {
 } = require("./rules-test-helpers.cjs");
 
 let testEnv;
+
+test("P0 submitted main-event evidence cannot be overwritten by its owner", async () => {
+  const eventPath = "mainEvents/p0-submitted-event";
+  const original = {
+    customerId: "p0-owner",
+    status: "pending_provider_approval",
+    bookingId: "p0-submitted-event",
+    bookingPaymentAgreement: {agreementId: "trusted", agreedAt: new Date()},
+    bookingPaymentPolicySnapshot: {schemaVersion: 2, depositRateBps: 5000},
+    eventDate: new Date("2027-01-15T00:00:00+08:00"),
+    eventTime: "10:00",
+    eventEndTime: "14:00",
+  };
+  await seedDocuments(testEnv, {
+    "users/p0-owner": userData("p0-owner", "customer", {isPhoneVerified: true}),
+    [eventPath]: original,
+  });
+  const customer = authenticated(testEnv, "p0-owner", "customer").firestore();
+  const overwrites = {
+    bookingPaymentAgreement: {agreementId: "forged", agreedAt: new Date(0)},
+    bookingPaymentPolicySnapshot: {schemaVersion: 2, depositRateBps: 1},
+    eventDate: new Date("2027-02-15T00:00:00+08:00"),
+    eventTime: "18:00",
+    eventEndTime: "23:00",
+  };
+  for (const [field, value] of Object.entries(overwrites)) {
+    await assertFails(updateDoc(doc(customer, eventPath), {[field]: value}));
+    const stored = (await getDoc(doc(customer, eventPath))).data()[field];
+    const unchanged = original[field];
+    assert.deepEqual(stored, field === "eventDate" ?
+      Timestamp.fromDate(unchanged) :
+      field === "bookingPaymentAgreement" ?
+        {...unchanged, agreedAt: Timestamp.fromDate(unchanged.agreedAt)} : unchanged);
+  }
+});
 
 function publicProviderData(ownerId, overrides = {}) {
   return {
@@ -44,6 +80,258 @@ function publicProviderData(ownerId, overrides = {}) {
     ...overrides,
   };
 }
+
+function p0Draft(overrides = {}) {
+  return {
+    customerId: "p0-owner",
+    status: "draft",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    isDeleted: false,
+    eventType: "birthday",
+    eventDate: new Date("2027-01-15T00:00:00+08:00"),
+    eventTime: "10:00",
+    eventEndTime: "14:00",
+    guestCount: 50,
+    eventLocation: "Manila",
+    eventAddress: "123 Draft Street",
+    specialRequest: "",
+    selectedFoods: ["Chicken"],
+    selectedDecorations: [],
+    selectedFurniture: [],
+    willArrangeOwnAddOns: false,
+    customerArrangedAddOnsNote: "",
+    ...overrides,
+  };
+}
+
+async function seedP0Actors() {
+  await seedDocuments(testEnv, {
+    "users/p0-owner": userData("p0-owner", "customer", {isPhoneVerified: true}),
+    "users/p0-other": userData("p0-other", "customer", {isPhoneVerified: true}),
+    "users/p0-provider": userData("p0-provider", "provider", {isPhoneVerified: true}),
+    "users/p0-admin": userData("p0-admin", "admin", {isPhoneVerified: true}),
+  });
+}
+
+test("P0 submitted and legacy events reject all client mutations despite missing markers", async () => {
+  await seedP0Actors();
+  const evidence = {
+    bookingPaymentAgreement: {agreementId: "trusted"},
+    bookingPaymentPolicySnapshot: {depositRateBps: 5000},
+    bookingPaymentPolicyCapturedAt: new Date(),
+    bookingPaymentPolicyCapturedAtStage: "submission",
+    initialPaymentEligibility: {depositEligible: false},
+    initialPaymentEligibilitySchemaVersion: 2,
+    bookingLifecyclePolicySnapshot: {schemaVersion: 3},
+    remainingBalanceTimingSchemaVersion: 3,
+    eventStartAt: new Date(),
+    guestCount: 50,
+    packageId: "trusted-package",
+    cateringSelectionType: "package",
+    menuSelections: [],
+    selectedFoods: ["Chicken"],
+    selectedDecorations: [],
+    selectedFurniture: [],
+    totalAmount: 5000,
+    paidAmount: 0,
+    paymentStatus: "unpaid",
+    eventAddress: "123 Trusted Street",
+    eventDate: new Date(),
+    eventTime: "10:00",
+    eventEndTime: "14:00",
+    updatedAt: new Date(),
+  };
+  const eventPath = "mainEvents/p0-authoritative";
+  await seedDocuments(testEnv, {
+    [eventPath]: {customerId: "p0-owner", status: "pending_provider_approval", ...evidence},
+  });
+  for (const [uid, role] of [
+    ["p0-owner", "customer"], ["p0-other", "customer"],
+    ["p0-provider", "provider"], ["p0-admin", "admin"],
+  ]) {
+    const db = authenticated(testEnv, uid, role).firestore();
+    for (const [field, value] of Object.entries(evidence)) {
+      const forged = value instanceof Date ? new Date(0) :
+        Array.isArray(value) ? ["forged"] :
+        typeof value === "object" ? {forged: true} :
+        typeof value === "number" ? 999 : "forged";
+      await assertFails(updateDoc(doc(db, eventPath), {[field]: forged}));
+    }
+    await assertFails(updateDoc(doc(db, eventPath), {
+      "bookingPaymentAgreement.agreementId": "forged",
+    }));
+    await assertFails(setDoc(doc(db, eventPath), p0Draft()));
+    await assertFails(deleteDoc(doc(db, eventPath)));
+  }
+
+  // No canonical identifiers or snapshots: status alone still makes these
+  // submitted/legacy records ineligible for draft editing.
+  for (const [index, status] of [
+    "pending", "pending_provider_approval", "confirmed", "in_progress",
+    "completed", "cancelled", "expired", "rejected", null,
+  ].entries()) {
+    const path = `mainEvents/p0-markerless-${index}`;
+    await seedDocuments(testEnv, {
+      [path]: {customerId: "p0-owner", status, createdAt: new Date(), eventAddress: "Old"},
+    });
+    const owner = authenticated(testEnv, "p0-owner", "customer").firestore();
+    await assertFails(updateDoc(doc(owner, path), {
+      eventAddress: "Forged", updatedAt: serverTimestamp(),
+    }));
+    await assertFails(updateDoc(doc(owner, path), {
+      status: "draft", eventAddress: "Forged", updatedAt: serverTimestamp(),
+    }));
+  }
+});
+
+test("P0 verified owners can create and edit validated drafts only", async () => {
+  await seedP0Actors();
+  const owner = authenticated(testEnv, "p0-owner", "customer").firestore();
+  const draftRef = doc(owner, "mainEvents/p0-valid-draft");
+  await assertSucceeds(setDoc(draftRef, p0Draft()));
+  const createdAt = (await getDoc(draftRef)).data().createdAt;
+  await assertSucceeds(updateDoc(draftRef, {
+    eventAddress: "456 Corrected Draft Street",
+    eventLocation: "Quezon City",
+    eventDate: new Date("2027-02-15T00:00:00+08:00"),
+    eventTime: "12:00", eventEndTime: "16:00", guestCount: 75,
+    selectedFoods: ["Fish"], selectedDecorations: ["Flowers"],
+    selectedFurniture: ["Chairs"], willArrangeOwnAddOns: true,
+    customerArrangedAddOnsNote: "Own sound system", specialRequest: "No nuts",
+    updatedAt: serverTimestamp(),
+  }));
+  const edited = (await getDoc(draftRef)).data();
+  assert.equal(edited.eventAddress, "456 Corrected Draft Street");
+  assert.equal(edited.guestCount, 75);
+  assert.deepEqual(edited.createdAt, createdAt);
+  // Minimal drafts can add explicitly allowed fields as editing progresses.
+  const minimalRef = doc(owner, "mainEvents/p0-minimal-draft");
+  await assertSucceeds(setDoc(minimalRef, {
+    customerId: "p0-owner", status: "draft", createdAt: serverTimestamp(),
+  }));
+  await assertSucceeds(updateDoc(minimalRef, {
+    eventAddress: "New draft address", updatedAt: serverTimestamp(),
+  }));
+  for (const [uid, role] of [
+    ["p0-other", "customer"], ["p0-provider", "provider"], ["p0-admin", "admin"],
+  ]) {
+    const db = authenticated(testEnv, uid, role).firestore();
+    await assertFails(updateDoc(doc(db, draftRef.path), {
+      eventAddress: "Unauthorized", updatedAt: serverTimestamp(),
+    }));
+    await assertFails(setDoc(doc(db, `mainEvents/p0-${role}-${uid}-draft`),
+      p0Draft({customerId: role === "customer" ? "p0-owner" : uid})));
+  }
+});
+
+test("P0 invalid draft inputs, immutable fields, and privileged evidence are denied", async () => {
+  await seedP0Actors();
+  const owner = authenticated(testEnv, "p0-owner", "customer").firestore();
+  const draftRef = doc(owner, "mainEvents/p0-validation-draft");
+  await assertSucceeds(setDoc(draftRef, p0Draft()));
+  const invalid = [
+    {eventAddress: ""}, {eventAddress: "x".repeat(501)}, {eventAddress: null},
+    {eventLocation: "x".repeat(181)}, {eventType: 3},
+    {eventDate: "2027-01-15"}, {eventTime: "24:00"}, {eventEndTime: "12:60"},
+    {guestCount: 0}, {guestCount: 10001}, {guestCount: 1.5},
+    {specialRequest: "x".repeat(1001)}, {customerArrangedAddOnsNote: 42},
+    {selectedFoods: "Chicken"}, {selectedDecorations: Array(101).fill("x")},
+    {selectedFurniture: {}}, {willArrangeOwnAddOns: "yes"},
+    {unknownField: true}, {customerId: "p0-other"}, {status: "confirmed"},
+    {isDeleted: true}, {createdAt: new Date(0)},
+  ];
+  for (const [index, patch] of invalid.entries()) {
+    await assertFails(updateDoc(draftRef, {...patch, updatedAt: serverTimestamp()}));
+    await assertFails(setDoc(doc(owner, `mainEvents/p0-invalid-${index}`), p0Draft(patch)));
+  }
+  await assertFails(updateDoc(draftRef, {eventAddress: "No audit timestamp"}));
+  await assertFails(updateDoc(draftRef, {updatedAt: new Date(0)}));
+  await assertFails(setDoc(doc(owner, "mainEvents/p0-forged-created-at"),
+    p0Draft({createdAt: new Date(0)})));
+  await assertFails(setDoc(doc(owner, "mainEvents/p0-forged-updated-at"),
+    p0Draft({updatedAt: new Date(0)})));
+
+  const privileged = {
+    bookingId: "forged", mainEventId: "forged", bookingCode: "forged",
+    providerId: "forged", packageId: "forged", packagePrice: 1,
+    selectedAddOns: [{price: 1}], menuSelections: [{price: 1}],
+    bookingPaymentAgreement: {}, bookingPaymentPolicySnapshot: {},
+    bookingPaymentPolicyCapturedAt: new Date(), bookingPaymentPolicyCapturedAtStage: "submission",
+    initialPaymentEligibility: {}, initialPaymentEligibilitySchemaVersion: 2,
+    bookingLifecyclePolicySnapshot: {}, remainingBalanceTimingSchemaVersion: 3,
+    eventStartAt: new Date(), hardPaymentDeadlineAt: new Date(),
+    lifecycleNextTransitionAt: new Date(), providerRequestIds: [],
+    totalAmount: 1, paymentStatus: "paid", refundStatus: "approved",
+    cancellationReason: "forged", cancelledAt: new Date(),
+    completedAt: new Date(), submittedAt: new Date(), createdBy: "forged",
+  };
+  for (const [index, [field, value]] of Object.entries(privileged).entries()) {
+    await assertFails(setDoc(doc(owner, `mainEvents/p0-injected-${index}`),
+      p0Draft({[field]: value})));
+    await assertFails(updateDoc(draftRef, {[field]: value, updatedAt: serverTimestamp()}));
+    // A pre-existing malformed "draft" cannot be edited or sanitized by its
+    // owner to gain draft access; both old and new schemas must be clean.
+    const contaminatedPath = `mainEvents/p0-contaminated-${index}`;
+    await seedDocuments(testEnv, {
+      [contaminatedPath]: p0Draft({[field]: value}),
+    });
+    await assertFails(updateDoc(doc(owner, contaminatedPath), {
+      eventAddress: "Forged", updatedAt: serverTimestamp(),
+    }));
+    await assertFails(setDoc(doc(owner, contaminatedPath), p0Draft()));
+  }
+
+  for (const [uid, overrides] of [
+    ["p0-unverified", {isPhoneVerified: false}],
+    ["p0-inactive", {isPhoneVerified: true, isActive: false}],
+    ["p0-blocked", {isPhoneVerified: true, isBlocked: true}],
+  ]) {
+    const path = `mainEvents/${uid}-draft`;
+    await seedDocuments(testEnv, {
+      [`users/${uid}`]: userData(uid, "customer", overrides),
+      [path]: p0Draft({customerId: uid}),
+    });
+    const db = authenticated(testEnv, uid, "customer").firestore();
+    await assertFails(updateDoc(doc(db, path), {
+      eventAddress: "Denied", updatedAt: serverTimestamp(),
+    }));
+    await assertFails(setDoc(doc(db, `mainEvents/${uid}-new`), p0Draft({customerId: uid})));
+  }
+});
+
+test("P0 authorized reads and trusted event lifecycle writes remain compatible", async () => {
+  await seedP0Actors();
+  const eventPath = "mainEvents/p0-backend-event";
+  const timelinePath = `${eventPath}/timeline/trusted-transition`;
+  const historyPath = `${eventPath}/statusHistory/trusted-transition`;
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, eventPath), {
+      customerId: "p0-owner", status: "confirmed", bookingId: "p0-backend-event",
+      bookingPaymentAgreement: {agreementId: "trusted"}, eventAddress: "Trusted address",
+    });
+    const batch = writeBatch(db);
+    batch.update(doc(db, eventPath), {status: "in_progress", startedAt: serverTimestamp()});
+    batch.set(doc(db, timelinePath), {status: "in_progress", createdAt: serverTimestamp()});
+    batch.set(doc(db, historyPath), {status: "in_progress", createdAt: serverTimestamp()});
+    await assertSucceeds(batch.commit());
+  });
+  for (const [uid, role, canRead] of [
+    ["p0-owner", "customer", true], ["p0-admin", "admin", true],
+    ["p0-other", "customer", false], ["p0-provider", "provider", false],
+  ]) {
+    const db = authenticated(testEnv, uid, role).firestore();
+    for (const path of [eventPath, timelinePath, historyPath]) {
+      await (canRead ? assertSucceeds : assertFails)(getDoc(doc(db, path)));
+      await assertFails(setDoc(doc(db, path), {status: "completed"}, {merge: true}));
+    }
+    if (canRead) assert.equal((await getDoc(doc(db, eventPath))).data().status, "in_progress");
+  }
+  const guest = testEnv.unauthenticatedContext().firestore();
+  await assertFails(getDoc(doc(guest, eventPath)));
+  await assertFails(updateDoc(doc(guest, eventPath), {eventAddress: "Forged"}));
+});
 
 before(async () => {
   testEnv = await createRulesTestEnvironment();
@@ -1039,7 +1327,7 @@ test("canonical provider requests are server-created and main-event trust fields
     ));
   }
 
-  await assertSucceeds(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
     eventAddress: "456 Customer Editable Street",
     updatedAt: new Date(),
   }));
@@ -1112,7 +1400,7 @@ test("booking-offer snapshots on main events stay immutable for customers and br
     packageThemeDescription: "Forged description",
     packageThemeImageUrls: ["https://images.example.com/forged.jpg"],
   }));
-  await assertSucceeds(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
     eventAddress: "456 Customer Editable Street",
     updatedAt: new Date(),
   }));
@@ -1122,7 +1410,7 @@ test("booking-offer snapshots on main events stay immutable for customers and br
       [field]: value,
     }));
   }
-  await assertSucceeds(updateDoc(doc(admin, `mainEvents/${eventId}`), {
+  await assertFails(updateDoc(doc(admin, `mainEvents/${eventId}`), {
     eventAddress: "789 Admin Editable Street",
     updatedAt: new Date(),
   }));
@@ -1278,7 +1566,7 @@ test("P13 financial and availability authority stays server-owned", async () => 
     downPaymentAmount: 1,
     remainingBalance: 9999,
   }));
-  await assertSucceeds(updateDoc(doc(customer, `mainEvents/${eventId}`), {
+  await assertFails(updateDoc(doc(customer, `mainEvents/${eventId}`), {
     eventAddress: "456 Customer Editable Street",
     updatedAt: new Date(),
   }));
@@ -1385,7 +1673,7 @@ test("only verified customers create main events", async () => {
   await assertSucceeds(setDoc(doc(verified, "mainEvents/verified-event"), {
     customerId: "verified-customer",
     status: "draft",
-    createdAt: new Date(),
+    createdAt: serverTimestamp(),
   }));
   await assertFails(setDoc(doc(unverified, "mainEvents/unverified-submit"), {
     customerId: "unverified-customer",
