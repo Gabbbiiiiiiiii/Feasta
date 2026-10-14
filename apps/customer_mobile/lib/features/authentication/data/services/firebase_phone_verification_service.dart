@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -7,13 +8,26 @@ class FirebasePhoneVerificationService implements PhoneVerificationGateway {
   FirebasePhoneVerificationService({
     FirebaseAuth? auth,
     FirebaseFunctions? functions,
+    Future<String?> Function(String uid)? loadRegisteredPhone,
   }) : _auth = auth ?? FirebaseAuth.instance,
        _functions =
            functions ??
-           FirebaseFunctions.instanceFor(region: 'asia-southeast1');
+           FirebaseFunctions.instanceFor(region: 'asia-southeast1'),
+       _loadRegisteredPhone = loadRegisteredPhone ?? _readRegisteredPhone;
 
   final FirebaseAuth _auth;
   final FirebaseFunctions _functions;
+  final Future<String?> Function(String uid) _loadRegisteredPhone;
+  _PhoneVerificationAttempt? _activeAttempt;
+
+  static Future<String?> _readRegisteredPhone(String uid) async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .get();
+    final value = snapshot.data()?['phoneNumber'];
+    return value is String ? value : null;
+  }
 
   @override
   Future<void> requestCode({
@@ -24,26 +38,91 @@ class FirebasePhoneVerificationService implements PhoneVerificationGateway {
     required FeastaPhoneVerificationFailed onFailure,
     required void Function(String verificationId) onTimeout,
   }) async {
-    _requireCurrentUser();
+    final attempt = _PhoneVerificationAttempt(_requireCurrentUser().uid);
+    _activeAttempt = attempt;
 
     try {
+      final requestedPhone = normalizePhilippineMobile(phoneNumber);
+      if (requestedPhone == null) {
+        throw const PhoneVerificationException(
+          PhoneVerificationFailureKind.invalidPhone,
+        );
+      }
+      final registeredPhone = await _loadRegisteredPhone(attempt.uid);
+      _requireAttempt(attempt);
+      // An explicit number means replacement to the server. Omit it when
+      // verifying the registered number, including on resend.
+      final HttpsCallableResult<dynamic> response;
+      try {
+        response = await _functions
+            .httpsCallable('prepareCustomerPhoneVerification')
+            .call<dynamic>(
+              registeredPhone != null &&
+                      normalizePhilippineMobile(registeredPhone) ==
+                          requestedPhone
+                  ? <String, dynamic>{}
+                  : <String, dynamic>{'phoneNumber': requestedPhone},
+            );
+      } on FirebaseFunctionsException catch (error) {
+        if (error.code == 'failed-precondition' &&
+            error.message ==
+                'Verify your email before verifying your mobile number.') {
+          throw const PhoneVerificationException(
+            PhoneVerificationFailureKind.emailVerificationRequired,
+          );
+        }
+        rethrow;
+      }
+      _requireAttempt(attempt);
+      final data = response.data;
+      final value = data is Map ? data['phoneNumber'] : null;
+      final preparedPhone = value is String
+          ? normalizePhilippineMobile(value)
+          : null;
+      if (preparedPhone == null || preparedPhone != requestedPhone) {
+        throw const PhoneVerificationException(
+          PhoneVerificationFailureKind.configuration,
+        );
+      }
       await _auth.verifyPhoneNumber(
-        phoneNumber: phoneNumber,
+        phoneNumber: preparedPhone,
         timeout: const Duration(seconds: 60),
         forceResendingToken: resendToken,
         verificationCompleted: (credential) async {
+          if (!identical(_activeAttempt, attempt) || attempt.isCompleting) {
+            return;
+          }
           try {
-            await _linkAndSynchronize(credential);
+            await _linkAndSynchronize(credential, attempt);
             await onVerified();
           } catch (error) {
-            onFailure(_mapError(error));
+            if (identical(_activeAttempt, attempt)) {
+              _invalidateIfSessionChanged(attempt);
+              onFailure(_mapError(error));
+            }
           }
         },
-        verificationFailed: (error) => onFailure(_mapError(error)),
-        codeSent: onCodeSent,
-        codeAutoRetrievalTimeout: onTimeout,
+        verificationFailed: (error) {
+          _deliverCallback(attempt, onFailure, () {
+            _activeAttempt = null;
+            onFailure(_mapError(error));
+          });
+        },
+        codeSent: (verificationId, token) {
+          _deliverCallback(attempt, onFailure, () {
+            attempt.verificationId = verificationId;
+            onCodeSent(verificationId, token);
+          });
+        },
+        codeAutoRetrievalTimeout: (verificationId) {
+          _deliverCallback(attempt, onFailure, () {
+            attempt.verificationId = verificationId;
+            onTimeout(verificationId);
+          });
+        },
       );
     } catch (error) {
+      if (identical(_activeAttempt, attempt)) _activeAttempt = null;
       throw _mapError(error);
     }
   }
@@ -53,7 +132,12 @@ class FirebasePhoneVerificationService implements PhoneVerificationGateway {
     required String verificationId,
     required String smsCode,
   }) async {
-    _requireCurrentUser();
+    final attempt = _activeAttempt;
+    if (attempt == null || attempt.verificationId != verificationId) {
+      throw const PhoneVerificationException(
+        PhoneVerificationFailureKind.expiredCode,
+      );
+    }
 
     final credential = PhoneAuthProvider.credential(
       verificationId: verificationId,
@@ -61,68 +145,63 @@ class FirebasePhoneVerificationService implements PhoneVerificationGateway {
     );
 
     try {
-      await _linkAndSynchronize(credential);
+      await _linkAndSynchronize(credential, attempt);
     } catch (error) {
+      _invalidateIfSessionChanged(attempt);
       throw _mapError(error);
     }
   }
 
-  Future<void> _linkAndSynchronize(PhoneAuthCredential credential) async {
-    final user = _auth.currentUser;
-
-    if (user == null) {
+  Future<void> _linkAndSynchronize(
+    PhoneAuthCredential credential,
+    _PhoneVerificationAttempt attempt,
+  ) async {
+    final user = _requireAttempt(attempt);
+    if (attempt.isCompleting) {
       throw const PhoneVerificationException(
-        PhoneVerificationFailureKind.sessionExpired,
+        PhoneVerificationFailureKind.tooManyRequests,
       );
     }
-
-    final uid = user.uid;
-
-    final hasPhoneProvider = user.providerData.any(
-      (provider) => provider.providerId == PhoneAuthProvider.PROVIDER_ID,
-    );
-
-    if (hasPhoneProvider) {
-      await user.updatePhoneNumber(credential);
-    } else {
-      await user.linkWithCredential(credential);
-    }
-
-    await user.reload();
-
-    final refreshedUser = _auth.currentUser;
-
-    if (refreshedUser == null || refreshedUser.uid != uid) {
-      throw const PhoneVerificationException(
-        PhoneVerificationFailureKind.sessionExpired,
-      );
-    }
-
-    // Refresh the Firebase Auth token after the phone provider was linked.
-    await refreshedUser.getIdToken(true);
-
-    final latestUser = _auth.currentUser;
-
-    if (latestUser == null || latestUser.uid != uid) {
-      throw const PhoneVerificationException(
-        PhoneVerificationFailureKind.sessionExpired,
-      );
-    }
-
+    attempt.isCompleting = true;
     try {
-      await _functions.httpsCallable('syncPhoneVerification').call<void>();
-    } on FirebaseFunctionsException catch (error) {
-      // Firebase Auth is still valid here. Do NOT tell the user their session
-      // expired merely because the synchronization callable failed.
-      if (_auth.currentUser != null &&
-          _auth.currentUser!.uid == uid &&
-          error.code == 'unauthenticated') {
-        throw const PhoneVerificationException(
-          PhoneVerificationFailureKind.configuration,
-        );
+      final hasPhoneProvider = user.providerData.any(
+        (provider) => provider.providerId == PhoneAuthProvider.PROVIDER_ID,
+      );
+
+      if (hasPhoneProvider) {
+        await user.updatePhoneNumber(credential);
+      } else {
+        await user.linkWithCredential(credential);
       }
 
-      rethrow;
+      _requireAttempt(attempt);
+      await user.reload();
+
+      final refreshedUser = _requireAttempt(attempt);
+
+      // Refresh the Firebase Auth token after the phone provider was linked.
+      await refreshedUser.getIdToken(true);
+
+      _requireAttempt(attempt);
+
+      try {
+        await _functions.httpsCallable('syncPhoneVerification').call<void>();
+      } on FirebaseFunctionsException catch (error) {
+        // Firebase Auth is still valid here. Do NOT tell the user their session
+        // expired merely because the synchronization callable failed.
+        _requireAttempt(attempt);
+        if (error.code == 'unauthenticated') {
+          throw const PhoneVerificationException(
+            PhoneVerificationFailureKind.configuration,
+          );
+        }
+
+        rethrow;
+      }
+      _requireAttempt(attempt);
+      _activeAttempt = null;
+    } finally {
+      attempt.isCompleting = false;
     }
   }
 
@@ -134,6 +213,43 @@ class FirebasePhoneVerificationService implements PhoneVerificationGateway {
       );
     }
     return user;
+  }
+
+  User _requireAttempt(_PhoneVerificationAttempt attempt) {
+    if (!identical(_activeAttempt, attempt)) {
+      throw const PhoneVerificationException(
+        PhoneVerificationFailureKind.expiredCode,
+      );
+    }
+    final user = _requireCurrentUser();
+    if (user.uid != attempt.uid) {
+      throw const PhoneVerificationException(
+        PhoneVerificationFailureKind.sessionExpired,
+      );
+    }
+    return user;
+  }
+
+  void _invalidateIfSessionChanged(_PhoneVerificationAttempt attempt) {
+    if (identical(_activeAttempt, attempt) &&
+        _auth.currentUser?.uid != attempt.uid) {
+      _activeAttempt = null;
+    }
+  }
+
+  void _deliverCallback(
+    _PhoneVerificationAttempt attempt,
+    FeastaPhoneVerificationFailed onFailure,
+    void Function() callback,
+  ) {
+    if (!identical(_activeAttempt, attempt)) return;
+    try {
+      _requireAttempt(attempt);
+      callback();
+    } on PhoneVerificationException catch (error) {
+      _invalidateIfSessionChanged(attempt);
+      onFailure(error);
+    }
   }
 
   PhoneVerificationException _mapError(Object error) {
@@ -162,6 +278,8 @@ class FirebasePhoneVerificationService implements PhoneVerificationGateway {
 
     if (error is FirebaseFunctionsException) {
       return PhoneVerificationException(switch (error.code) {
+        'invalid-argument' => PhoneVerificationFailureKind.invalidPhone,
+        'already-exists' => PhoneVerificationFailureKind.phoneAlreadyInUse,
         'permission-denied' => PhoneVerificationFailureKind.blocked,
         'unauthenticated' => PhoneVerificationFailureKind.configuration,
         'resource-exhausted' => PhoneVerificationFailureKind.tooManyRequests,
@@ -172,8 +290,24 @@ class FirebasePhoneVerificationService implements PhoneVerificationGateway {
       });
     }
 
+    if (error is FirebaseException) {
+      return PhoneVerificationException(switch (error.code) {
+        'permission-denied' => PhoneVerificationFailureKind.blocked,
+        'unavailable' ||
+        'deadline-exceeded' => PhoneVerificationFailureKind.network,
+        _ => PhoneVerificationFailureKind.configuration,
+      });
+    }
+
     return const PhoneVerificationException(
       PhoneVerificationFailureKind.unknown,
     );
   }
+}
+
+class _PhoneVerificationAttempt {
+  _PhoneVerificationAttempt(this.uid);
+  final String uid;
+  String? verificationId;
+  bool isCompleting = false;
 }
