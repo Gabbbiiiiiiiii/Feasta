@@ -113,14 +113,60 @@ class TestSnapshot extends Fake
 }
 
 void main() {
-  for (final entry in {
-    'policy-version-outdated':
-        CustomerAuthLoadFailureKind.policyVersionOutdated,
-    'consent-required': CustomerAuthLoadFailureKind.consentRequired,
-    'unrecognized-reason': CustomerAuthLoadFailureKind.configuration,
-  }.entries) {
+  for (final entry in [
+    (
+      'failed-precondition',
+      'policy-version-outdated',
+      CustomerAuthLoadFailureKind.policyVersionOutdated,
+    ),
+    (
+      'failed-precondition',
+      'consent-required',
+      CustomerAuthLoadFailureKind.consentRequired,
+    ),
+    (
+      'failed-precondition',
+      'policy-unavailable',
+      CustomerAuthLoadFailureKind.policyUnavailable,
+    ),
+    (
+      'invalid-argument',
+      'invalid-policy-version',
+      CustomerAuthLoadFailureKind.invalidPolicyVersion,
+    ),
+    (
+      'failed-precondition',
+      'invalid-policy-version',
+      CustomerAuthLoadFailureKind.configuration,
+    ),
+    (
+      'invalid-argument',
+      'policy-unavailable',
+      CustomerAuthLoadFailureKind.server,
+    ),
+    (
+      'invalid-argument',
+      'policy-version-outdated',
+      CustomerAuthLoadFailureKind.server,
+    ),
+    (
+      'invalid-argument',
+      'consent-required',
+      CustomerAuthLoadFailureKind.server,
+    ),
+    (
+      'failed-precondition',
+      'unrecognized-reason',
+      CustomerAuthLoadFailureKind.configuration,
+    ),
+    (
+      'invalid-argument',
+      'unrecognized-reason',
+      CustomerAuthLoadFailureKind.server,
+    ),
+  ]) {
     test(
-      'consent callable maps ${entry.key} before generic preconditions',
+      'consent callable maps ${entry.$1}/${entry.$2} before generic preconditions',
       () async {
         final store = TestStore();
         final repository = FirebaseCustomerAuthStateRepository(
@@ -135,9 +181,9 @@ void main() {
               'privacyPolicyVersion': '1.2',
             });
             throw FirebaseFunctionsException(
-              code: 'failed-precondition',
+              code: entry.$1,
               message: 'Mock rejection',
-              details: {'reason': entry.key},
+              details: {'reason': entry.$2},
             );
           },
         );
@@ -151,7 +197,7 @@ void main() {
             isA<CustomerAuthLoadFailure>().having(
               (e) => e.kind,
               'kind',
-              entry.value,
+              entry.$3,
             ),
           ),
         );
@@ -492,6 +538,11 @@ void main() {
           if (name == 'syncUserAuthState') {
             expect(store.reads, isEmpty);
           } else {
+            expect(name, 'ensureUserProfile');
+            expect(
+              data,
+              isEmpty,
+            ); // Ordinary synchronization carries no consent.
             store.documents['users/one'] = profile;
             store.documents['customers/one'] = {};
           }

@@ -37,6 +37,8 @@ class CustomerAccountLoadResult {
 enum CustomerAuthLoadFailureKind {
   consentRequired,
   policyVersionOutdated,
+  policyUnavailable,
+  invalidPolicyVersion,
   network,
   authorization,
   blocked,
@@ -293,7 +295,7 @@ class FirebaseCustomerAuthStateRepository
 
         checkCurrent();
         if (!customerSnapshot.exists) {
-          await _call('ensureUserProfile', null);
+          await _call('ensureUserProfile', const <String, dynamic>{});
           checkCurrent();
           final repaired = await _firestore
               .collection(FirestoreCollections.customers)
@@ -379,7 +381,14 @@ class FirebaseCustomerAuthStateRepository
         reason == 'policy-version-outdated') {
       return CustomerAuthLoadFailureKind.policyVersionOutdated;
     }
-    if (reason == 'consent-required') {
+    if (error.code == 'failed-precondition' && reason == 'policy-unavailable') {
+      return CustomerAuthLoadFailureKind.policyUnavailable;
+    }
+    if (error.code == 'invalid-argument' &&
+        reason == 'invalid-policy-version') {
+      return CustomerAuthLoadFailureKind.invalidPolicyVersion;
+    }
+    if (error.code == 'failed-precondition' && reason == 'consent-required') {
       return CustomerAuthLoadFailureKind.consentRequired;
     }
     if (reason == 'blocked') return CustomerAuthLoadFailureKind.blocked;

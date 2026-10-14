@@ -85,3 +85,27 @@ Current production versions 1.1 / 1.1 are user-provided confirmed findings, not 
 ```
 
 Stopped for review with changes unstaged.
+
+## Final backend error compatibility checkpoint ? 2026-10-15
+
+This section supersedes the earlier two-error contract and verification checkpoint above. Base HEAD: `c59e0b2155af80a1e549fdbd53d0f6eb8146995f`, branch `feat/mobile-customer-parity`.
+
+The repository now recognizes all four confirmed code/reason pairs: `failed-precondition` with `consent-required`, `policy-version-outdated`, or `policy-unavailable`; and `invalid-argument` with `invalid-policy-version`. Incorrect code/reason combinations and unknown reasons retain generic handling.
+
+Both new failures preserve the current identity, increment the consent revision, and recreate onboarding. Both agreements reload and both checkboxes start unchecked. Policy-unavailable displays temporary-unavailability guidance; invalid-policy-version explains that the versions could not be validated. Loading or malformed documents block acceptance and expose Retry policies. Reloading never resubmits consent. Structurally valid newly loaded documents require fresh explicit acceptance, and each displayed version is submitted unchanged. Backend validity remains authoritative. Existing identity generation, cancellation, sign-out, and delayed completion checks remain in force.
+
+Exact changed files for this checkpoint:
+
+- `lib/features/authentication/application/customer_auth_controller.dart`
+- `lib/features/authentication/data/repositories/customer_auth_state_repository.dart`
+- `lib/features/authentication/presentation/authentication_gate.dart`
+- `lib/features/authentication/presentation/customer_consent_screen.dart`
+- `test/features/authentication/customer_auth_state_repository_test.dart`
+- `test/features/authentication/customer_auth_navigation_test.dart`
+- `docs/dynamic-published-policy-consent-review.md`
+
+Tests cover all four contracts, wrong codes, unknown reasons, malformed recovery documents, retry without resubmission, fresh checkboxes, exact whitespace-bearing versions, stale acceptance/cancellation callbacks, and delayed policy failures after identity switching. Ordinary synchronization explicitly asserts an empty ensureUserProfile payload; Flutter does not supply replacement consent history.
+
+Verification: 87 focused tests passed; 249 authentication/router regression tests passed, including Google sign-in, email/phone verification, password recovery, and account restrictions. All six changed Dart files formatted; changed-file analysis found no issues; git diff --check passed.
+
+The backend change is user-reported locally tested but uncommitted, unmerged, and undeployed. Backend release and deployment to the expected region remain release blockers; no production requests were used to verify deployment. No backend, rules, web, or shared-types edits were made. All seven pre-existing generated desktop plugin modifications were left untouched. This checkpoint remains unstaged and uncommitted for review.

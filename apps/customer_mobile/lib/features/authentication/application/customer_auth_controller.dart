@@ -407,6 +407,8 @@ class CustomerAuthenticationController extends ChangeNotifier {
   bool get consentRequired => _consentRequired;
   int get consentGeneration => _identityGeneration;
   int get consentRevision => _consentRevision;
+  String? get policyRecoveryNotice => _policyRecoveryNotice;
+  String? _policyRecoveryNotice;
   bool get policiesOutdated => _policiesOutdated;
   bool _policiesOutdated = false;
   int _consentRevision = 0;
@@ -468,6 +470,15 @@ class CustomerAuthenticationController extends ChangeNotifier {
     switch (kind) {
       case CustomerAuthLoadFailureKind.policyVersionOutdated:
       case CustomerAuthLoadFailureKind.consentRequired:
+      case CustomerAuthLoadFailureKind.policyUnavailable:
+      case CustomerAuthLoadFailureKind.invalidPolicyVersion:
+        _policyRecoveryNotice = switch (kind) {
+          CustomerAuthLoadFailureKind.policyUnavailable =>
+            "Current policies are temporarily unavailable. Retry policies, then review and accept both agreements again.",
+          CustomerAuthLoadFailureKind.invalidPolicyVersion =>
+            "The policy versions could not be validated. Reload both policies and accept them again. If this continues, contact support.",
+          _ => null,
+        };
         _policiesOutdated =
             kind == CustomerAuthLoadFailureKind.policyVersionOutdated;
         _consentRevision++;

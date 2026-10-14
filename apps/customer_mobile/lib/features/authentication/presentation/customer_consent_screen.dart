@@ -10,6 +10,7 @@ class CustomerConsentScreen extends StatefulWidget {
     required this.onDecline,
     this.loader = loadCurrentLegalDocument,
     this.policiesOutdated = false,
+    this.policyRecoveryNotice,
     super.key,
   });
   final Future<void> Function(String termsVersion, String privacyVersion)
@@ -17,6 +18,7 @@ class CustomerConsentScreen extends StatefulWidget {
   final Future<void> Function() onDecline;
   final LegalDocumentLoader loader;
   final bool policiesOutdated;
+  final String? policyRecoveryNotice;
 
   @override
   State<CustomerConsentScreen> createState() => _CustomerConsentScreenState();
@@ -101,6 +103,8 @@ class _CustomerConsentScreenState extends State<CustomerConsentScreen> {
         return ListView(
           padding: const EdgeInsets.all(24),
           children: [
+            if (widget.policyRecoveryNotice != null)
+              Text(widget.policyRecoveryNotice!),
             if (widget.policiesOutdated)
               const Text(
                 'Policies have changed. Review both current agreements and accept them again to continue.',

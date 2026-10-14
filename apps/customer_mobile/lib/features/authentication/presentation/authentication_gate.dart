@@ -58,6 +58,7 @@ class AuthenticationGate extends StatelessWidget {
       return CustomerConsentScreen(
         loader: consentDocumentLoader,
         policiesOutdated: controller.policiesOutdated,
+        policyRecoveryNotice: controller.policyRecoveryNotice,
         key: ValueKey('customer-consent-$generation-$revision'),
         onAccept: (termsVersion, privacyVersion) => controller.acceptConsent(
           termsPolicyVersion: termsVersion,

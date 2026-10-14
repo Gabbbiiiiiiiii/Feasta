@@ -438,6 +438,8 @@ void main() {
   for (final reason in [
     CustomerAuthLoadFailureKind.consentRequired,
     CustomerAuthLoadFailureKind.policyVersionOutdated,
+    CustomerAuthLoadFailureKind.policyUnavailable,
+    CustomerAuthLoadFailureKind.invalidPolicyVersion,
   ]) {
     testWidgets('backend $reason rejection reloads both policies unchecked', (
       tester,
@@ -448,16 +450,17 @@ void main() {
       await tester.pumpAndSettle();
       await tapVisible(tester, find.byType(CheckboxListTile).first);
       await tapVisible(tester, find.byType(CheckboxListTile).last);
-      harness.termsVersion = '1.2';
+      harness.termsVersion = ' 1.2 ';
       harness.privacyVersion = 'privacy-2';
       harness.repository.acceptanceFailure = reason;
       final previousScreen = tester.widget<CustomerConsentScreen>(
         find.byType(CustomerConsentScreen),
       );
       await tapVisible(tester, find.text('Accept and continue'));
+      await previousScreen.onDecline();
       await previousScreen.onAccept('1.1', '1.1');
       expect(harness.repository.submittedVersions, ['1.1', '1.1']);
-      expect(find.text('Version 1.2'), findsOneWidget);
+      expect(find.text('Version  1.2 '), findsOneWidget);
       expect(find.text('Version privacy-2'), findsOneWidget);
       expect(
         tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
@@ -482,7 +485,61 @@ void main() {
       await tapVisible(tester, find.byType(CheckboxListTile).first);
       await tapVisible(tester, find.byType(CheckboxListTile).last);
       await tapVisible(tester, find.text('Accept and continue'));
-      expect(harness.repository.submittedVersions, ['1.2', 'privacy-2']);
+      expect(harness.repository.submittedVersions, [' 1.2 ', 'privacy-2']);
+      expect(find.text('Validated customer account'), findsOneWidget);
+      await harness.close(tester);
+    });
+  }
+
+  for (final reason in [
+    CustomerAuthLoadFailureKind.policyUnavailable,
+    CustomerAuthLoadFailureKind.invalidPolicyVersion,
+  ]) {
+    testWidgets('$reason blocks consent until valid policy retry', (
+      tester,
+    ) async {
+      final harness = NavigationHarness()..repository.needsConsent = true;
+      await harness.mount(tester);
+      harness.repository.emitAuth(identity);
+      await tester.pumpAndSettle();
+      await tapVisible(tester, find.byType(CheckboxListTile).first);
+      await tapVisible(tester, find.byType(CheckboxListTile).last);
+      harness.termsVersion = '';
+      harness.repository.acceptanceFailure = reason;
+      await tapVisible(tester, find.text('Accept and continue'));
+      expect(find.byType(CheckboxListTile), findsNothing);
+      expect(find.text('Validated customer account'), findsNothing);
+      expect(
+        find.textContaining(
+          reason == CustomerAuthLoadFailureKind.policyUnavailable
+              ? 'temporarily unavailable'
+              : 'versions could not be validated',
+        ),
+        findsOneWidget,
+      );
+      expect(harness.controller.currentIdentity?.uid, identity.uid);
+      expect(harness.repository.signOutCount, 0);
+      expect(harness.repository.acceptCalls, 1);
+      harness.termsVersion = ' exact-terms ';
+      harness.privacyVersion = 'privacy-next';
+      harness.repository.acceptanceFailure = null;
+      await tapVisible(tester, find.text('Retry policies'));
+      expect(find.text('Version  exact-terms '), findsOneWidget);
+      expect(find.text('Version privacy-next'), findsOneWidget);
+      expect(
+        tester
+            .widgetList<CheckboxListTile>(find.byType(CheckboxListTile))
+            .every((tile) => tile.value == false),
+        isTrue,
+      );
+      expect(harness.repository.acceptCalls, 1);
+      await tapVisible(tester, find.byType(CheckboxListTile).first);
+      await tapVisible(tester, find.byType(CheckboxListTile).last);
+      await tapVisible(tester, find.text('Accept and continue'));
+      expect(harness.repository.submittedVersions, [
+        ' exact-terms ',
+        'privacy-next',
+      ]);
       expect(find.text('Validated customer account'), findsOneWidget);
       await harness.close(tester);
     });
@@ -554,38 +611,44 @@ void main() {
     );
   }
 
-  testWidgets('late outdated submission cannot affect switched identity', (
-    tester,
-  ) async {
-    final harness = NavigationHarness()..repository.needsConsent = true;
-    await harness.mount(tester);
-    harness.repository.emitAuth(identity);
-    await tester.pumpAndSettle();
-    final previous = tester.widget<CustomerConsentScreen>(
-      find.byType(CustomerConsentScreen),
+  for (final lateFailure in [
+    CustomerAuthLoadFailureKind.policyVersionOutdated,
+    CustomerAuthLoadFailureKind.policyUnavailable,
+    CustomerAuthLoadFailureKind.invalidPolicyVersion,
+  ]) {
+    testWidgets(
+      'late $lateFailure submission cannot affect switched identity',
+      (tester) async {
+        final harness = NavigationHarness()..repository.needsConsent = true;
+        await harness.mount(tester);
+        harness.repository.emitAuth(identity);
+        await tester.pumpAndSettle();
+        final previous = tester.widget<CustomerConsentScreen>(
+          find.byType(CustomerConsentScreen),
+        );
+        final pending = Completer<void>();
+        harness.repository.pendingConsent = pending;
+        harness.repository.acceptanceFailure = lateFailure;
+        final submission = previous.onAccept('1.1', '1.1');
+        await tester.pump();
+        const second = CustomerAuthIdentity(
+          uid: 'customer-two',
+          email: 'second@feasta.test',
+          emailVerified: true,
+        );
+        harness.repository.emitAuth(second);
+        await tester.pumpAndSettle();
+        final revision = harness.controller.consentRevision;
+        pending.complete();
+        await submission;
+        await tester.pumpAndSettle();
+        expect(harness.controller.currentIdentity?.uid, second.uid);
+        expect(harness.controller.consentRevision, revision);
+        expect(harness.controller.policiesOutdated, false);
+        expect(harness.repository.acceptCalls, 1);
+        expect(harness.repository.listenerCount, 0);
+        await harness.close(tester);
+      },
     );
-    final pending = Completer<void>();
-    harness.repository.pendingConsent = pending;
-    harness.repository.acceptanceFailure =
-        CustomerAuthLoadFailureKind.policyVersionOutdated;
-    final submission = previous.onAccept('1.1', '1.1');
-    await tester.pump();
-    const second = CustomerAuthIdentity(
-      uid: 'customer-two',
-      email: 'second@feasta.test',
-      emailVerified: true,
-    );
-    harness.repository.emitAuth(second);
-    await tester.pumpAndSettle();
-    final revision = harness.controller.consentRevision;
-    pending.complete();
-    await submission;
-    await tester.pumpAndSettle();
-    expect(harness.controller.currentIdentity?.uid, second.uid);
-    expect(harness.controller.consentRevision, revision);
-    expect(harness.controller.policiesOutdated, false);
-    expect(harness.repository.acceptCalls, 1);
-    expect(harness.repository.listenerCount, 0);
-    await harness.close(tester);
-  });
+  }
 }
