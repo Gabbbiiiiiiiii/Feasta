@@ -916,55 +916,77 @@ service cloud.firestore {
     // ============================================================
 
     match /mainEvents/{mainEventId} {
+      // Client drafts contain only untrusted event inputs. Canonical submission
+      // creates a separate document through the Admin SDK; it never trusts a draft.
+      function draftFields() {
+        return [
+          'customerId', 'status', 'createdAt', 'updatedAt', 'isDeleted',
+          'eventType', 'eventDate', 'eventTime', 'eventEndTime', 'guestCount',
+          'eventLocation', 'eventAddress', 'specialRequest',
+          'selectedFoods', 'selectedDecorations', 'selectedFurniture',
+          'willArrangeOwnAddOns', 'customerArrangedAddOnsNote'
+        ];
+      }
+
+      function validDraftText(data, field, minimumLength, maximumLength) {
+        return !(field in data) || (
+          data[field] is string &&
+          data[field].size() >= minimumLength &&
+          data[field].size() <= maximumLength
+        );
+      }
+
+      function validDraftList(data, field) {
+        return !(field in data) || (
+          data[field] is list && data[field].size() <= 100
+        );
+      }
+
+      function cleanDraft(data) {
+        return data.keys().hasAll(['customerId', 'status']) &&
+          data.keys().hasOnly(draftFields()) &&
+          data.customerId is string &&
+          data.status == 'draft' &&
+          isNotDeleted(data);
+      }
+
+      function validDraft(data) {
+        return cleanDraft(data) &&
+          (!('createdAt' in data) || data.createdAt is timestamp) &&
+          (!('updatedAt' in data) || data.updatedAt is timestamp) &&
+          validDraftText(data, 'eventType', 1, 80) &&
+          (!('eventDate' in data) || data.eventDate is timestamp) &&
+          (!('eventTime' in data) || (
+            data.eventTime is string &&
+            data.eventTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+          )) &&
+          (!('eventEndTime' in data) || (
+            data.eventEndTime is string &&
+            data.eventEndTime.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$')
+          )) &&
+          (!('guestCount' in data) || (
+            data.guestCount is int && data.guestCount >= 1 &&
+            data.guestCount <= 10000
+          )) &&
+          validDraftText(data, 'eventLocation', 1, 180) &&
+          validDraftText(data, 'eventAddress', 1, 500) &&
+          validDraftText(data, 'specialRequest', 0, 1000) &&
+          validDraftText(data, 'customerArrangedAddOnsNote', 0, 1000) &&
+          validDraftList(data, 'selectedFoods') &&
+          validDraftList(data, 'selectedDecorations') &&
+          validDraftList(data, 'selectedFurniture') &&
+          (!('willArrangeOwnAddOns' in data) ||
+            data.willArrangeOwnAddOns is bool);
+      }
+
       allow create: if isActiveSignedInUser() &&
           isVerifiedCustomer() &&
-          isNotDeleted(request.resource.data) &&
-          request.resource.data.customerId is string &&
-          request.resource.data.customerId ==
-              currentUserId() &&
-          request.resource.data.status is string &&
-          request.resource.data.status == 'draft' &&
-          !request.resource.data.keys().hasAny([
-            'bookingId',
-            'mainEventId',
-            'bookingCode',
-            'clientRequestId',
-            'submissionFingerprint',
-            'providerRequestIds',
-            'providerRequestRelationshipVersion',
-            'activeProviderRequestIds',
-            'replacesProviderRequestId',
-            'providerRequestCount',
-            'pendingProviderRequestCount',
-            'acceptedProviderRequestCount',
-            'waitingPaymentProviderRequestCount',
-            'paymentProcessingProviderRequestCount',
-            'confirmedProviderRequestCount',
-            'inProgressProviderRequestCount',
-            'completedProviderRequestCount',
-            'rejectedProviderRequestCount',
-            'cancelledProviderRequestCount',
-            'expiredProviderRequestCount',
-            'requiredProviderRequestCount',
-            'confirmedRequiredProviderRequestCount',
-            'completedRequiredProviderRequestCount',
-            'needsProviderReplacement',
-            'recoveryStatus',
-            'rejectedByProviderIds',
-            'selectedRecoveryOfferId',
-            'recoveryOpenedAt',
-            'recoveryCompletedAt',
-            'paymentStatus',
-            'paymentId',
-            'paidAt',
-            'paidAmount',
-            'providerPayoutStatus',
-            'providerPayoutAt',
-            'paymongoCheckoutId',
-            'paymongoPaymentIntentId',
-            'paymongoReferenceNumber',
-            'packagePaymentTerms'
-          ]);
+          validDraft(request.resource.data) &&
+          request.resource.data.customerId == currentUserId() &&
+          (!('createdAt' in request.resource.data) ||
+            request.resource.data.createdAt == request.time) &&
+          (!('updatedAt' in request.resource.data) ||
+            request.resource.data.updatedAt == request.time);
 
       allow read: if (
           isActiveSignedInUser() &&
@@ -972,99 +994,21 @@ service cloud.firestore {
           resource.data.customerId == currentUserId()
         ) || isAdmin();
 
-      /*
-       * During the canonical architecture, customers may edit event
-       * information but may not directly mutate aggregate lifecycle,
-       * payment, ownership, or audit fields.
-       */
-      allow update: if (
-          isActiveSignedInUser() &&
-          resource.data.customerId is string &&
+      // Require a clean draft schema on BOTH sides. Missing canonical markers
+      // do not authorize edits to submitted or legacy non-draft events.
+      // Browser administrators have no authoritative booking write exception.
+      allow update: if isActiveSignedInUser() &&
+          isVerifiedCustomer() &&
+          cleanDraft(resource.data) &&
+          validDraft(request.resource.data) &&
           resource.data.customerId == currentUserId() &&
-          request.resource.data.customerId == resource.data.customerId &&
-          request.resource.data.keys().hasOnly(resource.data.keys()) &&
-          resource.data.keys().hasOnly(request.resource.data.keys()) &&
-          changesNone([
-            'bookingId', 'mainEventId', 'bookingCode', 'clientRequestId',
-            'submissionFingerprint',
-            'customerId', 'providerId', 'providerIds', 'currentProviderId',
-            'originalProviderId', 'providerBusinessName',
-            'packageId', 'packageName', 'packagePrice',
-            'serviceTier', 'serviceTierLabel', 'serviceTierIncludedServices',
-            'packageThemeId', 'packageThemeName', 'packageThemeDescription',
-            'packageThemeImageUrls',
-            'selectedAddOns',
-            'cateringAddOnsTotal', 'marketplaceAddOnsTotal',
-            'cateringSubtotal', 'estimatedEventTotal', 'addOnsTotal',
-            'downPaymentPercentage',
-            'packagePaymentTerms',
-            'status', 'paymentStatus', 'paymentId', 'paidAt', 'paidAmount',
-            'totalAmount', 'downPaymentAmount', 'remainingBalance', 'currency',
-            'providerPayoutStatus', 'providerPayoutAt', 'providerPayoutAmount',
-            'paymongoCheckoutId', 'paymongoPaymentIntentId',
-            'paymongoReferenceNumber', 'requiredProviderRequestCount',
-            'confirmedRequiredProviderRequestCount',
-            'completedRequiredProviderRequestCount', 'needsProviderReplacement',
-            'providerRequestIds', 'providerRequestCount',
-            'providerRequestRelationshipVersion', 'activeProviderRequestIds',
-            'replacesProviderRequestId',
-            'pendingProviderRequestCount', 'acceptedProviderRequestCount',
-            'waitingPaymentProviderRequestCount',
-            'paymentProcessingProviderRequestCount',
-            'confirmedProviderRequestCount', 'inProgressProviderRequestCount',
-            'completedProviderRequestCount', 'rejectedProviderRequestCount',
-            'cancelledProviderRequestCount', 'expiredProviderRequestCount',
-            'recoveryStatus', 'rejectedByProviderIds',
-            'selectedRecoveryOfferId', 'recoveryOpenedAt',
-            'recoveryCompletedAt',
-            'cancellationStatus', 'refundStatus', 'refundAmount',
-            'confirmedAt', 'startedAt', 'completedAt', 'expiredAt',
-            'submittedAt', 'statusUpdatedAt', 'createdAt', 'createdBy',
-            'updatedBy'
-          ])
-        ) || (
-          isAdmin() &&
-          request.resource.data.keys().hasOnly(resource.data.keys()) &&
-          resource.data.keys().hasOnly(request.resource.data.keys()) &&
-          changesNone([
-            'bookingId', 'mainEventId', 'bookingCode', 'clientRequestId',
-            'submissionFingerprint',
-            'customerId', 'providerId', 'providerIds', 'currentProviderId',
-            'originalProviderId', 'providerBusinessName',
-            'packageId', 'packageName', 'packagePrice',
-            'serviceTier', 'serviceTierLabel', 'serviceTierIncludedServices',
-            'packageThemeId', 'packageThemeName', 'packageThemeDescription',
-            'packageThemeImageUrls',
-            'selectedAddOns',
-            'cateringAddOnsTotal', 'marketplaceAddOnsTotal',
-            'cateringSubtotal', 'estimatedEventTotal', 'addOnsTotal',
-            'downPaymentPercentage',
-            'packagePaymentTerms',
-            'status', 'paymentStatus', 'paymentId', 'paidAt', 'paidAmount',
-            'totalAmount', 'downPaymentAmount', 'remainingBalance', 'currency',
-            'providerPayoutStatus', 'providerPayoutAt', 'providerPayoutAmount',
-            'paymongoCheckoutId', 'paymongoPaymentIntentId',
-            'paymongoReferenceNumber', 'requiredProviderRequestCount',
-            'confirmedRequiredProviderRequestCount',
-            'completedRequiredProviderRequestCount', 'needsProviderReplacement',
-            'providerRequestIds', 'providerRequestCount',
-            'providerRequestRelationshipVersion', 'activeProviderRequestIds',
-            'replacesProviderRequestId',
-            'pendingProviderRequestCount', 'acceptedProviderRequestCount',
-            'waitingPaymentProviderRequestCount',
-            'paymentProcessingProviderRequestCount',
-            'confirmedProviderRequestCount', 'inProgressProviderRequestCount',
-            'completedProviderRequestCount', 'rejectedProviderRequestCount',
-            'cancelledProviderRequestCount', 'expiredProviderRequestCount',
-            'recoveryStatus', 'rejectedByProviderIds',
-            'selectedRecoveryOfferId', 'recoveryOpenedAt',
-            'recoveryCompletedAt',
-            'cancellationStatus', 'refundStatus', 'refundAmount',
-            'confirmedAt', 'startedAt', 'completedAt', 'expiredAt',
-            'submittedAt', 'statusUpdatedAt', 'createdAt', 'createdBy',
-            'updatedBy'
-          ])
-        );
+          changesOnly([
+            'eventType', 'eventDate', 'eventTime', 'eventEndTime', 'guestCount',
+            'eventLocation', 'eventAddress', 'specialRequest',
+            'selectedFoods', 'selectedDecorations', 'selectedFurniture',
+            'willArrangeOwnAddOns', 'customerArrangedAddOnsNote', 'updatedAt'
+          ]) &&
+          request.resource.data.updatedAt == request.time;
 
       allow delete: if false;
 
