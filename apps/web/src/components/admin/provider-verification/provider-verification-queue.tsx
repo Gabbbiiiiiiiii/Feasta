@@ -1,5 +1,6 @@
 "use client";
 
+import {serviceClassificationLabel} from "@/lib/service-categories/service-classification-label";
 import {
   Building2,
   CalendarCheck,
@@ -65,9 +66,9 @@ const columns: readonly DataTableColumn<ProviderVerificationQueueItem>[] = [
   },
   {
     id: "serviceType",
-    header: "Service type",
+    header: "Service classification",
     cell: (item) => (
-      <span className="capitalize">{item.providerServiceType}</span>
+      <span className="capitalize">{serviceClassificationLabel(item.providerServiceType)}</span>
     ),
   },
   {
@@ -122,7 +123,7 @@ function ProviderVerificationQueue({
     ...(filters.search ? [`Search: ${filters.search}`] : []),
     ...(filters.status !== "all" ? [`Status: ${providerVerificationLabel(filters.status)}`] : []),
     ...(filters.serviceType !== "all"
-      ? [`Service: ${filters.serviceType}`]
+      ? [`Service: ${serviceClassificationLabel(filters.serviceType)}`]
       : []),
     ...(filters.from ? [`From: ${filters.from}`] : []),
     ...(filters.to ? [`To: ${filters.to}`] : []),
@@ -344,9 +345,9 @@ function ProviderVerificationQueue({
               </Select>
             </label>
             <label className="grid gap-1 text-sm font-semibold">
-              Service type
+              Service classification
               <Select
-                aria-label="Provider service type"
+                aria-label="Provider service classification"
                 value={filters.serviceType}
                 disabled={isPending}
                 onChange={(event) => navigate({
@@ -356,10 +357,10 @@ function ProviderVerificationQueue({
                   selected: null,
                 })}
               >
-                <option value="all">All service types</option>
+                <option value="all">All service classifications</option>
                 <option value="catering">Catering</option>
-                <option value="addon">Add-on</option>
-                <option value="both">Both</option>
+                <option value="addon">{serviceClassificationLabel("addon")}</option>
+                <option value="both">{serviceClassificationLabel("both")}</option>
               </Select>
             </label>
             <label className="grid gap-1 text-sm font-semibold">
@@ -431,9 +432,9 @@ function ProviderVerificationQueue({
             </div>
             <dl className="grid gap-2 text-sm">
               <div>
-                <dt className="font-semibold">Service type</dt>
+                <dt className="font-semibold">Service classification</dt>
                 <dd className="capitalize text-muted-foreground">
-                  {item.providerServiceType}
+                  {serviceClassificationLabel(item.providerServiceType)}
                 </dd>
               </div>
               <div>

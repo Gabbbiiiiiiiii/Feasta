@@ -173,7 +173,7 @@ export function validateCustomerEventContext(
     errors.guestCount = `Enter a whole number from 1 to ${MAX_EVENT_GUESTS.toLocaleString("en-PH")}.`;
   }
   if (!serviceType) {
-    errors.serviceType = "Choose a valid service type.";
+    errors.serviceType = "Choose a valid service classification.";
   }
 
   return {

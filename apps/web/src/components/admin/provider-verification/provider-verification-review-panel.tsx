@@ -1,5 +1,6 @@
 "use client";
 
+import {serviceClassificationLabel} from "@/lib/service-categories/service-classification-label";
 import {
   CheckCircle2,
   Download,
@@ -189,7 +190,7 @@ function ProviderVerificationReviewPanel({
         </div>
         <dl className="mt-4 grid gap-3 sm:grid-cols-2">
           <Detail label="Business name" value={application.business.name} />
-          <Detail label="Service type" value={application.business.serviceType} />
+          <Detail label="Service classification" value={serviceClassificationLabel(application.business.serviceType)} />
           <Detail label="Business email" value={application.business.email} />
           <Detail label="Business phone" value={application.business.phone} />
           <Detail

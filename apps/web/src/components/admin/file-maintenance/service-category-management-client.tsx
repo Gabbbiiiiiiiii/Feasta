@@ -1,5 +1,6 @@
 ﻿"use client";
 
+import {serviceClassificationLabel} from "@/lib/service-categories/service-classification-label";
 import {
   Pencil,
   Plus,
@@ -165,7 +166,7 @@ function ServiceCategoryManagementClient({
       : []),
     ...(serviceType !== "all"
       ? [
-          `Service type: ${
+          `Service classification: ${
             serviceTypeLabel(serviceType)
           }`,
         ]
@@ -193,7 +194,7 @@ function ServiceCategoryManagementClient({
         },
         {
           id: "serviceType",
-          header: "Service type",
+          header: "Service classification",
           cell: (category) =>
             serviceTypeLabel(
               category.serviceType,
@@ -501,6 +502,21 @@ function ServiceCategoryManagementClient({
         />
       )}
 
+      <section aria-labelledby="service-classifications-heading" className="min-w-0 rounded-xl border border-border bg-muted/30 p-4">
+        <h3 id="service-classifications-heading" className="font-bold">Service classifications</h3>
+        <p className="mt-1 text-sm text-muted-foreground">Classifications are predefined by FEASTA.</p>
+        <dl className="mt-4 grid min-w-0 gap-4 sm:grid-cols-2">
+          <div className="min-w-0">
+            <dt className="font-semibold">Classification A: {serviceClassificationLabel("catering")}</dt>
+            <dd className="mt-1 text-sm text-muted-foreground">Food preparation, catering packages, and catering-related event services.</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="font-semibold">Classification B: {serviceClassificationLabel("addon")}</dt>
+            <dd className="mt-1 text-sm text-muted-foreground">Photography, styling, rentals, entertainment, and other event services that may be booked independently or alongside catering.</dd>
+          </div>
+        </dl>
+      </section>
+
       <FilterToolbar
         searchValue={searchValue}
         onSearchChange={setSearchValue}
@@ -543,7 +559,7 @@ function ServiceCategoryManagementClient({
               </Select>
             </FormField>
 
-            <FormField label="Service type">
+            <FormField label="Service classification">
               <Select
                 value={serviceType}
                 onChange={(event) =>
@@ -554,10 +570,10 @@ function ServiceCategoryManagementClient({
                 }
               >
                 <option value="all">
-                  All service types
+                  All service classifications
                 </option>
                 <option value="addon">
-                  Add-on
+                  {serviceClassificationLabel("addon")}
                 </option>
                 <option value="catering">
                   Catering
@@ -623,7 +639,7 @@ function ServiceCategoryManagementClient({
             </DialogTitle>
             <DialogDescription>
               {editing
-                ? "Update the display name, service type, and capacity requirements. The category code remains unchanged."
+                ? "Update the display name, service classification, and capacity requirements. The category code remains unchanged."
                 : "Create a service category providers can select during setup and service management."}
             </DialogDescription>
           </DialogHeader>
@@ -665,7 +681,7 @@ function ServiceCategoryManagementClient({
             </FormField>
 
             <FormField
-              label="Service type"
+              label="Service classification"
               required
               disabled={
                 isPending ||
@@ -673,8 +689,8 @@ function ServiceCategoryManagementClient({
               }
               description={
                 editing?.status === "active"
-                  ? "Discontinue this category before changing its service type."
-                  : "Catering categories belong to catering providers. Add-on categories belong to other event service providers."
+                  ? "Discontinue this category before changing its service classification."
+                  : "Catering categories belong to catering providers. Other Event Services categories belong to other event service providers."
               }
             >
               <Select
@@ -691,7 +707,7 @@ function ServiceCategoryManagementClient({
                 }}
               >
                 <option value="addon">
-                  Add-on
+                  {serviceClassificationLabel("addon")}
                 </option>
                 <option value="catering">
                   Catering
@@ -887,7 +903,7 @@ function CategoryMobileCard({
 
       <div>
         <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-          Service type
+          Service classification
         </p>
         <p className="mt-1 text-sm font-semibold">
           {serviceTypeLabel(
@@ -976,9 +992,7 @@ function normalizeServiceCategoryCode(
 function serviceTypeLabel(
   value: AdminServiceCategoryServiceType,
 ): string {
-  return value === "catering"
-    ? "Catering"
-    : "Add-on";
+  return serviceClassificationLabel(value);
 }
 
 function statusLabel(

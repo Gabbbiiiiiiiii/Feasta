@@ -1,3 +1,4 @@
+import {serviceClassificationLabel} from "@/lib/service-categories/service-classification-label";
 import {
   PROVIDER_SERVICE_TYPES,
   type ProviderServiceType,
@@ -9,9 +10,7 @@ export const PROVIDER_SERVICE_TYPE_OPTIONS = PROVIDER_SERVICE_TYPES.map(
 
 
 export function providerServiceTypeLabel(value: ProviderServiceType): string {
-  if (value === "catering") return "Catering";
-  if (value === "addon") return "Event services";
-  return "Catering and event services";
+  return serviceClassificationLabel(value);
 }
 
 

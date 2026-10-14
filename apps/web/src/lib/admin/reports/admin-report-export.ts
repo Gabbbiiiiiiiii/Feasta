@@ -1,3 +1,4 @@
+import {serviceClassificationLabel} from "@/lib/service-categories/service-classification-label";
 import type {
   AdminReportResult,
 } from "@/lib/admin/reports/admin-report-types";
@@ -36,7 +37,7 @@ export function createAdminReportCsv(
   section(rows, "APPLIED FILTERS");
   addRows(rows, [
     ["Date preset", titleCase(report.filters.datePreset)],
-    ["Provider service type", titleCase(report.filters.providerServiceType)],
+    ["Provider service classification", report.filters.providerServiceType === "all" ? "All classifications" : serviceClassificationLabel(report.filters.providerServiceType)],
     ["Provider request type", titleCase(report.filters.providerRequestType)],
     ["Event type", titleCase(report.filters.eventType)],
     ["City", report.filters.city],
@@ -272,7 +273,7 @@ export function createAdminReportCsv(
   rows.push([
     "Provider ID",
     "Provider",
-    "Service type",
+    "Service classification",
     "Category",
     "Requests",
     "Accepted",
@@ -293,7 +294,7 @@ export function createAdminReportCsv(
     rows.push([
       provider.providerId,
       provider.providerName,
-      titleCase(provider.serviceType),
+      serviceClassificationLabel(provider.serviceType),
       provider.providerCategory ? serviceCategoryName(provider.providerCategory, serviceCategoryOptions) : "Not specified",
       String(provider.requestsReceived),
       String(provider.acceptedRequests),

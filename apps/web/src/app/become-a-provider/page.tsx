@@ -53,14 +53,14 @@ const providerTypes = [
     icon: Store,
   },
   {
-    eyebrow: "Event Services",
-    title: "Event Service Providers",
+    eyebrow: "Other Event Services",
+    title: "Other Event Services Providers",
     description:
-      "Providers offering supported add-on and event services that customers can explore for their celebrations.",
+      "Providers offering supported other event services that customers can explore for their celebrations.",
     icon: Package,
   },
   {
-    eyebrow: "Combined Services",
+    eyebrow: "Catering & Other Event Services",
     title: "Combined Providers",
     description:
       "Businesses that provide both catering and supported additional event services through FEASTA.",

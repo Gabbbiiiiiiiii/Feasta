@@ -997,7 +997,7 @@ function StepFields({
 
               <span className="grid gap-1">
                 <span className="font-semibold">
-                  Additional event services
+                  Other Event Services
                 </span>
                 <span className="text-sm text-muted-foreground">
                   Photography, styling, entertainment, rentals,
@@ -1051,13 +1051,13 @@ function StepFields({
             }
             className="w-fit text-sm font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-60"
           >
-            + Add event services
+            + Add other event services
           </button>
         ) : null}
 
         {addonSelected ? (
           <CheckboxGroup
-            legend="Additional event services"
+            legend="Other Event Services"
             description="Select every additional event service your business provides."
             values={addonCategories.map(
               (category) => category.code,

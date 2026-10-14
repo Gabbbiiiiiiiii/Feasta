@@ -345,7 +345,7 @@ export function ProviderBusinessProfileClient({
         <dl className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <ReadOnlyDetail icon={Building2} label="Business name" value={initialProfile.businessName} />
           <ReadOnlyDetail icon={BadgeCheck} label="Business email" value={initialProfile.businessEmail} />
-          <ReadOnlyDetail icon={ShieldCheck} label="Provider service type" value={providerServiceTypeLabel(initialProfile.providerServiceType)} />
+          <ReadOnlyDetail icon={ShieldCheck} label="Provider service classification" value={providerServiceTypeLabel(initialProfile.providerServiceType)} />
           <ReadOnlyDetail
             icon={BadgeCheck}
             label="Service categories"

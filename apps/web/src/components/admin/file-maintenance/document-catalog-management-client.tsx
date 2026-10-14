@@ -1,5 +1,6 @@
 "use client";
 
+import {serviceClassificationLabel} from "@/lib/service-categories/service-classification-label";
 import {Plus} from "lucide-react";
 import {
   useCallback,
@@ -885,7 +886,7 @@ function businessDocumentRequirementSummary(
   if (serviceTypes.has("addon")) {
     return {
       label: "Conditional",
-      detail: "Add-on providers",
+      detail: "Other Event Services providers",
     };
   }
 
@@ -994,7 +995,7 @@ export function BusinessDocumentManagement({
 
     if (incompleteServiceTypeRule) {
       setFormError(
-        "Select at least one provider service type.",
+        "Select at least one provider service classification.",
       );
       return;
     }
@@ -1138,7 +1139,7 @@ export function BusinessDocumentManagement({
       )}
       editorOpen={editorOpen}
       editorTitle={editing ? "Edit business document" : "Add business document"}
-      editorDescription="Define who must submit this document. Choose all provider services, a provider service type, or specific service categories. Providers that do not match a requirement automatically treat the document as optional."
+      editorDescription="Define who must submit this document. Choose all provider services, a provider service classification, or specific service categories. Providers that do not match a requirement automatically treat the document as optional."
       wide
       onEditorOpenChange={(open) => {
         if (!isPending) setEditorOpen(open);
@@ -1234,7 +1235,7 @@ export function BusinessDocumentManagement({
                 </option>
 
                 <option value="service_type">
-                  Provider service type
+                  Provider service classification
                 </option>
 
                 <option value="service_category">
@@ -1245,22 +1246,18 @@ export function BusinessDocumentManagement({
             {entry.targetMode === "service_type" ? (
               <fieldset className="grid gap-2">
                 <legend className="text-sm font-semibold">
-                  Provider service types
+                  Provider service classifications
                 </legend>
 
                 <p className="text-sm text-muted-foreground">
-                  Select one or more provider service types.
+                  Select one or more provider service classifications.
                 </p>
 
                 {SERVICE_TYPES.map((serviceType) => (
                   <CheckboxField
                     key={serviceType}
                     label={
-                      serviceType === "catering"
-                        ? "Catering only"
-                        : serviceType === "addon"
-                          ? "Add-on only"
-                          : "Catering & Add-on"
+                      serviceClassificationLabel(serviceType)
                     }
                     checked={entry.serviceTypes.includes(
                       serviceType,
@@ -1320,7 +1317,7 @@ export function BusinessDocumentManagement({
                               category.serviceType ===
                               "catering"
                                 ? "Catering"
-                                : "Add-on"
+                                : "Other Event Services"
                             }`}
                             checked={checked}
                             onChange={(event) => {
