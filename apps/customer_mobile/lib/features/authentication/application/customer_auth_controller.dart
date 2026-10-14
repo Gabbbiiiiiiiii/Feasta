@@ -7,7 +7,12 @@ import '../../../core/enums/enums.dart';
 import '../data/repositories/customer_auth_state_repository.dart';
 import '../domain/auth_account_state.dart';
 
-enum CustomerAuthenticationFailureKind { network, server }
+enum CustomerAuthenticationFailureKind {
+  network,
+  server,
+  accountAccess,
+  callableAccess,
+}
 
 class CustomerAuthenticationState {
   const CustomerAuthenticationState({
@@ -41,6 +46,8 @@ class CustomerAuthenticationController extends ChangeNotifier {
       const CustomerAuthenticationState.loading();
 
   CustomerAuthenticationState get state => _state;
+  CustomerAuthIdentity? get currentIdentity => repository.currentIdentity;
+  bool get signingOut => _signingOut;
 
   String _intendedLocation;
 
@@ -59,6 +66,7 @@ class CustomerAuthenticationController extends ChangeNotifier {
   bool _reloadQueued = false;
   bool _forceRefreshQueued = false;
   bool _started = false;
+  bool _signingOut = false;
   bool _disposed = false;
   bool _preserveTerminalState = false;
 
@@ -123,16 +131,12 @@ class CustomerAuthenticationController extends ChangeNotifier {
   }
 
   Future<void> refresh({bool forceTokenRefresh = true}) async {
-    final identity = repository.currentIdentity ?? _identity;
-
-    debugPrint(
-      'FEASTA AUTH REFRESH START: '
-      'repositoryUid=${repository.currentIdentity?.uid}, '
-      'controllerUid=${_identity?.uid}, '
-      'gate=${_state.gate.kind}',
-    );
+    if (_signingOut) return;
+    final identity = repository.currentIdentity;
 
     if (identity == null) {
+      if (_preserveTerminalState) return;
+      _consentRequired = false;
       _identity = null;
 
       _setState(
@@ -143,8 +147,6 @@ class CustomerAuthenticationController extends ChangeNotifier {
         ),
       );
 
-      debugPrint('FEASTA AUTH REFRESH END: no Firebase identity');
-
       return;
     }
 
@@ -154,8 +156,10 @@ class CustomerAuthenticationController extends ChangeNotifier {
     _identity = identity;
 
     if (identityChanged) {
+      _consentRequired = false;
       _identityGeneration++;
-      _bindAccountChanges(identity.uid);
+      unawaited(_accountSubscription?.cancel());
+      _accountSubscription = null;
 
       _setState(
         CustomerAuthenticationState(
@@ -166,21 +170,19 @@ class CustomerAuthenticationController extends ChangeNotifier {
     }
 
     await _requestLoad(forceTokenRefresh: forceTokenRefresh);
-
-    debugPrint(
-      'FEASTA AUTH REFRESH END: '
-      'uid=${identity.uid}, '
-      'gate=${_state.gate.kind}, '
-      'email=${_state.email}',
-    );
   }
 
   Future<void> signOut() async {
+    if (_signingOut) return;
+    _signingOut = true;
     _preserveTerminalState = false;
+    _consentRequired = false;
 
     _identityGeneration++;
 
-    await _accountSubscription?.cancel();
+    // Generation invalidation makes all callbacks inert immediately. Native
+    // listener cleanup must not delay Firebase sign-out or recovery navigation.
+    unawaited(_accountSubscription?.cancel().catchError((_) {}));
     _accountSubscription = null;
 
     _identity = null;
@@ -188,9 +190,26 @@ class CustomerAuthenticationController extends ChangeNotifier {
     _reloadQueued = false;
     _forceRefreshQueued = false;
 
-    await repository.signOut();
+    _setState(const CustomerAuthenticationState.loading());
+
+    try {
+      // Invalidate repository work before awaiting listener cancellation.
+      await repository.signOut();
+    } catch (_) {
+      _signingOut = false;
+      _identity = repository.currentIdentity;
+      _setTransientFailure(CustomerAuthenticationFailureKind.server);
+      return;
+    } finally {
+      _signingOut = false;
+    }
 
     if (_disposed) {
+      return;
+    }
+    final remainingIdentity = repository.currentIdentity;
+    if (remainingIdentity != null) {
+      _handleIdentity(remainingIdentity, forceTokenRefresh: false);
       return;
     }
 
@@ -217,7 +236,9 @@ class CustomerAuthenticationController extends ChangeNotifier {
     CustomerAuthIdentity? identity, {
     required bool forceTokenRefresh,
   }) {
+    if (_signingOut) return;
     if (identity == null) {
+      _consentRequired = false;
       _identity = null;
 
       _identityGeneration++;
@@ -248,9 +269,11 @@ class CustomerAuthenticationController extends ChangeNotifier {
     _identity = identity;
 
     if (identityChanged) {
+      _consentRequired = false;
       _identityGeneration++;
 
-      _bindAccountChanges(identity.uid);
+      unawaited(_accountSubscription?.cancel());
+      _accountSubscription = null;
 
       _setState(
         CustomerAuthenticationState(
@@ -260,7 +283,9 @@ class CustomerAuthenticationController extends ChangeNotifier {
       );
     }
 
-    unawaited(_requestLoad(forceTokenRefresh: forceTokenRefresh));
+    if (!_consentRequired) {
+      unawaited(_requestLoad(forceTokenRefresh: forceTokenRefresh));
+    }
   }
 
   void _bindAccountChanges(String uid) {
@@ -282,10 +307,6 @@ class CustomerAuthenticationController extends ChangeNotifier {
             if (!_isCurrent(uid, generation)) {
               return;
             }
-
-            debugPrint(
-              'FEASTA AUTH ACCOUNT LISTENER ERROR: uid=$uid error=$error',
-            );
 
             unawaited(_requestLoad(forceTokenRefresh: true));
           },
@@ -318,7 +339,7 @@ class CustomerAuthenticationController extends ChangeNotifier {
         _forceRefreshQueued = false;
 
         await _performLoad(forceTokenRefresh: forceTokenRefresh);
-      } while (_reloadQueued && !_disposed);
+      } while (_reloadQueued && !_disposed && !_consentRequired);
     } finally {
       _activeLoad = null;
     }
@@ -328,6 +349,7 @@ class CustomerAuthenticationController extends ChangeNotifier {
     final identity = _identity;
 
     if (identity == null) {
+      _consentRequired = false;
       return;
     }
 
@@ -351,6 +373,13 @@ class CustomerAuthenticationController extends ChangeNotifier {
           requiredRoles: const {UserRole.customer},
         ),
       );
+      _consentRequired = false;
+
+      if (_accountSubscription == null &&
+          result.userProfile != null &&
+          !_requiresTermination(gate.kind)) {
+        _bindAccountChanges(identity.uid);
+      }
 
       _setState(
         CustomerAuthenticationState(gate: gate, email: result.identity.email),
@@ -370,12 +399,68 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
   bool _isCurrent(String uid, int generation) {
     return !_disposed &&
+        repository.currentIdentity?.uid == uid &&
         _identity?.uid == uid &&
         _identityGeneration == generation;
   }
 
+  bool get consentRequired => _consentRequired;
+  int get consentGeneration => _identityGeneration;
+  bool _consentRequired = false;
+
+  Future<void> acceptConsent({int? expectedGeneration}) async {
+    if (expectedGeneration != null &&
+        expectedGeneration != _identityGeneration) {
+      return;
+    }
+    final identity = _identity;
+    final generation = _identityGeneration;
+    if (identity == null || !_consentRequired) return;
+    final consent = repository;
+    if (consent is! CustomerConsentRepository) return;
+    _consentRequired = false;
+    _setState(
+      CustomerAuthenticationState(
+        email: identity.email,
+        gate: const AuthenticationGateResult(AuthenticationGateKind.loading),
+      ),
+    );
+    try {
+      await (consent as CustomerConsentRepository).acceptConsent(identity.uid);
+      if (_isCurrent(identity.uid, generation)) {
+        await refresh(forceTokenRefresh: false);
+      }
+    } on CustomerAuthLoadFailure catch (failure) {
+      if (_isCurrent(identity.uid, generation)) {
+        _handleLoadFailure(failure.kind);
+      }
+    } catch (_) {
+      if (_isCurrent(identity.uid, generation)) {
+        _consentRequired = true;
+        _setTransientFailure(CustomerAuthenticationFailureKind.server);
+      }
+    }
+  }
+
   void _handleLoadFailure(CustomerAuthLoadFailureKind kind) {
     switch (kind) {
+      case CustomerAuthLoadFailureKind.consentRequired:
+        _consentRequired = true;
+        _setState(
+          CustomerAuthenticationState(
+            email: _identity?.email,
+            gate: const AuthenticationGateResult(
+              AuthenticationGateKind.loading,
+            ),
+          ),
+        );
+        return;
+      case CustomerAuthLoadFailureKind.accountAccess:
+        _setTransientFailure(CustomerAuthenticationFailureKind.accountAccess);
+        return;
+      case CustomerAuthLoadFailureKind.callableAccess:
+        _setTransientFailure(CustomerAuthenticationFailureKind.callableAccess);
+        return;
       case CustomerAuthLoadFailureKind.network:
         _setTransientFailure(CustomerAuthenticationFailureKind.network);
         return;
@@ -412,12 +497,18 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
         return;
 
+      case CustomerAuthLoadFailureKind.blocked:
+      case CustomerAuthLoadFailureKind.unsupportedRole:
       case CustomerAuthLoadFailureKind.authorization:
         _setState(
           CustomerAuthenticationState(
-            gate: const AuthenticationGateResult(
-              AuthenticationGateKind.invalidAccountState,
-            ),
+            gate: AuthenticationGateResult(switch (kind) {
+              CustomerAuthLoadFailureKind.blocked =>
+                AuthenticationGateKind.blocked,
+              CustomerAuthLoadFailureKind.unsupportedRole =>
+                AuthenticationGateKind.forbiddenRole,
+              _ => AuthenticationGateKind.invalidAccountState,
+            }),
             email: _identity?.email,
           ),
         );

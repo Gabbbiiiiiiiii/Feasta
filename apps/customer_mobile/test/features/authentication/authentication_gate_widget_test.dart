@@ -17,6 +17,28 @@ const widgetIdentity = CustomerAuthIdentity(
 );
 
 void main() {
+  for (final entry in {
+    CustomerAuthLoadFailureKind.callableAccess:
+        'Secure account setup could not be completed',
+    CustomerAuthLoadFailureKind.accountAccess:
+        'Account access could not be completed',
+  }.entries) {
+    testWidgets('${entry.key} displays distinct retry guidance', (
+      tester,
+    ) async {
+      final harness = GateHarness();
+      harness.repository.nextFailure = CustomerAuthLoadFailure(entry.key);
+      await tester.pumpWidget(harness.widget());
+      harness.repository.emitAuth(widgetIdentity);
+      await tester.pumpAndSettle();
+      expect(find.text(entry.value), findsOneWidget);
+      expect(find.text('Session expired'), findsNothing);
+      await tester.tap(find.text('Try again'));
+      await tester.pumpAndSettle();
+      expect(find.text('customer destination: /browse'), findsOneWidget);
+      await harness.dispose();
+    });
+  }
   testWidgets('shows startup loading before authentication resolves', (
     tester,
   ) async {

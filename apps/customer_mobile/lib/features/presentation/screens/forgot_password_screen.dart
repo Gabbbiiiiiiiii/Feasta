@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../../../app/router/customer_auth_navigation.dart';
+import '../../../app/router/customer_route_guard.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -34,10 +36,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   }
 
   void _returnToLogin() {
-    Navigator.pushAndRemoveUntil(
+    if (returnToCustomerAuthenticationGate(
+      context,
+      intendedLocation: CustomerAppLocations.login,
+    )) {
+      return;
+    }
+    Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (_) => false,
     );
   }
 

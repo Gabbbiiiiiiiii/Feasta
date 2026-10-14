@@ -81,7 +81,6 @@ class AuthRepository
               onProfileError: (error, stackTrace) {
                 secureDebugLog(
                   'Customer profile creation failed',
-                  error: error,
                   stackTrace: stackTrace,
                 );
               },
@@ -111,7 +110,6 @@ class AuthRepository
         verificationEmailSent = false;
         secureDebugLog(
           'Verification email delivery failed after registration',
-          error: error,
           stackTrace: stackTrace,
         );
       }
@@ -123,11 +121,7 @@ class AuthRepository
     } on CustomerRegistrationException {
       rethrow;
     } catch (error, stackTrace) {
-      secureDebugLog(
-        'Customer registration failed',
-        error: error,
-        stackTrace: stackTrace,
-      );
+      secureDebugLog('Customer registration failed', stackTrace: stackTrace);
       throw CustomerRegistrationException(_registrationFailureKind(error));
     }
   }
@@ -374,7 +368,6 @@ class AuthRepository
     } catch (error, stackTrace) {
       secureDebugLog(
         'Failed to load provider verification status',
-        error: error,
         stackTrace: stackTrace,
       );
       return null;
@@ -423,17 +416,6 @@ class AuthRepository
         throw StateError('Google sign-in failed.');
       }
 
-      // Firebase Authentication is now the source of truth for whether the
-      // sign-in succeeded. Do not make the login result depend on secondary
-      // Firestore/Functions work, because those operations are also observed
-      // by CustomerAuthenticationController and may race with auth-state and
-      // ID-token events.
-      //
-      // Any profile repair/synchronization is intentionally best-effort.
-      // The authentication gate remains responsible for validating role,
-      // account status, customer profile availability, and routing.
-      unawaited(_repairCustomerProfileAfterGoogleSignIn(user));
-
       return CustomerLoginResult(
         uid: user.uid,
         email: user.email,
@@ -446,7 +428,6 @@ class AuthRepository
 
       secureDebugLog(
         'Google account selection failed',
-        error: error,
         stackTrace: StackTrace.current,
       );
 
@@ -454,7 +435,6 @@ class AuthRepository
     } on FirebaseAuthException catch (error, stackTrace) {
       secureDebugLog(
         'Firebase Google sign-in failed with code ${error.code}',
-        error: error,
         stackTrace: stackTrace,
       );
 
@@ -468,7 +448,6 @@ class AuthRepository
     } catch (error, stackTrace) {
       secureDebugLog(
         'Google sign-in failed before a usable Firebase session was returned',
-        error: error,
         stackTrace: stackTrace,
       );
 
@@ -477,46 +456,6 @@ class AuthRepository
       await _signOutIfLoginMustBeRejected(kind);
 
       throw CustomerLoginException(kind);
-    }
-  }
-
-  Future<void> _repairCustomerProfileAfterGoogleSignIn(User user) =>
-      AuthOperationCoordinator.shared.run(
-        () => _repairCustomerProfileAfterGoogleSignInCoordinated(user),
-      );
-
-  Future<void> _repairCustomerProfileAfterGoogleSignInCoordinated(
-    User user,
-  ) async {
-    try {
-      // Existing customer accounts do not need ensureUserProfile to run on
-      // every login. Re-running the callable on each login creates extra
-      // writes, account-change events, App Check/rate-limit exposure, and
-      // unnecessary overlap with CustomerAuthenticationController.loadAccount.
-      final userSnapshot = await _db
-          .collection(FirestoreCollections.users)
-          .doc(user.uid)
-          .get();
-
-      if (!userSnapshot.exists) {
-        // For a genuinely missing profile, keep the repair path. If the
-        // callable cannot create/repair it, the authentication gate will see
-        // the missing profile and route accordingly instead of falsely
-        // reporting that Google authentication itself failed.
-        await _ensureCustomerProfile();
-        return;
-      }
-
-      // Keep Auth-backed fields such as email verification synchronized, but
-      // never turn a valid Firebase sign-in into a failed login just because
-      // this secondary synchronization is temporarily unavailable.
-      await _syncUserAuthState();
-    } catch (error, stackTrace) {
-      secureDebugLog(
-        'Post-Google-sign-in profile synchronization was deferred',
-        error: error,
-        stackTrace: stackTrace,
-      );
     }
   }
 
@@ -721,7 +660,7 @@ class AuthRepository
       if (reason == 'disabled') return CustomerLoginFailureKind.disabled;
       if (reason == 'blocked') return CustomerLoginFailureKind.blocked;
       return switch (error.code) {
-        'permission-denied' => CustomerLoginFailureKind.blocked,
+        'permission-denied' => CustomerLoginFailureKind.unknown,
         'not-found' => CustomerLoginFailureKind.missingProfile,
         'resource-exhausted' => CustomerLoginFailureKind.tooManyRequests,
         'unavailable' ||
@@ -755,7 +694,7 @@ class AuthRepository
       final reason = details is Map ? details['reason'] : null;
       if (reason == 'disabled') return AccountRecoveryFailureKind.disabled;
       return switch (error.code) {
-        'permission-denied' => AccountRecoveryFailureKind.sessionExpired,
+        'permission-denied' => AccountRecoveryFailureKind.unknown,
         'resource-exhausted' => AccountRecoveryFailureKind.tooManyRequests,
         'unavailable' ||
         'deadline-exceeded' => AccountRecoveryFailureKind.network,

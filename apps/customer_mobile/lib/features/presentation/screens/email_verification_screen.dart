@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../../app/router/customer_auth_navigation.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -101,6 +102,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
     final gate = CustomerAuthenticationScope.maybeOf(context);
     if (gate != null) {
       await gate.refresh(forceTokenRefresh: true);
+      if (mounted) returnToCustomerAuthenticationGate(context);
       return;
     }
     await _gateway.logout();
@@ -125,6 +127,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen>
     final gate = CustomerAuthenticationScope.maybeOf(context);
     if (gate != null) {
       await gate.signOut();
+      if (mounted) returnToCustomerAuthenticationGate(context);
       return;
     }
     await _gateway.logout();

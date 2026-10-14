@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../../app/router/customer_auth_navigation.dart';
 
 import '../../../core/theme/app_breakpoints.dart';
 import '../../../core/theme/app_colors.dart';
@@ -125,6 +126,19 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
 
     if (gateController != null) {
       await gateController.refresh();
+      if (!mounted) return;
+      if (!result.verificationEmailSent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Your account was created, but the verification email could not be sent. '
+              'Use Resend verification on this screen.',
+            ),
+          ),
+        );
+      }
+      returnToCustomerAuthenticationGate(context);
+      return;
     }
 
     if (!mounted) return;
@@ -163,11 +177,9 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
       if (!mounted) return;
 
       //
-      // Registration is normally opened above the authentication gate.
-      // Returning from this screen lets the gate display the newly
-      // authenticated customer state.
+      // Unwind registration and role selection to the gate-owning root.
       //
-      Navigator.maybePop(context);
+      returnToCustomerAuthenticationGate(context);
       return;
     }
 

@@ -32,6 +32,133 @@ Future<void> settleController() async {
 }
 
 void main() {
+  test(
+    'callable setup failure is retryable and never starts listeners',
+    () async {
+      final repository = FakeCustomerAuthStateRepository();
+      repository.nextFailure = const CustomerAuthLoadFailure(
+        CustomerAuthLoadFailureKind.callableAccess,
+      );
+      final controller = CustomerAuthenticationController(
+        repository: repository,
+      )..start();
+      repository.emitAuth(identity);
+      await settleController();
+      expect(
+        controller.state.failure,
+        CustomerAuthenticationFailureKind.callableAccess,
+      );
+      expect(repository.listenerCount, 0);
+      expect(repository.signOutCount, 0);
+      await controller.refresh();
+      expect(controller.state.gate.kind, AuthenticationGateKind.customerReady);
+      controller.dispose();
+      await repository.close();
+    },
+  );
+  test(
+    'switching accounts discards old results and binds only the new identity',
+    () async {
+      final repository = FakeCustomerAuthStateRepository(
+        loadDelay: const Duration(milliseconds: 40),
+      );
+      final controller = CustomerAuthenticationController(
+        repository: repository,
+      )..start();
+      repository.emitAuth(identity);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      const second = CustomerAuthIdentity(
+        uid: 'customer-two',
+        email: null,
+        emailVerified: true,
+      );
+      repository.emitAuth(second);
+      repository.result = CustomerAccountLoadResult(
+        identity: second,
+        userProfile: activeProfile(),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(repository.listenerCount, 1);
+      expect(controller.state.email, isNull);
+      expect(controller.state.gate.kind, AuthenticationGateKind.customerReady);
+      controller.dispose();
+      await repository.close();
+    },
+  );
+
+  test('duplicates during bootstrap do not start listeners early', () async {
+    final repository = FakeCustomerAuthStateRepository(
+      loadDelay: const Duration(milliseconds: 40),
+    );
+    final controller = CustomerAuthenticationController(repository: repository)
+      ..start();
+    repository.emitAuth(identity);
+    repository.emitToken(identity);
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    expect(repository.listenerCount, 0);
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(repository.listenerCount, 1);
+    expect(repository.maximumConcurrentLoads, 1);
+    controller.dispose();
+    await repository.close();
+  });
+
+  test('sign-out during bootstrap discards stale completion', () async {
+    final repository = FakeCustomerAuthStateRepository(
+      loadDelay: const Duration(milliseconds: 40),
+    );
+    final controller = CustomerAuthenticationController(repository: repository)
+      ..start();
+    repository.emitAuth(identity);
+    await Future<void>.delayed(const Duration(milliseconds: 5));
+    await controller.signOut();
+    await Future<void>.delayed(const Duration(milliseconds: 60));
+    expect(controller.state.gate.kind, AuthenticationGateKind.unauthenticated);
+    expect(repository.listenerCount, 0);
+    controller.dispose();
+    await repository.close();
+  });
+
+  test('consent-required holds duplicate events without listeners', () async {
+    final repository = FakeCustomerAuthStateRepository();
+    repository.nextFailure = const CustomerAuthLoadFailure(
+      CustomerAuthLoadFailureKind.consentRequired,
+    );
+    final controller = CustomerAuthenticationController(repository: repository)
+      ..start();
+    repository.emitAuth(identity);
+    repository.emitToken(identity);
+    await settleController();
+    expect(controller.consentRequired, true);
+    expect(repository.loadCount, 1);
+    expect(repository.listenerCount, 0);
+    await controller.signOut();
+    expect(controller.consentRequired, false);
+    controller.dispose();
+    await repository.close();
+  });
+
+  test('permission failure is retryable without terminating auth', () async {
+    final repository = FakeCustomerAuthStateRepository();
+    repository.nextFailure = const CustomerAuthLoadFailure(
+      CustomerAuthLoadFailureKind.accountAccess,
+    );
+    final controller = CustomerAuthenticationController(repository: repository)
+      ..start();
+    repository.emitAuth(identity);
+    await settleController();
+    expect(
+      controller.state.failure,
+      CustomerAuthenticationFailureKind.accountAccess,
+    );
+    expect(repository.signOutCount, 0);
+    expect(repository.listenerCount, 0);
+    await controller.refresh();
+    expect(controller.state.gate.kind, AuthenticationGateKind.customerReady);
+    controller.dispose();
+    await repository.close();
+  });
+
   test('starts in loading and resolves unauthenticated state', () async {
     final repository = FakeCustomerAuthStateRepository();
     final controller = CustomerAuthenticationController(repository: repository)
@@ -260,6 +387,7 @@ class FakeCustomerAuthStateRepository implements CustomerAuthStateRepository {
   int _concurrentLoads = 0;
   int maximumConcurrentLoads = 0;
   int signOutCount = 0;
+  int listenerCount = 0;
 
   @override
   Stream<CustomerAuthIdentity?> authStateChanges() => _auth.stream;
@@ -268,7 +396,10 @@ class FakeCustomerAuthStateRepository implements CustomerAuthStateRepository {
   Stream<CustomerAuthIdentity?> idTokenChanges() => _token.stream;
 
   @override
-  Stream<void> accountChanges(String uid) => _account.stream;
+  Stream<void> accountChanges(String uid) {
+    listenerCount++;
+    return _account.stream;
+  }
 
   @override
   CustomerAuthIdentity? get currentIdentity => _currentIdentity;
