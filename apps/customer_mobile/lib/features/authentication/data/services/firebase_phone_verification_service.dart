@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import '../../../../core/security/auth_operation_coordinator.dart';
 import '../../domain/phone_verification.dart';
 
 class FirebasePhoneVerificationService implements PhoneVerificationGateway {
@@ -156,53 +157,64 @@ class FirebasePhoneVerificationService implements PhoneVerificationGateway {
     PhoneAuthCredential credential,
     _PhoneVerificationAttempt attempt,
   ) async {
-    final user = _requireAttempt(attempt);
+    _requireAttempt(attempt);
     if (attempt.isCompleting) {
       throw const PhoneVerificationException(
         PhoneVerificationFailureKind.tooManyRequests,
       );
     }
+    // Reserve completion synchronously before waiting for the shared Auth queue.
     attempt.isCompleting = true;
     try {
-      final hasPhoneProvider = user.providerData.any(
-        (provider) => provider.providerId == PhoneAuthProvider.PROVIDER_ID,
+      await AuthOperationCoordinator.shared.transition(
+        () => _linkAndSynchronizeCoordinated(credential, attempt),
       );
-
-      if (hasPhoneProvider) {
-        await user.updatePhoneNumber(credential);
-      } else {
-        await user.linkWithCredential(credential);
-      }
-
-      _requireAttempt(attempt);
-      await user.reload();
-
-      final refreshedUser = _requireAttempt(attempt);
-
-      // Refresh the Firebase Auth token after the phone provider was linked.
-      await refreshedUser.getIdToken(true);
-
-      _requireAttempt(attempt);
-
-      try {
-        await _functions.httpsCallable('syncPhoneVerification').call<void>();
-      } on FirebaseFunctionsException catch (error) {
-        // Firebase Auth is still valid here. Do NOT tell the user their session
-        // expired merely because the synchronization callable failed.
-        _requireAttempt(attempt);
-        if (error.code == 'unauthenticated') {
-          throw const PhoneVerificationException(
-            PhoneVerificationFailureKind.configuration,
-          );
-        }
-
-        rethrow;
-      }
-      _requireAttempt(attempt);
-      _activeAttempt = null;
     } finally {
       attempt.isCompleting = false;
     }
+  }
+
+  Future<void> _linkAndSynchronizeCoordinated(
+    PhoneAuthCredential credential,
+    _PhoneVerificationAttempt attempt,
+  ) async {
+    final user = _requireAttempt(attempt);
+    final hasPhoneProvider = user.providerData.any(
+      (provider) => provider.providerId == PhoneAuthProvider.PROVIDER_ID,
+    );
+
+    if (hasPhoneProvider) {
+      await user.updatePhoneNumber(credential);
+    } else {
+      await user.linkWithCredential(credential);
+    }
+
+    _requireAttempt(attempt);
+    await user.reload();
+
+    final refreshedUser = _requireAttempt(attempt);
+
+    // Refresh the Firebase Auth token after the phone provider was linked.
+    await refreshedUser.getIdToken(true);
+
+    _requireAttempt(attempt);
+
+    try {
+      await _functions.httpsCallable('syncPhoneVerification').call<void>();
+    } on FirebaseFunctionsException catch (error) {
+      // Firebase Auth is still valid here. Do NOT tell the user their session
+      // expired merely because the synchronization callable failed.
+      _requireAttempt(attempt);
+      if (error.code == 'unauthenticated') {
+        throw const PhoneVerificationException(
+          PhoneVerificationFailureKind.configuration,
+        );
+      }
+
+      rethrow;
+    }
+    _requireAttempt(attempt);
+    _activeAttempt = null;
   }
 
   User _requireCurrentUser() {

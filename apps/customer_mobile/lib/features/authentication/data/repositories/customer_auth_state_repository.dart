@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:rxdart/rxdart.dart';
 
+import '../../../../core/security/auth_operation_coordinator.dart';
 import '../../../../core/constants/firestore_collections.dart';
 import '../../../../core/security/secure_debug_log.dart';
 import '../../domain/auth_account_state.dart';
@@ -106,6 +107,16 @@ class FirebaseCustomerAuthStateRepository
   Future<CustomerAccountLoadResult> loadAccount({
     required CustomerAuthIdentity identity,
     required bool forceTokenRefresh,
+  }) => AuthOperationCoordinator.shared.run(
+    () => _loadAccountCoordinated(
+      identity: identity,
+      forceTokenRefresh: forceTokenRefresh,
+    ),
+  );
+
+  Future<CustomerAccountLoadResult> _loadAccountCoordinated({
+    required CustomerAuthIdentity identity,
+    required bool forceTokenRefresh,
   }) async {
     try {
       final user = _auth.currentUser;
@@ -205,7 +216,15 @@ class FirebaseCustomerAuthStateRepository
   }
 
   @override
-  Future<void> signOut() async {
+  Future<void> signOut() {
+    final uid = _auth.currentUser?.uid;
+    return AuthOperationCoordinator.shared.transition(() async {
+      if (_auth.currentUser?.uid != uid) return;
+      await _signOutCoordinated();
+    });
+  }
+
+  Future<void> _signOutCoordinated() async {
     try {
       await GoogleSignIn.instance.signOut();
     } catch (_) {

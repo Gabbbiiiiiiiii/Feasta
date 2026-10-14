@@ -5,6 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../../../../core/security/auth_operation_coordinator.dart';
 import '../../../../core/constants/firestore_collections.dart';
 import '../../../../core/constants/status_constants.dart';
 import '../../domain/account_recovery.dart';
@@ -32,6 +33,12 @@ class AuthRepository
 
   @override
   Future<CustomerRegistrationResult> registerCustomer(
+    CustomerRegistrationInput rawInput,
+  ) => AuthOperationCoordinator.shared.transition(
+    () => _registerCustomerCoordinated(rawInput),
+  );
+
+  Future<CustomerRegistrationResult> _registerCustomerCoordinated(
     CustomerRegistrationInput rawInput,
   ) async {
     final input = rawInput.normalized();
@@ -126,7 +133,11 @@ class AuthRepository
   }
 
   @override
-  Future<bool> refreshVerification() async {
+  Future<bool> refreshVerification() => AuthOperationCoordinator.shared.run(
+    () => _refreshVerificationCoordinated(),
+  );
+
+  Future<bool> _refreshVerificationCoordinated() async {
     final user = _auth.currentUser;
     if (user == null) {
       throw const AccountRecoveryException(
@@ -152,6 +163,44 @@ class AuthRepository
   }
 
   Future<void> registerProvider({
+    required String firstName,
+    required String lastName,
+    required String email,
+    required String phoneNumber,
+    required String password,
+    required String businessName,
+    required String businessPhone,
+    required String businessEmail,
+    required String businessAddress,
+    required String city,
+    required String province,
+    required String description,
+    required List<String> serviceAreas,
+    required List<String> eventTypesSupported,
+    required String providerServiceType,
+    required String providerCategory,
+  }) => AuthOperationCoordinator.shared.transition(
+    () => _registerProviderCoordinated(
+      firstName: firstName,
+      lastName: lastName,
+      email: email,
+      phoneNumber: phoneNumber,
+      password: password,
+      businessName: businessName,
+      businessPhone: businessPhone,
+      businessEmail: businessEmail,
+      businessAddress: businessAddress,
+      city: city,
+      province: province,
+      description: description,
+      serviceAreas: serviceAreas,
+      eventTypesSupported: eventTypesSupported,
+      providerServiceType: providerServiceType,
+      providerCategory: providerCategory,
+    ),
+  );
+
+  Future<void> _registerProviderCoordinated({
     required String firstName,
     required String lastName,
     required String email,
@@ -225,7 +274,11 @@ class AuthRepository
   }
 
   @override
-  Future<void> resendVerification() async {
+  Future<void> resendVerification() => AuthOperationCoordinator.shared.run(
+    () => _resendVerificationCoordinated(),
+  );
+
+  Future<void> _resendVerificationCoordinated() async {
     final user = _auth.currentUser;
     if (user == null) {
       throw const AccountRecoveryException(
@@ -253,6 +306,13 @@ class AuthRepository
 
   @override
   Future<CustomerLoginResult> signInWithEmail({
+    required String email,
+    required String password,
+  }) => AuthOperationCoordinator.shared.transition(
+    () => _signInWithEmailCoordinated(email: email, password: password),
+  );
+
+  Future<CustomerLoginResult> _signInWithEmailCoordinated({
     required String email,
     required String password,
   }) async {
@@ -322,7 +382,15 @@ class AuthRepository
   }
 
   @override
-  Future<void> logout() async {
+  Future<void> logout() {
+    final uid = _auth.currentUser?.uid;
+    return AuthOperationCoordinator.shared.transition(() async {
+      if (_auth.currentUser?.uid != uid) return;
+      await _logoutCoordinated();
+    });
+  }
+
+  Future<void> _logoutCoordinated() async {
     try {
       await GoogleSignIn.instance.signOut();
     } catch (_) {
@@ -332,7 +400,11 @@ class AuthRepository
   }
 
   @override
-  Future<CustomerLoginResult> signInWithGoogle() async {
+  Future<CustomerLoginResult> signInWithGoogle() => AuthOperationCoordinator
+      .shared
+      .transition(() => _signInWithGoogleCoordinated());
+
+  Future<CustomerLoginResult> _signInWithGoogleCoordinated() async {
     try {
       await GoogleSignIn.instance.initialize();
 
@@ -408,7 +480,14 @@ class AuthRepository
     }
   }
 
-  Future<void> _repairCustomerProfileAfterGoogleSignIn(User user) async {
+  Future<void> _repairCustomerProfileAfterGoogleSignIn(User user) =>
+      AuthOperationCoordinator.shared.run(
+        () => _repairCustomerProfileAfterGoogleSignInCoordinated(user),
+      );
+
+  Future<void> _repairCustomerProfileAfterGoogleSignInCoordinated(
+    User user,
+  ) async {
     try {
       // Existing customer accounts do not need ensureUserProfile to run on
       // every login. Re-running the callable on each login creates extra
@@ -458,7 +537,14 @@ class AuthRepository
   }
 
   @override
-  Future<FirebaseActionResult> handleActionCode(FirebaseActionLink link) async {
+  Future<FirebaseActionResult> handleActionCode(FirebaseActionLink link) =>
+      AuthOperationCoordinator.shared.transition(
+        () => _handleActionCodeCoordinated(link),
+      );
+
+  Future<FirebaseActionResult> _handleActionCodeCoordinated(
+    FirebaseActionLink link,
+  ) async {
     try {
       if (link.mode == FirebaseActionMode.resetPassword) {
         final email = await _auth.verifyPasswordResetCode(link.oobCode);
