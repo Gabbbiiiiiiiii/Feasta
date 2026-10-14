@@ -317,10 +317,16 @@ export async function exchangeCurrentUserForSession(
 
 export async function logoutWebSession(): Promise<void> {
   const csrf = await getCsrfToken();
-  await fetch("/api/auth/logout", {
+  const response = await fetch("/api/auth/logout", {
     method: "POST",
     headers: {"x-feasta-csrf": csrf},
   });
+  if (!response.ok) {
+    throw new WebAuthenticationError(
+      "Sign out could not be completed. Please try again.",
+      "logout_failed",
+    );
+  }
   await signOut(auth);
 }
 

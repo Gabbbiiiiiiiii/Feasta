@@ -20,6 +20,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -162,75 +163,26 @@ export function ProviderServicesClient({
     null,
   );
 
-  const loadServices =
-    useCallback(async () => {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const result =
-          await listProviderServices(
-            providerId,
-          );
-
-        setServices(result);
-      } catch (caught) {
-        console.error(
-          "[FEASTA provider services]",
-          caught,
-        );
-
-        setError(
-          "We couldn't load your event services. Please try again.",
-        );
-      } finally {
-        setLoading(false);
-      }
-    }, [providerId]);
+  const requestId = useRef(0);
+  const loadServices = useCallback(async () => {
+    const current = ++requestId.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await listProviderServices(providerId);
+      if (current === requestId.current) setServices(result);
+    } catch {
+      if (current === requestId.current) setError("We couldn't load your event services. Please try again.");
+    } finally {
+      if (current === requestId.current) setLoading(false);
+    }
+  }, [providerId]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    const loadInitialServices =
-      async () => {
-        try {
-          const result =
-            await listProviderServices(
-              providerId,
-            );
-
-          if (cancelled) {
-            return;
-          }
-
-          setServices(result);
-          setError(null);
-        } catch (caught) {
-          if (cancelled) {
-            return;
-          }
-
-          console.error(
-            "[FEASTA provider services]",
-            caught,
-          );
-
-          setError(
-            "We couldn't load your event services. Please try again.",
-          );
-        } finally {
-          if (!cancelled) {
-            setLoading(false);
-          }
-        }
-      };
-
-    void loadInitialServices();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [providerId]);
+    let active = true;
+    void Promise.resolve().then(() => { if (active) return loadServices(); });
+    return () => { active = false; requestId.current += 1; };
+  }, [loadServices]);
 
   const filteredServices =
     useMemo(() => {
@@ -590,7 +542,7 @@ export function ProviderServicesClient({
             Loading event services...
           </div>
         </div>
-      ) : (
+      ) : error ? null : (
         <DataTable
           columns={columns}
           rows={filteredServices}

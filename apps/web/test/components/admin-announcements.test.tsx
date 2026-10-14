@@ -264,3 +264,39 @@ describe("Announcement authorization and persistence contracts", () => {
     expect(service).not.toContain("navigationUrl");
   });
 });
+it("retries the failed announcements page with its filters, cursor, and history", async () => {
+  const user = userEvent.setup();
+  const first = {...pageWith(draft), nextCursor: "announcements-page-2", hasMore: true};
+  actions.load.mockResolvedValueOnce(first).mockRejectedValueOnce(new Error("Read failed")).mockResolvedValueOnce({...pageWith({...draft, id: "page-two", title: "Second page notice"}), nextCursor: null});
+  render(<AnnouncementManagementClient initialPage={pageWith(draft)} />);
+  await user.selectOptions(screen.getByLabelText("Status"), "draft");
+  await waitFor(() => expect(screen.getByRole("button", {name: "Next"})).toBeEnabled());
+  await user.click(screen.getByRole("button", {name: "Next"}));
+  expect(await screen.findByText("Read failed")).toBeVisible();
+  expect(screen.queryByText("No announcements yet")).not.toBeInTheDocument();
+  expect(screen.getByText("Showing 1 announcement")).toBeVisible();
+  const failedRequest = actions.load.mock.calls[1][0];
+  expect(failedRequest).toMatchObject({status: "draft", cursor: "announcements-page-2"});
+  await user.click(screen.getByRole("button", {name: "Try again"}));
+  await waitFor(() => expect(actions.load).toHaveBeenCalledTimes(3));
+  expect(actions.load.mock.calls[2][0]).toEqual(failedRequest);
+  expect((await screen.findAllByText("Second page notice"))[0]).toBeVisible();
+  expect(screen.getByLabelText("Status")).toHaveValue("draft");
+  actions.load.mockResolvedValueOnce(first);
+  await user.click(screen.getByRole("button", {name: "Previous"}));
+  await waitFor(() => expect(actions.load.mock.calls[3][0]).toMatchObject({status: "draft", cursor: null}));
+});
+
+it("retries a failed new announcement filter rather than the previous successful filter", async () => {
+  const user = userEvent.setup();
+  actions.load.mockRejectedValueOnce(new Error("Filtered read failed")).mockResolvedValueOnce(emptyPage);
+  render(<AnnouncementManagementClient initialPage={pageWith(draft)} />);
+  await user.selectOptions(screen.getByLabelText("Audience"), "providers");
+  expect(await screen.findByText("Filtered read failed")).toBeVisible();
+  await user.click(screen.getByRole("button", {name: "Try again"}));
+  await waitFor(() => expect(actions.load).toHaveBeenCalledTimes(2));
+  expect(actions.load.mock.calls[1][0]).toEqual(actions.load.mock.calls[0][0]);
+  expect(actions.load.mock.calls[1][0]).toMatchObject({audience: "providers", cursor: null});
+  expect(screen.getByLabelText("Audience")).toHaveValue("providers");
+  expect(await screen.findByText("No matching announcements")).toBeVisible();
+});

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -93,13 +94,16 @@ function AnnouncementManagementClient({
   const [isPending, startTransition] = useTransition();
 
   const pageRequestId = useRef(0);
+  useEffect(() => () => { pageRequestId.current += 1; }, []);
+  const retryRequest = useRef<{filters: AdminAnnouncementFilters; cursor: string | null; history: (string | null)[]} | null>(null);
   const loadPage = useCallback((
     nextFilters: AdminAnnouncementFilters,
     cursor: string | null,
     history: (string | null)[],
   ) => {
+    retryRequest.current = {filters: nextFilters, cursor, history};
     const requestId = ++pageRequestId.current;
-      setPageError(undefined);
+    setPageError(undefined);
     const request = {...nextFilters, cursor};
     startTransition(async () => {
       try {
@@ -294,6 +298,10 @@ function AnnouncementManagementClient({
         caption="FEASTA announcement records"
         loading={isPending}
         error={pageError}
+        onRetry={() => {
+          const request = retryRequest.current;
+          if (request) loadPage(request.filters, request.cursor, request.history);
+        }}
         emptyTitle={activeFilters.length ? "No matching announcements" : "No announcements yet"}
         emptyDescription={activeFilters.length
           ? "Try changing your search or clearing a filter."

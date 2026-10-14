@@ -60,14 +60,19 @@ export function NotificationMenu({
   const [snapshot, setSnapshot] = useState(EMPTY_SNAPSHOT);
   const [marking, setMarking] = useState(false);
 
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const lifecycle = useRef(0);
+
   useEffect(() => {
+    const generation = ++lifecycle.current;
     let active = true;
+    let subscriptionFailed = false;
     let unsubscribe: (() => void) | undefined;
 
     if (role === "admin") {
       void loadAdminNotificationMenuAction()
         .then((summary) => {
-          if (!active) return;
+          if (!active || generation !== lifecycle.current) return;
 
           setSnapshot({
             notifications:
@@ -82,7 +87,7 @@ export function NotificationMenu({
           setLoading(false);
         })
         .catch(() => {
-          if (!active) return;
+          if (!active || generation !== lifecycle.current) return;
 
           setLoading(false);
           setError(
@@ -92,19 +97,23 @@ export function NotificationMenu({
 
       return () => {
         active = false;
+        if (lifecycle.current === generation) lifecycle.current += 1;
       };
     }
 
     void subscribeToNotifications(
       (nextSnapshot) => {
-        if (!active) return;
+        if (!active || subscriptionFailed || generation !== lifecycle.current) return;
 
         setSnapshot(nextSnapshot);
         setLoading(false);
         setError(null);
       },
       () => {
-        if (!active) return;
+        if (!active || subscriptionFailed || generation !== lifecycle.current) return;
+        subscriptionFailed = true;
+        unsubscribe?.();
+        unsubscribe = undefined;
 
         setLoading(false);
         setError(
@@ -113,7 +122,7 @@ export function NotificationMenu({
       },
     )
       .then((subscription) => {
-        if (active) {
+        if (active && !subscriptionFailed && generation === lifecycle.current) {
           unsubscribe =
             subscription.unsubscribe;
         } else {
@@ -121,7 +130,7 @@ export function NotificationMenu({
         }
       })
       .catch(() => {
-        if (!active) return;
+        if (!active || generation !== lifecycle.current) return;
 
         setLoading(false);
         setError(
@@ -131,9 +140,10 @@ export function NotificationMenu({
 
     return () => {
       active = false;
+      if (lifecycle.current === generation) lifecycle.current += 1;
       unsubscribe?.();
     };
-  }, [role]);
+  }, [role, loadAttempt]);
 
   useEffect(() => {
     if (!open) return;
@@ -173,6 +183,7 @@ export function NotificationMenu({
       return;
     }
 
+    const generation = lifecycle.current;
     setMarking(true);
     setError(null);
 
@@ -190,6 +201,7 @@ export function NotificationMenu({
         );
       }
 
+      if (generation !== lifecycle.current) return;
       setSnapshot((current) => ({
         ...current,
         notifications:
@@ -206,11 +218,12 @@ export function NotificationMenu({
         unreadCountCapped: false,
       }));
     } catch {
+      if (generation !== lifecycle.current) return;
       setError(
         "Notifications could not be updated.",
       );
     } finally {
-      setMarking(false);
+      if (generation === lifecycle.current) setMarking(false);
     }
   };
 
@@ -219,7 +232,9 @@ export function NotificationMenu({
   ) => {
     if (notification.isRead) return;
 
+    const generation = lifecycle.current;
     const updateLocalReadState = () => {
+      if (generation !== lifecycle.current) return;
       setSnapshot((current) => ({
         ...current,
         notifications:
@@ -241,10 +256,6 @@ export function NotificationMenu({
       }));
     };
 
-    if (role === "customer") {
-      updateLocalReadState();
-    }
-
     try {
       if (role === "admin") {
         await markAdminNotificationReadAction(
@@ -256,10 +267,9 @@ export function NotificationMenu({
         );
       }
 
-      if (role !== "customer") {
-        updateLocalReadState();
-      }
+      updateLocalReadState();
     } catch {
+      if (generation !== lifecycle.current) return;
       setError(
         "The notification could not be updated.",
       );
@@ -321,7 +331,22 @@ export function NotificationMenu({
             {loading ? (
               <NotificationMessage>Loading notifications…</NotificationMessage>
             ) : error ? (
-              <NotificationMessage tone="error">{error}</NotificationMessage>
+              <div>
+                <NotificationMessage tone="error">{error}</NotificationMessage>
+                <button
+                  type="button"
+                  className="min-h-11 w-full text-sm font-bold text-primary"
+                  onClick={() => {
+                    lifecycle.current += 1;
+                    setLoading(true);
+                    setError(null);
+                    setMarking(false);
+                    setLoadAttempt((current) => current + 1);
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
             ) : snapshot.notifications.length === 0 ? (
               <NotificationMessage>No notifications yet.</NotificationMessage>
             ) : (

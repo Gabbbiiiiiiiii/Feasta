@@ -44,13 +44,16 @@ export function ProviderSetupGalleryManager() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [loadFailed, setLoadFailed] = useState(false);
+
   useEffect(() => {
     let active = true;
     loadProviderSetupGalleryAction().then((loaded) => { if (active) setGallery(loaded); })
-      .catch(() => { if (active) setError("Your setup gallery could not be loaded. Try reopening the editor."); })
+      .catch(() => { if (active) { setLoadFailed(true); setError("Your setup gallery could not be loaded. Please try again."); } })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [loadAttempt]);
 
   async function saveDraft() {
     if (!draft || busy) return;
@@ -103,11 +106,12 @@ export function ProviderSetupGalleryManager() {
         <h2 id="provider-setup-gallery-heading" className="text-xl font-bold">Setup gallery</h2>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">Add photos of events you have styled. Published setups are visual inspiration only and do not set a package, menu, or booking price.</p>
       </div>
-      <Button type="button" disabled={loading || busy || gallery.setups.length >= PROVIDER_SETUP_LIMIT} onClick={() => { setError(null); setDraft(emptyDraft()); }}>
+      <Button type="button" disabled={loading || loadFailed || busy || gallery.setups.length >= PROVIDER_SETUP_LIMIT} onClick={() => { setError(null); setDraft(emptyDraft()); }}>
         <Plus aria-hidden="true" className="size-4" />Add setup
       </Button>
     </div>
     {error && !draft ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+    {loadFailed ? <Button variant="secondary" onClick={() => { setLoading(true); setError(null); setLoadFailed(false); setLoadAttempt((current) => current + 1); }}>Retry</Button> : null}
     {loading ? <p role="status" className="text-sm text-muted-foreground">Loading setup gallery…</p> : null}
     <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15.5rem),1fr))] items-start gap-4">
       {gallery.setups.map((setup) => <article key={setup.id} aria-label={setup.title} className="min-w-0 self-start overflow-hidden rounded-card border border-border bg-card shadow-card">

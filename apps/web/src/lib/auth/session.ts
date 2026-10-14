@@ -47,7 +47,7 @@ import {
 import {CSRF_COOKIE_NAME} from "@/lib/security/request";
 import type {ProviderOnboardingDraft} from "@/lib/provider/onboarding";
 import {parseProviderAgreementSnapshot} from "@/lib/provider/provider-agreement-record";
-import {requireServerPhoneIdentityOwnership} from "@/lib/auth/phone-identity-server";
+import {PhoneIdentityError, requireServerPhoneIdentityOwnership} from "@/lib/auth/phone-identity-server";
 
 export const SESSION_COOKIE_NAME = "feasta_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 5;
@@ -87,6 +87,22 @@ export class AccountAccessError extends Error {
     super("The account cannot access this resource.");
     this.name = "AccountAccessError";
   }
+}
+
+/** Unknown/configuration/backend failures must deny access without deleting credentials. */
+export function isInvalidSessionError(error: unknown): boolean {
+  if (error instanceof AccountAccessError) return true;
+  if (typeof error !== "object" || error === null || !("code" in error)) return false;
+  const code = error.code;
+  if ([
+    "auth/session-cookie-expired", "auth/session-cookie-revoked",
+    "auth/id-token-expired", "auth/id-token-revoked", "auth/invalid-id-token",
+    "auth/user-disabled", "auth/user-not-found",
+  ].includes(String(code))) return true;
+  // Admin SDK also uses argument-error for public-key fetch failures. Only
+  // recognized session-token validation messages establish an invalid cookie.
+  return code === "auth/argument-error" && error instanceof Error &&
+    /^(Decoding Firebase session cookie failed\.|Firebase session cookie has (?:no |incorrect |an empty |a "sub"|invalid signature|"kid" claim))/u.test(error.message);
 }
 
 export async function createSession(idToken: string): Promise<{
@@ -184,7 +200,8 @@ export async function getOptionalAccountContext(
 
   try {
     return await verifySessionCookie(value, options);
-  } catch {
+  } catch (error) {
+    if (!isInvalidSessionError(error)) throw error;
     logWebSecurityEvent({
       action: "session_access_denied",
       outcome: "denied",
@@ -1104,16 +1121,17 @@ export async function loadTrustedAccountContext(
         userProfile.role === "customer" &&
         customerSnapshot?.data()?.phoneNumber !== phoneNumber
       ) {
-        throw new Error("The customer phone projection is inconsistent.");
+        throw new PhoneIdentityError("The customer phone projection is inconsistent.");
       }
       if (
         userProfile.role === "provider" &&
         providerProfile &&
         providerSnapshot?.data()?.ownerPhone !== phoneNumber
       ) {
-        throw new Error("The provider phone projection is inconsistent.");
+        throw new PhoneIdentityError("The provider phone projection is inconsistent.");
       }
-    } catch {
+    } catch (error) {
+      if (!(error instanceof PhoneIdentityError) && !isInvalidSessionError(error)) throw error;
       logWebSecurityEvent({
         action: "account_access_denied",
         outcome: "denied",

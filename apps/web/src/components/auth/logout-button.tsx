@@ -14,24 +14,29 @@ export function LogoutButton({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   return (
     <ConfirmationDialog
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(next) => {setOpen(next); setError(null);}}
       title="Sign out of FEASTA?"
       description="You will need to sign in again to access this protected workspace."
       confirmLabel="Sign out"
       onConfirm={async () => {
+        setError(null);
         try {
           await logoutWebSession();
           router.replace(destination);
           router.refresh();
-        } finally {
           setOpen(false);
+        } catch {
+          setError("Sign out could not be completed. Please try again.");
         }
       }}
       trigger={<Button variant="secondary">Sign out</Button>}
-    />
+    >
+      {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+    </ConfirmationDialog>
   );
 }

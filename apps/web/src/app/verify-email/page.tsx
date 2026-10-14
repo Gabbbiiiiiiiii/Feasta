@@ -152,10 +152,10 @@ function VerifyEmailContent() {
     if (action) return;
 
     setAction("logout");
+    setError(null);
 
     try {
       await logoutWebSession();
-    } finally {
       const loginParameters =
         new URLSearchParams({
           next: returnTo,
@@ -166,6 +166,10 @@ function VerifyEmailContent() {
       );
 
       router.refresh();
+    } catch {
+      setError("Sign out could not be completed. Please try again.");
+    } finally {
+      setAction(null);
     }
   }
 
