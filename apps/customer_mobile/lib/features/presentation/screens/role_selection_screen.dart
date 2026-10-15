@@ -8,7 +8,8 @@ import 'customer_register_screen.dart';
 import 'provider_register_screen.dart';
 
 class RoleSelectionScreen extends StatelessWidget {
-  const RoleSelectionScreen({super.key});
+  const RoleSelectionScreen({this.customerRegistrationBuilder, super.key});
+  final WidgetBuilder? customerRegistrationBuilder;
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +44,9 @@ class RoleSelectionScreen extends StatelessWidget {
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (_) => const CustomerRegisterScreen(),
+                        builder:
+                            customerRegistrationBuilder ??
+                            (_) => const CustomerRegisterScreen(),
                       ),
                     );
                   },

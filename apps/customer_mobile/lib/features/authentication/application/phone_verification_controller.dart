@@ -317,6 +317,8 @@ class PhoneVerificationController extends ChangeNotifier {
       'Check your connection and try again.',
     PhoneVerificationFailureKind.configuration =>
       'Phone verification is temporarily unavailable.',
+    PhoneVerificationFailureKind.emailVerificationRequired =>
+      'Verify your email before verifying your mobile number.',
     PhoneVerificationFailureKind.invalidCode =>
       'The verification code is incorrect.',
     PhoneVerificationFailureKind.expiredCode =>

@@ -1,4 +1,4 @@
-﻿import 'package:feasta/core/domain/service_category.dart';
+import 'package:feasta/core/domain/service_category.dart';
 import 'package:feasta/features/authentication/application/phone_verification_controller.dart';
 import 'package:feasta/features/authentication/domain/customer_login.dart';
 import 'package:feasta/features/authentication/domain/customer_registration.dart';
@@ -57,11 +57,19 @@ void main() {
       await tester.pumpWidget(
         _largeTextApp(
           CustomerRegisterScreen(
+            legalDocumentLoader: (_) async => {
+              'name': 'Published policy',
+              'version': '1.1',
+              'sections': [
+                {
+                  'title': 'Agreement',
+                  'paragraphs': ['Published content'],
+                },
+              ],
+            },
             registrationGateway: _ResponsiveRegistrationGateway(),
             googleLoginGateway: _ResponsiveLoginGateway(),
             onRegistrationComplete: (_) {},
-            onOpenTerms: () {},
-            onOpenPrivacy: () {},
           ),
         ),
       );

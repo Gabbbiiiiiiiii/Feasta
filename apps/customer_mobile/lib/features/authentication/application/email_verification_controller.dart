@@ -31,9 +31,11 @@ class EmailVerificationController extends ChangeNotifier {
   EmailVerificationState get state => _state;
   Timer? _cooldownTimer;
   DateTime? _cooldownEndsAt;
+  bool _disposed = false;
 
   Future<void> resend() async {
-    if (_state.isResending ||
+    if (_disposed ||
+        _state.isResending ||
         _state.isRefreshing ||
         _state.cooldownSeconds > 0) {
       return;
@@ -41,6 +43,7 @@ class EmailVerificationController extends ChangeNotifier {
     _setState(const EmailVerificationState(isResending: true));
     try {
       await gateway.resendVerification();
+      if (_disposed) return;
       _startCooldown();
       _setState(
         EmailVerificationState(
@@ -60,7 +63,7 @@ class EmailVerificationController extends ChangeNotifier {
   }
 
   Future<bool> refresh() async {
-    if (_state.isRefreshing || _state.isResending) return false;
+    if (_disposed || _state.isRefreshing || _state.isResending) return false;
     _setState(
       EmailVerificationState(
         isRefreshing: true,
@@ -69,6 +72,7 @@ class EmailVerificationController extends ChangeNotifier {
     );
     try {
       final verified = await gateway.refreshVerification();
+      if (_disposed) return false;
       _setState(
         EmailVerificationState(
           cooldownSeconds: _remainingSeconds(),
@@ -111,6 +115,7 @@ class EmailVerificationController extends ChangeNotifier {
   };
 
   void _startCooldown() {
+    if (_disposed) return;
     _cooldownEndsAt = DateTime.now().add(resendCooldown);
     _cooldownTimer?.cancel();
     final interval = resendCooldown < const Duration(seconds: 1)
@@ -118,7 +123,15 @@ class EmailVerificationController extends ChangeNotifier {
         : const Duration(seconds: 1);
     _cooldownTimer = Timer.periodic(interval, (_) {
       final remaining = _remainingSeconds();
-      _setState(EmailVerificationState(cooldownSeconds: remaining));
+      _setState(
+        EmailVerificationState(
+          isResending: _state.isResending,
+          isRefreshing: _state.isRefreshing,
+          cooldownSeconds: remaining,
+          error: _state.error,
+          notice: _state.notice,
+        ),
+      );
       if (remaining == 0) _cooldownTimer?.cancel();
     });
   }
@@ -131,12 +144,14 @@ class EmailVerificationController extends ChangeNotifier {
   }
 
   void _setState(EmailVerificationState value) {
+    if (_disposed) return;
     _state = value;
     notifyListeners();
   }
 
   @override
   void dispose() {
+    _disposed = true;
     _cooldownTimer?.cancel();
     super.dispose();
   }

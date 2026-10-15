@@ -1,3 +1,4 @@
+import '../../../../core/security/auth_operation_coordinator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -28,7 +29,11 @@ class FeastaRepository {
     return user.uid;
   }
 
-  Future<void> _requireVerifiedActiveCustomer() async {
+  Future<void> _requireVerifiedActiveCustomer() => AuthOperationCoordinator
+      .shared
+      .run(() => _requireVerifiedActiveCustomerCoordinated());
+
+  Future<void> _requireVerifiedActiveCustomerCoordinated() async {
     final user = _auth.currentUser;
     if (user == null) throw Exception('Please log in to continue.');
     await user.reload();
@@ -48,6 +53,7 @@ class FeastaRepository {
         data['isBlocked'] == true ||
         data['accountStatus'] != 'active';
     if (unavailable) {
+      AuthOperationCoordinator.shared.noteTransition();
       await _auth.signOut();
       throw Exception('Your account is currently unavailable.');
     }

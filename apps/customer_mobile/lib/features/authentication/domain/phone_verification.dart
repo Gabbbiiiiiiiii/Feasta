@@ -8,6 +8,7 @@ enum PhoneVerificationFailureKind {
   blocked,
   network,
   configuration,
+  emailVerificationRequired,
   unknown,
 }
 

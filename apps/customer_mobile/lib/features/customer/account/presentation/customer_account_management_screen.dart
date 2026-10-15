@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_cropper/image_cropper.dart';
@@ -63,6 +63,12 @@ class _CustomerAccountManagementScreenState
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   bool _photoFlowActive = false;
+  bool _passwordFlowActive = false;
+  bool get _needsPasswordCleanup {
+    final issue = controller.passwordChangeIssue;
+    return issue != null && !issue.accountChanged;
+  }
+
   bool _photoUploading = false;
   bool _profileImageOverrideSet = false;
   String? _profileImageUrlOverride;
@@ -115,6 +121,7 @@ class _CustomerAccountManagementScreenState
         : await _loadAccountFromRepository();
 
     await _populateFields(account.$1, account.$2);
+    await controller.restorePasswordRecovery();
 
     return account;
   }
@@ -551,40 +558,79 @@ class _CustomerAccountManagementScreenState
   }
 
   Future<void> _changePassword() async {
-    if (!controller.supportsPasswordChanges) {
-      _showSaveError(
-        const CustomerAccountException(
-          CustomerAccountFailureKind.passwordProviderRequired,
-        ).friendlyMessage,
-      );
-      return;
-    }
+    if (_passwordFlowActive || controller.isSubmitting) return;
+    _passwordFlowActive = true;
+    try {
+      if (!controller.supportsPasswordChanges) {
+        _showSaveError(
+          const CustomerAccountException(
+            CustomerAccountFailureKind.passwordProviderRequired,
+          ).friendlyMessage,
+        );
+        return;
+      }
 
-    final values = await _showCredentialDialog(
-      title: 'Change password',
-      includeNewPassword: true,
-    );
+      final issueBeforeOperation = controller.passwordChangeIssue;
+      final recovering = _needsPasswordCleanup;
+      String? recoveryPassword;
+      if (recovering && issueBeforeOperation!.requiresReauthentication) {
+        recoveryPassword = await _requestCurrentPassword(
+          'Confirm your current password for cleanup',
+        );
+        if (recoveryPassword == null || !mounted) return;
+      }
+      final values = recovering
+          ? ('', '')
+          : await _showCredentialDialog(
+              title: 'Change password',
+              includeNewPassword: true,
+            );
 
-    if (values == null) {
-      return;
-    }
+      if (values == null || !mounted) {
+        return;
+      }
 
-    final success = await controller.changePassword(
-      currentPassword: values.$1,
-      newPassword: values.$2,
-    );
+      final messenger = ScaffoldMessenger.of(context);
+      final navigator = Navigator.of(context);
+      final success = recovering
+          ? await controller.resumePasswordCleanup(
+              currentPassword: recoveryPassword,
+            )
+          : await controller.changePassword(
+              currentPassword: values.$1,
+              newPassword: values.$2,
+            );
 
-    if (!mounted) {
-      return;
-    }
-
-    if (success) {
-      _showSaveSuccessMessage('Password changed successfully');
-    } else {
-      _showSaveError(
-        controller.errorMessage ??
-            'Unable to change password. Please try again.',
-      );
+      final issue = controller.passwordChangeIssue;
+      if (success || issue != null) {
+        if (messenger.mounted) {
+          messenger
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  success
+                      ? recovering
+                            ? 'Session cleanup completed. You have been signed out.'
+                            : 'Password changed. You have been signed out. Sign in with your new password.'
+                      : issue!.friendlyMessage,
+                ),
+                duration: const Duration(seconds: 10),
+              ),
+            );
+        }
+        if ((success || issue?.signedOut == true) && navigator.mounted) {
+          navigator.popUntil((route) => route.isFirst);
+        }
+      } else {
+        if (!mounted) return;
+        _showSaveError(
+          controller.errorMessage ??
+              'Unable to change password. Please try again.',
+        );
+      }
+    } finally {
+      _passwordFlowActive = false;
     }
   }
 
@@ -630,7 +676,7 @@ class _CustomerAccountManagementScreenState
     final value = TextEditingController();
     final key = GlobalKey<FormState>();
 
-    final result = await showDialog<(String, String)>(
+    final dialogRoute = DialogRoute<(String, String)>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(title),
@@ -702,6 +748,12 @@ class _CustomerAccountManagementScreenState
       ),
     );
 
+    final result = await Navigator.of(
+      context,
+      rootNavigator: true,
+    ).push(dialogRoute);
+    // Text fields remain mounted while the dialog's exit animation runs.
+    await dialogRoute.completed;
     current.dispose();
     value.dispose();
 
@@ -715,7 +767,7 @@ class _CustomerAccountManagementScreenState
 
     final password = TextEditingController();
 
-    final result = await showDialog<String>(
+    final dialogRoute = DialogRoute<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(title),
@@ -744,6 +796,11 @@ class _CustomerAccountManagementScreenState
       ),
     );
 
+    final result = await Navigator.of(
+      context,
+      rootNavigator: true,
+    ).push(dialogRoute);
+    await dialogRoute.completed;
     password.dispose();
 
     return result;
@@ -1107,10 +1164,21 @@ class _CustomerAccountManagementScreenState
                   icon: Icons.shield_outlined,
                   child: Column(
                     children: [
+                      if (controller.passwordChangeIssue != null)
+                        Padding(
+                          padding: const EdgeInsets.all(AppSpacing.md),
+                          child: Text(
+                            controller.passwordChangeIssue!.friendlyMessage,
+                          ),
+                        ),
                       _SecurityRow(
                         icon: Icons.password_outlined,
-                        title: 'Change password',
-                        subtitle: controller.supportsPasswordChanges
+                        title: _needsPasswordCleanup
+                            ? 'Retry sign-out'
+                            : 'Change password',
+                        subtitle: _needsPasswordCleanup
+                            ? 'Finish signing out after your password change'
+                            : controller.supportsPasswordChanges
                             ? 'Update your FEASTA password'
                             : 'Managed by your sign-in provider',
                         onTap: _changePassword,

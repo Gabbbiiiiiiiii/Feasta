@@ -8,6 +8,97 @@ const _testCredential = 'secret1';
 const _weakCredentialMessage = 'security requirements';
 
 void main() {
+  test('only confirmed code and reason pairs are policy failures', () {
+    final pairs = {
+      'consent-required': CustomerRegistrationFailureKind.consentRequired,
+      'policy-version-outdated': CustomerRegistrationFailureKind.policyOutdated,
+      'policy-unavailable': CustomerRegistrationFailureKind.policyUnavailable,
+      'invalid-policy-version':
+          CustomerRegistrationFailureKind.invalidPolicyVersion,
+    };
+    for (final entry in pairs.entries) {
+      final code = entry.key == 'invalid-policy-version'
+          ? 'invalid-argument'
+          : 'failed-precondition';
+      expect(
+        registrationPolicyFailure(code, {'reason': entry.key}),
+        entry.value,
+      );
+      for (final wrong in [
+        'permission-denied',
+        'unavailable',
+        code == 'invalid-argument' ? 'failed-precondition' : 'invalid-argument',
+      ]) {
+        expect(registrationPolicyFailure(wrong, {'reason': entry.key}), isNull);
+      }
+    }
+    expect(
+      registrationPolicyFailure('failed-precondition', {'reason': 'unknown'}),
+      isNull,
+    );
+    expect(registrationPolicyFailure('failed-precondition', null), isNull);
+  });
+
+  for (final versions in [
+    ['1.1', '1.1'],
+    ['2', '3'],
+    ['  future-99  ', 'future-100'],
+  ]) {
+    test('preserves exact versions $versions', () async {
+      final gateway = FakeRegistrationGateway();
+      await CustomerRegistrationController(gateway: gateway).submit(
+        firstName: 'A',
+        lastName: 'B',
+        email: 'a@b.test',
+        password: _testCredential,
+        confirmPassword: _testCredential,
+        acceptedTerms: true,
+        acceptedPrivacy: true,
+        termsPolicyVersion: versions[0],
+        privacyPolicyVersion: versions[1],
+      );
+      expect(gateway.lastInput!.termsPolicyVersion, versions[0]);
+      expect(gateway.lastInput!.privacyPolicyVersion, versions[1]);
+    });
+  }
+  test('boolean consent without versions never contacts gateway', () async {
+    final gateway = FakeRegistrationGateway();
+    await CustomerRegistrationController(gateway: gateway).submit(
+      firstName: 'A',
+      lastName: 'B',
+      email: 'a@b.test',
+      password: _testCredential,
+      confirmPassword: _testCredential,
+      acceptedTerms: true,
+      acceptedPrivacy: true,
+      termsPolicyVersion: '',
+      privacyPolicyVersion: ' ',
+    );
+    expect(gateway.calls, 0);
+  });
+  test('disposed submission discards late result', () async {
+    final gateway = FakeRegistrationGateway(block: true);
+    final controller = CustomerRegistrationController(gateway: gateway);
+    final pending = validSubmit(controller);
+    controller.dispose();
+    gateway.complete();
+    expect(await pending, isNull);
+  });
+  for (final failure in [
+    CustomerRegistrationFailureKind.consentRequired,
+    CustomerRegistrationFailureKind.policyOutdated,
+    CustomerRegistrationFailureKind.policyUnavailable,
+    CustomerRegistrationFailureKind.invalidPolicyVersion,
+  ]) {
+    test('exposes policy recovery $failure without resubmission', () async {
+      final gateway = FakeRegistrationGateway(failure: failure);
+      final controller = CustomerRegistrationController(gateway: gateway);
+      await validSubmit(controller);
+      expect(controller.state.policyFailure, failure);
+      expect(gateway.calls, 1);
+    });
+  }
+
   test(
     'valid registration normalizes identity and exposes no role field',
     () async {
@@ -22,6 +113,8 @@ void main() {
         confirmPassword: _testCredential,
         acceptedTerms: true,
         acceptedPrivacy: true,
+        termsPolicyVersion: '1.1',
+        privacyPolicyVersion: '1.1',
       );
 
       expect(result, isNotNull);
@@ -47,6 +140,8 @@ void main() {
         confirmPassword: '321',
         acceptedTerms: false,
         acceptedPrivacy: false,
+        termsPolicyVersion: '1.1',
+        privacyPolicyVersion: '1.1',
       );
 
       final errors = controller.state.errors;
@@ -143,6 +238,8 @@ Future<CustomerRegistrationResult?> validSubmit(
     confirmPassword: _testCredential,
     acceptedTerms: true,
     acceptedPrivacy: true,
+    termsPolicyVersion: '1.1',
+    privacyPolicyVersion: '1.1',
   );
 }
 

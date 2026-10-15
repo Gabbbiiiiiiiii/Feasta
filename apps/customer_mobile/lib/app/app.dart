@@ -53,16 +53,16 @@ class _FeastaAppState extends State<FeastaApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Feasta',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      home: OnboardingGate(
-        onFirstOnboardingCompleted: () {
-          _controller.requestIntendedLocation(CustomerAppLocations.browse);
-        },
-        child: CustomerAuthenticationScope(
-          controller: _controller,
+    return CustomerAuthenticationScope(
+      controller: _controller,
+      child: MaterialApp(
+        title: 'Feasta',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light,
+        home: OnboardingGate(
+          onFirstOnboardingCompleted: () {
+            _controller.requestIntendedLocation(CustomerAppLocations.browse);
+          },
           child: AuthenticationGate(controller: _controller),
         ),
       ),
