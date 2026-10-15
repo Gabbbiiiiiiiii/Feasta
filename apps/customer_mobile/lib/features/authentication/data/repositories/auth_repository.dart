@@ -21,11 +21,19 @@ class AuthRepository
         EmailVerificationGateway,
         PasswordResetGateway,
         FirebaseActionCodeGateway {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
-    region: 'asia-southeast1',
-  );
+  AuthRepository({
+    FirebaseAuth? auth,
+    FirebaseFirestore? firestore,
+    FirebaseFunctions? functions,
+  }) : _auth = auth ?? FirebaseAuth.instance,
+       _db = firestore ?? FirebaseFirestore.instance,
+       _functions =
+           functions ??
+           FirebaseFunctions.instanceFor(region: 'asia-southeast1');
+
+  final FirebaseAuth _auth;
+  final FirebaseFirestore _db;
+  final FirebaseFunctions _functions;
 
   User? get currentUser => _auth.currentUser;
 
@@ -34,15 +42,31 @@ class AuthRepository
   @override
   Future<CustomerRegistrationResult> registerCustomer(
     CustomerRegistrationInput rawInput,
-  ) => AuthOperationCoordinator.shared.transition(
-    () => _registerCustomerCoordinated(rawInput),
-  );
+  ) {
+    final initialUid = _auth.currentUser?.uid;
+    return AuthOperationCoordinator.shared.transition(() {
+      if (_auth.currentUser?.uid != initialUid) {
+        throw const CustomerRegistrationException(
+          CustomerRegistrationFailureKind.blockedAccount,
+        );
+      }
+      return _registerCustomerCoordinated(rawInput);
+    });
+  }
 
   Future<CustomerRegistrationResult> _registerCustomerCoordinated(
     CustomerRegistrationInput rawInput,
   ) async {
     final input = rawInput.normalized();
     final normalizedEmail = input.email;
+    if (!input.acceptedTerms ||
+        !input.acceptedPrivacy ||
+        input.termsPolicyVersion.trim().isEmpty ||
+        input.privacyPolicyVersion.trim().isEmpty) {
+      throw const CustomerRegistrationException(
+        CustomerRegistrationFailureKind.invalidPolicyVersion,
+      );
+    }
 
     try {
       final signedInUser = _auth.currentUser;
@@ -71,12 +95,21 @@ class AuthRepository
                 }
                 return created;
               },
-              createProfile: (_) => _ensureCustomerProfile(
-                firstName: input.firstName,
-                lastName: input.lastName,
-                acceptedTerms: input.acceptedTerms,
-                acceptedPrivacy: input.acceptedPrivacy,
-              ),
+              createProfile: (created) async {
+                if (_auth.currentUser?.uid != created.uid) {
+                  throw const CustomerRegistrationException(
+                    CustomerRegistrationFailureKind.blockedAccount,
+                  );
+                }
+                await _ensureCustomerProfile(
+                  firstName: input.firstName,
+                  lastName: input.lastName,
+                  acceptedTerms: input.acceptedTerms,
+                  acceptedPrivacy: input.acceptedPrivacy,
+                  termsPolicyVersion: input.termsPolicyVersion,
+                  privacyPolicyVersion: input.privacyPolicyVersion,
+                );
+              },
               rollbackIdentity: (created) => created.delete(),
               onProfileError: (error, stackTrace) {
                 secureDebugLog(
@@ -99,9 +132,16 @@ class AuthRepository
           lastName: input.lastName,
           acceptedTerms: input.acceptedTerms,
           acceptedPrivacy: input.acceptedPrivacy,
+          termsPolicyVersion: input.termsPolicyVersion,
+          privacyPolicyVersion: input.privacyPolicyVersion,
         );
       }
 
+      if (_auth.currentUser?.uid != user.uid) {
+        throw const CustomerRegistrationException(
+          CustomerRegistrationFailureKind.blockedAccount,
+        );
+      }
       // A mail delivery failure does not roll back a fully-created account.
       var verificationEmailSent = true;
       try {
@@ -111,6 +151,11 @@ class AuthRepository
         secureDebugLog(
           'Verification email delivery failed after registration',
           stackTrace: stackTrace,
+        );
+      }
+      if (_auth.currentUser?.uid != user.uid) {
+        throw const CustomerRegistrationException(
+          CustomerRegistrationFailureKind.blockedAccount,
         );
       }
       return CustomerRegistrationResult(
@@ -521,6 +566,8 @@ class AuthRepository
     String? lastName,
     bool? acceptedTerms,
     bool? acceptedPrivacy,
+    String? termsPolicyVersion,
+    String? privacyPolicyVersion,
   }) async {
     final callable = _functions.httpsCallable('ensureUserProfile');
     await callable.call(<String, dynamic>{
@@ -528,6 +575,8 @@ class AuthRepository
       if (lastName != null) 'lastName': lastName.trim(),
       'acceptedTerms': ?acceptedTerms,
       'acceptedPrivacy': ?acceptedPrivacy,
+      'termsPolicyVersion': ?termsPolicyVersion,
+      'privacyPolicyVersion': ?privacyPolicyVersion,
     });
   }
 
@@ -580,6 +629,11 @@ class AuthRepository
       };
     }
     if (error is FirebaseFunctionsException) {
+      final policyFailure = registrationPolicyFailure(
+        error.code,
+        error.details,
+      );
+      if (policyFailure != null) return policyFailure;
       return switch (error.code) {
         'permission-denied' => CustomerRegistrationFailureKind.blockedAccount,
         'resource-exhausted' => CustomerRegistrationFailureKind.tooManyRequests,

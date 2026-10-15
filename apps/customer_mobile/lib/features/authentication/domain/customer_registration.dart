@@ -1,4 +1,8 @@
 enum CustomerRegistrationFailureKind {
+  consentRequired,
+  policyOutdated,
+  policyUnavailable,
+  invalidPolicyVersion,
   emailAlreadyInUse,
   weakPassword,
   invalidEmail,
@@ -24,6 +28,8 @@ class CustomerRegistrationInput {
     required this.password,
     required this.acceptedTerms,
     required this.acceptedPrivacy,
+    required this.termsPolicyVersion,
+    required this.privacyPolicyVersion,
     this.phoneNumber = '',
   });
 
@@ -34,6 +40,8 @@ class CustomerRegistrationInput {
   final String phoneNumber;
   final bool acceptedTerms;
   final bool acceptedPrivacy;
+  final String termsPolicyVersion;
+  final String privacyPolicyVersion;
 
   CustomerRegistrationInput normalized() => CustomerRegistrationInput(
     firstName: firstName.trim(),
@@ -43,6 +51,8 @@ class CustomerRegistrationInput {
     phoneNumber: phoneNumber.trim(),
     acceptedTerms: acceptedTerms,
     acceptedPrivacy: acceptedPrivacy,
+    termsPolicyVersion: termsPolicyVersion,
+    privacyPolicyVersion: privacyPolicyVersion,
   );
 }
 
@@ -62,4 +72,22 @@ abstract interface class CustomerRegistrationGateway {
   Future<CustomerRegistrationResult> registerCustomer(
     CustomerRegistrationInput input,
   );
+}
+
+CustomerRegistrationFailureKind? registrationPolicyFailure(
+  String code,
+  Object? details,
+) {
+  final reason = details is Map ? details['reason'] : null;
+  return switch ((code, reason)) {
+    ('failed-precondition', 'consent-required') =>
+      CustomerRegistrationFailureKind.consentRequired,
+    ('failed-precondition', 'policy-version-outdated') =>
+      CustomerRegistrationFailureKind.policyOutdated,
+    ('failed-precondition', 'policy-unavailable') =>
+      CustomerRegistrationFailureKind.policyUnavailable,
+    ('invalid-argument', 'invalid-policy-version') =>
+      CustomerRegistrationFailureKind.invalidPolicyVersion,
+    _ => null,
+  };
 }

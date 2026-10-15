@@ -168,6 +168,16 @@ class NavigationHarness {
           passwordResetGateway: gateway,
           roleSelectionBuilder: (_) => RoleSelectionScreen(
             customerRegistrationBuilder: (_) => CustomerRegisterScreen(
+              legalDocumentLoader: (_) async => {
+                'name': 'Published policy',
+                'version': '1.1',
+                'sections': [
+                  {
+                    'title': 'Agreement',
+                    'paragraphs': ['Published content'],
+                  },
+                ],
+              },
               registrationGateway: gateway,
               googleLoginGateway: gateway,
             ),
