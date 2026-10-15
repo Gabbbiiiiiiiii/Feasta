@@ -1,8 +1,10 @@
-const fs=require("fs");
+(async () => {
+const fs = await import('node:fs');
 
-const assert=require('node:assert/strict');
+const {default: assert} = await import('node:assert/strict');
 if(process.env.FIRESTORE_EMULATOR_HOST!=='127.0.0.1:48080'||process.env.FIREBASE_AUTH_EMULATOR_HOST!=='127.0.0.1:48999'||process.env.GCLOUD_PROJECT!=='demo-feasta-consent')throw Error('Dedicated local demo emulators required');
-const path=require('path'),{createRequire}=require('module');
+const path = await import('node:path');
+const {createRequire} = await import('node:module');
 const webRequire=createRequire(path.resolve('apps/web/package.json'));
 const backendRequire=createRequire(path.resolve('.validation/backend/functions/package.json'));
 backendRequire('firebase-admin/app').initializeApp({projectId:'demo-feasta-consent'});
@@ -19,7 +21,7 @@ const functions={httpsCallable:(_,name)=>async data=>{
  const u=auth.currentUser;return {data:await ensure.run({data,auth:u?{uid:u.uid,token:{email:u.email}}:undefined,rawRequest:{headers:{},ip:'127.0.0.1'}})};
 }};
 const ts=webRequire('typescript');
-function load(file){const source=fs.readFileSync((process.argv.includes('--baseline') && file === 'client-session' ? '.validation/baseline/' : '')+'apps/web/src/lib/auth/'+file+'.ts','utf8');const out=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;const module={exports:{}};new Function('require','module','exports',out)(name=>name==='@/lib/firebase/client'?{auth,functions:{}}:name==='firebase/functions'?functions:name==='firebase/auth'?{...sdk,signInWithPopup:()=>popup()}:name==='./auth-diagnostics'?{authDiagnostic:()=>{}}:webRequire(name),module,module.exports);return module.exports;}
+function load(file){const source=fs.readFileSync((process.argv.includes('--baseline') && file === 'client-session' ? '.validation/baseline/' : '')+'apps/web/src/lib/auth/'+file+'.ts','utf8');const out=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;const loadedModule={exports:{}};new Function('require','module','exports',out)(name=>name==='@/lib/firebase/client'?{auth,functions:{}}:name==='firebase/functions'?functions:name==='firebase/auth'?{...sdk,signInWithPopup:()=>popup()}:name==='./auth-diagnostics'?{authDiagnostic:()=>{}}:webRequire(name),loadedModule,loadedModule.exports);return loadedModule.exports;}
 const client=load('client-session'),policies=load('customer-consent');
 const originalFetch=global.fetch;
 global.fetch=async (url,options)=> !String(url).startsWith("/") ? originalFetch(url,options) : ({ok:true,json:async()=>String(url).endsWith('csrf')?{token:'test'}:String(url).endsWith('session')?{role:'customer',destination:'/customer'}:{}});
@@ -48,3 +50,5 @@ const terms=db.collection('agreementTemplates').doc('terms_of_service'),privacy=
  await terms.update({versions:[{...version('bad'),sections:[]}]});await assert.rejects(policies.loadCustomerAgreements());console.log('PASS malformed published authority fails closed');
  await sdk.signOut(auth);await backendRequire('firebase-admin/app').deleteApp(backendRequire('firebase-admin/app').getApp());process.exit(0);
 })().catch(e=>{console.error(e);process.exit(1)});
+
+})().catch(e => { console.error(e); process.exitCode = 1; });
