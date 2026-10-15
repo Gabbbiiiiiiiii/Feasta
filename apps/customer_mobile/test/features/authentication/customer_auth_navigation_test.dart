@@ -450,7 +450,7 @@ void main() {
       await tester.pumpAndSettle();
       await tapVisible(tester, find.byType(CheckboxListTile).first);
       await tapVisible(tester, find.byType(CheckboxListTile).last);
-      harness.termsVersion = ' 1.2 ';
+      harness.termsVersion = '1.2';
       harness.privacyVersion = 'privacy-2';
       harness.repository.acceptanceFailure = reason;
       final previousScreen = tester.widget<CustomerConsentScreen>(
@@ -460,7 +460,7 @@ void main() {
       await previousScreen.onDecline();
       await previousScreen.onAccept('1.1', '1.1');
       expect(harness.repository.submittedVersions, ['1.1', '1.1']);
-      expect(find.text('Version  1.2 '), findsOneWidget);
+      expect(find.text('Version 1.2'), findsOneWidget);
       expect(find.text('Version privacy-2'), findsOneWidget);
       expect(
         tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
@@ -485,7 +485,7 @@ void main() {
       await tapVisible(tester, find.byType(CheckboxListTile).first);
       await tapVisible(tester, find.byType(CheckboxListTile).last);
       await tapVisible(tester, find.text('Accept and continue'));
-      expect(harness.repository.submittedVersions, [' 1.2 ', 'privacy-2']);
+      expect(harness.repository.submittedVersions, ['1.2', 'privacy-2']);
       expect(find.text('Validated customer account'), findsOneWidget);
       await harness.close(tester);
     });
@@ -520,11 +520,11 @@ void main() {
       expect(harness.controller.currentIdentity?.uid, identity.uid);
       expect(harness.repository.signOutCount, 0);
       expect(harness.repository.acceptCalls, 1);
-      harness.termsVersion = ' exact-terms ';
+      harness.termsVersion = 'exact-terms';
       harness.privacyVersion = 'privacy-next';
       harness.repository.acceptanceFailure = null;
       await tapVisible(tester, find.text('Retry policies'));
-      expect(find.text('Version  exact-terms '), findsOneWidget);
+      expect(find.text('Version exact-terms'), findsOneWidget);
       expect(find.text('Version privacy-next'), findsOneWidget);
       expect(
         tester
@@ -537,7 +537,7 @@ void main() {
       await tapVisible(tester, find.byType(CheckboxListTile).last);
       await tapVisible(tester, find.text('Accept and continue'));
       expect(harness.repository.submittedVersions, [
-        ' exact-terms ',
+        'exact-terms',
         'privacy-next',
       ]);
       expect(find.text('Validated customer account'), findsOneWidget);

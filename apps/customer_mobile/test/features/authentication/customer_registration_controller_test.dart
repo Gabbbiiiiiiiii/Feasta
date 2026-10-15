@@ -22,6 +22,8 @@ void main() {
         confirmPassword: _testCredential,
         acceptedTerms: true,
         acceptedPrivacy: true,
+        termsPolicyVersion: 'T-7',
+        privacyPolicyVersion: 'P-3',
       );
 
       expect(result, isNotNull);
@@ -30,6 +32,8 @@ void main() {
       expect(gateway.lastInput?.email, 'customer@feasta.test');
       expect(gateway.lastInput?.acceptedTerms, isTrue);
       expect(gateway.lastInput?.acceptedPrivacy, isTrue);
+      expect(gateway.lastInput?.termsPolicyVersion, 'T-7');
+      expect(gateway.lastInput?.privacyPolicyVersion, 'P-3');
     },
   );
 
@@ -143,6 +147,8 @@ Future<CustomerRegistrationResult?> validSubmit(
     confirmPassword: _testCredential,
     acceptedTerms: true,
     acceptedPrivacy: true,
+    termsPolicyVersion: 'T-7',
+    privacyPolicyVersion: 'P-3',
   );
 }
 

@@ -43,6 +43,16 @@ class AuthRepository
   ) async {
     final input = rawInput.normalized();
     final normalizedEmail = input.email;
+    bool validVersion(String value) =>
+        value.isNotEmpty && value.length <= 100 && value.trim() == value;
+    if (!input.acceptedTerms ||
+        !input.acceptedPrivacy ||
+        !validVersion(input.termsPolicyVersion) ||
+        !validVersion(input.privacyPolicyVersion)) {
+      throw const CustomerRegistrationException(
+        CustomerRegistrationFailureKind.configuration,
+      );
+    }
 
     try {
       final signedInUser = _auth.currentUser;
@@ -76,6 +86,8 @@ class AuthRepository
                 lastName: input.lastName,
                 acceptedTerms: input.acceptedTerms,
                 acceptedPrivacy: input.acceptedPrivacy,
+                termsPolicyVersion: input.termsPolicyVersion,
+                privacyPolicyVersion: input.privacyPolicyVersion,
               ),
               rollbackIdentity: (created) => created.delete(),
               onProfileError: (error, stackTrace) {
@@ -94,12 +106,23 @@ class AuthRepository
             );
 
       if (recoverExisting) {
-        await _ensureCustomerProfile(
-          firstName: input.firstName,
-          lastName: input.lastName,
-          acceptedTerms: input.acceptedTerms,
-          acceptedPrivacy: input.acceptedPrivacy,
-        );
+        try {
+          await _ensureCustomerProfile();
+        } on FirebaseFunctionsException catch (error) {
+          final details = error.details;
+          if (details is! Map || details['reason'] != 'consent-required') {
+            rethrow;
+          }
+          // Auth-only recovery uses the customer's explicit review; existing profiles sync with {}.
+          await _ensureCustomerProfile(
+            firstName: input.firstName,
+            lastName: input.lastName,
+            acceptedTerms: input.acceptedTerms,
+            acceptedPrivacy: input.acceptedPrivacy,
+            termsPolicyVersion: input.termsPolicyVersion,
+            privacyPolicyVersion: input.privacyPolicyVersion,
+          );
+        }
       }
 
       // A mail delivery failure does not roll back a fully-created account.
@@ -521,6 +544,8 @@ class AuthRepository
     String? lastName,
     bool? acceptedTerms,
     bool? acceptedPrivacy,
+    String? termsPolicyVersion,
+    String? privacyPolicyVersion,
   }) async {
     final callable = _functions.httpsCallable('ensureUserProfile');
     await callable.call(<String, dynamic>{
@@ -528,6 +553,8 @@ class AuthRepository
       if (lastName != null) 'lastName': lastName.trim(),
       'acceptedTerms': ?acceptedTerms,
       'acceptedPrivacy': ?acceptedPrivacy,
+      'termsPolicyVersion': ?termsPolicyVersion,
+      'privacyPolicyVersion': ?privacyPolicyVersion,
     });
   }
 
