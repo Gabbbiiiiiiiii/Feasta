@@ -106,7 +106,7 @@ describe("provider Business Profile workspace", () => {
       .toBeVisible();
     expect(screen.getAllByText("Feasta Creative Studio").length).toBeGreaterThan(0);
     expect(screen.getByText("studio@example.test")).toBeVisible();
-    expect(screen.getAllByText("Event services").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Other Event Services").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Photographer").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Videographer").length).toBeGreaterThan(0);
 
@@ -126,7 +126,7 @@ describe("provider Business Profile workspace", () => {
       .not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", {name: "Business email"}))
       .not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Provider service type"))
+    expect(screen.queryByLabelText("Provider service classification"))
       .not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", {name: "Service categories"}))
       .not.toBeInTheDocument();
@@ -306,8 +306,8 @@ describe("provider Business Profile workspace", () => {
 
   it.each([
     ["catering", ["catering_service"], "Catering", "Catering Service"],
-    ["addon", ["florist"], "Event services", "Florist"],
-    ["both", ["catering_service", "event_host_emcee"], "Catering and event services", "Event Host Emcee"],
+    ["addon", ["florist"], "Other Event Services", "Florist"],
+    ["both", ["catering_service", "event_host_emcee"], "Catering & Other Event Services", "Event Host Emcee"],
   ] as const)(
     "renders %s capability data without category-specific UI branches",
     (providerServiceType, serviceCategories, typeLabel, categoryLabel) => {

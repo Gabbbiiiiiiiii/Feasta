@@ -53,7 +53,7 @@ const categories = [
   {code: "photographer", name: "Photography category", serviceType: "addon", status: "active"},
 ] as const;
 const catering = () => screen.getByRole("checkbox", {name: /^Catering services/});
-const additional = () => screen.getByRole("checkbox", {name: /^Additional event services/});
+const additional = () => screen.getByRole("checkbox", {name: /^Other Event Services/});
 const submit = () => fireEvent.click(screen.getByRole("button", {name: "Save and continue"}));
 
 beforeEach(() => {

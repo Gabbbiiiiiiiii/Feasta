@@ -288,7 +288,7 @@ describe("File Maintenance document catalog", () => {
     );
 
     await user.click(
-      dialog.getByLabelText(/venue · add-on/i),
+      dialog.getByLabelText(/venue · other event services/i),
     );
 
     await user.click(

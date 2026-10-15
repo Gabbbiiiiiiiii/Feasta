@@ -88,7 +88,7 @@ export function MarketplaceSearch() {
       className="rounded-2xl border border-white/80 bg-white p-3 shadow-[0_10px_28px_rgba(0,53,32,0.08)] sm:p-4"
     >
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[1.2fr_1fr_0.8fr_0.8fr_0.75fr]">
-        <PlanningField id="home-service-type" label="Service type" error={errors.serviceType} icon={<Search aria-hidden="true" />}>
+        <PlanningField id="home-service-type" label="Service classification" error={errors.serviceType} icon={<Search aria-hidden="true" />}>
           <select
             id="home-service-type"
             value={draft.serviceType}

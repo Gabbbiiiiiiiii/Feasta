@@ -1,3 +1,4 @@
+import {serviceClassificationLabel} from "@/lib/service-categories/service-classification-label";
 import type {
   Cell,
   Row,
@@ -78,7 +79,7 @@ function buildSummarySheet(sheet: Worksheet, report: AdminReportResult): void {
   section(sheet, "Applied filters", 4);
   for (const [label, value] of [
     ["Date preset", report.filters.datePreset],
-    ["Provider service type", report.filters.providerServiceType],
+    ["Provider service classification", report.filters.providerServiceType === "all" ? "All classifications" : serviceClassificationLabel(report.filters.providerServiceType)],
     ["Provider request type", report.filters.providerRequestType],
     ["Event type", report.filters.eventType],
     ["City", report.filters.city],
@@ -327,7 +328,7 @@ function buildProviderSheet(
   subtitle(sheet, report.filters.period.label, 17);
   sheet.addRow([]);
   const headerRow = tableHeader(sheet, [
-    "Provider ID", "Provider", "Service type", "Category", "Requests",
+    "Provider ID", "Provider", "Service classification", "Category", "Requests",
     "Accepted", "Rejected", "Confirmed", "Completed", "Cancelled",
     "Acceptance rate", "Rejection rate", "Cancellation rate", "Avg response (min)",
     "Avg rating", "Published reviews", "Currently paid amount",
@@ -336,7 +337,7 @@ function buildProviderSheet(
     const row = sheet.addRow([
       safeText(provider.providerId),
       safeText(provider.providerName),
-      titleCase(provider.serviceType),
+      serviceClassificationLabel(provider.serviceType),
       provider.providerCategory ? serviceCategoryName(provider.providerCategory, serviceCategoryOptions) : "Not specified",
       provider.requestsReceived,
       provider.acceptedRequests,

@@ -255,7 +255,7 @@ describe("provider verification queue", () => {
     expect(screen.getByRole("option", { name: "Draft" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Pending" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", {
-      name: "Provider service type",
+      name: "Provider service classification",
     })).toBeInTheDocument();
     expect(screen.getByRole("table", {
       name: "Provider verification",
@@ -363,7 +363,7 @@ describe("provider verification queue", () => {
     );
 
     fireEvent.change(screen.getByRole("combobox", {
-      name: "Provider service type",
+      name: "Provider service classification",
     }), {target: {value: "addon"}});
     expect(push).toHaveBeenCalledWith(
       expect.stringContaining("serviceType=addon"),

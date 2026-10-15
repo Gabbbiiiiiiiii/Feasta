@@ -1,3 +1,4 @@
+import {serviceClassificationLabel} from "@/lib/service-categories/service-classification-label";
 import {
   BadgeCheck,
   CalendarCheck2,
@@ -180,7 +181,7 @@ function ProviderActivitySummary({
     <article className="rounded-card border border-border bg-card p-4 shadow-card sm:p-5">
       <h3 className="font-bold">Provider participation</h3>
       <p className="mt-1 text-sm text-muted-foreground">
-        Active providers grouped by their configured service type.
+        Active providers grouped by their configured service classification.
       </p>
       <dl className="mt-5 grid gap-4">
         {groups.map((group) => (
@@ -427,7 +428,5 @@ function formatDuration(minutes: number | null): string {
 }
 
 function serviceTypeLabel(value: AdminProviderPerformanceRow["serviceType"]): string {
-  if (value === "catering") return "Catering";
-  if (value === "addon") return "Add-on services";
-  return "Catering and add-ons";
+  return serviceClassificationLabel(value);
 }

@@ -102,8 +102,8 @@ describe("provider onboarding Services and event capabilities", () => {
       /Services your business provides \*/,
     );
     assert.match(form, /Catering services/u);
-    assert.match(form, /Additional event services/u);
-    assert.match(form, /\+ Add event services/u);
+    assert.match(form, /Other Event Services/u);
+    assert.match(form, /\+ Add other event services/u);
     assert.match(form, /\+ Also provide catering/u);
     assert.match(
       form,

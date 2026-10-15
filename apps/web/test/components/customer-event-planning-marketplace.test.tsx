@@ -95,7 +95,7 @@ describe("customer home event planning", () => {
 
   it("renders first-class, labelled event planning controls", () => {
     render(<MarketplaceSearch />);
-    expect(screen.getByLabelText("Service type")).toBeVisible();
+    expect(screen.getByLabelText("Service classification")).toBeVisible();
     expect(screen.getByLabelText("Event date")).toHaveAttribute("type", "date");
     expect(screen.getByLabelText("Start time")).toHaveAttribute("type", "time");
     expect(screen.getByLabelText("End time")).toHaveAttribute("type", "time");
@@ -354,7 +354,7 @@ describe("availability-aware marketplace", () => {
 });
 
 function fillHomeForm(overrides: Partial<Record<"eventDate" | "eventTime" | "eventEndTime" | "guestCount", string>> = {}) {
-  fireEvent.change(screen.getByLabelText("Service type"), {target: {value: "catering"}});
+  fireEvent.change(screen.getByLabelText("Service classification"), {target: {value: "catering"}});
   fireEvent.change(screen.getByLabelText("Event date"), {target: {value: overrides.eventDate ?? "2026-09-10"}});
   fireEvent.change(screen.getByLabelText("Start time"), {target: {value: overrides.eventTime ?? "18:00"}});
   fireEvent.change(screen.getByLabelText("End time"), {target: {value: overrides.eventEndTime ?? "22:00"}});

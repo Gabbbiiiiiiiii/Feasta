@@ -1,4 +1,5 @@
 "use client";
+import {serviceClassificationLabel} from "@/lib/service-categories/service-classification-label";
 import {adminBookingStatusLabel, adminBookingPaymentLabel, adminProviderRequestLabel} from "@/lib/admin/bookings/admin-booking-labels";
 import {accountAccessLabel} from "@/lib/admin/users/admin-account-labels";
 
@@ -805,10 +806,8 @@ function UserDetailsContent({
                   </span>
                 </DetailRow>
 
-                <DetailRow label="Service type">
-                  {user.providerServiceType
-                    ?.replaceAll("_", " ") ??
-                    "Not available"}
+                <DetailRow label="Service classification">
+                  {user.providerServiceType ? serviceClassificationLabel(user.providerServiceType) : "Not available"}
                 </DetailRow>
 
                 <DetailRow label="Category">
