@@ -1,0 +1,1019 @@
+"use client";
+
+import {
+  CircleAlert,
+  Clock3,
+  PhilippinePeso,
+  RotateCcw,
+} from "lucide-react";
+
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
+
+import {
+  repairAmbiguousProviderPayoutSetup,
+  retryFailedProviderDisbursement,
+} from "@/lib/admin/payments/admin-payment-client";
+
+import {
+  loadAdminFinanceAttentionQueueAction,
+  loadAdminPaymentDetailsAction,
+  loadAdminPaymentsAction,
+} from "@/app/admin/payments/actions";
+import {
+  PaymentDetailsDrawer,
+} from "@/components/admin/payments/payment-details-drawer";
+import {
+  PaymentFinanceAttention,
+  canRetryFailedDisbursement,
+} from "@/components/admin/payments/payment-finance-attention";
+import {
+  formatPaymentDate,
+  formatPaymentType,
+  paymentBookingLabel,
+  paymentReferenceLabel,
+} from "@/components/admin/payments/payment-formatters";
+import {
+  PaymentIssueBadges,
+} from "@/components/admin/payments/payment-issue-badges";
+import {
+  PaymentMobileCard,
+} from "@/components/admin/payments/payment-mobile-card";
+
+import {
+  PaymentStatusBadge,
+} from "@/components/admin/payments/payment-status-badge";
+import {
+  CursorPagination,
+} from "@/components/data/cursor-pagination";
+import {
+  DataTable,
+  type DataTableColumn,
+  type DataTableSort,
+} from "@/components/data/data-table";
+import {
+  FilterToolbar,
+} from "@/components/data/filter-toolbar";
+import {
+  SummaryCard,
+} from "@/components/data/summary-card";
+import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
+import {PageHeading} from "@/components/layout/page-heading";
+import {Button} from "@/components/ui/button";
+import {Select} from "@/components/ui/select";
+import type {
+  AdminFinanceAttentionQueue,
+  AdminPayment,
+  AdminPaymentDateFilter,
+  AdminPaymentDetails,
+  AdminPaymentFilters,
+  AdminPaymentPage,
+  AdminPaymentSortDirection,
+  AdminPaymentSortField,
+  AdminPaymentStatusFilter,
+  AdminPaymentTypeFilter,
+} from "@/lib/admin/payments/admin-payment-types";
+
+type PaymentMonitoringClientProps = {
+  initialPage: AdminPaymentPage;
+
+  initialAttention:
+    AdminFinanceAttentionQueue;
+};
+
+const DEFAULT_FILTERS: AdminPaymentFilters = {
+  search: "",
+  status: "all",
+  paymentType: "all",
+  date: "all",
+  issue: "all",
+  sortField: "createdAt",
+  sortDirection: "descending",
+  pageSize: 10,
+  cursor: null,
+};
+
+const FIRST_PAGE_CURSOR = "__first_page__";
+
+function PaymentMonitoringClient({
+  initialPage,
+  initialAttention,
+}: PaymentMonitoringClientProps) {
+  const [page, setPage] =
+    useState<AdminPaymentPage>(initialPage);
+
+  const [attentionQueue, setAttentionQueue] =
+    useState<AdminFinanceAttentionQueue>(
+      initialAttention,
+    );
+
+  const [attentionLoading, setAttentionLoading] =
+    useState(false);
+
+  const [attentionError, setAttentionError] =
+    useState<string>();
+
+  const [
+    repairingAttentionId,
+    setRepairingAttentionId,
+  ] = useState<string | null>(null);
+
+  const [retryTarget, setRetryTarget] = useState<AdminFinanceAttentionQueue["items"][number] | null>(null);
+  const [retryingAttentionId, setRetryingAttentionId] = useState<string | null>(null);
+
+  const [filters, setFilters] =
+    useState<AdminPaymentFilters>(
+      DEFAULT_FILTERS,
+    );
+
+  const [searchValue, setSearchValue] =
+    useState("");
+
+  const [cursorHistory, setCursorHistory] =
+    useState<(string | null)[]>([
+      null,
+    ]);
+
+  const [pageError, setPageError] =
+    useState<string>();
+
+  const [selectedPayment, setSelectedPayment] =
+    useState<AdminPayment | null>(null);
+
+  const [paymentDetails, setPaymentDetails] =
+    useState<AdminPaymentDetails | null>(
+      null,
+    );
+
+  const [drawerOpen, setDrawerOpen] =
+    useState(false);
+
+  const [detailsLoading, setDetailsLoading] =
+    useState(false);
+
+  const [detailsError, setDetailsError] =
+    useState<string>();
+
+  const [isPending, startTransition] =
+    useTransition();
+
+  const pageRequestId = useRef(0);
+  const detailsRequestId = useRef(0);
+  const attentionRequestId = useRef(0);
+
+  const loadPage = useCallback(
+    (
+      nextFilters: AdminPaymentFilters,
+      cursor: string | null,
+      history: (string | null)[],
+    ) => {
+      const requestId =
+        ++pageRequestId.current;
+
+      setPageError(undefined);
+
+      const requestFilters = {
+        ...nextFilters,
+        cursor,
+      };
+
+      startTransition(async () => {
+        try {
+          const result =
+            await loadAdminPaymentsAction(
+              requestFilters,
+            );
+
+          if (
+            pageRequestId.current !==
+            requestId
+          ) {
+            return;
+          }
+
+          setPage(result);
+          setFilters(requestFilters);
+          setCursorHistory(history);
+        } catch (error: unknown) {
+          if (
+            pageRequestId.current !==
+            requestId
+          ) {
+            return;
+          }
+
+          setPageError(
+            errorMessage(error),
+          );
+        }
+      });
+    },
+    [],
+  );
+
+  const refreshFinanceAttention =
+    useCallback(() => {
+      const requestId =
+        ++attentionRequestId.current;
+
+      setAttentionLoading(true);
+      setAttentionError(undefined);
+
+      void loadAdminFinanceAttentionQueueAction()
+        .then((result) => {
+          if (
+            attentionRequestId.current !==
+            requestId
+          ) {
+            return;
+          }
+
+          setAttentionQueue(result);
+        })
+        .catch((error: unknown) => {
+          if (
+            attentionRequestId.current !==
+            requestId
+          ) {
+            return;
+          }
+
+          setAttentionError(
+            errorMessage(error),
+          );
+        })
+        .finally(() => {
+          if (
+            attentionRequestId.current ===
+            requestId
+          ) {
+            setAttentionLoading(false);
+          }
+        });
+    }, []);
+
+  const repairPayoutSetup =
+  useCallback(
+    async (
+      item:
+        AdminFinanceAttentionQueue[
+          "items"
+        ][number],
+    ) => {
+      if (
+        item.kind !==
+          "ambiguous_payout_setup" ||
+        item.recordState !== "valid" ||
+        !item.providerId ||
+        !item.expectedUpdatedAtMillis
+      ) {
+        setAttentionError(
+          "This payout setup issue is no longer safe to repair. Refresh Provider payout issues.",
+        );
+        return;
+      }
+
+      const confirmed =
+        window.confirm(
+          [
+            "Repair this Provider payout setup?",
+            "",
+            "Continue only after you have confirmed that no matching test payout account exists.",
+            "",
+            "This does not make the Provider payout-ready. It only allows a safe payout setup retry.",
+          ].join("\n"),
+        );
+
+      if (!confirmed) {
+        return;
+      }
+
+      setRepairingAttentionId(
+        item.id,
+      );
+      setAttentionError(undefined);
+
+      try {
+        await repairAmbiguousProviderPayoutSetup({
+          providerId:
+            item.providerId,
+          expectedUpdatedAtMillis:
+            item.expectedUpdatedAtMillis,
+        });
+
+        const refreshed =
+          await loadAdminFinanceAttentionQueueAction();
+
+        setAttentionQueue(
+          refreshed,
+        );
+      } catch (error: unknown) {
+        setAttentionError(
+          errorMessage(error),
+        );
+      } finally {
+        setRepairingAttentionId(
+          null,
+        );
+      }
+    },
+    [],
+  );
+
+  const retryFailedPayout = async () => {
+    const current = attentionQueue.items.find(item => item.id === retryTarget?.id);
+    if (!current || !canRetryFailedDisbursement(current) || !current.providerDisbursementId ||
+        repairingAttentionId || retryingAttentionId) {
+      setAttentionError("This payout changed or is no longer safe to retry. Refresh Provider payout issues.");
+      setRetryTarget(null);
+      return;
+    }
+    const requestId = ++attentionRequestId.current;
+    setAttentionLoading(false);
+    setRetryingAttentionId(current.id);
+    setAttentionError(undefined);
+    try {
+      await retryFailedProviderDisbursement({providerDisbursementId: current.providerDisbursementId});
+      const refreshed = await loadAdminFinanceAttentionQueueAction();
+      if (attentionRequestId.current === requestId) setAttentionQueue(refreshed);
+    } catch (error: unknown) {
+      setAttentionError(errorMessage(error));
+    } finally {
+      setRetryingAttentionId(null);
+      setRetryTarget(null);
+    }
+  };
+
+  const applyFilters = useCallback(
+    (
+      changes:
+        Partial<AdminPaymentFilters>,
+    ) => {
+      const nextFilters = {
+        ...filters,
+        ...changes,
+        cursor: null,
+      };
+
+      loadPage(nextFilters, null, [null]);
+    },
+    [filters, loadPage],
+  );
+
+  const loadDetails = useCallback(
+    (payment: AdminPayment) => {
+      const requestId =
+        ++detailsRequestId.current;
+
+      setDetailsLoading(true);
+      setDetailsError(undefined);
+      setPaymentDetails(null);
+
+      void loadAdminPaymentDetailsAction(
+        payment.id,
+      )
+        .then((result) => {
+          if (
+            detailsRequestId.current !==
+            requestId
+          ) {
+            return;
+          }
+
+          setPaymentDetails(
+            result.details,
+          );
+        })
+        .catch((error: unknown) => {
+          if (
+            detailsRequestId.current !==
+            requestId
+          ) {
+            return;
+          }
+
+          setDetailsError(
+            errorMessage(error),
+          );
+        })
+        .finally(() => {
+          if (
+            detailsRequestId.current ===
+            requestId
+          ) {
+            setDetailsLoading(false);
+          }
+        });
+    },
+    [],
+  );
+
+  const openPaymentDetails =
+    useCallback(
+      (payment: AdminPayment) => {
+        setSelectedPayment(payment);
+        setDrawerOpen(true);
+        loadDetails(payment);
+      },
+      [loadDetails],
+    );
+
+  const handleDrawerOpenChange =
+    useCallback((open: boolean) => {
+      setDrawerOpen(open);
+
+      if (!open) {
+        detailsRequestId.current += 1;
+        setDetailsLoading(false);
+        setDetailsError(undefined);
+        setPaymentDetails(null);
+        setSelectedPayment(null);
+      }
+    }, []);
+
+  const columns = useMemo<
+    readonly DataTableColumn<AdminPayment>[]
+  >(
+    () => [
+      {
+        id: "payment",
+        header: "Payment",
+        cell: (payment) => (
+          <div className="min-w-0">
+            <p className="break-words text-sm font-semibold">
+              {paymentReferenceLabel(payment)}
+            </p>
+
+            <p className="mt-1 text-xs text-muted-foreground">
+              {formatPaymentType(
+                payment.paymentType,
+              )}
+            </p>
+          </div>
+        ),
+      },
+      {
+        id: "booking",
+        header: "Booking",
+        cell: (payment) => (
+          <div className="min-w-0">
+            <p className="break-words font-semibold">
+              {paymentBookingLabel(
+                payment,
+              )}
+            </p>
+
+
+          </div>
+        ),
+      },
+      {
+        id: "parties",
+        header: "Customer / Provider",
+        cell: (payment) => (
+          <div className="min-w-0">
+            <p className="break-words font-semibold">
+              {payment.customerName}
+            </p>
+
+            <p className="mt-1 break-words text-xs text-muted-foreground">
+              {payment.providerName}
+            </p>
+          </div>
+        ),
+      },
+      {
+        id: "amountInCentavos",
+        header: "Amount",
+        sortable: true,
+        cell: (payment) => (
+          <span className="whitespace-nowrap font-bold">
+            {payment.formattedAmount}
+          </span>
+        ),
+      },
+      {
+        id: "status",
+        header: "Status",
+        cell: (payment) => (
+          <PaymentStatusBadge
+            status={payment.status}
+          />
+        ),
+      },
+      {
+        id: "createdAt",
+        header: "Date",
+        sortable: true,
+        cell: (payment) => (
+          <span className="whitespace-nowrap text-sm">
+            {formatPaymentDate(
+              payment.paidAt ??
+                payment.createdAt,
+            )}
+          </span>
+        ),
+      },
+      {
+        id: "issues",
+        header: "Issue",
+        cell: (payment) =>
+          payment.issues.length > 0 ? (
+            <PaymentIssueBadges
+              issues={payment.issues}
+            />
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              No issues
+            </span>
+          ),
+      },
+    ],
+    [],
+  );
+
+  const tableSort: DataTableSort = {
+    columnId: filters.sortField,
+    direction: filters.sortDirection,
+  };
+
+  const activeFilters = filterLabels(filters);
+
+  const previousCursor =
+    cursorHistory.length > 1
+      ? cursorHistory.at(-2) ??
+        FIRST_PAGE_CURSOR
+      : null;
+
+  const currentCursor =
+    cursorHistory.at(-1) ?? null;
+
+  const clearFilters = () => {
+    setSearchValue("");
+    loadPage(
+      DEFAULT_FILTERS,
+      null,
+      [null],
+    );
+  };
+
+  const retryPage = () => {
+    loadPage(
+      filters,
+      currentCursor,
+      cursorHistory,
+    );
+  };
+
+  return (
+    <div className="grid min-w-0 gap-6">
+      <PageHeading
+        eyebrow="Administration"
+        title="Payments"
+        description="View payments, refunds, and provider payouts."
+      />
+
+            <section
+        className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+        aria-label="Payment statistics"
+      >
+        <SummaryCard
+          label="Paid amount"
+          supportingMetric="Amount retained after completed refunds"
+          value={
+            page.statistics
+              .confirmedVolumeFormatted
+          }
+          icon={
+            <PhilippinePeso className="size-5" />
+          }
+          loading={isPending}
+        />
+
+        <SummaryCard
+          label="Pending payments"
+          value={
+            page.statistics
+              .pendingProcessingCount
+          }
+          icon={
+            <Clock3 className="size-5" />
+          }
+          loading={isPending}
+        />
+
+        <SummaryCard
+          label="Failed payments"
+          value={
+            page.statistics
+              .failedPaymentCount
+          }
+          icon={
+            <CircleAlert className="size-5" />
+          }
+          loading={isPending}
+        />
+
+
+
+        <SummaryCard
+          label="Refunded amount"
+          value={
+            page.statistics
+              .refundedAmountFormatted
+          }
+          icon={
+            <RotateCcw className="size-5" />
+          }
+          loading={isPending}
+        />
+      </section>
+
+      <PaymentFinanceAttention
+        statistics={page.statistics}
+        queue={attentionQueue}
+        retryingItemId={retryingAttentionId}
+        onRetryFailedDisbursement={(item) => { if (canRetryFailedDisbursement(item)) setRetryTarget(item); }}
+        loading={attentionLoading}
+        error={attentionError}
+        repairingItemId={
+          repairingAttentionId
+        }
+        onRefresh={
+          refreshFinanceAttention
+        }
+        onViewPayment={
+          openPaymentDetails
+        }
+        onRepairPayoutSetup={
+          repairPayoutSetup
+        }
+      />
+
+      <ConfirmationDialog open={retryTarget !== null} onOpenChange={(open) => { if (!open) setRetryTarget(null); }}
+        title="Retry failed Provider payout?"
+        description="This retry prepares financial revalidation. A new payout attempt is created only after financial revalidation succeeds."
+        confirmLabel="Prepare payout retry" loading={retryingAttentionId !== null} onConfirm={retryFailedPayout} />
+
+      <FilterToolbar
+        onSearchInvalidate={() => {
+          pageRequestId.current += 1;
+        }}
+        searchValue={searchValue}
+        onSearchChange={setSearchValue}
+        onSearchSubmit={(search) =>
+          applyFilters({search})
+        }
+        onClearFilters={clearFilters}
+        activeFilters={activeFilters}
+        loading={isPending}
+        searchLabel="Search payment records"
+        searchPlaceholder="Search payment or booking reference"
+        filterControls={
+          <>
+            <FilterSelect
+              label="Payment status"
+              value={filters.status}
+              disabled={isPending}
+              onChange={(value) =>
+                applyFilters({
+                  status:
+                    value as AdminPaymentStatusFilter,
+                })
+              }
+            >
+              <option value="all">
+                All statuses
+              </option>
+              <option value="pending">
+                Pending
+              </option>
+              <option value="processing">
+                Processing
+              </option>
+              <option value="paid">
+                Paid
+              </option>
+              <option value="failed">
+                Failed
+              </option>
+              <option value="expired">
+                Expired
+              </option>
+              <option value="refunded">
+                Refunded
+              </option>
+              <option value="partially_refunded">
+                Partially refunded
+              </option>
+            </FilterSelect>
+
+            <FilterSelect
+              label="Payment type"
+              value={filters.paymentType}
+              disabled={isPending}
+              onChange={(value) =>
+                applyFilters({
+                  paymentType:
+                    value as AdminPaymentTypeFilter,
+                })
+              }
+            >
+              <option value="all">
+                All payment types
+              </option>
+              <option value="provider_down_payment">
+                Down payment
+              </option>
+              <option value="provider_balance">
+                Remaining balance
+              </option>
+              <option value="refund">
+                Refund
+              </option>
+              <option value="adjustment">
+                Payment adjustment
+              </option>
+            </FilterSelect>
+
+            <FilterSelect
+              label="Transaction date"
+              value={filters.date}
+              disabled={isPending}
+              onChange={(value) =>
+                applyFilters({
+                  date:
+                    value as AdminPaymentDateFilter,
+                })
+              }
+            >
+              <option value="all">
+                All dates
+              </option>
+              <option value="today">
+                Today
+              </option>
+              <option value="last_7_days">
+                Last 7 days
+              </option>
+              <option value="last_30_days">
+                Last 30 days
+              </option>
+            </FilterSelect>
+
+            <FilterSelect
+              label="Review status"
+              value={filters.issue}
+              disabled={isPending}
+              onChange={(value) =>
+                applyFilters({
+                  issue:
+                    value as
+                      AdminPaymentFilters["issue"],
+                })
+              }
+            >
+              <option value="all">
+                All
+              </option>
+
+              <option value="with_issues">
+                Needs review
+              </option>
+
+              <option value="without_issues">
+                No issues
+              </option>
+            </FilterSelect>
+          </>
+        }
+      />
+
+      <DataTable
+        columns={columns}
+        rows={page.payments}
+        getRowId={(payment) =>
+          payment.id
+        }
+        caption="Payment monitoring records"
+        loading={isPending}
+        error={pageError}
+        errorKind="load"
+        onRetry={retryPage}
+        emptyTitle="No payments found"
+        emptyDescription="No payment records match the selected query and filters."
+        sort={tableSort}
+        onSortChange={(
+          sort,
+        ) => {
+          if (
+            sort.columnId !==
+              "createdAt" &&
+            sort.columnId !==
+              "amountInCentavos"
+          ) {
+            return;
+          }
+
+          applyFilters({
+            sortField:
+              sort.columnId as
+                AdminPaymentSortField,
+            sortDirection:
+              sort.direction as
+                AdminPaymentSortDirection,
+          });
+        }}
+        rowActions={(payment) => (
+          <Button
+            type="button"
+            variant="secondary"
+            size="compact"
+            onClick={() =>
+              openPaymentDetails(
+                payment,
+              )
+            }
+          >
+            View details
+          </Button>
+        )}
+        renderMobileRow={(payment) => (
+          <PaymentMobileCard
+            payment={payment}
+            onViewDetails={
+              openPaymentDetails
+            }
+          />
+        )}
+      />
+
+      <CursorPagination
+        previousCursor={previousCursor}
+        nextCursor={
+          page.hasMore
+            ? page.nextCursor
+            : null
+        }
+        loading={isPending}
+        pageLabel={`Page ${cursorHistory.length}`}
+        onPrevious={() => {
+          if (
+            cursorHistory.length <= 1
+          ) {
+            return;
+          }
+
+          const nextHistory =
+            cursorHistory.slice(0, -1);
+
+          loadPage(
+            filters,
+            nextHistory.at(-1) ??
+              null,
+            nextHistory,
+          );
+        }}
+        onNext={(cursor) => {
+          const nextHistory = [
+            ...cursorHistory,
+            cursor,
+          ];
+
+          loadPage(
+            filters,
+            cursor,
+            nextHistory,
+          );
+        }}
+      />
+
+      <PaymentDetailsDrawer
+        payment={selectedPayment}
+        details={paymentDetails}
+        open={drawerOpen}
+        loading={detailsLoading}
+        error={detailsError}
+        onOpenChange={
+          handleDrawerOpenChange
+        }
+        onRetry={() => {
+          if (selectedPayment) {
+            loadDetails(
+              selectedPayment,
+            );
+          }
+        }}
+      />
+
+
+    </div>
+  );
+}
+
+function FilterSelect({
+  label,
+  value,
+  disabled,
+  onChange,
+  children,
+}: {
+  label: string;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+  children: ReactNode;
+}) {
+  return (
+    <label className="grid min-w-44 gap-2">
+      <span className="text-sm font-bold">
+        {label}
+      </span>
+
+      <Select
+        value={value}
+        disabled={disabled}
+        onChange={(event) =>
+          onChange(
+            event.currentTarget.value,
+          )
+        }
+      >
+        {children}
+      </Select>
+    </label>
+  );
+}
+
+function filterLabels(
+  filters: AdminPaymentFilters,
+): string[] {
+  const labels: string[] = [];
+
+  if (filters.status !== "all") {
+    labels.push(
+      `Status: ${filters.status}`,
+    );
+  }
+
+  if (filters.paymentType !== "all") {
+    labels.push(
+      `Type: ${formatPaymentType(
+        filters.paymentType,
+      )}`,
+    );
+  }
+
+  if (filters.date !== "all") {
+    const dates: Record<
+      Exclude<
+        AdminPaymentDateFilter,
+        "all"
+      >,
+      string
+    > = {
+      today: "Today",
+      last_7_days: "Last 7 days",
+      last_30_days: "Last 30 days",
+    };
+
+    labels.push(
+      `Date: ${dates[filters.date]}`,
+    );
+  }
+
+  if (filters.issue !== "all") {
+    labels.push(
+      filters.issue ===
+        "with_issues"
+        ? "Review: Needs review"
+        : "Review: No issues",
+    );
+  }
+
+  return labels;
+}
+
+function errorMessage(
+  error: unknown,
+): string {
+  if (
+    error instanceof Error &&
+    error.message.trim()
+  ) {
+    return error.message;
+  }
+
+  return "Payment records could not be loaded. Please try again.";
+}
+
+export {
+  PaymentMonitoringClient,
+  type PaymentMonitoringClientProps,
+};

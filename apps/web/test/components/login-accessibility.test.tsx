@@ -1,0 +1,55 @@
+import {render, screen} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import {describe, expect, it, vi} from "vitest";
+
+const auth = vi.hoisted(() => ({
+  signInWithEmail: vi.fn(),
+  signInWithGoogle: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({useRouter: () => ({replace: vi.fn(), refresh: vi.fn()})}));
+vi.mock("@/lib/auth/client-session", () => ({
+  signInWithEmail: auth.signInWithEmail,
+  signInWithGoogle: auth.signInWithGoogle,
+  WebAuthenticationError: class WebAuthenticationError extends Error {
+    reason?: string;
+  },
+}));
+
+import {LoginForm} from "@/app/login/login-form";
+
+describe("login accessibility", () => {
+  it("keeps Google invalid credentials distinct on the standalone login page", async () => {
+    const user = userEvent.setup();
+    auth.signInWithGoogle.mockRejectedValueOnce({code: "auth/invalid-credential"});
+    render(<LoginForm returnTo="/customer/packages/pkg/plan" />);
+    await user.click(screen.getByRole("button", {name: /Google/}));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to sign in with Google. Please try again.");
+    expect(screen.queryByText("The email address or password is incorrect.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: /Google/})).toBeEnabled();
+  });
+  it("uses visible labels, autocomplete, logical controls, and a linked safe error", async () => {
+    const user = userEvent.setup();
+    auth.signInWithEmail.mockRejectedValueOnce(Object.assign(new Error("Firebase internal detail"), {code: "auth/invalid-credential"}));
+    render(<LoginForm />);
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /log in with email/i,
+      }),
+    );
+    const email = screen.getByRole("textbox", {name: /Email address/});
+    const password = screen.getByLabelText(/Password/);
+    expect(email).toHaveAttribute("autocomplete", "email");
+    expect(password).toHaveAttribute("autocomplete", "current-password");
+    await user.type(email, "customer@feasta.test");
+    await user.type(password, "not-the-password");
+    await user.click(screen.getByRole("button", {name: "Log in"}));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("The email address or password is incorrect.");
+    expect(alert).not.toHaveTextContent(/firebase|internal/i);
+    expect(alert).toHaveFocus();
+    expect(alert.closest("section")?.querySelector("form")).toHaveAttribute("aria-describedby", alert.id);
+  });
+});

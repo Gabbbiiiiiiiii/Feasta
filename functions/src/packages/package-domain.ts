@@ -1,0 +1,1423 @@
+import {BALANCE_DUE_HOURS_BEFORE_EVENT} from "../payments/canonical-balance-timing.js";
+import {verifyProviderServiceImage} from "../shared/cloudinary.js";
+import type {
+  DocumentData,
+  DocumentSnapshot,
+} from "firebase-admin/firestore";
+import {HttpsError} from "firebase-functions/v2/https";
+
+import {
+  isServiceCategoryCode,
+  type ServiceCategoryCode,
+} from "../shared/service-category-code.js";
+
+import {
+  isApprovedProviderForOperations,
+  PROVIDER_EVENT_TYPES,
+} from "../shared/constants.js";
+
+import type {
+  PackagePaymentPolicyBounds,
+} from "./package-payment-policy.js";
+
+export const PACKAGE_STATUSES = [
+  "draft",
+  "published",
+  "archived",
+] as const;
+
+export type PackageStatus =
+  (typeof PACKAGE_STATUSES)[number];
+
+export const PACKAGE_PAYMENT_POLICIES = [
+  "full_payment",
+  "deposit_then_balance",
+] as const;
+
+export type PackagePaymentPolicy =
+  (typeof PACKAGE_PAYMENT_POLICIES)[number];
+
+export const CATERING_PACKAGE_SERVICE_TIERS = [
+  "drop_off",
+  "buffet_setup",
+  "full_service",
+] as const;
+
+export type CateringPackageServiceTier =
+  (typeof CATERING_PACKAGE_SERVICE_TIERS)[number];
+
+export type PackageServiceOption = {
+  price: number;
+  includedServices: readonly string[];
+};
+
+export type PackageServiceOptions = Partial<
+  Record<CateringPackageServiceTier, PackageServiceOption>
+>;
+
+export type PackageThemeOption = {
+  id: string;
+  name: string;
+  description: string;
+  imageUrls: readonly string[];
+};
+
+export type PackageInput = {
+  name: string;
+  description: string;
+  eventType: string;
+
+  /*
+   * Historical packages may not contain this field yet.
+   * New and edited packages will require it through the
+   * canonical package-category assertion.
+   */
+  serviceCategoryCode:
+    ServiceCategoryCode | null;
+
+  price: number;
+  serviceOptions: PackageServiceOptions;
+  themeOptions: readonly PackageThemeOption[];
+
+  paymentPolicy:
+    PackagePaymentPolicy | null;
+
+  depositPercentage: number;
+
+  balanceDueDaysBeforeEvent:
+    number | null;
+
+  /*
+   * Temporary compatibility projection.
+   *
+   * Existing booking/provider-request code still
+   * consumes downPaymentPercentage. New package
+   * writes derive it from canonical payment terms.
+   */
+  downPaymentPercentage: number;
+
+  usesLegacyPaymentTerms: boolean;
+
+  minimumGuests: number;
+  maximumGuests: number;
+  imageUrl: string;
+  imageUrls?: readonly string[];
+  foodInclusions: readonly string[];
+  decorInclusions: readonly string[];
+  furnitureInclusions: readonly string[];
+  serviceInclusions: readonly string[];
+};
+
+export type AuthorizedProvider = {
+  providerId: string;
+  ownerId: string;
+  providerData: DocumentData;
+};
+
+export type AuthorizedPackage = {
+  packageId: string;
+  providerId: string;
+  status: PackageStatus;
+  packageData: DocumentData;
+};
+
+const MAX_PACKAGE_NAME_LENGTH = 120;
+const MAX_PACKAGE_DESCRIPTION_LENGTH = 2000;
+const MAX_IMAGE_URL_LENGTH = 2048;
+const MAX_INCLUSION_LENGTH = 160;
+const MAX_INCLUSIONS_PER_GROUP = 50;
+const MAX_THEME_OPTIONS = 12;
+const MAX_THEME_IMAGES = 4;
+const MAX_THEME_NAME_LENGTH = 80;
+const MAX_THEME_DESCRIPTION_LENGTH = 500;
+
+const MAX_PACKAGE_PRICE = 10_000_000;
+const MAX_GUEST_COUNT = 100_000;
+
+const MIN_CANONICAL_BALANCE_DUE_DAYS =
+  1;
+
+const MAX_CANONICAL_BALANCE_DUE_DAYS =
+  365;
+
+export function authorizeProviderForPackageManagement(
+  input: {
+    actorUid: string;
+    providerSnapshot: DocumentSnapshot<DocumentData>;
+  },
+): AuthorizedProvider {
+  const {
+    actorUid,
+    providerSnapshot,
+  } = input;
+
+  if (!providerSnapshot.exists) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The provider account was not found.",
+    );
+  }
+
+  const providerData =
+    providerSnapshot.data() ?? {};
+
+  const ownerId = stringValue(
+    providerData.ownerId,
+  );
+
+  if (
+    !ownerId ||
+    ownerId !== actorUid
+  ) {
+    throw new HttpsError(
+      "permission-denied",
+      "You do not own this provider account.",
+    );
+  }
+
+  if (
+    !isApprovedProviderForOperations(
+      providerData,
+    )
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The provider account is not available for package management.",
+    );
+  }
+
+  return {
+    providerId: providerSnapshot.id,
+    ownerId,
+    providerData,
+  };
+}
+
+export function authorizeOwnedPackage(
+  input: {
+    providerId: string;
+    packageSnapshot: DocumentSnapshot<DocumentData>;
+  },
+): AuthorizedPackage {
+  const {
+    providerId,
+    packageSnapshot,
+  } = input;
+
+  if (!packageSnapshot.exists) {
+    throw new HttpsError(
+      "not-found",
+      "The package was not found.",
+    );
+  }
+
+  const packageData =
+    packageSnapshot.data() ?? {};
+
+  const storedProviderId =
+    stringValue(packageData.providerId);
+
+  if (
+    !storedProviderId ||
+    storedProviderId !== providerId
+  ) {
+    throw new HttpsError(
+      "permission-denied",
+      "You do not own this package.",
+    );
+  }
+
+  const status = parsePackageStatus(
+    packageData.status,
+  );
+
+  if (!status) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The package status is invalid.",
+    );
+  }
+
+  return {
+    packageId: packageSnapshot.id,
+    providerId: storedProviderId,
+    status,
+    packageData,
+  };
+}
+
+export function assertPackageMatchesProviderCapabilities(
+  providerData: Readonly<Record<string, unknown>>,
+  packageInput: PackageInput,
+): void {
+  const providerServiceType =
+    typeof providerData.providerServiceType === "string"
+      ? providerData.providerServiceType.trim()
+      : "";
+
+  if (
+    providerServiceType !== "catering" &&
+    providerServiceType !== "both"
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Only catering providers can manage catering packages.",
+    );
+  }
+
+  if (
+    packageInput.serviceCategoryCode !==
+      null
+  ) {
+    const providerServiceCategories =
+      Array.isArray(
+        providerData.serviceCategories,
+      )
+        ? providerData.serviceCategories.filter(
+            isServiceCategoryCode,
+          )
+        : [];
+
+    if (
+      !providerServiceCategories.includes(
+        packageInput.serviceCategoryCode,
+      )
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "This service category is not enabled for the provider.",
+      );
+    }
+  }
+
+  const supportedEventTypes = Array.isArray(
+    providerData.eventTypesSupported,
+  )
+    ? providerData.eventTypesSupported.filter(
+        (value): value is string =>
+          typeof value === "string",
+      )
+    : [];
+
+  if (
+    !supportedEventTypes.includes(
+      packageInput.eventType,
+    )
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "This event type is not enabled for the provider.",
+    );
+  }
+
+  const providerMinimumGuests =
+    providerData.minGuestsPerEvent;
+
+  const providerMaximumGuests =
+    providerData.maxGuestsPerEvent;
+
+  if (
+    !Number.isSafeInteger(
+      providerMinimumGuests,
+    ) ||
+    !Number.isSafeInteger(
+      providerMaximumGuests,
+    )
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The provider guest-capacity settings are invalid.",
+    );
+  }
+
+  if (
+    packageInput.minimumGuests <
+      (providerMinimumGuests as number) ||
+    packageInput.maximumGuests >
+      (providerMaximumGuests as number)
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Package guest capacity must stay within the provider's configured guest capacity.",
+    );
+  }
+}
+
+/** Provider-supplied legacy deadlines never become authority on new writes. */
+export function parseCanonicalPackageWrite(value: Readonly<Record<string, unknown>>): PackageInput {
+  return parsePackageInput({...value, paymentTermsSchemaVersion: 2, balanceDueDaysBeforeEvent: null,
+    balanceDueHoursBeforeEvent: value.paymentPolicy === "deposit_then_balance" ? BALANCE_DUE_HOURS_BEFORE_EVENT : null});
+}
+
+export function parsePackageInput(
+  value: unknown,
+): PackageInput {
+  const data = recordValue(value);
+
+  const name = requiredString(
+    data.name,
+    "Package name",
+    2,
+    MAX_PACKAGE_NAME_LENGTH,
+  );
+
+  const description = requiredString(
+    data.description,
+    "Package description",
+    10,
+    MAX_PACKAGE_DESCRIPTION_LENGTH,
+  );
+
+  const eventType = requiredEventType(
+    data.eventType,
+  );
+
+  const serviceCategoryCode =
+    optionalServiceCategoryCode(
+      data.serviceCategoryCode,
+    );
+
+  const price = requiredMoney(
+    data.price,
+    "Package price",
+  );
+
+  const serviceOptions =
+    parsePackageServiceOptions(
+      data.serviceOptions,
+    );
+
+  const themeOptions =
+    parsePackageThemeOptions(
+      data.themeOptions,
+    );
+
+  const serviceOptionPrices =
+    Object.values(serviceOptions).flatMap(
+      (option) =>
+        option ? [option.price] : [],
+    );
+
+  if (serviceOptionPrices.length > 0) {
+    const startingPrice =
+      Math.min(...serviceOptionPrices);
+
+    if (price !== startingPrice) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Package price must equal the lowest enabled service-option price.",
+      );
+    }
+
+    const supportsThemes =
+      serviceOptions.buffet_setup !== undefined ||
+      serviceOptions.full_service !== undefined;
+
+    if (
+      themeOptions.length > 0 &&
+      !supportsThemes
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Theme options require Buffet Setup or Full-Service Catering.",
+      );
+    }
+  }
+
+  if (data.paymentTermsSchemaVersion === 2 && data.paymentPolicy === "deposit_then_balance" &&
+    data.balanceDueHoursBeforeEvent !== BALANCE_DUE_HOURS_BEFORE_EVENT) {
+    throw new HttpsError("invalid-argument", "The FEASTA balance deadline is invalid.");
+  }
+  const paymentTerms =
+    parsePackagePaymentTerms(
+      data,
+    );
+
+  const minimumGuests =
+    requiredPositiveInteger(
+      data.minimumGuests,
+      "Minimum guests",
+    );
+
+  const maximumGuests =
+    requiredPositiveInteger(
+      data.maximumGuests,
+      "Maximum guests",
+    );
+
+  if (maximumGuests < minimumGuests) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Maximum guests cannot be lower than minimum guests.",
+    );
+  }
+
+  if (
+    minimumGuests > MAX_GUEST_COUNT ||
+    maximumGuests > MAX_GUEST_COUNT
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Guest capacity cannot exceed ${MAX_GUEST_COUNT}.`,
+    );
+  }
+
+  const imageUrl = optionalString(
+    data.imageUrl,
+    "Package image URL",
+    MAX_IMAGE_URL_LENGTH,
+  );
+
+  const imageUrls = parsePackageImageUrls(data.imageUrls);
+
+  return {
+    name,
+    description,
+    eventType,
+    serviceCategoryCode,
+    price,
+    serviceOptions,
+    themeOptions,
+
+    ...paymentTerms,
+
+    minimumGuests,
+    maximumGuests,
+    imageUrl: imageUrls ? imageUrls[0] ?? "" : imageUrl,
+    ...(imageUrls !== undefined ? {imageUrls} : {}),
+
+    foodInclusions: inclusionArray(
+      data.foodInclusions,
+      "Food inclusions",
+    ),
+
+    decorInclusions: inclusionArray(
+      data.decorInclusions,
+      "Decoration inclusions",
+    ),
+
+    furnitureInclusions: inclusionArray(
+      data.furnitureInclusions,
+      "Furniture inclusions",
+    ),
+
+    serviceInclusions: inclusionArray(
+      data.serviceInclusions,
+      "Service inclusions",
+    ),
+  };
+}
+
+export function assertCanonicalPackageServiceCategory(
+  packageInput: PackageInput,
+): asserts packageInput is PackageInput & {
+  serviceCategoryCode:
+    ServiceCategoryCode;
+} {
+  if (!packageInput.serviceCategoryCode) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Choose the service category for this package.",
+    );
+  }
+}
+
+export function assertCanonicalPackagePaymentTerms(
+  packageInput: PackageInput,
+): asserts packageInput is PackageInput & {
+  paymentPolicy:
+    | "full_payment"
+    | "deposit_then_balance";
+  usesLegacyPaymentTerms: false;
+} {
+  if (
+    packageInput.usesLegacyPaymentTerms ||
+    packageInput.paymentPolicy === null
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "New and edited packages must use canonical payment terms.",
+    );
+  }
+}
+
+export function assertPackageOfferConfigured(
+  packageInput: PackageInput,
+): void {
+  if (
+    Object.keys(
+      packageInput.serviceOptions,
+    ).length === 0
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Enable at least one catering service tier.",
+    );
+  }
+}
+
+export function assertPackagePaymentTermsWithinPolicy(
+  packageInput: PackageInput,
+  bounds: PackagePaymentPolicyBounds,
+): void {
+  if (
+    packageInput.paymentPolicy !==
+      "deposit_then_balance"
+  ) {
+    return;
+  }
+
+  const depositRateBps =
+    Math.round(
+      packageInput.depositPercentage *
+        100,
+    );
+
+  if (
+    !Number.isSafeInteger(
+      depositRateBps,
+    ) ||
+    depositRateBps <
+      bounds.minimumDepositRateBps ||
+    depositRateBps >
+      bounds.maximumDepositRateBps
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Deposit percentage must be between " +
+        `${
+          bounds.minimumDepositRateBps /
+          100
+        } and ` +
+        `${
+          bounds.maximumDepositRateBps /
+          100
+        }%.`,
+    );
+  }
+
+}
+
+export function assertPackagePublishable(
+  packageData: Readonly<Record<string, unknown>>,
+): void {
+  parsePackageInput(packageData);
+
+  // Structured inclusions are optional, including for image-based menus.
+
+}
+
+export function parsePackageStatus(
+  value: unknown,
+): PackageStatus | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized =
+    value.trim().toLowerCase();
+
+  return (
+    PACKAGE_STATUSES as readonly string[]
+  ).includes(normalized) ?
+    normalized as PackageStatus :
+    null;
+}
+
+export function assertDraftPackage(
+  packageRecord: AuthorizedPackage,
+): void {
+  if (packageRecord.status !== "draft") {
+    throw new HttpsError(
+      "failed-precondition",
+      "Only draft packages can be edited using this operation.",
+    );
+  }
+}
+
+export function assertPublishedPackage(
+  packageRecord: AuthorizedPackage,
+): void {
+  if (
+    packageRecord.status !== "published"
+  ) {
+    throw new HttpsError(
+      "failed-precondition",
+      "Only published packages can be archived.",
+    );
+  }
+}
+
+function optionalServiceCategoryCode(
+  value: unknown,
+): ServiceCategoryCode | null {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  if (!isServiceCategoryCode(value)) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Package service category is invalid.",
+    );
+  }
+
+  return value;
+}
+
+function recordValue(
+  value: unknown,
+): Record<string, unknown> {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Package data is invalid.",
+    );
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function requiredString(
+  value: unknown,
+  label: string,
+  minimumLength: number,
+  maximumLength: number,
+): string {
+  if (typeof value !== "string") {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} is required.`,
+    );
+  }
+
+  const normalized = value.trim();
+
+  if (
+    normalized.length < minimumLength ||
+    normalized.length > maximumLength
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} must be between ${minimumLength} and ${maximumLength} characters.`,
+    );
+  }
+
+  return normalized;
+}
+
+function optionalString(
+  value: unknown,
+  label: string,
+  maximumLength: number,
+): string {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return "";
+  }
+
+  if (typeof value !== "string") {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} must be a string.`,
+    );
+  }
+
+  const normalized = value.trim();
+
+  if (normalized.length > maximumLength) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} is too long.`,
+    );
+  }
+
+  return normalized;
+}
+
+function requiredEventType(
+  value: unknown,
+): string {
+  if (typeof value !== "string") {
+    throw new HttpsError(
+      "invalid-argument",
+      "Event type is required.",
+    );
+  }
+
+  const normalized =
+    value.trim().toLowerCase();
+
+  if (
+    !(
+      PROVIDER_EVENT_TYPES as readonly string[]
+    ).includes(normalized)
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Event type is not supported.",
+    );
+  }
+
+  return normalized;
+}
+
+function requiredMoney(
+  value: unknown,
+  label: string,
+): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > MAX_PACKAGE_PRICE
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} is invalid.`,
+    );
+  }
+
+  return normalizeMoney(value);
+}
+
+function normalizeMoney(
+  value: number,
+): number {
+  return Math.round(
+    (value + Number.EPSILON) * 100,
+  ) / 100;
+}
+
+function parsePackageServiceOptions(
+  value: unknown,
+): PackageServiceOptions {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return {};
+  }
+
+  if (
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Package service options are invalid.",
+    );
+  }
+
+  const data =
+    value as Record<string, unknown>;
+  const allowed = new Set<string>(
+    CATERING_PACKAGE_SERVICE_TIERS,
+  );
+
+  if (
+    Object.keys(data).some(
+      (key) => !allowed.has(key),
+    )
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Package service options contain an unsupported tier.",
+    );
+  }
+
+  const result: PackageServiceOptions = {};
+
+  for (
+    const tier of
+      CATERING_PACKAGE_SERVICE_TIERS
+  ) {
+    const raw = data[tier];
+    if (raw === undefined) {
+      continue;
+    }
+
+    if (
+      !raw ||
+      typeof raw !== "object" ||
+      Array.isArray(raw)
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        `${tier} service option is invalid.`,
+      );
+    }
+
+    const option =
+      raw as Record<string, unknown>;
+
+    if (
+      Object.keys(option).some(
+        (key) =>
+          key !== "price" &&
+          key !== "includedServices",
+      )
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        `${tier} service option contains unsupported fields.`,
+      );
+    }
+
+    result[tier] = {
+      price: requiredPreciseMoney(
+        option.price,
+        `${tier} price`,
+      ),
+      includedServices: inclusionArray(
+        option.includedServices,
+        `${tier} included services`,
+      ),
+    };
+  }
+
+  return result;
+}
+
+function parsePackageThemeOptions(
+  value: unknown,
+): PackageThemeOption[] {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return [];
+  }
+
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_THEME_OPTIONS
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Choose at most ${MAX_THEME_OPTIONS} theme options.`,
+    );
+  }
+
+  const ids = new Set<string>();
+
+  return value.map((raw, index) => {
+    if (
+      !raw ||
+      typeof raw !== "object" ||
+      Array.isArray(raw)
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        `Theme option ${index + 1} is invalid.`,
+      );
+    }
+
+    const theme =
+      raw as Record<string, unknown>;
+
+    if (
+      Object.keys(theme).some(
+        (key) =>
+          key !== "id" &&
+          key !== "name" &&
+          key !== "description" &&
+          key !== "imageUrls",
+      )
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        `Theme option ${index + 1} contains unsupported fields.`,
+      );
+    }
+
+    const id = requiredString(
+      theme.id,
+      `Theme option ${index + 1} ID`,
+      2,
+      80,
+    );
+
+    if (
+      !/^[A-Za-z0-9_-]+$/u.test(id)
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        `Theme option ${index + 1} ID is invalid.`,
+      );
+    }
+
+    if (ids.has(id)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Theme option IDs must be unique.",
+      );
+    }
+    ids.add(id);
+
+    const name = requiredString(
+      theme.name,
+      `Theme option ${index + 1} name`,
+      2,
+      MAX_THEME_NAME_LENGTH,
+    );
+
+    const description = optionalString(
+      theme.description,
+      `${name} description`,
+      MAX_THEME_DESCRIPTION_LENGTH,
+    ).replace(/\s+/gu, " ");
+
+    const imageUrls =
+      parsePackageImageUrls(
+        theme.imageUrls,
+        MAX_THEME_IMAGES,
+        `${name} theme images`,
+      ) ?? [];
+
+    return {
+      id,
+      name,
+      description,
+      imageUrls,
+    };
+  });
+}
+
+function requiredPreciseMoney(
+  value: unknown,
+  label: string,
+): number {
+  const money = requiredMoney(
+    value,
+    label,
+  );
+
+  if (
+    typeof value !== "number" ||
+    Math.abs(
+      value * 100 -
+      Math.round(value * 100),
+    ) > 1e-8
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} must use at most two decimal places.`,
+    );
+  }
+
+  return money;
+}
+
+function parsePackagePaymentTerms(
+  data: Readonly<Record<string, unknown>>,
+): {
+  paymentPolicy:
+    PackagePaymentPolicy | null;
+  depositPercentage: number;
+  balanceDueDaysBeforeEvent:
+    number | null;
+  downPaymentPercentage: number;
+  usesLegacyPaymentTerms: boolean;
+} {
+  /*
+   * Existing package documents predate
+   * paymentPolicy/depositPercentage.
+   *
+   * They remain readable and publishable until
+   * edited, at which point current terms are
+   * required and the package is migrated.
+   */
+  if (
+    data.paymentPolicy === undefined ||
+    data.paymentPolicy === null ||
+    data.paymentPolicy === ""
+  ) {
+    const legacyPercentage =
+      requiredPercentage(
+        data.downPaymentPercentage,
+        "Legacy down-payment percentage",
+      );
+
+    return {
+      paymentPolicy: null,
+      depositPercentage:
+        legacyPercentage,
+      balanceDueDaysBeforeEvent:
+        null,
+      downPaymentPercentage:
+        legacyPercentage,
+      usesLegacyPaymentTerms:
+        true,
+    };
+  }
+
+  const paymentPolicy =
+    parsePackagePaymentPolicy(
+      data.paymentPolicy,
+    );
+
+  if (!paymentPolicy) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Payment policy is invalid.",
+    );
+  }
+
+  if (
+    paymentPolicy ===
+    "full_payment"
+  ) {
+    const depositPercentage =
+      requiredPercentage(
+        data.depositPercentage,
+        "Full-payment percentage",
+      );
+
+    if (
+      depositPercentage !== 100
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Full-payment packages must require 100%.",
+      );
+    }
+
+    if (
+      data.balanceDueDaysBeforeEvent !==
+        undefined &&
+      data.balanceDueDaysBeforeEvent !==
+        null
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Full-payment packages cannot have a remaining-balance deadline.",
+      );
+    }
+
+    if (
+      data.downPaymentPercentage !==
+        undefined &&
+      data.downPaymentPercentage !==
+        null
+    ) {
+      const compatibilityPercentage =
+        requiredPercentage(
+          data.downPaymentPercentage,
+          "Down-payment compatibility percentage",
+        );
+
+      if (
+        compatibilityPercentage !==
+        100
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          "Full-payment compatibility percentage must be 100%.",
+        );
+      }
+    }
+
+    return {
+      paymentPolicy,
+      depositPercentage: 100,
+      balanceDueDaysBeforeEvent:
+        null,
+      downPaymentPercentage:
+        100,
+      usesLegacyPaymentTerms:
+        false,
+    };
+  }
+
+  const depositPercentage =
+    requiredPercentage(
+      data.depositPercentage,
+      "Deposit percentage",
+    );
+
+  /*
+   * This parser enforces only the permanent
+   * technical envelope.
+   *
+   * The current Admin-configured business
+   * policy is enforced separately during
+   * Provider create/edit.
+   */
+  if (
+    depositPercentage <= 0 ||
+    depositPercentage >= 100
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Deposit percentage must be greater than 0 and below 100.",
+    );
+  }
+
+  const balanceDueDaysBeforeEvent = data.paymentTermsSchemaVersion === 2
+    ? null : requiredPositiveInteger(
+      data.balanceDueDaysBeforeEvent,
+      "Balance due days before event",
+    );
+
+  if (
+    balanceDueDaysBeforeEvent !== null && (balanceDueDaysBeforeEvent <
+      MIN_CANONICAL_BALANCE_DUE_DAYS ||
+    balanceDueDaysBeforeEvent >
+      MAX_CANONICAL_BALANCE_DUE_DAYS)
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Balance deadline must be between 1 and 365 days before the event.",
+    );
+  }
+
+  if (
+    data.downPaymentPercentage !==
+      undefined &&
+    data.downPaymentPercentage !==
+      null
+  ) {
+    const compatibilityPercentage =
+      requiredPercentage(
+        data.downPaymentPercentage,
+        "Down-payment compatibility percentage",
+      );
+
+    if (
+      compatibilityPercentage !==
+      depositPercentage
+    ) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Payment percentages do not match.",
+      );
+    }
+  }
+
+  return {
+    paymentPolicy,
+    depositPercentage,
+    balanceDueDaysBeforeEvent,
+    downPaymentPercentage:
+      depositPercentage,
+    usesLegacyPaymentTerms:
+      false,
+  };
+}
+
+function parsePackagePaymentPolicy(
+  value: unknown,
+): PackagePaymentPolicy | null {
+  if (
+    value === "full_payment" ||
+    value ===
+      "deposit_then_balance"
+  ) {
+    return value;
+  }
+
+  return null;
+}
+function requiredPercentage(
+  value: unknown,
+  label: string,
+): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    value > 100
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} must be between 0 and 100.`,
+    );
+  }
+
+  return Math.round(
+    (value + Number.EPSILON) * 100,
+  ) / 100;
+}
+
+function requiredPositiveInteger(
+  value: unknown,
+  label: string,
+): number {
+  if (
+    !Number.isSafeInteger(value) ||
+    (value as number) < 1
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} must be a positive whole number.`,
+    );
+  }
+
+  return value as number;
+}
+
+function inclusionArray(
+  value: unknown,
+  label: string,
+): readonly string[] {
+  if (
+    value === undefined ||
+    value === null
+  ) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} must be a list.`,
+    );
+  }
+
+  if (
+    value.length >
+    MAX_INCLUSIONS_PER_GROUP
+  ) {
+    throw new HttpsError(
+      "invalid-argument",
+      `${label} contains too many items.`,
+    );
+  }
+
+  const normalized = value.map(
+    (item, index) => {
+      if (typeof item !== "string") {
+        throw new HttpsError(
+          "invalid-argument",
+          `${label} item ${index + 1} is invalid.`,
+        );
+      }
+
+      const inclusion = item.trim();
+
+      if (
+        inclusion.length < 1 ||
+        inclusion.length >
+          MAX_INCLUSION_LENGTH
+      ) {
+        throw new HttpsError(
+          "invalid-argument",
+          `${label} item ${index + 1} must be between 1 and ${MAX_INCLUSION_LENGTH} characters.`,
+        );
+      }
+
+      return inclusion;
+    },
+  );
+
+  return [...new Set(normalized)];
+}
+
+function stringValue(
+  value: unknown,
+): string {
+  return typeof value === "string" ?
+    value.trim() :
+    "";
+}
+export function parsePackageImageUrls(
+  value: unknown,
+  maximumImages = 8,
+  label = "package images",
+): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length > maximumImages) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Choose at most ${maximumImages} ${label}.`,
+    );
+  }
+  return value.map((entry) => {
+    if (typeof entry !== "string" || entry.length > MAX_IMAGE_URL_LENGTH) {
+      throw new HttpsError("invalid-argument", "Invalid package image.");
+    }
+    try {
+      const url = new URL(entry);
+      if (url.protocol !== "https:" || url.username || url.password ||
+        url.port || url.search || url.hash) {
+        throw new Error();
+      }
+      return url.toString();
+    } catch { throw new HttpsError("invalid-argument", "Invalid package image URL."); }
+  });
+}
+
+export async function verifyPackageImages(
+  input: PackageInput,
+  ownerId: string,
+  previous: Readonly<Record<string, unknown>> = {},
+): Promise<void> {
+  const previousThemeImages =
+    Array.isArray(previous.themeOptions)
+      ? previous.themeOptions.flatMap(
+          (raw) => {
+            if (
+              !raw ||
+              typeof raw !== "object" ||
+              Array.isArray(raw)
+            ) {
+              return [];
+            }
+
+            const imageUrls =
+              (raw as Record<string, unknown>)
+                .imageUrls;
+
+            return Array.isArray(imageUrls)
+              ? imageUrls.filter(
+                  (url): url is string =>
+                    typeof url === "string",
+                )
+              : [];
+          },
+        )
+      : [];
+
+  const retained = new Set([
+    ...(Array.isArray(previous.imageUrls) ? previous.imageUrls : []),
+    previous.imageUrl,
+    ...previousThemeImages,
+  ]);
+  const images = input.imageUrls ?? (input.imageUrl ? [input.imageUrl] : []);
+  const themeImages =
+    Array.isArray(input.themeOptions)
+      ? input.themeOptions.flatMap(
+          (theme) =>
+            Array.isArray(theme.imageUrls)
+              ? [...theme.imageUrls]
+              : [],
+        )
+      : [];
+  await Promise.all([...images, ...themeImages].map(async (url) => {
+    if (retained.has(url)) return;
+    // Legacy callers must pass the same checks for newly supplied assets.
+    parsePackageImageUrls([url]);
+    const pathname = new URL(url).pathname;
+    const match = pathname.match(
+      /\/feasta\/providers\/([^/]+)\/services\/([^/]+)\/image(?:\.[a-z]+)?$/u,
+    );
+    if (new URL(url).hostname !== "res.cloudinary.com" || !match || match[1] !== ownerId) {
+      throw new HttpsError("permission-denied", "Package images must belong to this provider.");
+    }
+    await verifyProviderServiceImage({ownerId, serviceId: match[2]!, url,
+      publicId: "feasta/providers/" + ownerId + "/services/" + match[2] + "/image",
+      maximumBytes: 5 * 1024 * 1024});
+  }));
+}
