@@ -62,6 +62,116 @@ void main() {
       expect(controller.errorMessage, contains('confirm your identity'));
     });
 
+    test(
+      'password partial success is explicit and never reported as success',
+      () async {
+        final controller = CustomerAccountController(
+          _FakeGateway(
+            error: const CustomerPasswordChangeException(
+              sessionsRevoked: false,
+              signedOut: true,
+            ),
+          ),
+        );
+        expect(
+          await controller.changePassword(
+            currentPassword: _testCredential,
+            newPassword: _testCredential,
+          ),
+          isFalse,
+        );
+        expect(controller.passwordChangeIssue?.signedOut, isTrue);
+        expect(controller.errorMessage, contains('Your password changed'));
+        expect(controller.errorMessage, contains('could not be confirmed'));
+      },
+    );
+
+    test(
+      'password submission remains safe when logout disposes the controller',
+      () async {
+        final barrier = Completer<void>();
+        final controller = CustomerAccountController(
+          _FakeGateway(operation: () => barrier.future),
+        );
+        final result = controller.changePassword(
+          currentPassword: _testCredential,
+          newPassword: _testCredential,
+        );
+        controller.dispose();
+        barrier.complete();
+        expect(await result, isTrue);
+      },
+    );
+
+    test(
+      'password duplicate submission is rejected while the first is pending',
+      () async {
+        final barrier = Completer<void>();
+        final gateway = _FakeGateway(operation: () => barrier.future);
+        final controller = CustomerAccountController(gateway);
+        final first = controller.changePassword(
+          currentPassword: _testCredential,
+          newPassword: _testCredential,
+        );
+        expect(
+          await controller.changePassword(
+            currentPassword: _testCredential,
+            newPassword: _testCredential,
+          ),
+          isFalse,
+        );
+        barrier.complete();
+        expect(await first, isTrue);
+        expect(gateway.callCount, 1);
+      },
+    );
+
+    test(
+      'restored password recovery survives unrelated account operations',
+      () async {
+        final gateway = _FakeGateway()
+          ..recoveryIssue = const CustomerPasswordChangeException(
+            sessionsRevoked: false,
+            signedOut: false,
+            requiresReauthentication: true,
+          );
+        final controller = CustomerAccountController(gateway);
+        await controller.restorePasswordRecovery();
+        final issue = controller.passwordChangeIssue;
+        expect(issue?.requiresReauthentication, isTrue);
+        expect(
+          await controller.updatePreferences(
+            const CustomerPrivacyPreferences(
+              marketingConsent: false,
+              pushNotificationsEnabled: false,
+              emailNotificationsEnabled: false,
+            ),
+          ),
+          isTrue,
+        );
+        expect(controller.passwordChangeIssue, same(issue));
+        expect(
+          await controller.resumePasswordCleanup(
+            currentPassword: 'current-working-password',
+          ),
+          isTrue,
+        );
+        expect(gateway.cleanupPassword, 'current-working-password');
+        expect(controller.passwordChangeIssue, isNull);
+      },
+    );
+
+    test(
+      'cleanup without a recovery-capable gateway never repeats password change',
+      () async {
+        final gateway = _NoRecoveryGateway();
+        final controller = CustomerAccountController(gateway);
+        expect(await controller.resumePasswordCleanup(), isFalse);
+        expect(gateway.passwordChanges, 0);
+        expect(controller.errorMessage, contains('temporarily unavailable'));
+      },
+    );
+
     test('Google-only password behavior fails safely', () async {
       final gateway = _FakeGateway(supportsPassword: false);
       final controller = CustomerAccountController(gateway);
@@ -116,7 +226,24 @@ void main() {
   });
 }
 
-class _FakeGateway implements CustomerAccountGateway {
+class _NoRecoveryGateway implements CustomerAccountGateway {
+  int passwordChanges = 0;
+  @override
+  bool get supportsPasswordChanges => true;
+  @override
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    passwordChanges++;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeGateway
+    implements CustomerAccountGateway, CustomerPasswordRecoveryGateway {
   _FakeGateway({this.supportsPassword = true, this.operation, this.error});
 
   final bool supportsPassword;
@@ -128,6 +255,17 @@ class _FakeGateway implements CustomerAccountGateway {
   String? currentPassword;
   bool deactivated = false;
   bool revokedAllSessions = false;
+  CustomerPasswordChangeException? recoveryIssue;
+  String? cleanupPassword;
+  @override
+  Future<CustomerPasswordChangeException?> loadPasswordRecovery() async =>
+      recoveryIssue;
+  @override
+  Future<void> resumePasswordCleanup({String? currentPassword}) async {
+    cleanupPassword = currentPassword;
+    await _run();
+    recoveryIssue = null;
+  }
 
   @override
   bool get supportsPasswordChanges => supportsPassword;

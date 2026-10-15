@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../../app/router/customer_auth_navigation.dart';
 
 import '../../../core/theme/app_breakpoints.dart';
 import '../../../core/theme/app_colors.dart';
@@ -21,21 +23,18 @@ import 'legal_document_screen.dart';
 class CustomerRegisterScreen extends StatefulWidget {
   const CustomerRegisterScreen({
     this.registrationGateway,
+    this.legalDocumentLoader = loadCurrentLegalDocument,
     this.googleLoginGateway,
     this.onRegistrationComplete,
-    this.onOpenTerms,
-    this.onOpenPrivacy,
     super.key,
   });
 
   final CustomerRegistrationGateway? registrationGateway;
+  final LegalDocumentLoader legalDocumentLoader;
   final CustomerLoginGateway? googleLoginGateway;
 
   final FutureOr<void> Function(CustomerRegistrationResult result)?
   onRegistrationComplete;
-
-  final VoidCallback? onOpenTerms;
-  final VoidCallback? onOpenPrivacy;
 
   @override
   State<CustomerRegisterScreen> createState() => _CustomerRegisterScreenState();
@@ -57,6 +56,56 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
   late final CustomerRegistrationController _registrationController;
   late final CustomerLoginController _googleController;
 
+  Map<String, dynamic>? _termsDocument;
+  Map<String, dynamic>? _privacyDocument;
+  bool _loadingPolicies = true;
+  int _policyGeneration = 0;
+  bool get _policiesReady =>
+      !_loadingPolicies && _termsDocument != null && _privacyDocument != null;
+
+  Future<void> _loadPolicies() async {
+    final generation = ++_policyGeneration;
+    setState(() {
+      _loadingPolicies = true;
+      _termsDocument = null;
+      _privacyDocument = null;
+      _acceptedTerms = false;
+      _acceptedPrivacy = false;
+    });
+    try {
+      final documents = await Future.wait([
+        Future.sync(
+          () => widget.legalDocumentLoader(FeastaLegalDocument.termsOfService),
+        ),
+        Future.sync(
+          () => widget.legalDocumentLoader(FeastaLegalDocument.privacyPolicy),
+        ),
+      ]);
+      if (!mounted || generation != _policyGeneration) return;
+      if (documents.every(validPublishedAgreement)) {
+        // Detach the displayed snapshot from mutable loader responses.
+        _termsDocument =
+            jsonDecode(jsonEncode(documents[0])) as Map<String, dynamic>;
+        _privacyDocument =
+            jsonDecode(jsonEncode(documents[1])) as Map<String, dynamic>;
+      }
+    } catch (_) {
+      // Fail closed; retry never submits consent.
+    } finally {
+      if (mounted && generation == _policyGeneration) {
+        setState(() => _loadingPolicies = false);
+      }
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant CustomerRegisterScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.legalDocumentLoader != widget.legalDocumentLoader) {
+      _loadPolicies();
+    }
+  }
+
   bool _acceptedTerms = false;
   bool _acceptedPrivacy = false;
 
@@ -67,6 +116,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
   @override
   void initState() {
     super.initState();
+    _loadPolicies();
 
     //
     // Only construct Firebase-backed AuthRepository when at least one
@@ -98,7 +148,8 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
   }
 
   Future<void> _submit() async {
-    if (_isSubmitting) return;
+    if (_isSubmitting || !_policiesReady) return;
+    final generation = _policyGeneration;
 
     FocusScope.of(context).unfocus();
 
@@ -110,9 +161,16 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
       confirmPassword: _confirmPasswordController.text,
       acceptedTerms: _acceptedTerms,
       acceptedPrivacy: _acceptedPrivacy,
+      termsPolicyVersion: _termsDocument!['version'] as String,
+      privacyPolicyVersion: _privacyDocument!['version'] as String,
     );
 
-    if (!mounted || result == null) return;
+    if (!mounted || generation != _policyGeneration) return;
+    if (_registrationController.state.policyFailure != null) {
+      await _loadPolicies();
+      return;
+    }
+    if (result == null) return;
 
     final onComplete = widget.onRegistrationComplete;
 
@@ -125,6 +183,19 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
 
     if (gateController != null) {
       await gateController.refresh();
+      if (!mounted) return;
+      if (!result.verificationEmailSent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Your account was created, but the verification email could not be sent. '
+              'Use Resend verification on this screen.',
+            ),
+          ),
+        );
+      }
+      returnToCustomerAuthenticationGate(context);
+      return;
     }
 
     if (!mounted) return;
@@ -163,11 +234,9 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
       if (!mounted) return;
 
       //
-      // Registration is normally opened above the authentication gate.
-      // Returning from this screen lets the gate display the newly
-      // authenticated customer state.
+      // Unwind registration and role selection to the gate-owning root.
       //
-      Navigator.maybePop(context);
+      returnToCustomerAuthenticationGate(context);
       return;
     }
 
@@ -185,10 +254,16 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
   }
 
   void _openLegalDocument(FeastaLegalDocument document) {
+    final snapshot = document == FeastaLegalDocument.termsOfService
+        ? _termsDocument
+        : _privacyDocument;
     Navigator.push<void>(
       context,
       MaterialPageRoute(
-        builder: (_) => LegalDocumentScreen(document: document),
+        builder: (_) => LegalDocumentScreen(
+          document: document,
+          loader: (_) async => snapshot,
+        ),
       ),
     );
   }
@@ -391,10 +466,29 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
 
                   const SizedBox(height: AppSpacing.lg),
 
+                  if (_loadingPolicies) const Text('Loading current policies?'),
+                  if (!_loadingPolicies && !_policiesReady)
+                    const Text(
+                      'Current policies could not be verified. Retry policies to continue.',
+                    ),
+                  TextButton(
+                    onPressed: _isSubmitting || _loadingPolicies
+                        ? null
+                        : _loadPolicies,
+                    child: const Text('Retry policies'),
+                  ),
+                  if (_policiesReady)
+                    Text(
+                      'Terms of Service ? Version ${_termsDocument!['version']}',
+                    ),
+                  if (_policiesReady)
+                    Text(
+                      'Privacy Policy ? Version ${_privacyDocument!['version']}',
+                    ),
                   _ConsentControl(
                     key: const Key('terms-consent'),
                     value: _acceptedTerms,
-                    enabled: !_isSubmitting,
+                    enabled: !_isSubmitting && _policiesReady,
                     label: 'I accept the Terms of Service.',
                     linkLabel: 'Read Terms of Service',
                     error: errors.terms,
@@ -403,11 +497,8 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
                         _acceptedTerms = value;
                       });
                     },
-                    onOpen:
-                        widget.onOpenTerms ??
-                        () => _openLegalDocument(
-                          FeastaLegalDocument.termsOfService,
-                        ),
+                    onOpen: () =>
+                        _openLegalDocument(FeastaLegalDocument.termsOfService),
                   ),
 
                   const SizedBox(height: AppSpacing.sm),
@@ -415,7 +506,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
                   _ConsentControl(
                     key: const Key('privacy-consent'),
                     value: _acceptedPrivacy,
-                    enabled: !_isSubmitting,
+                    enabled: !_isSubmitting && _policiesReady,
                     label: 'I accept the Privacy Policy.',
                     linkLabel: 'Read Privacy Policy',
                     error: errors.privacy,
@@ -424,11 +515,8 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
                         _acceptedPrivacy = value;
                       });
                     },
-                    onOpen:
-                        widget.onOpenPrivacy ??
-                        () => _openLegalDocument(
-                          FeastaLegalDocument.privacyPolicy,
-                        ),
+                    onOpen: () =>
+                        _openLegalDocument(FeastaLegalDocument.privacyPolicy),
                   ),
 
                   const SizedBox(height: AppSpacing.xl),
@@ -438,7 +526,9 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
                     label: 'Create account',
                     loadingLabel: 'Creating account',
                     isLoading: registrationState.isSubmitting,
-                    onPressed: _isSubmitting ? null : _submit,
+                    onPressed: _isSubmitting || !_policiesReady
+                        ? null
+                        : _submit,
                   ),
 
                   const SizedBox(height: AppSpacing.xl),

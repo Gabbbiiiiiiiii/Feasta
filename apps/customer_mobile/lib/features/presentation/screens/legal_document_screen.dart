@@ -87,7 +87,7 @@ class _LegalDocumentScreenState extends State<LegalDocumentScreen> {
               return const Center(child: CircularProgressIndicator());
             }
             final agreement = snapshot.data;
-            if (snapshot.hasError || !_validAgreement(agreement)) {
+            if (snapshot.hasError || !validPublishedAgreement(agreement)) {
               return Center(
                 child: Padding(
                   padding: const EdgeInsets.all(AppSpacing.xl),
@@ -122,7 +122,11 @@ class _LegalDocumentScreenState extends State<LegalDocumentScreen> {
                           const SizedBox(height: AppSpacing.md),
                         ],
                         Text('Version ${agreement['version']}'),
-                        Text('Effective date: ${agreement['effectiveDate']}'),
+                        if (agreement['effectiveDate'] is String &&
+                            (agreement['effectiveDate'] as String)
+                                .trim()
+                                .isNotEmpty)
+                          Text('Effective date: ${agreement['effectiveDate']}'),
                         for (final section
                             in agreement['sections'] as List) ...[
                           const SizedBox(height: AppSpacing.xl),
@@ -152,23 +156,22 @@ class _LegalDocumentScreenState extends State<LegalDocumentScreen> {
   }
 }
 
-bool _validAgreement(Map<String, dynamic>? agreement) {
-  if (agreement == null ||
-      agreement['name'] is! String ||
-      agreement['version'] is! String ||
-      agreement['effectiveDate'] is! String ||
-      agreement['sections'] is! List) {
+bool validPublishedAgreement(Map<String, dynamic>? document) {
+  bool text(Object? value) => value is String && value.trim().isNotEmpty;
+  if (document == null ||
+      !text(document['version']) ||
+      !text(document['name']) ||
+      document['sections'] is! List) {
     return false;
   }
-  final sections = agreement['sections'] as List;
+  final sections = document['sections'] as List;
   return sections.isNotEmpty &&
       sections.every(
         (section) =>
             section is Map &&
-            section['title'] is String &&
+            text(section['title']) &&
             section['paragraphs'] is List &&
-            (section['paragraphs'] as List).every(
-              (paragraph) => paragraph is String,
-            ),
+            (section['paragraphs'] as List).isNotEmpty &&
+            (section['paragraphs'] as List).every(text),
       );
 }

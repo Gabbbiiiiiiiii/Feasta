@@ -39,7 +39,7 @@ export type WebSessionResult = {
   destination: string;
 };
 
-export type CustomerRegistrationInput = {
+export type CustomerRegistrationInput = CustomerConsentInput & {
   firstName: string;
   lastName: string;
   email: string;
@@ -48,10 +48,7 @@ export type CustomerRegistrationInput = {
   acceptedPrivacy: true;
 };
 
-export type CustomerConsentInput = {
-  acceptedTerms: true;
-  acceptedPrivacy: true;
-};
+export type CustomerConsentInput = import("./customer-consent").CustomerConsent;
 
 export class WebAuthenticationError extends Error {
   constructor(
@@ -124,6 +121,8 @@ export async function signInWithGoogle(
           ? {
               acceptedTerms: consent.acceptedTerms,
               acceptedPrivacy: consent.acceptedPrivacy,
+              termsPolicyVersion: consent.termsPolicyVersion,
+              privacyPolicyVersion: consent.privacyPolicyVersion,
             }
           : {},
       ),
@@ -201,6 +200,8 @@ export async function registerCustomer(
       lastName: input.lastName.trim(),
       acceptedTerms: input.acceptedTerms,
       acceptedPrivacy: input.acceptedPrivacy,
+      termsPolicyVersion: input.termsPolicyVersion,
+      privacyPolicyVersion: input.privacyPolicyVersion,
     });
   } catch (error) {
     await deleteUser(credential.user).catch(() => undefined);

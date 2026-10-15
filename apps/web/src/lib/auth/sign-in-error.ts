@@ -1,8 +1,11 @@
+import {consentReason, consentMessages} from "./customer-consent";
 import {authenticationGatePresentation} from "@feasta/shared-types";
 
 export type SignInMethod = "google" | "email";
 
 export function accessibleSignInError(error: unknown, method: SignInMethod): string {
+  const policy = consentReason(error);
+  if (policy) return consentMessages[policy];
   const value = error && typeof error === "object" ? error as {code?: unknown; reason?: unknown} : {};
   const code = typeof value.code === "string" ? value.code : "";
   switch (value.reason) {

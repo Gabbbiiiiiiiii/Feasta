@@ -13,10 +13,7 @@ import {
   authoritativeFirebasePhone,
   requireGlobalPhoneIdentityOwnership,
 } from "../shared/phone-identity.js";
-import {
-  CURRENT_PRIVACY_VERSION,
-  CURRENT_TERMS_VERSION,
-} from "./customer-consent-policy.js";
+import {validateCustomerConsent} from "./customer-consent-policy.js";
 
 /**
  * Creates or repairs the customer Firestore profile for the authenticated
@@ -62,8 +59,6 @@ export const ensureUserProfile = onCall(
     }
     const email = authUser.email ?? authenticatedUser.email ?? null;
     const provider = authUser.providerData[0]?.providerId ?? "password";
-    const acceptedTerms = input.acceptedTerms === true;
-    const acceptedPrivacy = input.acceptedPrivacy === true;
 
     const userReference = db.collection("users").doc(authenticatedUser.uid);
     const customerReference = db
@@ -76,20 +71,6 @@ export const ensureUserProfile = onCall(
           userReference,
           customerReference,
         );
-
-        if (
-          !userSnapshot.exists &&
-          (!acceptedTerms || !acceptedPrivacy)
-        ) {
-          throw new HttpsError(
-            "failed-precondition",
-            "Accept the current Terms and Privacy Policy " +
-              "before creating a customer profile.",
-            {
-              reason: "consent-required",
-            },
-          );
-        }
 
         if (userSnapshot.exists) {
           const existing = userSnapshot.data();
@@ -119,38 +100,37 @@ export const ensureUserProfile = onCall(
             customerSnapshot.data(),
             authoritativePhone,
           );
+        }
 
+        const consent = await validateCustomerConsent(
+          transaction, input, !userSnapshot.exists,
+        );
+
+        if (userSnapshot.exists) {
+          const existing = userSnapshot.data();
           transaction.update(userReference, {
             firstName,
             lastName,
             email,
             ...(authoritativePhone ? {phoneNumber: authoritativePhone} : {}),
-            profileImageUrl: authUser.photoURL ?? existing.profileImageUrl ?? null,
+            profileImageUrl: authUser.photoURL ?? existing?.profileImageUrl ?? null,
             isEmailVerified: authUser.emailVerified,
             authProvider: provider,
             updatedAt: serverTimestamp(),
             lastLoginAt: serverTimestamp(),
-            ...(acceptedTerms &&
-            (
+            ...(consent && (
               existing?.termsAcceptedAt == null ||
-              existing?.termsVersion !==
-                CURRENT_TERMS_VERSION
+              existing?.termsVersion !== consent.termsVersion
             ) ? {
-                termsAcceptedAt:
-                  serverTimestamp(),
-                termsVersion:
-                  CURRENT_TERMS_VERSION,
+                termsAcceptedAt: serverTimestamp(),
+                termsVersion: consent.termsVersion,
               } : {}),
-            ...(acceptedPrivacy &&
-            (
+            ...(consent && (
               existing?.privacyAcceptedAt == null ||
-              existing?.privacyVersion !==
-                CURRENT_PRIVACY_VERSION
+              existing?.privacyVersion !== consent.privacyVersion
             ) ? {
-                privacyAcceptedAt:
-                  serverTimestamp(),
-                privacyVersion:
-                  CURRENT_PRIVACY_VERSION,
+                privacyAcceptedAt: serverTimestamp(),
+                privacyVersion: consent.privacyVersion,
               } : {}),
           });
         } else {
@@ -175,11 +155,11 @@ export const ensureUserProfile = onCall(
             termsAcceptedAt:
               serverTimestamp(),
             termsVersion:
-              CURRENT_TERMS_VERSION,
+              consent!.termsVersion,
             privacyAcceptedAt:
               serverTimestamp(),
             privacyVersion:
-              CURRENT_PRIVACY_VERSION,
+              consent!.privacyVersion,
           });
         }
 

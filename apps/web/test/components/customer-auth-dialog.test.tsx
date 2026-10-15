@@ -19,6 +19,14 @@ vi.mock("@/components/auth/logout-button", () => ({LogoutButton: () => <button>S
 vi.mock("@/lib/customer/planning/event-venue-client", () => ({searchEventVenues: vi.fn(), getEventVenueDetails: vi.fn()}));
 vi.mock("@/app/customer/favorites/actions", () => ({setProviderFavoriteAction: mocks.favorite}));
 
+vi.mock("@/lib/auth/customer-consent", async (original) => ({
+  ...await original<typeof import("@/lib/auth/customer-consent")>(),
+  loadCustomerAgreements: vi.fn().mockResolvedValue({
+    terms: {code: "terms", name: "Terms", version: "terms-7", summary: "", effectiveDate: "2026-10-01", sections: [{title:"Terms text", paragraphs:["Published terms"]}]},
+    privacy: {code: "privacy", name: "Privacy Policy", version: "privacy-3", summary: "", effectiveDate: "2026-10-02", sections: [{title:"Privacy text", paragraphs:["Published privacy"]}]},
+  }),
+}));
+
 import {PublicProviderMarketplaceShell} from "@/components/customer/layout/public-provider-marketplace-shell";
 import {CustomerAuthLink} from "@/components/customer/layout/customer-auth-provider";
 import {ProviderFavoriteControl} from "@/components/customer/favorites/provider-favorite-control";
@@ -28,14 +36,14 @@ function marketplace(children = <p>Marketplace remains here</p>) {
   return <PublicProviderMarketplaceShell authReturnTo={pathname}>{children}</PublicProviderMarketplaceShell>;
 }
 
-function fillRegistration() {
+async function fillRegistration() {
   fireEvent.change(screen.getByLabelText(/^First name/), {target: {value: "Ada"}});
   fireEvent.change(screen.getByLabelText(/^Last name/), {target: {value: "Lovelace"}});
   fireEvent.change(screen.getByLabelText(/^Email address/), {target: {value: "ada@example.test"}});
   fireEvent.change(screen.getByLabelText(/^Password/), {target: {value: "Feasta123!"}});
   fireEvent.change(screen.getByLabelText(/^Confirm password/), {target: {value: "Feasta123!"}});
-  fireEvent.click(screen.getByRole("checkbox", {name: /Terms/}));
-  fireEvent.click(screen.getByRole("checkbox", {name: /Privacy Policy/}));
+  fireEvent.click(await screen.findByRole("checkbox", {name: /Terms/}));
+  fireEvent.click(await screen.findByRole("checkbox", {name: /Privacy Policy/}));
 }
 
 describe("marketplace hybrid customer authentication", () => {
@@ -128,8 +136,8 @@ describe("marketplace hybrid customer authentication", () => {
     for (const name of [/^First name/, /^Last name/, /^Email address/, /^Password/, /^Confirm password/]) {
       expect(within(details).getByLabelText(name)).toBeRequired();
     }
-    expect(within(dialog).getByRole("checkbox", {name: /Terms/})).toBeVisible();
-    expect(within(dialog).getByRole("checkbox", {name: /Privacy Policy/})).toBeVisible();
+    expect(await within(dialog).findByRole("checkbox", {name: /Terms/})).toBeVisible();
+    expect(await within(dialog).findByRole("checkbox", {name: /Privacy Policy/})).toBeVisible();
     await user.click(within(dialog).getByRole("button", {name: "Log in"}));
     expect(screen.getByRole("dialog", {name: "Welcome!"})).toBeVisible();
     expect(screen.queryByRole("region", {name: "Registration details"})).not.toBeInTheDocument();
@@ -163,9 +171,9 @@ describe("marketplace hybrid customer authentication", () => {
     const user = userEvent.setup();
     render(marketplace());
     await user.click(screen.getByRole("button", {name: "Sign up"}));
-    fillRegistration();
+    await fillRegistration();
     await user.click(screen.getByRole("button", {name: "Create account"}));
-    await waitFor(() => expect(mocks.register).toHaveBeenCalledWith({firstName: "Ada", lastName: "Lovelace", email: "ada@example.test", password: "Feasta123!", acceptedTerms: true, acceptedPrivacy: true}));
+    await waitFor(() => expect(mocks.register).toHaveBeenCalledWith({firstName: "Ada", lastName: "Lovelace", email: "ada@example.test", password: "Feasta123!", acceptedTerms: true, acceptedPrivacy: true, termsPolicyVersion: "terms-7", privacyPolicyVersion: "privacy-3"}));
     expect(mocks.replace).toHaveBeenCalledWith("/verify-email?registration=complete&delivery=sent&next=%2Fcustomer%2Fpackages%3FeventType%3Dbirthday");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -186,7 +194,7 @@ describe("marketplace hybrid customer authentication", () => {
     query = new URLSearchParams("next=/customer/packages/package_12345678/book");
     mocks.register.mockResolvedValue({verificationEmailSent: false});
     render(<CustomerRegistrationPage />);
-    fillRegistration();
+    await fillRegistration();
     fireEvent.click(screen.getByRole("button", {name: "Create account"}));
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/verify-email?registration=complete&delivery=retry&next=%2Fcustomer%2Fpackages%2Fpackage_12345678%2Fbook"));
     const page = readFileSync(join(process.cwd(), "src/app/register/page.tsx"), "utf8");
@@ -202,7 +210,7 @@ describe("marketplace hybrid customer authentication", () => {
     const user = userEvent.setup();
     render(marketplace());
     await user.click(screen.getByRole("button", {name: "Sign up"}));
-    fillRegistration();
+    await fillRegistration();
     await user.click(screen.getByRole("button", {name: "Create account"}));
     expect(await screen.findByRole("alert")).toBeVisible();
     expect(screen.getByRole("button", {name: "Create account"})).toBeEnabled();
@@ -237,10 +245,7 @@ describe("marketplace hybrid customer authentication", () => {
     await waitFor(() => expect(mocks.google).toHaveBeenCalledWith(
       destination,
       expect.any(AbortSignal),
-      {
-        acceptedTerms: true,
-        acceptedPrivacy: true,
-      },
+      undefined,
     ));
     expect(mocks.replace).toHaveBeenCalledWith(destination);
     expect(mocks.favorite).not.toHaveBeenCalled();
@@ -253,7 +258,7 @@ describe("marketplace hybrid customer authentication", () => {
     render(marketplace(<CustomerAuthLink href={destination} returnTo={destination}>Continue booking</CustomerAuthLink>));
     await user.click(screen.getByRole("link", {name: "Continue booking"}));
     await user.click(screen.getByRole("button", {name: "Create an account"}));
-    fillRegistration();
+    await fillRegistration();
     await user.click(screen.getByRole("button", {name: "Create account"}));
     await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/verify-email?registration=complete&delivery=sent&next=" + encodeURIComponent(destination)));
   });

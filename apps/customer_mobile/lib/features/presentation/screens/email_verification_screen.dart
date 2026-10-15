@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../../app/router/customer_auth_navigation.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -10,6 +11,7 @@ import '../../authentication/application/customer_auth_scope.dart';
 import '../../authentication/application/email_verification_controller.dart';
 import '../../authentication/data/repositories/auth_repository.dart';
 import '../../authentication/domain/account_recovery.dart';
+import '../../authentication/domain/auth_account_state.dart';
 import 'login_screen.dart';
 
 class EmailVerificationScreen extends StatefulWidget {
@@ -37,9 +39,11 @@ class EmailVerificationScreen extends StatefulWidget {
       _EmailVerificationScreenState();
 }
 
-class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
+class _EmailVerificationScreenState extends State<EmailVerificationScreen>
+    with WidgetsBindingObserver {
   late final EmailVerificationGateway _gateway;
   late final EmailVerificationController _controller;
+  bool _resumeRefreshActive = false;
 
   @override
   void initState() {
@@ -49,6 +53,38 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
       gateway: _gateway,
       resendCooldown: widget.resendCooldown,
     )..addListener(_stateChanged);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_refreshOnReturn());
+  }
+
+  Future<void> _refreshOnReturn() async {
+    if (!mounted ||
+        !widget.managedByAuthenticationGate ||
+        _resumeRefreshActive ||
+        _controller.state.isRefreshing ||
+        _controller.state.isResending ||
+        ModalRoute.of(context)?.isCurrent != true) {
+      return;
+    }
+    final gate = CustomerAuthenticationScope.maybeOf(context);
+    if (gate == null ||
+        gate.state.gate.kind !=
+            AuthenticationGateKind.emailVerificationRequired) {
+      return;
+    }
+    setState(() => _resumeRefreshActive = true);
+    try {
+      // The existing gate reloads the current Firebase user, refreshes the
+      // token, and checks customer role/account restrictions with UID guards.
+      // Returning from a browser is not itself proof of verification.
+      await gate.refresh(forceTokenRefresh: true);
+    } finally {
+      if (mounted) setState(() => _resumeRefreshActive = false);
+    }
   }
 
   void _stateChanged() {
@@ -56,6 +92,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
   }
 
   Future<void> _refresh() async {
+    if (!mounted || _resumeRefreshActive) return;
     final verified = await _controller.refresh();
     if (!mounted || !verified) return;
     if (widget.onVerified != null) {
@@ -65,6 +102,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
     final gate = CustomerAuthenticationScope.maybeOf(context);
     if (gate != null) {
       await gate.refresh(forceTokenRefresh: true);
+      if (mounted) returnToCustomerAuthenticationGate(context);
       return;
     }
     await _gateway.logout();
@@ -76,6 +114,11 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
     );
   }
 
+  Future<void> _resend() async {
+    if (!mounted || _resumeRefreshActive) return;
+    await _controller.resend();
+  }
+
   Future<void> _logout() async {
     if (widget.onLogout != null) {
       await widget.onLogout!();
@@ -84,6 +127,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
     final gate = CustomerAuthenticationScope.maybeOf(context);
     if (gate != null) {
       await gate.signOut();
+      if (mounted) returnToCustomerAuthenticationGate(context);
       return;
     }
     await _gateway.logout();
@@ -97,6 +141,7 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller
       ..removeListener(_stateChanged)
       ..dispose();
@@ -157,8 +202,11 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                   key: const Key('check-verification'),
                   label: 'Check verification',
                   loadingLabel: 'Checking verification',
-                  isLoading: state.isRefreshing,
-                  onPressed: state.isResending || state.isRefreshing
+                  isLoading: state.isRefreshing || _resumeRefreshActive,
+                  onPressed:
+                      state.isResending ||
+                          state.isRefreshing ||
+                          _resumeRefreshActive
                       ? null
                       : _refresh,
                 ),
@@ -171,9 +219,12 @@ class _EmailVerificationScreenState extends State<EmailVerificationScreen> {
                   loadingLabel: 'Sending verification email',
                   isLoading: state.isResending,
                   onPressed:
-                      cooldown > 0 || state.isResending || state.isRefreshing
+                      cooldown > 0 ||
+                          state.isResending ||
+                          state.isRefreshing ||
+                          _resumeRefreshActive
                       ? null
-                      : _controller.resend,
+                      : _resend,
                 ),
                 const SizedBox(height: AppSpacing.md),
                 FeastaTextButton(

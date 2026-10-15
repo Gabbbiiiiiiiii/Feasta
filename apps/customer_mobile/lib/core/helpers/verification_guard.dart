@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../features/presentation/screens/login_screen.dart';
 import '../../features/customer/phone_verification_screen.dart';
 import '../constants/firestore_collections.dart';
+import '../security/auth_operation_coordinator.dart';
 
 Future<bool> requireVerifiedPhoneForBooking(BuildContext context) async {
   final auth = FirebaseAuth.instance;
@@ -21,7 +22,12 @@ Future<bool> requireVerifiedPhoneForBooking(BuildContext context) async {
     return false;
   }
 
-  await user.reload();
+  final reloaded = await AuthOperationCoordinator.shared.run(() async {
+    if (auth.currentUser?.uid != user.uid) return false;
+    await user.reload();
+    return auth.currentUser?.uid == user.uid;
+  });
+  if (!reloaded) return false;
 
   final refreshedUser = auth.currentUser;
 
@@ -65,7 +71,14 @@ Future<bool> requireVerifiedPhoneForBooking(BuildContext context) async {
     );
     if (verified != true || !context.mounted) return false;
 
-    await refreshedUser.reload();
+    final reloadedAfterOtp = await AuthOperationCoordinator.shared.run(
+      () async {
+        if (auth.currentUser?.uid != refreshedUser.uid) return false;
+        await refreshedUser.reload();
+        return auth.currentUser?.uid == refreshedUser.uid;
+      },
+    );
+    if (!reloadedAfterOtp) return false;
     final postVerificationUser = auth.currentUser;
     if (postVerificationUser == null || !postVerificationUser.emailVerified) {
       return false;

@@ -3,13 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../app/router/customer_route_guard.dart';
+import '../../../app/router/customer_auth_navigation.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../authentication/application/customer_auth_scope.dart';
 import '../../authentication/data/repositories/auth_repository.dart';
 import '../../authentication/domain/customer_login.dart';
-import '../../customer/customer_main_screen.dart';
+import '../../authentication/domain/account_recovery.dart';
 import '../widgets/customer_login_panel.dart';
-import 'email_verification_screen.dart';
 import 'forgot_password_screen.dart';
 import 'role_selection_screen.dart';
 
@@ -20,6 +20,8 @@ class LoginScreen extends StatelessWidget {
     this.managedByAuthenticationGate = false,
     this.loginGateway,
     this.onLoginComplete,
+    this.passwordResetGateway,
+    this.roleSelectionBuilder,
     super.key,
   });
 
@@ -27,6 +29,8 @@ class LoginScreen extends StatelessWidget {
   final Widget? redirectAfterLogin;
   final bool managedByAuthenticationGate;
   final CustomerLoginGateway? loginGateway;
+  final PasswordResetGateway? passwordResetGateway;
+  final WidgetBuilder? roleSelectionBuilder;
 
   final FutureOr<void> Function(CustomerLoginResult result)? onLoginComplete;
 
@@ -39,48 +43,33 @@ class LoginScreen extends StatelessWidget {
       return;
     }
 
-    if (managedByAuthenticationGate) {
-      await CustomerAuthenticationScope.of(context).refresh();
-
+    final controller = CustomerAuthenticationScope.maybeOf(context);
+    if (controller != null) {
+      await controller.refresh(forceTokenRefresh: false);
+      if (context.mounted && !managedByAuthenticationGate) {
+        returnToCustomerAuthenticationGate(context);
+      }
       return;
     }
 
-    if (!result.emailVerified) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(
-          builder: (_) => EmailVerificationScreen(email: result.email ?? ''),
+    // A standalone login cannot establish customer authorization by itself.
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Account access could not be completed. Reopen FEASTA to continue.',
         ),
-        (_) => false,
-      );
-
-      return;
-    }
-
-    final destination = redirectAfterLogin ?? const CustomerMainScreen();
-
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => destination),
-      (_) => false,
+      ),
     );
   }
 
-  void _continueAsGuest(BuildContext context) {
-    if (managedByAuthenticationGate) {
-      final controller = CustomerAuthenticationScope.maybeOf(context);
-
-      if (controller != null) {
-        controller.requestIntendedLocation(CustomerAppLocations.browse);
-
-        return;
-      }
-    }
-
-    Navigator.pushAndRemoveUntil(
+  Future<void> _continueAsGuest(BuildContext context) async {
+    final controller = CustomerAuthenticationScope.maybeOf(context);
+    if (controller == null) return;
+    if (controller.currentIdentity != null) await controller.signOut();
+    if (!context.mounted || controller.currentIdentity != null) return;
+    returnToCustomerAuthenticationGate(
       context,
-      MaterialPageRoute(builder: (_) => const CustomerMainScreen()),
-      (_) => false,
+      intendedLocation: CustomerAppLocations.browse,
     );
   }
 
@@ -96,13 +85,20 @@ class LoginScreen extends StatelessWidget {
             onForgotPassword: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
+                MaterialPageRoute(
+                  builder: (_) =>
+                      ForgotPasswordScreen(resetGateway: passwordResetGateway),
+                ),
               );
             },
             onCreateAccount: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => const RoleSelectionScreen()),
+                MaterialPageRoute(
+                  builder:
+                      roleSelectionBuilder ??
+                      (_) => const RoleSelectionScreen(),
+                ),
               );
             },
             onLoginComplete: (result) => _handleLoginComplete(context, result),

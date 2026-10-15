@@ -5,6 +5,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
+import '../../../../core/security/auth_operation_coordinator.dart';
 import '../../../../core/constants/firestore_collections.dart';
 import '../../../../core/constants/status_constants.dart';
 import '../../domain/account_recovery.dart';
@@ -20,11 +21,19 @@ class AuthRepository
         EmailVerificationGateway,
         PasswordResetGateway,
         FirebaseActionCodeGateway {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
-  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
-    region: 'asia-southeast1',
-  );
+  AuthRepository({
+    FirebaseAuth? auth,
+    FirebaseFirestore? firestore,
+    FirebaseFunctions? functions,
+  }) : _auth = auth ?? FirebaseAuth.instance,
+       _db = firestore ?? FirebaseFirestore.instance,
+       _functions =
+           functions ??
+           FirebaseFunctions.instanceFor(region: 'asia-southeast1');
+
+  final FirebaseAuth _auth;
+  final FirebaseFirestore _db;
+  final FirebaseFunctions _functions;
 
   User? get currentUser => _auth.currentUser;
 
@@ -33,9 +42,31 @@ class AuthRepository
   @override
   Future<CustomerRegistrationResult> registerCustomer(
     CustomerRegistrationInput rawInput,
+  ) {
+    final initialUid = _auth.currentUser?.uid;
+    return AuthOperationCoordinator.shared.transition(() {
+      if (_auth.currentUser?.uid != initialUid) {
+        throw const CustomerRegistrationException(
+          CustomerRegistrationFailureKind.blockedAccount,
+        );
+      }
+      return _registerCustomerCoordinated(rawInput);
+    });
+  }
+
+  Future<CustomerRegistrationResult> _registerCustomerCoordinated(
+    CustomerRegistrationInput rawInput,
   ) async {
     final input = rawInput.normalized();
     final normalizedEmail = input.email;
+    if (!input.acceptedTerms ||
+        !input.acceptedPrivacy ||
+        input.termsPolicyVersion.trim().isEmpty ||
+        input.privacyPolicyVersion.trim().isEmpty) {
+      throw const CustomerRegistrationException(
+        CustomerRegistrationFailureKind.invalidPolicyVersion,
+      );
+    }
 
     try {
       final signedInUser = _auth.currentUser;
@@ -64,17 +95,25 @@ class AuthRepository
                 }
                 return created;
               },
-              createProfile: (_) => _ensureCustomerProfile(
-                firstName: input.firstName,
-                lastName: input.lastName,
-                acceptedTerms: input.acceptedTerms,
-                acceptedPrivacy: input.acceptedPrivacy,
-              ),
+              createProfile: (created) async {
+                if (_auth.currentUser?.uid != created.uid) {
+                  throw const CustomerRegistrationException(
+                    CustomerRegistrationFailureKind.blockedAccount,
+                  );
+                }
+                await _ensureCustomerProfile(
+                  firstName: input.firstName,
+                  lastName: input.lastName,
+                  acceptedTerms: input.acceptedTerms,
+                  acceptedPrivacy: input.acceptedPrivacy,
+                  termsPolicyVersion: input.termsPolicyVersion,
+                  privacyPolicyVersion: input.privacyPolicyVersion,
+                );
+              },
               rollbackIdentity: (created) => created.delete(),
               onProfileError: (error, stackTrace) {
                 secureDebugLog(
                   'Customer profile creation failed',
-                  error: error,
                   stackTrace: stackTrace,
                 );
               },
@@ -93,9 +132,16 @@ class AuthRepository
           lastName: input.lastName,
           acceptedTerms: input.acceptedTerms,
           acceptedPrivacy: input.acceptedPrivacy,
+          termsPolicyVersion: input.termsPolicyVersion,
+          privacyPolicyVersion: input.privacyPolicyVersion,
         );
       }
 
+      if (_auth.currentUser?.uid != user.uid) {
+        throw const CustomerRegistrationException(
+          CustomerRegistrationFailureKind.blockedAccount,
+        );
+      }
       // A mail delivery failure does not roll back a fully-created account.
       var verificationEmailSent = true;
       try {
@@ -104,8 +150,12 @@ class AuthRepository
         verificationEmailSent = false;
         secureDebugLog(
           'Verification email delivery failed after registration',
-          error: error,
           stackTrace: stackTrace,
+        );
+      }
+      if (_auth.currentUser?.uid != user.uid) {
+        throw const CustomerRegistrationException(
+          CustomerRegistrationFailureKind.blockedAccount,
         );
       }
       return CustomerRegistrationResult(
@@ -116,17 +166,17 @@ class AuthRepository
     } on CustomerRegistrationException {
       rethrow;
     } catch (error, stackTrace) {
-      secureDebugLog(
-        'Customer registration failed',
-        error: error,
-        stackTrace: stackTrace,
-      );
+      secureDebugLog('Customer registration failed', stackTrace: stackTrace);
       throw CustomerRegistrationException(_registrationFailureKind(error));
     }
   }
 
   @override
-  Future<bool> refreshVerification() async {
+  Future<bool> refreshVerification() => AuthOperationCoordinator.shared.run(
+    () => _refreshVerificationCoordinated(),
+  );
+
+  Future<bool> _refreshVerificationCoordinated() async {
     final user = _auth.currentUser;
     if (user == null) {
       throw const AccountRecoveryException(
@@ -152,6 +202,44 @@ class AuthRepository
   }
 
   Future<void> registerProvider({
+    required String firstName,
+    required String lastName,
+    required String email,
+    required String phoneNumber,
+    required String password,
+    required String businessName,
+    required String businessPhone,
+    required String businessEmail,
+    required String businessAddress,
+    required String city,
+    required String province,
+    required String description,
+    required List<String> serviceAreas,
+    required List<String> eventTypesSupported,
+    required String providerServiceType,
+    required String providerCategory,
+  }) => AuthOperationCoordinator.shared.transition(
+    () => _registerProviderCoordinated(
+      firstName: firstName,
+      lastName: lastName,
+      email: email,
+      phoneNumber: phoneNumber,
+      password: password,
+      businessName: businessName,
+      businessPhone: businessPhone,
+      businessEmail: businessEmail,
+      businessAddress: businessAddress,
+      city: city,
+      province: province,
+      description: description,
+      serviceAreas: serviceAreas,
+      eventTypesSupported: eventTypesSupported,
+      providerServiceType: providerServiceType,
+      providerCategory: providerCategory,
+    ),
+  );
+
+  Future<void> _registerProviderCoordinated({
     required String firstName,
     required String lastName,
     required String email,
@@ -225,7 +313,11 @@ class AuthRepository
   }
 
   @override
-  Future<void> resendVerification() async {
+  Future<void> resendVerification() => AuthOperationCoordinator.shared.run(
+    () => _resendVerificationCoordinated(),
+  );
+
+  Future<void> _resendVerificationCoordinated() async {
     final user = _auth.currentUser;
     if (user == null) {
       throw const AccountRecoveryException(
@@ -253,6 +345,13 @@ class AuthRepository
 
   @override
   Future<CustomerLoginResult> signInWithEmail({
+    required String email,
+    required String password,
+  }) => AuthOperationCoordinator.shared.transition(
+    () => _signInWithEmailCoordinated(email: email, password: password),
+  );
+
+  Future<CustomerLoginResult> _signInWithEmailCoordinated({
     required String email,
     required String password,
   }) async {
@@ -314,7 +413,6 @@ class AuthRepository
     } catch (error, stackTrace) {
       secureDebugLog(
         'Failed to load provider verification status',
-        error: error,
         stackTrace: stackTrace,
       );
       return null;
@@ -322,7 +420,15 @@ class AuthRepository
   }
 
   @override
-  Future<void> logout() async {
+  Future<void> logout() {
+    final uid = _auth.currentUser?.uid;
+    return AuthOperationCoordinator.shared.transition(() async {
+      if (_auth.currentUser?.uid != uid) return;
+      await _logoutCoordinated();
+    });
+  }
+
+  Future<void> _logoutCoordinated() async {
     try {
       await GoogleSignIn.instance.signOut();
     } catch (_) {
@@ -332,7 +438,11 @@ class AuthRepository
   }
 
   @override
-  Future<CustomerLoginResult> signInWithGoogle() async {
+  Future<CustomerLoginResult> signInWithGoogle() => AuthOperationCoordinator
+      .shared
+      .transition(() => _signInWithGoogleCoordinated());
+
+  Future<CustomerLoginResult> _signInWithGoogleCoordinated() async {
     try {
       await GoogleSignIn.instance.initialize();
 
@@ -351,17 +461,6 @@ class AuthRepository
         throw StateError('Google sign-in failed.');
       }
 
-      // Firebase Authentication is now the source of truth for whether the
-      // sign-in succeeded. Do not make the login result depend on secondary
-      // Firestore/Functions work, because those operations are also observed
-      // by CustomerAuthenticationController and may race with auth-state and
-      // ID-token events.
-      //
-      // Any profile repair/synchronization is intentionally best-effort.
-      // The authentication gate remains responsible for validating role,
-      // account status, customer profile availability, and routing.
-      unawaited(_repairCustomerProfileAfterGoogleSignIn(user));
-
       return CustomerLoginResult(
         uid: user.uid,
         email: user.email,
@@ -374,7 +473,6 @@ class AuthRepository
 
       secureDebugLog(
         'Google account selection failed',
-        error: error,
         stackTrace: StackTrace.current,
       );
 
@@ -382,7 +480,6 @@ class AuthRepository
     } on FirebaseAuthException catch (error, stackTrace) {
       secureDebugLog(
         'Firebase Google sign-in failed with code ${error.code}',
-        error: error,
         stackTrace: stackTrace,
       );
 
@@ -396,7 +493,6 @@ class AuthRepository
     } catch (error, stackTrace) {
       secureDebugLog(
         'Google sign-in failed before a usable Firebase session was returned',
-        error: error,
         stackTrace: stackTrace,
       );
 
@@ -405,39 +501,6 @@ class AuthRepository
       await _signOutIfLoginMustBeRejected(kind);
 
       throw CustomerLoginException(kind);
-    }
-  }
-
-  Future<void> _repairCustomerProfileAfterGoogleSignIn(User user) async {
-    try {
-      // Existing customer accounts do not need ensureUserProfile to run on
-      // every login. Re-running the callable on each login creates extra
-      // writes, account-change events, App Check/rate-limit exposure, and
-      // unnecessary overlap with CustomerAuthenticationController.loadAccount.
-      final userSnapshot = await _db
-          .collection(FirestoreCollections.users)
-          .doc(user.uid)
-          .get();
-
-      if (!userSnapshot.exists) {
-        // For a genuinely missing profile, keep the repair path. If the
-        // callable cannot create/repair it, the authentication gate will see
-        // the missing profile and route accordingly instead of falsely
-        // reporting that Google authentication itself failed.
-        await _ensureCustomerProfile();
-        return;
-      }
-
-      // Keep Auth-backed fields such as email verification synchronized, but
-      // never turn a valid Firebase sign-in into a failed login just because
-      // this secondary synchronization is temporarily unavailable.
-      await _syncUserAuthState();
-    } catch (error, stackTrace) {
-      secureDebugLog(
-        'Post-Google-sign-in profile synchronization was deferred',
-        error: error,
-        stackTrace: stackTrace,
-      );
     }
   }
 
@@ -458,7 +521,14 @@ class AuthRepository
   }
 
   @override
-  Future<FirebaseActionResult> handleActionCode(FirebaseActionLink link) async {
+  Future<FirebaseActionResult> handleActionCode(FirebaseActionLink link) =>
+      AuthOperationCoordinator.shared.transition(
+        () => _handleActionCodeCoordinated(link),
+      );
+
+  Future<FirebaseActionResult> _handleActionCodeCoordinated(
+    FirebaseActionLink link,
+  ) async {
     try {
       if (link.mode == FirebaseActionMode.resetPassword) {
         final email = await _auth.verifyPasswordResetCode(link.oobCode);
@@ -496,6 +566,8 @@ class AuthRepository
     String? lastName,
     bool? acceptedTerms,
     bool? acceptedPrivacy,
+    String? termsPolicyVersion,
+    String? privacyPolicyVersion,
   }) async {
     final callable = _functions.httpsCallable('ensureUserProfile');
     await callable.call(<String, dynamic>{
@@ -503,6 +575,8 @@ class AuthRepository
       if (lastName != null) 'lastName': lastName.trim(),
       'acceptedTerms': ?acceptedTerms,
       'acceptedPrivacy': ?acceptedPrivacy,
+      'termsPolicyVersion': ?termsPolicyVersion,
+      'privacyPolicyVersion': ?privacyPolicyVersion,
     });
   }
 
@@ -555,6 +629,11 @@ class AuthRepository
       };
     }
     if (error is FirebaseFunctionsException) {
+      final policyFailure = registrationPolicyFailure(
+        error.code,
+        error.details,
+      );
+      if (policyFailure != null) return policyFailure;
       return switch (error.code) {
         'permission-denied' => CustomerRegistrationFailureKind.blockedAccount,
         'resource-exhausted' => CustomerRegistrationFailureKind.tooManyRequests,
@@ -635,7 +714,7 @@ class AuthRepository
       if (reason == 'disabled') return CustomerLoginFailureKind.disabled;
       if (reason == 'blocked') return CustomerLoginFailureKind.blocked;
       return switch (error.code) {
-        'permission-denied' => CustomerLoginFailureKind.blocked,
+        'permission-denied' => CustomerLoginFailureKind.unknown,
         'not-found' => CustomerLoginFailureKind.missingProfile,
         'resource-exhausted' => CustomerLoginFailureKind.tooManyRequests,
         'unavailable' ||
@@ -669,7 +748,7 @@ class AuthRepository
       final reason = details is Map ? details['reason'] : null;
       if (reason == 'disabled') return AccountRecoveryFailureKind.disabled;
       return switch (error.code) {
-        'permission-denied' => AccountRecoveryFailureKind.sessionExpired,
+        'permission-denied' => AccountRecoveryFailureKind.unknown,
         'resource-exhausted' => AccountRecoveryFailureKind.tooManyRequests,
         'unavailable' ||
         'deadline-exceeded' => AccountRecoveryFailureKind.network,

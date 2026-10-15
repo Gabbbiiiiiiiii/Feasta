@@ -4,7 +4,7 @@ import '../../../app/router/customer_route_guard.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../authentication/application/customer_auth_scope.dart';
 import '../../authentication/domain/customer_login.dart';
-import '../screens/email_verification_screen.dart';
+import '../../authentication/domain/auth_account_state.dart';
 import '../screens/forgot_password_screen.dart';
 import '../screens/role_selection_screen.dart';
 import 'customer_login_panel.dart';
@@ -105,73 +105,28 @@ Future<bool> showCustomerLoginModal(
                     // LOGIN COMPLETE
                     //
                     onLoginComplete: (CustomerLoginResult loginResult) async {
-                      //
-                      // If the modal is running under the central
-                      // authentication architecture, refresh that
-                      // controller BEFORE closing the sheet.
-                      //
-                      if (authenticationController != null) {
-                        // Preserve the protected destination the customer originally requested.
-                        authenticationController.stageIntendedLocation(
-                          intendedLocation,
-                        );
-
-                        // Firebase authentication has already succeeded at this point.
-                        //
-                        // Close the login sheet immediately instead of making the user wait for
-                        // token/profile/gate hydration.
+                      if (authenticationController == null) {
                         if (sheetContext.mounted) {
-                          Navigator.of(sheetContext).pop(true);
+                          Navigator.of(sheetContext).pop(false);
                         }
-
-                        // Synchronize FEASTA's central authentication state in the background.
-                        //
-                        // A fresh Firebase sign-in already has a valid token, so forcing another
-                        // token refresh here only adds unnecessary latency.
-                        authenticationController
-                            .refresh(forceTokenRefresh: false)
-                            .then((_) {
-                              debugPrint(
-                                'FEASTA AUTH AFTER LOGIN: '
-                                'gate=${authenticationController.state.gate.kind}, '
-                                'email=${authenticationController.state.email}, '
-                                'location=${authenticationController.intendedLocation}',
-                              );
-                            })
-                            .catchError((Object error) {
-                              debugPrint(
-                                'FEASTA AUTH AFTER LOGIN REFRESH FAILED: $error',
-                              );
-                            });
-
                         return;
                       }
-
-                      //
-                      // FALLBACK
-                      //
-                      // This path is used only when the modal is shown
-                      // outside CustomerAuthenticationScope.
-                      //
-                      if (!loginResult.emailVerified) {
-                        if (sheetContext.mounted) {
-                          Navigator.of(sheetContext).pop(true);
-                        }
-
-                        rootNavigator.pushAndRemoveUntil(
-                          MaterialPageRoute(
-                            builder: (_) => EmailVerificationScreen(
-                              email: loginResult.email ?? '',
-                            ),
-                          ),
-                          (_) => false,
-                        );
-
-                        return;
-                      }
-
+                      authenticationController.stageIntendedLocation(
+                        intendedLocation,
+                      );
+                      await authenticationController.refresh(
+                        forceTokenRefresh: false,
+                      );
+                      final kind = authenticationController.state.gate.kind;
+                      final ready =
+                          authenticationController.currentIdentity?.uid ==
+                              loginResult.uid &&
+                          (kind == AuthenticationGateKind.customerReady ||
+                              kind ==
+                                  AuthenticationGateKind
+                                      .customerPhoneVerificationRequired);
                       if (sheetContext.mounted) {
-                        Navigator.of(sheetContext).pop(true);
+                        Navigator.of(sheetContext).pop(ready);
                       }
                     },
                   ),
@@ -188,7 +143,7 @@ Future<bool> showCustomerLoginModal(
   // X button, swipe down, barrier tap, or system back:
   // return to public browsing.
   //
-  if (result != true) {
+  if (result != true && authenticationController?.currentIdentity == null) {
     authenticationController?.stageIntendedLocation(
       CustomerAppLocations.browse,
     );

@@ -5,8 +5,10 @@ import '../../../core/widgets/widgets.dart';
 import '../../customer/customer_main_screen.dart';
 import '../../presentation/screens/email_verification_screen.dart';
 import '../../presentation/screens/login_screen.dart';
+import '../../presentation/screens/legal_document_screen.dart';
 import '../../splash/splash_screen.dart';
 import '../application/customer_auth_controller.dart';
+import 'customer_consent_screen.dart';
 import '../domain/auth_account_presentation.dart';
 import '../domain/auth_account_state.dart';
 
@@ -23,6 +25,7 @@ class AuthenticationGate extends StatelessWidget {
     this.customerBuilder,
     this.loginBuilder,
     this.verificationBuilder,
+    this.consentDocumentLoader = loadCurrentLegalDocument,
     super.key,
   });
 
@@ -32,6 +35,7 @@ class AuthenticationGate extends StatelessWidget {
   final AuthenticationGateBuilder? customerBuilder;
   final AuthenticationGateBuilder? loginBuilder;
   final AuthenticationGateBuilder? verificationBuilder;
+  final LegalDocumentLoader consentDocumentLoader;
 
   @override
   Widget build(BuildContext context) {
@@ -47,23 +51,60 @@ class AuthenticationGate extends StatelessWidget {
     final state = controller.state;
     final kind = state.gate.kind;
 
-    debugPrint(
-      'FEASTA AUTH GATE: '
-      'kind=$kind '
-      'email=${state.email} '
-      'destination=${controller.intendedLocation}',
-    );
+    if (controller.consentRequired && state.failure == null) {
+      final generation = controller.consentGeneration;
+      final revision = controller.consentRevision;
+      final uid = controller.currentIdentity?.uid;
+      return CustomerConsentScreen(
+        loader: consentDocumentLoader,
+        policiesOutdated: controller.policiesOutdated,
+        policyRecoveryNotice: controller.policyRecoveryNotice,
+        key: ValueKey('customer-consent-$generation-$revision'),
+        onAccept: (termsVersion, privacyVersion) => controller.acceptConsent(
+          termsPolicyVersion: termsVersion,
+          privacyPolicyVersion: privacyVersion,
+          expectedGeneration: generation,
+          expectedRevision: revision,
+        ),
+        onDecline: () async {
+          if (generation == controller.consentGeneration &&
+              revision == controller.consentRevision &&
+              uid == controller.currentIdentity?.uid) {
+            await controller.signOut();
+          }
+        },
+      );
+    }
 
+    if (state.failure == CustomerAuthenticationFailureKind.accountAccess ||
+        state.failure == CustomerAuthenticationFailureKind.callableAccess) {
+      return _StateScaffold(
+        child: _RecoveryActions(
+          controller: controller,
+          child: FeastaErrorState(
+            title:
+                state.failure ==
+                    CustomerAuthenticationFailureKind.callableAccess
+                ? 'Secure account setup could not be completed'
+                : 'Account access could not be completed',
+            message: 'Try again. If this continues, contact FEASTA support.',
+            retryLabel: 'Try again',
+            onRetry: controller.refresh,
+          ),
+        ),
+      );
+    }
     if (state.failure != null) {
       return _StateScaffold(
         key: const ValueKey('authentication-transient-error'),
-        child: FeastaApplicationErrorState(
-          kind:
-              state.failure ==
-                  CustomerAuthenticationFailureKind.network
-              ? FeastaErrorKind.connectivity
-              : FeastaErrorKind.server,
-          onRetry: controller.refresh,
+        child: _RecoveryActions(
+          controller: controller,
+          child: FeastaApplicationErrorState(
+            kind: state.failure == CustomerAuthenticationFailureKind.network
+                ? FeastaErrorKind.connectivity
+                : FeastaErrorKind.server,
+            onRetry: controller.refresh,
+          ),
         ),
       );
     }
@@ -77,8 +118,27 @@ class AuthenticationGate extends StatelessWidget {
     // LOADING
     //
     if (kind == AuthenticationGateKind.loading) {
-      return const SplashScreen(
-        key: ValueKey('authentication-loading'),
+      return Scaffold(
+        key: const ValueKey('authentication-loading'),
+        body: Stack(
+          children: [
+            const SplashScreen(),
+            if (controller.currentIdentity != null)
+              SafeArea(
+                child: Align(
+                  alignment: Alignment.bottomCenter,
+                  child: TextButton(
+                    onPressed: controller.signingOut
+                        ? null
+                        : controller.signOut,
+                    child: Text(
+                      controller.signingOut ? 'Signing out…' : 'Cancel sign-in',
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       );
     }
 
@@ -110,9 +170,7 @@ class AuthenticationGate extends StatelessWidget {
         key: const ValueKey('customer-shell-guest'),
         child:
             publicBuilder?.call(context, controller) ??
-            const CustomerMainScreen(
-              key: ValueKey('customer-main-guest'),
-            ),
+            const CustomerMainScreen(key: ValueKey('customer-main-guest')),
       );
     }
 
@@ -148,26 +206,15 @@ class AuthenticationGate extends StatelessWidget {
     // CUSTOMER AUTHENTICATED
     //
     if (kind == AuthenticationGateKind.customerReady ||
-        kind ==
-            AuthenticationGateKind
-                .customerPhoneVerificationRequired) {
+        kind == AuthenticationGateKind.customerPhoneVerificationRequired) {
       if (customerBuilder != null) {
         return KeyedSubtree(
           key: const ValueKey('customer-shell-authenticated'),
-          child: customerBuilder!(
-            context,
-            controller,
-          ),
+          child: customerBuilder!(context, controller),
         );
       }
 
-      final intended =
-          controller.consumeIntendedLocation();
-
-      debugPrint(
-        'FEASTA AUTHENTICATED CUSTOMER: '
-        'opening=$intended',
-      );
+      final intended = controller.consumeIntendedLocation();
 
       //
       // IMPORTANT:
@@ -178,12 +225,8 @@ class AuthenticationGate extends StatelessWidget {
       // construct a fresh authenticated CustomerMainScreen.
       //
       return CustomerMainScreen(
-        key: const ValueKey(
-          'customer-main-authenticated',
-        ),
-        initialIndex: _tabForLocation(
-          intended,
-        ),
+        key: const ValueKey('customer-main-authenticated'),
+        initialIndex: _tabForLocation(intended),
       );
     }
 
@@ -191,18 +234,18 @@ class AuthenticationGate extends StatelessWidget {
     // MISSING CUSTOMER PROFILE
     //
     if (kind == AuthenticationGateKind.missingUserProfile) {
-      final presentation =
-          authenticationGatePresentation(kind);
+      final presentation = authenticationGatePresentation(kind);
 
       return _StateScaffold(
-        key: const ValueKey(
-          'authentication-missing-profile',
-        ),
-        child: FeastaErrorState(
-          title: presentation.label,
-          message: presentation.message,
-          retryLabel: 'Try again',
-          onRetry: controller.refresh,
+        key: const ValueKey('authentication-missing-profile'),
+        child: _RecoveryActions(
+          controller: controller,
+          child: FeastaErrorState(
+            title: presentation.label,
+            message: presentation.message,
+            retryLabel: 'Try again',
+            onRetry: controller.refresh,
+          ),
         ),
       );
     }
@@ -212,9 +255,7 @@ class AuthenticationGate extends StatelessWidget {
     //
     if (_isUnsupportedRole(kind)) {
       return _StateScaffold(
-        key: const ValueKey(
-          'authentication-unsupported-role',
-        ),
+        key: const ValueKey('authentication-unsupported-role'),
         child: FeastaErrorState(
           title: 'Use the correct FEASTA app',
           message:
@@ -229,13 +270,10 @@ class AuthenticationGate extends StatelessWidget {
     //
     // OTHER TERMINAL ACCOUNT STATES
     //
-    final presentation =
-        authenticationGatePresentation(kind);
+    final presentation = authenticationGatePresentation(kind);
 
     return _StateScaffold(
-      key: ValueKey(
-        'authentication-state-${kind.name}',
-      ),
+      key: ValueKey('authentication-state-${kind.name}'),
       child: FeastaErrorState(
         title: presentation.label,
         message: presentation.message,
@@ -245,33 +283,17 @@ class AuthenticationGate extends StatelessWidget {
     );
   }
 
-  static bool _isUnsupportedRole(
-    AuthenticationGateKind kind,
-  ) {
-    return kind ==
-            AuthenticationGateKind.forbiddenRole ||
-        kind ==
-            AuthenticationGateKind
-                .providerBusinessSetupRequired ||
-        kind ==
-            AuthenticationGateKind
-                .providerVerificationDraft ||
-        kind ==
-            AuthenticationGateKind
-                .providerVerificationSubmitted ||
-        kind ==
-            AuthenticationGateKind.providerUnderReview ||
-        kind ==
-            AuthenticationGateKind
-                .providerResubmissionRequired ||
-        kind ==
-            AuthenticationGateKind.providerRejected ||
-        kind ==
-            AuthenticationGateKind.providerSuspended ||
-        kind ==
-            AuthenticationGateKind.providerApproved ||
-        kind ==
-            AuthenticationGateKind.adminReady;
+  static bool _isUnsupportedRole(AuthenticationGateKind kind) {
+    return kind == AuthenticationGateKind.forbiddenRole ||
+        kind == AuthenticationGateKind.providerBusinessSetupRequired ||
+        kind == AuthenticationGateKind.providerVerificationDraft ||
+        kind == AuthenticationGateKind.providerVerificationSubmitted ||
+        kind == AuthenticationGateKind.providerUnderReview ||
+        kind == AuthenticationGateKind.providerResubmissionRequired ||
+        kind == AuthenticationGateKind.providerRejected ||
+        kind == AuthenticationGateKind.providerSuspended ||
+        kind == AuthenticationGateKind.providerApproved ||
+        kind == AuthenticationGateKind.adminReady;
   }
 
   static int _tabForLocation(String location) {
@@ -284,11 +306,26 @@ class AuthenticationGate extends StatelessWidget {
   }
 }
 
+class _RecoveryActions extends StatelessWidget {
+  const _RecoveryActions({required this.controller, required this.child});
+  final CustomerAuthenticationController controller;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      child,
+      TextButton(
+        onPressed: controller.signingOut ? null : controller.signOut,
+        child: const Text('Sign out and browse as guest'),
+      ),
+    ],
+  );
+}
+
 class _StateScaffold extends StatelessWidget {
-  const _StateScaffold({
-    required this.child,
-    super.key,
-  });
+  const _StateScaffold({required this.child, super.key});
 
   final Widget child;
 
@@ -296,11 +333,7 @@ class _StateScaffold extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            child: child,
-          ),
-        ),
+        child: Center(child: SingleChildScrollView(child: child)),
       ),
     );
   }

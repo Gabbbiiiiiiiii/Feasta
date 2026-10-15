@@ -9,6 +9,7 @@ import {PasswordInput} from "@/components/forms/password-input";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
 import {customerAuthenticationError} from "@/lib/auth/error-messages";
+import {CustomerConsentReview, useCustomerConsent} from "./customer-consent-review";
 import {registerCustomer} from "@/lib/auth/client-session";
 
 type RegistrationErrors = Partial<Record<
@@ -31,8 +32,7 @@ export function CustomerRegistrationForm({returnTo: requestedReturnTo = null, on
     password: "",
     confirmPassword: "",
   });
-  const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
+  const consent = useCustomerConsent();
   const [errors, setErrors] = useState<RegistrationErrors>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -41,10 +41,10 @@ export function CustomerRegistrationForm({returnTo: requestedReturnTo = null, on
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting.current) return;
-    const nextErrors = validateRegistration(values, acceptedTerms, acceptedPrivacy);
+    const nextErrors = validateRegistration(values, !!consent.input, !!consent.input);
     setErrors(nextErrors);
     setServerError(null);
-    if (Object.keys(nextErrors).length > 0) return;
+    if (Object.keys(nextErrors).length > 0 || !consent.input) return;
 
     submitting.current = true;
     setLoading(true);
@@ -54,8 +54,7 @@ export function CustomerRegistrationForm({returnTo: requestedReturnTo = null, on
         lastName: values.lastName,
         email: values.email,
         password: values.password,
-        acceptedTerms: true,
-        acceptedPrivacy: true,
+        ...consent.input,
       });
       const status = result.verificationEmailSent
         ? "sent"
@@ -79,7 +78,7 @@ export function CustomerRegistrationForm({returnTo: requestedReturnTo = null, on
       );
       onComplete?.();
     } catch (error) {
-      setServerError(customerAuthenticationError(error));
+      if (!consent.reject(error)) setServerError(customerAuthenticationError(error));
     } finally {
       submitting.current = false;
       setLoading(false);
@@ -191,76 +190,8 @@ export function CustomerRegistrationForm({returnTo: requestedReturnTo = null, on
           />
         </FormField>
 
-        <fieldset
-          className="grid gap-2"
-          aria-describedby={
-            errors.terms ? "consent-error" : undefined
-          }
-        >
-          <legend className="text-sm font-bold">
-            Agreements
-          </legend>
-
-          <label className="flex min-h-11 items-start gap-3 rounded-lg px-1 py-2 hover:bg-secondary">
-            <input
-              className="mt-1 size-5 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              type="checkbox"
-              checked={acceptedTerms}
-              disabled={loading}
-              onChange={(event) =>
-                setAcceptedTerms(event.target.checked)
-              }
-            />
-
-            <span className="text-sm">
-              I accept the{" "}
-              <Link
-                className="font-semibold text-primary-strong underline underline-offset-2"
-                href="/terms"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Terms
-              </Link>
-              .
-            </span>
-          </label>
-
-          <label className="flex min-h-11 items-start gap-3 rounded-lg px-1 py-2 hover:bg-secondary">
-            <input
-              className="mt-1 size-5 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              type="checkbox"
-              checked={acceptedPrivacy}
-              disabled={loading}
-              onChange={(event) =>
-                setAcceptedPrivacy(event.target.checked)
-              }
-            />
-
-            <span className="text-sm">
-              I accept the{" "}
-              <Link
-                className="font-semibold text-primary-strong underline underline-offset-2"
-                href="/privacy"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Privacy Policy
-              </Link>
-              .
-            </span>
-          </label>
-
-          {errors.terms ? (
-            <p
-              id="consent-error"
-              className="text-sm font-semibold text-destructive"
-              role="alert"
-            >
-              {errors.terms}
-            </p>
-          ) : null}
-        </fieldset>
+        <CustomerConsentReview consent={consent} disabled={loading} />
+        {errors.terms && <p role="alert">{errors.terms}</p>}
 
         {serverError ? (
           <AuthStatus
