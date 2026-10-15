@@ -106,3 +106,14 @@ it("aborts an in-flight session exchange and clears its deadline", async () => {
   expect(sessionSignal?.aborted).toBe(true);
   expect(vi.getTimerCount()).toBe(0);
 });
+
+it("submits exactly the accepted independent versions", async () => {
+ mocks.popup.mockResolvedValue({user}); const consent={acceptedTerms:true as const,acceptedPrivacy:true as const,termsPolicyVersion:"T-7",privacyPolicyVersion:"P-3"};
+ await signInWithGoogle(undefined,undefined,consent); expect(mocks.profile).toHaveBeenCalledWith(consent);
+});
+it("does not retry stale consent or create a server session", async () => {
+ mocks.popup.mockImplementation(async () => {mocks.auth.currentUser=user; return {user};});
+ mocks.profile.mockRejectedValueOnce({details:{reason:"policy-version-outdated"}});
+ await expect(signInWithGoogle()).rejects.toMatchObject({details:{reason:"policy-version-outdated"}});
+ expect(mocks.profile).toHaveBeenCalledTimes(1);expect(fetch).not.toHaveBeenCalled();expect(mocks.signOut).toHaveBeenCalledTimes(1);
+});

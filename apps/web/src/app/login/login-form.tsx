@@ -1,4 +1,6 @@
 "use client";
+import {CustomerConsentReview, useCustomerConsent} from "@/components/auth/customer-consent-review";
+
 
 import {
   ArrowLeft,
@@ -60,6 +62,7 @@ export function LoginForm({
   const [loading, setLoading] =
     useState(false);
 
+  const consent = useCustomerConsent(false);
   const submitting = useRef(false);
   const mounted = useRef(true);
   const googleAttempt = useRef<AbortController | null>(null);
@@ -86,7 +89,7 @@ export function LoginForm({
       router.replace(result.destination);
       router.refresh();
     } catch (caught) {
-      if (mounted.current) setError(accessibleSignInError(caught, method));
+      if (mounted.current && !(method === "google" && consent.reject(caught))) setError(accessibleSignInError(caught, method));
     } finally {
       googleAttempt.current = null;
       submitting.current = false;
@@ -151,22 +154,21 @@ export function LoginForm({
               />
             ) : null}
 
+            {mode === "gateway" && <CustomerConsentReview consent={consent} disabled={loading} />}
             {mode === "gateway" ? (
               <AuthenticationGateway
+                googleDisabled={consent.required && !consent.input}
                 loading={loading}
                 error={error}
                 returnTo={returnTo}
                 onGoogle={() =>
-                  void completeSignIn("google", () => {
+                  consent.required && !consent.input ? undefined : void completeSignIn("google", () => {
                     googleAttempt.current?.abort();
                     googleAttempt.current = new AbortController();
                     return signInWithGoogle(
                       returnTo,
                       googleAttempt.current.signal,
-                      {
-                        acceptedTerms: true,
-                        acceptedPrivacy: true,
-                      },
+                      consent.input,
                     );
                   })
                 }
@@ -283,12 +285,14 @@ function CustomerLoginBenefit({
 }
 
 function AuthenticationGateway({
+  googleDisabled,
   loading,
   error,
   returnTo,
   onGoogle,
   onEmail,
 }: {
+  googleDisabled: boolean;
   loading: boolean;
   error: string | null;
   returnTo?: string;
@@ -308,6 +312,7 @@ function AuthenticationGateway({
         loading={loading}
         loadingLabel="Connecting to Google"
         onClick={onGoogle}
+        disabled={googleDisabled}
       >
         <GoogleMark />
         Continue with Google
@@ -485,7 +490,7 @@ function EmailLoginForm({
 function AuthenticationAgreement() {
   return (
     <p className="text-center text-xs leading-5 text-muted-foreground">
-      By continuing, you agree to the FEASTA{" "}
+      Read the FEASTA{" "}
       <Link
         className="font-semibold text-primary-strong underline underline-offset-2"
         href="/terms"
