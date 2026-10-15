@@ -25,6 +25,8 @@ class CustomerRegistrationInput {
     required this.acceptedTerms,
     required this.acceptedPrivacy,
     this.phoneNumber = '',
+    this.termsPolicyVersion = '',
+    this.privacyPolicyVersion = '',
   });
 
   final String firstName;
@@ -32,6 +34,8 @@ class CustomerRegistrationInput {
   final String email;
   final String password;
   final String phoneNumber;
+  final String termsPolicyVersion;
+  final String privacyPolicyVersion;
   final bool acceptedTerms;
   final bool acceptedPrivacy;
 
@@ -41,6 +45,8 @@ class CustomerRegistrationInput {
     email: email.trim().toLowerCase(),
     password: password,
     phoneNumber: phoneNumber.trim(),
+    termsPolicyVersion: termsPolicyVersion,
+    privacyPolicyVersion: privacyPolicyVersion,
     acceptedTerms: acceptedTerms,
     acceptedPrivacy: acceptedPrivacy,
   );

@@ -62,6 +62,8 @@ class CustomerRegistrationController extends ChangeNotifier {
     required String confirmPassword,
     required bool acceptedTerms,
     required bool acceptedPrivacy,
+    String termsPolicyVersion = '',
+    String privacyPolicyVersion = '',
   }) async {
     if (_state.isSubmitting) {
       return null;
@@ -94,6 +96,8 @@ class CustomerRegistrationController extends ChangeNotifier {
           password: password,
           acceptedTerms: acceptedTerms,
           acceptedPrivacy: acceptedPrivacy,
+          termsPolicyVersion: termsPolicyVersion,
+          privacyPolicyVersion: privacyPolicyVersion,
         ).normalized(),
       );
 
@@ -119,7 +123,6 @@ class CustomerRegistrationController extends ChangeNotifier {
     }
   }
 
-  @visibleForTesting
   static CustomerRegistrationFieldErrors validate({
     required String firstName,
     required String lastName,

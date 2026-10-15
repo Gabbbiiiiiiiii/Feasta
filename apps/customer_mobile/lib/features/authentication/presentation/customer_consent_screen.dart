@@ -11,6 +11,7 @@ class CustomerConsentScreen extends StatefulWidget {
     this.loader = loadCurrentLegalDocument,
     this.policiesOutdated = false,
     this.policyRecoveryNotice,
+    this.submissionError,
     super.key,
   });
   final Future<void> Function(String termsVersion, String privacyVersion)
@@ -19,6 +20,7 @@ class CustomerConsentScreen extends StatefulWidget {
   final LegalDocumentLoader loader;
   final bool policiesOutdated;
   final String? policyRecoveryNotice;
+  final String? Function()? submissionError;
 
   @override
   State<CustomerConsentScreen> createState() => _CustomerConsentScreenState();
@@ -52,6 +54,8 @@ class _CustomerConsentScreenState extends State<CustomerConsentScreen> {
     bool text(Object? value) => value is String && value.trim().isNotEmpty;
     if (document == null ||
         !text(document['version']) ||
+        (document['version'] as String).trim() != document['version'] ||
+        (document['version'] as String).length > 100 ||
         !text(document['name']) ||
         document['sections'] is! List) {
       return false;
@@ -80,6 +84,8 @@ class _CustomerConsentScreenState extends State<CustomerConsentScreen> {
   bool _terms = false;
   bool _privacy = false;
   bool _busy = false;
+  bool _submissionFailed = false;
+  String? _submissionError;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -103,6 +109,11 @@ class _CustomerConsentScreenState extends State<CustomerConsentScreen> {
         return ListView(
           padding: const EdgeInsets.all(24),
           children: [
+            if (_submissionError != null) Text(_submissionError!),
+            if (_submissionFailed)
+              const Text(
+                'Submission was not confirmed. Review both current agreements and accept again before retrying.',
+              ),
             if (widget.policyRecoveryNotice != null)
               Text(widget.policyRecoveryNotice!),
             if (widget.policiesOutdated)
@@ -160,7 +171,13 @@ class _CustomerConsentScreenState extends State<CustomerConsentScreen> {
                           await widget.onAccept(termsVersion!, privacyVersion!);
                         } catch (_) {
                           // Unconfirmed submission failures never imply consent.
-                          if (mounted) setState(_load);
+                          if (mounted) {
+                            setState(() {
+                              _submissionFailed = true;
+                              _submissionError = widget.submissionError?.call();
+                              _load();
+                            });
+                          }
                         } finally {
                           if (mounted) setState(() => _busy = false);
                         }

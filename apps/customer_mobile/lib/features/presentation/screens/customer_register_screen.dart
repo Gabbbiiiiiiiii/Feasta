@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../authentication/presentation/customer_consent_screen.dart';
 
 import 'package:flutter/material.dart';
 import '../../../app/router/customer_auth_navigation.dart';
@@ -26,6 +27,7 @@ class CustomerRegisterScreen extends StatefulWidget {
     this.onRegistrationComplete,
     this.onOpenTerms,
     this.onOpenPrivacy,
+    this.legalDocumentLoader = loadCurrentLegalDocument,
     super.key,
   });
 
@@ -37,6 +39,7 @@ class CustomerRegisterScreen extends StatefulWidget {
 
   final VoidCallback? onOpenTerms;
   final VoidCallback? onOpenPrivacy;
+  final LegalDocumentLoader legalDocumentLoader;
 
   @override
   State<CustomerRegisterScreen> createState() => _CustomerRegisterScreenState();
@@ -103,7 +106,7 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
 
     FocusScope.of(context).unfocus();
 
-    final result = await _registrationController.submit(
+    final errors = CustomerRegistrationController.validate(
       firstName: _firstNameController.text,
       lastName: _lastNameController.text,
       email: _emailController.text,
@@ -112,7 +115,52 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
       acceptedTerms: _acceptedTerms,
       acceptedPrivacy: _acceptedPrivacy,
     );
-
+    if (errors.hasErrors) {
+      await _registrationController.submit(
+        firstName: _firstNameController.text,
+        lastName: _lastNameController.text,
+        email: _emailController.text,
+        password: _passwordController.text,
+        confirmPassword: _confirmPasswordController.text,
+        acceptedTerms: _acceptedTerms,
+        acceptedPrivacy: _acceptedPrivacy,
+      );
+      return;
+    }
+    final result = await Navigator.push<CustomerRegistrationResult>(
+      context,
+      MaterialPageRoute(
+        builder: (reviewContext) => CustomerConsentScreen(
+          loader: widget.legalDocumentLoader,
+          submissionError: () => _registrationController.state.generalError,
+          onAccept: (terms, privacy) async {
+            final result = await _registrationController.submit(
+              termsPolicyVersion: terms,
+              privacyPolicyVersion: privacy,
+              firstName: _firstNameController.text,
+              lastName: _lastNameController.text,
+              email: _emailController.text,
+              password: _passwordController.text,
+              confirmPassword: _confirmPasswordController.text,
+              acceptedTerms: true,
+              acceptedPrivacy: true,
+            );
+            if (!mounted || !reviewContext.mounted) return;
+            if (result == null) {
+              setState(() {
+                _acceptedTerms = false;
+                _acceptedPrivacy = false;
+              });
+              throw StateError(
+                'Registration was not confirmed. Review current agreements before retrying.',
+              );
+            }
+            Navigator.pop(reviewContext, result);
+          },
+          onDecline: () async => Navigator.pop(reviewContext),
+        ),
+      ),
+    );
     if (!mounted || result == null) return;
 
     final onComplete = widget.onRegistrationComplete;

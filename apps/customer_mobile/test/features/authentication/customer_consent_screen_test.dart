@@ -113,6 +113,8 @@ void main() {
     });
   }
   final malformed = <Map<String, dynamic>?>[
+    {...agreement('1.1'), 'version': ' padded '},
+    {...agreement('1.1'), 'version': 'x' * 101},
     null,
     {...agreement('1.1'), 'version': ''},
     {...agreement('1.1'), 'version': 1.1},
