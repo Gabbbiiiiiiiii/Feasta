@@ -34,6 +34,13 @@ vi.mock("@/lib/auth/client-session", () => ({
   completePasswordReset: mocks.completePasswordReset,
 }));
 
+vi.mock("@/lib/auth/customer-consent", async (original) => ({
+  ...await original<typeof import("@/lib/auth/customer-consent")>(),
+  loadCustomerAgreements: vi.fn().mockResolvedValue({
+    terms: {code: "terms", name: "Terms", version: "terms-7", summary: "", effectiveDate: "2026-10-01", sections: [{title:"Terms text", paragraphs:["Published terms"]}]},
+    privacy: {code: "privacy", name: "Privacy Policy", version: "privacy-3", summary: "", effectiveDate: "2026-10-02", sections: [{title:"Privacy text", paragraphs:["Published privacy"]}]},
+  }),
+}));
 import ForgotPasswordPage from "@/app/forgot-password/page";
 import {LoginForm} from "@/app/login/login-form";
 import CustomerRegistrationPage from "@/app/register/page";
@@ -55,8 +62,8 @@ describe("customer authentication forms", () => {
     fireEvent.change(screen.getByRole("textbox", {name: /email address/i}), {target: {value: "ADA@EXAMPLE.TEST"}});
     fireEvent.change(screen.getByLabelText(/^Password/), {target: {value: "Feasta123!"}});
     fireEvent.change(screen.getByLabelText(/Confirm password/), {target: {value: "Feasta123!"}});
-    await user.click(screen.getByRole("checkbox", {name: /terms/i}));
-    await user.click(screen.getByRole("checkbox", {name: /privacy/i}));
+    await user.click(await screen.findByRole("checkbox", {name: /terms/i}));
+    await user.click(await screen.findByRole("checkbox", {name: /privacy/i}));
     await user.click(screen.getByRole("button", {name: "Create account"}));
 
     await waitFor(() => expect(mocks.registerCustomer).toHaveBeenCalledTimes(1));
@@ -67,6 +74,8 @@ describe("customer authentication forms", () => {
       password: "Feasta123!",
       acceptedTerms: true,
       acceptedPrivacy: true,
+      termsPolicyVersion: "terms-7",
+      privacyPolicyVersion: "privacy-3",
     });
     expect(mocks.registerCustomer.mock.calls[0][0]).not.toHaveProperty("role");
     expect(mocks.replace).toHaveBeenCalledWith(
@@ -98,8 +107,8 @@ describe("customer authentication forms", () => {
     fireEvent.change(screen.getByRole("textbox", {name: /email address/i}), {target: {value: "grace@example.test"}});
     fireEvent.change(screen.getByLabelText(/^Password/), {target: {value: "Feasta123!"}});
     fireEvent.change(screen.getByLabelText(/Confirm password/), {target: {value: "Feasta123!"}});
-    await user.click(screen.getByRole("checkbox", {name: /terms/i}));
-    await user.click(screen.getByRole("checkbox", {name: /privacy/i}));
+    await user.click(await screen.findByRole("checkbox", {name: /terms/i}));
+    await user.click(await screen.findByRole("checkbox", {name: /privacy/i}));
     const submit = screen.getByRole("button", {name: "Create account"});
     await user.click(submit);
     await user.click(submit);
@@ -218,4 +227,15 @@ describe("customer authentication forms", () => {
     ));
     expect(await screen.findByRole("status")).toHaveTextContent("updated");
   });
+});
+
+it("registration clears stale consent without automatically creating another account", async () => {
+ mocks.registerCustomer.mockRejectedValueOnce({details:{reason:"policy-version-outdated"}});
+ render(<CustomerRegistrationPage/>);
+ for(const [name,value] of [[/first name/i,"Ada"],[/last name/i,"Test"],[/email address/i,"ada@example.test"]] as const)fireEvent.change(screen.getByRole("textbox",{name}),{target:{value}});
+ fireEvent.change(screen.getByLabelText(/^Password/),{target:{value:"Password123!"}});fireEvent.change(screen.getByLabelText(/Confirm password/),{target:{value:"Password123!"}});
+ await screen.findAllByRole("checkbox");screen.getAllByRole("checkbox").forEach(box=>fireEvent.click(box));
+ fireEvent.click(screen.getByRole("button",{name:"Create account"}));await screen.findByText(/agreements have changed/i);
+ await waitFor(()=>expect(screen.getAllByRole("checkbox")[0]).not.toBeChecked());expect(screen.getAllByRole("checkbox")[1]).not.toBeChecked();
+ fireEvent.click(screen.getByRole("button",{name:"Create account"}));expect(mocks.registerCustomer).toHaveBeenCalledTimes(1);
 });
