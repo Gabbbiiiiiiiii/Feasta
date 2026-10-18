@@ -693,3 +693,18 @@ function documentLabel(type: string): string {
     (part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`,
   ).join(" ");
 }
+
+export async function loadProviderPolicyVersions(): Promise<{
+  terms: string; privacy: string;
+}> {
+  const load = httpsCallable<{purpose: string}, {agreement: {version: string} | null}>(
+    functions, "getCurrentLegalAgreement",
+  );
+  const [terms, privacy] = await Promise.all([
+    load({purpose: "platform_terms"}), load({purpose: "privacy_notice"}),
+  ]);
+  if (!terms.data.agreement?.version || !privacy.data.agreement?.version) {
+    throw new Error("Published registration policies are unavailable.");
+  }
+  return {terms: terms.data.agreement.version, privacy: privacy.data.agreement.version};
+}

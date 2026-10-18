@@ -15,6 +15,6 @@ export const retryFailedProviderDisbursement = onCall(appCheckCallableOptions, a
     throw new HttpsError("invalid-argument", "Only the disbursement identity may be supplied.");
   }
   try {await prepareFailedProviderDisbursementRetry(id, actor.uid);}
-  catch {throw new HttpsError("failed-precondition", "Only an authoritatively failed payout can be retried.");}
+  catch {throw new HttpsError("failed-precondition", "Only a confirmed failure or definitely unsubmitted payout can be retried.");}
   return {prepared: true};
 });

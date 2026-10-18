@@ -492,6 +492,8 @@ function mapComplaintDocument(
     providerName: null,
     providerOwnerId: null,
 
+    bookingId: optionalDocumentId(data.bookingId ?? data.mainEventId),
+    providerRequestId: optionalDocumentId(data.providerRequestId),
     category:
       stringValue(
         data.category,

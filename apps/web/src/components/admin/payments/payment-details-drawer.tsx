@@ -10,7 +10,7 @@ import {
 } from "@/components/admin/payments/payment-issue-badges";
 import {
   formatPaymentDate,
-  formatPaymentType,
+  formatAdminPaymentPurpose,
   paymentBookingLabel,
 } from "@/components/admin/payments/payment-formatters";
 import {
@@ -184,9 +184,7 @@ function PaymentDetailsContent({
         </p>
 
         <p className="mt-1 text-sm font-medium text-muted-foreground">
-          {formatPaymentType(
-            payment.paymentType,
-          )}
+          {formatAdminPaymentPurpose(payment)}
         </p>
 
         <p className="mt-2 text-sm text-muted-foreground">

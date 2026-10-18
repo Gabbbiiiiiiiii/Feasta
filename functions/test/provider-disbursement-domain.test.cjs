@@ -134,3 +134,22 @@ test("ambiguous constituent with wrong reconciliation reason fails closed",()=>{
  const r=advance(reserved());r.sources[0].settlement.reconciliationReason="other";
  assert.throws(()=>domain.aggregateOutcomePlan({...r,evidence:evidence(r,"succeeded")}));
 });
+
+test("not-submitted recovery releases every reservation without changing earning buckets", () => {
+ const r = reserved(), plan = domain.aggregateOutcomePlan({...r, notSubmittedReason:"wallet_balance_insufficient"});
+ assert.equal(plan.attemptUpdate.status,"not_submitted");
+ assert.equal(plan.disbursementUpdate.activePayoutAttemptId,null);
+ for(const p of plan.plans) {
+  assert.equal(p.settlementUpdate.reservedAmountInCentavos,0);
+  assert.equal(p.settlementUpdate.activePayoutAttemptId,null);
+  assert.equal(p.earningUpdate.paidAmountInCentavos,undefined);
+ }
+});
+for(const state of ["processing","ambiguous"]) test("not-submitted classification cannot unlock " + state, () => {
+ const r = advance(reserved(), state === "processing" ? "pending" : undefined);
+ assert.throws(()=>domain.aggregateOutcomePlan({...r,notSubmittedReason:"authority_invalid"}));
+});
+test("gateway identity excludes not-submitted recovery", () => {
+ const r=reserved();r.attempt.gatewayResourceId="tr_known";
+ assert.throws(()=>domain.aggregateOutcomePlan({...r,notSubmittedReason:"authority_invalid"}));
+});

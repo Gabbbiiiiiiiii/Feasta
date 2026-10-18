@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import test from "node:test";
+import {createRequire} from "node:module";
+
+const requireFunctions = createRequire(new URL("../../../functions/package.json", import.meta.url));
 
 const webRoot = new URL("../src/", import.meta.url);
 const functionsRoot = new URL("../../../functions/src/", import.meta.url);
@@ -76,6 +79,28 @@ test("Provider preparation UI is factual, forward-only, and non-financial", asyn
   assert.doesNotMatch(client, /refundAmount|refundPercentage|refundBasisPoints|gatewayPaymentId/iu);
   assert.match(drawer, /factual preparation progress only/u);
   assert.match(drawer, /Preparation updates are paused while a cancellation request is being reviewed\./u);
+  // Copy may change; the UI must still consume the trusted lock/capability.
+  assert.match(drawer, /booking\.refundEligibility\.activeCancellationLocked/u);
+  assert.match(drawer, /booking\.refundEligibility\.canMarkPreparationStarted/u);
+  const {assertRefundEligibilityUnlocked, nextRefundEligibilityState} =
+    requireFunctions("./lib/cancellations/refund-cancellation-domain.js");
+  const state = {
+    schemaVersion: 1, currentStage: "preparation_not_started", stageSequence: 0,
+    enteredAt: {seconds: 1}, activeCancellationRequestId: null,
+  };
+  assert.doesNotThrow(() => assertRefundEligibilityUnlocked(state));
+  const locked = {...state, activeCancellationRequestId: "cancellation-one"};
+  const before = structuredClone(locked);
+  for (const operation of [
+    () => assertRefundEligibilityUnlocked(locked),
+    () => nextRefundEligibilityState(locked, "preparation_started", {seconds: 2}),
+  ]) assert.throws(operation, (error: unknown) => {
+    const failure = error as {code: string; details: {reason: string}};
+    assert.equal(failure.code, "failed-precondition");
+    assert.equal(failure.details.reason, "REFUND_ELIGIBILITY_LOCKED");
+    return true;
+  });
+  assert.deepEqual(locked, before);
   assert.doesNotMatch(drawer, /Approve cancellation|Reject cancellation|Process refund|Retry refund/u);
   assert.match(backend, /requireRole\(actor\.uid, \[USER_ROLES\.provider\]\)/u);
   assert.match(backend, /targetStage !== "preparation_started"/u);

@@ -37,6 +37,7 @@ export type CustomerRemainingBalanceStatus =
   | "paid"
   | "cancelled";
 export type CustomerBookingProviderRequest = {
+  lifecycle?: import("@/lib/presentation/booking-lifecycle").LifecycleEvidence;
   bookingPolicy?: import("@/lib/payments/booking-policy-v3-presentation").BookingPolicyPresentation | null;
   checkoutOptions: CustomerBookingPaymentOption[];
   initialPaymentExplanation?: string | null;
@@ -91,6 +92,7 @@ export type CustomerBookingProviderRequest = {
 };
 
 export type CustomerBooking = {
+  lifecycle?: import("@/lib/presentation/booking-lifecycle").LifecycleEvidence;
   id: string;
   bookingId: string;
   bookingCode: string;

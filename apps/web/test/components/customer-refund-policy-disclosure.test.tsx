@@ -13,6 +13,7 @@ import type {
 
 const mocks = vi.hoisted(() => ({
   checkAvailability: vi.fn(),
+  loadCalendar: vi.fn(),
   loadDisclosures: vi.fn(),
   submitBooking: vi.fn(),
   replace: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/customer/bookings/customer-provider-availability-client", () => ({
   checkCustomerProviderAvailability: mocks.checkAvailability,
+  getCustomerProviderCalendarAvailability: mocks.loadCalendar,
 }));
 
 vi.mock("@/lib/customer/bookings/customer-booking-submission-client", () => ({
@@ -60,6 +62,7 @@ describe("Customer booking refund policy disclosure and agreement", () => {
     localStorage.clear();
     vi.clearAllMocks();
     vi.setSystemTime(new Date("2026-09-01T02:00:00.000Z"));
+    mocks.loadCalendar.mockImplementation(async (_providerId: string, month: string) => ({month, dates: []}));
     mocks.checkAvailability.mockResolvedValue([
       available(PRIMARY_PROVIDER_ID),
       available(ADDON_PROVIDER_ID),
@@ -297,7 +300,8 @@ describe("Customer booking refund policy disclosure and agreement", () => {
 });
 
 async function reachReview({selectAddon = false}: {selectAddon?: boolean} = {}) {
-  fireEvent.change(screen.getByLabelText("Event date"), {target: {value: "2026-09-20"}});
+  fireEvent.click(screen.getByRole("button", {name: "Event date"}));
+  fireEvent.click(await screen.findByRole("button", {name: "September 20, 2026, Available"}));
   fireEvent.change(screen.getByLabelText("Start time"), {target: {value: "18:00"}});
   fireEvent.change(screen.getByLabelText("End time"), {target: {value: "22:00"}});
   fireEvent.change(screen.getByLabelText(/^Number of guests/iu), {target: {value: "100"}});

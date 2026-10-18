@@ -673,6 +673,7 @@ class AddonModel {
 }
 
 class BookingModel {
+  final Map<String, dynamic> lifecycleData;
   final String id;
   final String bookingCode;
   final String customerId;
@@ -733,6 +734,7 @@ class BookingModel {
   final DateTime? updatedAt;
 
   BookingModel({
+    this.lifecycleData = const {},
     required this.id,
     required this.bookingCode,
     required this.customerId,
@@ -797,6 +799,7 @@ class BookingModel {
     final data = doc.data() as Map<String, dynamic>;
 
     return BookingModel(
+      lifecycleData: Map<String, dynamic>.unmodifiable(data),
       id: doc.id,
       bookingCode: data['bookingCode'] ?? '',
       customerId: data['customerId'] ?? '',

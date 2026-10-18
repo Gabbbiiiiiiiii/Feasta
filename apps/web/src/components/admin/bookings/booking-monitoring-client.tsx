@@ -69,6 +69,95 @@ type BookingMonitoringClientProps = {
 
 const FIRST_PAGE_CURSOR = "__first_page__";
 
+const providerRequestStatusLabels: Record<
+  AdminBooking["providerRequests"][number]["status"],
+  string
+> = {
+  pending: "Awaiting response",
+  accepted: "Accepted",
+  waiting_for_down_payment: "Awaiting payment",
+  payment_processing: "Payment processing",
+  confirmed: "Confirmed",
+  in_progress: "In progress",
+  completed: "Completed",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+  expired: "Expired",
+};
+
+function describeAdminBookingProviders(booking: AdminBooking): {
+  title: string;
+  detail: string;
+} {
+  const requests = booking.providerRequests;
+
+  const providerIds = new Set(
+    requests
+      .map((request) => request.providerId)
+      .filter((id) => id.trim().length > 0),
+  );
+
+  const hasResolvedProviders = providerIds.size > 0;
+
+  const count = hasResolvedProviders
+    ? providerIds.size
+    : requests.length > 0
+      ? requests.length
+      : booking.providerRequestCount;
+
+  if (count === 0) {
+    return {
+      title: "No providers",
+      detail: "No provider requests",
+    };
+  }
+
+  const title = hasResolvedProviders
+    ? `${count} provider${count === 1 ? "" : "s"}`
+    : `${count} provider request${count === 1 ? "" : "s"}`;
+
+  if (requests.length === 0) {
+    return {
+      title,
+      detail: "Status unavailable",
+    };
+  }
+
+  if (requests.length === 1) {
+    return {
+      title,
+      detail: providerRequestStatusLabels[requests[0].status],
+    };
+  }
+
+  const counts = new Map<string, number>();
+
+  for (const request of requests) {
+    counts.set(
+      request.status,
+      (counts.get(request.status) ?? 0) + 1,
+    );
+  }
+
+  const details = (
+    Object.keys(providerRequestStatusLabels) as Array<
+      keyof typeof providerRequestStatusLabels
+    >
+  )
+    .filter((status) => (counts.get(status) ?? 0) > 0)
+    .map((status) => {
+      const amount = counts.get(status) ?? 0;
+      const label = providerRequestStatusLabels[status];
+      return `${amount} ${label.toLowerCase()}`;
+    });
+
+  return {
+    title,
+    detail: details.join(" · ") || "Status unavailable",
+  };
+}
+
+
 const initialFilters: AdminBookingFilters = {
   search: "",
   status: "all",
@@ -203,30 +292,20 @@ function BookingMonitoringClient({
       {
         id: "providers",
         header: "Providers",
-        cell: (booking) => (
-          <div className="min-w-[7rem]">
-            <p className="font-semibold">
-              {booking.confirmedProviderRequestCount}
-              {" / "}
-              {booking.providerRequestCount}
-              {" confirmed"}
-            </p>
+        cell: (booking) => {
+          const summary = describeAdminBookingProviders(booking);
 
-            {booking.pendingProviderRequestCount >
-            0 ? (
-              <p className="mt-1 text-warning">
-                {
-                  booking.pendingProviderRequestCount
-                }{" "}
-                pending
+          return (
+            <div className="min-w-[8rem]">
+              <p className="font-semibold">
+                {summary.title}
               </p>
-            ) : (
               <p className="mt-1 text-muted-foreground">
-                No pending requests
+                {summary.detail}
               </p>
-            )}
-          </div>
-        ),
+            </div>
+          );
+        },
       },
       {
         id: "status",
@@ -246,7 +325,10 @@ function BookingMonitoringClient({
               kind="payment" status={booking.paymentStatus}
             />
 
-            <p className="mt-2 font-semibold">
+            <p className="mt-1 text-xs text-muted-foreground">
+              Net amount paid
+            </p>
+            <p className="mt-1 font-semibold">
               {(booking.totalPaidAmount === null ? "Unavailable" : currencyFormatter.format(booking.totalPaidAmount))}
             </p>
           </div>
@@ -506,8 +588,8 @@ function BookingMonitoringClient({
         />
 
         <SummaryCard
-          label="Paid booking amount"
-          supportingMetric={page.statistics.totalPaidAmount === null ? "See booking details for completed refund accounting" : "Retained funds after completed refunds"}
+          label="Net amount paid"
+          supportingMetric={page.statistics.totalPaidAmount === null ? "See booking details for completed refund accounting" : "Settled payments less completed refunds"}
           value={(page.statistics.totalPaidAmount === null ? "Unavailable" : currencyFormatter.format(page.statistics.totalPaidAmount))}
           icon={
             <PhilippinePeso className="size-5" />
@@ -586,10 +668,10 @@ function BookingMonitoringClient({
                 Today
               </option>
               <option value="upcoming">
-                Upcoming
+                Future dates
               </option>
               <option value="past">
-                Past
+                Past dates
               </option>
             </FilterSelect>
           </>
@@ -714,6 +796,8 @@ function formatDate(
 function formatLabel(
   value: string,
 ): string {
+  if (value === "upcoming") return "Future dates";
+  if (value === "past") return "Past dates";
   return value
     .split("_")
     .filter(Boolean)

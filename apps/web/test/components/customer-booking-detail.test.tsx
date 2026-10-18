@@ -85,6 +85,24 @@ import {
 } from "@/lib/customer/bookings/customer-booking-review";
 
 describe("customer booking dedicated detail page", () => {
+  it("keeps Report an Issue accessible when new cancellation is closed", async () => {
+    mocks.getCancellationOptions.mockImplementation(async (providerRequestId: string) => ({providerRequestId,
+      cancellationAllowed: false, reasonCode: "EVENT_ENDED", eligibilityExpiresInMs: 0, activeCancellation: null, policy: null, refundPreview: null}));
+    const result = detailResult();
+    render(<CustomerBookingDetailPage result={result} />);
+    expect(await screen.findByText("Cancellation closed \u2014 event ended")).toBeVisible();
+    expect(screen.getAllByRole("button", {name: /Report an Issue for/u})).toHaveLength(result.details.providerRequests.length);
+  });
+
+  it("offers a service-specific Report an Issue action only for matching booking relationships", () => {
+    const result = detailResult();
+    const {rerender} = render(<CustomerBookingDetailPage result={result} />);
+    expect(screen.getAllByRole("button", {name: /Report an Issue for/u})).toHaveLength(result.details.providerRequests.length);
+    const mismatched = detailResult();
+    mismatched.details.providerRequests = mismatched.details.providerRequests.map(request => ({...request, mainEventId: "another-booking"}));
+    rerender(<CustomerBookingDetailPage result={mismatched} />);
+    expect(screen.queryByRole("button", {name: /Report an Issue for/u})).not.toBeInTheDocument();
+  });
   it("uses neutral payment availability copy in a provider acceptance timeline", () => {
     const entry = normalizeCustomerBookingTimelineData("accepted", {
       type: "provider_accepted", createdAt: "2026-10-08T00:00:00Z",
@@ -380,6 +398,8 @@ describe("customer booking dedicated detail page", () => {
       .toBeVisible();
     expect(within(photoCard as HTMLElement).getByLabelText("Status: Confirmed"))
       .toBeVisible();
+    await waitFor(() => expect(selectedTrigger).toBeEnabled());
+    mocks.getCancellationOptions.mockClear();
     fireEvent.click(selectedTrigger);
 
     expect(await screen.findByRole("heading", {
@@ -1039,7 +1059,7 @@ describe("customer booking dedicated detail page", () => {
     render(<CustomerBookingDetailPage result={result} />);
 
     const accepted = screen.getByRole("heading", {name: "Provider accepted request"});
-    const rejected = screen.getByRole("heading", {name: "Provider declined request"});
+    const rejected = screen.getByRole("heading", {name: "Provider rejected request"});
     expect(
       accepted.compareDocumentPosition(rejected) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
@@ -1153,8 +1173,8 @@ describe("customer booking dedicated detail page", () => {
     expect(screen.getAllByText("Photography")).toHaveLength(2);
     expect(screen.getAllByText("Event styling")).toHaveLength(2);
     expect(screen.getByText("Accepted — confirmed")).toBeVisible();
-    expect(screen.getByText("Declined by Style House")).toBeVisible();
-    expect(screen.getByText("Replacement required")).toBeVisible();
+    expect(screen.getByText("Rejected by Style House")).toBeVisible();
+    expect(screen.getByRole("link", {name: "browse other providers"})).toBeVisible();
     const boundedReason = screen.getByText((content) => content.startsWith("r".repeat(100)));
     expect(boundedReason.textContent).toHaveLength(500);
     expect(screen.getAllByText(/Response received Aug 1, 2026/u)).toHaveLength(3);
@@ -1246,7 +1266,7 @@ describe("customer timeline normalization", () => {
     });
 
     expect(rejected).toEqual(expect.objectContaining({
-      title: "Provider declined request",
+      title: "Provider rejected request",
       providerName: "Photo Studio",
     }));
     expect(rejected?.description).toContain("Provider explanation:");

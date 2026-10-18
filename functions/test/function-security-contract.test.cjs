@@ -15,6 +15,11 @@ test("v3 scheduler is bounded, server-owned and validates payment and provider a
 });
 
 const policies = [
+  ["verifyProviderSettlementTransport", "provider-finance/provider-transport-verification.ts", [
+    "requireAuth(request)", 'requireRole(actor.uid, ["admin"])', "enforceCallableRateLimit",
+    "...appCheckCallableOptions", "secrets: [providerDisbursementTestSecret]",
+    "providerTransportOwnerEligible", "settings.providerDisbursementsEnabled !== false",
+  ]],
   ["retryFailedProviderDisbursement", "provider-finance/provider-disbursement-admin.ts", ["requireAuth(request)", "requireRole", "USER_ROLES.admin", "enforceCallableRateLimit", "appCheckCallableOptions", "prepareFailedProviderDisbursementRetry"]],
   ["reconcileProviderRequestRefund", "refunds/refund-execution.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "secrets: [payMongoSecretKey]", "retrievePayMongoRefund", "assertAdminReconciliationEvidence", "writeAuditLogInTransaction"]],
   ["ensureUserProfile", "auth/ensure-user-profile.ts", ["requireAuth(request)", "enforceCallableRateLimit", "appCheckCallableOptions"]],
@@ -45,6 +50,7 @@ const policies = [
     ],
   ],
   ["checkCustomerProviderAvailability", "provider-availability/check-customer-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "rejectUnknownFields", "validateBookingPackage", "validateProviderAvailability", "isProviderPubliclyEligible"]],
+  ["getCustomerProviderCalendarAvailability", "provider-availability/get-customer-provider-calendar-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "parseCalendarInput", "MAX_RECORDS", "isProviderPubliclyEligible", "providerRequestOccupiesAvailability"]],
   ["checkMarketplaceProviderAvailability", "provider-availability/check-marketplace-provider-availability.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "rejectUnknownFields", "MAX_PROVIDER_IDS", "validateProviderAvailability", "isProviderPubliclyEligible"]],
   ["registerProvider", "providers/register-provider.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "beginIdempotentOperation", "writeAuditLogInTransaction", "requireTrustedProviderIdentity", "requireProviderRegistrationConsent"]],
   ["saveProviderOnboardingDraft", "providers/save-provider-onboarding-draft.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "runTransaction", "requireTrustedProviderIdentity", "EDITABLE_APPLICATION_STATUSES", "writeAuditLogInTransaction"]],
@@ -301,6 +307,56 @@ for (const [name, file, controls] of policies) {
   });
 }
 
+test("transport verification callable keeps admin, App Check, and identity-only authority", () => {
+  const content = source("provider-finance/provider-transport-verification.ts");
+  const start = content.indexOf("export const verifyProviderSettlementTransport = onCall({");
+  const end = content.indexOf("export async function invalidateRevokedProviderTransport", start);
+  assert.ok(start >= 0 && end > start);
+  const callable = content.slice(start, end);
+  for (const control of [
+    "...appCheckCallableOptions", "requireAuth(request)", 'requireRole(actor.uid, ["admin"])',
+    "enforceCallableRateLimit", "Object.keys(data).length !== 1", "Array.isArray(data)",
+    'typeof data.providerDisbursementId !== "string"',
+    "verifyProviderTestSettlementTransport(data.providerDisbursementId, actor.uid)",
+  ]) assert.ok(callable.includes(control), `verification callable is missing ${control}`);
+  assert.doesNotMatch(callable, /enforceAppCheck\s*:\s*false/u);
+  const options = source("shared/function-options.ts");
+  assert.match(options, /enforceAppCheck:\s*shouldEnforceAppCheck\(\)/u);
+  assert.match(options, /return environment\.FUNCTIONS_EMULATOR\s*!==\s*"true"/u);
+
+  const verification = content.slice(0, start);
+  for (const control of [
+    "settings.providerDisbursementsEnabled !== false", "providerTransportOwnerEligible",
+    "amountInCentavos: d.amountInCentavos", "reserveProviderDisbursement",
+    "account: retrievePayMongoLinkedAccount", "relationship: retrievePayMongoLinkedAccountRelationship",
+    "wallet: retrievePayMongoTestSettlementWallet",
+  ]) assert.ok(verification.includes(control), `verification service is missing ${control}`);
+  assert.doesNotMatch(content, /dispatchProviderDisbursement|processReadyProviderDisbursement|\.dispatch\s*\(|batch_transfers/u);
+});
+
+for (const [name, document] of [
+  ["invalidateProviderTransportOnProfileChange", "providers/{providerId}"],
+  ["invalidateProviderTransportOnOwnerChange", "users/{userId}"],
+]) test(`${name} is a Firestore-only revocation trigger with no dispatch authority`, () => {
+  const content = source("provider-finance/provider-transport-verification.ts");
+  const start = content.indexOf(`export const ${name} = onDocumentWritten({`);
+  assert.notEqual(start, -1);
+  const next = content.indexOf("export const ", start + 20);
+  const trigger = content.slice(start, next === -1 ? undefined : next);
+  assert.ok(trigger.includes(`document: "${document}"`));
+  assert.ok(trigger.includes("region: FUNCTION_REGION"));
+  assert.ok(trigger.includes("await invalidateRevokedProviderTransport("));
+  assert.doesNotMatch(trigger, /onCall|onRequest|providerTransportReaders|\.dispatch\s*\(/u);
+  const service = content.slice(content.indexOf("export async function invalidateRevokedProviderTransport"),
+    content.indexOf("export const invalidateProviderTransportOnProfileChange"));
+  assert.ok(service.includes('db.collection("providerPaymentAccounts")'));
+  assert.ok(service.includes("db.runTransaction"));
+  assert.ok(service.includes("!account.settlementTransportReady && !account.settlementTransportVerificationRequestId"));
+  assert.ok(service.includes("providerTransportOwnerEligible(providerId, account, provider, owner)"));
+  assert.ok(service.includes('transaction.update(accountRef, {...invalidateProviderTransport("provider_eligibility_revoked")'));
+  assert.doesNotMatch(service, /transaction\.(?:create|set|delete)\s*\(|transaction\.update\((?!accountRef,)|providerTransportReaders|\.dispatch\s*\(/u);
+});
+
 test("payment checkout keeps provider-request authority and fail-safe gateway handling", () => {
   const checkout = source("payments/create-payment-session.ts");
   const callable = checkout.slice(
@@ -384,8 +440,14 @@ test("PayMongo webhook records gateway truth without resurrecting booking state"
 
 test("refund adjudication and execution never accept browser money authority", () => {
   const execution = source("refunds/refund-execution.ts");
-  assert.ok(execution.includes('"cancellationRequestId",\n      "idempotencyKey"'));
-  assert.ok(execution.includes('"cancellationRequestId",\n      "reason",\n      "idempotencyKey"'));
+  assert.match(
+    execution,
+    /exactInput\s*\(\s*request\s*,\s*\[\s*"cancellationRequestId"\s*,\s*"idempotencyKey"\s*,?\s*\]\s*\)/u,
+  );
+  assert.match(
+    execution,
+    /exactInput\s*\(\s*request\s*,\s*\[\s*"cancellationRequestId"\s*,\s*"reason"\s*,\s*"idempotencyKey"\s*,?\s*\]\s*\)/u,
+  );
   assert.ok(execution.includes("calculateCancellationRefund({"));
   assert.match(
     execution,
@@ -463,6 +525,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "archiveProviderService",
   "checkCustomerProviderAvailability",
   "checkMarketplaceProviderAvailability",
+  "getCustomerProviderCalendarAvailability",
   "completeProviderBooking",
   "createAgreementTemplate",
   "createAgreementVersion",
@@ -498,6 +561,8 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "getProviderRequestCancellationStatus",
   "healthCheck",
   "inspectProviderRequestRefundReconciliation",
+  "invalidateProviderTransportOnOwnerChange",
+  "invalidateProviderTransportOnProfileChange",
   "markChatRoomRead",
   "markProviderBookingInProgress",
   "moderateReview",
@@ -561,6 +626,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "updateProviderService",
   "updateRoleAccountProfile",
   "updateServiceCategory",
+  "verifyProviderSettlementTransport",
 ].sort());
   assert.equal(index.includes("onSchedule"), false);
 });

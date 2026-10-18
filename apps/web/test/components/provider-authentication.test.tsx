@@ -1,4 +1,4 @@
-import {act, fireEvent, render, screen, waitFor} from "@testing-library/react";
+import {act, fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 
@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   refresh: vi.fn(),
   registerIdentity: vi.fn(),
+  loadPolicyVersions: vi.fn(),
   establishIdentitySession: vi.fn(),
   requestRegistrationPhoneCode: vi.fn(),
   confirmRegistrationPhoneCode: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/auth/provider-client", () => ({
   UNVERSIONED_POLICY_VERSION: "unversioned",
+  loadProviderPolicyVersions: mocks.loadPolicyVersions,
   registerProviderIdentity: mocks.registerIdentity,
   establishProviderIdentitySession: mocks.establishIdentitySession,
   createProviderPhoneRecaptcha: mocks.createPhoneRecaptcha,
@@ -74,11 +76,14 @@ async function enterOtp(
   }
 }
 
+import {policyConsentDisplay} from "@/lib/auth/policy-consent-display";
+
 const PROVIDER_AGREEMENT_VERSION = "2026-09-23";
 
 describe("provider authentication and onboarding", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.loadPolicyVersions.mockResolvedValue({terms: "terms-published", privacy: "privacy-published"});
     mocks.resumePhoneRegistration.mockResolvedValue(null);
     mocks.abandonPhoneRegistration.mockResolvedValue(undefined);
     mocks.createPhoneRecaptcha.mockImplementation(() => ({
@@ -90,6 +95,33 @@ describe("provider authentication and onboarding", () => {
     });
     URL.createObjectURL = vi.fn(() => "blob:provider-preview");
     URL.revokeObjectURL = vi.fn();
+  });
+
+  it("shows historical acceptance without attributing it to a current version", () => {
+    render(<ProviderVerificationActions providerId="provider-one"
+      verificationId="verification-one" canSubmit={true}
+      consent={{termsAccepted: true, privacyAccepted: true,
+        termsPolicyVersion: "unversioned", privacyPolicyVersion: "older-policy"}} />);
+    // The actions panel uses acceptance booleans and no longer renders versions.
+    expect(policyConsentDisplay(true, "unversioned")).toBe("Accepted (version not recorded)");
+    expect(policyConsentDisplay(true, "older-policy")).toBe("Accepted (version older-policy)");
+    expect(screen.getByRole("button", {name: "Review application"})).toBeEnabled();
+    expect(screen.queryByText(/terms-published|privacy-published/)).not.toBeInTheDocument();
+    expect(mocks.loadPolicyVersions).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Required Terms and Privacy Policy acceptance is not recorded/))
+      .not.toBeInTheDocument();
+  });
+
+  it("reports missing authoritative policies during registration", async () => {
+    mocks.loadPolicyVersions.mockRejectedValueOnce(new Error("unavailable"));
+    mocks.resumePhoneRegistration.mockResolvedValueOnce({
+      classification: "auth_only", phoneNumber: "+639171234567",
+      resolution: {state: "provider_identity_required"},
+    });
+    render(<ProviderRegistrationPage />);
+    expect(await screen.findByText(/Terms and Privacy Policy versions are unavailable/))
+      .toBeInTheDocument();
+    expect(mocks.registerIdentity).not.toHaveBeenCalled();
   });
 
   it("validates Phase C password confirmation independently", () => {
@@ -659,8 +691,8 @@ describe("provider authentication and onboarding", () => {
       phoneNumber: "+639171234567",
       acceptedTerms: true,
       acceptedPrivacy: true,
-      termsPolicyVersion: "unversioned",
-      privacyPolicyVersion: "unversioned",
+      termsPolicyVersion: "terms-published",
+      privacyPolicyVersion: "privacy-published",
     }));
     expect(mocks.establishIdentitySession).toHaveBeenCalledTimes(1);
     expect(mocks.replace).toHaveBeenCalledWith("/provider");
@@ -1233,7 +1265,6 @@ describe("provider authentication and onboarding", () => {
   });
 
   it("returns from verification documents to the provider agreement", async () => {
-    const user = userEvent.setup();
 
     render(
       <ProviderVerificationActions
@@ -1261,12 +1292,19 @@ describe("provider authentication and onboarding", () => {
       />,
     );
 
-    await user.click(
-      screen.getByRole(
-        "button",
-        {name: "Back"},
-      ),
-    );
+    const assign = vi.fn();
+    const realWindow = window;
+    vi.stubGlobal("window", new Proxy(realWindow, {
+      get(target, property) {
+        return property === "location" ? {assign} : Reflect.get(target, property);
+      },
+    }));
+    try {
+      fireEvent.click(screen.getByRole("button", {name: "Back"}));
+      expect(assign).toHaveBeenCalledExactlyOnceWith("/provider/onboarding/consent");
+    } finally {
+      vi.stubGlobal("window", realWindow);
+    }
 
     // Step 7 intentionally performs a full document navigation instead
     // of using the Next.js client router so an old pre-registration
@@ -1305,10 +1343,7 @@ describe("provider authentication and onboarding", () => {
       />,
     );
     const file = new File(["permit"], "permit.pdf", {type: "application/pdf"});
-    await user.upload(screen.getByLabelText(/choose file/i), file);
-    fireEvent.submit(
-      screen.getByRole("button", {name: "Upload"}).closest("form")!,
-    );
+    await user.upload(screen.getByLabelText("Select Business permit file"), file);
     await waitFor(() => expect(mocks.uploadDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         providerId: "provider-one",
@@ -1318,9 +1353,7 @@ describe("provider authentication and onboarding", () => {
       }),
     ));
     expect(screen.getByRole("button", {name: /review application/i})).toBeDisabled();
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "The document was uploaded successfully. Review your documents before submitting.",
-    );
+    expect(await screen.findByText("permit.pdf uploaded successfully.")).toBeVisible();
   });
 
   it("shows document status and removes files only through the trusted callable", async () => {
@@ -1415,29 +1448,66 @@ describe("provider authentication and onboarding", () => {
         }]}
       />,
     );
-    await user.selectOptions(
-      screen.getByLabelText(/document type/i),
-      "valid_id",
-    );
-    await user.upload(
-      screen.getByLabelText(/choose file/i),
-      new File(["id"], "id.png", {type: "image/png"}),
-    );
-    const replacementFileInput = screen.getByLabelText(
-      /choose file/i,
-      {selector: "input"},
-    );
-    const replacementForm = replacementFileInput.closest("form");
+    const picker = screen.getByLabelText("Select Valid government ID file");
+    const card = picker.closest("article")!;
+    expect(within(card).getByRole("button", {name: "Replace"})).toBeEnabled();
+    const file = new File(["id"], "id.png", {type: "image/png"});
+    await user.upload(picker, file);
+    expect(mocks.uploadDocument).toHaveBeenCalledWith(expect.objectContaining({providerId: "provider-one", verificationId: "verification-one", documentType: "valid_id", file}));
+    expect(within(card).getByRole("progressbar", {name: "Valid government ID upload progress"})).toHaveAttribute("value", "64");
+    expect(within(card).getByRole("status")).toHaveTextContent("Uploading 64%");
+    expect(picker).toBeDisabled();
+    expect(screen.getByAltText("Selected Valid government ID")).toBeVisible();
+    await act(async () => finishUpload());
+    expect(await screen.findByText("id.png uploaded successfully.")).toBeVisible();
+    expect(within(card).getByRole("status")).toHaveTextContent("Uploaded");
+    expect(within(card).getByRole("button", {name: "Replace"})).toBeEnabled();
+  });
 
-    expect(replacementForm).not.toBeNull();
-
-    fireEvent.submit(replacementForm!);
-    await waitFor(() => expect(mocks.uploadDocument).toHaveBeenCalled());
-    expect(await screen.findByText("Uploading: 64%")).toBeInTheDocument();
-    finishUpload();
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "The document was replaced successfully. Review it again before submitting.",
-    );
+  it("tracks concurrent uploads independently and blocks submission until all finish", async () => {
+    const user = userEvent.setup();
+    const finishes: Record<string, () => void> = {};
+    const progress: Record<string, (value: number) => void> = {};
+    mocks.uploadDocument.mockImplementation((input: {documentType: string; onProgress: (value: number) => void}) => new Promise<void>((resolve) => {
+      finishes[input.documentType] = resolve;
+      progress[input.documentType] = input.onProgress;
+    }));
+    const props = {
+      providerId: "provider-one", verificationId: "verification-one", canSubmit: true,
+      documentCatalog: [{code: "business_permit", name: "Business permit"}, {code: "valid_id", name: "Valid government ID"}],
+      policy: {requiredAll: ["business_permit", "valid_id"], requiredOneOf: []},
+    };
+    const {rerender} = render(<ProviderVerificationActions {...props} />);
+    const permit = screen.getByLabelText("Select Business permit file");
+    const id = screen.getByLabelText("Select Valid government ID file");
+    const permitFile = new File(["permit"], "permit.pdf", {type: "application/pdf"});
+    const idFile = new File(["id"], "id.png", {type: "image/png"});
+    await user.upload(permit, permitFile);
+    expect(id).toBeEnabled();
+    await user.upload(id, idFile);
+    expect(mocks.uploadDocument).toHaveBeenCalledTimes(2);
+    expect(mocks.uploadDocument).toHaveBeenNthCalledWith(1, expect.objectContaining({documentType: "business_permit", file: permitFile}));
+    expect(mocks.uploadDocument).toHaveBeenNthCalledWith(2, expect.objectContaining({documentType: "valid_id", file: idFile}));
+    await act(async () => {progress.business_permit(25); progress.valid_id(70);});
+    expect(screen.getByRole("progressbar", {name: "Business permit upload progress"})).toHaveAttribute("value", "25");
+    expect(screen.getByRole("progressbar", {name: "Valid government ID upload progress"})).toHaveAttribute("value", "70");
+    expect(screen.getByRole("button", {name: "Review application"})).toBeDisabled();
+    expect(screen.getByRole("button", {name: "Back"})).toBeDisabled();
+    // Keep mounted upload state while exposing the review-stage submission button.
+    rerender(<ProviderVerificationActions {...props} reviewMode />);
+    const submit = screen.getByRole("button", {name: "Submit for admin review"});
+    await user.click(submit);
+    expect(submit).toBeDisabled();
+    expect(mocks.submitVerification).not.toHaveBeenCalled();
+    await act(async () => finishes.business_permit());
+    expect(submit).toBeDisabled();
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    expect(screen.getByRole("progressbar", {name: "Valid government ID upload progress"})).toHaveAttribute("value", "70");
+    await act(async () => finishes.valid_id());
+    expect(submit).toBeEnabled();
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+    expect(mocks.submitVerification).not.toHaveBeenCalled();
+    mocks.uploadDocument.mockReset();
   });
 
   it("submits verification once required documents are registered", async () => {
@@ -1472,6 +1542,21 @@ describe("provider authentication and onboarding", () => {
     await user.click(screen.getByRole("button", {name: /submit for admin review/i}));
     await waitFor(() => expect(mocks.submitVerification).toHaveBeenCalledTimes(1));
     expect(mocks.replace).toHaveBeenCalledWith("/provider/status");
+  });
+
+  it("navigates from documents to review and back without submitting", () => {
+    const props = {
+      providerId: "provider-one", verificationId: "verification-one",
+      documentCatalog: [], policy: {requiredAll: [], requiredOneOf: []},
+      canSubmit: true,
+    };
+    const view = render(<ProviderVerificationActions {...props} />);
+    fireEvent.click(screen.getByRole("button", {name: "Review application"}));
+    expect(mocks.replace).toHaveBeenCalledWith("/provider/verification?stage=review");
+    view.rerender(<ProviderVerificationActions {...props} reviewMode />);
+    fireEvent.click(screen.getByRole("button", {name: "Back to documents"}));
+    expect(mocks.replace).toHaveBeenCalledWith("/provider/verification?stage=documents");
+    expect(mocks.submitVerification).not.toHaveBeenCalled();
   });
 
   it("prevents replay taps while submission is in progress", async () => {

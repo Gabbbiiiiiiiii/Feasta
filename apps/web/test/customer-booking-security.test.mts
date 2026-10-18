@@ -1,9 +1,35 @@
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
 
 const sourceRoot = new URL("../src/", import.meta.url);
 const source = (path: string) => readFile(new URL(path, sourceRoot), "utf8");
+
+function hasTopLevelServerOnlyImport(content: string): boolean {
+  const sourceFile = ts.createSourceFile("service.ts", content, ts.ScriptTarget.Latest, true);
+  return sourceFile.statements.some((statement) =>
+    ts.isImportDeclaration(statement) &&
+    statement.importClause === undefined &&
+    ts.isStringLiteral(statement.moduleSpecifier) &&
+    statement.moduleSpecifier.text === "server-only");
+}
+
+for (const [name, content, expected] of [
+  ["first side-effect import", 'import "server-only";', true],
+  ["second side-effect import", 'import {value} from "./value";\nimport "server-only";', true],
+  ["line comment", '// import "server-only";', false],
+  ["block comment", '/* import "server-only"; */', false],
+  ["dynamic import", 'import("server-only");', false],
+  ["type-only import", 'import type {} from "server-only";', false],
+  ["unrelated literal", 'const marker = "server-only";', false],
+  ["bound import", 'import marker from "server-only";', false],
+  ["empty bound import", 'import {} from "server-only";', false],
+] as const) {
+  test("server-only AST marker: " + name, () => {
+    assert.equal(hasTopLevelServerOnlyImport(content), expected);
+  });
+}
 
 test("customer booking reads derive ownership from the trusted session", async () => {
   const [service, page, actions] = await Promise.all([
@@ -12,7 +38,7 @@ test("customer booking reads derive ownership from the trusted session", async (
     source("app/customer/bookings/actions.ts"),
   ]);
 
-  assert.match(service, /^import "server-only";/u);
+  assert.equal(hasTopLevelServerOnlyImport(service), true);
   assert.match(service, /const customer = await requireCustomer\(\)/u);
   assert.match(service, /\.where\("customerId", "==", customerId\)/u);
   assert.match(service, /bookingData\?\.customerId !== customer\.uid/u);

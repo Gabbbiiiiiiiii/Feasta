@@ -227,7 +227,7 @@ export function ProviderPaymentsClient({
       <PageHeading
         eyebrow="Provider finance"
         title="Payments & Payouts"
-        description="Manage payout readiness, provider earnings, and customer booking payment activity."
+        description="Check customer payments, see your earnings, and track payouts and refunds."
       />
 
       <ProviderFinancePanel
@@ -248,13 +248,13 @@ export function ProviderPaymentsClient({
         aria-label="Payment summary"
       >
         <SummaryCard
-          label="Confirmed Customer Payments"
+          label="Customer payments received"
           value={formatCentavos(page.summary.confirmedCustomerPayments.totalAmountInCentavos)}
           trend={paymentCountTrend(page.summary.confirmedCustomerPayments.count)}
           icon={<CircleCheckBig className="size-5" />}
         />
         <SummaryCard
-          label="Processing Payments"
+          label="Payments processing"
           value={formatCentavos(page.summary.processingPayments.totalAmountInCentavos)}
           trend={paymentCountTrend(page.summary.processingPayments.count)}
           icon={<Clock3 className="size-5" />}
@@ -266,7 +266,7 @@ export function ProviderPaymentsClient({
           icon={<CircleX className="size-5" />}
         />
         <SummaryCard
-          label="Fully Refunded"
+          label="Fully refunded payments"
           value={formatCentavos(page.summary.fullyRefundedPayments.totalAmountInCentavos)}
           trend={paymentCountTrend(page.summary.fullyRefundedPayments.count)}
           icon={<RotateCcw className="size-5" />}
@@ -320,7 +320,7 @@ export function ProviderPaymentsClient({
       <section className="grid min-w-0 gap-4" aria-labelledby="payment-history-heading">
         <div>
           <h2 id="payment-history-heading" className="text-xl font-bold">
-            Payment history
+            Customer payment history
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Customer payment records linked to your provider requests.

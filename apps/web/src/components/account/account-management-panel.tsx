@@ -246,7 +246,7 @@ export function AccountManagementPanel({
         </div>
       </section>
 
-      {profile.role !== "admin" ? (
+      {profile.role === "provider" ? (
         <section className="grid gap-4 rounded-card border border-destructive/40 bg-card p-5 shadow-card sm:p-6" aria-labelledby="deactivation-title">
           <h2 id="deactivation-title" className="text-xl font-bold">Deactivate account</h2>
           <p className="text-sm text-muted-foreground">{profile.role === "provider" ? "Active event obligations must be resolved first. Booking, payment, dispute, and audit records are retained." : "This is a soft deactivation. Booking, payment, dispute, and audit records are retained."}</p>
@@ -260,12 +260,12 @@ export function AccountManagementPanel({
           )}
           <ConfirmationDialog open={deactivateOpen} onOpenChange={setDeactivateOpen} title="Deactivate this account?" description="Protected access will end and all sessions will be revoked. This does not delete retained operational records." destructive confirmLabel="Deactivate account" onConfirm={() => run("deactivate", async () => { await deactivateWebAccount(profile.role, reason, deactivationPassword); router.replace(loginPath); router.refresh(); })} trigger={<Button className="justify-self-start" variant="destructive" disabled={busy != null}>Deactivate account</Button>} />
         </section>
-      ) : (
+      ) : profile.role === "admin" ? (
         <section className="rounded-card border border-border bg-card p-5 shadow-card sm:p-6">
           <h2 className="text-xl font-bold">Admin account lifecycle</h2>
           <p className="mt-2 text-sm text-muted-foreground">Administrators cannot deactivate themselves. Another trusted administrator must follow the controlled administrative process, preserving last-admin safeguards.</p>
         </section>
-      )}
+      ) : null}
 
       {notice ? <AuthStatus message={notice} tone="success" /> : null}
       {error ? <AuthStatus message={error} tone="error" /> : null}

@@ -164,7 +164,7 @@ describe("provider agreement acceptance", () => {
 
     expect(page).toContain("getProviderOnboardingAgreement");
     expect(onboarding).toContain("getProviderOnboardingAgreement");
-    expect(download).toContain("getProviderOnboardingAgreement");
+    expect(download).toContain('input.copy === "current" ? await getPublishedProviderAgreement() : null');
     expect(download).not.toContain("PROVIDER_AGREEMENT_SECTIONS");
     expect(route).not.toContain("PROVIDER_AGREEMENT_SECTIONS");
     expect(page).toContain("ProviderAgreementAcceptanceSection");

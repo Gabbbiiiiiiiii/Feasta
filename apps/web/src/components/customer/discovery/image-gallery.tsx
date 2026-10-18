@@ -4,7 +4,7 @@ import {useRef, useState} from "react";
 import {Button} from "@/components/ui/button";
 import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger} from "@/components/ui/dialog";
 
-export function ImageGallery({images, label}: {images: readonly {url: string; title: string}[]; label: string}) {
+export function ImageGallery({images, label, featured = false}: {images: readonly {url: string; title: string}[]; label: string; featured?: boolean}) {
   const [active, setActive] = useState(0);
   const [open, setOpen] = useState(false);
   const [zoomed, setZoomed] = useState(false);
@@ -13,14 +13,14 @@ export function ImageGallery({images, label}: {images: readonly {url: string; ti
   const selected = images[active] ?? images[0]!;
   function move(direction: number) { setActive((current) => (current + direction + images.length) % images.length); setZoomed(false); }
   return <Dialog open={open} onOpenChange={(next) => { setOpen(next); if (!next) setZoomed(false); }}>
-    <div aria-label={label} className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(min(100%,10rem),1fr))] gap-3">
+    <div aria-label={label} className={featured ? "grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-4" : "grid min-w-0 grid-cols-[repeat(auto-fill,minmax(min(100%,10rem),1fr))] gap-3"}>
       {images.map((image, index) => <DialogTrigger asChild key={`${image.url}-${index}`}>
         <button type="button" onClick={(event) => { openedFrom.current = event.currentTarget; setActive(index); setZoomed(false); }}
-          className="min-w-0 overflow-hidden rounded-xl border border-feasta-border-soft bg-card text-left transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          className={`${featured && index === 0 ? "col-span-full " : ""}min-w-0 overflow-hidden rounded-xl border border-feasta-border-soft bg-card text-left transition-colors hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2`}
           aria-label={`View ${image.title || `${label} image ${index + 1}`}`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={image.url} alt="" loading="lazy" className="aspect-[4/3] w-full bg-feasta-surface-muted object-contain" />
-          <span className="block min-h-11 break-words p-3 text-sm font-semibold">{image.title || `Image ${index + 1}`}</span>
+          <img src={image.url} alt="" loading={featured && index === 0 ? "eager" : "lazy"} className={featured ? `${index === 0 ? "h-48 sm:h-64" : "h-24"} w-full bg-feasta-surface-muted object-contain` : "aspect-[4/3] w-full bg-feasta-surface-muted object-contain"} />
+          <span className={featured ? "sr-only" : "block min-h-11 break-words p-3 text-sm font-semibold"}>{image.title || `Image ${index + 1}`}</span>
         </button>
       </DialogTrigger>)}
     </div>

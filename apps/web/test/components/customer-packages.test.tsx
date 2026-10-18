@@ -1,3 +1,4 @@
+import userEvent from "@testing-library/user-event";
 import {render, screen} from "@testing-library/react";
 import {describe, expect, it, vi} from "vitest";
 import {assertHydration} from "../helpers/assert-hydration";
@@ -44,6 +45,43 @@ const packageRecord: PublicPackage = {
 };
 
 describe("customer package marketplace", () => {
+  it.each([false, true])("keeps one booking action and only published details (images: %s)", async (hasImages) => {
+    const user = userEvent.setup();
+    const provider = normalizePublicProvider("provider-one", {
+      ownerId: "owner", businessName: "Provider", providerServiceType: "catering",
+      verificationStatus: "approved", publiclyVisible: true, isActive: true,
+    }, {role: "provider", providerId: "provider-one", accountStatus: "active"})!;
+    const images = ["https://images.example.test/one.webp", "https://images.example.test/two.webp"];
+    render(<PackageDetail detail={{provider, packageRecord: {...packageRecord,
+      imageUrl: null, imageUrls: hasImages ? images : [], eventType: null,
+      minimumGuests: null, maximumGuests: null, description: null,
+    }, customization: {foods: [], decorations: [], furniture: [], services: []}}} />);
+    expect(screen.getAllByRole("link", {name: "Customize & request"})).toHaveLength(1);
+    expect(screen.getByRole("complementary", {name: "Price and booking"}))
+      .toHaveTextContent("Requesting does not confirm a booking or charge you.");
+    expect(screen.queryByText(/public marketplace listing|plan your event/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", {name: "Event fit"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", {name: "Available service levels"})).not.toBeInTheDocument();
+    expect(screen.getByRole("link", {name: "View provider"})).toHaveAttribute("href",
+      "/customer/providers/provider-one?returnTo=%2Fcustomer%2Fpackages");
+    if (hasImages) {
+      for (const src of images) expect(document.querySelectorAll(`img[src="${src}"]`)).toHaveLength(1);
+      const trigger = screen.getByRole("button", {name: `View ${packageRecord.name} - image 1`});
+      trigger.focus();
+      await user.keyboard("{Enter}");
+      expect(screen.getByRole("dialog")).toBeVisible();
+      await user.click(screen.getByRole("button", {name: "Next image"}));
+      expect(screen.getByRole("heading", {name: `${packageRecord.name} - image 2`})).toBeVisible();
+      await user.click(screen.getByRole("button", {name: "Zoom in"}));
+      expect(screen.getByRole("button", {name: "Fit image"})).toHaveAttribute("aria-pressed", "true");
+      await user.keyboard("{Escape}");
+      expect(trigger).toHaveFocus();
+    } else {
+      expect(screen.getByText("No package images available")).toBeVisible();
+      expect(screen.queryByLabelText("Package images")).not.toBeInTheDocument();
+    }
+  });
+
   it.each(["deposit_then_balance", "full_payment"] as const)("shows published %s terms on cards and details", (paymentPolicy) => {
     const provider = normalizePublicProvider("provider-one", {
       ownerId: "owner", businessName: "Provider", providerServiceType: "catering",
@@ -242,7 +280,7 @@ describe("customer package marketplace", () => {
     expect(screen.getByText("Package image")).toBeVisible();
     // One event badge on the card; the results header also shows the active filter.
     expect(screen.getByRole("article")).not.toHaveTextContent("EventWedding");
-    expect(screen.getByRole("article").parentElement).toHaveClass("grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))]");
+    expect(screen.getByRole("article").parentElement).toHaveClass("grid-cols-1", "sm:grid-cols-2", "lg:grid-cols-3", "xl:grid-cols-4");
     expect(screen.getByText("50–150 guests")).toBeVisible();
     expect(screen.queryByText("Buffet menu")).not.toBeInTheDocument();
     expect(screen.queryAllByRole("listitem")).toHaveLength(0);
@@ -256,11 +294,11 @@ describe("customer package marketplace", () => {
     expect(screen.getByText(packageRecord.description!)).toBeVisible();
   });
 
-  it("keeps expanded cards available to existing callers", () => {
+  it("keeps compact cards readable for existing callers", () => {
     render(<PublicPackageCard packageRecord={packageRecord} marketplaceHref="/customer/providers" showProvider={false} headingLevel="h3" />);
     expect(screen.getByText(packageRecord.description!)).toBeVisible();
-    expect(screen.getAllByText("Wedding")).toHaveLength(2);
-    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.getByText("Wedding")).toBeVisible();
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
   });
 
   it.each([0, 1, 2, 5])("omits %s inclusions from compact discovery cards", (count) => {

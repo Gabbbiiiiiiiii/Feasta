@@ -44,17 +44,23 @@ export function normalizeCustomerBookingTimelineData(
   if (!createdAt) return null;
 
   const type = normalizeTimelineType(data.type);
-  const storedTitle = boundedString(data.title, MAX_TIMELINE_TITLE_LENGTH);
-  const storedDescription =
+  const storedTitle = type === "provider_rejected" ?
+    boundedString(data.title, MAX_TIMELINE_TITLE_LENGTH)
+      .replace(/\bdeclined\b/giu, "rejected") :
+    boundedString(data.title, MAX_TIMELINE_TITLE_LENGTH);
+  const rawStoredDescription =
     boundedString(data.description, MAX_TIMELINE_DESCRIPTION_LENGTH) ||
     boundedString(data.message, MAX_TIMELINE_DESCRIPTION_LENGTH) ||
     null;
+  const storedDescription = type === "provider_rejected" ?
+    rawStoredDescription?.replace(/\bdeclined\b/giu, "rejected") ?? null :
+    rawStoredDescription;
   const rejectionReason = type === "provider_rejected" ?
     boundedString(data.reason, MAX_PROVIDER_REJECTION_REASON_LENGTH) :
     "";
   const description = rejectionReason ?
     boundedString(
-      `${storedDescription ?? "The provider declined this request."} Provider explanation: ${rejectionReason}`,
+      `${storedDescription ?? "The provider rejected this request."} Provider explanation: ${rejectionReason}`,
       MAX_TIMELINE_DESCRIPTION_LENGTH,
     ) :
     storedDescription?.replace(/Down payment is now available\./giu, "Payment is now available.") ?? null;
@@ -126,7 +132,7 @@ function customerTimelineTitle(type: CustomerTimelineType | null): string {
     case "provider_accepted":
       return "Provider accepted request";
     case "provider_rejected":
-      return "Provider declined request";
+      return "Provider rejected request";
     case "in_progress":
       return "Event service started";
     case "completed":

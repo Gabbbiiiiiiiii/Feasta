@@ -1,6 +1,6 @@
 import {loadBookingPaymentPolicySnapshot} from "./load-booking-payment-policy.js";
 import {evaluateSubmissionPaymentEligibility} from "../payments/initial-payment-eligibility.js";
-import {bookingPolicyV3Evidence} from "./booking-policy-v3.js";
+import {bookingPolicyV3Evidence, bookingSubmissionDeadlinePassedV3} from "./booking-policy-v3.js";
 import {
   buildBookingPaymentAgreement,
   bookingPaymentAgreementDisclosure,
@@ -160,6 +160,16 @@ const COLLECTIONS = {
  * Prices, providers, packages, and add-ons are validated
  * and calculated exclusively on the server.
  */
+function assertBeforeSubmissionPaymentDeadline(eventStartAt: Date): void {
+  if (bookingSubmissionDeadlinePassedV3(eventStartAt, new Date())) {
+    throw new HttpsError(
+      "failed-precondition",
+      "The payment deadline has passed. Choose an event date and start time more than 24 hours away.",
+      {reason: "booking_submission_payment_deadline_passed"},
+    );
+  }
+}
+
 export const submitBookingRequest = onCall(
   {
     ...appCheckCallableOptions,
@@ -721,6 +731,9 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
             : null;
           const submissionEligibility = evaluateSubmissionPaymentEligibility({eventDate, eventTime,
             submissionTime, packagePaymentTerms, bookingPaymentPolicySnapshot});
+
+          // Reject expired schedules before disclosing terms or creating requests.
+          assertBeforeSubmissionPaymentDeadline(submissionEligibility.eventStartAt);
           const canonicalPolicyEvidence = {...bookingPolicyV3Evidence(submissionEligibility.eventStartAt, Timestamp.fromDate),
             lifecycleNextTransitionAt: null, remainingBalanceNextCheckAt: null};
           const initialPaymentEligibilityEvidence = {
@@ -1368,6 +1381,10 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
               );
             },
           );
+
+          // Recheck immediately before writing because the transaction may
+          // have crossed the deadline while validating the booking.
+          assertBeforeSubmissionPaymentDeadline(submissionEligibility.eventStartAt);
 
           transaction.create(
             bookingReference,

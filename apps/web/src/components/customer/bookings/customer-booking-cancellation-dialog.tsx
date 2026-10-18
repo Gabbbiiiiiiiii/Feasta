@@ -145,6 +145,26 @@ function CustomerBookingCancellationDialog({
     };
   }, [fetchCancellationState]);
 
+  useEffect(() => {
+    if (!options?.cancellationAllowed || submissionComplete) return;
+    let active = true;
+    const refresh = () => {
+      if (document.visibilityState === "hidden") return;
+      setLoading(true); // Invalidate a stale form until the server answers again.
+      void fetchCancellationState().then(([nextOptions, nextStatus]) => {
+        if (!active) return;
+        setOptions(nextOptions); setStatusResult(nextStatus); setLoadError(null);
+      }).catch(() => {
+        if (active) setLoadError("Cancellation eligibility could not be refreshed. Please try again.");
+      }).finally(() => {if (active) setLoading(false);});
+    };
+    const delay = Math.min(Math.max(options.eligibilityExpiresInMs ?? 60_000, 1), 60_000);
+    const timer = window.setTimeout(refresh, delay);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {active = false; window.clearTimeout(timer); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh);};
+  }, [options, submissionComplete, fetchCancellationState]);
+
   async function submitCancellation() {
     if (submittingRef.current || submissionComplete) return;
 
@@ -424,15 +444,15 @@ function CancellationPolicyPanel({
           {preview.paidAmountInCentavos !== undefined && preview.nonRefundableAmountInCentavos !== undefined ? (
             <>
               <dl className="mt-3 grid gap-2 text-sm">
-                <div className="flex justify-between gap-3"><dt>Down payment paid</dt><dd>{formatCentavos(preview.paidAmountInCentavos)}</dd></div>
+                <div className="flex justify-between gap-3"><dt>Total originally paid</dt><dd>{formatCentavos(preview.paidAmountInCentavos)}</dd></div>
                 <div className="flex justify-between gap-3"><dt>Refundable amount</dt><dd>{formatCentavos(preview.refundAmountInCentavos)}</dd></div>
                 <div className="flex justify-between gap-3"><dt>Non-refundable amount</dt><dd>{formatCentavos(preview.nonRefundableAmountInCentavos)}</dd></div>
               </dl>
               <p className="mt-3 text-sm font-semibold">
                 {preview.paidAmountInCentavos === 0
-                  ? "No settled down payment is recorded for this service."
+                  ? "No settled payment is recorded for this service."
                   : preview.refundAmountInCentavos === 0
-                    ? "You may request cancellation of this service, but the down payment is non-refundable under the policy you accepted."
+                    ? "You may request cancellation of this service, but no additional refund is currently available under the agreed policy."
                     : preview.nonRefundableAmountInCentavos === 0
                       ? "Your cancellation is eligible for a full refund, subject to review."
                       : "Your cancellation is eligible for a partial refund, subject to review."}
@@ -480,7 +500,11 @@ function NoticePanel({title, description}: {title: string; description: string})
 }
 
 function UnavailablePanel({reasonCode}: {reasonCode: CustomerCancellationOptions["reasonCode"]}) {
-  const description = reasonCode === "ROLLOUT_DISABLED"
+  const description = reasonCode === "EVENT_ENDED"
+    ? "New cancellation requests are no longer accepted. Existing requests continue through their normal review and refund workflow. Report an Issue and booking history remain available."
+    : reasonCode === "SCHEDULE_RECONCILIATION_REQUIRED"
+      ? "The event schedule needs review before a new cancellation request can be accepted. Report an Issue remains available."
+      : reasonCode === "ROLLOUT_DISABLED"
     ? "Customer cancellation requests are currently disabled by FEASTA. Contact FEASTA support to request cancellation of this service."
     : reasonCode === "ACTIVE_CANCELLATION_EXISTS"
       ? "Another cancellation request cannot be submitted while the current request is active."
@@ -492,7 +516,7 @@ function UnavailablePanel({reasonCode}: {reasonCode: CustomerCancellationOptions
     <div className="flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-4" role="status">
       <ShieldAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
       <div>
-        <p className="font-bold">Cancellation unavailable</p>
+        <p className="font-bold">{reasonCode === "EVENT_ENDED" ? "Cancellation closed \u2014 event ended" : "Cancellation unavailable"}</p>
         <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p>
       </div>
     </div>

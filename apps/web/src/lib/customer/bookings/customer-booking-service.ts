@@ -1,3 +1,4 @@
+import {lifecycleEvidence, linkedLifecycleEvidence} from "@/lib/presentation/booking-lifecycle";
 import "server-only";
 import {bookingPolicyV3Presentation} from "@/lib/payments/booking-policy-v3-presentation";
 import {hasBookingSettlement, projectBookingPayment} from "@/lib/payments/booking-payment-projection";
@@ -46,6 +47,7 @@ import {
   isCanonicalOwnedProviderRequest,
   normalizeCanonicalProviderRequestIds,
 } from "@/lib/customer/bookings/customer-booking-membership";
+import {countPendingProviderResponses} from "./customer-booking-pending";
 import {normalizeCustomerBookingReviewStatus} from "@/lib/customer/bookings/customer-booking-review";
 import {
   compareCustomerBookingTimelineEntries,
@@ -145,6 +147,61 @@ async function getOwnedCustomerBookingResults(
     );
   }
 
+  // Awaiting-provider bookings must have at least one unanswered
+  // provider request. A declined-only booking is not pending.
+  //
+  // Scan the existing indexed status query in bounded batches.
+  // Keep scanning until a full page of matching bookings is found
+  // or the query is exhausted. No new Firestore index is required.
+  if (filters.status === "awaiting_provider") {
+    const batchSize = Math.max(30, filters.pageSize + 1);
+    let scanQuery = query;
+
+    const matchingDocuments: QueryDocumentSnapshot<DocumentData>[] = [];
+
+    for (;;) {
+      const batch = await scanQuery.limit(batchSize).get();
+
+      for (const document of batch.docs) {
+        if (countPendingProviderResponses(document.data()) > 0) {
+          matchingDocuments.push(document);
+
+          if (matchingDocuments.length > filters.pageSize) {
+            break;
+          }
+        }
+      }
+
+      if (
+        matchingDocuments.length > filters.pageSize ||
+        batch.docs.length < batchSize
+      ) {
+        break;
+      }
+
+      const lastScanned = batch.docs.at(-1);
+
+      if (!lastScanned) {
+        break;
+      }
+
+      scanQuery = scanQuery.startAfter(lastScanned);
+    }
+
+    const hasMore = matchingDocuments.length > filters.pageSize;
+    const documents = matchingDocuments.slice(0, filters.pageSize);
+    const lastDocument = documents.at(-1) ?? null;
+
+    return {
+      bookings: await Promise.all(documents.map(document => mapBookingWithLinkedEvidence(document))),
+      nextCursor:
+        hasMore && lastDocument
+          ? encodeCursor(lastDocument)
+          : null,
+      hasMore,
+    };
+  }
+
   const snapshot = await query
     .limit(filters.pageSize + 1)
     .get();
@@ -156,7 +213,7 @@ async function getOwnedCustomerBookingResults(
   const lastDocument = documents.at(-1) ?? null;
 
   return {
-    bookings: documents.map(mapBookingDocument),
+    bookings: await Promise.all(documents.map(document => mapBookingWithLinkedEvidence(document))),
     nextCursor:
       hasMore && lastDocument
         ? encodeCursor(lastDocument)
@@ -179,7 +236,7 @@ export async function getCustomerBookingDetails(
 
   return {
     details: {
-      booking: mapBookingDocument(ownedBooking.snapshot),
+      booking: await mapBookingWithLinkedEvidence(ownedBooking.snapshot, providerRequests),
       providerRequests,
     },
   };
@@ -434,11 +491,20 @@ async function searchOwnedBookings(
     }
   }
 
-  return [...documents.values()]
-    .filter((document) =>
-      statusMatchesFilter(document.data()?.status, filters.status),
-    )
-    .map(mapBookingDocument);
+  const matches = [...documents.values()]
+    .filter((document) => {
+      const data = document.data() ?? {};
+
+      return (
+        statusMatchesFilter(data.status, filters.status) &&
+        (
+          filters.status !== "awaiting_provider" ||
+          countPendingProviderResponses(data) > 0
+        )
+      );
+    })
+;
+  return Promise.all(matches.map(document => mapBookingWithLinkedEvidence(document)));
 }
 
 async function getCustomerBookingStatistics(
@@ -450,7 +516,7 @@ async function getCustomerBookingStatistics(
   const [
     total,
     upcoming,
-    awaitingProvider,
+    awaitingProviderRequests,
     awaitingPayment,
     confirmed,
     completed,
@@ -467,7 +533,7 @@ async function getCustomerBookingStatistics(
         "pending_provider_approval",
         "needs_provider_replacement",
       ])
-      .count()
+      .select("status", "pendingProviderRequestCount")
       .get(),
     bookings
       .where("status", "==", "waiting_for_down_payment")
@@ -487,7 +553,11 @@ async function getCustomerBookingStatistics(
   return {
     total: total.data().count,
     upcoming: upcoming.data().count,
-    awaitingProvider: awaitingProvider.data().count,
+    awaitingProvider: awaitingProviderRequests.docs.reduce(
+      (sum, document) =>
+        sum + countPendingProviderResponses(document.data()),
+      0,
+    ),
     awaitingPayment: awaitingPayment.data().count,
     confirmed: confirmed.data().count,
     completed: completed.data().count,
@@ -504,6 +574,7 @@ function mapBookingDocument(
     id: document.id,
     bookingId: stringValue(data.bookingId) || document.id,
     bookingCode: stringValue(data.bookingCode) || document.id,
+    lifecycle: lifecycleEvidence(data),
     eventType: stringValue(data.eventType) || "Unspecified event",
     eventDate: isoDateValue(data.eventDate),
     eventTime: stringValue(data.eventTime),
@@ -592,6 +663,7 @@ function mapProviderRequestDocument(
     initialPaymentExplanation: customerInitialPaymentExplanation(data),
     balanceEnforcement: balanceEnforcementPresentation(data, "customer"),
     bookingPolicy: bookingPolicyV3Presentation(data),
+    lifecycle: lifecycleEvidence(data),
     rejectionReason: nullableString(data.rejectionReason),
     cancellationReason: nullableString(data.cancellationReason),
     requestedAt: isoDateValue(data.requestedAt),
@@ -796,4 +868,13 @@ function dateValue(value: unknown): Date | null {
 
 function isoDateValue(value: unknown): string | null {
   return dateValue(value)?.toISOString() ?? null;
+}
+
+async function mapBookingWithLinkedEvidence(document: DocumentSnapshot<DocumentData>, knownRequests?: CustomerBookingProviderRequest[]): Promise<CustomerBooking> {
+  const booking = mapBookingDocument(document);
+  if (!["confirmed", "in_progress"].includes(booking.status)) return booking;
+  const data = document.data() ?? {};
+  const requests = knownRequests ?? await loadOwnedProviderRequests(document.id, stringValue(data.customerId),
+    normalizeCanonicalProviderRequestIds(data.providerRequestIds), booking.status, false);
+  return {...booking, lifecycle: linkedLifecycleEvidence(booking.lifecycle!, requests, normalizeCanonicalProviderRequestIds(data.providerRequestIds).length)};
 }

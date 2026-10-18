@@ -2,6 +2,7 @@
 
 import {useRouter} from "next/navigation";
 import {useState} from "react";
+import type {ReactElement} from "react";
 
 import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
 import {Button} from "@/components/ui/button";
@@ -9,8 +10,10 @@ import {logoutWebSession} from "@/lib/auth/client-session";
 
 export function LogoutButton({
   destination = "/customer/providers",
+  trigger,
 }: {
   destination?: "/customer/providers" | "/provider-login" | "/admin-login";
+  trigger?: ReactElement;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -34,7 +37,7 @@ export function LogoutButton({
           setError("Sign out could not be completed. Please try again.");
         }
       }}
-      trigger={<Button variant="secondary">Sign out</Button>}
+      trigger={trigger ?? <Button variant="secondary">Sign out</Button>}
     >
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     </ConfirmationDialog>

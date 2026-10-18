@@ -14,6 +14,8 @@ export type AdminComplaint = {
   providerId: string | null;
   providerName: string | null;
   providerOwnerId: string | null;
+  bookingId?: string | null;
+  providerRequestId?: string | null;
 
   category: string;
   description: string;

@@ -47,8 +47,8 @@ export default async function ProviderPaymentsPage({
 
   return (
     <div className="grid gap-6">
-      <nav aria-label="Payment settings" className="flex flex-wrap gap-2">
-        {[["Refund Policy", "/provider/refund-policy"], ["Tax Profile", "/provider/tax-profile"], ["Financial Statements", "/provider/payments/statements"]].map(([label, href]) =>
+      <nav aria-label="Payment tools" className="flex flex-wrap gap-2">
+        {[["Refund Policy", "/provider/refund-policy"], ["Tax Profile", "/provider/tax-profile"], ["Earnings Statement", "/provider/payments/statements"]].map(([label, href]) =>
           <Button key={href} asChild variant="secondary" size="compact"><Link href={href}>{label}</Link></Button>)}
       </nav>
     <ProviderPaymentsClient

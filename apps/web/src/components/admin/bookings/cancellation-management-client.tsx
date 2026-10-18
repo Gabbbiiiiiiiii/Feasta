@@ -187,9 +187,9 @@ export function CancellationManagementClient({
     <section className="grid min-w-0 gap-4" aria-labelledby="cancellation-queue-heading">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 id="cancellation-queue-heading" className="text-2xl font-black">Cancellation requests</h2>
+          <h2 id="cancellation-queue-heading" className="text-2xl font-black">Cancellations &amp; refunds</h2>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Review cancellation requests and their refund results.
+            Review pending decisions and view recorded cancellation and refund outcomes.
           </p>
         </div>
       </div>
@@ -205,15 +205,25 @@ export function CancellationManagementClient({
         rows={queue.items}
         getRowId={(item) => item.cancellationRequestId}
         caption="Provider-service cancellation queue"
+        className="[&_table]:min-w-[72rem] [&_th]:px-3 [&_td]:px-3"
         loading={loading}
         error={error}
         onRetry={() => void refresh(selected?.cancellationRequestId)}
-        emptyTitle="No cancellation requests"
+        emptyTitle="No cancellations found"
         emptyDescription="Provider-service cancellation requests will appear here for Admin review."
-        rowActionsLabel="Review"
+        rowActionsLabel="Details"
         rowActions={(item) => (
-          <Button variant="ghost" size="compact" onClick={() => openDetails(item)} aria-label={`Review cancellation for ${item.providerName}`}>
-            <Eye aria-hidden="true" className="size-4" /> Review
+          <Button
+            variant="ghost"
+            size="compact"
+            className="whitespace-nowrap"
+            onClick={() => openDetails(item)}
+            aria-label={isResolvedCancellation(item)
+              ? `View details of cancellation for ${item.providerName}`
+              : `Review cancellation for ${item.providerName}`}
+          >
+            <Eye aria-hidden="true" className="size-4" />
+            {isResolvedCancellation(item) ? "View details" : "Review"}
           </Button>
         )}
         renderMobileRow={(item) => (
@@ -223,7 +233,7 @@ export function CancellationManagementClient({
               <StatusBadge status={item.cancellationStatus} label={cancellationLabel(item.cancellationStatus)} />
             </div>
             <RefundSummary item={item} />
-            <Button variant="secondary" size="compact" onClick={() => openDetails(item)}>Review cancellation</Button>
+            <Button variant="secondary" size="compact" onClick={() => openDetails(item)}>{isResolvedCancellation(item) ? "View details" : "Review cancellation"}</Button>
           </article>
         )}
       />
@@ -313,7 +323,7 @@ function CancellationDrawer({
       open={open}
       onOpenChange={onOpenChange}
       title="Cancellation details"
-      description="Review this cancellation request and its refund result."
+      description="View the cancellation details and recorded refund outcome."
       footer={footer}
     >
       {item ? (
@@ -367,6 +377,11 @@ function CancellationDrawer({
   );
 }
 
+function isResolvedCancellation(item: AdminCancellationQueueItem): boolean {
+  return item.cancellationStatus === "refund_completed" ||
+    item.cancellationStatus === "cancelled_no_refund" ||
+    item.cancellationStatus === "rejected";
+}
 function cancellationLabel(status: string): string {
   const labels: Record<string, string> = {requested: "Cancellation requested", submitted: "Cancellation requested", awaiting_payment_resolution: "Waiting for payment result", under_review: "Under review", approved: "Cancellation approved", rejected: "Cancellation rejected", cancelled_no_refund: "Cancelled — no refund", refund_processing: "Cancelled", refund_completed: "Cancelled", refund_failed: "Cancelled"};
   return labels[status] ?? "Unknown cancellation status";

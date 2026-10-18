@@ -253,7 +253,7 @@ export function PublicPackageCard({
         {/* Price */}
 
         <div className="mt-auto pt-2">
-          {!compact && serviceTiers.length > 0 ? (
+          {serviceTiers.length > 0 ? (
             <ul className="mb-3 flex flex-wrap gap-1.5">
               {serviceTiers.map((tier) => (
                 <li

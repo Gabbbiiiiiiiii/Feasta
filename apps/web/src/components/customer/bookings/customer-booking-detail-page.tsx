@@ -1,3 +1,4 @@
+import {BookingLifecycleStatus, BookingLifecycleText} from "@/components/shared/booking-lifecycle-status";
 import {ArrowLeft, CalendarCheck2} from "lucide-react";
 import Link from "next/link";
 
@@ -14,7 +15,6 @@ import {
 import {CustomerBookingDetailContent} from "@/components/customer/bookings/customer-booking-detail-content";
 import {CustomerBookingTimeline} from "@/components/customer/bookings/customer-booking-timeline";
 import {PageHeading} from "@/components/layout/page-heading";
-import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
 import type {CustomerBookingDetailPageResult} from "@/lib/customer/bookings/customer-booking-types";
 import {cn} from "@/lib/utils";
@@ -67,13 +67,13 @@ function CustomerBookingDetailPage({result}: CustomerBookingDetailPageProps) {
             </span>
             <div className="min-w-0">
               <p className="text-[0.6875rem] font-bold uppercase tracking-widest text-primary-strong">
-                {confirmation.eyebrow}
+                <BookingLifecycleText status={booking.status} evidence={booking.lifecycle}>{confirmation.eyebrow}</BookingLifecycleText>
               </p>
               <h2 id="customer-booking-current-state-heading" className="mt-0.5 text-lg font-black tracking-tight">
-                {confirmation.title}
+                <BookingLifecycleText status={booking.status} evidence={booking.lifecycle}>{confirmation.title}</BookingLifecycleText>
               </h2>
               <p className="mt-1.5 max-w-2xl text-sm leading-6 text-foreground">
-                {confirmation.description}
+                <BookingLifecycleText status={booking.status} evidence={booking.lifecycle} description>{confirmation.description}</BookingLifecycleText>
               </p>
               <p className="mt-2 text-sm font-semibold text-muted-foreground">
                 Event schedule: {formatBookingDate(booking.eventDate)}, {formatBookingTimeRange(
@@ -89,7 +89,7 @@ function CustomerBookingDetailPage({result}: CustomerBookingDetailPageProps) {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <StatusBadge status={booking.status} label={bookingStatusLabel(booking.status)} />
+            <BookingLifecycleStatus status={booking.status} evidence={booking.lifecycle} label={bookingStatusLabel(booking.status)} />
           </div>
         </div>
       </section>

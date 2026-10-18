@@ -55,6 +55,8 @@ export type CancellationRefundPreview = {
 };
 
 export type CustomerCancellationReasonCode =
+  | "EVENT_ENDED"
+  | "SCHEDULE_RECONCILIATION_REQUIRED"
   | "ALLOWED"
   | "ROLLOUT_DISABLED"
   | "ACTIVE_CANCELLATION_EXISTS"
@@ -64,6 +66,7 @@ export type CustomerCancellationReasonCode =
   | "LEGACY_MANUAL_REVIEW";
 
 export type CustomerCancellationOptions = {
+  eligibilityExpiresInMs?: number | null;
   providerRequestId: string;
   providerRequestStatus?: ProviderRequestStatus;
   cancellationAllowed: boolean;

@@ -1,4 +1,6 @@
 "use client";
+import {BookingLifecycleStatus} from "@/components/shared/booking-lifecycle-status";
+
 
 import type {CustomerPaymentChoice} from "@feasta/shared-types";
 
@@ -27,7 +29,6 @@ import {
   ApplicationErrorState,
   SectionLoading,
 } from "@/components/feedback/application-states";
-import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
 import type {
   CustomerBooking,
@@ -203,7 +204,7 @@ function BookingDetailsContent({
           <h2 id="customer-booking-event-heading" className="text-lg font-black tracking-tight">
             Event information
           </h2>
-          <StatusBadge status={booking.status} label={bookingStatusLabel(booking.status)} />
+          <BookingLifecycleStatus status={booking.status} evidence={booking.lifecycle} label={bookingStatusLabel(booking.status)} />
         </div>
         <dl className="grid gap-px overflow-hidden rounded-xl border border-border bg-border">
           <DetailItem

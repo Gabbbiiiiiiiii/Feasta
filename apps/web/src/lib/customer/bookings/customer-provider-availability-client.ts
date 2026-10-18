@@ -191,3 +191,30 @@ function normalizeAvailabilityError(error: unknown): Error {
 function invalidResponse(): Error {
   return new Error("The provider availability response is invalid.");
 }
+
+export type ProviderCalendarMonth = {
+  month: string;
+  dates: Array<{date: string; state: "booked" | "on_hold" | "unavailable"}>;
+};
+
+export async function getCustomerProviderCalendarAvailability(providerId: string, month: string): Promise<ProviderCalendarMonth> {
+  try {
+    await auth.authStateReady();
+    if (!auth.currentUser) throw new Error("Please sign in again to check provider availability.");
+    initializeBrowserAppCheck();
+    const response = await httpsCallable<{providerId: string; month: string}, ProviderCalendarMonth>(
+      functions, "getCustomerProviderCalendarAvailability", {timeout: 30_000},
+    )({providerId, month});
+    const data = response.data;
+    const seen = new Set<string>();
+    if (data?.month !== month || !Array.isArray(data.dates) || data.dates.length > 31) throw invalidResponse();
+    for (const item of data.dates) {
+      if (!item || typeof item.date !== "string" || !item.date.startsWith(`${month}-`) ||
+        !/^\d{4}-\d{2}-\d{2}$/u.test(item.date) ||
+        new Date(`${item.date}T00:00:00Z`).toISOString().slice(0, 10) !== item.date ||
+        !["booked", "on_hold", "unavailable"].includes(item.state) || seen.has(item.date)) throw invalidResponse();
+      seen.add(item.date);
+    }
+    return data;
+  } catch (error) { throw normalizeAvailabilityError(error); }
+}

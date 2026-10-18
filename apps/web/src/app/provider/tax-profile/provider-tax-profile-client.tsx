@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowLeft,
   BadgeCheck,
   CircleAlert,
   FileText,
@@ -9,6 +10,7 @@ import {
   Save,
   ShieldCheck,
 } from "lucide-react";
+import Link from "next/link";
 import {
   useMemo,
   useRef,
@@ -289,6 +291,14 @@ export function ProviderTaxProfileClient({
 
   return (
     <div className="grid min-w-0 gap-6">
+      <div className="flex items-center">
+        <Button asChild variant="secondary" size="compact">
+          <Link href="/provider/payments">
+            <ArrowLeft aria-hidden="true" className="size-4" />
+            Back to payments
+          </Link>
+        </Button>
+      </div>
       <PageHeading
         eyebrow="Business"
         title="Tax Profile"

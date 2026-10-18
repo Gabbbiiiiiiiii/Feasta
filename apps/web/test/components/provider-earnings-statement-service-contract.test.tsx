@@ -47,17 +47,11 @@ describe(
           "await requireApprovedProvider()",
         );
 
-        expect(service).toContain(
-          '.collection(\n        "providerEarnings",',
-        );
+        expect(service).toMatch(/\.collection\(\s*"providerEarnings"\s*,/u);
 
-        expect(service).toContain(
-          '.collection(\n        "providerSettlements",',
-        );
+        expect(service).toMatch(/\.collection\(\s*"providerSettlements"\s*,/u);
 
-        expect(service).toContain(
-          '.collection(\n          "providers",',
-        );
+        expect(service).toMatch(/\.collection\(\s*"providers"\s*,/u);
       },
     );
 
@@ -76,9 +70,7 @@ describe(
           '"<",',
         );
 
-        expect(service).toContain(
-          '.orderBy(\n        "createdAt",\n        "desc",',
-        );
+        expect(service).toMatch(/\.orderBy\(\s*"createdAt"\s*,\s*"desc"\s*,/u);
 
         expect(types).toContain(
           "endAtExclusive",

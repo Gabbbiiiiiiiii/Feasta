@@ -1392,14 +1392,14 @@ function getDateRange(
 
   if (filter === "upcoming") {
     return {
-      start: now,
+      start: startOfTomorrow,
       end: null,
     };
   }
 
   return {
     start: null,
-    end: now,
+    end: startOfToday,
   };
 }
 

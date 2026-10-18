@@ -79,7 +79,7 @@ describe("FEASTA brand theme contract", () => {
     expect(cssToken("link")).toBe("#0b6953");
     expect(cssToken("feasta-sidebar")).toBe("#ffffff");
     expect(cssToken("feasta-sidebar-foreground")).toBe("#123b30");
-    expect(cssToken("feasta-sidebar-muted")).toBe("#667a74");
+    expect(cssToken("feasta-sidebar-muted")).toBe("#374151");
     expect(cssToken("feasta-sidebar-active")).toBe("#e8f1ee");
     expect(cssToken("feasta-sidebar-indicator")).toBe("#0b6953");
 

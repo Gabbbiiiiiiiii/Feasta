@@ -60,7 +60,7 @@ it.each(Object.entries(adminBookingPaymentLabels).filter(([value]) => !["partial
   },
 );
 
-it.each([["all", "All event dates"], ["today", "Today"], ["upcoming", "Upcoming"], ["past", "Past"]])(
+it.each([["all", "All event dates"], ["today", "Today"], ["upcoming", "Future dates"], ["past", "Past dates"]])(
   "uses event date %s (%s)", async (value, label) => {
     show();
     expect(within(screen.getByLabelText("Event date")).getByRole("option", {name: label})).toHaveValue(value);
@@ -90,7 +90,7 @@ it("keeps combined filters, unsent search text and current data through refresh 
   mocks.load.mockRejectedValueOnce(new Error("offline"));
   await act(async () => {await vi.advanceTimersByTimeAsync(5_000);});
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  expect(screen.getByText("Paid booking amount")).toBeInTheDocument();
+  expect(screen.getByText("Net amount paid")).toBeInTheDocument();
 });
 
 it("preserves pagination and the open drawer while polling and clears the cursor on filter changes", async () => {
@@ -129,6 +129,178 @@ it("searches actual booking rows while preserving filters and auto-refresh", asy
   expect(mocks.load).toHaveBeenLastCalledWith(expect.objectContaining({search: "BK-0", status: "confirmed"})); expect(input).toHaveValue("BK-0");
 });
 
+it("handles missing linked provider details and net refunded payments", () => {
+  const refundedBooking: AdminBooking = {
+    ...booking,
+    status: "needs_provider_replacement",
+    paymentStatus: "refunded",
+    providerRequestCount: 1,
+    rejectedProviderRequestCount: 1,
+    totalPaidAmount: 0,
+  };
+
+  render(<BookingMonitoringClient initialPage={{
+    ...page,
+    bookings: [refundedBooking],
+  }} />);
+
+  expect(screen.getByText("1 provider request")).toBeInTheDocument();
+  expect(screen.getByText("Status unavailable")).toBeInTheDocument();
+  expect(screen.getAllByText("Net amount paid").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("₱0.00").length).toBeGreaterThan(0);
+});
+it("does not present a rejected provider as confirmed or upcoming", () => {
+  const rejectedRequest: AdminBooking["providerRequests"][number] = {
+    id: "request-rejected",
+    mainEventId: booking.id,
+    providerId: "provider-one",
+    providerOwnerId: null,
+    providerName: "Example Catering",
+    requestType: "catering",
+    status: "rejected",
+    packageId: null,
+    packageName: "Example Package",
+    subtotal: 3000,
+    downPaymentPercentage: 50,
+    downPaymentAmount: 1500,
+    paymentId: null,
+    paymentStatus: null,
+    acceptedAt: null,
+    confirmedAt: null,
+    completedAt: null,
+    rejectedAt: null,
+    cancelledAt: null,
+    createdAt: null,
+    updatedAt: null,
+    bookingPolicy: {
+      label: "Confirmed / Upcoming",
+      state: "upcoming",
+      dueAt: "2026-10-15T00:00:00Z",
+      deadlineAt: "2026-10-16T00:00:00Z",
+      preparationAt: "2026-10-16T00:00:00Z",
+      eventAt: "2026-10-17T00:00:00Z",
+      remainingAmountInCentavos: 0,
+      readyToComplete: false,
+      allocation: null,
+    },
+  };
+
+  const rejectedBooking: AdminBooking = {
+    ...booking,
+    status: "needs_provider_replacement",
+    providerRequestCount: 1,
+    rejectedProviderRequestCount: 1,
+    providerRequests: [rejectedRequest],
+  };
+
+  render(<BookingMonitoringClient initialPage={{
+    ...page,
+    bookings: [rejectedBooking],
+  }} />);
+
+  fireEvent.click(
+    screen.getAllByRole("button", {name: "View booking BK-001"})[0],
+  );
+
+  const drawer = screen.getByRole("dialog", {name: "Booking BK-001"});
+
+  expect(within(drawer).getByText("Example Catering")).toBeVisible();
+  expect(within(drawer).getByText("Rejected")).toBeVisible();
+  expect(within(drawer).queryByText("Confirmed / Upcoming"))
+    .not.toBeInTheDocument();
+});
+it("uses Net amount paid consistently in bookings and financial details", () => {
+  render(
+    <BookingMonitoringClient
+      initialPage={{...page, bookings: [booking]}}
+    />,
+  );
+
+  expect(
+    screen.getAllByText("Net amount paid").length,
+  ).toBeGreaterThan(0);
+
+  fireEvent.click(
+    screen.getAllByRole("button", {
+      name: "View booking BK-001",
+    })[0],
+  );
+
+  const drawer = screen.getByRole("dialog", {
+    name: "Booking BK-001",
+  });
+
+  expect(
+    within(drawer).getByText("Net amount paid"),
+  ).toBeInTheDocument();
+
+  expect(
+    screen.queryByText("Net paid after refunds"),
+  ).not.toBeInTheDocument();
+});
+it.each([
+  ["pending", "Awaiting response"],
+  ["accepted", "Accepted"],
+  ["in_progress", "In progress"],
+  ["completed", "Completed"],
+  ["rejected", "Rejected"],
+  ["cancelled", "Cancelled"],
+] as const)(
+  "shows the actual provider status %s instead of a confirmed count",
+  (status, expectedLabel) => {
+    const request: AdminBooking["providerRequests"][number] = {
+      id: "request-one",
+      mainEventId: booking.id,
+      providerId: "provider-one",
+      providerOwnerId: null,
+      providerName: "Test Catering",
+      requestType: "catering",
+      status,
+      packageId: null,
+      packageName: null,
+      subtotal: 2000,
+      downPaymentPercentage: 50,
+      downPaymentAmount: 1000,
+      paymentId: null,
+      paymentStatus: null,
+      acceptedAt: null,
+      confirmedAt: null,
+      completedAt: null,
+      rejectedAt: null,
+      cancelledAt: null,
+      createdAt: null,
+      updatedAt: null,
+    };
+
+    const example: AdminBooking = {
+      ...booking,
+      providerRequestCount: 1,
+      confirmedProviderRequestCount: 0,
+      pendingProviderRequestCount: 0,
+      providerRequests: [request],
+    };
+
+    render(
+      <BookingMonitoringClient
+        initialPage={{...page, bookings: [example]}}
+      />,
+    );
+
+    const providerCell = screen
+      .getByText("1 provider")
+      .closest("td");
+
+    expect(providerCell).not.toBeNull();
+
+    expect(
+      within(providerCell!).getByText(expectedLabel),
+    ).toBeInTheDocument();
+
+    expect(
+      screen.queryByText(/0\s*\/\s*1 confirmed/i),
+    ).not.toBeInTheDocument();
+  },
+);
 it("formats the booking drawer event clock using AM/PM", () => {
   render(<BookingMonitoringClient initialPage={{...page, bookings: [{...booking, eventDate: "2026-10-07T00:00:00+08:00", eventTime: "06:38"}]}} />);
   fireEvent.click(screen.getAllByRole("button", {name: "View booking BK-001"})[0]);

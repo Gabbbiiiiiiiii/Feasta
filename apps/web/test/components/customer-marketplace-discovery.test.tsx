@@ -247,7 +247,7 @@ describe("customer marketplace search presentation", () => {
       />,
     );
     fireEvent.change(
-      screen.getByRole("searchbox", {name: "Search approved providers"}),
+      screen.getByRole("searchbox", {name: "Search providers or services"}),
       {target: {value: "stale search"}},
     );
 
@@ -266,9 +266,8 @@ describe("customer marketplace search presentation", () => {
       />,
     );
 
-    expect(screen.getByRole("searchbox", {name: "Search approved providers"})).toHaveValue("venue");
-    expect(screen.getByRole("combobox", {name: "Provider Type"})).toHaveValue("addon");
-    expect(screen.getByRole("combobox", {name: "Service Category"})).toHaveValue("venue_provider");
+    expect(screen.getByRole("searchbox", {name: "Search providers or services"})).toHaveValue("venue");
+    expect(screen.getByRole("combobox", {name: "Type of Service"})).toHaveValue("venue_provider");
     expect(
       new FormData(screen.getByRole("search") as HTMLFormElement).has("cursor"),
     ).toBe(false);
@@ -286,13 +285,14 @@ describe("customer marketplace search presentation", () => {
       </>,
     );
 
-    expect(screen.getByRole("searchbox", {name: "Search approved providers"})).toHaveAttribute("maxlength", "80");
+    expect(screen.getByRole("searchbox", {name: "Search providers or services"})).toHaveAttribute("maxlength", "80");
+    const serviceCategoryFilter = screen.getByRole("combobox", {name: "Type of Service"});
+    expect(serviceCategoryFilter).toHaveTextContent("Catering Service");
+    expect(serviceCategoryFilter).toHaveTextContent("Venue Provider");
+    expect(screen.getByText("More filters").closest("details")).not.toHaveAttribute("open");
     fireEvent.click(screen.getByText("More filters"));
-    const serviceTypeFilter = screen.getByRole("combobox", {name: "Provider Type"});
-    expect(serviceTypeFilter).toHaveTextContent("Catering");
-    expect(serviceTypeFilter).toHaveTextContent("Event services");
-    expect(serviceTypeFilter).toHaveTextContent("Catering and event services");
-    expect(screen.getByRole("combobox", {name: "Service Category"})).toHaveTextContent("Venue Provider");
+    expect(screen.getByRole("combobox", {name: "Provider Type"})).toHaveValue("all");
+    expect(screen.getByRole("button", {name: "Clear filters"})).toBeVisible();
     expect(screen.getByRole("button", {name: "Find Services"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Ana Events"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Ana Events"}))

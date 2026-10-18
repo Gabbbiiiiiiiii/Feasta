@@ -10,6 +10,7 @@ import type {CustomerProviderAvailability} from "@/lib/customer/bookings/custome
 
 const mocks = vi.hoisted(() => ({
   checkAvailability: vi.fn(),
+  loadCalendar: vi.fn(async (_providerId: string, month: string) => ({month, dates: []})),
   replace: vi.fn(),
   submitBooking: vi.fn(),
   loadRefundPolicies: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock(
   "@/lib/customer/bookings/customer-provider-availability-client",
   () => ({
     checkCustomerProviderAvailability: mocks.checkAvailability,
+    getCustomerProviderCalendarAvailability: mocks.loadCalendar,
   }),
 );
 
@@ -49,15 +51,20 @@ const PRIMARY_PROVIDER_ID = "provider_primary_12345678";
 const ADDON_PROVIDER_ID = "provider_photo_12345678";
 
 describe("customer provider availability planning", () => {
-  it("hydrates the booking date input across Manila midnight", async () => {
+  it("hydrates the booking calendar trigger across Manila midnight", async () => {
     vi.useFakeTimers({toFake: ["Date"]});
     vi.setSystemTime(new Date("2026-08-27T15:59:59Z"));
     try {
       await assertHydration(<EventCustomizationExperience detail={detailFixture()} eventServices={serviceFixtures()} />, (container) => {
-        expect(container.querySelector('input[type="date"]')).not.toHaveAttribute("min");
+        expect(within(container).getByRole("button", {name: "Event date"})).toHaveAttribute("aria-haspopup", "dialog");
         vi.setSystemTime(new Date("2026-08-27T16:00:01Z"));
       }, (container) => {
-        expect(container.querySelector('input[type="date"]')).toHaveAttribute("min", "2026-08-29");
+        expect(within(container).getByRole("button", {name: "Event date"})).toHaveAttribute("aria-expanded", "false");
+        fireEvent.click(within(container).getByRole("button", {name: "Event date"}));
+        // After Manila midnight, the new current date is unavailable; the next
+        // day remains disabled until calendar availability has actually loaded.
+        expect(screen.getByRole("button", {name: "August 28, 2026, Unavailable"})).toHaveAttribute("aria-disabled", "true");
+        expect(screen.getByRole("button", {name: "August 29, 2026, Availability unknown"})).toHaveAttribute("aria-disabled", "true");
       });
     } finally {
       vi.useRealTimers();
@@ -78,12 +85,12 @@ describe("customer provider availability planning", () => {
   it("renders accessible schedule fields and batches a valid precheck", async () => {
     renderExperience();
 
-    expect(screen.getByLabelText("Event date")).toHaveAttribute("type", "date");
+    expect(screen.getByRole("button", {name: "Event date"})).toHaveAttribute("aria-haspopup", "dialog");
     expect(screen.getByLabelText("Start time")).toHaveAttribute("type", "time");
     expect(screen.getByLabelText("End time")).toHaveAttribute("type", "time");
     expect(screen.getByLabelText(/^Number of guests/iu)).toHaveAttribute("type", "number");
 
-    fillAvailabilityFields("2026-09-10");
+    await fillAvailabilityFields("2026-09-10");
 
     await waitFor(() => expect(mocks.checkAvailability).toHaveBeenCalledTimes(1));
     expect(mocks.checkAvailability).toHaveBeenCalledWith({
@@ -107,7 +114,7 @@ describe("customer provider availability planning", () => {
       serviceType: "catering",
     });
 
-    expect(screen.getByLabelText("Event date")).toHaveValue("2026-09-10");
+    expect(screen.getByRole("button", {name: "Event date: September 10, 2026"})).toBeVisible();
     expect(screen.getByLabelText("Start time")).toHaveValue("18:00");
     expect(screen.getByLabelText("End time")).toHaveValue("22:00");
     expect(screen.getByLabelText(/^Number of guests/iu)).toHaveValue(100);
@@ -123,15 +130,13 @@ describe("customer provider availability planning", () => {
 
   it("invalidates a prior result immediately when event inputs change", async () => {
     renderExperience();
-    fillAvailabilityFields("2026-09-10");
+    await fillAvailabilityFields("2026-09-10");
     expect(await screen.findByText("Maria's Catering is available")).toBeVisible();
 
-    fireEvent.change(screen.getByLabelText("Event date"), {
-      target: {value: "2026-09-11"},
-    });
+    await chooseEventDate("2026-09-11");
 
     expect(screen.queryByText("Maria's Catering is available")).not.toBeInTheDocument();
-    expect(screen.getByText(/choose a valid date, time range, and guest count/iu)).toBeVisible();
+    expect(screen.getByText(/Checking provider availability/iu)).toBeVisible();
     await waitFor(() => expect(mocks.checkAvailability).toHaveBeenCalledTimes(2));
   });
 
@@ -142,12 +147,10 @@ describe("customer provider availability planning", () => {
       .mockReturnValueOnce(first.promise)
       .mockReturnValueOnce(second.promise);
     renderExperience();
-    fillAvailabilityFields("2026-09-10");
+    await fillAvailabilityFields("2026-09-10");
     await waitFor(() => expect(mocks.checkAvailability).toHaveBeenCalledTimes(1));
 
-    fireEvent.change(screen.getByLabelText("Event date"), {
-      target: {value: "2026-09-11"},
-    });
+    await chooseEventDate("2026-09-11");
     await waitFor(() => expect(mocks.checkAvailability).toHaveBeenCalledTimes(2));
 
     await act(async () => second.resolve(availableResults()));
@@ -165,7 +168,7 @@ describe("customer provider availability planning", () => {
     const pending = deferredAvailability();
     mocks.checkAvailability.mockReturnValueOnce(pending.promise);
     const view = renderExperience();
-    fillAvailabilityFields("2026-09-10");
+    await fillAvailabilityFields("2026-09-10");
     await waitFor(() => expect(mocks.checkAvailability).toHaveBeenCalledTimes(1));
 
     view.unmount();
@@ -184,7 +187,7 @@ describe("customer provider availability planning", () => {
       unavailableResults(reasonCode, message),
     );
     renderExperience();
-    fillAvailabilityFields("2026-09-10");
+    await fillAvailabilityFields("2026-09-10");
 
     expect(await screen.findByText("Maria's Catering is unavailable")).toBeVisible();
     expect(screen.getByText(message)).toBeVisible();
@@ -204,7 +207,7 @@ describe("customer provider availability planning", () => {
       },
     ]);
     renderExperience();
-    fillAvailabilityFields("2026-09-10");
+    await fillAvailabilityFields("2026-09-10");
     await screen.findByText("Maria's Catering is available");
     goToEventServices();
 
@@ -232,7 +235,7 @@ describe("customer provider availability planning", () => {
         },
       ]);
     renderExperience();
-    fillAvailabilityFields("2026-09-10");
+    await fillAvailabilityFields("2026-09-10");
     await screen.findByText("Maria's Catering is available");
     goToEventServices();
 
@@ -243,9 +246,7 @@ describe("customer provider availability planning", () => {
 
     fireEvent.click(screen.getByRole("button", {name: "Back"}));
     fireEvent.click(screen.getByRole("button", {name: "Back"}));
-    fireEvent.change(screen.getByLabelText("Event date"), {
-      target: {value: "2026-09-11"},
-    });
+    await chooseEventDate("2026-09-11");
     await waitFor(() => expect(mocks.checkAvailability).toHaveBeenCalledTimes(2));
     await screen.findByText("Maria's Catering is available");
     goToEventServices();
@@ -253,7 +254,7 @@ describe("customer provider availability planning", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Photo Studio is no longer available",
     );
-    const updatedCard = screen.getByText("Event photography").closest("label");
+    const updatedCard = screen.getByRole("heading", {name: "Event photography"}).closest("label");
     expect(updatedCard).not.toBeNull();
     const selectedCheckbox = within(updatedCard as HTMLElement).getByRole("checkbox");
     expect(selectedCheckbox).toBeChecked();
@@ -269,9 +270,7 @@ describe("customer provider availability planning", () => {
     ).mockResolvedValueOnce(availableResults());
     renderExperience();
 
-    fireEvent.change(screen.getByLabelText("Event date"), {
-      target: {value: "2026-09-10"},
-    });
+    await chooseEventDate("2026-09-10");
     expect(mocks.checkAvailability).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText("Start time"), {target: {value: "18:00"}});
@@ -285,6 +284,116 @@ describe("customer provider availability planning", () => {
     fireEvent.click(screen.getByRole("button", {name: "Try again"}));
     expect(await screen.findByText("Maria's Catering is available")).toBeVisible();
     expect(mocks.checkAvailability).toHaveBeenCalledTimes(2);
+  });
+  it("hides Browse More Services when only one service is loaded", async () => {
+    renderExperience();
+    fillAvailabilityFields("2026-09-10");
+    await screen.findByText("Maria's Catering is available");
+    goToEventServices();
+
+    expect(screen.queryByRole("button", {name: "Browse More Services"}))
+      .not.toBeInTheDocument();
+  });
+
+  it("browses five loaded services in a searchable modal and preserves selections", async () => {
+    const base = serviceFixtures()[0]!;
+    const services: PublicEventService[] = [
+      base,
+      {...base, id: "addon_video_12345678", name: "Event videography", price: 12_000},
+      {...base, id: "addon_style_12345678", name: "Event styling", price: 8_000},
+      {...base, id: "addon_booth_12345678", name: "Photo booth", price: 6_000},
+      {...base, id: "addon_sound_12345678", name: "Sound system", price: 9_000},
+    ];
+
+    render(
+      <EventCustomizationExperience
+        detail={detailFixture()}
+        eventServices={services}
+      />,
+    );
+
+    fillAvailabilityFields("2026-09-10");
+    await screen.findByText("Maria's Catering is available");
+    goToEventServices();
+
+    const browse = screen.getByRole("button", {name: "Browse More Services"});
+    expect(browse).toBeVisible();
+
+    const visibleCards = services.filter((service) =>
+      screen.queryByRole("heading", {name: service.name}) !== null
+    );
+    expect(visibleCards).toHaveLength(4);
+
+    fireEvent.click(browse);
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Browse FEASTA Event Services",
+    });
+
+    expect(within(dialog).getByRole("searchbox", {name: "Search services"}))
+      .toBeVisible();
+
+    fireEvent.change(
+      within(dialog).getByRole("searchbox", {name: "Search services"}),
+      {target: {value: "Event videography"}},
+    );
+
+    const card = within(dialog)
+      .getByRole("heading", {name: "Event videography"})
+      .closest("label");
+
+    expect(card).not.toBeNull();
+
+    expect(within(dialog).queryByRole("heading", {name: "Photo booth"}))
+      .not.toBeInTheDocument();
+
+    fireEvent.click(within(card as HTMLElement).getByRole("checkbox"));
+
+    expect(within(card as HTMLElement).getByRole("checkbox"))
+      .toBeChecked();
+
+    expect(within(dialog).getByText("1 optional service selected"))
+      .toBeVisible();
+
+    fireEvent.click(within(dialog).getByRole("button", {name: "Done"}));
+
+    expect(screen.queryByRole("dialog", {name: "Browse FEASTA Event Services"}))
+      .not.toBeInTheDocument();
+
+    const summary = screen.getByRole("region", {
+      name: "Selected optional services",
+    });
+
+    expect(within(summary).getByText("Event videography")).toBeVisible();
+    expect(within(summary).getByText("1 optional service")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", {name: "Browse More Services"}));
+
+    const reopened = await screen.findByRole("dialog", {
+      name: "Browse FEASTA Event Services",
+    });
+
+    expect(within(reopened).getByRole("heading", {name: "Photo booth"}))
+      .toBeVisible();
+
+    const selectedCard = within(reopened)
+      .getByRole("heading", {name: "Event videography"})
+      .closest("label");
+
+    expect(within(selectedCard as HTMLElement).getByRole("checkbox"))
+      .toBeChecked();
+
+    fireEvent.click(within(reopened).getByRole("button", {name: "Close"}));
+
+    fireEvent.click(
+      within(summary).getByRole("button", {
+        name: "Remove Event videography from Photo Studio",
+      }),
+    );
+
+    expect(within(summary).getByText("0 optional services")).toBeVisible();
+    expect(within(summary).queryByText("Event videography"))
+      .not.toBeInTheDocument();
   });
 });
 
@@ -304,11 +413,21 @@ function renderExperience(initialEventContext?: {
   );
 }
 
-function fillAvailabilityFields(eventDate: string) {
-  fireEvent.change(screen.getByLabelText("Event date"), {target: {value: eventDate}});
+async function fillAvailabilityFields(eventDate: string) {
+  await chooseEventDate(eventDate);
   fireEvent.change(screen.getByLabelText("Start time"), {target: {value: "18:00"}});
   fireEvent.change(screen.getByLabelText("End time"), {target: {value: "22:00"}});
   fireEvent.change(screen.getByLabelText(/^Number of guests/iu), {target: {value: "100"}});
+}
+
+async function chooseEventDate(value: string) {
+  fireEvent.click(screen.getByRole("button", {name: /^Event date/}));
+  // The empty picker starts in August; previously selected dates open September.
+  if (screen.getByRole("button", {name: "Previous month"}).hasAttribute("disabled")) {
+    fireEvent.click(screen.getByRole("button", {name: "Next month"}));
+  }
+  const day = Number(value.slice(-2));
+  fireEvent.click(await screen.findByRole("button", {name: `September ${day}, 2026, Available`}));
 }
 
 function goToEventServices() {

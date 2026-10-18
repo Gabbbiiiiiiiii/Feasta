@@ -1,5 +1,8 @@
 "use client";
 
+import {BookingLifecycleStatus, BookingLifecycleNotice} from "@/components/shared/booking-lifecycle-status";
+import {ProviderBookingStatus, useProviderBookingPresentation} from "@/components/provider/provider-booking-status";
+
 import {formatEventTime} from "@/lib/presentation/event-time";
 
 import {
@@ -35,7 +38,7 @@ type ProviderBookingDetailDrawerProps = {
 };
 
 export function ProviderBookingDetailDrawer({
-  booking,
+  booking: canonicalBooking,
   timeline,
   open,
   loading,
@@ -47,6 +50,7 @@ export function ProviderBookingDetailDrawer({
   onComplete,
   onPreparationStarted,
 }: ProviderBookingDetailDrawerProps) {
+  const booking = useProviderBookingPresentation(canonicalBooking);
   return (
     <DetailDrawer
       open={open}
@@ -81,8 +85,9 @@ export function ProviderBookingDetailDrawer({
               <p className="font-bold">{booking.balanceEnforcement.label}</p>
               {booking.balanceEnforcement.explanation ? <p>{booking.balanceEnforcement.explanation}</p> : null}
             </div> : null}
-            <StatusRow label="Provider request" status={booking.providerRequestStatus} />
-            <StatusRow label="Main event" status={booking.mainEventStatus} />
+            <div className="flex items-center justify-between gap-3 text-sm"><span>Provider request</span><ProviderBookingStatus booking={booking} detailed /></div>
+            <div className="flex items-center justify-between gap-3 text-sm"><span>Main event</span><BookingLifecycleStatus status={booking.mainEventStatus} evidence={booking.lifecycle} /></div>
+            <BookingLifecycleNotice status={booking.mainEventStatus} evidence={booking.lifecycle} />
           </DrawerSection>
 
           <DrawerSection title="Event Details">
@@ -171,12 +176,13 @@ export function ProviderBookingDetailDrawer({
                     ? formatLabel(booking.refundEligibility.currentStage)
                     : "Unavailable"}
                 />
+                {booking.refundEligibility.reconciliationLocked ? <div role="status" className="rounded-lg border border-warning p-3 text-sm">Preparation updates are paused while FEASTA resolves a booking reconciliation issue.</div> : null}
                 {booking.refundEligibility.activeCancellationLocked ? (
                   <div className="rounded-lg border border-warning bg-warning-subtle p-3 text-sm" role="status">
                     Preparation updates are paused while a cancellation request is being reviewed.
                   </div>
                 ) : null}
-                {!booking.automaticLifecycle && booking.refundEligibility.canMarkPreparationStarted ? (
+                {!booking.automaticLifecycle && !booking.lifecycle?.reconciliation && !booking.lifecycle?.cancellation && booking.refundEligibility.canMarkPreparationStarted ? (
                   <Button variant="secondary" disabled={actionPending} onClick={onPreparationStarted}>
                     Mark Preparation Started
                   </Button>

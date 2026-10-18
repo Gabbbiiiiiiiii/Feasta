@@ -11,7 +11,7 @@ export default async function CustomerAccountPage() {
       <PageHeading
         eyebrow="Customer account"
         title="Profile and account"
-        description="Manage safe personal fields, privacy choices, sign-in security, and account lifecycle."
+        description="Manage your profile, notification preferences, and sign-in security."
       />
       <AccountManagementPanel profile={profile} />
     </div>

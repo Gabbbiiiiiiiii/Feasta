@@ -1,5 +1,7 @@
+import {ENDED_REVIEW_MESSAGE} from "@/lib/presentation/booking-lifecycle";
+import {scheduledEventWindow} from "@/lib/presentation/scheduled-event-window";
 export type BookingPolicyPresentation = {
-  label: string; state: "upcoming" | "due" | "grace_period" | "hold" | "review" | "preparation" | "in_progress" | "completed" | "cancelled";
+  endAt?: number | null; endedReview?: boolean; explanation?: string; label: string; state: "upcoming" | "due" | "grace_period" | "hold" | "review" | "preparation" | "in_progress" | "awaiting_completion" | "completed" | "cancelled" | "expired";
   dueAt: string; deadlineAt: string; preparationAt: string; eventAt: string;
   remainingAmountInCentavos: number | null; readyToComplete: boolean;
   allocation: null | {deposit: number; customerRefund: number; providerCompensation: number; fee: number; refundStatus: string};
@@ -28,9 +30,10 @@ export function bookingPolicyV3Presentation(data: Readonly<Record<string, unknow
     (enforcement == null || enforcement.status === "clear");
   let state: BookingPolicyPresentation["state"] = "upcoming", label = "Confirmed / Upcoming";
   if (data.status === "cancelled") { state = "cancelled"; label = "Booking cancelled"; }
+  else if (data.status === "expired") { state = "expired"; label = "Expired"; }
   else if (data.status === "completed") { state = "completed"; label = "Completed"; }
-  else if (enforcement?.status === "on_hold") { state = "hold"; label = "Payment confirmation pending"; }
   else if (locked || enforcement?.status === "reconciliation_required" || data.lifecycleReconciliationRequired === true || data.reconciliationRequired === true) { state = "review"; label = "Booking review required"; }
+  else if (enforcement?.status === "on_hold") { state = "hold"; label = "Payment confirmation pending"; }
   else if (clear && ["confirmed", "in_progress"].includes(String(data.status)) && now >= event) { state = "in_progress"; label = "In Progress"; }
   else if (clear && data.status === "confirmed" && now >= prep) { state = "preparation"; label = "Preparation Period"; }
   else if (Number(data.outstandingAmountInCentavos) > 0 && now >= hard) { state = "review"; label = "Payment review required"; }
@@ -49,14 +52,10 @@ export function bookingPolicyV3Presentation(data: Readonly<Record<string, unknow
       customerRefund + providerCompensation + fee === deposit) allocation = {deposit, customerRefund, providerCompensation, fee,
         refundStatus: enforcement?.status === "refunded" ? "Refunded" : enforcement?.status === "reconciliation_required" ? "Review required" : "Processing"};
   }
-  const eventDate = date(data.eventDate);
-  let end: Date | null = null;
-  if (eventDate && typeof data.eventEndTime === "string" && /^\d{2}:\d{2}$/u.test(data.eventEndTime)) {
-    const localDay = new Intl.DateTimeFormat("en-CA", {timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit"}).format(eventDate);
-    end = new Date(`${localDay}T${data.eventEndTime}:00+08:00`);
-    if (end <= event) end = new Date(end.getTime() + 86_400_000);
-  }
-  return {label, state, dueAt: due.toISOString(), deadlineAt: hard.toISOString(), preparationAt: prep.toISOString(), eventAt: event.toISOString(),
+  const window = scheduledEventWindow(data);
+  const end = window ? new Date(window.end) : null;
+  if (state === "in_progress" && end && now >= end) { state = "awaiting_completion"; label = "Awaiting Completion"; }
+  return {label, state, endAt: window?.end ?? null, endedReview: state === "review" && end != null && now >= end, explanation: state === "review" && end != null && now >= end ? ENDED_REVIEW_MESSAGE : undefined, dueAt: due.toISOString(), deadlineAt: hard.toISOString(), preparationAt: prep.toISOString(), eventAt: event.toISOString(),
     remainingAmountInCentavos: Number.isSafeInteger(data.outstandingAmountInCentavos) ? data.outstandingAmountInCentavos as number : null,
-    readyToComplete: state === "in_progress" && clear && end != null && Number.isFinite(end.getTime()) && now >= end, allocation};
+    readyToComplete: state === "awaiting_completion" && clear && end != null && Number.isFinite(end.getTime()) && now >= end, allocation};
 }

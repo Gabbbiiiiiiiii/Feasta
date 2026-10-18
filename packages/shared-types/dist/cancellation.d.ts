@@ -35,8 +35,9 @@ export type CancellationRefundPreview = {
     nonRefundableAmountInCentavos?: number;
     currency: "PHP";
 };
-export type CustomerCancellationReasonCode = "ALLOWED" | "ROLLOUT_DISABLED" | "ACTIVE_CANCELLATION_EXISTS" | "PROVIDER_REQUEST_STATUS_INELIGIBLE" | "PAYMENT_REFUND_INELIGIBLE" | "PAYMENT_RECONCILIATION_REQUIRED" | "LEGACY_MANUAL_REVIEW";
+export type CustomerCancellationReasonCode = "EVENT_ENDED" | "SCHEDULE_RECONCILIATION_REQUIRED" | "ALLOWED" | "ROLLOUT_DISABLED" | "ACTIVE_CANCELLATION_EXISTS" | "PROVIDER_REQUEST_STATUS_INELIGIBLE" | "PAYMENT_REFUND_INELIGIBLE" | "PAYMENT_RECONCILIATION_REQUIRED" | "LEGACY_MANUAL_REVIEW";
 export type CustomerCancellationOptions = {
+    eligibilityExpiresInMs?: number | null;
     providerRequestId: string;
     providerRequestStatus?: ProviderRequestStatus;
     cancellationAllowed: boolean;

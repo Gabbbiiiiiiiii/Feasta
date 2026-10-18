@@ -33,7 +33,7 @@ describe("provider booking service contract", () => {
   );
 
   it("uses approved server identity and provider-scoped queries", () => {
-    expect(service).toMatch(/^import "server-only";/u);
+    expect(service).toMatch(/^import "server-only";$/mu);
     expect(service).toContain("await requireApprovedProvider()");
     expect(service).toContain('.where("providerId", "==", providerId)');
     expect(service).not.toMatch(

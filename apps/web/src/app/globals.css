@@ -61,7 +61,7 @@
   --secondary-foreground: #123b30;
 
   --muted: #edefef;
-  --muted-foreground: #667a74;
+  --muted-foreground: #374151;
 
   --accent: #e8f1ee;
   --accent-foreground: #093b26;
@@ -74,7 +74,7 @@
   --link-hover: #093b26;
   --link-active: #073520;
 
-  --placeholder: #6b7d78;
+  --placeholder: #6b7280;
 
   --table-hover: #f7f9f8;
 
@@ -92,8 +92,8 @@
   --feasta-surface-strong: #073520;
 
   --feasta-text: #123b30;
-  --feasta-text-secondary: #49665e;
-  --feasta-text-tertiary: #6b7d78;
+  --feasta-text-secondary: #1f2937;
+  --feasta-text-tertiary: #374151;
   --feasta-text-on-dark: #ffffff;
 
   --feasta-divider: #edefef;
@@ -102,7 +102,7 @@
 
   --feasta-sidebar: #ffffff;
   --feasta-sidebar-foreground: #123b30;
-  --feasta-sidebar-muted: #667a74;
+  --feasta-sidebar-muted: #374151;
   --feasta-sidebar-active: #e8f1ee;
   --feasta-sidebar-indicator: #0b6953;
 
@@ -514,7 +514,7 @@ input[type="search"]::-webkit-search-results-decoration {
 
 input::placeholder,
 textarea::placeholder {
-  color: var(--feasta-text-tertiary);
+  color: var(--placeholder);
   opacity: 1;
 }
 
@@ -1054,5 +1054,73 @@ textarea::placeholder {
     [data-provider-earnings-statement] tr {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+}
+
+/* FEASTA receipt-only printing: exclude the customer website shell. */
+@media print {
+  body:has([data-payment-receipt]) {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  /* Remove navigation, skip links, and mobile bottom navigation. */
+  body:has([data-payment-receipt])
+    [data-customer-marketplace-shell] > :not([data-customer-marketplace-content]),
+  body:has([data-payment-receipt])
+    [data-public-provider-marketplace-shell] > :not([data-customer-marketplace-content]) {
+    display: none !important;
+  }
+
+  /* Remove outer marketplace spacing and clipping. */
+  body:has([data-payment-receipt]) [data-customer-marketplace-shell],
+  body:has([data-payment-receipt]) [data-public-provider-marketplace-shell],
+  body:has([data-payment-receipt]) [data-customer-marketplace-content] {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  /* Print the actual receipt, without website controls. */
+  body:has([data-payment-receipt]) [data-print-hidden] {
+    display: none !important;
+  }
+
+  body:has([data-payment-receipt]) [data-payment-receipt] {
+    display: block !important;
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #ffffff !important;
+    box-shadow: none !important;
+  }
+
+  body:has([data-payment-receipt]) [data-payment-receipt] header,
+  body:has([data-payment-receipt]) [data-payment-receipt] section,
+  body:has([data-payment-receipt]) [data-payment-receipt] footer,
+  body:has([data-payment-receipt]) [data-payment-receipt] table,
+  body:has([data-payment-receipt]) [data-payment-receipt] tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  body:has([data-payment-receipt]) [data-payment-receipt] * {
+    box-shadow: none !important;
   }
 }

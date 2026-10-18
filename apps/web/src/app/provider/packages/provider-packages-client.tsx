@@ -14,9 +14,7 @@ import {
   useState,
 } from "react";
 
-import {
-  SummaryCard,
-} from "@/components/data";
+
 import {
   PageHeading,
 } from "@/components/layout/page-heading";
@@ -24,6 +22,7 @@ import {useLiveSearch} from "@/lib/search/use-live-search";
 import {SearchInput} from "@/components/forms/search-input";
 import {Select} from "@/components/ui/select";
 import {ProviderPackageCard} from "./provider-package-card";
+import {ProviderPackageResultsSkeleton} from "./provider-package-results-skeleton";
 import {
   ConfirmationDialog,
 } from "@/components/shared/confirmation-dialog";
@@ -221,6 +220,35 @@ export function ProviderPackagesClient({
     return result;
   }, [packages, appliedSearch, eventFilter, statusFilter, sort]);
 
+  const packagePageSize = 6;
+
+  const paginationKey = JSON.stringify([
+    appliedSearch,
+    eventFilter,
+    statusFilter,
+    sort,
+    packages.length,
+  ]);
+
+  const [pageSelection, setPageSelection] = useState({
+    key: "",
+    page: 1,
+  });
+
+  const totalPackagePages = Math.max(
+    1,
+    Math.ceil(filteredPackages.length / packagePageSize),
+  );
+
+  const currentPackagePage =
+    pageSelection.key === paginationKey
+      ? Math.min(pageSelection.page, totalPackagePages)
+      : 1;
+
+  const visiblePackages = filteredPackages.slice(
+    (currentPackagePage - 1) * packagePageSize,
+    currentPackagePage * packagePageSize,
+  );
   const publishedCount =
     useMemo(
       () =>
@@ -248,7 +276,7 @@ export function ProviderPackagesClient({
 
   return (
     <Dialog open={createOpen} onOpenChange={(open) => { if (!formBusy) setCreateOpen(open); }}>
-    <div className="grid gap-6">
+    <div className="grid gap-4">
       <PageHeading
         eyebrow="Provider management"
         title="Packages"
@@ -301,28 +329,26 @@ export function ProviderPackagesClient({
         />
       </DialogContent>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <SummaryCard
-          label="Total packages"
-          loading={loading}
-          value={error ? "?" : packages.length}
-          icon={
-            <PackageOpen className="size-6" />
-          }
-        />
-
-        <SummaryCard
-          label="Published"
-          loading={loading}
-          value={error ? "?" : publishedCount}
-        />
-
-        <SummaryCard
-          label="Drafts"
-          loading={loading}
-          value={error ? "?" : draftCount}
-        />
-        <SummaryCard label="Archived" loading={loading} value={error ? "?" : packages.filter((item) => item.status === "archived").length} />
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Package overview">
+        {[
+          {label: "Total packages", value: packages.length},
+          {label: "Published", value: publishedCount},
+          {label: "Drafts", value: draftCount},
+          {label: "Archived", value: packages.filter((item) => item.status === "archived").length},
+        ].map((stat) => (
+          <section
+            key={stat.label}
+            aria-label={stat.label}
+            className="flex min-h-16 min-w-0 items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2 sm:px-4"
+          >
+            <span className="min-w-0 text-xs font-semibold text-muted-foreground sm:text-sm">
+              {stat.label}
+            </span>
+            <strong className="text-xl font-bold tabular-nums text-primary-strong">
+              {loading ? "..." : error ? "?" : stat.value}
+            </strong>
+          </section>
+        ))}
       </div>
 
       {actionError ? (
@@ -384,7 +410,7 @@ export function ProviderPackagesClient({
         </div>
       ) : null}
 
-      <div role="search" aria-label="Filter packages" className="grid gap-3">
+      <div role="search" aria-label="Filter packages" className="grid gap-2">
         <div className="grid items-end gap-3 sm:grid-cols-2 md:grid-cols-[minmax(0,2fr)_repeat(3,minmax(0,1fr))]">
           <label className="grid min-w-0 gap-1 text-sm font-semibold">Search packages
             <SearchInput
@@ -431,23 +457,12 @@ export function ProviderPackagesClient({
       </div>
 
       {loading ? (
-        <div
-          aria-live="polite"
-          className="grid min-h-56 place-items-center rounded-xl border bg-card p-6"
-        >
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <RefreshCw
-              aria-hidden="true"
-              className="size-4 animate-spin"
-            />
-
-            Loading packages…
-          </div>
-        </div>
+        <ProviderPackageResultsSkeleton />
       ) : !error ? (
         <section aria-label="Provider package results">
-          {filteredPackages.length ? <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15.5rem),1fr))] items-start gap-4">
-            {filteredPackages.map((item) => <ProviderPackageCard key={item.id} item={item}
+          {filteredPackages.length ? <div className="grid grid-cols-1 items-start gap-3 xl:grid-cols-2">
+            {visiblePackages.map((item) => <ProviderPackageCard key={item.id} item={item}
+              serviceCategoryLabel={packageCategoryOptions.find((category) => category.code === item.serviceCategoryCode)?.name}
               onEdit={(event) => { packageOpener.current = event.currentTarget; setEditingPackage(item); setCreateOpen(true); }}
               onPublish={() => { setActionError(null); setPublishPackage(item); }}
               onArchive={() => { setActionError(null); setArchivePackage(item); }} />)}
@@ -459,6 +474,46 @@ export function ProviderPackagesClient({
               <Button onClick={(event) => { packageOpener.current = event.currentTarget; setEditingPackage(null); setCreateOpen(true); }}>Create package</Button>
             </>}
           </div>}
+          {totalPackagePages > 1 ? (
+            <nav
+              aria-label="Package pagination"
+              className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3"
+            >
+              <p className="text-sm text-muted-foreground" aria-live="polite">
+                Showing {(currentPackagePage - 1) * packagePageSize + 1}–
+                {Math.min(currentPackagePage * packagePageSize, filteredPackages.length)}
+                {" "}of {filteredPackages.length} packages
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="compact"
+                  disabled={currentPackagePage === 1}
+                  onClick={() => setPageSelection({key: paginationKey, page: Math.max(1, currentPackagePage - 1)})}
+                >
+                  Previous
+                </Button>
+                <span className="text-sm font-medium">
+                  {currentPackagePage} / {totalPackagePages}
+                </span>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="compact"
+                  disabled={currentPackagePage === totalPackagePages}
+                  onClick={() =>
+                    setPageSelection({
+                      key: paginationKey,
+                      page: Math.min(totalPackagePages, currentPackagePage + 1),
+                    })
+                  }
+                >
+                  Next
+                </Button>
+              </div>
+            </nav>
+          ) : null}
         </section>
       ) : null}
       <ConfirmationDialog

@@ -1,10 +1,16 @@
+import {isDeepStrictEqual} from "node:util";
 import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {db} from "../shared/firestore.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {readTrustedProviderRequestPaymentSetInTransaction} from "../payments/provider-request-payment-reader.js";
-import {aggregateReservationPlan, aggregateOutcomePlan, type TransferEvidence} from "./provider-disbursement-domain.js";
+import {
+  aggregateReservationPlan, aggregateOutcomePlan, assertTransferEvidence, type TransferEvidence,
+} from "./provider-disbursement-domain.js";
 import {providerSettlementCapability} from "./provider-settlement-capability.js";
 import {providerDisbursementTransport, type ProviderDisbursementTransport} from "./provider-disbursement-transport.js";
+import {isProviderDisbursementTestAllowed} from "./provider-disbursement-transport.js";
+import {DisbursementSubmissionError} from "./provider-disbursement-errors.js";
+import {transportAccountFingerprint, providerTransportOwnerEligible} from "./provider-transport-verification-domain.js";
 
 type Data = Record<string, unknown>;
 const ref = (collection: string, id: unknown) => {
@@ -13,7 +19,8 @@ const ref = (collection: string, id: unknown) => {
 };
 /** All constituent reservations and the sole external attempt commit together. */
 export async function reserveProviderDisbursement(id: string,
-  transport: ProviderDisbursementTransport = providerDisbursementTransport) {
+  transport: ProviderDisbursementTransport = providerDisbursementTransport,
+  verification?: {account: Data; expectedAccountFingerprint: string; requestId: string; actorId: string}) {
   const now = new Date();
   return db.runTransaction(async transaction => {
     const reference = ref("providerDisbursements", id);
@@ -26,13 +33,34 @@ export async function reserveProviderDisbursement(id: string,
       transaction.get(ref("providerRequests", d.providerRequestId)), transaction.get(ref("mainEvents", d.mainEventId)),
     ]);
     const settings = settingsSnapshot.data() ?? {};
-    if (settings.providerDisbursementsEnabled !== true) throw new Error("platform_disbursements_disabled");
-    const account = accountSnapshot.data() ?? {};
+    if (verification ? settings.providerDisbursementsEnabled !== false : settings.providerDisbursementsEnabled !== true) {
+      throw new Error(verification ? "transport_verification_requires_dispatch_disabled" : "platform_disbursements_disabled");
+    }
+    if (!isProviderDisbursementTestAllowed(settings, d.disbursementId)) {
+      throw new Error("paymongo_test_disbursement_not_allowed");
+    }
+    const storedAccount = accountSnapshot.data() ?? {};
+    if (verification && (storedAccount.settlementTransportVerificationRequestId !== verification.requestId ||
+        transportAccountFingerprint(storedAccount) !== verification.expectedAccountFingerprint)) {
+      throw new Error("Transport verification became stale.");
+    }
+    const account = verification?.account ?? storedAccount;
     const capability = providerSettlementCapability(account);
     if (account.providerId !== d.providerId || !capability.transportReady) throw new Error(`provider_${capability.reason}`);
     const verified = transport.capability(account, settings);
     if (!verified.ready) throw new Error(verified.reason);
     if (verified.transportMode !== capability.transportMode) throw new Error("Transport verification mismatch.");
+    if (capability.transportMode === "wallet_transfer") {
+      const proof = account.settlementTransportVerification as Data;
+      if (proof.disbursementId !== id || proof.amountInCentavos !== d.amountInCentavos) {
+        throw new Error("Verified transport entitlement changed.");
+      }
+      const provider = (await transaction.get(ref("providers", d.providerId))).data() ?? {};
+      const owner = (await transaction.get(ref("users", provider.ownerId))).data() ?? {};
+      if (!providerTransportOwnerEligible(String(d.providerId), account, provider, owner)) {
+        throw new Error("Provider verification or owner eligibility revoked.");
+      }
+    }
     const request = requestSnapshot.data() ?? {};
     if (request.financialSnapshot?.providerDisbursementPolicyVersion !== 1 || !eventSnapshot.exists) throw new Error("Policy enrollment invalid.");
     if (d.trigger === "completed_booking") {
@@ -75,6 +103,19 @@ export async function reserveProviderDisbursement(id: string,
     const memberRefs = plan.reservations.map(r => ref("providerPayoutAttempts", r.payoutAttemptId));
     const existing = await transaction.getAll(attemptRef, ...memberRefs);
     if (existing.some(s => s.exists)) throw new Error("Attempt already exists.");
+    if (verification) {
+      // Reuse ALL reservation validators, but persist no financial reservations.
+      transaction.update(accountSnapshot.ref, {
+        livemode: false, settlementTransportMode: "wallet_transfer", settlementTransportReady: true,
+        settlementTransportVerification: account.settlementTransportVerification,
+        settlementTransportVerificationRequestId: null, settlementTransportInvalidationReason: null,
+        updatedAt: serverTimestamp(),
+      });
+      writeAuditLogInTransaction(transaction, {actorId: verification.actorId, actorRole: "admin",
+        action: "verify_provider_test_settlement_transport", targetCollection: "providerPaymentAccounts",
+        targetId: String(d.providerId), metadata: {providerDisbursementId: id, dispatchEnabled: false}});
+      return plan.externalAttempt;
+    }
     // No writes until all sources, destination and identities have been validated.
     plan.reservations.forEach((r, index) => {
       transaction.update(settlementRefs[r.sourceIndex], r.settlementUpdate);
@@ -86,20 +127,94 @@ export async function reserveProviderDisbursement(id: string,
     return plan.externalAttempt;
   });
 }
+/** Each exchange commits fresh authority and claims one dispatcher. No network
+ * runs in this transaction. Commit is the authorization linearization point:
+ * revocation after commit cannot cancel HTTP already entering flight. A crash
+ * leaves the claim locked for reconciliation; every retry rechecks authority. */
+export async function authorizeProviderDisbursementSubmission(expected: Data, dispatchToken: string) {
+  await db.runTransaction(async transaction => {
+    const attemptRef = ref("providerDisbursementAttempts", expected.externalAttemptId);
+    const attempt = (await transaction.get(attemptRef)).data();
+    const deny = () => {throw new DisbursementSubmissionError(
+      attempt?.submissionAuthorizationToken ? "unknown" : "not_submitted", "authority_invalid");};
+    if (!attempt || attempt.status !== "reserved" || attempt.gatewayResourceId != null ||
+        (attempt.submissionAuthorizationToken != null && attempt.submissionAuthorizationToken !== dispatchToken) ||
+        ["externalAttemptId", "providerDisbursementId", "providerId", "amountInCentavos", "currency",
+          "attemptSequence", "idempotencyKey", "referenceNumber", "transportMode", "livemode"].some(
+          key => attempt[key] !== expected[key]) ||
+        !isDeepStrictEqual(attempt.destinationSnapshot, expected.destinationSnapshot)) return deny();
+    const [ds, ss, accountSnapshot] = await Promise.all([
+      transaction.get(ref("providerDisbursements", attempt.providerDisbursementId)),
+      transaction.get(ref("appSettings", "platform")),
+      transaction.get(ref("providerPaymentAccounts", attempt.providerId)),
+    ]);
+    const d = ds.data(), settings = ss.data() ?? {}, account = accountSnapshot.data() ?? {};
+    if (!d || d.schemaVersion !== 1 || d.policyVersion !== 1 || d.status !== "reserved" ||
+        d.transportMode !== "wallet_transfer" || d.livemode !== false ||
+        d.disbursementId !== attempt.providerDisbursementId || d.providerId !== attempt.providerId ||
+        d.activePayoutAttemptId !== attempt.externalAttemptId || d.attemptSequence !== attempt.attemptSequence ||
+        d.amountInCentavos !== attempt.amountInCentavos || d.currency !== "PHP" ||
+        !d.payoutEligibleAt?.toMillis || d.payoutEligibleAt.toMillis() > Date.now() ||
+        settings.providerDisbursementsEnabled !== true || settings.providerDisbursementTestMode !== true ||
+        !isProviderDisbursementTestAllowed(settings, d.disbursementId) || account.providerId !== d.providerId) return deny();
+    const capability = providerDisbursementTransport.capability(account, settings);
+    if (!capability.ready || capability.transportMode !== "wallet_transfer" ||
+        !isDeepStrictEqual(capability.destinationSnapshot, attempt.destinationSnapshot)) return deny();
+    const proof = account.settlementTransportVerification as Data;
+    if (proof.disbursementId !== d.disbursementId || proof.amountInCentavos !== d.amountInCentavos ||
+        proof.walletId !== capability.destinationSnapshot.walletId) return deny();
+    const provider = (await transaction.get(ref("providers", d.providerId))).data() ?? {};
+    const owner = (await transaction.get(ref("users", provider.ownerId))).data() ?? {};
+    if (!providerTransportOwnerEligible(String(d.providerId), account, provider, owner)) return deny();
+    transaction.update(attemptRef, {submissionAuthorizationToken: dispatchToken,
+      submissionAuthorizationCount: Number(attempt.submissionAuthorizationCount ?? 0) + 1,
+      submissionAuthorizedAt: serverTimestamp()});
+  });
+}
 /** Internal trusted gateway boundary, never exported as a client callable. */
-export async function applyProviderDisbursementEvidence(attemptId: string, evidence?: TransferEvidence) {
+export async function applyProviderDisbursementEvidence(attemptId: string, evidence?: TransferEvidence,
+  notSubmitted?: DisbursementSubmissionError) {
+  if (notSubmitted && (!(notSubmitted instanceof DisbursementSubmissionError) ||
+      notSubmitted.certainty !== "not_submitted")) throw new Error("Untrusted submission classification.");
   return db.runTransaction(async transaction => {
     const attemptRef = ref("providerDisbursementAttempts", attemptId);
     const attemptSnapshot = await transaction.get(attemptRef);
     const attempt = attemptSnapshot.data();
     if (!attempt || attempt.externalAttemptId !== attemptId) throw new Error("Unknown external payout attempt.");
+    if (notSubmitted && attempt.submissionAuthorizationToken != null) {
+      throw new Error("Authorized submission requires reconciliation.");
+    }
+    if (evidence) {
+      assertTransferEvidence(attempt, evidence);
+      // A webhook may omit optional identifiers learned from create/retrieve.
+      // Preserve them, but never allow a conflicting identifier to replace one.
+      evidence = {...evidence};
+      for (const key of ["provider_reference_number", "batch_transfer_id"] as const) {
+        if (evidence[key] === undefined && attempt.gatewayEvidence?.[key] != null) {
+          evidence[key] = attempt.gatewayEvidence[key];
+        }
+      }
+    }
     const dRef = ref("providerDisbursements", attempt.providerDisbursementId);
     const dSnapshot = await transaction.get(dRef);
     const d = dSnapshot.data();
     if (!d) throw new Error("Missing disbursement.");
     if (["succeeded", "failed"].includes(String(attempt.status))) {
       // Duplicate observations must match the persisted terminal evidence.
-      if (!evidence || JSON.stringify(attempt.gatewayEvidence) !== JSON.stringify(evidence)) throw new Error("Contradictory terminal evidence.");
+      const observed = evidence;
+      if (!observed || !attempt.gatewayEvidence || observed.status !== attempt.status ||
+          ["id", "status", "reference_number", "amount", "currency", "livemode"].some(
+            key => (observed as unknown as Data)[key] !== attempt.gatewayEvidence[key]) ||
+          ["number", "name", "bic"].some(key =>
+            (observed.destination_account as unknown as Data)[key] !==
+            attempt.gatewayEvidence.destination_account?.[key])) {
+        throw new Error("Contradictory terminal evidence.");
+      }
+      if (["provider_reference_number", "batch_transfer_id"].some(
+        key => attempt.gatewayEvidence[key] == null && (observed as unknown as Data)[key] != null)) {
+        // Enrich trusted identifiers only; terminal accounting is never applied twice.
+        transaction.update(attemptRef, {gatewayEvidence: observed});
+      }
       return {duplicate: true, applied: false};
     }
     const settlementRefs = (attempt.sourceSettlementIds as unknown[]).map(id => ref("providerSettlements", id));
@@ -108,6 +223,7 @@ export async function applyProviderDisbursementEvidence(attemptId: string, evide
     const memberRefs = (attempt.constituentPayoutAttemptIds as unknown[]).map(id => ref("providerPayoutAttempts", id));
     const [earnings, members] = await Promise.all([transaction.getAll(...earningRefs), transaction.getAll(...memberRefs)]);
     const plan = aggregateOutcomePlan({disbursement: d, attempt, evidence, timestamp: serverTimestamp(),
+      notSubmittedReason: notSubmitted?.reasonCode,
       sources: settlements.map((s, index) => {
         if (!s.exists || !earnings[index].exists || !members[index].exists) throw new Error("Missing reservation source.");
         return {settlement: s.data() as Data, earning: earnings[index].data() as Data,
@@ -128,12 +244,15 @@ export async function applyProviderDisbursementEvidence(attemptId: string, evide
 export async function dispatchProviderDisbursement(id: string,
   transport: ProviderDisbursementTransport = providerDisbursementTransport) {
   const attempt = await reserveProviderDisbursement(id, transport);
+  let evidence: TransferEvidence | null;
   try {
-    const evidence = await transport.dispatch(attempt);
-    return await applyProviderDisbursementEvidence(attempt.externalAttemptId, evidence ?? undefined);
-  } catch {
-    return applyProviderDisbursementEvidence(attempt.externalAttemptId);
+    evidence = await transport.dispatch(attempt);
+  } catch (error) {
+    return applyProviderDisbursementEvidence(attempt.externalAttemptId, undefined,
+      error instanceof DisbursementSubmissionError && error.certainty === "not_submitted" ? error : undefined);
   }
+  // An accounting failure after trusted submission must not erase gateway evidence.
+  return applyProviderDisbursementEvidence(attempt.externalAttemptId, evidence ?? undefined);
 }
 export async function reconcileProviderDisbursementAttempt(id: string,
   transport: ProviderDisbursementTransport = providerDisbursementTransport) {
@@ -156,7 +275,10 @@ export async function prepareFailedProviderDisbursementRetry(id: string, actorId
     if (!d || d.status !== "failed" || d.activePayoutAttemptId != null) throw new Error("Only definitive failure may be retried.");
     const identity = (await import("./provider-disbursement-domain.js")).externalAttemptIdentity(id, d.attemptSequence);
     const attempt = (await transaction.get(ref("providerDisbursementAttempts", identity.externalAttemptId))).data();
-    if (!attempt || attempt.status !== "failed" || attempt.gatewayEvidence?.status !== "failed" ||
+    const safelyNotSubmitted = attempt?.status === "not_submitted" &&
+      attempt.submissionOutcome === "not_submitted" && attempt.gatewayResourceId == null &&
+      attempt.gatewayEvidence == null;
+    if (!attempt || (!safelyNotSubmitted && (attempt.status !== "failed" || attempt.gatewayEvidence?.status !== "failed")) ||
         attempt.providerDisbursementId !== id) throw new Error("Authoritative failed attempt missing.");
     if (actorId) writeAuditLogInTransaction(transaction, {actorId, actorRole: "admin",
       action: "prepare_failed_provider_disbursement_retry", targetCollection: "providerDisbursements", targetId: id,
@@ -172,7 +294,10 @@ export async function processReadyProviderDisbursement(id: string) {
     ref("providerDisbursements", id).get(), ref("appSettings", "platform").get(),
   ]);
   if (snapshot.data()?.status !== "ready" || settings.data()?.providerDisbursementsEnabled !== true) return;
-  // Default transport is deliberately unavailable until provisioning is verified.
+  if (!isProviderDisbursementTestAllowed(settings.data() ?? {}, snapshot.data()?.disbursementId)) {
+    return;
+  }
+  // Server-owned simulator capability remains separate from external dispatch permission.
   const account = (await ref("providerPaymentAccounts", snapshot.data()?.providerId).get()).data() ?? {};
   const capability = providerDisbursementTransport.capability(account, settings.data() ?? {});
   if (!capability.ready) return;

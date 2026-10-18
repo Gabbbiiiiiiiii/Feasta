@@ -63,10 +63,10 @@ function CustomerBookingTimeline({timeline}: CustomerBookingTimelineProps) {
                 {timelineIcon(entry)}
               </span>
               <div className="min-w-0 pt-0.5">
-                <h3 className="break-words text-sm font-bold leading-5">{entry.title}</h3>
+                <h3 className="break-words text-sm font-bold leading-5">{entry.type === "provider_rejected" ? displayProviderRejectionText(entry.title) : entry.title}</h3>
                 {entry.description ? (
                   <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">
-                    {entry.description}
+                    {entry.type === "provider_rejected" ? displayProviderRejectionText(entry.description) : entry.description}
                   </p>
                 ) : null}
                 {entry.providerName ? (
@@ -98,6 +98,11 @@ function CustomerBookingTimeline({timeline}: CustomerBookingTimelineProps) {
   );
 }
 
+function displayProviderRejectionText(value: string): string {
+  return value
+    .replace(/\bDeclined\b/gu, "Rejected")
+    .replace(/\bdeclined\b/gu, "rejected");
+}
 function timelineIcon(entry: CustomerBookingTimelineEntry): ReactNode {
   if (entry.type === "provider_accepted") return <CheckCircle2 />;
   if (entry.type === "provider_rejected" || entry.type === "cancellation_rejected") return <XCircle />;

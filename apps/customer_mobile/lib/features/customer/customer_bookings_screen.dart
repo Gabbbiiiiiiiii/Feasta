@@ -1,3 +1,4 @@
+import 'booking_lifecycle_presentation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/constants/status_constants.dart';
@@ -418,7 +419,13 @@ class BookingCard extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => BookingLifecycleBuilder(booking: booking, builder: (context, label, message) => _buildContent(context, label, message));
+
+  Widget _buildContent(BuildContext context, String? label, String? message) {
+    final statusLabel = label ?? this.statusLabel;
+    final nextStepTitle = label ?? this.nextStepTitle;
+    final nextStepDescription = message ?? this.nextStepDescription;
+
     final textScaler = MediaQuery.textScalerOf(context);
 
     final largeText = textScaler.scale(16) >= 22;

@@ -34,7 +34,8 @@ import {
   canRetryFailedDisbursement,
 } from "@/components/admin/payments/payment-finance-attention";
 import {
-  formatPaymentDate,
+  formatPaymentTableDateParts,
+  formatAdminPaymentPurpose,
   formatPaymentType,
   paymentBookingLabel,
   paymentReferenceLabel,
@@ -100,6 +101,8 @@ const DEFAULT_FILTERS: AdminPaymentFilters = {
 };
 
 const FIRST_PAGE_CURSOR = "__first_page__";
+
+
 
 function PaymentMonitoringClient({
   initialPage,
@@ -446,14 +449,12 @@ function PaymentMonitoringClient({
         header: "Payment",
         cell: (payment) => (
           <div className="min-w-0">
-            <p className="break-words text-sm font-semibold">
+            <p className="whitespace-nowrap text-sm font-semibold">
               {paymentReferenceLabel(payment)}
             </p>
 
             <p className="mt-1 text-xs text-muted-foreground">
-              {formatPaymentType(
-                payment.paymentType,
-              )}
+              {formatAdminPaymentPurpose(payment)}
             </p>
           </div>
         ),
@@ -463,7 +464,7 @@ function PaymentMonitoringClient({
         header: "Booking",
         cell: (payment) => (
           <div className="min-w-0">
-            <p className="break-words font-semibold">
+            <p className="whitespace-nowrap font-semibold">
               {paymentBookingLabel(
                 payment,
               )}
@@ -474,28 +475,38 @@ function PaymentMonitoringClient({
         ),
       },
       {
-        id: "parties",
-        header: "Customer / Provider",
+        id: "customer",
+        header: "Customer",
         cell: (payment) => (
-          <div className="min-w-0">
-            <p className="break-words font-semibold">
-              {payment.customerName}
-            </p>
-
-            <p className="mt-1 break-words text-xs text-muted-foreground">
-              {payment.providerName}
-            </p>
-          </div>
+          <p className="min-w-0 break-words font-semibold">
+            {payment.customerName}
+          </p>
+        ),
+      },
+      {
+        id: "provider",
+        header: "Provider",
+        cell: (payment) => (
+          <p className="min-w-0 break-words font-semibold">
+            {payment.providerName}
+          </p>
         ),
       },
       {
         id: "amountInCentavos",
-        header: "Amount",
+        header: "Original amount",
         sortable: true,
         cell: (payment) => (
-          <span className="whitespace-nowrap font-bold">
-            {payment.formattedAmount}
-          </span>
+          <div className="min-w-[8rem]">
+            <span className="whitespace-nowrap font-bold">
+              {payment.formattedAmount}
+            </span>
+            {payment.refundedAmountFormatted ? (
+              <p className="mt-1 whitespace-nowrap text-xs text-muted-foreground">
+                Refunded {payment.refundedAmountFormatted}
+              </p>
+            ) : null}
+          </div>
         ),
       },
       {
@@ -511,14 +522,26 @@ function PaymentMonitoringClient({
         id: "createdAt",
         header: "Date",
         sortable: true,
-        cell: (payment) => (
-          <span className="whitespace-nowrap text-sm">
-            {formatPaymentDate(
-              payment.paidAt ??
-                payment.createdAt,
-            )}
-          </span>
-        ),
+        cell: (payment) => {
+          const timestamp = payment.paidAt ?? payment.createdAt;
+          const parts = formatPaymentTableDateParts(timestamp);
+
+          return parts ? (
+            <time
+              dateTime={timestamp ?? undefined}
+              className="block whitespace-nowrap text-sm"
+            >
+              <span className="block">{parts.date}</span>
+              <span className="block text-xs text-muted-foreground">
+                {parts.time}
+              </span>
+            </time>
+          ) : (
+            <span className="text-sm text-muted-foreground">
+              Not available
+            </span>
+          );
+        },
       },
       {
         id: "issues",
@@ -529,7 +552,7 @@ function PaymentMonitoringClient({
               issues={payment.issues}
             />
           ) : (
-            <span className="text-sm text-muted-foreground">
+            <span className="whitespace-nowrap text-sm text-muted-foreground">
               No issues
             </span>
           ),
@@ -584,8 +607,8 @@ function PaymentMonitoringClient({
         aria-label="Payment statistics"
       >
         <SummaryCard
-          label="Paid amount"
-          supportingMetric="Amount retained after completed refunds"
+          label="Net customer payments"
+          supportingMetric="Total payments received after refunds."
           value={
             page.statistics
               .confirmedVolumeFormatted
@@ -731,15 +754,13 @@ function PaymentMonitoringClient({
               <option value="provider_down_payment">
                 Down payment
               </option>
+              <option value="full">
+                Full payment
+              </option>
               <option value="provider_balance">
                 Remaining balance
               </option>
-              <option value="refund">
-                Refund
-              </option>
-              <option value="adjustment">
-                Payment adjustment
-              </option>
+
             </FilterSelect>
 
             <FilterSelect
@@ -802,6 +823,20 @@ function PaymentMonitoringClient({
           payment.id
         }
         caption="Payment monitoring records"
+        className={[
+          "[&_table]:min-w-[72rem]",
+          "[&_th]:px-2 [&_td]:px-2",
+          "[&_th:last-child]:sticky",
+          "[&_th:last-child]:right-0",
+          "[&_th:last-child]:z-10",
+          "[&_th:last-child]:bg-secondary",
+          "[&_th:last-child]:min-w-[7rem]",
+          "[&_td:last-child]:sticky",
+          "[&_td:last-child]:right-0",
+          "[&_td:last-child]:z-10",
+          "[&_td:last-child]:bg-card",
+          "[&_td:last-child]:whitespace-nowrap",
+        ].join(" ")}
         loading={isPending}
         error={pageError}
         errorKind="load"
@@ -835,6 +870,7 @@ function PaymentMonitoringClient({
             type="button"
             variant="secondary"
             size="compact"
+            className="whitespace-nowrap"
             onClick={() =>
               openPaymentDetails(
                 payment,
@@ -964,9 +1000,9 @@ function filterLabels(
 
   if (filters.paymentType !== "all") {
     labels.push(
-      `Type: ${formatPaymentType(
-        filters.paymentType,
-      )}`,
+      `Type: ${filters.paymentType === "full"
+        ? "Full payment"
+        : formatPaymentType(filters.paymentType)}`,
     );
   }
 

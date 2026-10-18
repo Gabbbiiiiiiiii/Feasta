@@ -1,16 +1,20 @@
 import "server-only";
 
-import {getProviderOnboardingAgreement} from "@/lib/documents/document-catalog-service";
+import {getPublishedProviderAgreement} from "@/lib/documents/document-catalog-service";
 import {adminDb} from "@/lib/firebase/admin";
 import {renderProviderAgreementPdf} from "@/lib/provider/provider-agreement-pdf";
 import {
   authorizedRepresentativeName,
+  formatTrustedAcceptanceTimestamp,
   parseProviderAgreementSnapshot,
   selectProviderAgreementPdf,
   type ProviderAgreementSnapshot,
 } from "@/lib/provider/provider-agreement-record";
 
 export type ProviderAgreementAcceptanceSummary = {
+  accepted: boolean;
+  acceptedVersion: string;
+  acceptedAtLabel: string | null;
   businessName: string;
   representativeName: string;
   snapshot: ProviderAgreementSnapshot | null;
@@ -26,6 +30,9 @@ export async function loadProviderAgreementAcceptanceSummary(input: {
     businessName: identity.businessName,
     representativeName: identity.representativeName,
     snapshot: identity.snapshot,
+    accepted: identity.accepted,
+    acceptedVersion: identity.acceptedVersion,
+    acceptedAtLabel: identity.acceptedAtLabel,
   };
 }
 
@@ -34,11 +41,14 @@ export async function loadProviderAgreementPdfDocument(input: {
   providerId: string | null;
   copy: "current" | "accepted";
 }): Promise<{bytes: Uint8Array; version: string} | null> {
-  const [current, identity] = await Promise.all([
-    getProviderOnboardingAgreement(),
-    loadProviderAgreementIdentity(input),
-  ]);
+  const identity = await loadProviderAgreementIdentity(input);
   if (!identity) return null;
+  if (input.copy === "accepted" && (!identity.accepted || !identity.snapshot ||
+    (identity.acceptedVersion && identity.snapshot.version !== identity.acceptedVersion))) {
+    return null;
+  }
+  // Accepted downloads use only the owned historical snapshot, never today's text.
+  const current = input.copy === "current" ? await getPublishedProviderAgreement() : null;
   const model = selectProviderAgreementPdf({
     copy: input.copy,
     current: current
@@ -69,6 +79,9 @@ async function loadProviderAgreementIdentity(input: {
   uid: string;
   providerId: string | null;
 }): Promise<{
+  accepted: boolean;
+  acceptedVersion: string;
+  acceptedAtLabel: string | null;
   businessName: string;
   representativeName: string;
   providerId: string | null;
@@ -107,6 +120,9 @@ function identityFromRecord(
   acceptanceSource: Record<string, unknown> | undefined,
   providerId: string | null,
 ): {
+  accepted: boolean;
+  acceptedVersion: string;
+  acceptedAtLabel: string | null;
   businessName: string;
   representativeName: string;
   providerId: string | null;
@@ -120,6 +136,12 @@ function identityFromRecord(
     snapshot.acceptedAt = source.providerAgreementAcceptedAt;
   }
   return {
+    accepted: source.providerAgreementAccepted === true ||
+      source.providerAgreementAcceptedAt != null || snapshot !== null,
+    acceptedVersion: text(source.providerAgreementVersion) || snapshot?.version || "",
+    acceptedAtLabel: formatTrustedAcceptanceTimestamp(
+      source.providerAgreementAcceptedAt ?? snapshot?.acceptedAt,
+    ),
     businessName: text(profile.businessName),
     representativeName: authorizedRepresentativeName(
       text(profile.ownerFirstName),

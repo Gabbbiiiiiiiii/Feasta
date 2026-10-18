@@ -134,11 +134,19 @@ describe("provider request acceptance copy", () => {
     expect(screen.queryByText("Obsolete")).toBeNull();
     await screen.findByText("Booking requests could not be loaded. Please try again.");
   });
-  it("opens request details from a dashboard link", () => {
-    render(<ProviderRequestsClient initialRequestId="request_one" newRequestsOnly initialRequests={[request()]} />);
+  it("opens request details from a dashboard link and offers request history", async () => {
+    const user = userEvent.setup();
+    load.mockReset().mockResolvedValueOnce({requests: [], nextCursor: null, hasMore: false, skippedMalformedCount: 0});
+    render(<ProviderRequestsClient initialRequestId="request_one" newRequestsOnly initialRequests={[request()]}
+      initialSummary={{pending: 1, awaitingPayment: 0, confirmed: 0, completed: 0, total: 1}} />);
     expect(screen.getByRole("dialog")).toBeVisible();
-    expect(screen.getByRole("button", {name: "View request history", hidden: true})).toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "New", hidden: true})).toHaveAttribute("aria-pressed", "true");
     expect(within(screen.getByRole("dialog")).getByRole("button", {name: /accept request/iu})).toBeVisible();
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", {name: "View request history"}));
+    expect(load).toHaveBeenLastCalledWith({status: "all", search: "", cursor: null});
+    expect(screen.getByRole("button", {name: "All"})).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", {name: "New"})).toHaveAttribute("aria-pressed", "false");
   });
   it("loads all request history, clears search and pagination, and keeps details accessible", async () => {
     const user = userEvent.setup();

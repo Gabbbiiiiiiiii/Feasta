@@ -186,6 +186,70 @@ test("provider onboarding parsers align and fail closed", () => {
   assert.equal(parseVerificationDocumentStatus("approved"), null);
 });
 
+test("provider submission honors trusted guest capacity capabilities", () => {
+  const profile = {
+    ownerFirstName: "Ada",
+    ownerLastName: "Lovelace",
+    ownerEmail: "ada@feasta.test",
+    ownerPhone: "+639171234567",
+    businessName: "J Catering",
+    businessEmail: "business@feasta.test",
+    businessPhone: "+639181234567",
+    description: "Event styling and catering services for celebrations.",
+    providerServiceType: "catering",
+    providerCategory: "catering_event_styling",
+    serviceCategories: ["catering_event_styling"],
+    eventTypesSupported: ["wedding"],
+    address: "123 Event Street",
+    city: "Ormoc City",
+    province: "Leyte",
+    serviceAreas: ["Ormoc City"],
+    minGuestsPerEvent: 100,
+    maxGuestsPerEvent: 500,
+    acceptsMultipleEventsPerDay: false,
+    maxEventsPerDay: 1,
+    operatingDays: ["monday"],
+    bookingLeadTimeDays: 3,
+  };
+
+  const requiresGuests = {
+    requiresGuestCapacity: true,
+    usesStaffCapacity: true,
+    usesEquipmentCapacity: true,
+  };
+
+  const noGuestCapacity = {
+    ...requiresGuests,
+    requiresGuestCapacity: false,
+  };
+
+  assert.deepEqual(
+    providerSubmissionProfileIssues(profile, requiresGuests),
+    [],
+  );
+
+  assert.deepEqual(
+    providerSubmissionProfileIssues(profile, noGuestCapacity),
+    ["guestCapacity"],
+  );
+
+  assert.deepEqual(
+    providerSubmissionProfileIssues({
+      ...profile,
+      maxGuestsPerEvent: 50,
+    }, requiresGuests),
+    ["guestCapacity"],
+  );
+
+  assert.deepEqual(
+    providerSubmissionProfileIssues({
+      ...profile,
+      minGuestsPerEvent: 0,
+      maxGuestsPerEvent: 0,
+    }, noGuestCapacity),
+    [],
+  );
+});
 test("provider submission requires every canonical profile section", () => {
   const complete = {
     ownerFirstName: "Ada",

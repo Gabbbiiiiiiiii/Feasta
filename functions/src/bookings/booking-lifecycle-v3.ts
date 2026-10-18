@@ -1,3 +1,5 @@
+import {automaticCompletionAt} from "./booking-completion-policy.js";
+import {executeProviderBookingLifecycle} from "../provider-requests/update-provider-booking-lifecycle.js";
 import {Timestamp} from "firebase-admin/firestore";
 import {onSchedule} from "firebase-functions/v2/scheduler";
 import {defineSecret} from "firebase-functions/params";
@@ -25,14 +27,22 @@ const POLL_MS = 60_000;
 export async function materializeBookingLifecycleV3(providerRequestId: string, now: Date) {
   if (!Number.isFinite(now.getTime())) throw new Error("Lifecycle time is invalid.");
   const reference = db.collection("providerRequests").doc(providerRequestId);
-  return db.runTransaction(async (transaction) => {
+  const result = await db.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(reference);
     const request = snapshot.data();
     if (!request || request.remainingBalanceTimingSchemaVersion !== 3) return false;
     const timing = frozenBookingPolicyTimingV3(request);
     const retryAt = Timestamp.fromMillis(now.getTime() + POLL_MS);
-    if (["cancelled", "completed", "in_progress"].includes(String(request.status))) {
+    if (["cancelled", "completed"].includes(String(request.status))) {
       if (request.lifecycleNextTransitionAt != null) transaction.update(reference, {lifecycleNextTransitionAt: null});
+      return false;
+    }
+    try {
+      if (["confirmed", "in_progress"].includes(String(request.status)) && now >= automaticCompletionAt(request)) return "complete" as const;
+    } catch { /* Missing end evidence blocks completion without preventing preparation/start. */ }
+    if (request.status === "in_progress") {
+      const next = Timestamp.fromDate(automaticCompletionAt(request));
+      if (request.lifecycleNextTransitionAt?.toMillis?.() !== next.toMillis()) transaction.update(reference, {lifecycleNextTransitionAt: next});
       return false;
     }
     const classification = classifyProviderRequestRefundPolicyEvidence(request);
@@ -106,9 +116,11 @@ export async function materializeBookingLifecycleV3(providerRequestId: string, n
     if (summary.status !== parentStatus && !isMainEventStatusTransitionAllowed(parentStatus, summary.status)) {
       throw new Error("Automatic lifecycle transition is invalid.");
     }
+    let completionCheckAt = retryAt;
+    try { completionCheckAt = Timestamp.fromDate(automaticCompletionAt(request)); } catch { /* retry completion evidence without preventing start */ }
     transaction.update(reference, {status: "in_progress", startedAt: Timestamp.fromDate(timing.eventStartAt),
       lifecycleReconciliationRequired: false,
-      lifecycleMaterializedAt: timestamp, lifecycleNextTransitionAt: null, statusUpdatedAt: timestamp,
+      lifecycleMaterializedAt: timestamp, lifecycleNextTransitionAt: completionCheckAt, statusUpdatedAt: timestamp,
       ...(state ? {refundEligibilityState: state} : {}), updatedAt: timestamp});
     transaction.update(parentRef, {...summary, updatedAt: timestamp,
       ...(summary.status !== parentStatus ? {statusUpdatedAt: timestamp} : {}),
@@ -127,6 +139,8 @@ export async function materializeBookingLifecycleV3(providerRequestId: string, n
       after: {status: "in_progress"}, metadata: {eventStartAt: timing.eventStartAt.toISOString()}});
     return true;
   });
+  if (result === "complete") return (await executeProviderBookingLifecycle(providerRequestId, "completed", {kind: "system", uid: "feasta"}, now)).changed;
+  return result;
 }
 
 export async function materializeBalanceLifecycleV3(providerRequestId: string, now: Date) {
@@ -161,10 +175,35 @@ export async function materializeBalanceLifecycleV3(providerRequestId: string, n
   });
 }
 
+/** Bounded cursor sweep also discovers older in-progress v3 bookings whose next-transition was cleared.
+ * Cursor is operational metadata; booking dates and historical financial records are untouched.
+ */
+export async function reconcileAutomaticBookingCompletionsV3(now: Date): Promise<void> {
+  const cursorRef = db.collection("bookingLifecycleCursors").doc("completion_v3");
+  const cursor = (await cursorRef.get()).data()?.lastRequestId;
+  let query = db.collection("providerRequests").where("status", "==", "in_progress")
+    .orderBy("__name__").limit(V3_SWEEP_LIMIT);
+  if (typeof cursor === "string" && cursor) query = query.startAfter(cursor);
+  const candidates = await query.get();
+  for (const candidate of candidates.docs) {
+    try {
+      const request = candidate.data();
+      if (request.remainingBalanceTimingSchemaVersion === 3 && now >= automaticCompletionAt(request)) {
+        await executeProviderBookingLifecycle(candidate.id, "completed", {kind: "system", uid: "feasta"}, now);
+      }
+    } catch (error) {
+      logger.error("Automatic completion blocked.", {providerRequestId: candidate.id, error: String(error)});
+    }
+  }
+  await cursorRef.set({lastRequestId: candidates.size === V3_SWEEP_LIMIT ? candidates.docs.at(-1)!.id : null,
+    updatedAt: serverTimestamp()});
+}
+
 /** Two single-field range queries, each bounded; no full-collection scan. */
 export const reconcileBookingPolicyV3 = onSchedule({schedule: "every 1 minutes", timeZone: "Asia/Manila",
   region: "asia-southeast1", retryCount: 2, secrets: [secret]}, async () => {
   const now = new Date(Date.now());
+  await reconcileAutomaticBookingCompletionsV3(now);
   for (const field of ["remainingBalanceNextCheckAt", "lifecycleNextTransitionAt"] as const) {
     const candidates = await db.collection("providerRequests").where(field, "<=", Timestamp.fromDate(now))
       .orderBy(field).limit(V3_SWEEP_LIMIT).get();
@@ -183,7 +222,7 @@ export const reconcileBookingPolicyV3 = onSchedule({schedule: "every 1 minutes",
         // Rotate failed records behind other due candidates without authorizing any financial transition.
         await db.runTransaction(async (transaction) => {
           const latest = await transaction.get(candidate.ref);
-          if (latest.data()?.remainingBalanceTimingSchemaVersion === 3) transaction.update(candidate.ref,
+          if (latest.data()?.remainingBalanceTimingSchemaVersion === 3 && !["completed", "cancelled"].includes(String(latest.data()?.status))) transaction.update(candidate.ref,
             {[field]: Timestamp.fromMillis(now.getTime() + POLL_MS), lifecycleReconciliationRequired: true});
         });
       }

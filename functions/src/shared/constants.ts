@@ -372,6 +372,10 @@ function serviceCategoryCodeList(
 }
 export function providerSubmissionProfileIssues(
   provider: Readonly<Record<string, unknown>>,
+  capacityCapabilities: ProviderCapacityCapabilities =
+    providerCapacityCapabilities(
+      serviceCategoryCodeList(provider.serviceCategories),
+    ),
 ): readonly string[] {
   const issues = new Set<string>();
   const requiredText = [
@@ -442,10 +446,6 @@ export function providerSubmissionProfileIssues(
     issues.add("operatingDays");
   }
 
-  const capacityCapabilities =
-    providerCapacityCapabilities(
-      serviceCategories,
-    );
 
   const minimumGuests =
     provider.minGuestsPerEvent;

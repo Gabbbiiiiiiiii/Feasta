@@ -30,6 +30,8 @@ const SAFE_DOCUMENT_ID = /^[A-Za-z0-9_-]{8,160}$/u;
 const SAFE_IDEMPOTENCY_KEY = /^[A-Za-z0-9:_-]{8,200}$/u;
 
 const CANCELLATION_REASON_CODES = new Set<CustomerCancellationReasonCode>([
+  "EVENT_ENDED",
+  "SCHEDULE_RECONCILIATION_REQUIRED",
   "ALLOWED",
   "ROLLOUT_DISABLED",
   "ACTIVE_CANCELLATION_EXISTS",
@@ -86,6 +88,7 @@ export type CustomerCancellationProjection = {
 };
 
 export type CustomerCancellationOptions = {
+  eligibilityExpiresInMs?: number | null;
   providerRequestId: string;
   providerRequestStatus?: ProviderRequestStatus;
   cancellationAllowed: boolean;
@@ -248,6 +251,8 @@ function parseOptions(value: unknown, expectedId: string): CustomerCancellationO
     !PROVIDER_REQUEST_STATUSES.includes(record.providerRequestStatus as ProviderRequestStatus)) {
     throw invalidResponse();
   }
+  if (record.eligibilityExpiresInMs !== undefined && record.eligibilityExpiresInMs !== null &&
+    (!Number.isSafeInteger(record.eligibilityExpiresInMs) || Number(record.eligibilityExpiresInMs) < 0)) throw invalidResponse();
   const shouldAllow = reasonCode === "ALLOWED" ||
     reasonCode === "PAYMENT_RECONCILIATION_REQUIRED" ||
     reasonCode === "LEGACY_MANUAL_REVIEW";
@@ -265,6 +270,7 @@ function parseOptions(value: unknown, expectedId: string): CustomerCancellationO
   return {
     providerRequestId,
     cancellationAllowed: record.cancellationAllowed,
+    eligibilityExpiresInMs: record.eligibilityExpiresInMs as number | null | undefined,
     providerRequestStatus: record.providerRequestStatus as ProviderRequestStatus | undefined,
     reasonCode,
     activeCancellation,
@@ -578,6 +584,10 @@ function normalizeCancellationError(
       "This cancellation request cannot be processed automatically right now. Please contact FEASTA support.",
     );
   }
+  if (reason === "EVENT_ENDED") return new CustomerCancellationClientError("not_allowed",
+    "Cancellation closed \u2014 event ended. New cancellation requests are no longer accepted. Report an Issue remains available.");
+  if (reason === "SCHEDULE_RECONCILIATION_REQUIRED") return new CustomerCancellationClientError("invalid_evidence",
+    "The scheduled event evidence needs review. New cancellation requests are unavailable; Report an Issue remains available.");
   if (reason === "CANCELLATION_ALREADY_ACTIVE") {
     return new CustomerCancellationClientError(
       "already_active",

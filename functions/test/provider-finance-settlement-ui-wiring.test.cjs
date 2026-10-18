@@ -109,8 +109,13 @@ test(
 
     assert.match(
       source,
-      /Settlement transport verified/u,
+      /Payout transfer setup verified/u,
     );
+
+    assert.match(source, /<PayoutReadyIndicator\s+accountReady=\{payout\.payoutReady\}\s+transportReady=\{\s*payout\.settlementTransportReady\s*\}/u);
+    assert.match(source, /if \(transportReady\) \{\s*return \([\s\S]*?Payout transfer setup verified/u);
+    assert.match(source, /Account connected - payouts unavailable/u);
+    assert.match(source, /Payout transfers are currently unavailable/u);
 
     assert.doesNotMatch(
       source,
@@ -129,13 +134,18 @@ test(
 
     assert.match(
       source,
-      /Provider settlements/u,
+      /Payout tracking/u,
     );
 
     assert.match(
       source,
       /Review required/u,
     );
+
+    assert.match(source, /finance\.settlementSummary\s*\.reconciliationRequiredCount > 0/u);
+    assert.match(source, /reconciliation before another payout or refund operation/u);
+    assert.match(source, /Settlement status is separate from customer payment status/u);
+    assert.match(source, /Earnings eligible; transfer not confirmed/u);
 
     assert.match(
       source,

@@ -80,6 +80,7 @@ import {
 import {
   providerPaymentRelationshipSnapshot,
 } from "./provider-payment-relationship-domain.js";
+import {invalidateProviderTransport} from "./provider-transport-verification-domain.js";
 
 const payMongoSecretKey =
   defineSecret(
@@ -680,6 +681,11 @@ export const refreshProviderPayoutAccount =
         stored,
         context,
       );
+
+      // A refresh can observe revoked or inconsistent evidence, or fail before
+      // returning an account. Revoke transport FIRST and cancel pending verification.
+      await accountReference.update({...invalidateProviderTransport("account_refresh_required"),
+        settlementTransportVerificationRequestId: null});
 
       const orgAccountId =
         storedOrgAccountId(
@@ -1804,42 +1810,52 @@ async function refreshChildAccount(input: {
     "not_checked" | "verified" | "not_found" | "unavailable" =
       "not_checked";
 
-  if (setup.payoutReady && relationshipId) {
+  if (setup.payoutReady) {
     try {
       const relationship =
-        await retrievePayMongoLinkedAccountRelationship({
-          secretKey:
-            payMongoSecretKey.value(),
+        relationshipId
+          ? await retrievePayMongoLinkedAccountRelationship({
+            secretKey:
+              payMongoSecretKey.value(),
 
-          relationshipId,
-        });
+            relationshipId,
+          })
+          : await findPayMongoLinkedAccountRelationship({
+            secretKey: payMongoSecretKey.value(),
+            childAccountId: account.accountId,
+            invitationId: storedInvitationId(input.stored.invitationId),
+          });
 
-      if (
-        relationship.childAccountId !==
-          account.accountId
-      ) {
-        throw new HttpsError(
-          "failed-precondition",
-          "The PayMongo relationship does not match this Provider payout account.",
-        );
+      if (!relationship) {
+        relationshipVerificationStatus = "not_found";
+      } else {
+        if (
+          relationship.childAccountId !==
+            account.accountId
+        ) {
+          throw new HttpsError(
+            "failed-precondition",
+            "The PayMongo relationship does not match this Provider payout account.",
+          );
+        }
+
+        const verified =
+          providerPaymentRelationshipSnapshot({
+            storedAccount: {
+              ...input.stored,
+              paymongoAccountId:
+                account.accountId,
+            },
+            relationship,
+          });
+
+        relationshipId =
+          verified.relationshipId;
+        relationshipStatus =
+          verified.status;
+        relationshipVerificationStatus =
+          "verified";
       }
-
-      const verified =
-        providerPaymentRelationshipSnapshot({
-          storedAccount: {
-            ...input.stored,
-            paymongoAccountId:
-              account.accountId,
-          },
-          relationship,
-        });
-
-      relationshipId =
-        verified.relationshipId;
-      relationshipStatus =
-        verified.status;
-      relationshipVerificationStatus =
-        "verified";
     }
     catch (error) {
       if (

@@ -136,11 +136,11 @@ describe("Provider refund policy management", () => {
     await user.type(started, "50");
     await user.clear(service);
     await user.type(service, "0");
-    await user.type(screen.getByRole("textbox", {name: /additional policy terms/iu}), "Plain terms");
+    await user.type(screen.getByRole("textbox", {name: /additional notes/iu}), "Plain terms");
 
     await user.click(screen.getByRole("button", {name: "Publish Policy"}));
     expect(mutations.publish).not.toHaveBeenCalled();
-    const dialog = screen.getByRole("dialog");
+    const dialog = screen.getByRole("dialog", {name: "Publish refund policy?"});
     expect(within(dialog).getByText(/existing bookings keep their original agreed policy/iu))
       .toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", {name: "Publish Policy"}));
@@ -170,7 +170,10 @@ describe("Provider refund policy management", () => {
     fireEvent.change(input, {target: {value: "1e2"}});
     await user.click(screen.getByRole("button", {name: "Publish Policy"}));
     expect(screen.getByText(/up to two decimal places/iu)).toBeInTheDocument();
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", {name: "Create Refund Policy"}))
+      .toBeInTheDocument();
+    expect(screen.queryByRole("dialog", {name: "Publish refund policy?"}))
+      .not.toBeInTheDocument();
     expect(mutations.publish).not.toHaveBeenCalled();
   });
 
@@ -188,7 +191,7 @@ describe("Provider refund policy management", () => {
       .toHaveValue("50.25");
 
     await user.click(screen.getByRole("button", {name: "Publish Override"}));
-    const dialog = screen.getByRole("dialog");
+    const dialog = screen.getByRole("dialog", {name: "Publish package refund policy?"});
     await user.click(within(dialog).getByRole("button", {name: "Publish Override"}));
     await waitFor(() => expect(mutations.setOverride).toHaveBeenCalled());
     expect(mutations.setOverride.mock.calls[0][0]).toBe("package_default");
@@ -210,6 +213,19 @@ describe("Provider refund policy management", () => {
       .toHaveBeenCalledWith("package_override", null));
     expect(await screen.findByText(/now uses your Provider default policy/iu))
       .toBeInTheDocument();
+  });
+
+  it("opens refund editing as a modal and lets the provider cancel without publishing", async () => {
+    const user = userEvent.setup();
+    render(<ProviderRefundPolicyClient data={existingData} />);
+    await user.click(screen.getByRole("button", {name: "Edit Policy"}));
+    const editorDialog = screen.getByRole("dialog", {name: "Edit Refund Policy"});
+    expect(within(editorDialog).getByRole("textbox", {name: /preparation not started/iu}))
+      .toHaveValue("100");
+    await user.click(within(editorDialog).getByRole("button", {name: "Cancel"}));
+    expect(screen.queryByRole("dialog", {name: "Edit Refund Policy"}))
+      .not.toBeInTheDocument();
+    expect(mutations.publish).not.toHaveBeenCalled();
   });
 
   it("maps stable backend errors without exposing Firebase details", () => {

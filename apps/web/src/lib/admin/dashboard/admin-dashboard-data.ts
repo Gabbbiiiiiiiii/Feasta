@@ -407,13 +407,48 @@ async function getTopProviders(): Promise<AdminDashboardData["topProviders"]> {
   }));
 }
 
-export async function getAdminDashboardData(): Promise<AdminDashboardData> {
+export async function getAdminFeastaRevenueInCentavos(): Promise<number> {
   const [
-    settingsSnapshot,
     commissionAccruedSnapshot,
     commissionReversedSnapshot,
     defaultAdjustmentSnapshot,
     defaultFeeSnapshot,
+  ] = await Promise.all([
+    // Separate sums are intentional: settlement entries contain accruals,
+    // while refund entries contain reversals. A combined Firestore aggregate
+    // would exclude documents missing either field.
+    adminDb.collection("financialLedgerEntries")
+      .aggregate({ totalInCentavos: AggregateField.sum("commissionAccruedInCentavos") })
+      .get(),
+    adminDb.collection("financialLedgerEntries")
+      .aggregate({ totalInCentavos: AggregateField.sum("commissionReversedInCentavos") })
+      .get(),
+    adminDb.collection("financialLedgerEntries").where("entryType", "==", "payment_default_allocation_completed")
+      .aggregate({totalInCentavos: AggregateField.sum("ordinaryCommissionAdjustmentInCentavos")}).get(),
+    adminDb.collection("financialLedgerEntries").where("entryType", "==", "payment_default_allocation_completed")
+      .aggregate({totalInCentavos: AggregateField.sum("feastaCancellationFeeEarnedInCentavos")}).get(),
+  ]);
+
+  // Fee revenue after completed reversals, not customer collection or
+  // profit after gateway processing costs and taxes.
+  const commissionAccrued = commissionAccruedSnapshot.data().totalInCentavos;
+  const commissionReversed = commissionReversedSnapshot.data().totalInCentavos;
+  if (
+    !Number.isSafeInteger(commissionAccrued) || commissionAccrued < 0 ||
+    !Number.isSafeInteger(commissionReversed) || commissionReversed < 0
+  ) {
+    throw new Error("Dashboard revenue totals are invalid.");
+  }
+  const adjustment = defaultAdjustmentSnapshot.data().totalInCentavos;
+  const defaultFee = defaultFeeSnapshot.data().totalInCentavos;
+  if (![adjustment, defaultFee].every(value => Number.isSafeInteger(value) && value >= 0)) throw new Error("Dashboard default fee totals are invalid.");
+  return commissionAccrued - commissionReversed - adjustment + defaultFee;
+}
+
+export async function getAdminDashboardData(): Promise<AdminDashboardData> {
+  const [
+    settingsSnapshot,
+    feastaRevenueInCentavos,
     totalBookingsSnapshot,
     customersSnapshot,
     providersSnapshot,
@@ -436,19 +471,7 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       .doc("adminDashboard")
       .get(),
 
-    // Separate sums are intentional: settlement entries contain accruals,
-    // while refund entries contain reversals. A combined Firestore aggregate
-    // would exclude documents missing either field.
-    adminDb.collection("financialLedgerEntries")
-      .aggregate({ totalInCentavos: AggregateField.sum("commissionAccruedInCentavos") })
-      .get(),
-    adminDb.collection("financialLedgerEntries")
-      .aggregate({ totalInCentavos: AggregateField.sum("commissionReversedInCentavos") })
-      .get(),
-    adminDb.collection("financialLedgerEntries").where("entryType", "==", "payment_default_allocation_completed")
-      .aggregate({totalInCentavos: AggregateField.sum("ordinaryCommissionAdjustmentInCentavos")}).get(),
-    adminDb.collection("financialLedgerEntries").where("entryType", "==", "payment_default_allocation_completed")
-      .aggregate({totalInCentavos: AggregateField.sum("feastaCancellationFeeEarnedInCentavos")}).get(),
+    getAdminFeastaRevenueInCentavos(),
     adminDb.collection(FIRESTORE_COLLECTIONS.mainEvents)
       .count()
       .get(),
@@ -556,20 +579,7 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
   const settings =
     settingsSnapshot.data() ?? {};
 
-  // Fee revenue after completed reversals, not customer collection or
-  // profit after gateway processing costs and taxes.
-  const commissionAccrued = commissionAccruedSnapshot.data().totalInCentavos;
-  const commissionReversed = commissionReversedSnapshot.data().totalInCentavos;
-  if (
-    !Number.isSafeInteger(commissionAccrued) || commissionAccrued < 0 ||
-    !Number.isSafeInteger(commissionReversed) || commissionReversed < 0
-  ) {
-    throw new Error("Dashboard revenue totals are invalid.");
-  }
-  const adjustment = defaultAdjustmentSnapshot.data().totalInCentavos;
-  const defaultFee = defaultFeeSnapshot.data().totalInCentavos;
-  if (![adjustment, defaultFee].every(value => Number.isSafeInteger(value) && value >= 0)) throw new Error("Dashboard default fee totals are invalid.");
-  const feastaRevenueInCentavos = commissionAccrued - commissionReversed - adjustment + defaultFee;
+
 
   const customerAccounts =
     customersSnapshot.data().count;
