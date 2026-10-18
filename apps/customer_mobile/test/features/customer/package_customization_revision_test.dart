@@ -1,3 +1,5 @@
+import 'package:feasta/features/customer/location_picker_screen.dart';
+import 'package:feasta/shared/models/customer_address_model.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/services.dart';
@@ -81,6 +83,113 @@ void main() {
         'description': 'Green table setting',
       },
     ],
+  });
+  testWidgets('map result persists in draft, reopens and cancel preserves it', (
+    tester,
+  ) async {
+    phone(tester);
+    seedDraft();
+    final repo = PreparationRepository()..current = package;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EventCustomizationScreen(
+          provider: provider(),
+          eventPackage: package,
+          repository: repo,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Choose on Map'),
+      180,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await Scrollable.ensureVisible(
+      tester.element(find.widgetWithText(OutlinedButton, 'Choose on Map')),
+      alignment: 0.5,
+    );
+    await tester.pumpAndSettle();
+    final cityField = find.byWidgetPredicate(
+      (widget) =>
+          widget is TextField && widget.decoration?.hintText == 'Ormoc City',
+    );
+    final addressField = find.widgetWithText(
+      TextField,
+      'Main Street, District 1',
+    );
+    final mapButton = find.widgetWithText(OutlinedButton, 'Choose on Map');
+    expect(
+      tester.getTopLeft(cityField).dy,
+      lessThan(tester.getTopLeft(find.text('Full event address')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Full event address')).dy,
+      lessThan(tester.getTopLeft(find.text('Enter address manually')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Enter address manually')).dy,
+      lessThan(tester.getTopLeft(addressField).dy),
+    );
+    expect(
+      tester.getBottomLeft(addressField).dy,
+      lessThan(tester.getTopLeft(mapButton).dy),
+    );
+    expect(tester.getSize(mapButton).width, tester.getSize(addressField).width);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Choose on Map'));
+    await tester.pumpAndSettle();
+    expect(find.byType(LocationPickerScreen), findsOneWidget);
+    final confirmed = CustomerAddressModel.defaultOrmoc.copyWith(
+      id: 'event-pin',
+      fullAddress: 'Exact venue, Isabel',
+      city: 'Isabel',
+    );
+    Navigator.of(
+      tester.element(find.byType(LocationPickerScreen)),
+    ).pop(confirmed);
+    await tester.pumpAndSettle();
+    expect(find.text('Exact venue, Isabel'), findsOneWidget);
+    final saved = preparationDraftMemory.open(
+      'customer-1',
+      'caterer-1',
+      'package-1',
+    )!;
+    expect(
+      (saved['eventAddress'] as CustomerAddressModel).latitude,
+      confirmed.latitude,
+    );
+    await Scrollable.ensureVisible(
+      tester.element(
+        find.widgetWithText(OutlinedButton, 'View or Edit Map Location'),
+      ),
+      alignment: 0.5,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('View or Edit Map Location'));
+    await tester.pumpAndSettle();
+    final picker = tester.widget<LocationPickerScreen>(
+      find.byType(LocationPickerScreen),
+    );
+    expect(picker.initialAddress, confirmed);
+    expect(picker.sessionOnly, isTrue);
+    Navigator.of(tester.element(find.byType(LocationPickerScreen))).pop();
+    await tester.pumpAndSettle();
+    expect(find.text('Exact venue, Isabel'), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Exact venue, Isabel'),
+      'Different address',
+    );
+    await tester.pump();
+    expect(find.text('Choose on Map'), findsOneWidget);
+    expect(
+      preparationDraftMemory.open(
+        'customer-1',
+        'caterer-1',
+        'package-1',
+      )!['eventAddress'],
+      isNull,
+    );
   });
   testWidgets(
     'details cards are read-only while customization remains selectable',

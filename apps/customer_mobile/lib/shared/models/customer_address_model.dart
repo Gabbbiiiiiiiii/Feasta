@@ -52,7 +52,11 @@ class CustomerAddressModel {
   );
 
   bool get hasCoordinates {
-    return latitude != 0 && longitude != 0;
+    return latitude.isFinite &&
+        longitude.isFinite &&
+        latitude.abs() <= 90 &&
+        longitude.abs() <= 180 &&
+        !(latitude == 0 && longitude == 0);
   }
 
   String get displayTitle {
@@ -172,14 +176,8 @@ class CustomerAddressModel {
         map['country'],
         fallback: CustomerAddressModel.defaultOrmoc.country,
       ),
-      latitude: _doubleFromValue(
-        map['latitude'],
-        fallback: CustomerAddressModel.defaultOrmoc.latitude,
-      ),
-      longitude: _doubleFromValue(
-        map['longitude'],
-        fallback: CustomerAddressModel.defaultOrmoc.longitude,
-      ),
+      latitude: _doubleFromValue(map['latitude'], fallback: 0),
+      longitude: _doubleFromValue(map['longitude'], fallback: 0),
       isDefault: _boolFromValue(map['isDefault']),
       createdAt: _dateTimeFromValue(createdAtValue),
       houseNumber: _stringFromValue(map['houseNumber']),

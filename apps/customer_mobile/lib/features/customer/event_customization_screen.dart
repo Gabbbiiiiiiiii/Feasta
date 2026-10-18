@@ -1,3 +1,4 @@
+import 'location_picker_screen.dart';
 import 'widgets/preparation_availability.dart';
 import 'widgets/package_option_cards.dart';
 import 'package:flutter/material.dart';
@@ -63,6 +64,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
   }
 
+  CustomerAddressModel? _eventAddress;
   final locationController = TextEditingController(text: 'Ormoc City');
   final addressController = TextEditingController();
   final guestCountController = TextEditingController();
@@ -143,6 +145,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
         return;
       }
       setState(() {
+        _eventAddress = address;
         locationController.text = address.city;
         addressController.text = address.fullAddress;
       });
@@ -160,6 +163,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
     'guests': guestCount,
     'city': locationController.text,
     'address': addressController.text,
+    'eventAddress': _eventAddress,
     'notes': specialRequestController.text,
     'ownNotes': customerArrangedAddOnsController.text,
     'foods': List<String>.of(selectedFoods),
@@ -217,6 +221,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
     guestCount = saved['guests'] as int;
     locationController.text = saved['city'] as String;
     addressController.text = saved['address'] as String;
+    _eventAddress = saved['eventAddress'] as CustomerAddressModel?;
     specialRequestController.text = saved['notes'] as String;
     customerArrangedAddOnsController.text = saved['ownNotes'] as String;
     selectedFoods = List<String>.from(
@@ -255,6 +260,30 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
     useMarketplaceAddOns = selectedMarketplaceAddOns.isNotEmpty;
   }
 
+  void _invalidateMapAddress(String _) {
+    setState(() => _eventAddress = null);
+    _saveDraft();
+  }
+
+  Future<void> _chooseOnMap() async {
+    final result = await Navigator.push<CustomerAddressModel>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocationPickerScreen(
+          initialAddress: _eventAddress,
+          sessionOnly: true,
+        ),
+      ),
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      _eventAddress = result;
+      locationController.text = result.city;
+      addressController.text = result.fullAddress;
+    });
+    _saveDraft();
+  }
+
   Future<void> _manualAddress() async {
     final result = await Navigator.push<CustomerAddressModel>(
       context,
@@ -262,6 +291,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
     );
     if (!mounted || result == null) return;
     setState(() {
+      _eventAddress = result;
       locationController.text = result.city;
       addressController.text = result.fullAddress;
     });
@@ -919,6 +949,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
                   const SizedBox(height: AppSpacing.sm),
                   TextField(
                     controller: locationController,
+                    onChanged: _invalidateMapAddress,
                     textInputAction: TextInputAction.next,
                     decoration: _inputDecoration(hintText: 'Ormoc City'),
                   ),
@@ -937,9 +968,36 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
                   ),
                   TextField(
                     controller: addressController,
+                    onChanged: _invalidateMapAddress,
                     textInputAction: TextInputAction.done,
                     decoration: _inputDecoration(
                       hintText: 'Enter the complete event address',
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _chooseOnMap,
+                      icon: const Icon(Icons.location_on),
+                      label: Text(
+                        _eventAddress?.hasCoordinates == true
+                            ? 'View or Edit Map Location'
+                            : 'Choose on Map',
+                        textAlign: TextAlign.center,
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        backgroundColor: AppColors.surface,
+                        side: const BorderSide(color: AppColors.primary),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: AppSpacing.md,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.large),
+                        ),
+                      ),
                     ),
                   ),
                 ],
