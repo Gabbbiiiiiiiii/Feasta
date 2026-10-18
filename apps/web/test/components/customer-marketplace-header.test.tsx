@@ -262,50 +262,53 @@ describe("customer marketplace header", () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({eventDate: "2099-09-11", eventTime: "18:00", eventEndTime: "22:00", guestCount: "100", category: "photographer"});
   });
 
-  it("keeps keyword and provider-service filtering available in More filters", () => {
+  it("keeps keyword and existing provider-type filtering in the compact finder", () => {
+    query = new URLSearchParams("service=addon");
     render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
-    const more = screen.getByText("More filters");
-    expect(more.closest("details")).not.toHaveAttribute("open");
-    fireEvent.click(more);
-    expect(screen.getByRole("option", {name: "All provider types"})).toHaveValue("all");
-    expect(screen.getByRole("option", {name: "Catering provider"})).toHaveValue("catering");
+    expect(screen.queryByText("More filters")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", {name: "Provider Type"})).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("searchbox", {name: "Search providers or services"}), {target: {value: "garden venue"}});
-    fireEvent.change(screen.getByRole("combobox", {name: "Provider Type"}), {target: {value: "addon"}});
     fireEvent.change(screen.getByRole("combobox", {name: "Type of Service"}), {target: {value: "venue_provider"}});
     fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
     expect(mocks.push).toHaveBeenCalledWith("/customer/providers?q=garden+venue&service=addon&category=venue_provider");
   });
 
-  it("clears discovery filters and pagination while preserving event planning context", () => {
+  it("preserves planning context and current filters while resetting pagination", () => {
     query = new URLSearchParams("q=garden&service=addon&category=venue_provider&cursor=old&eventDate=2099-09-10&eventTime=18%3A00&eventEndTime=22%3A00&guestCount=100");
     render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
-    expect(screen.getByText("More filters").closest("details")).toHaveAttribute("open");
-    fireEvent.click(screen.getByRole("button", {name: "Clear filters"}));
+    fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
     const url = new URL(mocks.push.mock.calls[0][0], "https://feasta.test");
-    expect(Object.fromEntries(url.searchParams)).toEqual({eventDate: "2099-09-10", eventTime: "18:00", eventEndTime: "22:00", guestCount: "100"});
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      q: "garden",
+      service: "addon",
+      category: "venue_provider",
+      eventDate: "2099-09-10",
+      eventTime: "18:00",
+      eventEndTime: "22:00",
+      guestCount: "100",
+    });
+    expect(url.searchParams.has("cursor")).toBe(false);
   });
 
-  it.each(["clear", "submit"] as const)("cancels pending live search after %s while the finder remains mounted", (action) => {
+  it("cancels pending live search after submit while the finder remains mounted", () => {
     vi.useFakeTimers();
     try {
       render(<EventFinder query="q=garden&service=addon&category=venue_provider&cursor=old&eventDate=2099-09-10&eventTime=18%3A00&eventEndTime=22%3A00&guestCount=100" onFind={() => {}} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
       fireEvent.change(screen.getByRole("searchbox", {name: "Search providers or services"}), {target: {value: "new keyword"}});
-      fireEvent.click(screen.getByRole("button", {name: action === "clear" ? "Clear filters" : "Find Services"}));
+      fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
       act(() => vi.advanceTimersByTime(1000));
       expect(mocks.push).toHaveBeenCalledTimes(1);
       expect(mocks.replace).not.toHaveBeenCalled();
       const url = new URL(mocks.push.mock.calls[0][0], "https://feasta.test");
       expect(url.searchParams.has("cursor")).toBe(false);
+      expect(url.searchParams.get("q")).toBe("new keyword");
+      expect(url.searchParams.get("service")).toBe("addon");
+      expect(url.searchParams.get("category")).toBe("venue_provider");
       expect(url.searchParams.get("eventTime")).toBe("18:00");
       expect(url.searchParams.get("eventEndTime")).toBe("22:00");
       expect(url.searchParams.get("guestCount")).toBe("100");
-      if (action === "clear") {
-        for (const field of ["q", "service", "category"]) expect(url.searchParams.has(field)).toBe(false);
-      } else {
-        expect(url.searchParams.get("q")).toBe("new keyword");
-      }
     } finally {
       vi.useRealTimers();
     }

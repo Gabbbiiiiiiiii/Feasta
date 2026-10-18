@@ -289,10 +289,9 @@ describe("customer marketplace search presentation", () => {
     const serviceCategoryFilter = screen.getByRole("combobox", {name: "Type of Service"});
     expect(serviceCategoryFilter).toHaveTextContent("Catering Service");
     expect(serviceCategoryFilter).toHaveTextContent("Venue Provider");
-    expect(screen.getByText("More filters").closest("details")).not.toHaveAttribute("open");
-    fireEvent.click(screen.getByText("More filters"));
-    expect(screen.getByRole("combobox", {name: "Provider Type"})).toHaveValue("all");
-    expect(screen.getByRole("button", {name: "Clear filters"})).toBeVisible();
+    expect(screen.queryByText("More filters")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", {name: "Provider Type"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: "Clear filters"})).not.toBeInTheDocument();
     expect(screen.getByRole("button", {name: "Find Services"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Ana Events"})).toBeVisible();
     expect(screen.getByRole("heading", {name: "Ana Events"}))
