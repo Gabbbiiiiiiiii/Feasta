@@ -220,7 +220,7 @@ class _CollectionProviderCard extends StatelessWidget {
                         children: [
                           const Icon(
                             Icons.star_rounded,
-                            color: Colors.amber,
+                            color: AppColors.rating,
                             size: 17,
                           ),
                           const SizedBox(width: 3),

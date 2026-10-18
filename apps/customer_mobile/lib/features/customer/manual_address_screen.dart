@@ -1,12 +1,13 @@
+import '../../core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 
 import '../../shared/models/customer_address_model.dart';
 
-const Color _primary = Color(0xFFB02F00);
-const Color _background = Color(0xFFF8F6F3);
-const Color _textPrimary = Color(0xFF2B211D);
-const Color _textSecondary = Color(0xFF8C817A);
-const Color _border = Color(0xFFE8E1DB);
+const Color _primary = AppColors.primary;
+const Color _background = AppColors.background;
+const Color _textPrimary = AppColors.mainText;
+const Color _textSecondary = AppColors.secondaryTextAccessible;
+const Color _border = AppColors.border;
 
 class ManualAddressScreen extends StatefulWidget {
   final CustomerAddressModel? initialAddress;

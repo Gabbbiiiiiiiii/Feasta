@@ -1996,7 +1996,7 @@ class _ProviderRating extends StatelessWidget {
       children: [
         const Icon(
           Icons.star_rounded,
-          color: Colors.amber,
+          color: AppColors.rating,
           size: AppSizes.iconSmall,
         ),
         const SizedBox(width: AppSpacing.xxs),

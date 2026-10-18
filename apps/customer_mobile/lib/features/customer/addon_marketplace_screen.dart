@@ -1,3 +1,4 @@
+import '../../core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 
 import '../../shared/models/feasta_models.dart';
@@ -45,7 +46,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFB02F00);
+    const primary = AppColors.primary;
 
     return Scaffold(
       appBar: AppBar(
@@ -114,7 +115,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
                   color: selected ? primary.withOpacity(0.07) : Colors.white,
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                    color: selected ? primary : const Color(0xFFE5E7EB),
+                    color: selected ? primary : AppColors.border,
                   ),
                 ),
                 child: Row(
@@ -187,7 +188,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
         padding: const EdgeInsets.all(18),
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+          border: Border(top: BorderSide(color: AppColors.border)),
         ),
         child: SafeArea(
           child: SizedBox(

@@ -104,7 +104,7 @@ class ProviderReviewCard extends StatelessWidget {
                         ? Icons.star_rounded
                         : Icons.star_border_rounded,
                     size: 18,
-                    color: const Color(0xFFFFB020),
+                    color: AppColors.rating,
                   ),
                 ),
               ),

@@ -390,7 +390,7 @@ class _RatingPicker extends StatelessWidget {
             icon: Icon(
               selected ? Icons.star_rounded : Icons.star_border_rounded,
               color: selected
-                  ? const Color(0xFFF59E0B)
+                  ? AppColors.rating
                   : AppColors.secondaryTextAccessible,
               size: 40,
             ),

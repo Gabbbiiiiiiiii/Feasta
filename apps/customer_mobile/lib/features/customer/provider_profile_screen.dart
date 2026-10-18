@@ -514,7 +514,7 @@ class _ProviderIdentitySection extends StatelessWidget {
                 children: [
                   _ProviderMetaItem(
                     icon: Icons.star_rounded,
-                    iconColor: Colors.amber,
+                    iconColor: AppColors.rating,
                     value: provider.ratingAverage.toStringAsFixed(1),
                     label: '${provider.reviewCount} reviews',
                   ),

@@ -1,3 +1,4 @@
+import '../../core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 
 import '../../shared/models/feasta_models.dart';
@@ -44,7 +45,7 @@ class _AddonPaymentRequiredScreenState
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFB02F00);
+    const primary = AppColors.primary;
 
     return Scaffold(
       appBar: AppBar(
@@ -60,7 +61,7 @@ class _AddonPaymentRequiredScreenState
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
               color: Colors.white,
-              border: Border.all(color: const Color(0xFFE5E7EB)),
+              border: Border.all(color: AppColors.border),
               borderRadius: BorderRadius.circular(18),
             ),
             child: Column(
@@ -102,7 +103,7 @@ class _AddonPaymentRequiredScreenState
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
               color: Colors.white,
-              border: Border.all(color: const Color(0xFFE5E7EB)),
+              border: Border.all(color: AppColors.border),
               borderRadius: BorderRadius.circular(18),
             ),
             child: DropdownButtonFormField<String>(
@@ -128,7 +129,7 @@ class _AddonPaymentRequiredScreenState
         padding: const EdgeInsets.all(18),
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+          border: Border(top: BorderSide(color: AppColors.border)),
         ),
         child: SafeArea(
           child: SizedBox(

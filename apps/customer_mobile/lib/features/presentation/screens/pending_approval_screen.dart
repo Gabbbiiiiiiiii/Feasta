@@ -1,3 +1,4 @@
+import '../../../core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 import '../../authentication/data/services/auth_service.dart';
 import 'login_screen.dart';
@@ -12,7 +13,8 @@ class PendingApprovalScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Account Pending'),
-        backgroundColor: Colors.orange,
+        backgroundColor: AppColors.warning,
+        foregroundColor: AppColors.primaryForeground,
       ),
       body: Center(
         child: SizedBox(
@@ -26,7 +28,7 @@ class PendingApprovalScreen extends StatelessWidget {
                   const Icon(
                     Icons.pending_actions,
                     size: 70,
-                    color: Colors.orange,
+                    color: AppColors.warning,
                   ),
                   const SizedBox(height: 16),
                   const Text(

@@ -16,6 +16,7 @@ import '../authentication/data/repositories/feasta_repository.dart';
 import '../authentication/data/services/customer_address_storage_service.dart';
 import '../authentication/data/services/promotion_service.dart';
 import '../notifications/notifications_screen.dart';
+import 'home_text_colors.dart';
 import 'customer_provider_collection_screen.dart';
 import 'customer_search_screen.dart';
 import 'location_picker_screen.dart';
@@ -267,7 +268,7 @@ class _HomeHeader extends StatelessWidget {
                           final firstName =
                               snapshot.data?.firstName.trim() ?? '';
 
-                          return _Greeting(
+                          return HomeGreeting(
                             firstName: firstName.isEmpty ? 'there' : firstName,
                           );
                         },
@@ -293,13 +294,13 @@ class _HomeHeader extends StatelessWidget {
                 Text(
                   'Home',
                   style: AppTypography.label.copyWith(
-                    color: AppColors.mainText,
+                    color: HomeTextColors.primary,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
                 const Icon(
                   Icons.keyboard_arrow_down_rounded,
-                  color: AppColors.mainText,
+                  color: AppColors.primary,
                   size: 20,
                 ),
                 Container(
@@ -319,7 +320,7 @@ class _HomeHeader extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.caption.copyWith(
-                          color: AppColors.secondaryTextAccessible,
+                          color: HomeTextColors.secondary,
                         ),
                       );
                     },
@@ -375,14 +376,14 @@ class _HomeHeader extends StatelessWidget {
                         child: Text(
                           'Search caterers and services',
                           style: AppTypography.body.copyWith(
-                            color: AppColors.secondaryTextAccessible,
+                            color: HomeTextColors.secondary,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
                       const Icon(
                         Icons.tune_rounded,
-                        color: AppColors.mainText,
+                        color: AppColors.primary,
                         size: 21,
                       ),
                     ],
@@ -402,12 +403,12 @@ class _GuestGreeting extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _Greeting(firstName: 'there');
+    return const HomeGreeting(firstName: 'there');
   }
 }
 
-class _Greeting extends StatelessWidget {
-  const _Greeting({required this.firstName});
+class HomeGreeting extends StatelessWidget {
+  const HomeGreeting({required this.firstName, super.key});
 
   final String firstName;
 
@@ -427,7 +428,7 @@ class _Greeting extends StatelessWidget {
         Text(
           period,
           style: AppTypography.bodySmall.copyWith(
-            color: AppColors.secondaryTextAccessible,
+            color: HomeTextColors.secondary,
           ),
         ),
         const SizedBox(height: 2),
@@ -436,7 +437,7 @@ class _Greeting extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: AppTypography.headline.copyWith(
-            color: AppColors.mainText,
+            color: HomeTextColors.primary,
             fontWeight: FontWeight.w900,
           ),
         ),
@@ -509,7 +510,7 @@ class _BellButton extends StatelessWidget {
             onPressed: onPressed,
             icon: const Icon(
               Icons.notifications_none_rounded,
-              color: AppColors.mainText,
+              color: AppColors.primary,
             ),
           ),
         ),
@@ -562,7 +563,7 @@ class _PromotionSection extends StatelessWidget {
         if (snapshot.hasError || promotions.isEmpty) {
           return const Padding(
             padding: EdgeInsets.symmetric(horizontal: AppSpacing.screen),
-            child: _PromotionEmptyCard(),
+            child: HomePromotionEmptyCard(),
           );
         }
 
@@ -593,8 +594,8 @@ class _PromotionLoadingCard extends StatelessWidget {
   }
 }
 
-class _PromotionEmptyCard extends StatelessWidget {
-  const _PromotionEmptyCard();
+class HomePromotionEmptyCard extends StatelessWidget {
+  const HomePromotionEmptyCard({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -626,7 +627,7 @@ class _PromotionEmptyCard extends StatelessWidget {
             child: Text(
               'No promotions are available right now.',
               style: AppTypography.bodySmall.copyWith(
-                color: AppColors.secondaryTextAccessible,
+                color: HomeTextColors.secondary,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -725,7 +726,7 @@ class _PromotionCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppTypography.label.copyWith(
-                        color: AppColors.mainText,
+                        color: HomeTextColors.primary,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -737,7 +738,7 @@ class _PromotionCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: AppTypography.caption.copyWith(
-                        color: AppColors.secondaryTextAccessible,
+                        color: HomeTextColors.secondary,
                       ),
                     ),
                   ],
@@ -766,7 +767,7 @@ class _EventServicesSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _SectionHeader(
+        HomeSectionHeader(
           title: 'Event Services',
           subtitle: 'Everything you need for your celebration',
           onSeeAll: onSeeAll,
@@ -835,7 +836,7 @@ class _EventServiceCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: AppTypography.caption.copyWith(
-                color: AppColors.mainText,
+                color: HomeTextColors.primary,
                 fontWeight: FontWeight.w700,
               ),
             ),
@@ -952,7 +953,7 @@ class _ProviderHomeSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _SectionHeader(title: title, subtitle: subtitle, onSeeAll: onSeeAll),
+        HomeSectionHeader(title: title, subtitle: subtitle, onSeeAll: onSeeAll),
         const SizedBox(height: AppSpacing.md),
         SizedBox(
           height: 245,
@@ -993,7 +994,7 @@ class _ProviderHomeSection extends StatelessWidget {
                         child: Text(
                           'No providers available yet.',
                           style: AppTypography.bodySmall.copyWith(
-                            color: AppColors.secondaryTextAccessible,
+                            color: HomeTextColors.secondary,
                           ),
                         ),
                       ),
@@ -1147,7 +1148,7 @@ class _HomeProviderCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.label.copyWith(
-                          color: AppColors.mainText,
+                          color: HomeTextColors.primary,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -1160,7 +1161,7 @@ class _HomeProviderCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.caption.copyWith(
-                          color: AppColors.secondaryTextAccessible,
+                          color: HomeTextColors.secondary,
                         ),
                       ),
                       const SizedBox(height: AppSpacing.xs),
@@ -1169,20 +1170,20 @@ class _HomeProviderCard extends StatelessWidget {
                           const Icon(
                             Icons.star_rounded,
                             size: 16,
-                            color: Colors.amber,
+                            color: AppColors.rating,
                           ),
                           const SizedBox(width: 3),
                           Text(
                             provider.ratingAverage.toStringAsFixed(1),
                             style: AppTypography.caption.copyWith(
-                              color: AppColors.mainText,
+                              color: HomeTextColors.primary,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
                           Text(
                             ' (${provider.reviewCount})',
                             style: AppTypography.caption.copyWith(
-                              color: AppColors.secondaryTextAccessible,
+                              color: HomeTextColors.secondary,
                             ),
                           ),
                         ],
@@ -1193,7 +1194,7 @@ class _HomeProviderCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.caption.copyWith(
-                          color: AppColors.secondaryTextAccessible,
+                          color: HomeTextColors.secondary,
                         ),
                       ),
                     ],
@@ -1208,8 +1209,9 @@ class _HomeProviderCard extends StatelessWidget {
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
+class HomeSectionHeader extends StatelessWidget {
+  const HomeSectionHeader({
+    super.key,
     required this.title,
     required this.subtitle,
     required this.onSeeAll,
@@ -1233,7 +1235,7 @@ class _SectionHeader extends StatelessWidget {
                 Text(
                   title,
                   style: AppTypography.sectionTitle.copyWith(
-                    color: AppColors.mainText,
+                    color: HomeTextColors.primary,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -1241,7 +1243,7 @@ class _SectionHeader extends StatelessWidget {
                 Text(
                   subtitle,
                   style: AppTypography.caption.copyWith(
-                    color: AppColors.secondaryTextAccessible,
+                    color: HomeTextColors.secondary,
                   ),
                 ),
               ],

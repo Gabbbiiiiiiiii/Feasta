@@ -1,3 +1,4 @@
+import '../../theme/app_colors.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -90,7 +91,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFFF6333);
+    const primary = AppColors.primary;
 
     return Scaffold(
       appBar: AppBar(
@@ -151,7 +152,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   padding: const EdgeInsets.all(12),
                   decoration: const BoxDecoration(
                     color: Colors.white,
-                    border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+                    border: Border(top: BorderSide(color: AppColors.border)),
                   ),
                   child: SafeArea(
                     child: Row(
@@ -164,7 +165,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             decoration: InputDecoration(
                               hintText: 'Type a message...',
                               filled: true,
-                              fillColor: const Color(0xFFF7F8FA),
+                              fillColor: AppColors.background,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(24),
                                 borderSide: BorderSide.none,
@@ -233,7 +234,7 @@ class ChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFFF6333);
+    const primary = AppColors.primary;
 
     return Align(
       alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
@@ -251,7 +252,7 @@ class ChatBubble extends StatelessWidget {
             bottomLeft: Radius.circular(isMine ? 18 : 4),
             bottomRight: Radius.circular(isMine ? 4 : 18),
           ),
-          border: isMine ? null : Border.all(color: const Color(0xFFE5E7EB)),
+          border: isMine ? null : Border.all(color: AppColors.border),
         ),
         child: Column(
           crossAxisAlignment: isMine

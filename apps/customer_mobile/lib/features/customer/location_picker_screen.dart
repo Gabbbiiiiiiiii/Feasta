@@ -1,3 +1,4 @@
+import '../../core/theme/app_colors.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -9,11 +10,11 @@ import '../authentication/data/services/location_service.dart';
 import '../authentication/data/services/maps_api_service.dart';
 import 'manual_address_screen.dart';
 
-const Color _primary = Color(0xFFB02F00);
-const Color _background = Color(0xFFF8F6F3);
-const Color _textPrimary = Color(0xFF2B211D);
-const Color _textSecondary = Color(0xFF8C817A);
-const Color _border = Color(0xFFE8E1DB);
+const Color _primary = AppColors.primary;
+const Color _background = AppColors.background;
+const Color _textPrimary = AppColors.mainText;
+const Color _textSecondary = AppColors.secondaryTextAccessible;
+const Color _border = AppColors.border;
 
 class LocationPickerScreen extends StatefulWidget {
   const LocationPickerScreen({super.key});
@@ -726,7 +727,7 @@ class _LocationActionPanelState extends State<_LocationActionPanel> {
                       child: const LinearProgressIndicator(
                         minHeight: 3,
                         color: _primary,
-                        backgroundColor: Color(0xFFFFD9CC),
+                        backgroundColor: AppColors.primarySubtleStrong,
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -839,7 +840,7 @@ class _SelectedAddressCard extends StatelessWidget {
             height: 38,
             width: 38,
             decoration: const BoxDecoration(
-              color: Color(0xFFFFECE5),
+              color: AppColors.primarySubtle,
               shape: BoxShape.circle,
             ),
             child: const Icon(Icons.location_on_rounded, color: _primary),
@@ -940,9 +941,9 @@ class _EventLocationInfo extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF3ED),
+        color: AppColors.primarySubtle,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFFFD9CC)),
+        border: Border.all(color: AppColors.primarySubtleStrong),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -977,14 +978,17 @@ class _ErrorNotice extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF7ED),
+        color: AppColors.warningSubtle,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFF59E0B)),
+        border: Border.all(color: AppColors.warningBorder),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.info_outline_rounded, color: Color(0xFFF59E0B)),
+          const Icon(
+            Icons.info_outline_rounded,
+            color: AppColors.warningBorder,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(

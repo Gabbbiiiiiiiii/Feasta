@@ -24,10 +24,15 @@ abstract final class AppTheme {
     primaryContainer: AppColors.primarySubtle,
     onPrimaryContainer: AppColors.mainText,
 
-    secondary: AppColors.secondaryTextAccessible,
-    onSecondary: AppColors.surface,
-    secondaryContainer: AppColors.surfaceMuted,
+    secondary: AppColors.secondary,
+    onSecondary: AppColors.mainText,
+    secondaryContainer: AppColors.secondary,
     onSecondaryContainer: AppColors.mainText,
+
+    tertiary: AppColors.accent,
+    onTertiary: AppColors.primaryForeground,
+    tertiaryContainer: AppColors.primarySubtle,
+    onTertiaryContainer: AppColors.primaryStrong,
 
     error: AppColors.error,
     onError: AppColors.surface,
@@ -36,18 +41,25 @@ abstract final class AppTheme {
 
     surface: AppColors.surface,
     onSurface: AppColors.mainText,
+    surfaceDim: AppColors.surfaceMuted,
+    surfaceBright: AppColors.surface,
+    surfaceContainerLowest: AppColors.surface,
+    surfaceContainerLow: AppColors.background,
+    surfaceContainer: AppColors.secondary,
+    surfaceContainerHigh: AppColors.surfaceMuted,
+    surfaceContainerHighest: AppColors.surfaceMuted,
     onSurfaceVariant: AppColors.secondaryTextAccessible,
 
     outline: AppColors.controlBorder,
     outlineVariant: AppColors.border,
 
-    shadow: Color(0x292B211D),
+    shadow: AppColors.shadow,
     scrim: AppColors.overlay,
 
     inverseSurface: AppColors.mainText,
     onInverseSurface: AppColors.background,
 
-    inversePrimary: Color(0xFFFFB59A),
+    inversePrimary: AppColors.primarySubtleStrong,
 
     surfaceTint: Colors.transparent,
   );
@@ -68,6 +80,11 @@ abstract final class AppTheme {
       splashColor: AppColors.primary.withValues(alpha: 0.08),
 
       disabledColor: AppColors.disabled,
+      textSelectionTheme: const TextSelectionThemeData(
+        cursorColor: AppColors.focus,
+        selectionColor: AppColors.primarySubtleStrong,
+        selectionHandleColor: AppColors.focus,
+      ),
 
       textTheme: AppTypography.textTheme,
 
@@ -185,6 +202,27 @@ abstract final class AppTheme {
         ),
       ),
 
+      filledButtonTheme: FilledButtonThemeData(
+        style: ButtonStyle(
+          foregroundColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.disabled)
+                ? AppColors.disabledForeground
+                : AppColors.primaryForeground,
+          ),
+          backgroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.disabled)) {
+              return AppColors.disabled;
+            }
+            if (states.contains(WidgetState.pressed)) {
+              return AppColors.primaryPressed;
+            }
+            if (states.contains(WidgetState.hovered)) {
+              return AppColors.primaryHover;
+            }
+            return AppColors.primary;
+          }),
+        ),
+      ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: ButtonStyle(
           minimumSize: const WidgetStatePropertyAll(
@@ -238,7 +276,7 @@ abstract final class AppTheme {
             AppSizes.minimumTouchTarget,
           ),
 
-          foregroundColor: AppColors.primaryStrong,
+          foregroundColor: AppColors.accent,
 
           textStyle: AppTypography.button,
 
@@ -305,7 +343,7 @@ abstract final class AppTheme {
           color: AppColors.surface,
         ),
 
-        actionTextColor: AppColors.primary,
+        actionTextColor: AppColors.primarySubtleStrong,
 
         behavior: SnackBarBehavior.floating,
 
