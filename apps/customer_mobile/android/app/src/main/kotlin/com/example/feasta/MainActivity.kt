@@ -35,6 +35,15 @@ class MainActivity : FlutterActivity() {
         mark("engine_configure_start")
         super.configureFlutterEngine(flutterEngine)
         mark("plugins_registered")
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "feasta/maps_configuration")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "isConfigured") {
+                    @Suppress("DEPRECATION")
+                    val info = packageManager.getApplicationInfo(packageName, android.content.pm.PackageManager.GET_META_DATA)
+                    val key = info.metaData?.getString("com.google.android.geo.API_KEY")
+                    result.success(!key.isNullOrBlank())
+                } else result.notImplemented()
+            }
         timingChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "feasta/startup_timing")
         timingChannel?.setMethodCallHandler { call, result ->
             if (call.method != "begin") {

@@ -168,7 +168,7 @@ void main() {
   );
 
   testWidgets(
-    'actual shell navigation stays fixed while Explore scrolls with keyboard and handles back',
+    'shared navigation hides for keyboard, restores and handles back',
     (tester) async {
       phone(tester);
       await tester.pumpWidget(const MaterialApp(home: CustomerMainScreen()));
@@ -206,17 +206,20 @@ void main() {
       await tester.tap(find.byType(TextField).first);
       tester.view.viewInsets = const FakeViewPadding(bottom: 840);
       await tester.pumpAndSettle();
-      final keyboardBottom = tester.getBottomLeft(nav).dy;
-      expect(keyboardBottom, lessThanOrEqualTo(520));
+      expect(nav, findsNothing);
+      expect(find.text('Messages'), findsNothing);
+      expect(find.text('Plan'), findsNothing);
       await tester.drag(
         find.byType(CustomScrollView).first,
         const Offset(0, -500),
       );
       await tester.pumpAndSettle();
-      expect(tester.getBottomLeft(nav).dy, keyboardBottom);
+      expect(nav, findsNothing);
       expect(tester.takeException(), isNull);
       tester.view.resetViewInsets();
       await tester.pumpAndSettle();
+      expect(nav, findsOneWidget);
+      expect(tester.getBottomLeft(nav).dy, bottom);
       await tester.tap(
         find.byWidgetPredicate(
           (widget) =>

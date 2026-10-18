@@ -344,6 +344,47 @@ void main() {
     },
   );
 
+  for (final scale in [1.0, 1.3, 2.0]) {
+    testWidgets('profile identity fits narrow phone at $scale', (tester) async {
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(
+              size: const Size(360, 800),
+              textScaler: TextScaler.linear(scale),
+            ),
+            child: ProviderProfileScreen(
+              provider: provider(
+                name: 'A very long provider business name for celebrations',
+                location:
+                    'A long street and barangay address, Ormoc City, Leyte',
+              ),
+              repository: ProfileRepository(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('No reviews yet'), findsWidgets);
+      await tester.ensureVisible(find.text('Book Now'));
+      if (scale == 1.0) {
+        expect(
+          tester.getTopLeft(find.text('Book Now')).dx,
+          lessThan(tester.getTopLeft(find.text('Chat')).dx),
+        );
+        expect(
+          tester.getTopLeft(find.text('Book Now')).dy,
+          tester.getTopLeft(find.text('Chat')).dy,
+        );
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets(
     'guest profiles render category tabs, empty states and reset selection on provider changes',
     (tester) async {
@@ -373,7 +414,7 @@ void main() {
       await tester.ensureVisible(find.widgetWithText(ChoiceChip, 'Portfolio'));
       await tester.tap(find.widgetWithText(ChoiceChip, 'Portfolio'));
       await tester.pumpAndSettle();
-      expect(find.text('No portfolio photos yet'), findsOneWidget);
+      expect(find.text('No photos available yet'), findsOneWidget);
       await show('catering_service', 'catering');
       expect(
         tester
@@ -550,7 +591,7 @@ void main() {
         ),
       ),
     );
-    expect(find.text('No portfolio photos yet'), findsOneWidget);
+    expect(find.text('No photos available yet'), findsOneWidget);
     expect(find.byIcon(Icons.camera_alt_outlined), findsOneWidget);
     expect(find.byIcon(Icons.restaurant_menu_rounded), findsNothing);
   });
@@ -635,7 +676,7 @@ void main() {
         home: Scaffold(body: ProviderPhotosSection(provider: provider())),
       ),
     );
-    expect(find.text('No photos yet'), findsOneWidget);
+    expect(find.text('No photos available yet'), findsOneWidget);
   });
   testWidgets(
     'selecting a collection provider passes that provider to its profile',

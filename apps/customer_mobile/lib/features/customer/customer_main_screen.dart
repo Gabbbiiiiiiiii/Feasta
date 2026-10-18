@@ -378,22 +378,19 @@ class _CustomerMainScreenState extends State<CustomerMainScreen>
             ),
           ],
         ),
-        bottomNavigationBar: Padding(
-          padding: EdgeInsets.only(
-            bottom: exploring ? MediaQuery.viewInsetsOf(context).bottom : 0,
-          ),
-          child: SafeArea(
-            top: false,
-            child: _FeastaBottomNavigation(
-              selectedIndex: _visualNavigationIndex,
-              repository: _repository,
-              isAuthenticated: isAuthenticated,
-              planSelected: _showPlanLayer,
-              planFocusNode: _planFocusNode,
-              onTap: _onNavigationTapped,
-            ),
-          ),
-        ),
+        bottomNavigationBar: MediaQuery.viewInsetsOf(context).bottom > 0
+            ? null
+            : SafeArea(
+                top: false,
+                child: _FeastaBottomNavigation(
+                  selectedIndex: _visualNavigationIndex,
+                  repository: _repository,
+                  isAuthenticated: isAuthenticated,
+                  planSelected: _showPlanLayer,
+                  planFocusNode: _planFocusNode,
+                  onTap: _onNavigationTapped,
+                ),
+              ),
       ),
     );
   }

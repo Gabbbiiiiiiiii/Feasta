@@ -2,6 +2,7 @@ import '../../core/theme/app_colors.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../shared/models/customer_address_model.dart';
@@ -39,6 +40,8 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   Timer? reverseDebounce;
   int reverseRequestId = 0;
 
+  bool _mapsConfigured = false;
+  bool _hasResolvedPin = false;
   bool isLoading = true;
   bool isSearching = false;
   bool isLocating = false;
@@ -63,12 +66,25 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _loadInitialState() async {
+    bool configured = false;
+    try {
+      configured =
+          await const MethodChannel(
+            'feasta/maps_configuration',
+          ).invokeMethod<bool>('isConfigured') ??
+          false;
+    } on PlatformException catch (_) {
+      // Keep manual entry available when native maps cannot initialize.
+    } on MissingPluginException catch (_) {
+      // Unsupported hosts keep the same manual fallback.
+    }
     final selectedAddress = await storageService.getSelectedOrDefault();
     final mapTypeKey = await storageService.getPreferredMapType();
 
     if (!mounted) return;
 
     setState(() {
+      _mapsConfigured = configured;
       previewAddress = selectedAddress;
       cameraTarget = locationService.latLngFromAddress(selectedAddress);
       mapType = _mapTypeFromKey(mapTypeKey);
@@ -136,6 +152,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       if (!mounted) return;
 
       setState(() {
+        _hasResolvedPin = true;
         previewAddress = address;
         cameraTarget = LatLng(address.latitude, address.longitude);
         isLocating = false;
@@ -186,6 +203,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       if (!mounted) return;
 
       setState(() {
+        _hasResolvedPin = true;
         previewAddress = address;
         cameraTarget = LatLng(address.latitude, address.longitude);
         isResolvingAddress = false;
@@ -203,7 +221,11 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   void _onCameraMove(CameraPosition position) {
+    _hasResolvedPin = false;
+    reverseDebounce?.cancel();
+    reverseRequestId++;
     cameraTarget = position.target;
+    if (!isResolvingAddress) setState(() => isResolvingAddress = true);
     if (accuracyWarning != null) {
       setState(() {
         accuracyWarning = null;
@@ -214,12 +236,14 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   void _onCameraIdle() {
     reverseDebounce?.cancel();
     reverseDebounce = Timer(const Duration(milliseconds: 650), () {
+      if (!mounted) return;
       _reverseGeocodeCameraTarget();
     });
   }
 
   Future<void> _reverseGeocodeCameraTarget() async {
     final requestId = ++reverseRequestId;
+    final target = cameraTarget;
 
     setState(() {
       isResolvingAddress = true;
@@ -228,17 +252,18 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
 
     try {
       final resolvedAddress = await mapsApiService.reverseGeocode(
-        latitude: cameraTarget.latitude,
-        longitude: cameraTarget.longitude,
+        latitude: target.latitude,
+        longitude: target.longitude,
       );
       final address = resolvedAddress.copyWith(
-        latitude: cameraTarget.latitude,
-        longitude: cameraTarget.longitude,
+        latitude: target.latitude,
+        longitude: target.longitude,
       );
 
       if (!mounted || requestId != reverseRequestId) return;
 
       setState(() {
+        _hasResolvedPin = true;
         previewAddress = address;
         isResolvingAddress = false;
       });
@@ -275,6 +300,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _confirmPreviewAddress() async {
+    if (!_mapsConfigured || !_hasResolvedPin || isResolvingAddress) return;
     await _saveAndReturnAddress(
       previewAddress.copyWith(
         latitude: cameraTarget.latitude,
@@ -316,6 +342,9 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     CustomerAddressModel? address,
     bool editCurrent = false,
   }) async {
+    reverseDebounce?.cancel();
+    reverseRequestId++;
+    _hasResolvedPin = false;
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -332,9 +361,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       await storageService.updateAddress(result);
 
       if (!mounted) return;
-      setState(() {
-        previewAddress = result;
-      });
+      await _saveAndReturnAddress(result);
       return;
     }
 
@@ -346,25 +373,38 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return Scaffold(
-      resizeToAvoidBottomInset: false,
+      resizeToAvoidBottomInset: true,
       backgroundColor: _background,
       body: isLoading
           ? const _LocationLoading()
           : Stack(
               children: [
                 Positioned.fill(
-                  child: _MapPickerArea(
-                    address: previewAddress,
-                    mapType: mapType,
-                    onMapCreated: (controller) {
-                      mapController = controller;
-                    },
-                    onCameraMove: _onCameraMove,
-                    onCameraIdle: _onCameraIdle,
-                    onToggleMapType: _toggleMapType,
-                    onUseCurrentLocation: _useCurrentLocation,
-                    isLocating: isLocating,
-                  ),
+                  child: !_mapsConfigured
+                      ? const ColoredBox(
+                          color: _background,
+                          child: Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(32),
+                              child: Text(
+                                'Map unavailable. Enter your event address manually below.',
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
+                        )
+                      : _MapPickerArea(
+                          address: previewAddress,
+                          mapType: mapType,
+                          onMapCreated: (controller) {
+                            mapController = controller;
+                          },
+                          onCameraMove: _onCameraMove,
+                          onCameraIdle: _onCameraIdle,
+                          onToggleMapType: _toggleMapType,
+                          onUseCurrentLocation: _useCurrentLocation,
+                          isLocating: isLocating,
+                        ),
                 ),
                 SafeArea(
                   bottom: false,
@@ -401,9 +441,15 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                       child: AnimatedOpacity(
                         opacity: keyboardOpen ? 0 : 1,
                         duration: const Duration(milliseconds: 160),
-                        child: _LocationActionPanel(
+                        child: LocationActionPanel(
                           address: previewAddress,
-                          errorMessage: errorMessage,
+                          errorMessage:
+                              errorMessage ??
+                              (!_mapsConfigured
+                                  ? 'Map unavailable. Use manual address entry.'
+                                  : !_hasResolvedPin
+                                  ? 'Move the pin or search to verify an address. If map tiles are blank, use manual entry.'
+                                  : null),
                           accuracyWarning: accuracyWarning,
                           isResolvingAddress: isResolvingAddress,
                           isSaving: isSaving,
@@ -632,7 +678,7 @@ class _MapPickerArea extends StatelessWidget {
   }
 }
 
-class _LocationActionPanel extends StatefulWidget {
+class LocationActionPanel extends StatefulWidget {
   final CustomerAddressModel address;
   final String? errorMessage;
   final String? accuracyWarning;
@@ -645,7 +691,8 @@ class _LocationActionPanel extends StatefulWidget {
   final VoidCallback onManualEntry;
   final ValueChanged<CustomerAddressModel> onEditAddress;
 
-  const _LocationActionPanel({
+  const LocationActionPanel({
+    super.key,
     required this.address,
     required this.errorMessage,
     required this.accuracyWarning,
@@ -660,10 +707,10 @@ class _LocationActionPanel extends StatefulWidget {
   });
 
   @override
-  State<_LocationActionPanel> createState() => _LocationActionPanelState();
+  State<LocationActionPanel> createState() => _LocationActionPanelState();
 }
 
-class _LocationActionPanelState extends State<_LocationActionPanel> {
+class _LocationActionPanelState extends State<LocationActionPanel> {
   double dragDistance = 0;
 
   void _resetDrag() {
@@ -689,15 +736,15 @@ class _LocationActionPanelState extends State<_LocationActionPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
-
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onVerticalDragStart: (_) => _resetDrag(),
       onVerticalDragUpdate: _handleDragUpdate,
       onVerticalDragEnd: _handleDragEnd,
-      child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.40,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.55,
+        ),
         child: Container(
           decoration: const BoxDecoration(
             color: _background,
@@ -705,10 +752,10 @@ class _LocationActionPanelState extends State<_LocationActionPanel> {
           ),
           child: SafeArea(
             top: false,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(18, 12, 18, 14 + bottomPadding),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
               child: Column(
-                mainAxisSize: MainAxisSize.max,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Center(
                     child: Container(
@@ -743,11 +790,16 @@ class _LocationActionPanelState extends State<_LocationActionPanel> {
                     address: widget.address,
                     onEdit: () => widget.onEditAddress(widget.address),
                   ),
+                  TextButton.icon(
+                    onPressed: widget.onManualEntry,
+                    icon: const Icon(Icons.edit_location_alt_outlined),
+                    label: const Text('Enter address manually'),
+                  ),
                   const SizedBox(height: 10),
                   _EventLocationInfo(message: widget.accuracyWarning),
                   const SizedBox(height: 10),
                   SizedBox(
-                    height: 48,
+                    width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: widget.isLocating
                           ? null
@@ -778,13 +830,19 @@ class _LocationActionPanelState extends State<_LocationActionPanel> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Expanded(
+                  SizedBox(
+                    width: double.infinity,
                     child: Align(
                       alignment: Alignment.bottomCenter,
                       child: SizedBox(
-                        height: 52,
+                        width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: widget.isSaving ? null : widget.onConfirm,
+                          onPressed:
+                              widget.isSaving ||
+                                  widget.isResolvingAddress ||
+                                  widget.errorMessage != null
+                              ? null
+                              : widget.onConfirm,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _primary,
                             foregroundColor: Colors.white,

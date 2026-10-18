@@ -130,26 +130,29 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             SliverToBoxAdapter(
-              child: _ProviderHero(
-                provider: widget.provider,
-                repository: _repository,
-              ),
-            ),
-
-            SliverToBoxAdapter(
-              child: FutureBuilder<Map<String, String>>(
-                future: _serviceCategoryNames,
-                builder: (context, categorySnapshot) {
-                  final categoryNames =
-                      categorySnapshot.data ?? const <String, String>{};
-
-                  return _ProviderIdentitySection(
+              child: Stack(
+                key: const ValueKey('profile-header'),
+                clipBehavior: Clip.none,
+                children: [
+                  // Paint the cover first. All overlap stays inside this sliver.
+                  _ProviderHero(
                     provider: widget.provider,
-                    categoryNames: categoryNames,
-                    onChat: _handleChat,
-                    onBook: _handleBookNow,
-                  );
-                },
+                    repository: _repository,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 212, bottom: 16),
+                    child: FutureBuilder<Map<String, String>>(
+                      future: _serviceCategoryNames,
+                      builder: (context, snapshot) => _ProviderIdentitySection(
+                        provider: widget.provider,
+                        categoryNames:
+                            snapshot.data ?? const <String, String>{},
+                        onChat: _handleChat,
+                        onBook: _handleBookNow,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
 
@@ -230,7 +233,8 @@ class _ProviderHero extends StatelessWidget {
     final imageUrl = provider.coverImageUrl?.trim();
 
     return SizedBox(
-      height: 280,
+      key: const ValueKey('profile-cover'),
+      height: 260,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -466,131 +470,148 @@ class _ProviderIdentitySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Transform.translate(
-      offset: const Offset(0, -22),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screen),
-        child: FeastaCard(
-          padding: const EdgeInsets.all(AppSpacing.card),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ProviderLogoBadge(provider: provider, size: 80),
-              const SizedBox(height: AppSpacing.md),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      provider.businessName,
-                      style: AppTypography.pageTitle.copyWith(
-                        color: AppColors.mainText,
-                        fontWeight: FontWeight.w900,
-                      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screen),
+      child: Stack(
+        key: const ValueKey('profile-identity-stack'),
+        clipBehavior: Clip.none,
+        children: [
+          // The clipped card is only a background sibling, never an avatar ancestor.
+          Positioned.fill(
+            top: 24,
+            child: FeastaCard(
+              key: const ValueKey('profile-card-background'),
+              padding: EdgeInsets.zero,
+              child: const SizedBox.expand(),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ProviderLogoBadge(
+                      key: const ValueKey('profile-avatar'),
+                      provider: provider,
+                      size: 80,
+                      circular: true,
                     ),
-                  ),
-                  if (provider.isApproved) ...[
-                    const SizedBox(width: AppSpacing.xs),
-                    const Tooltip(
-                      message: 'Verified provider',
-                      child: Icon(
-                        Icons.verified_rounded,
-                        color: AppColors.success,
-                        size: 24,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 36),
+                        child: Column(
+                          key: const ValueKey('profile-name-category'),
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text.rich(
+                              TextSpan(
+                                children: [
+                                  TextSpan(text: provider.businessName),
+                                  if (provider.isApproved)
+                                    const WidgetSpan(
+                                      alignment: PlaceholderAlignment.middle,
+                                      child: Padding(
+                                        padding: EdgeInsets.only(left: 6),
+                                        child: Tooltip(
+                                          message: 'Verified provider',
+                                          child: Icon(
+                                            Icons.verified_rounded,
+                                            color: AppColors.success,
+                                            size: 22,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                              style: AppTypography.sectionTitle.copyWith(
+                                color: AppColors.mainText,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.xs),
+                            _ProviderCategoryPill(
+                              category: provider.providerCategory,
+                              categoryNames: categoryNames,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ],
-                ],
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              _ProviderCategoryPill(
-                category: provider.providerCategory,
-                categoryNames: categoryNames,
-              ),
-
-              const SizedBox(height: AppSpacing.lg),
-
-              Wrap(
-                spacing: AppSpacing.md,
-                runSpacing: AppSpacing.sm,
-                children: [
-                  if (provider.reviewCount > 0)
-                    _ProviderMetaItem(
-                      icon: Icons.star_rounded,
-                      iconColor: AppColors.rating,
-                      value: provider.ratingAverage.toStringAsFixed(1),
-                      label: '${provider.reviewCount} reviews',
-                    ),
-                  _ProviderMetaItem(
-                    icon: Icons.location_on_outlined,
-                    value: provider.location,
-                    label: 'Location',
-                  ),
-                ],
-              ),
-
-              if (provider.description.trim().isNotEmpty) ...[
-                const SizedBox(height: AppSpacing.lg),
-                Text(
-                  provider.description.trim(),
-                  style: AppTypography.body.copyWith(
-                    color: AppColors.secondaryTextAccessible,
-                    height: 1.55,
-                  ),
                 ),
-              ],
 
-              const SizedBox(height: AppSpacing.xl),
+                const SizedBox(height: AppSpacing.lg),
 
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final stack =
-                      constraints.maxWidth < 340 ||
-                      MediaQuery.textScalerOf(context).scale(1) > 1.25;
+                if (provider.reviewCount > 0)
+                  _ProviderMetaItem(
+                    icon: Icons.star_rounded,
+                    iconColor: AppColors.rating,
+                    value:
+                        '${provider.ratingAverage.toStringAsFixed(1)} (${provider.reviewCount} reviews)',
+                    label: '',
+                  )
+                else
+                  const Text(
+                    'No reviews yet',
+                    style: TextStyle(color: AppColors.secondaryTextAccessible),
+                  ),
+                const SizedBox(height: AppSpacing.sm),
+                _ProviderMetaItem(
+                  icon: Icons.location_on_outlined,
+                  value: provider.location,
+                  label: '',
+                ),
 
-                  if (stack) {
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                if (provider.description.trim().isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  Text(
+                    provider.description.trim(),
+                    style: AppTypography.body.copyWith(
+                      color: AppColors.secondaryTextAccessible,
+                      height: 1.55,
+                    ),
+                  ),
+                ],
+
+                const SizedBox(height: AppSpacing.xl),
+
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final book = FeastaPrimaryButton(
+                      label: 'Book Now',
+                      icon: const Icon(Icons.calendar_month_rounded),
+                      onPressed: onBook,
+                    );
+                    final chat = FeastaSecondaryButton(
+                      label: 'Chat',
+                      icon: const Icon(Icons.chat_bubble_outline_rounded),
+                      onPressed: onChat,
+                    );
+                    if (constraints.maxWidth < 250 ||
+                        MediaQuery.textScalerOf(context).scale(1) > 1.6) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [book, const SizedBox(height: 8), chat],
+                      );
+                    }
+                    return Row(
                       children: [
-                        FeastaSecondaryButton(
-                          label: 'Chat',
-                          icon: const Icon(Icons.chat_bubble_outline_rounded),
-                          onPressed: onChat,
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        FeastaPrimaryButton(
-                          label: 'Book Now',
-                          icon: const Icon(Icons.calendar_month_rounded),
-                          onPressed: onBook,
-                        ),
+                        Expanded(flex: 3, child: book),
+                        const SizedBox(width: 8),
+                        Expanded(flex: 2, child: chat),
                       ],
                     );
-                  }
-
-                  return Row(
-                    children: [
-                      Expanded(
-                        child: FeastaSecondaryButton(
-                          label: 'Chat',
-                          icon: const Icon(Icons.chat_bubble_outline_rounded),
-                          onPressed: onChat,
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: FeastaPrimaryButton(
-                          label: 'Book Now',
-                          icon: const Icon(Icons.calendar_month_rounded),
-                          onPressed: onBook,
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-            ],
+                  },
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -662,13 +683,14 @@ class _ProviderMetaItem extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: AppTypography.caption.copyWith(
-            color: AppColors.secondaryTextAccessible,
+        if (label.isNotEmpty) const SizedBox(width: 4),
+        if (label.isNotEmpty)
+          Text(
+            label,
+            style: AppTypography.caption.copyWith(
+              color: AppColors.secondaryTextAccessible,
+            ),
           ),
-        ),
       ],
     );
   }
@@ -781,11 +803,10 @@ class _ProviderPackagesSliver extends StatelessWidget {
         final packages = snapshot.data ?? const <PackageModel>[];
 
         if (packages.isEmpty) {
-          return const SliverFillRemaining(
-            hasScrollBody: false,
+          return SliverToBoxAdapter(
             child: FeastaEmptyState(
-              icon: Icons.inventory_2_outlined,
-              title: 'No packages yet',
+              icon: _tabsPackageIcon(provider),
+              title: 'No packages available yet',
               message: 'This provider has not published any packages yet.',
             ),
           );
@@ -1190,7 +1211,7 @@ class ProviderPhotosSection extends StatelessWidget {
         icon: isPortfolio
             ? Icons.camera_alt_outlined
             : Icons.photo_library_outlined,
-        title: isPortfolio ? 'No portfolio photos yet' : 'No photos yet',
+        title: 'No photos available yet',
         message: isPortfolio
             ? 'This provider has not added public portfolio photos yet.'
             : 'This provider has not added public photos yet.',
@@ -1214,4 +1235,14 @@ class ProviderPhotosSection extends StatelessWidget {
       ),
     );
   }
+}
+
+IconData _tabsPackageIcon(ProviderModel provider) {
+  final tabs = providerProfileTabs(provider);
+  if (tabs.contains('Menu')) return Icons.restaurant_menu_rounded;
+  if (tabs.contains('Portfolio')) return Icons.camera_alt_outlined;
+  if (provider.providerCategory.toLowerCase().contains('flor')) {
+    return Icons.local_florist_outlined;
+  }
+  return Icons.inventory_2_outlined;
 }

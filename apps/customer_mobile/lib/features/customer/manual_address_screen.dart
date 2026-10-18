@@ -104,6 +104,14 @@ class _ManualAddressScreenState extends State<ManualAddressScreen> {
       postalCode: postalCode,
     );
 
+    final sameVenue =
+        initialAddress != null &&
+        initialAddress.houseNumber.trim() == houseNumber &&
+        initialAddress.streetName.trim() == streetName &&
+        initialAddress.barangay.trim() == barangay &&
+        initialAddress.city.trim() == city &&
+        initialAddress.province.trim() == province &&
+        initialAddress.postalCode.trim() == postalCode;
     Navigator.pop(
       context,
       CustomerAddressModel(
@@ -118,12 +126,12 @@ class _ManualAddressScreenState extends State<ManualAddressScreen> {
         province: province,
         postalCode: postalCode,
         country: CustomerAddressModel.defaultOrmoc.country,
-        latitude:
-            initialAddress?.latitude ??
-            CustomerAddressModel.defaultOrmoc.latitude,
-        longitude:
-            initialAddress?.longitude ??
-            CustomerAddressModel.defaultOrmoc.longitude,
+        latitude: sameVenue && initialAddress.hasCoordinates
+            ? initialAddress.latitude
+            : 0,
+        longitude: sameVenue && initialAddress.hasCoordinates
+            ? initialAddress.longitude
+            : 0,
         isDefault: initialAddress?.isDefault ?? false,
         createdAt: initialAddress?.createdAt ?? DateTime.now(),
         houseNumber: houseNumber,
