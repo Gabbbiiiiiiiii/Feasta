@@ -461,7 +461,7 @@ describe("customer package marketplace", () => {
     expect(screen.queryByText("Drop-Off Catering")).not.toBeInTheDocument();
   });
 
-  it("shows published service-tier labels on marketplace cards", () => {
+  it("keeps published service-tier badges off compact marketplace cards", () => {
     render(
       <PublicPackageCard
         packageRecord={{
@@ -475,7 +475,8 @@ describe("customer package marketplace", () => {
       />,
     );
     expect(screen.getByText("Starting from")).toBeVisible();
-    expect(screen.getByText("Drop-Off Catering")).toBeVisible();
-    expect(screen.getByText("Full-Service Catering")).toBeVisible();
+    expect(screen.queryByText("Drop-Off Catering")).not.toBeInTheDocument();
+    expect(screen.queryByText("Full-Service Catering")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", {name: /View .* package details/})).toBeInTheDocument();
   });
 });

@@ -1,4 +1,4 @@
-import {fireEvent, render, screen} from "@testing-library/react";
+import {render, screen} from "@testing-library/react";
 import {describe, expect, it, vi} from "vitest";
 
 import {EventFinder} from "@/components/customer/layout/event-finder";
@@ -46,9 +46,9 @@ describe("representative application screens", () => {
     );
 
     expect(screen.getByRole("heading", {level: 1, name: "Find event providers"})).toBeInTheDocument();
-    fireEvent.click(screen.getByText("More filters"));
     expect(screen.getByRole("searchbox", {name: "Search providers or services"})).toBeInTheDocument();
-    expect(screen.getByRole("combobox", {name: "Provider Type"})).toBeInTheDocument();
+    expect(screen.queryByText("More filters")).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", {name: "Provider Type"})).not.toBeInTheDocument();
     expect(screen.getByRole("combobox", {name: "Type of Service"})).toBeInTheDocument();
     expect(screen.getByText("No public providers yet.")).toBeInTheDocument();
   });
