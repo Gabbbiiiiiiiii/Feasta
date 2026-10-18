@@ -2,9 +2,12 @@ import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {db} from "../shared/firestore.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {readTrustedProviderRequestPaymentSetInTransaction} from "../payments/provider-request-payment-reader.js";
-import {aggregateReservationPlan, aggregateOutcomePlan, type TransferEvidence} from "./provider-disbursement-domain.js";
+import {
+  aggregateReservationPlan, aggregateOutcomePlan, assertTransferEvidence, type TransferEvidence,
+} from "./provider-disbursement-domain.js";
 import {providerSettlementCapability} from "./provider-settlement-capability.js";
 import {providerDisbursementTransport, type ProviderDisbursementTransport} from "./provider-disbursement-transport.js";
+import {isProviderDisbursementTestAllowed} from "./provider-disbursement-transport.js";
 
 type Data = Record<string, unknown>;
 const ref = (collection: string, id: unknown) => {
@@ -27,6 +30,9 @@ export async function reserveProviderDisbursement(id: string,
     ]);
     const settings = settingsSnapshot.data() ?? {};
     if (settings.providerDisbursementsEnabled !== true) throw new Error("platform_disbursements_disabled");
+    if (!isProviderDisbursementTestAllowed(settings, d.disbursementId)) {
+      throw new Error("paymongo_test_disbursement_not_allowed");
+    }
     const account = accountSnapshot.data() ?? {};
     const capability = providerSettlementCapability(account);
     if (account.providerId !== d.providerId || !capability.transportReady) throw new Error(`provider_${capability.reason}`);
@@ -93,13 +99,37 @@ export async function applyProviderDisbursementEvidence(attemptId: string, evide
     const attemptSnapshot = await transaction.get(attemptRef);
     const attempt = attemptSnapshot.data();
     if (!attempt || attempt.externalAttemptId !== attemptId) throw new Error("Unknown external payout attempt.");
+    if (evidence) {
+      assertTransferEvidence(attempt, evidence);
+      // A webhook may omit optional identifiers learned from create/retrieve.
+      // Preserve them, but never allow a conflicting identifier to replace one.
+      evidence = {...evidence};
+      for (const key of ["provider_reference_number", "batch_transfer_id"] as const) {
+        if (evidence[key] === undefined && attempt.gatewayEvidence?.[key] != null) {
+          evidence[key] = attempt.gatewayEvidence[key];
+        }
+      }
+    }
     const dRef = ref("providerDisbursements", attempt.providerDisbursementId);
     const dSnapshot = await transaction.get(dRef);
     const d = dSnapshot.data();
     if (!d) throw new Error("Missing disbursement.");
     if (["succeeded", "failed"].includes(String(attempt.status))) {
       // Duplicate observations must match the persisted terminal evidence.
-      if (!evidence || JSON.stringify(attempt.gatewayEvidence) !== JSON.stringify(evidence)) throw new Error("Contradictory terminal evidence.");
+      const observed = evidence;
+      if (!observed || !attempt.gatewayEvidence || observed.status !== attempt.status ||
+          ["id", "status", "reference_number", "amount", "currency", "livemode"].some(
+            key => (observed as unknown as Data)[key] !== attempt.gatewayEvidence[key]) ||
+          ["number", "name", "bic"].some(key =>
+            (observed.destination_account as unknown as Data)[key] !==
+            attempt.gatewayEvidence.destination_account?.[key])) {
+        throw new Error("Contradictory terminal evidence.");
+      }
+      if (["provider_reference_number", "batch_transfer_id"].some(
+        key => attempt.gatewayEvidence[key] == null && (observed as unknown as Data)[key] != null)) {
+        // Enrich trusted identifiers only; terminal accounting is never applied twice.
+        transaction.update(attemptRef, {gatewayEvidence: observed});
+      }
       return {duplicate: true, applied: false};
     }
     const settlementRefs = (attempt.sourceSettlementIds as unknown[]).map(id => ref("providerSettlements", id));
@@ -172,7 +202,10 @@ export async function processReadyProviderDisbursement(id: string) {
     ref("providerDisbursements", id).get(), ref("appSettings", "platform").get(),
   ]);
   if (snapshot.data()?.status !== "ready" || settings.data()?.providerDisbursementsEnabled !== true) return;
-  // Default transport is deliberately unavailable until provisioning is verified.
+  if (!isProviderDisbursementTestAllowed(settings.data() ?? {}, snapshot.data()?.disbursementId)) {
+    return;
+  }
+  // Server-owned simulator capability remains separate from external dispatch permission.
   const account = (await ref("providerPaymentAccounts", snapshot.data()?.providerId).get()).data() ?? {};
   const capability = providerDisbursementTransport.capability(account, settings.data() ?? {});
   if (!capability.ready) return;

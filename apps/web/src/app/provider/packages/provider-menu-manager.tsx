@@ -61,7 +61,7 @@ export function ProviderMenuManager() {
     finally { setLoading(false); }
   }
 
-  return <section aria-labelledby="provider-menu-heading" className="grid min-w-0 gap-4 border-t border-border pt-8">
+  return <section aria-labelledby="provider-menu-heading" className="grid min-w-0 gap-3 border-t border-border pt-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><h2 id="provider-menu-heading" className="text-xl font-bold">Menu & Catalog</h2>
         <p className="mt-1 text-sm text-muted-foreground">Manage menu items, descriptions, categories, serving sizes, and display prices.</p></div>
@@ -196,7 +196,7 @@ export function ProviderMenuManager() {
         <div className="border-t border-border p-2"><Button variant="secondary" size="compact" disabled={loading} aria-label={`Edit ${image.title || `menu image ${menu.images.indexOf(image) + 1}`}`} onClick={() => void startEditing()}><Edit3 aria-hidden="true" className="size-4" />Edit</Button></div>
       </article>)}
     </div>
-    {!loading && !error && menu.images.length === 0 ? <div className="grid justify-items-center gap-3 rounded-card border border-dashed border-border bg-card px-5 py-10 text-center"><Images aria-hidden="true" className="size-8 text-primary-strong" /><p className="text-sm text-muted-foreground">No menu items yet. Add photos or menu posters with optional serving details.</p></div> : null}
+    {!loading && !error && menu.images.length === 0 ? <div className="grid justify-items-center gap-3 rounded-card border border-dashed border-border bg-card px-5 py-6 text-center"><Images aria-hidden="true" className="size-8 text-primary-strong" /><p className="text-sm text-muted-foreground">No menu items yet. Add photos or menu posters with optional serving details.</p></div> : null}
     {!loading && !error && menu.images.length > 0 && filteredImages.length === 0 ? <p role="status" className="py-6 text-sm text-muted-foreground">No menu images match your filters.</p> : null}
   </section>;
 }

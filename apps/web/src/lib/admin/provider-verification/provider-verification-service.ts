@@ -794,9 +794,7 @@ export async function getProviderVerificationReview(
         provider.maxGuestsPerEvent,
         "guests",
       ),
-      eventsPerDay: provider.acceptsMultipleEventsPerDay === true
-        ? numericLabel(provider.maxEventsPerDay, "events")
-        : "One event per day",
+      eventsPerDay: "One event per day",
       staffCount: numericLabel(provider.availableStaffCount, "staff"),
       equipmentCount: numericLabel(
         provider.availableEquipmentCount,

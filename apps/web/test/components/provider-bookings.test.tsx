@@ -119,7 +119,7 @@ function booking(
     eventEndTime: "4:00 PM",
     guestCount: 80,
     venueAddress: "Quezon City",
-    locationSummary: "Quezon City · Metro Manila",
+    locationSummary: "Quezon City Â· Metro Manila",
     customerDisplayName: "Ana Reyes",
     packageId: "package-1",
     packageName: "Celebration Package",

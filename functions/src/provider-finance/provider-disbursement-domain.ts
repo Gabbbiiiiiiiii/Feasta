@@ -82,6 +82,8 @@ export type TransferEvidence = {
   id: string; reference_number: string; amount: number; currency: string;
   livemode: boolean; status: "pending" | "succeeded" | "failed";
   destination_account: {number: string; name: string; bic: string};
+  provider_reference_number?: string;
+  batch_transfer_id?: string;
 };
 export function assertTransferEvidence(attempt: Data, evidence: TransferEvidence) {
   const destination = attempt.destinationSnapshot as Data;
@@ -94,6 +96,14 @@ export function assertTransferEvidence(attempt: Data, evidence: TransferEvidence
       !expected || !evidence.destination_account ||
       ["number", "name", "bic"].some(key => expected[key] !== (evidence.destination_account as unknown as Data)[key])) {
     throw new Error("Gateway payout evidence mismatch.");
+  }
+  const previous = attempt.gatewayEvidence as TransferEvidence | undefined;
+  for (const key of ["provider_reference_number", "batch_transfer_id"] as const) {
+    if (evidence[key] !== undefined &&
+        (typeof evidence[key] !== "string" || !/^[A-Za-z0-9_-]{1,220}$/u.test(evidence[key]) ||
+        (previous?.[key] != null && previous[key] !== evidence[key]))) {
+      throw new Error("Gateway payout identifiers mismatch.");
+    }
   }
 }
 export function aggregateOutcomePlan(input: {

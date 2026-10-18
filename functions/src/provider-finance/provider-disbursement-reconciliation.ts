@@ -1,4 +1,6 @@
-import {providerDisbursementTransport} from "./provider-disbursement-transport.js";
+import {
+  providerDisbursementTransport, providerDisbursementTestSecret, isProviderDisbursementTestAllowed,
+} from "./provider-disbursement-transport.js";
 import {reconcileProviderDisbursementAttempt, processReadyProviderDisbursement} from "./provider-disbursement-execution.js";
 import {
   Timestamp,
@@ -52,9 +54,12 @@ export const reconcileProviderDisbursements =
 
       retryCount:
         2,
+      secrets: [providerDisbursementTestSecret],
+      timeoutSeconds: 540,
     },
 
     async () => {
+      const sweepDeadline = Date.now() + 450_000;
       const now =
         new Date(
           Date.now(),
@@ -84,6 +89,9 @@ export const reconcileProviderDisbursements =
         const candidate of
           candidates.docs
       ) {
+        // Leave time for one bounded wallet/create exchange plus financial application.
+        // Unvisited candidates retain nextCheckAt and are picked up by the next sweep.
+        if (Date.now() >= sweepDeadline) break;
         try {
           if (["reserved", "processing", "reconciliation_required"].includes(String(candidate.data().status))) {
             await reconcileProviderDisbursementAttempt(candidate.id);
@@ -573,6 +581,8 @@ export async function reconcileOne(
             transportMode: "disabled",
             dispatchEnabled,
             dispatchBlockReason: !dispatchEnabled ? "platform_disbursements_disabled" :
+              !isProviderDisbursementTestAllowed(settings, data.disbursementId) ?
+                "paymongo_test_disbursement_not_allowed" :
               !capability.transportReady ? capability.reason : !operationalCapability.ready ? operationalCapability.reason : null,
 
             transportReady: capability.transportReady && operationalCapability.ready,
