@@ -7,7 +7,9 @@ const {db} = require('../lib/shared/firestore.js');
 const paymentReader = require('../lib/payments/provider-request-payment-reader.js');
 const {bookingPolicyV3Evidence} = require('../lib/bookings/booking-policy-v3.js');
 const {executeProviderBookingLifecycle, completeProviderBooking} = require('../lib/provider-requests/update-provider-booking-lifecycle.js');
-const {materializeBookingLifecycleV3, reconcileAutomaticBookingCompletionsV3} = require('../lib/bookings/booking-lifecycle-v3.js');
+const {materializeBookingLifecycleV3, reconcileAutomaticBookingCompletionsV3, reconcileBookingPolicyV3} = require('../lib/bookings/booking-lifecycle-v3.js');
+const {reconcileHistoricalBookingCompletion} = require('../lib/bookings/historical-completion-reconciliation.js');
+const {providerDisbursementIdForProviderRequest} = require('../lib/provider-finance/provider-disbursement-management.js');
 const {automaticCompletionAt} = require('../lib/bookings/booking-completion-policy.js');
 const {createBookingComplaint} = require('../lib/content/booking-complaint.js');
 const {providerDisbursementEligibleAt} = require('../lib/provider-finance/provider-disbursement-policy.js');
@@ -47,7 +49,10 @@ function harness() {
   function querySnapshot(query) {
     let docs = [...records.keys()].filter(path => path.startsWith(query.path + '/') && path.split('/').length === query.path.split('/').length + 1)
       .map(reference).sort((a,b) => a.id.localeCompare(b.id)).filter(ref => !query.cursor || ref.id > query.cursor)
-      .filter(ref => query.filters.every(([field, op, value]) => op === '==' ? records.get(ref.path)[field] === value : false)).slice(0, query.max).map(snapshot);
+      .filter(ref => query.filters.every(([field, op, value]) => {
+        const stored = records.get(ref.path)[field];
+        return op === '==' ? stored === value : op === '<=' ? stored != null && stored.toMillis() <= value.toMillis() : false;
+      })).slice(0, query.max).map(snapshot);
     return {docs, size: docs.length};
   }
   db.collection = collection;
@@ -239,4 +244,251 @@ test('pre-v3 canonical payment records cannot evade enrollment or paid-source ch
  h.request.financialSnapshot.providerDisbursementPolicyVersion=1;
  paymentReader.readTrustedProviderRequestPaymentSetInTransaction=async()=>({mode:'p5',payments:[{id:'payment_owned',data:{status:'refunded'}}],settlement:{fullySettled:true,outstandingAmountInCentavos:0}});
  await assert.rejects(complete(providerActor,end));assert.equal(h.commits,0);
+});
+
+// Historical V3 bookings whose original financial snapshot predates provider disbursement enrollment.
+const enrollmentMissing = 'provider_disbursement_enrollment_missing';
+const adminActor = {kind: 'historical_reconciliation', uid: 'admin_owned', mainEventId: 'event_owned',
+  reason: 'Pre-enrollment booking reviewed: fully paid, no disputes or refunds.'};
+function historicalHarness() {
+  const h = harness();
+  delete h.request.financialSnapshot.providerDisbursementPolicyVersion;
+  h.request.financialSnapshot.financialPolicyVersion = 1;
+  h.request.financialSnapshotCapturedAt = Timestamp.fromDate(new Date('2026-10-13T02:00:00Z'));
+  // A fully paid booking past its event has finished its remaining-balance lifecycle.
+  h.request.remainingBalanceNextCheckAt = null;
+  return h;
+}
+function parkedHarness() {
+  const h = historicalHarness();
+  Object.assign(h.request, {lifecycleReconciliationRequired: true, lifecycleReconciliationReason: enrollmentMissing, lifecycleNextTransitionAt: null});
+  return h;
+}
+const stored = h => h.records.get('providerRequests/request_owned');
+function reconcile(now = fallback, actor = adminActor) {return executeProviderBookingLifecycle('request_owned', 'completed', actor, now);}
+function assertHistoricalFinancials(h) {
+  const earning = h.records.get('providerEarnings/payment_owned');
+  assert.equal(earning.availableAmountInCentavos, 900000);assert.equal(earning.pendingAmountInCentavos, 0);
+  assert.equal(earning.paidAmountInCentavos, 0);assert.equal(earning.earningAmountInCentavos, 900000);
+  assert.equal(h.count('providerSettlements/'), 1);assert.equal(h.count('providerDisbursements/'), 0);
+  assert.equal(h.count('providerDisbursementAttempts/'), 0);assert.equal(h.count('providerPayoutAttempts/'), 0);
+  assert.equal('providerDisbursementPolicyVersion' in stored(h).financialSnapshot, false, 'original terms are never backfilled');
+}
+
+test('policy-v1 completion is unchanged and cannot use the historical path', async () => {
+  const h = harness();
+  await assert.rejects(reconcile(), /predates provider disbursement enrollment/);assert.equal(h.commits, 0);
+  assert.equal((await complete(systemActor, fallback)).changed, true);assertFinancials(h, fallback);
+  assert.equal(stored(h).completionSource, 'automatic_fallback');
+  assert.equal(stored(h).historicalCompletionReconciliation, undefined);
+  assert.equal(stored(h).financialSnapshot.providerDisbursementPolicyVersion, 1);
+});
+
+test('enrolled booking failures rotate unclassified holds and keep retrying', async () => {
+  const h = harness();h.request.outstandingAmountInCentavos = 1;
+  h.request.lifecycleNextTransitionAt = Timestamp.fromDate(fallback);
+  h.records.set('bookingLifecycleCursors/completion_v3', {lastRequestId: 'request_owned'});
+  await reconcileBookingPolicyV3.run({});
+  assert.equal(stored(h).lifecycleReconciliationRequired, true);
+  assert.equal(stored(h).lifecycleReconciliationReason, 'unclassified');
+  assert.ok(stored(h).lifecycleNextTransitionAt.toMillis() > fallback.getTime());
+});
+
+test('historical fully paid booking completes only through authorized reconciliation without disbursement', async () => {
+  const h = parkedHarness();
+  const result = await reconcile();
+  assert.deepEqual({changed: result.changed, status: result.status, mainEventStatus: result.mainEventStatus},
+    {changed: true, status: 'completed', mainEventStatus: 'completed'});
+  assert.equal(h.commits, 1);assertHistoricalFinancials(h);
+  const request = stored(h);
+  assert.equal(request.status, 'completed');assert.equal(request.completionSource, 'historical_reconciliation');
+  assert.equal(request.completedAt.toMillis(), fallback.getTime());
+  assert.equal(request.lifecycleReconciliationRequired, false);assert.equal(request.lifecycleReconciliationReason, null);
+  assert.equal(request.lifecycleNextTransitionAt, null);
+  assert.deepEqual({...request.historicalCompletionReconciliation, decidedAt: request.historicalCompletionReconciliation.decidedAt.toMillis(),
+    financialSnapshotCapturedAt: request.historicalCompletionReconciliation.financialSnapshotCapturedAt.toMillis()}, {
+    schemaVersion: 1, kind: enrollmentMissing, decidedBy: 'admin_owned', decidedAt: fallback.getTime(), reason: adminActor.reason,
+    resolvedLifecycleReconciliationReason: enrollmentMissing, financialSnapshotCapturedAt: new Date('2026-10-13T02:00:00Z').getTime(),
+    providerDisbursementEnrollment: 'not_enrolled', providerDisbursementScheduled: false});
+  assert.equal(request.financialSnapshot.grossAmountInCentavos, 1000000);assert.equal(request.grossSettledAmountInCentavos, 1000000);
+  assert.equal(h.records.get('mainEvents/event_owned').status, 'completed');
+  const audit = [...h.records.entries()].filter(([key]) => key.startsWith('adminLogs/')).map(([, value]) => value);
+  assert.equal(audit.length, 1);assert.equal(audit[0].action, 'booking.completion_historical_reconciliation');
+  assert.equal(audit[0].actorId, 'admin_owned');assert.equal(audit[0].actorRole, 'admin');
+  const timeline = [...h.records.entries()].filter(([key]) => key.startsWith('mainEvents/event_owned/timeline/')).map(([, value]) => value);
+  assert.equal(timeline.length, 1);assert.equal(timeline[0].createdByRole, 'admin');assert.equal(h.count('notifications/'), 2);
+});
+
+test('historical booking without a lifecycle hold also requires and records the explicit decision', async () => {
+  const h = historicalHarness();
+  assert.equal((await reconcile()).changed, true);assertHistoricalFinancials(h);
+  assert.equal(stored(h).historicalCompletionReconciliation.resolvedLifecycleReconciliationReason, null);
+});
+
+for (const actor of [providerActor, systemActor]) {
+  test(actor.kind + ' cannot complete a historical booking without authorized reconciliation', async () => {
+    const h = parkedHarness();
+    await assert.rejects(complete(actor, fallback), error => /canonical disbursement contract/.test(error.message) && error.details?.reason === enrollmentMissing);
+    assert.equal(h.commits, 0);assert.equal(h.count('providerSettlements/'), 0);assert.equal(stored(h).status, 'in_progress');
+  });
+}
+
+test('scheduler parks the classified missing-enrollment hold once and stops automatic retries', async () => {
+  const h = historicalHarness();h.request.lifecycleNextTransitionAt = Timestamp.fromDate(fallback);
+  h.records.set('bookingLifecycleCursors/completion_v3', {lastRequestId: 'request_owned'});
+  await reconcileBookingPolicyV3.run({});
+  assert.equal(h.commits, 1);assert.equal(stored(h).status, 'in_progress');
+  assert.equal(stored(h).lifecycleReconciliationRequired, true);
+  assert.equal(stored(h).lifecycleReconciliationReason, enrollmentMissing);
+  assert.equal(stored(h).lifecycleNextTransitionAt, null);
+  assert.equal(h.count('providerSettlements/'), 0);assert.equal(h.count('providerDisbursements/'), 0);
+  h.records.set('bookingLifecycleCursors/completion_v3', {lastRequestId: null});
+  await reconcileBookingPolicyV3.run({});await reconcileAutomaticBookingCompletionsV3(new Date(fallback.getTime() + 3_600_000));
+  assert.equal(h.commits, 1, 'parked hold is not retried');
+  assert.equal(stored(h).lifecycleReconciliationRequired, true, 'hold remains visible');
+  assert.equal((await reconcile()).changed, true);assertHistoricalFinancials(h);
+});
+
+test('cursor sweep also parks a discovered missing-enrollment failure', async () => {
+  const h = historicalHarness();
+  await reconcileAutomaticBookingCompletionsV3(fallback);
+  assert.equal(stored(h).lifecycleReconciliationReason, enrollmentMissing);assert.equal(stored(h).lifecycleNextTransitionAt, null);
+  const commits = h.commits;await reconcileAutomaticBookingCompletionsV3(fallback);assert.equal(h.commits, commits);
+});
+
+const unclassifiedHold = /not classified as missing disbursement enrollment/;
+for (const [name, patch, expected] of [
+  ['legacy unclassified hold', {lifecycleReconciliationRequired: true}, unclassifiedHold],
+  ['unclassified hold', {lifecycleReconciliationRequired: true, lifecycleReconciliationReason: 'unclassified'}, unclassifiedHold],
+  ['unknown hold reason', {lifecycleReconciliationRequired: true, lifecycleReconciliationReason: 'other'}, unclassifiedHold],
+  ['malformed hold flag', {lifecycleReconciliationRequired: 'yes', lifecycleReconciliationReason: enrollmentMissing}, unclassifiedHold],
+  ['payment reconciliation lock', {reconciliationRequired: true}, /policy evidence requires system review|payment reconciliation/],
+  ['refund execution lock', {refundExecutionLock: {}}, /./],
+  ['pending remaining-balance lifecycle', {remainingBalanceNextCheckAt: Timestamp.fromDate(end)}, /Remaining-balance lifecycle work/],
+]) {
+  test('historical reconciliation preserves existing lock: ' + name, async () => {
+    const h = historicalHarness();Object.assign(h.request, patch);
+    await assert.rejects(reconcile(), expected);assert.equal(h.commits, 0);assert.equal(h.count('providerSettlements/'), 0);
+  });
+}
+
+for (const [name, patch] of [
+  ['outstanding balance', {outstandingAmountInCentavos: 1}],
+  ['partial settlement', {settlementStatus: 'deposit_settled'}],
+  ['active dispute', {activeDisputeId: 'dispute'}],
+  ['unresolved dispute status', {disputeStatus: 'open'}],
+  ['active cancellation', {activeCancellationRequestId: 'cancel'}],
+  ['refunded amount', {refundedAmountInCentavos: 1}],
+]) {
+  test('historical reconciliation rejects ' + name, async () => {
+    const h = parkedHarness();Object.assign(h.request, patch);
+    await assert.rejects(reconcile());assert.equal(h.commits, 0);assert.equal(h.count('providerSettlements/'), 0);
+  });
+}
+
+for (const payment of [{status: 'pending'}, {status: 'refunded'}, {status: 'partially_refunded'}, {status: 'paid', refundReservedAmountInCentavos: 1}, {status: 'paid', activeDisputeId: 'dispute'}]) {
+  test('historical reconciliation rejects untrusted payment ' + JSON.stringify(payment), async () => {
+    const h = parkedHarness();
+    paymentReader.readTrustedProviderRequestPaymentSetInTransaction = async () => ({mode: 'p5', payments: [{id: 'payment_owned', data: payment}], settlement: {fullySettled: true, outstandingAmountInCentavos: 0}});
+    await assert.rejects(reconcile());assert.equal(h.commits, 0);
+  });
+}
+
+test('historical reconciliation rejects unsettled or unavailable payment authority', async () => {
+  const h = parkedHarness();
+  paymentReader.readTrustedProviderRequestPaymentSetInTransaction = async () => ({mode: 'p5', payments: [{id: 'payment_owned', data: {status: 'paid'}}], settlement: {fullySettled: false, outstandingAmountInCentavos: 100}});
+  await assert.rejects(reconcile());
+  paymentReader.readTrustedProviderRequestPaymentSetInTransaction = async () => {throw new Error('unavailable');};
+  await assert.rejects(reconcile());assert.equal(h.commits, 0);
+});
+
+test('historical reconciliation requires complete complaint resolution evidence', async () => {
+  const h = parkedHarness();const complaint = {providerRequestId: 'request_owned', status: 'submitted'};
+  h.records.set('complaints/scoped', complaint);
+  await assert.rejects(reconcile());
+  complaint.status = 'resolved';await assert.rejects(reconcile(), /complaint/);
+  complaint.resolvedAt = Timestamp.fromDate(end);await assert.rejects(reconcile(), /complaint/);
+  assert.equal(h.commits, 0);
+  complaint.resolvedBy = 'admin_owned';assert.equal((await reconcile()).changed, true);assertHistoricalFinancials(h);
+});
+
+test('historical reconciliation fails closed when complaint authority is unavailable', async () => {
+  const h = parkedHarness();const collection = db.collection;
+  db.collection = path => {if (path === 'complaints') throw new Error('complaint authority unavailable'); return collection(path);};
+  await assert.rejects(reconcile());assert.equal(h.commits, 0);
+});
+
+for (const [name, mutate] of [
+  ['malformed enrollment null', h => {h.request.financialSnapshot.providerDisbursementPolicyVersion = null;}],
+  ['malformed enrollment 0', h => {h.request.financialSnapshot.providerDisbursementPolicyVersion = 0;}],
+  ['malformed enrollment 2', h => {h.request.financialSnapshot.providerDisbursementPolicyVersion = 2;}],
+  ['malformed enrollment string', h => {h.request.financialSnapshot.providerDisbursementPolicyVersion = '1';}],
+  ['unknown financial policy', h => {h.request.financialSnapshot.financialPolicyVersion = 2;}],
+  ['unknown snapshot schema', h => {h.request.financialSnapshot.schemaVersion = 2;}],
+  ['missing snapshot capture evidence', h => {delete h.request.financialSnapshotCapturedAt;}],
+  ['non-canonical settlement', h => {h.request.settlementSchemaVersion = 2;}],
+  ['pre-v3 timing contract', h => {delete h.request.remainingBalanceTimingSchemaVersion;}],
+]) {
+  test('historical reconciliation requires trustworthy original records: ' + name, async () => {
+    const h = parkedHarness();mutate(h);
+    await assert.rejects(reconcile(), /predates provider disbursement enrollment|not due|financial snapshot is invalid|must be fully settled/);
+    assert.equal(h.commits, 0);assert.equal(h.count('providerSettlements/'), 0);
+  });
+}
+
+test('historical reconciliation enforces schedule, decision binding and provider eligibility', async () => {
+  const h = parkedHarness();
+  await assert.rejects(reconcile(new Date(fallback.getTime() - 1)), /not due/);
+  await assert.rejects(reconcile(fallback, {...adminActor, mainEventId: 'event_other'}), /main event/);
+  h.records.get('mainEvents/event_owned').providerRequestIds = ['different_request'];await assert.rejects(reconcile());
+  h.records.get('mainEvents/event_owned').providerRequestIds = ['request_owned'];
+  h.records.get('mainEvents/event_owned').eventEndTime = '21:00';await assert.rejects(reconcile());
+  h.records.get('mainEvents/event_owned').eventEndTime = '20:00';
+  h.records.get('users/owner_owned').accountStatus = 'blocked';await assert.rejects(reconcile());
+  h.records.get('users/owner_owned').accountStatus = 'active';
+  h.records.get('providers/provider_owned').verificationStatus = 'under_review';await assert.rejects(reconcile());
+  delete h.request.refundEligibilityState;await assert.rejects(reconcile());
+  assert.equal(h.commits, 0);
+});
+
+test('concurrent duplicate reconciliations complete and release earnings exactly once', async () => {
+  const h = parkedHarness();
+  const results = await Promise.all([reconcile(), reconcile(), reconcile()]);
+  assert.equal(results.filter(result => result.changed).length, 1);assert.equal(h.commits, 1);assert.ok(h.retries > 0);
+  assertHistoricalFinancials(h);assert.equal(h.count('adminLogs/'), 1);assert.equal(h.count('mainEvents/event_owned/timeline/'), 1);
+});
+
+test('concurrent automatic completion cannot race a reconciliation into a disbursement', async () => {
+  const h = parkedHarness();
+  const [automatic, reconciled] = await Promise.allSettled([complete(systemActor, fallback), reconcile()]);
+  assert.equal(automatic.status, 'rejected');assert.equal(reconciled.status, 'fulfilled');
+  assert.equal(h.commits, 1);assertHistoricalFinancials(h);
+});
+
+test('existing disbursement or already released settlement blocks reconciliation', async () => {
+  const h = parkedHarness();
+  h.records.set('providerDisbursements/' + providerDisbursementIdForProviderRequest('request_owned'), {status: 'scheduled'});
+  await assert.rejects(reconcile(), /disbursement already exists/);assert.equal(h.commits, 0);
+  h.records.delete('providerDisbursements/' + providerDisbursementIdForProviderRequest('request_owned'));
+  Object.assign(h.records.get('providerEarnings/payment_owned'), {pendingAmountInCentavos: 0, availableAmountInCentavos: 900000});
+  await assert.rejects(reconcile());assert.equal(h.commits, 0);assert.equal(h.count('providerSettlements/'), 0);
+});
+
+test('completed historical booking is idempotent for every completion authority', async () => {
+  const h = parkedHarness();
+  assert.equal((await reconcile()).changed, true);
+  const snapshot = JSON.stringify([...h.records.entries()].filter(([key]) => !key.startsWith('bookingLifecycleCursors/')));
+  assert.equal((await reconcile(new Date(fallback.getTime() + 60_000))).changed, false);
+  assert.equal((await complete(providerActor, fallback)).changed, false);
+  assert.equal((await complete(systemActor, fallback)).changed, false);
+  await reconcileAutomaticBookingCompletionsV3(fallback);await materializeBookingLifecycleV3('request_owned', fallback);
+  assert.equal(h.commits, 1);
+  assert.equal(JSON.stringify([...h.records.entries()].filter(([key]) => !key.startsWith('bookingLifecycleCursors/'))), snapshot);
+  assertHistoricalFinancials(h);
+});
+
+test('historical reconciliation callable rejects unauthenticated callers', async () => {
+  await assert.rejects(reconcileHistoricalBookingCompletion.run({data: {providerRequestId: 'request_owned', mainEventId: 'event_owned',
+    acknowledgement: 'complete_without_provider_disbursement_enrollment', reason: adminActor.reason}, auth: null, rawRequest: {headers: {}}}),
+  error => error.code === 'unauthenticated');
 });

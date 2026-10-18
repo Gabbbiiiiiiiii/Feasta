@@ -90,12 +90,25 @@ import {
 } from "../provider-finance/provider-settlement-management.js";
 
 import {
+  providerDisbursementIdForProviderRequest,
   scheduleCompletedProviderRequestDisbursementInTransaction,
 } from "../provider-finance/provider-disbursement-management.js";
+import {
+  isMissingEnrollmentLifecycleHold,
+  isUnenrolledHistoricalV3Contract,
+  LIFECYCLE_RECONCILIATION_REASONS,
+} from "../bookings/historical-completion-domain.js";
 
 type LifecycleTarget =
   | "in_progress"
   | "completed";
+
+type CompletionSource = "provider" | "automatic_fallback" | "historical_reconciliation";
+
+export type ProviderBookingLifecycleActor =
+  | {kind: "provider"; uid: string}
+  | {kind: "system"; uid: "feasta"}
+  | {kind: "historical_reconciliation"; uid: string; reason: string; mainEventId: string};
 
 type LifecycleResult = {
   providerRequestId: string;
@@ -168,11 +181,15 @@ async function updateProviderBookingLifecycle(
 /** Internal server operation; callers cannot select system authority through callable data. */
 export async function executeProviderBookingLifecycle(
   providerRequestId: string, targetStatus: LifecycleTarget,
-  actor: {kind: "provider"; uid: string} | {kind: "system"; uid: "feasta"},
+  actor: ProviderBookingLifecycleActor,
   // Capture once; transaction retries use the same completion/holding-period anchor.
   completionInstant = new Date(),
 ): Promise<LifecycleResult> {
-  if (actor.kind === "system" && targetStatus !== "completed") throw new Error("Invalid system operation.");
+  if (actor.kind !== "provider" && targetStatus !== "completed") throw new Error("Invalid system operation.");
+  const serverActor = actor.kind !== "provider";
+  const historical = actor.kind === "historical_reconciliation";
+  const completionSource: CompletionSource = actor.kind === "provider" ? "provider" :
+    historical ? "historical_reconciliation" : "automatic_fallback";
   try {
     const providerRequestReference = db
       .collection("providerRequests")
@@ -201,6 +218,13 @@ export async function executeProviderBookingLifecycle(
       throw new HttpsError(
         "failed-precondition",
         "The provider request linkage is invalid.",
+      );
+    }
+
+    if (historical && actor.mainEventId !== mainEventId) {
+      throw new HttpsError(
+        "failed-precondition",
+        "The reconciliation decision does not match the booking's main event.",
       );
     }
 
@@ -260,10 +284,10 @@ export async function executeProviderBookingLifecycle(
           transaction.get(mainEventReference),
           transaction.get(allRequestsQuery),
         ]);
-        if (actor.kind === "system" && requestData.providerOwnerId !== providerSnapshot.data()?.ownerId) {
+        if (serverActor && requestData.providerOwnerId !== providerSnapshot.data()?.ownerId) {
           throw new HttpsError("failed-precondition", "Completion ownership evidence is invalid.");
         }
-        if (actor.kind === "system") {
+        if (serverActor) {
           const ownerId = providerSnapshot.data()?.ownerId;
           if (typeof ownerId !== "string" || !ownerId) throw new HttpsError("failed-precondition", "Provider owner is unavailable.");
           const owner = await transaction.get(db.collection("users").doc(ownerId));
@@ -273,7 +297,7 @@ export async function executeProviderBookingLifecycle(
         }
         const authorized =
           authorizeProviderRequest({
-            actorUid: actor.kind === "system" ? String(providerSnapshot.data()?.ownerId ?? "") : actor.uid,
+            actorUid: serverActor ? String(providerSnapshot.data()?.ownerId ?? "") : actor.uid,
             providerRequestSnapshot:
               requestSnapshot,
             providerSnapshot,
@@ -337,7 +361,7 @@ export async function executeProviderBookingLifecycle(
           );
 
         if (evidenceClassification.status === "invalid" ||
-          (actor.kind === "system" && evidenceClassification.status !== "policy_backed")) {
+          (serverActor && evidenceClassification.status !== "policy_backed")) {
           throw policyEvidenceInvalid();
         }
 
@@ -464,15 +488,21 @@ export async function executeProviderBookingLifecycle(
         }
         if (targetStatus === "completed") {
           assertV3CompletionTime(authorized.requestData, completionInstant);
-          if (actor.kind === "system" && (!v3 || completionInstant < automaticCompletionAt(authorized.requestData))) {
+          if (serverActor && (!v3 || completionInstant < automaticCompletionAt(authorized.requestData))) {
             throw new HttpsError("failed-precondition", "Automatic completion is not due.");
           }
-          if ((actor.kind === "system" || v3 || canonicalCompletion) &&
+          if (historical) {
+            await assertHistoricalCompletionReconcilable(transaction, providerRequestId, authorized.requestData);
+          } else if ((actor.kind === "system" || v3 || canonicalCompletion) &&
             (authorized.requestData.settlementSchemaVersion !== 1 ||
             authorized.requestData.financialSnapshot?.providerDisbursementPolicyVersion !== 1)) {
-            throw new HttpsError("failed-precondition", "Completion requires the canonical disbursement contract; missing enrollment requires explicit reconciliation.");
+            throw new HttpsError("failed-precondition", "Completion requires the canonical disbursement contract; missing enrollment requires explicit reconciliation.",
+              isUnenrolledHistoricalV3Contract(authorized.requestData)
+                ? {reason: LIFECYCLE_RECONCILIATION_REASONS.providerDisbursementEnrollmentMissing} : undefined);
           }
-          await assertCompletionSafetyInTransaction(transaction, authorized.requestData, mainEvent, {providerRequestId, mainEventId});
+          await assertCompletionSafetyInTransaction(transaction,
+            historical ? withoutMissingEnrollmentHold(authorized.requestData) : authorized.requestData,
+            mainEvent, {providerRequestId, mainEventId});
         }
         assertLifecycleTransition(
           targetStatus === "completed" && effectiveStarted ? "in_progress" : authorized.status,
@@ -521,7 +551,8 @@ export async function executeProviderBookingLifecycle(
            * writes so the Firestore transaction preserves read-before-write
            * ordering.
            */
-          const platformSettingsSnapshot =
+          // Unenrolled historical contracts are never scheduled for provider disbursement.
+          const platformSettingsSnapshot = historical ? null :
             await transaction.get(
               db
                 .collection("appSettings")
@@ -546,7 +577,7 @@ export async function executeProviderBookingLifecycle(
             timestamp,
           });
 
-          scheduleCompletedProviderRequestDisbursementInTransaction({
+          if (platformSettingsSnapshot) scheduleCompletedProviderRequestDisbursementInTransaction({
             transaction,
 
             providerRequestId,
@@ -595,12 +626,27 @@ export async function executeProviderBookingLifecycle(
           }
         } else {
           requestUpdate.completedAt = Timestamp.fromDate(completionInstant);
-          requestUpdate.completionSource = actor.kind === "system" ? "automatic_fallback" : "provider";
+          requestUpdate.completionSource = completionSource;
           if (v3) {
             requestUpdate.lifecycleNextTransitionAt = null;
             requestUpdate.lifecycleReconciliationRequired = false;
             if (authorized.status === "confirmed") requestUpdate.startedAt = authorized.requestData.eventStartAt;
             if (eligibilityState) requestUpdate.refundEligibilityState = eligibilityState;
+          }
+          if (actor.kind === "historical_reconciliation") {
+            requestUpdate.lifecycleReconciliationReason = null;
+            requestUpdate.historicalCompletionReconciliation = {
+              schemaVersion: 1,
+              kind: LIFECYCLE_RECONCILIATION_REASONS.providerDisbursementEnrollmentMissing,
+              decidedBy: actor.uid,
+              decidedAt: Timestamp.fromDate(completionInstant),
+              reason: actor.reason,
+              resolvedLifecycleReconciliationReason: isMissingEnrollmentLifecycleHold(authorized.requestData)
+                ? LIFECYCLE_RECONCILIATION_REASONS.providerDisbursementEnrollmentMissing : null,
+              financialSnapshotCapturedAt: authorized.requestData.financialSnapshotCapturedAt,
+              providerDisbursementEnrollment: "not_enrolled",
+              providerDisbursementScheduled: false,
+            };
           }
         }
 
@@ -655,7 +701,7 @@ export async function executeProviderBookingLifecycle(
             .doc(),
           timelineEntry({
             actorUid: actor.uid,
-            automatic: actor.kind === "system",
+            source: completionSource,
             providerId,
             providerRequestId,
             targetStatus,
@@ -668,25 +714,26 @@ export async function executeProviderBookingLifecycle(
           customerNotification({
             customerId:
               authorized.customerId,
-            automatic: actor.kind === "system",
+            source: completionSource,
             providerRequestId,
             targetStatus,
           }),
         );
 
-        if (actor.kind === "system") createNotificationInTransaction(transaction, {
-          ...customerNotification({customerId: authorized.providerOwnerId, providerRequestId, targetStatus, automatic: true}),
+        if (serverActor) createNotificationInTransaction(transaction, {
+          ...customerNotification({customerId: authorized.providerOwnerId, providerRequestId, targetStatus, source: completionSource}),
         });
 
         writeAuditLogInTransaction(
           transaction,
           {
             actorId: actor.uid,
-            actorRole: actor.kind,
+            actorRole: historical ? "admin" : actor.kind,
             action:
               targetStatus === "in_progress"
                 ? "provider_request.in_progress"
-                : actor.kind === "system" ? "booking.completion_automatic" : "provider_request.completed",
+                : actor.kind === "system" ? "booking.completion_automatic" :
+                  historical ? "booking.completion_historical_reconciliation" : "provider_request.completed",
             targetCollection:
               "providerRequests",
             targetId: providerRequestId,
@@ -703,9 +750,16 @@ export async function executeProviderBookingLifecycle(
             metadata: {
               mainEventId,
               providerId,
-              completionSource: actor.kind === "system" ? "automatic_fallback" : "provider",
-              ...(actor.kind === "system" ? {scheduledEventEndAt: trustedScheduledEventEnd(authorized.requestData).toISOString(),
+              completionSource,
+              ...(serverActor ? {scheduledEventEndAt: trustedScheduledEventEnd(authorized.requestData).toISOString(),
                 fallbackEligibleAt: automaticCompletionAt(authorized.requestData).toISOString()} : {}),
+              ...(actor.kind === "historical_reconciliation" ? {
+                decisionReason: actor.reason,
+                resolvedLifecycleReconciliationReason: isMissingEnrollmentLifecycleHold(authorized.requestData)
+                  ? LIFECYCLE_RECONCILIATION_REASONS.providerDisbursementEnrollmentMissing : null,
+                providerDisbursementEnrollment: "not_enrolled",
+                providerDisbursementScheduled: false,
+              } : {}),
             },
           },
         );
@@ -872,9 +926,15 @@ function assertIdempotentParentStatus(
   }
 }
 
+const CREATED_BY_ROLE: Record<CompletionSource, string> = {
+  provider: "provider",
+  automatic_fallback: "system",
+  historical_reconciliation: "admin",
+};
+
 function timelineEntry(input: {
   actorUid: string;
-  automatic?: boolean;
+  source: CompletionSource;
   providerId: string;
   providerRequestId: string;
   targetStatus: LifecycleTarget;
@@ -890,20 +950,24 @@ function timelineEntry(input: {
       ? "Provider Service Completed"
       : "Provider Service In Progress",
     description: completed
-      ? input.automatic ? "FEASTA automatically completed the service 24 hours after its scheduled end." : "A provider marked the requested service as completed."
+      ? {
+        provider: "A provider marked the requested service as completed.",
+        automatic_fallback: "FEASTA automatically completed the service 24 hours after its scheduled end.",
+        historical_reconciliation: "FEASTA completed the service after an authorized booking review.",
+      }[input.source]
       : "A provider started fulfilling the requested service.",
     providerRequestId:
       input.providerRequestId,
     providerId: input.providerId,
     createdBy: input.actorUid,
-    createdByRole: input.automatic ? "system" : "provider",
+    createdByRole: CREATED_BY_ROLE[input.source],
     createdAt: serverTimestamp(),
   };
 }
 
 function customerNotification(input: {
   customerId: string;
-  automatic?: boolean;
+  source: CompletionSource;
   providerRequestId: string;
   targetStatus: LifecycleTarget;
 }): Parameters<
@@ -918,7 +982,11 @@ function customerNotification(input: {
       ? "Provider Service Completed"
       : "Provider Service Started",
     message: completed
-      ? input.automatic ? "FEASTA automatically completed your service 24 hours after its scheduled end." : "A provider marked your requested service as completed."
+      ? {
+        provider: "A provider marked your requested service as completed.",
+        automatic_fallback: "FEASTA automatically completed your service 24 hours after its scheduled end.",
+        historical_reconciliation: "FEASTA completed your service after an authorized booking review.",
+      }[input.source]
       : "A provider started fulfilling your requested service.",
     type: "booking",
     relatedId: input.providerRequestId,
@@ -927,10 +995,46 @@ function customerNotification(input: {
     metadata: {
       providerRequestStatus:
         input.targetStatus,
-      completionSource: input.automatic ? "automatic_fallback" : "provider",
-      createdByRole: input.automatic ? "system" : "provider",
+      completionSource: input.source,
+      createdByRole: CREATED_BY_ROLE[input.source],
     },
   };
+}
+
+/*
+ * Historical reconciliation never waives enrollment for enrolled, malformed or
+ * non-V3 contracts, and only resolves a lifecycle hold the trusted scheduler
+ * classified as missing enrollment. Every other completion check still runs.
+ */
+async function assertHistoricalCompletionReconcilable(
+  transaction: FirebaseFirestore.Transaction,
+  providerRequestId: string,
+  request: Readonly<Record<string, unknown>>,
+): Promise<void> {
+  if (!isUnenrolledHistoricalV3Contract(request)) {
+    throw new HttpsError("failed-precondition",
+      "Historical completion reconciliation applies only to canonical V3 bookings whose original financial snapshot predates provider disbursement enrollment.");
+  }
+  if (request.lifecycleReconciliationRequired != null && request.lifecycleReconciliationRequired !== false &&
+    !isMissingEnrollmentLifecycleHold(request)) {
+    throw new HttpsError("failed-precondition",
+      "The booking's lifecycle hold is not classified as missing disbursement enrollment and requires separate reconciliation.");
+  }
+  if (request.remainingBalanceNextCheckAt != null) {
+    throw new HttpsError("failed-precondition", "Remaining-balance lifecycle work is still pending for this booking.");
+  }
+  const disbursement = await transaction.get(db.collection("providerDisbursements")
+    .doc(providerDisbursementIdForProviderRequest(providerRequestId)));
+  if (disbursement.exists) {
+    throw new HttpsError("failed-precondition", "A provider disbursement already exists for this booking.");
+  }
+}
+
+function withoutMissingEnrollmentHold(request: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  if (!isMissingEnrollmentLifecycleHold(request)) return request;
+  const rest = {...request};
+  delete rest.lifecycleReconciliationRequired;
+  return rest;
 }
 
 function stringValue(value: unknown): string {

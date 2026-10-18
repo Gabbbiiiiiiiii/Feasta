@@ -18,6 +18,8 @@ import {reconcileCheckoutAttempts} from "../payments/checkout-attempt-reconcilia
 import {paymentIdForProviderRequestChoice} from "../payments/payment-obligation.js";
 import {classifyProviderRequestRefundPolicyEvidence, requireRefundEligibilityState} from "./booking-refund-policy.js";
 import {effectiveBookingStageV3, frozenBookingPolicyTimingV3} from "./booking-policy-v3.js";
+import {isMissingEnrollmentLifecycleHold, LIFECYCLE_RECONCILIATION_REASONS, lifecycleReconciliationReasonFor,
+  type LifecycleReconciliationReason} from "./historical-completion-domain.js";
 
 const secret = defineSecret("PAYMONGO_SECRET_KEY");
 export const V3_SWEEP_LIMIT = 100;
@@ -188,11 +190,18 @@ export async function reconcileAutomaticBookingCompletionsV3(now: Date): Promise
   for (const candidate of candidates.docs) {
     try {
       const request = candidate.data();
+      // Parked holds stay visible on the booking and wait for an authorized decision.
+      if (isMissingEnrollmentLifecycleHold(request)) continue;
       if (request.remainingBalanceTimingSchemaVersion === 3 && now >= automaticCompletionAt(request)) {
         await executeProviderBookingLifecycle(candidate.id, "completed", {kind: "system", uid: "feasta"}, now);
       }
     } catch (error) {
-      logger.error("Automatic completion blocked.", {providerRequestId: candidate.id, error: String(error)});
+      const reason = lifecycleReconciliationReasonFor(error);
+      logger.error("Automatic completion blocked.", {providerRequestId: candidate.id, reason, error: String(error)});
+      if (reason === LIFECYCLE_RECONCILIATION_REASONS.providerDisbursementEnrollmentMissing) {
+        await holdFailedLifecycle(candidate.ref, "lifecycleNextTransitionAt", reason, now).catch((holdError) =>
+          logger.error("Automatic completion hold could not be recorded.", {providerRequestId: candidate.id, error: String(holdError)}));
+      }
     }
   }
   await cursorRef.set({lastRequestId: candidates.size === V3_SWEEP_LIMIT ? candidates.docs.at(-1)!.id : null,
@@ -218,14 +227,38 @@ export const reconcileBookingPolicyV3 = onSchedule({schedule: "every 1 minutes",
           await materializeBalanceLifecycleV3(candidate.id, now);
         } else await materializeBookingLifecycleV3(candidate.id, now);
       } catch (error) {
-        logger.error("V3 lifecycle reconciliation failed.", {providerRequestId: candidate.id, error: String(error)});
-        // Rotate failed records behind other due candidates without authorizing any financial transition.
-        await db.runTransaction(async (transaction) => {
-          const latest = await transaction.get(candidate.ref);
-          if (latest.data()?.remainingBalanceTimingSchemaVersion === 3 && !["completed", "cancelled"].includes(String(latest.data()?.status))) transaction.update(candidate.ref,
-            {[field]: Timestamp.fromMillis(now.getTime() + POLL_MS), lifecycleReconciliationRequired: true});
-        });
+        const reason = lifecycleReconciliationReasonFor(error);
+        if (!(await holdFailedLifecycle(candidate.ref, field, reason, now))) {
+          logger.error("V3 lifecycle reconciliation failed.", {providerRequestId: candidate.id, reason, error: String(error)});
+        }
       }
     }
   }
 });
+
+/*
+ * Rotates failed records behind other due candidates without authorizing any
+ * financial transition. A classified missing-enrollment completion failure is
+ * parked instead: automatic retries cannot resolve it, so polling stops while
+ * the hold and its reason stay on the booking until an authorized decision.
+ * Returns whether the record was parked.
+ */
+async function holdFailedLifecycle(reference: FirebaseFirestore.DocumentReference,
+  field: "remainingBalanceNextCheckAt" | "lifecycleNextTransitionAt", reason: LifecycleReconciliationReason,
+  now: Date): Promise<boolean> {
+  const park = field === "lifecycleNextTransitionAt" &&
+    reason === LIFECYCLE_RECONCILIATION_REASONS.providerDisbursementEnrollmentMissing;
+  const held = await db.runTransaction(async (transaction) => {
+    const latest = (await transaction.get(reference)).data();
+    if (latest?.remainingBalanceTimingSchemaVersion !== 3 || ["completed", "cancelled"].includes(String(latest.status))) return false;
+    transaction.update(reference, {[field]: park ? null : Timestamp.fromMillis(now.getTime() + POLL_MS),
+      lifecycleReconciliationRequired: true, lifecycleReconciliationReason: reason});
+    return true;
+  });
+  if (park && held) {
+    logger.warn("Automatic completion held: the original financial snapshot has no provider disbursement enrollment. " +
+      "Automatic retries are paused until an authorized historical completion reconciliation is decided.",
+    {providerRequestId: reference.id, reason});
+  }
+  return park;
+}

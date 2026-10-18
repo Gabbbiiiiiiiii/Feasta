@@ -1084,6 +1084,7 @@ export {
 } from "./refunds/automatic-refund-status-check.js";
 export {getCurrentLegalAgreement} from "./documents/current-legal-agreement.js";
 export {reconcileBookingPolicyV3} from "./bookings/booking-lifecycle-v3.js";
+export {reconcileHistoricalBookingCompletion} from "./bookings/historical-completion-reconciliation.js";
 export {getBookingPaymentAgreementDisclosures} from "./bookings/submit-booking-request.js";
 
 export {

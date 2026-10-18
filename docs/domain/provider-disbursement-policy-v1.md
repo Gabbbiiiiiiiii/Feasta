@@ -23,6 +23,15 @@ as banking days.
 Historical Provider Requests without the frozen v1 policy are not
 automatically enrolled.
 
+A canonical V3 booking whose original financial snapshot has no
+`providerDisbursementPolicyVersion` key cannot complete automatically or by
+the Provider. The scheduler records `lifecycleReconciliationReason =
+provider_disbursement_enrollment_missing` and stops retrying. Only the
+admin-only `reconcileHistoricalBookingCompletion` decision may complete it,
+after every completion check is re-validated. The snapshot is never
+backfilled, earnings are released under the original settlement contract,
+and no `providerDisbursements` record is created.
+
 ## Amount
 
 The Provider payout is derived only from canonical Provider earnings and
