@@ -395,6 +395,12 @@ class PackageModel {
   final List<String> serviceInclusions;
   final bool isCustomizable;
   final bool isActive;
+  final bool isPublished;
+  final bool providerPubliclyVisible;
+  final bool isDeleted;
+  final String status;
+  final Map<String, Map<String, dynamic>> serviceOptions;
+  final List<Map<String, dynamic>> themeOptions;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -411,6 +417,12 @@ class PackageModel {
     required this.minimumGuests,
     required this.maximumGuests,
     this.imageUrl,
+    this.isPublished = false,
+    this.providerPubliclyVisible = false,
+    this.isDeleted = false,
+    this.status = '',
+    this.serviceOptions = const {},
+    this.themeOptions = const [],
     required this.foodInclusions,
     required this.decorInclusions,
     required this.furnitureInclusions,
@@ -422,27 +434,54 @@ class PackageModel {
   });
 
   factory PackageModel.fromDoc(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    return PackageModel.fromMap(doc.id, doc.data() as Map<String, dynamic>);
+  }
 
+  factory PackageModel.fromMap(String id, Map<String, dynamic> data) {
+    final imageUrls = stringListFromValue(data['imageUrls']);
+    final image = data['imageUrl']?.toString().trim() ?? '';
     return PackageModel(
-      id: doc.id,
+      id: id,
       providerId: data['providerId'] ?? '',
       name: data['name'] ?? '',
       description: data['description'] ?? '',
       eventType: data['eventType'] ?? '',
-      price: doubleFromValue(data['price']),
+      price: data['price'] is num
+          ? (data['price'] as num).toDouble()
+          : double.tryParse(data['price']?.toString() ?? '') ?? double.nan,
       downPaymentPercentage: doubleFromValue(data['downPaymentPercentage']),
       downPaymentAmount: doubleFromValue(data['downPaymentAmount']),
       guestCapacity: intFromValue(data['guestCapacity']),
       minimumGuests: intFromValue(data['minimumGuests']),
       maximumGuests: intFromValue(data['maximumGuests']),
-      imageUrl: data['imageUrl'],
+      imageUrl: imageUrls.isNotEmpty
+          ? imageUrls.first
+          : (image.isEmpty ? null : image),
       foodInclusions: stringListFromValue(data['foodInclusions']),
       decorInclusions: stringListFromValue(data['decorInclusions']),
       furnitureInclusions: stringListFromValue(data['furnitureInclusions']),
       serviceInclusions: stringListFromValue(data['serviceInclusions']),
       isCustomizable: data['isCustomizable'] ?? true,
-      isActive: data['isActive'] ?? true,
+      isActive: data['isActive'] == true,
+      isPublished: data['isPublished'] == true,
+      providerPubliclyVisible: data['providerPubliclyVisible'] == true,
+      isDeleted: data['isDeleted'] != false,
+      status: data['status']?.toString() ?? '',
+      serviceOptions: data['serviceOptions'] is Map
+          ? {
+              for (final entry in (data['serviceOptions'] as Map).entries)
+                if (entry.value is Map)
+                  entry.key.toString(): Map<String, dynamic>.from(
+                    entry.value as Map,
+                  ),
+            }
+          : {},
+      themeOptions: data['themeOptions'] is List
+          ? [
+              for (final item in data['themeOptions'] as List)
+                if (item is Map) Map<String, dynamic>.from(item),
+            ]
+          : [],
       createdAt: dateFromTimestamp(data['createdAt']),
       updatedAt: dateFromTimestamp(data['updatedAt']),
     );
@@ -652,7 +691,9 @@ class AddonModel {
       name: data['name'] ?? '',
       description: data['description'] ?? '',
       category: data['category'] ?? '',
-      price: doubleFromValue(data['price']),
+      price: data['price'] is num
+          ? (data['price'] as num).toDouble()
+          : double.tryParse(data['price']?.toString() ?? '') ?? double.nan,
       imageUrl: data['imageUrl'],
       isAvailable: data['isAvailable'] ?? true,
       isActive: data['isActive'] ?? true,

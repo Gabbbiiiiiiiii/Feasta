@@ -826,6 +826,7 @@ class _ProviderPackagesSliver extends StatelessWidget {
               return PackageCard(
                 eventPackage: packages[index],
                 provider: provider,
+                repository: repository,
               );
             },
           ),
@@ -839,9 +840,11 @@ class PackageCard extends StatelessWidget {
   const PackageCard({
     required this.eventPackage,
     required this.provider,
+    this.repository,
     super.key,
   });
 
+  final FeastaRepository? repository;
   final PackageModel eventPackage;
   final ProviderModel provider;
 
@@ -856,6 +859,7 @@ class PackageCard extends StatelessWidget {
             builder: (_) => PackageDetailsScreen(
               provider: provider,
               eventPackage: eventPackage,
+              repository: repository,
             ),
           ),
         );

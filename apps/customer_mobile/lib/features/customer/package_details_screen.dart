@@ -1,3 +1,4 @@
+import 'widgets/package_option_cards.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -13,14 +14,17 @@ import '../../shared/models/feasta_models.dart';
 import '../../shared/widgets/loading_skeleton.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import 'event_customization_screen.dart';
+import '../../core/helpers/booking_preparation.dart';
 
 class PackageDetailsScreen extends StatefulWidget {
   const PackageDetailsScreen({
     required this.provider,
     required this.eventPackage,
+    this.repository,
     super.key,
   });
 
+  final FeastaRepository? repository;
   final ProviderModel provider;
   final PackageModel eventPackage;
 
@@ -29,13 +33,24 @@ class PackageDetailsScreen extends StatefulWidget {
 }
 
 class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
-  final FeastaRepository _repository = FeastaRepository();
+  late final FeastaRepository _repository;
+  late PackageModel _currentPackage;
+  String? _selectedServiceTier;
+  bool _checkingPackage = false;
+  String? _selectionError;
+
+  @override
+  void initState() {
+    super.initState();
+    _repository = widget.repository ?? FeastaRepository();
+    _currentPackage = widget.eventPackage;
+  }
 
   bool _isUpdatingFavorite = false;
 
   ProviderModel get provider => widget.provider;
 
-  PackageModel get eventPackage => widget.eventPackage;
+  PackageModel get eventPackage => _currentPackage;
 
   Future<void> _toggleFavorite(bool isFavorite) async {
     if (_isUpdatingFavorite) {
@@ -92,17 +107,12 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
   }
 
   Future<void> _customizeEvent() async {
-    final nextScreen = EventCustomizationScreen(
-      provider: provider,
-      eventPackage: eventPackage,
-    );
-
+    if (_checkingPackage) return;
     if (isGuestUser) {
       await requireLogin(
         context,
         message:
             'Please log in or create an account to customize your event and continue booking.',
-        redirectAfterLogin: nextScreen,
       );
 
       return;
@@ -112,10 +122,58 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
       return;
     }
 
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => nextScreen),
-    );
+    setState(() {
+      _checkingPackage = true;
+      _selectionError = null;
+    });
+    try {
+      final fresh = await _repository.getEligiblePackageForPreparation(
+        provider.id,
+        eventPackage.id,
+      );
+      if (!mounted) return;
+      if (fresh == null || !eligiblePreparationPackage(fresh, provider.id)) {
+        setState(
+          () => _selectionError =
+              'This package is no longer available. Please choose another published package.',
+        );
+        FeastaSnackbars.show(
+          context,
+          message: _selectionError!,
+          tone: FeastaSnackbarTone.error,
+        );
+        return;
+      }
+      setState(() => _currentPackage = fresh);
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => EventCustomizationScreen(
+            provider: provider,
+            eventPackage: fresh,
+            repository: _repository,
+            initialServiceTier: _selectedServiceTier,
+            onServiceChanged: (tier) {
+              if (mounted) setState(() => _selectedServiceTier = tier);
+            },
+          ),
+        ),
+      );
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _selectionError =
+              'We could not verify this package. It may be unavailable. Please retry or choose another package.',
+        );
+        FeastaSnackbars.show(
+          context,
+          message: _selectionError!,
+          tone: FeastaSnackbarTone.error,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _checkingPackage = false);
+    }
   }
 
   @override
@@ -151,6 +209,40 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
               ),
               sliver: SliverList.list(
                 children: [
+                  if (_selectionError != null) ...[
+                    Text(
+                      _selectionError!,
+                      style: const TextStyle(color: AppColors.error),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (!eligiblePreparationPackage(eventPackage, provider.id))
+                    const Text('This package is unavailable for selection.'),
+                  if (preparationServices(eventPackage).isNotEmpty)
+                    _PackageSectionCard(
+                      title: 'Available service options',
+                      icon: Icons.room_service_outlined,
+                      child: ServiceOptionCards(
+                        package: eventPackage,
+                        readOnly: true,
+                      ),
+                    ),
+                  const SizedBox(height: AppSpacing.md),
+                  if (preparationThemes(eventPackage).isNotEmpty) ...[
+                    _PackageSectionCard(
+                      title: 'Theme Options',
+                      icon: Icons.palette_outlined,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Explore the available visual styles.'),
+                          const SizedBox(height: 12),
+                          PackageThemeCards(package: eventPackage),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                  ],
                   if (eventPackage.description.trim().isNotEmpty) ...[
                     _PackageSectionCard(
                       title: 'About this package',
@@ -205,13 +297,13 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
       ),
       bottomNavigationBar: _PackageBottomAction(
         price: eventPackage.price,
-        onPressed: _customizeEvent,
+        onPressed: _checkingPackage ? null : _customizeEvent,
       ),
     );
   }
 }
 
-class _PackageHero extends StatelessWidget {
+class _PackageHero extends StatefulWidget {
   const _PackageHero({
     required this.provider,
     required this.eventPackage,
@@ -229,15 +321,43 @@ class _PackageHero extends StatelessWidget {
   final Future<void> Function(bool isFavorite) onToggleFavorite;
 
   @override
+  State<_PackageHero> createState() => _PackageHeroState();
+}
+
+class _PackageHeroState extends State<_PackageHero> {
+  bool _imageFailed = false;
+  @override
+  void didUpdateWidget(covariant _PackageHero oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.eventPackage.imageUrl != widget.eventPackage.imageUrl) {
+      _imageFailed = false;
+    }
+  }
+
+  PackageModel get eventPackage => widget.eventPackage;
+  ProviderModel get provider => widget.provider;
+  FeastaRepository get repository => widget.repository;
+  bool get isUpdatingFavorite => widget.isUpdatingFavorite;
+  Future<void> Function(bool) get onToggleFavorite => widget.onToggleFavorite;
+  @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 310,
+      key: const ValueKey('package-details-hero'),
+      height: eventPackage.imageUrl?.trim().isNotEmpty == true && !_imageFailed
+          ? 220
+          : 112,
       child: Stack(
         fit: StackFit.expand,
         children: [
           _PackageHeroImage(
             imageUrl: eventPackage.imageUrl,
             packageName: eventPackage.name,
+            onFailure: () {
+              if (_imageFailed) return;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) setState(() => _imageFailed = true);
+              });
+            },
           ),
           const DecoratedBox(
             decoration: BoxDecoration(
@@ -335,7 +455,13 @@ class _PackageHero extends StatelessWidget {
 }
 
 class _PackageHeroImage extends StatelessWidget {
-  const _PackageHeroImage({required this.imageUrl, required this.packageName});
+  const _PackageHeroImage({
+    required this.imageUrl,
+    required this.packageName,
+    required this.onFailure,
+  });
+
+  final VoidCallback onFailure;
 
   final String? imageUrl;
   final String packageName;
@@ -350,7 +476,7 @@ class _PackageHeroImage extends StatelessWidget {
         alignment: Alignment.center,
         child: const Icon(
           Icons.image_outlined,
-          size: 64,
+          size: 36,
           color: AppColors.secondaryTextAccessible,
         ),
       );
@@ -375,12 +501,13 @@ class _PackageHeroImage extends StatelessWidget {
         );
       },
       errorBuilder: (context, error, stackTrace) {
+        onFailure();
         return Container(
           color: AppColors.surfaceMuted,
           alignment: Alignment.center,
           child: const Icon(
             Icons.broken_image_outlined,
-            size: 54,
+            size: 36,
             color: AppColors.secondaryTextAccessible,
           ),
         );
@@ -544,7 +671,9 @@ class _PackageOverviewCard extends StatelessWidget {
                 children: [
                   _PackageInfoPill(
                     icon: Icons.people_outline_rounded,
-                    label: '${eventPackage.guestCapacity} guests',
+                    label: eventPackage.guestCapacity > 0
+                        ? '${eventPackage.guestCapacity} guests'
+                        : 'Capacity not published',
                   ),
                   const _PackageInfoPill(
                     icon: Icons.payments_outlined,
@@ -933,7 +1062,7 @@ class _PackageBottomAction extends StatelessWidget {
   const _PackageBottomAction({required this.price, required this.onPressed});
 
   final double price;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -982,8 +1111,9 @@ class _PackageBottomAction extends StatelessWidget {
             Expanded(
               flex: 6,
               child: FeastaPrimaryButton(
-                label: 'Customize Event',
-                icon: const Icon(Icons.tune_rounded),
+                label: onPressed == null
+                    ? 'Checking package...'
+                    : 'Select Package',
                 onPressed: onPressed,
               ),
             ),

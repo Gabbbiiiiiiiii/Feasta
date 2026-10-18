@@ -16,6 +16,7 @@ class FeastaImage extends StatelessWidget {
     this.width,
     this.height,
     this.fallbackLabel = 'Image unavailable',
+    this.compactFallback = false,
     this.borderRadius = AppRadius.image,
     super.key,
   });
@@ -31,6 +32,7 @@ class FeastaImage extends StatelessWidget {
   final double? height;
 
   final String fallbackLabel;
+  final bool compactFallback;
 
   final double borderRadius;
 
@@ -41,7 +43,10 @@ class FeastaImage extends StatelessWidget {
     final Widget image;
 
     if (url == null || url.isEmpty) {
-      image = FeastaImagePlaceholder(label: fallbackLabel);
+      image = FeastaImagePlaceholder(
+        label: fallbackLabel,
+        compact: compactFallback,
+      );
     } else {
       image = Image.network(
         url,
@@ -64,7 +69,10 @@ class FeastaImage extends StatelessWidget {
           );
         },
         errorBuilder: (context, error, stackTrace) {
-          return FeastaImagePlaceholder(label: fallbackLabel);
+          return FeastaImagePlaceholder(
+            label: fallbackLabel,
+            compact: compactFallback,
+          );
         },
       );
     }
@@ -97,11 +105,13 @@ class FeastaImage extends StatelessWidget {
 class FeastaImagePlaceholder extends StatelessWidget {
   const FeastaImagePlaceholder({
     this.label = 'Image unavailable',
+    this.compact = false,
     this.icon = Icons.image_not_supported_outlined,
     super.key,
   });
 
   final String label;
+  final bool compact;
   final IconData icon;
 
   @override
@@ -123,16 +133,17 @@ class FeastaImagePlaceholder extends StatelessWidget {
                     size: AppSizes.iconLarge,
                     color: AppColors.secondaryTextAccessible,
                   ),
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    label,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.caption.copyWith(
-                      color: AppColors.secondaryTextAccessible,
+                  if (!compact) const SizedBox(height: AppSpacing.xs),
+                  if (!compact)
+                    Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.secondaryTextAccessible,
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),

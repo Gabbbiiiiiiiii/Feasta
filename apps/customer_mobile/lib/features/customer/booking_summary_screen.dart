@@ -1,3 +1,4 @@
+import 'widgets/package_option_cards.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/helpers/verification_guard.dart';
@@ -11,15 +12,20 @@ import '../../shared/models/event_customization_data.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import 'booking_submitted_screen.dart';
+import 'widgets/booking_preparation_price.dart';
+import 'widgets/provider_brand_visual.dart';
+import '../../core/helpers/booking_preparation.dart';
 
 class BookingSummaryScreen extends StatefulWidget {
   const BookingSummaryScreen({
     required this.provider,
     required this.eventPackage,
     required this.customization,
+    this.preparationOnly = false,
     super.key,
   });
 
+  final bool preparationOnly;
   final ProviderModel provider;
   final PackageModel eventPackage;
   final EventCustomizationData customization;
@@ -88,7 +94,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   }
 
   Future<void> _submitBookingRequest() async {
-    if (isSubmitting) {
+    if (widget.preparationOnly || isSubmitting) {
       return;
     }
 
@@ -161,8 +167,163 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     }
   }
 
+  Widget _preparationReview(BuildContext context) {
+    final data = widget.customization;
+    final service = preparationServices(widget.eventPackage)[data.serviceTier];
+    final inclusions = service?['includedServices'];
+    final theme = preparationThemes(widget.eventPackage)
+        .where((item) => item['id'] == data.packageThemeId)
+        .map((item) => item['name'].toString())
+        .join(', ');
+    Widget choices(String label, List<String> values) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 6,
+          runSpacing: 4,
+          children: [for (final value in values) Chip(label: Text(value))],
+        ),
+        const SizedBox(height: 10),
+      ],
+    );
+    return Scaffold(
+      appBar: AppBar(title: const Text('Review Event')),
+      backgroundColor: AppColors.background,
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const CustomizationProgress(step: 3),
+          const SizedBox(height: 8),
+          const Text(
+            'Preparation only. Availability is unverified. No booking has been sent.',
+          ),
+          const SizedBox(height: 12),
+          _SummaryCard(
+            icon: Icons.storefront_outlined,
+            title: 'Provider and package',
+            children: [
+              Row(
+                children: [
+                  ProviderLogoBadge(provider: widget.provider, size: 40),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(widget.provider.businessName)),
+                ],
+              ),
+              _SummaryRow(label: 'Package', value: widget.eventPackage.name),
+              if (data.serviceTier != null)
+                _SummaryRow(
+                  label: 'Service',
+                  value: service == null
+                      ? data.serviceTier!
+                      : serviceOptionTitle(data.serviceTier!, service),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _SummaryCard(
+            icon: Icons.calendar_month_outlined,
+            title: 'Event details',
+            children: [
+              _SummaryRow(label: 'Event type', value: data.eventType),
+              _SummaryRow(label: 'Date', value: formattedDate),
+              _SummaryRow(
+                label: 'Time',
+                value: '${data.eventTime} - ${data.eventEndTime}',
+              ),
+              _SummaryRow(label: 'Guests', value: '${data.guestCount}'),
+              _SummaryRow(label: 'Location', value: data.eventLocation),
+              _SummaryRow(label: 'Full address', value: data.eventAddress),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _SummaryCard(
+            icon: Icons.tune_rounded,
+            title: 'Customization',
+            children: [
+              if (data.selectedFoods.isNotEmpty)
+                choices('Menu', data.selectedFoods),
+              if (data.selectedDecorations.isNotEmpty)
+                choices('Decorations', data.selectedDecorations),
+              if (data.selectedFurniture.isNotEmpty)
+                choices('Furniture and equipment', data.selectedFurniture),
+              if (theme.isNotEmpty) _SummaryRow(label: 'Theme', value: theme),
+              if (inclusions is List && inclusions.isNotEmpty)
+                choices(
+                  'Service inclusions',
+                  inclusions.map((item) => item.toString()).toList(),
+                ),
+              if (widget.eventPackage.serviceInclusions.isNotEmpty)
+                choices(
+                  'Package services',
+                  widget.eventPackage.serviceInclusions,
+                ),
+              if (data.selectedFoods.isEmpty &&
+                  data.selectedDecorations.isEmpty &&
+                  data.selectedFurniture.isEmpty &&
+                  theme.isEmpty &&
+                  (inclusions is! List || inclusions.isEmpty) &&
+                  widget.eventPackage.serviceInclusions.isEmpty)
+                const Text('No optional package choices selected.'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _SummaryCard(
+            icon: Icons.add_circle_outline,
+            title: 'Additional services',
+            children: [
+              if (data.selectedAddOns.isEmpty && !data.willArrangeOwnAddOns)
+                const Text('No additional services selected'),
+              for (final addon in data.selectedAddOns)
+                _SummaryRow(
+                  label: addon['source'] == 'catering_provider'
+                      ? 'Provider add-on'
+                      : 'FEASTA marketplace',
+                  value: addon['name']?.toString() ?? 'Add-on',
+                ),
+              if (data.willArrangeOwnAddOns)
+                _SummaryRow(
+                  label: 'Customer-arranged',
+                  value: data.customerArrangedAddOnsNote.trim().isEmpty
+                      ? 'Arranging own services; costs unconfirmed'
+                      : data.customerArrangedAddOnsNote,
+                ),
+              if (data.specialRequest.trim().isNotEmpty)
+                _SummaryRow(
+                  label: 'Special request',
+                  value: data.specialRequest,
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          BookingPreparationPrice(
+            package: widget.eventPackage,
+            addons: data.selectedAddOns,
+            serviceTier: data.serviceTier,
+            hasUnconfirmedRequests:
+                data.willArrangeOwnAddOns ||
+                data.specialRequest.trim().isNotEmpty,
+          ),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: FeastaPrimaryButton(
+            label: 'Edit event details and selections',
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.preparationOnly) return _preparationReview(context);
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -192,8 +353,8 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
 
           const SizedBox(height: AppSpacing.xl),
 
-          const _SectionHeading(
-            title: 'Booking details',
+          _SectionHeading(
+            title: 'Event details',
             subtitle:
                 'Review your event information before sending the request.',
           ),
@@ -226,7 +387,9 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
               ),
               _SummaryRow(
                 label: 'Package capacity',
-                value: '${widget.eventPackage.guestCapacity} guests',
+                value: widget.eventPackage.guestCapacity > 0
+                    ? '${widget.eventPackage.guestCapacity} guests'
+                    : 'Capacity not published',
               ),
             ],
           ),
@@ -246,7 +409,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                 icon: Icons.schedule_rounded,
                 label: 'Time',
                 value:
-                    '${widget.customization.eventTime} – '
+                    '${widget.customization.eventTime} \u2013 '
                     '${widget.customization.eventEndTime}',
               ),
               _IconSummaryRow(
@@ -312,8 +475,8 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
 
           _AddOnGroupCard(
             icon: Icons.storefront_outlined,
-            title: 'Caterer add-ons',
-            emptyText: 'No caterer add-ons selected.',
+            title: 'Provider add-ons',
+            emptyText: 'No provider add-ons selected.',
             addOns: cateringProviderAddOns,
           ),
 
@@ -354,24 +517,25 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
 
           const SizedBox(height: AppSpacing.xl),
 
-          const _SectionHeading(
-            title: 'Payment summary',
-            subtitle:
-                'Full Payment. You pay the full amount after the provider accepts the request.',
-          ),
+          ...[
+            const _SectionHeading(
+              title: 'Payment summary',
+              subtitle:
+                  'Full Payment. You pay the full amount after the provider accepts the request.',
+            ),
 
-          const SizedBox(height: AppSpacing.md),
+            const SizedBox(height: AppSpacing.md),
 
-          _PaymentSummaryCard(
-            packagePrice: widget.eventPackage.price,
-            addOnsTotal: addOnsTotal,
-            totalAmount: totalAmount,
-          ),
+            _PaymentSummaryCard(
+              packagePrice: widget.eventPackage.price,
+              addOnsTotal: addOnsTotal,
+              totalAmount: totalAmount,
+            ),
 
-          const SizedBox(height: AppSpacing.md),
+            const SizedBox(height: AppSpacing.md),
 
-          const _BookingProcessNotice(),
-
+            const _BookingProcessNotice(),
+          ],
           const SizedBox(height: 48),
         ],
       ),
@@ -409,6 +573,7 @@ class _BookingReviewHeader extends StatelessWidget {
                 imageUrl: eventPackage.imageUrl,
                 description: '${eventPackage.name} package image',
                 fallbackLabel: 'Package image unavailable',
+                compactFallback: true,
                 width: 88,
                 height: 88,
                 borderRadius: 0,
@@ -857,12 +1022,12 @@ class _AddOnSummaryRow extends StatelessWidget {
 
     final rawPrice = addOn['price'];
 
-    final price = rawPrice is num ? rawPrice.toDouble() : 0.0;
+    final price = rawPrice is num ? rawPrice.toDouble() : double.nan;
 
     final secondaryText = [
       providerBusinessName,
       category,
-    ].where((value) => value.isNotEmpty).join(' • ');
+    ].where((value) => value.isNotEmpty).join(' \u2022 ');
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1047,9 +1212,7 @@ class _PriceSummaryRow extends StatelessWidget {
             label,
             style: textStyle.copyWith(
               color: AppColors.mainText,
-              fontWeight: emphasized
-                  ? FontWeight.w900
-                  : FontWeight.w600,
+              fontWeight: emphasized ? FontWeight.w900 : FontWeight.w600,
             ),
           ),
         ),
@@ -1059,12 +1222,8 @@ class _PriceSummaryRow extends StatelessWidget {
           decimalDigits: 0,
           semanticLabel: label,
           style: textStyle.copyWith(
-            color: emphasized
-                ? AppColors.primaryStrong
-                : AppColors.mainText,
-            fontWeight: emphasized
-                ? FontWeight.w900
-                : FontWeight.w700,
+            color: emphasized ? AppColors.primaryStrong : AppColors.mainText,
+            fontWeight: emphasized ? FontWeight.w900 : FontWeight.w700,
           ),
         ),
       ],
@@ -1173,7 +1332,8 @@ class _BookingSubmitBar extends StatelessWidget {
                 FeastaPriceText(
                   amount: fullPaymentEstimate,
                   decimalDigits: 0,
-                  semanticLabel: 'Estimated full payment after provider acceptance',
+                  semanticLabel:
+                      'Estimated full payment after provider acceptance',
                   style: AppTypography.label.copyWith(
                     color: AppColors.primaryStrong,
                     fontWeight: FontWeight.w900,

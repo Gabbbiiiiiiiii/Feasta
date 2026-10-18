@@ -1,4 +1,6 @@
 class EventCustomizationData {
+  final String? serviceTier;
+  final String? packageThemeId;
   final String eventType;
   final DateTime eventDate;
   final String eventTime;
@@ -19,6 +21,8 @@ class EventCustomizationData {
   final String specialRequest;
 
   EventCustomizationData({
+    this.serviceTier,
+    this.packageThemeId,
     required this.eventType,
     required this.eventDate,
     required this.eventTime,

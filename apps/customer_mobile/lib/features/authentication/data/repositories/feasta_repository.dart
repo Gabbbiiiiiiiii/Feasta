@@ -371,6 +371,68 @@ class FeastaRepository {
         });
   }
 
+  Future<AddonModel?> getEligiblePreparationAddon(String addonId) async {
+    if (addonId.isEmpty) return null;
+    final doc = await _db
+        .collection(FirestoreCollections.addons)
+        .doc(addonId)
+        .get(const GetOptions(source: Source.server));
+    if (!doc.exists) return null;
+    final data = doc.data()!;
+    if (data['isActive'] != true ||
+        data['isAvailable'] != true ||
+        data['isDeleted'] != false) {
+      return null;
+    }
+    final providerId = data['providerId']?.toString() ?? '';
+    if (providerId.isEmpty) return null;
+    final providerDoc = await _db
+        .collection(FirestoreCollections.providers)
+        .doc(providerId)
+        .get(const GetOptions(source: Source.server));
+    final provider = providerDoc.exists
+        ? ProviderModel.fromDoc(providerDoc)
+        : null;
+    if (provider == null ||
+        !provider.isApproved ||
+        !provider.publiclyVisible ||
+        !provider.isActive ||
+        provider.isDeleted ||
+        provider.isSuspended) {
+      return null;
+    }
+    return AddonModel.fromDoc(doc);
+  }
+
+  /// Read-only revalidation for booking preparation, never a reservation.
+  Future<PackageModel?> getEligiblePackageForPreparation(
+    String providerId,
+    String packageId,
+  ) async {
+    final doc = await _db
+        .collection(FirestoreCollections.packages)
+        .doc(packageId)
+        .get(const GetOptions(source: Source.server));
+    if (!doc.exists) return null;
+    final data = doc.data()!;
+    if (data['providerId'] != providerId ||
+        data['isActive'] != true ||
+        data['isPublished'] != true ||
+        data['providerPubliclyVisible'] != true ||
+        data['status'] != 'published' ||
+        data['isDeleted'] != false) {
+      return null;
+    }
+    final providerDoc = await _db
+        .collection(FirestoreCollections.providers)
+        .doc(providerId)
+        .get(const GetOptions(source: Source.server));
+    if (!providerDoc.exists) return null;
+    final provider = ProviderModel.fromDoc(providerDoc);
+    if (!isDiscoverableProvider(provider)) return null;
+    return PackageModel.fromDoc(doc);
+  }
+
   Future<PackageModel?> getPackageById(String packageId) async {
     final doc = await _db
         .collection(FirestoreCollections.packages)
