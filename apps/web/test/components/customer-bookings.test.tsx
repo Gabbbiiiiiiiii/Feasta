@@ -371,6 +371,26 @@ describe("customer booking history and details", () => {
     expect(screen.getByText(/Enter the start of your booking code/u)).toBeVisible();
   });
 
+  it.each([
+    [{cancellation: false, reconciliation: true}, "Completion on hold", /must verify the booking's completion records before marking it completed/u],
+    [{cancellation: false, reconciliation: false}, "Awaiting completion", /awaiting completion confirmation/u],
+    [{cancellation: true, reconciliation: true}, "Booking review required", /resolve a booking review before progression/u],
+  ])("keeps ended lifecycle evidence %j consistent across the list and drawer", async (flags, label, message) => {
+    const lifecycle = {...flags, end: Date.parse("2026-08-15T22:00:00+08:00")};
+    const booking = bookingFixture({status: "in_progress", lifecycle});
+    const details = detailsFixture();
+    details.details.booking = booking;
+    mocks.loadDetails.mockResolvedValue(details);
+    render(<CustomerBookingExperience initialPage={pageFixture([booking])} />);
+    expect(screen.getAllByLabelText(`Status: ${label}`)).toHaveLength(2);
+    expect(screen.getByText(message)).toBeVisible();
+    if (label !== "Completion on hold") expect(screen.queryByLabelText("Status: Completion on hold")).not.toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", {name: "View booking FEA-2026-0001"})[0]);
+    const drawer = await screen.findByRole("dialog");
+    expect((await within(drawer).findAllByLabelText(`Status: ${label}`))[0]).toBeVisible();
+    expect(booking.status).toBe("in_progress");
+  });
+
   it("summarizes canonical provider responses for parent and mixed outcomes", () => {
     const scenarios: Array<{booking: CustomerBooking; summary: string; nextStep: string}> = [
       {

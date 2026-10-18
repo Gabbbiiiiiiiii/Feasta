@@ -288,7 +288,7 @@ export async function getCustomerBookingDetailsWithTimeline(
 
   return {
     details: {
-      booking: mapBookingDocument(ownedBooking.snapshot),
+      booking: await mapBookingWithLinkedEvidence(ownedBooking.snapshot, providerRequests),
       providerRequests,
     },
     timeline: {

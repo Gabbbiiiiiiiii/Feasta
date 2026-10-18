@@ -1,6 +1,10 @@
 import {scheduledEventWindow} from "./scheduled-event-window";
 
-export const ENDED_REVIEW_MESSAGE = "The event has ended, but FEASTA needs to resolve a booking reconciliation issue before confirming completion.";
+export const BOOKING_REVIEW_LABEL = "Booking review required";
+export const COMPLETION_ON_HOLD_LABEL = "Completion on hold";
+export const AWAITING_COMPLETION_LABEL = "Awaiting completion";
+export const BOOKING_REVIEW_MESSAGE = "FEASTA needs to resolve a booking review before progression.";
+export const ENDED_REVIEW_MESSAGE = "The event has ended. FEASTA must verify the booking's completion records before marking it completed.";
 export type LifecycleEvidence = {cancellation: boolean; reconciliation: boolean; end: number | null};
 /** Display evidence only. Never authorizes preparation, completion, or financial writes. */
 export function lifecycleEvidence(data: Readonly<Record<string, unknown>>): LifecycleEvidence {
@@ -14,8 +18,10 @@ export function lifecycleEvidence(data: Readonly<Record<string, unknown>>): Life
 }
 export function lifecycleLabel(status: string, evidence?: LifecycleEvidence, now?: number): string | null {
   if (["completed", "cancelled", "expired", "rejected"].includes(status)) return null;
-  if (evidence?.cancellation || evidence?.reconciliation) return "Booking review required";
-  if (status === "in_progress" && evidence?.end != null && now != null && now >= evidence.end) return "Awaiting completion";
+  const ended = evidence?.end != null && now != null && now >= evidence.end;
+  if (evidence?.cancellation) return BOOKING_REVIEW_LABEL;
+  if (evidence?.reconciliation) return ended ? COMPLETION_ON_HOLD_LABEL : BOOKING_REVIEW_LABEL;
+  if (status === "in_progress" && ended) return AWAITING_COMPLETION_LABEL;
   return null;
 }
 

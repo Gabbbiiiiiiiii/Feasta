@@ -3,7 +3,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../shared/models/feasta_models.dart';
 
-const endedBookingReviewMessage = 'The event has ended, but FEASTA needs to resolve a booking reconciliation issue before confirming completion.';
+const bookingReviewLabel = 'Booking review required';
+const completionOnHoldLabel = 'Completion on hold';
+const awaitingCompletionLabel = 'Awaiting completion';
+const bookingReviewMessage = 'FEASTA needs to resolve a booking review before progression.';
+const endedBookingReviewMessage = "The event has ended. FEASTA must verify the booking's completion records before marking it completed.";
 
 DateTime? scheduledBookingEnd(Map<String, dynamic> data) {
   DateTime? date(dynamic value) => value is Timestamp ? value.toDate() : value is DateTime ? value : value is String ? DateTime.tryParse(value) : null;
@@ -17,21 +21,34 @@ DateTime? scheduledBookingEnd(Map<String, dynamic> data) {
   final end = at(endClock);
   return end.isAfter(start) ? end : end.add(const Duration(days:1));
 }
-bool bookingReviewBlocked(Map<String, dynamic> data) {
-  final state = data['refundEligibilityState'], enforcement = data['remainingBalanceEnforcement'];
+bool bookingCancellationBlocked(Map<String, dynamic> data) {
+  final state = data['refundEligibilityState'];
   return data['activeCancellationRequestId'] != null || data['approvedCancellationRequestId'] != null ||
-    (state is Map && state['activeCancellationRequestId'] != null) || data['refundExecutionLock'] != null ||
-    data['reconciliationRequired'] == true || data['lifecycleReconciliationRequired'] == true ||
+    (state is Map && state['activeCancellationRequestId'] != null);
+}
+bool bookingReconciliationBlocked(Map<String, dynamic> data) {
+  final enforcement = data['remainingBalanceEnforcement'];
+  return data['refundExecutionLock'] != null || data['reconciliationRequired'] == true || data['lifecycleReconciliationRequired'] == true ||
     (enforcement is Map && enforcement['status'] == 'reconciliation_required');
 }
+bool bookingReviewBlocked(Map<String, dynamic> data) => bookingCancellationBlocked(data) || bookingReconciliationBlocked(data);
 String? bookingLifecycleLabel(Map<String, dynamic> data, Iterable<Map<String, dynamic>> requests, DateTime now, {bool incomplete = false}) {
   final status = data['status'];
   if (['completed','cancelled','expired','rejected'].contains(status)) return null;
-  if (incomplete || bookingReviewBlocked(data) || requests.where((r) => !['completed','cancelled','expired','rejected'].contains(r['status'])).any(bookingReviewBlocked)) return 'Booking review required';
+  final active = requests.where((r) => !['completed','cancelled','expired','rejected'].contains(r['status']));
   final end = scheduledBookingEnd(data);
-  if (status == 'in_progress' && end != null && !now.isBefore(end)) return 'Awaiting completion';
+  final ended = end != null && !now.isBefore(end);
+  if (bookingCancellationBlocked(data) || active.any(bookingCancellationBlocked)) return bookingReviewLabel;
+  if (incomplete || bookingReconciliationBlocked(data) || active.any(bookingReconciliationBlocked)) return ended ? completionOnHoldLabel : bookingReviewLabel;
+  if (status == 'in_progress' && ended) return awaitingCompletionLabel;
   return null;
 }
+String? bookingLifecycleMessage(String? label) => switch (label) {
+  completionOnHoldLabel => endedBookingReviewMessage,
+  bookingReviewLabel => bookingReviewMessage,
+  awaitingCompletionLabel => 'The event has ended and is awaiting completion confirmation.',
+  _ => null,
+};
 
 /// Read-only presentation. The canonical model and action authority remain unchanged.
 class BookingLifecycleBuilder extends StatefulWidget {
@@ -60,9 +77,7 @@ class _BookingLifecycleBuilderState extends State<BookingLifecycleBuilder> {
       final now = DateTime.now();
       final data = {...booking.lifecycleData, 'status':booking.status};
       final label = bookingLifecycleLabel(data,requests,now,incomplete:snapshot.hasError || requests.length != ids.length);
-      final end = scheduledBookingEnd(data);
-      final message = label == 'Booking review required' ? (end != null && !now.isBefore(end) ? endedBookingReviewMessage : 'FEASTA needs to resolve a booking review before progression.') : label == 'Awaiting completion' ? 'The event has ended and is awaiting completion confirmation.' : null;
-      return widget.builder(context,label,message);
+      return widget.builder(context,label,bookingLifecycleMessage(label));
     });
   }
 }

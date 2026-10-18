@@ -1,7 +1,7 @@
 "use client";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {useLifecycleNow} from "@/components/shared/booking-lifecycle-status";
-import {lifecycleLabel, type LifecycleEvidence} from "@/lib/presentation/booking-lifecycle";
+import {AWAITING_COMPLETION_LABEL, BOOKING_REVIEW_MESSAGE, COMPLETION_ON_HOLD_LABEL, ENDED_REVIEW_MESSAGE, lifecycleLabel, type LifecycleEvidence} from "@/lib/presentation/booking-lifecycle";
 import {scheduledEventWindow} from "@/lib/presentation/scheduled-event-window";
 import type {ProviderBooking} from "@/lib/provider/bookings/provider-booking-types";
 
@@ -18,10 +18,14 @@ export function useProviderBookingPresentation(booking: ProviderBooking | null) 
   const status = ["completed", "cancelled", "expired"].includes(booking.mainEventStatus) ? booking.mainEventStatus : booking.providerRequestStatus;
   const label = lifecycleLabel(status, data, now);
   if (!label) return booking;
+  const awaiting = label === AWAITING_COMPLETION_LABEL;
+  if (awaiting && (policy.state === "review" || policy.state === "hold")) return booking;
+  const completionHold = label === COMPLETION_ON_HOLD_LABEL;
+  const endedReview = !awaiting && data?.end != null && now != null && now >= data.end;
   return {...booking, bookingPolicy: {...policy,
-    state: label === "Booking review required" ? "review" as const : "awaiting_completion" as const,
-    label, endedReview: label === "Booking review required" && data?.end != null && now != null && now >= data.end,
-    readyToComplete: label === "Awaiting completion" && booking.canCompleteEvent !== false}};
+    state: awaiting ? "awaiting_completion" as const : "review" as const,
+    label, completionHold, endedReview, explanation: endedReview ? completionHold ? ENDED_REVIEW_MESSAGE : BOOKING_REVIEW_MESSAGE : undefined,
+    readyToComplete: awaiting && booking.canCompleteEvent !== false}};
 }
 export function ProviderBookingStatus({booking}: {booking: ProviderBooking; detailed?: boolean}) {
   const data = evidence(booking);

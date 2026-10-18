@@ -2,6 +2,7 @@ import {fireEvent, render, screen} from "@testing-library/react";
 import {describe, expect, it, vi} from "vitest";
 vi.mock("@/lib/firebase/client", () => ({auth: {}, functions: {}, initializeBrowserAppCheck: vi.fn()}));
 import {bookingPolicyV3Presentation} from "@/lib/payments/booking-policy-v3-presentation";
+import {ENDED_REVIEW_MESSAGE} from "@/lib/presentation/booking-lifecycle";
 import {BookingPolicySummary} from "@/components/shared/booking-policy-summary";
 import {BookingPaymentAgreementReview} from "@/components/customer/bookings/booking-payment-agreement-review";
 import {parseBookingPaymentAgreements} from "@/lib/customer/bookings/customer-booking-agreement";
@@ -47,6 +48,21 @@ describe("v3 booking presentation", () => {
     const now = new Date(event.getTime() + 3 * 3_600_000);
     expect(bookingPolicyV3Presentation(paid, now)?.readyToComplete).toBe(true);
     expect(bookingPolicyV3Presentation({...paid, ...lock}, now)).toMatchObject({state: "review", readyToComplete: false});
+  });
+  it("labels an ended, fully settled booking with lifecycle reconciliation as Completion on hold", () => {
+    const held = {...raw(), status: "in_progress", settlementStatus: "fully_settled", outstandingAmountInCentavos: 0, lifecycleReconciliationRequired: true};
+    const original = {...held};
+    const atEnd = new Date(event.getTime() + 2 * 3_600_000);
+    expect(bookingPolicyV3Presentation(held, new Date(atEnd.getTime() - 1))).toMatchObject({state: "review", label: "Booking review required", completionHold: true, endedReview: false, readyToComplete: false});
+    const ended = bookingPolicyV3Presentation(held, atEnd);
+    expect(ended).toMatchObject({state: "review", label: "Completion on hold", completionHold: true, endedReview: true, explanation: ENDED_REVIEW_MESSAGE, readyToComplete: false});
+    expect(held).toEqual(original);
+    render(<BookingPolicySummary policy={ended} audience="provider" />);
+    expect(screen.getByText("Completion on hold")).toBeVisible();
+    expect(screen.getByText(ENDED_REVIEW_MESSAGE)).toBeVisible();
+    expect(screen.queryByText("Booking review required")).not.toBeInTheDocument();
+    expect(bookingPolicyV3Presentation({...held, activeCancellationRequestId: "cancel"}, atEnd)).toMatchObject({state: "review", label: "Booking review required", completionHold: false, readyToComplete: false});
+    expect(bookingPolicyV3Presentation({...held, status: "completed"}, atEnd)).toMatchObject({state: "completed", label: "Completed", completionHold: false});
   });
   it.each([["cancellation_pending", "Processing"], ["refunded", "Refunded"], ["reconciliation_required", "Review required"]])(
     "shows trusted refund status %s and the actual default breakdown", (status, label) => {

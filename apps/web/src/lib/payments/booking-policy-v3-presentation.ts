@@ -1,7 +1,7 @@
-import {ENDED_REVIEW_MESSAGE} from "@/lib/presentation/booking-lifecycle";
+import {BOOKING_REVIEW_LABEL, BOOKING_REVIEW_MESSAGE, COMPLETION_ON_HOLD_LABEL, ENDED_REVIEW_MESSAGE} from "@/lib/presentation/booking-lifecycle";
 import {scheduledEventWindow} from "@/lib/presentation/scheduled-event-window";
 export type BookingPolicyPresentation = {
-  endAt?: number | null; endedReview?: boolean; explanation?: string; label: string; state: "upcoming" | "due" | "grace_period" | "hold" | "review" | "preparation" | "in_progress" | "awaiting_completion" | "completed" | "cancelled" | "expired";
+  endAt?: number | null; endedReview?: boolean; completionHold?: boolean; explanation?: string; label: string; state: "upcoming" | "due" | "grace_period" | "hold" | "review" | "preparation" | "in_progress" | "awaiting_completion" | "completed" | "cancelled" | "expired";
   dueAt: string; deadlineAt: string; preparationAt: string; eventAt: string;
   remainingAmountInCentavos: number | null; readyToComplete: boolean;
   allocation: null | {deposit: number; customerRefund: number; providerCompensation: number; fee: number; refundStatus: string};
@@ -23,8 +23,10 @@ export function bookingPolicyV3Presentation(data: Readonly<Record<string, unknow
     policy.requiresFullPayment !== true || policy.autoStartAtScheduledTime !== true || policy.providerConfirmsCompletion !== true) return null;
   const enforcement = data.remainingBalanceEnforcement as {status?: unknown} | null;
   const eligibility = data.refundEligibilityState as {activeCancellationRequestId?: unknown} | null;
-  const locked = data.activeCancellationRequestId != null || data.approvedCancellationRequestId != null ||
-    eligibility?.activeCancellationRequestId != null || data.refundExecutionLock != null;
+  const cancellationLocked = data.activeCancellationRequestId != null || data.approvedCancellationRequestId != null ||
+    eligibility?.activeCancellationRequestId != null;
+  const locked = cancellationLocked || data.refundExecutionLock != null;
+  let completionHold = false;
   const clear = data.settlementStatus === "fully_settled" && data.outstandingAmountInCentavos === 0 && !locked &&
     data.reconciliationRequired !== true && data.lifecycleReconciliationRequired !== true &&
     (enforcement == null || enforcement.status === "clear");
@@ -32,7 +34,7 @@ export function bookingPolicyV3Presentation(data: Readonly<Record<string, unknow
   if (data.status === "cancelled") { state = "cancelled"; label = "Booking cancelled"; }
   else if (data.status === "expired") { state = "expired"; label = "Expired"; }
   else if (data.status === "completed") { state = "completed"; label = "Completed"; }
-  else if (locked || enforcement?.status === "reconciliation_required" || data.lifecycleReconciliationRequired === true || data.reconciliationRequired === true) { state = "review"; label = "Booking review required"; }
+  else if (locked || enforcement?.status === "reconciliation_required" || data.lifecycleReconciliationRequired === true || data.reconciliationRequired === true) { state = "review"; label = BOOKING_REVIEW_LABEL; completionHold = !cancellationLocked; }
   else if (enforcement?.status === "on_hold") { state = "hold"; label = "Payment confirmation pending"; }
   else if (clear && ["confirmed", "in_progress"].includes(String(data.status)) && now >= event) { state = "in_progress"; label = "In Progress"; }
   else if (clear && data.status === "confirmed" && now >= prep) { state = "preparation"; label = "Preparation Period"; }
@@ -55,7 +57,9 @@ export function bookingPolicyV3Presentation(data: Readonly<Record<string, unknow
   const window = scheduledEventWindow(data);
   const end = window ? new Date(window.end) : null;
   if (state === "in_progress" && end && now >= end) { state = "awaiting_completion"; label = "Awaiting Completion"; }
-  return {label, state, endAt: window?.end ?? null, endedReview: state === "review" && end != null && now >= end, explanation: state === "review" && end != null && now >= end ? ENDED_REVIEW_MESSAGE : undefined, dueAt: due.toISOString(), deadlineAt: hard.toISOString(), preparationAt: prep.toISOString(), eventAt: event.toISOString(),
+  const endedReview = state === "review" && end != null && now >= end;
+  if (endedReview && completionHold) label = COMPLETION_ON_HOLD_LABEL;
+  return {label, state, completionHold, endAt: window?.end ?? null, endedReview, explanation: endedReview ? completionHold ? ENDED_REVIEW_MESSAGE : BOOKING_REVIEW_MESSAGE : undefined, dueAt: due.toISOString(), deadlineAt: hard.toISOString(), preparationAt: prep.toISOString(), eventAt: event.toISOString(),
     remainingAmountInCentavos: Number.isSafeInteger(data.outstandingAmountInCentavos) ? data.outstandingAmountInCentavos as number : null,
     readyToComplete: state === "awaiting_completion" && clear && end != null && Number.isFinite(end.getTime()) && now >= end, allocation};
 }

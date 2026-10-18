@@ -524,3 +524,23 @@ it.each([
  expect(within(drawer).queryByRole('button',{name:'Mark Preparation Started'})).not.toBeInTheDocument();
  if(!activeCancellationLocked) expect(within(drawer).queryByText(/cancellation request is being reviewed/)).not.toBeInTheDocument();
 });
+
+it.each([false, true])('keeps an ended reconciliation-held booking on Completion on hold without completion actions (V3: %s)', async (automaticLifecycle) => {
+ const held = {...booking('in_progress'), automaticLifecycle, eventTime: '12:00', eventEndTime: '16:00', canCompleteEvent: false,
+  lifecycle: {cancellation: false, reconciliation: true, end: Date.parse('2026-09-15T08:00:00.000Z')},
+  bookingPolicy: automaticLifecycle ? {state: 'review' as const, label: 'Completion on hold', completionHold: true, endedReview: true, endAt: Date.parse('2026-09-15T08:00:00.000Z'),
+   eventAt: '2026-09-15T04:00:00.000Z', dueAt: '', deadlineAt: '', preparationAt: '', remainingAmountInCentavos: 0, readyToComplete: false, allocation: null} : null};
+ mocks.loadBooking.mockResolvedValue(held);
+ renderWorkspace([held], 'upcoming');
+ expect(screen.getAllByLabelText('Status: Completion on hold')).toHaveLength(2);
+ expect(screen.queryByLabelText('Status: Awaiting completion')).not.toBeInTheDocument();
+ await userEvent.setup().click(screen.getAllByRole('button', {name: 'View booking for Ana Reyes'})[0]);
+ const drawer = await screen.findByRole('dialog');
+ expect((await within(drawer).findAllByLabelText('Status: Completion on hold')).length).toBeGreaterThanOrEqual(2);
+ expect(within(drawer).getAllByText(/must verify the booking's completion records before marking it completed/u)[0]).toBeVisible();
+ expect(within(drawer).queryByText('Booking review required')).not.toBeInTheDocument();
+ for (const name of ['Mark Completed', 'Start Event', 'Mark Preparation Started'])
+  expect(within(drawer).queryByRole('button', {name})).not.toBeInTheDocument();
+ expect(held.providerRequestStatus).toBe('in_progress');
+ expect(mocks.complete).not.toHaveBeenCalled();
+});

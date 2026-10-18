@@ -1,7 +1,7 @@
 "use client";
 import {useEffect, useState} from "react";
 import {StatusBadge} from "./status-badge";
-import {ENDED_REVIEW_MESSAGE, lifecycleLabel, type LifecycleEvidence} from "@/lib/presentation/booking-lifecycle";
+import {AWAITING_COMPLETION_LABEL, BOOKING_REVIEW_LABEL, BOOKING_REVIEW_MESSAGE, COMPLETION_ON_HOLD_LABEL, ENDED_REVIEW_MESSAGE, lifecycleLabel, type LifecycleEvidence} from "@/lib/presentation/booking-lifecycle";
 
 export function useLifecycleNow(end?: number | null) {
   const [now, setNow] = useState<number>();
@@ -22,12 +22,14 @@ export function BookingLifecycleStatus({status, evidence, label}: {status: strin
 export function BookingLifecycleText({status, evidence, children, description = false}: {status: string; evidence?: LifecycleEvidence; children: React.ReactNode; description?: boolean}) {
   const now = useLifecycleNow(evidence?.end);
   const label = lifecycleLabel(status, evidence, now);
-  if (description && label === "Booking review required") return <>{evidence?.end != null && now != null && now >= evidence.end ? ENDED_REVIEW_MESSAGE : "FEASTA needs to resolve a booking review before progression."}</>;
-  if (description && label === "Awaiting completion") return <>The event has ended and is awaiting completion confirmation.</>;
+  if (description && label === COMPLETION_ON_HOLD_LABEL) return <>{ENDED_REVIEW_MESSAGE}</>;
+  if (description && label === BOOKING_REVIEW_LABEL) return <>{BOOKING_REVIEW_MESSAGE}</>;
+  if (description && label === AWAITING_COMPLETION_LABEL) return <>The event has ended and is awaiting completion confirmation.</>;
   return <>{label ?? children}</>;
 }
 export function BookingLifecycleNotice({status, evidence}: {status: string; evidence?: LifecycleEvidence}) {
   const now = useLifecycleNow(evidence?.end);
-  if (lifecycleLabel(status, evidence, now) !== "Booking review required" || evidence?.end == null || now == null || now < evidence.end) return null;
-  return <div role="status"><p className="font-semibold">Booking review required</p><p>{ENDED_REVIEW_MESSAGE}</p></div>;
+  const label = lifecycleLabel(status, evidence, now);
+  if ((label !== COMPLETION_ON_HOLD_LABEL && label !== BOOKING_REVIEW_LABEL) || evidence?.end == null || now == null || now < evidence.end) return null;
+  return <div role="status"><p className="font-semibold">{label}</p><p>{label === COMPLETION_ON_HOLD_LABEL ? ENDED_REVIEW_MESSAGE : BOOKING_REVIEW_MESSAGE}</p></div>;
 }

@@ -10,6 +10,7 @@ import {
   compareCustomerBookingTimelineEntries,
   normalizeCustomerBookingTimelineData,
 } from "@/lib/customer/bookings/customer-booking-timeline-normalizer";
+import {BOOKING_REVIEW_MESSAGE, ENDED_REVIEW_MESSAGE} from "@/lib/presentation/booking-lifecycle";
 
 const mocks = vi.hoisted(() => ({
   getDetails: vi.fn(),
@@ -666,6 +667,26 @@ describe("customer booking dedicated detail page", () => {
     })).toHaveAttribute("href", "/customer/providers/provider-001");
     expect(container).not.toHaveTextContent("internal-payment-id-must-not-render");
     expect(container).toHaveTextContent(/PayMongo/u);
+  });
+
+  it.each([
+    [{cancellation: false, reconciliation: true}, "Completion on hold", ENDED_REVIEW_MESSAGE],
+    [{cancellation: false, reconciliation: false}, "Awaiting completion", "The event has ended and is awaiting completion confirmation."],
+    [{cancellation: true, reconciliation: true}, "Booking review required", BOOKING_REVIEW_MESSAGE],
+  ])("shows ended lifecycle evidence %j in the full-details banner and provider service card", (flags, label, message) => {
+    const lifecycle = {...flags, end: Date.parse("2026-08-15T22:00:00+08:00")};
+    const result = detailResult();
+    result.details.booking.status = "in_progress";
+    result.details.booking.lifecycle = lifecycle;
+    result.details.providerRequests = [providerRequestFixture({status: "in_progress", paymentStatus: "paid", lifecycle})];
+    render(<CustomerBookingDetailPage result={result} />);
+    const banner = screen.getByRole("heading", {level: 2, name: label}).closest("section") as HTMLElement;
+    expect(within(banner).getByLabelText(`Status: ${label}`)).toBeVisible();
+    expect(within(banner).getByText(message)).toBeVisible();
+    const serviceCard = screen.getByRole("heading", {name: "Maria's Catering"}).closest("article") as HTMLElement;
+    expect(within(serviceCard).getByLabelText(`Status: ${label}`)).toBeVisible();
+    expect(screen.queryByLabelText("Status: Completed")).not.toBeInTheDocument();
+    expect(result.details.booking.status).toBe("in_progress");
   });
 
   it("does not present a mixed completed and in-progress event as completed", () => {
