@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../core/utils/startup_guard.dart';
+import '../core/utils/startup_timings.dart';
 import '../core/security/runtime_security.dart';
 import '../core/security/secure_debug_log.dart';
 import '../firebase_options.dart';
@@ -26,8 +27,11 @@ Future<void> bootstrap() async {
 
   final firebaseApp = await runStartupStep<FirebaseApp?>(
     stepName: 'Firebase initialization',
-    operation: Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
+    operation: StartupTimings.measure(
+      'firebase_initialize',
+      () => Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      ),
     ),
     timeout: const Duration(seconds: 15),
     fallbackValue: null,
@@ -44,7 +48,7 @@ Future<void> bootstrap() async {
     isReleaseMode: kReleaseMode,
   );
 
-  await _activateAppCheck();
+  await StartupTimings.measure('app_check_activate', _activateAppCheck);
 
   if (!useFirebaseEmulators) {
     secureDebugLog(

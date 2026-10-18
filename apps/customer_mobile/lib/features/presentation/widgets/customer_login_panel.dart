@@ -1,3 +1,4 @@
+import '../../../shared/widgets/feasta_brand.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -142,17 +143,9 @@ class _CustomerLoginPanelState extends State<CustomerLoginPanel> {
 
                 const SizedBox(height: AppSpacing.sm),
 
-                Center(
-                  child: Image.asset(
-                    'assets/images/feasta_logo.png',
-                    width: 88,
-                    height: 88,
-                    fit: BoxFit.contain,
-                    semanticLabel: 'FEASTA logo',
-                  ),
-                ),
+                Center(child: const FeastaBrand(width: 140)),
 
-                const SizedBox(height: AppSpacing.xl),
+                const SizedBox(height: AppSpacing.lg),
 
                 Text(
                   'Log in or sign up',
