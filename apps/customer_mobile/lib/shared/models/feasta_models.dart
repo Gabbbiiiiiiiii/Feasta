@@ -214,6 +214,7 @@ class ProviderModel {
   final bool acceptsMultipleEventsPerDay;
   final bool isActive;
   final bool isFeatured;
+  final bool publiclyVisible;
   final bool isSuspended;
   final bool isDeleted;
   final int maxGuestsPerEvent;
@@ -258,6 +259,7 @@ class ProviderModel {
     required this.acceptsMultipleEventsPerDay,
     required this.isActive,
     required this.isFeatured,
+    this.publiclyVisible = false,
     this.isSuspended = false,
     this.isDeleted = false,
     this.maxGuestsPerEvent = 0,
@@ -330,6 +332,7 @@ class ProviderModel {
       availableEquipmentCount: intFromValue(data['availableEquipmentCount']),
       acceptsMultipleEventsPerDay: data['acceptsMultipleEventsPerDay'] ?? false,
       isActive: data['isActive'] is bool ? data['isActive'] as bool : false,
+      publiclyVisible: data['publiclyVisible'] == true,
       isFeatured: data['isFeatured'] is bool
           ? data['isFeatured'] as bool
           : false,

@@ -1,3 +1,4 @@
+import 'widgets/provider_brand_visual.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -33,7 +34,19 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
   late final FeastaRepository _repository;
   late final Future<Map<String, String>> _serviceCategoryNames;
 
-  static const List<String> _tabs = ['Packages', 'Menu', 'Photos', 'Reviews'];
+  List<String> get _tabs => providerProfileTabs(widget.provider);
+
+  @override
+  void didUpdateWidget(covariant ProviderProfileScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.provider.id != widget.provider.id ||
+        oldWidget.provider.providerCategory !=
+            widget.provider.providerCategory ||
+        oldWidget.provider.providerServiceType !=
+            widget.provider.providerServiceType) {
+      _selectedTab = 0;
+    }
+  }
 
   @override
   void initState() {
@@ -42,7 +55,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
     _repository = widget.repository ?? FeastaRepository();
     _serviceCategoryNames = _repository.getServiceCategoryNameMap();
 
-    _repository.incrementProviderViewCount(widget.provider.id);
+    // View counts are server-owned; public browsing must not write providers.
   }
 
   int _selectedTab = 0;
@@ -162,8 +175,8 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
   }
 
   List<Widget> _buildSelectedContent() {
-    switch (_selectedTab) {
-      case 0:
+    switch (_tabs[_selectedTab]) {
+      case 'Packages':
         return [
           _ProviderPackagesSliver(
             provider: widget.provider,
@@ -171,7 +184,7 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
           ),
         ];
 
-      case 1:
+      case 'Menu':
         return [
           SliverToBoxAdapter(
             child: ProviderMenuSection(
@@ -181,12 +194,18 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
           ),
         ];
 
-      case 2:
-        return const [
-          SliverFillRemaining(hasScrollBody: false, child: _PhotosEmptyState()),
+      case 'Photos':
+      case 'Portfolio':
+        return [
+          SliverToBoxAdapter(
+            child: ProviderPhotosSection(
+              provider: widget.provider,
+              isPortfolio: _tabs[_selectedTab] == 'Portfolio',
+            ),
+          ),
         ];
 
-      case 3:
+      case 'Reviews':
         return [
           _ProviderReviewsSliver(
             providerId: widget.provider.id,
@@ -424,7 +443,7 @@ class _FloatingFavoriteButton extends StatelessWidget {
           onPressed: onPressed,
           icon: Icon(
             isFavorite ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-            color: isFavorite ? AppColors.primary : AppColors.mainText,
+            color: isFavorite ? AppColors.primary : customerDecorativeIconColor,
           ),
         ),
       ),
@@ -447,8 +466,6 @@ class _ProviderIdentitySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final logoUrl = provider.logoUrl?.trim();
-
     return Transform.translate(
       offset: const Offset(0, -22),
       child: Padding(
@@ -458,52 +475,37 @@ class _ProviderIdentitySection extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              ProviderLogoBadge(provider: provider, size: 80),
+              const SizedBox(height: AppSpacing.md),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _ProviderLogo(
-                    imageUrl: logoUrl,
-                    businessName: provider.businessName,
-                  ),
-                  const SizedBox(width: AppSpacing.md),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                provider.businessName,
-                                style: AppTypography.pageTitle.copyWith(
-                                  color: AppColors.mainText,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ),
-                            if (provider.isApproved) ...[
-                              const SizedBox(width: AppSpacing.xs),
-                              const Tooltip(
-                                message: 'Verified provider',
-                                child: Icon(
-                                  Icons.verified_rounded,
-                                  color: AppColors.success,
-                                  size: 24,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: AppSpacing.xs),
-                        _ProviderCategoryPill(
-                          category: provider.providerCategory,
-                          categoryNames: categoryNames,
-                        ),
-                      ],
+                    child: Text(
+                      provider.businessName,
+                      style: AppTypography.pageTitle.copyWith(
+                        color: AppColors.mainText,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
+                  if (provider.isApproved) ...[
+                    const SizedBox(width: AppSpacing.xs),
+                    const Tooltip(
+                      message: 'Verified provider',
+                      child: Icon(
+                        Icons.verified_rounded,
+                        color: AppColors.success,
+                        size: 24,
+                      ),
+                    ),
+                  ],
                 ],
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              _ProviderCategoryPill(
+                category: provider.providerCategory,
+                categoryNames: categoryNames,
               ),
 
               const SizedBox(height: AppSpacing.lg),
@@ -512,12 +514,13 @@ class _ProviderIdentitySection extends StatelessWidget {
                 spacing: AppSpacing.md,
                 runSpacing: AppSpacing.sm,
                 children: [
-                  _ProviderMetaItem(
-                    icon: Icons.star_rounded,
-                    iconColor: AppColors.rating,
-                    value: provider.ratingAverage.toStringAsFixed(1),
-                    label: '${provider.reviewCount} reviews',
-                  ),
+                  if (provider.reviewCount > 0)
+                    _ProviderMetaItem(
+                      icon: Icons.star_rounded,
+                      iconColor: AppColors.rating,
+                      value: provider.ratingAverage.toStringAsFixed(1),
+                      label: '${provider.reviewCount} reviews',
+                    ),
                   _ProviderMetaItem(
                     icon: Icons.location_on_outlined,
                     value: provider.location,
@@ -593,45 +596,6 @@ class _ProviderIdentitySection extends StatelessWidget {
   }
 }
 
-class _ProviderLogo extends StatelessWidget {
-  const _ProviderLogo({required this.imageUrl, required this.businessName});
-
-  final String? imageUrl;
-  final String businessName;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 76,
-      height: 76,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: AppColors.primarySubtle,
-        borderRadius: BorderRadius.circular(AppRadius.large),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: imageUrl == null || imageUrl!.isEmpty
-          ? const Icon(
-              Icons.storefront_rounded,
-              color: AppColors.primaryStrong,
-              size: 34,
-            )
-          : Image.network(
-              imageUrl!,
-              fit: BoxFit.cover,
-              semanticLabel: '$businessName logo',
-              errorBuilder: (context, error, stackTrace) {
-                return const Icon(
-                  Icons.storefront_rounded,
-                  color: AppColors.primaryStrong,
-                  size: 34,
-                );
-              },
-            ),
-    );
-  }
-}
-
 class _ProviderCategoryPill extends StatelessWidget {
   const _ProviderCategoryPill({
     required this.category,
@@ -684,14 +648,18 @@ class _ProviderMetaItem extends StatelessWidget {
         Icon(
           icon,
           size: AppSizes.iconMedium,
-          color: iconColor ?? AppColors.secondaryTextAccessible,
+          color: iconColor ?? customerDecorativeIconColor,
         ),
         const SizedBox(width: AppSpacing.xs),
-        Text(
-          value,
-          style: AppTypography.label.copyWith(
-            color: AppColors.mainText,
-            fontWeight: FontWeight.w800,
+        Flexible(
+          child: Text(
+            value,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.label.copyWith(
+              color: AppColors.mainText,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ),
         const SizedBox(width: 4),
@@ -1122,7 +1090,7 @@ class _MenuImageFallback extends StatelessWidget {
       alignment: Alignment.center,
       child: const Icon(
         Icons.restaurant_menu_rounded,
-        color: AppColors.primaryStrong,
+        color: customerDecorativeIconColor,
         size: 32,
       ),
     );
@@ -1199,16 +1167,51 @@ class _ProviderReviewsSliver extends StatelessWidget {
   }
 }
 
-class _PhotosEmptyState extends StatelessWidget {
-  const _PhotosEmptyState();
+/// Displays only photo URLs present on the public provider profile.
+class ProviderPhotosSection extends StatelessWidget {
+  const ProviderPhotosSection({
+    required this.provider,
+    this.isPortfolio = false,
+    super.key,
+  });
+  final ProviderModel provider;
+  final bool isPortfolio;
 
   @override
   Widget build(BuildContext context) {
-    return const FeastaEmptyState(
-      icon: Icons.photo_library_outlined,
-      title: 'Photos coming soon',
-      message:
-          'More photos from this provider will appear here once they are available.',
+    final photos = <String>{
+      if (provider.coverImageUrl?.trim().isNotEmpty ?? false)
+        provider.coverImageUrl!.trim(),
+      if (provider.logoUrl?.trim().isNotEmpty ?? false)
+        provider.logoUrl!.trim(),
+    };
+    if (photos.isEmpty) {
+      return FeastaEmptyState(
+        icon: isPortfolio
+            ? Icons.camera_alt_outlined
+            : Icons.photo_library_outlined,
+        title: isPortfolio ? 'No portfolio photos yet' : 'No photos yet',
+        message: isPortfolio
+            ? 'This provider has not added public portfolio photos yet.'
+            : 'This provider has not added public photos yet.',
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screen),
+      child: Column(
+        children: [
+          for (final photo in photos)
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: FeastaImage.network(
+                imageUrl: photo,
+                aspectRatio: 4 / 3,
+                description: '${provider.businessName} public photo',
+                fallbackLabel: 'Provider photo unavailable',
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

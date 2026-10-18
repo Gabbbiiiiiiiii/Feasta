@@ -1,6 +1,8 @@
+import 'widgets/provider_brand_visual.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/helpers/provider_category_helper.dart';
+import '../../core/helpers/provider_discovery.dart';
 import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
@@ -25,11 +27,14 @@ class CustomerSearchScreen extends StatefulWidget {
     this.initialMinBudget,
     this.initialMaxBudget,
     this.autofocusSearch = false,
+    this.initialShowFilters = false,
     this.onBack,
+    this.repository,
   });
 
   /// Optional provider/service keyword supplied by Home discovery.
   final String initialQuery;
+  final FeastaRepository? repository;
 
   /// Stable File Maintenance category code used by category navigation.
   final String? initialCategoryCode;
@@ -41,6 +46,7 @@ class CustomerSearchScreen extends StatefulWidget {
   final double? initialMaxBudget;
 
   final bool autofocusSearch;
+  final bool initialShowFilters;
 
   /// Optional parent-provided fallback when this screen is embedded rather
   /// than pushed as a Navigator route.
@@ -52,6 +58,7 @@ class CustomerSearchScreen extends StatefulWidget {
 
 class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
   late final FeastaRepository _repository;
+  late final Stream<List<ProviderModel>> _discoveryProviders;
   late final Future<Map<String, String>> _serviceCategoryNames;
 
   final TextEditingController _searchController = TextEditingController();
@@ -95,6 +102,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
   ];
 
   String _selectedEventType = 'All';
+  String? _selectedCategoryCode;
 
   bool _showFilters = false;
   bool _showThemeFilters = false;
@@ -103,7 +111,8 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
   final Set<String> _selectedThemes = <String>{};
 
   bool get _hasActiveSearch {
-    return _searchController.text.trim().isNotEmpty ||
+    return _selectedCategoryCode != null ||
+        _searchController.text.trim().isNotEmpty ||
         _selectedEventType != 'All' ||
         _locationController.text.trim().isNotEmpty ||
         _minBudgetController.text.trim().isNotEmpty ||
@@ -163,7 +172,16 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
   void initState() {
     super.initState();
 
-    _repository = FeastaRepository();
+    _selectedCategoryCode = widget.initialCategoryCode;
+    _showFilters = widget.initialShowFilters;
+    _repository = widget.repository ?? FeastaRepository();
+    _discoveryProviders = _repository.searchAllVerifiedProviders(
+      keyword: '',
+      eventType: 'All',
+      location: '',
+      minBudget: null,
+      maxBudget: null,
+    );
     _serviceCategoryNames = _repository.getServiceCategoryNameMap();
 
     final initialQuery = widget.initialQuery.trim();
@@ -243,6 +261,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
       _exactThemeMatchesOnly = false;
       _matchesEventPlan = false;
       _selectedEventType = 'All';
+      _selectedCategoryCode = null;
     });
   }
 
@@ -257,6 +276,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
       _exactThemeMatchesOnly = false;
       _matchesEventPlan = false;
       _selectedEventType = 'All';
+      _selectedCategoryCode = null;
     });
   }
 
@@ -422,26 +442,14 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
                   ),
                   const SizedBox(width: AppSpacing.xxs),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Search',
-                          style: AppTypography.title.copyWith(
-                            color: AppColors.mainText,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.xxs),
-                        Text(
-                          'Find caterers and event services for your celebration.',
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.bodySmall.copyWith(
-                            color: AppColors.secondaryTextAccessible,
-                          ),
-                        ),
-                      ],
+                    child: Text(
+                      'Find event services',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.label.copyWith(
+                        color: AppColors.mainText,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
@@ -483,7 +491,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
                     ),
                     prefixIcon: const Icon(
                       Icons.search_rounded,
-                      color: AppColors.mainText,
+                      color: customerDecorativeIconColor,
                     ),
                     suffixIcon: _searchController.text.isEmpty
                         ? null
@@ -591,9 +599,9 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
 
                             return _hasActiveSearch
                                 ? _SearchResultsList(
-                                    repository: _repository,
+                                    providersStream: _discoveryProviders,
                                     searchController: _searchController,
-                                    categoryCode: widget.initialCategoryCode,
+                                    categoryCode: _selectedCategoryCode,
                                     selectedEventType: _selectedEventType,
                                     locationController: _locationController,
                                     minBudget: _minBudget,
@@ -654,7 +662,7 @@ class _FilterButton extends StatelessWidget {
             ),
             icon: Icon(
               isOpen ? Icons.tune_rounded : Icons.tune_outlined,
-              color: AppColors.mainText,
+              color: customerDecorativeIconColor,
             ),
           ),
           if (activeCount > 0)
@@ -908,7 +916,7 @@ class _SearchFilterPanel extends StatelessWidget {
                         ),
                         child: const Icon(
                           Icons.palette_outlined,
-                          color: AppColors.primary,
+                          color: customerDecorativeIconColor,
                           size: 20,
                         ),
                       ),
@@ -1051,7 +1059,7 @@ class _SearchFilterPanel extends StatelessWidget {
 
 class _SearchResultsList extends StatelessWidget {
   const _SearchResultsList({
-    required this.repository,
+    required this.providersStream,
     required this.searchController,
     required this.categoryCode,
     required this.selectedEventType,
@@ -1065,7 +1073,7 @@ class _SearchResultsList extends StatelessWidget {
     required this.onReset,
   });
 
-  final FeastaRepository repository;
+  final Stream<List<ProviderModel>> providersStream;
 
   final TextEditingController searchController;
   final String? categoryCode;
@@ -1084,14 +1092,7 @@ class _SearchResultsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<ProviderModel>>(
-      stream: repository.searchAllVerifiedProviders(
-        keyword: searchController.text,
-        categoryCode: categoryCode,
-        eventType: selectedEventType,
-        location: locationController.text,
-        minBudget: minBudget,
-        maxBudget: maxBudget,
-      ),
+      stream: providersStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const FeastaListSkeleton(
@@ -1114,42 +1115,72 @@ class _SearchResultsList extends StatelessWidget {
           );
         }
 
-        final rawProviders = snapshot.data ?? const <ProviderModel>[];
+        final rawProviders = (snapshot.data ?? const <ProviderModel>[])
+            .where(
+              (provider) => matchesProviderDiscovery(
+                provider,
+                keyword: searchController.text,
+                categoryCode: categoryCode,
+                eventType: selectedEventType,
+                location: locationController.text,
+                minBudget: minBudget,
+                maxBudget: maxBudget,
+              ),
+            )
+            .toList();
 
         final guestFiltered = guestCount == null
             ? rawProviders
             : rawProviders.where((provider) {
-                return provider.maxGuestsPerEvent <= 0 ||
+                return provider.maxGuestsPerEvent > 0 &&
                     provider.maxGuestsPerEvent >= guestCount!;
               }).toList();
 
-        final providers =
-            guestFiltered
-                .map(
-                  (provider) => _ThemeScoredProvider(
-                    provider: provider,
-                    score: _providerThemeScore(provider, selectedThemes),
-                  ),
-                )
-                .where((entry) {
-                  if (!exactThemeMatchesOnly || selectedThemes.isEmpty) {
-                    return true;
-                  }
+        final providers = guestFiltered
+            .map(
+              (provider) => _ThemeScoredProvider(
+                provider: provider,
+                score: _providerThemeScore(provider, selectedThemes),
+              ),
+            )
+            .where((entry) {
+              if (!exactThemeMatchesOnly || selectedThemes.isEmpty) {
+                return true;
+              }
 
-                  if (!_themeRelevantProvider(entry.provider)) {
-                    return true;
-                  }
+              if (!_themeRelevantProvider(entry.provider)) {
+                return true;
+              }
 
-                  return entry.score > 0;
-                })
-                .toList()
-              ..sort((a, b) {
-                if (selectedThemes.isEmpty || exactThemeMatchesOnly) {
-                  return 0;
-                }
+              return entry.score > 0;
+            })
+            .toList();
 
-                return b.score.compareTo(a.score);
-              });
+        final keyword = searchController.text.trim();
+        final originalOrder = {
+          for (var index = 0; index < providers.length; index++)
+            providers[index]: index,
+        };
+        providers.sort((a, b) {
+          final relevance = providerBusinessNameSearchRank(
+            a.provider,
+            keyword,
+          ).compareTo(providerBusinessNameSearchRank(b.provider, keyword));
+          if (relevance != 0) return relevance;
+          if (selectedThemes.isNotEmpty && !exactThemeMatchesOnly) {
+            final themeOrder = b.score.compareTo(a.score);
+            if (themeOrder != 0) return themeOrder;
+          }
+          // With no keyword, retain the existing discovery/theme ordering.
+          if (keyword.isEmpty) {
+            return originalOrder[a]!.compareTo(originalOrder[b]!);
+          }
+          return compareProviderSearchRelevance(
+            a.provider,
+            b.provider,
+            keyword,
+          );
+        });
 
         if (providers.isEmpty) {
           return FeastaEmptyState(
@@ -1413,7 +1444,11 @@ class _ServiceShortcutCard extends StatelessWidget {
                     color: AppColors.primarySubtle,
                     borderRadius: BorderRadius.circular(AppRadius.medium),
                   ),
-                  child: Icon(item.icon, size: 25, color: AppColors.primary),
+                  child: Icon(
+                    item.icon,
+                    size: 25,
+                    color: customerDecorativeIconColor,
+                  ),
                 ),
               ),
               const SizedBox(height: AppSpacing.xs),
@@ -1624,7 +1659,7 @@ class _SearchChip extends StatelessWidget {
       avatar: const Icon(
         Icons.search_rounded,
         size: AppSizes.iconSmall,
-        color: AppColors.primary,
+        color: customerDecorativeIconColor,
       ),
       onPressed: onTap,
       backgroundColor: AppColors.surface,
@@ -1665,13 +1700,10 @@ class _MiniProviderCard extends StatelessWidget {
               child: SizedBox(
                 height: 104,
                 width: double.infinity,
-                child: FeastaImage.network(
-                  imageUrl: provider.coverImageUrl,
-                  description: '${provider.businessName} cover image',
-                  fallbackLabel: '${provider.businessName} image unavailable',
-                  width: double.infinity,
+                child: ProviderBrandVisual(
+                  provider: provider,
                   height: 104,
-                  borderRadius: 0,
+                  logoSize: 38,
                 ),
               ),
             ),
@@ -1748,37 +1780,33 @@ class SearchProviderCard extends StatelessWidget {
       onTap: () {
         _openProvider(context, provider);
       },
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            SizedBox(
-              width: width < AppBreakpoints.tablet ? 112 : 150,
-              child: ClipRRect(
-                borderRadius: const BorderRadius.horizontal(
-                  left: Radius.circular(AppRadius.card),
-                ),
-                child: FeastaImage.network(
-                  imageUrl: provider.coverImageUrl,
-                  description: '${provider.businessName} cover image',
-                  fallbackLabel: '${provider.businessName} image unavailable',
-                  height: double.infinity,
-                  borderRadius: 0,
-                ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: width < AppBreakpoints.tablet ? 112 : 150,
+            child: ClipRRect(
+              borderRadius: const BorderRadius.horizontal(
+                left: Radius.circular(AppRadius.card),
+              ),
+              child: ProviderBrandVisual(
+                provider: provider,
+                height: 156,
+                logoSize: 42,
               ),
             ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(AppSpacing.md),
-                child: _SearchProviderDetails(
-                  provider: provider,
-                  categoryNames: categoryNames,
-                  themeMatchLabel: themeMatchLabel,
-                ),
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.md),
+              child: _SearchProviderDetails(
+                provider: provider,
+                categoryNames: categoryNames,
+                themeMatchLabel: themeMatchLabel,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1809,15 +1837,7 @@ class _VerticalSearchProviderCard extends StatelessWidget {
             borderRadius: const BorderRadius.vertical(
               top: Radius.circular(AppRadius.card),
             ),
-            child: AspectRatio(
-              aspectRatio: 16 / 9,
-              child: FeastaImage.network(
-                imageUrl: provider.coverImageUrl,
-                description: '${provider.businessName} cover image',
-                fallbackLabel: '${provider.businessName} image unavailable',
-                borderRadius: 0,
-              ),
-            ),
+            child: ProviderBrandVisual(provider: provider),
           ),
           Padding(
             padding: const EdgeInsets.all(AppSpacing.md),
@@ -1922,7 +1942,7 @@ class _SearchProviderDetails extends StatelessWidget {
                 const Icon(
                   Icons.auto_awesome_rounded,
                   size: 14,
-                  color: AppColors.primary,
+                  color: customerDecorativeIconColor,
                 ),
                 const SizedBox(width: 4),
                 Flexible(
@@ -1943,17 +1963,18 @@ class _SearchProviderDetails extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         _ProviderRating(provider: provider),
         const SizedBox(height: AppSpacing.sm),
-        FeastaPriceText(
-          amount: provider.minPrice,
-          decimalDigits: 0,
-          semanticLabel:
-              'Starting price '
-              '${FeastaPriceFormatter.format(provider.minPrice, decimalDigits: 0)}',
-          style: AppTypography.label.copyWith(
-            color: AppColors.primaryStrong,
-            fontWeight: FontWeight.w800,
+        if (provider.minPrice > 0 && provider.minPrice.isFinite)
+          FeastaPriceText(
+            amount: provider.minPrice,
+            decimalDigits: 0,
+            semanticLabel:
+                'Starting price '
+                '${FeastaPriceFormatter.format(provider.minPrice, decimalDigits: 0)}',
+            style: AppTypography.label.copyWith(
+              color: AppColors.primaryStrong,
+              fontWeight: FontWeight.w800,
+            ),
           ),
-        ),
         const SizedBox(height: AppSpacing.xs),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1991,6 +2012,7 @@ class _ProviderRating extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (provider.reviewCount <= 0) return const Text('No reviews yet');
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [

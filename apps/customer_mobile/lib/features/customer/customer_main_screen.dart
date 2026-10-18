@@ -47,6 +47,14 @@ class _CustomerMainScreenState extends State<CustomerMainScreen>
   late final FeastaRepository _repository;
   final FocusNode _planFocusNode = FocusNode(debugLabel: 'Plan navigation');
 
+  // Explore is a Home subpage; the existing shell still owns every nav action.
+  Widget? _exploreProviders;
+
+  void _closeExplore() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _exploreProviders = null);
+  }
+
   bool _isPlanOpen = false;
   bool _showPlanLayer = false;
 
@@ -205,12 +213,16 @@ class _CustomerMainScreenState extends State<CustomerMainScreen>
   }
 
   Future<void> _onNavigationTapped(int visualIndex) async {
+    if (_exploreProviders != null) {
+      FocusManager.instance.primaryFocus?.unfocus();
+    }
     if (visualIndex != 2 && _showPlanLayer) {
       await _closePlan();
     }
 
     switch (visualIndex) {
       case 0:
+        if (_exploreProviders != null) _closeExplore();
         _selectDestination(_MainDestination.home);
         return;
 
@@ -299,7 +311,11 @@ class _CustomerMainScreenState extends State<CustomerMainScreen>
       _MainDestination.account => CustomerAccountScreen(
         onOpenTab: _onAccountOpenTab,
       ),
-      _MainDestination.home => const CustomerHomeScreen(),
+      _MainDestination.home => CustomerHomeScreen(
+        onExploreProviders: (screen) =>
+            setState(() => _exploreProviders = screen),
+        onCloseExplore: _closeExplore,
+      ),
     };
   }
 
@@ -307,49 +323,76 @@ class _CustomerMainScreenState extends State<CustomerMainScreen>
   Widget build(BuildContext context) {
     final isAuthenticated = _isAuthenticated;
 
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      extendBody: true,
-      body: Stack(
-        children: [
-          Positioned.fill(child: _buildScreen()),
-
-          // The backdrop stays mounted but never steals Home gestures.
-          Positioned.fill(
-            child: IgnorePointer(
-              child: AnimatedOpacity(
-                opacity: _showPlanLayer && _isPlanOpen ? 1 : 0,
-                duration: MediaQuery.of(context).disableAnimations
-                    ? Duration.zero
-                    : const Duration(milliseconds: 180),
-                curve: _isPlanOpen ? Curves.easeOut : Curves.easeIn,
-                child: ColoredBox(color: Colors.black.withValues(alpha: 0.34)),
+    final exploring =
+        _destination == _MainDestination.home && _exploreProviders != null;
+    return PopScope(
+      canPop: !exploring,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && exploring) {
+          if (_showPlanLayer) {
+            _closePlan();
+          } else {
+            _closeExplore();
+          }
+        }
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.background,
+        extendBody: !exploring,
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child: TickerMode(
+                enabled: !exploring,
+                child: Offstage(offstage: exploring, child: _buildScreen()),
               ),
             ),
-          ),
+            if (exploring) Positioned.fill(child: _exploreProviders!),
 
-          // Keep the Plan widget mounted even while hidden so the user keeps
-          // event type, location, and budget values between temporary closes.
-          Positioned.fill(
-            child: IgnorePointer(
-              ignoring: !_showPlanLayer || !_isPlanOpen,
-              child: _PlanOverlaySheet(
-                visible: _showPlanLayer && _isPlanOpen,
-                onClose: _closePlan,
+            // The backdrop stays mounted but never steals Home gestures.
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  opacity: _showPlanLayer && _isPlanOpen ? 1 : 0,
+                  duration: MediaQuery.of(context).disableAnimations
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  curve: _isPlanOpen ? Curves.easeOut : Curves.easeIn,
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.34),
+                  ),
+                ),
               ),
             ),
+
+            // Keep the Plan widget mounted even while hidden so the user keeps
+            // event type, location, and budget values between temporary closes.
+            Positioned.fill(
+              child: IgnorePointer(
+                ignoring: !_showPlanLayer || !_isPlanOpen,
+                child: _PlanOverlaySheet(
+                  visible: _showPlanLayer && _isPlanOpen,
+                  onClose: _closePlan,
+                ),
+              ),
+            ),
+          ],
+        ),
+        bottomNavigationBar: Padding(
+          padding: EdgeInsets.only(
+            bottom: exploring ? MediaQuery.viewInsetsOf(context).bottom : 0,
           ),
-        ],
-      ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: _FeastaBottomNavigation(
-          selectedIndex: _visualNavigationIndex,
-          repository: _repository,
-          isAuthenticated: isAuthenticated,
-          planSelected: _showPlanLayer,
-          planFocusNode: _planFocusNode,
-          onTap: _onNavigationTapped,
+          child: SafeArea(
+            top: false,
+            child: _FeastaBottomNavigation(
+              selectedIndex: _visualNavigationIndex,
+              repository: _repository,
+              isAuthenticated: isAuthenticated,
+              planSelected: _showPlanLayer,
+              planFocusNode: _planFocusNode,
+              onTap: _onNavigationTapped,
+            ),
+          ),
         ),
       ),
     );

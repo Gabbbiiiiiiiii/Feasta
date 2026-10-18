@@ -43,7 +43,7 @@ void main() {
       for (final label in [
         'Explore services',
         'Verified providers',
-        'No promotions are available right now.',
+        'Find the right services for your celebration.',
       ]) {
         expect(
           tester.widget<Text>(find.text(label)).style?.color,

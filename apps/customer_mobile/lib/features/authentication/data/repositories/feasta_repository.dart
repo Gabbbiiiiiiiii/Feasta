@@ -10,6 +10,7 @@ import '../../../../shared/models/customer_payment_request.dart';
 import '../../../../shared/models/feasta_models.dart';
 import '../../../../core/domain/service_category.dart';
 import '../../../../core/helpers/provider_category_helper.dart';
+import '../../../../core/helpers/provider_discovery.dart';
 
 class FeastaRepository {
   List<ServiceCategory>? _serviceCategoryCache;
@@ -139,7 +140,10 @@ class FeastaRepository {
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
         .map((snapshot) {
-          final providers = snapshot.docs.map(ProviderModel.fromDoc).toList();
+          final providers = snapshot.docs
+              .map(ProviderModel.fromDoc)
+              .where(isDiscoverableProvider)
+              .toList();
           return _sortProvidersByPopularity(providers);
         });
   }
@@ -168,7 +172,10 @@ class FeastaRepository {
           .snapshots(includeMetadataChanges: true)
           .where((snapshot) => !snapshot.metadata.isFromCache)
           .map((snapshot) {
-            var providers = snapshot.docs.map(ProviderModel.fromDoc).toList();
+            var providers = snapshot.docs
+                .map(ProviderModel.fromDoc)
+                .where(isDiscoverableProvider)
+                .toList();
 
             if (nearOrmoc) {
               providers = providers.where((provider) {
@@ -188,8 +195,7 @@ class FeastaRepository {
               providers = providers
                   .where(
                     (provider) =>
-                        provider.minPrice <= 15000 ||
-                        provider.maxPrice <= 15000,
+                        provider.minPrice > 0 && provider.minPrice <= 15000,
                   )
                   .toList();
             }
@@ -244,7 +250,7 @@ class FeastaRepository {
               continue;
             }
 
-            providers.add(provider);
+            if (isDiscoverableProvider(provider)) providers.add(provider);
           }
 
           var filteredProviders = providers;
@@ -267,7 +273,7 @@ class FeastaRepository {
             filteredProviders = filteredProviders
                 .where(
                   (provider) =>
-                      provider.minPrice <= 15000 || provider.maxPrice <= 15000,
+                      provider.minPrice > 0 && provider.minPrice <= 15000,
                 )
                 .toList();
           }
@@ -296,7 +302,10 @@ class FeastaRepository {
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
         .map((snapshot) {
-          final providers = snapshot.docs.map(ProviderModel.fromDoc).toList();
+          final providers = snapshot.docs
+              .map(ProviderModel.fromDoc)
+              .where(isDiscoverableProvider)
+              .toList();
 
           if (category == 'all') return providers;
 
@@ -325,7 +334,10 @@ class FeastaRepository {
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
         .map((snapshot) {
-          return snapshot.docs.map(ProviderModel.fromDoc).toList();
+          return snapshot.docs
+              .map(ProviderModel.fromDoc)
+              .where(isDiscoverableProvider)
+              .toList();
         });
   }
 
@@ -2782,84 +2794,25 @@ class FeastaRepository {
     required String location,
     required double? minBudget,
     required double? maxBudget,
-  }) {
-    final normalizedTerm = keyword.trim().isNotEmpty
-        ? keyword.trim().toLowerCase().split(RegExp(r'[^a-z0-9]+')).first
-        : location.trim().toLowerCase().split(RegExp(r'[^a-z0-9]+')).first;
-
-    Query<Map<String, dynamic>> providerQuery = _db
-        .collection(FirestoreCollections.providers)
-        .where(
-          'verificationStatus',
-          isEqualTo: ProviderVerificationStatus.approved,
-        )
-        .where('publiclyVisible', isEqualTo: true)
-        .where('isActive', isEqualTo: true)
-        .where('isSuspended', isEqualTo: false)
-        .where('providerServiceType', isEqualTo: 'catering')
-        .where('isDeleted', isEqualTo: false);
-
-    if (normalizedTerm.isNotEmpty) {
-      providerQuery = providerQuery.where(
-        'searchTokens',
-        arrayContains: normalizedTerm,
+  }) =>
+      searchAllVerifiedProviders(
+        keyword: keyword,
+        eventType: eventType,
+        location: location,
+        minBudget: minBudget,
+        maxBudget: maxBudget,
+      ).map(
+        (providers) => providers
+            .where(
+              (p) =>
+                  p.providerServiceType == 'catering' ||
+                  p.providerServiceType == 'both',
+            )
+            .toList(),
       );
-    }
 
-    return providerQuery
-        .orderBy('favoriteCount', descending: true)
-        .orderBy(FieldPath.documentId, descending: true)
-        .limit(50)
-        .snapshots(includeMetadataChanges: true)
-        .where((snapshot) => !snapshot.metadata.isFromCache)
-        .map((snapshot) {
-          final query = keyword.trim().toLowerCase();
-          final selectedEventType = eventType.trim().toLowerCase();
-          final selectedLocation = location.trim().toLowerCase();
-
-          final providers = snapshot.docs.map(ProviderModel.fromDoc).toList();
-
-          return providers.where((provider) {
-            final businessName = provider.businessName.toLowerCase();
-            final providerLocation = provider.location.toLowerCase();
-            final city = provider.city.toLowerCase();
-            final province = provider.province.toLowerCase();
-
-            final matchesKeyword =
-                query.isEmpty ||
-                businessName.contains(query) ||
-                providerLocation.contains(query) ||
-                city.contains(query) ||
-                province.contains(query);
-
-            final matchesEventType =
-                selectedEventType == 'all' ||
-                selectedEventType.isEmpty ||
-                provider.eventTypesSupported.any(
-                  (type) => type.toLowerCase() == selectedEventType,
-                );
-
-            final matchesLocation =
-                selectedLocation.isEmpty ||
-                providerLocation.contains(selectedLocation) ||
-                city.contains(selectedLocation) ||
-                province.contains(selectedLocation);
-
-            final matchesMinBudget =
-                minBudget == null || provider.maxPrice >= minBudget;
-
-            final matchesMaxBudget =
-                maxBudget == null || provider.minPrice <= maxBudget;
-
-            return matchesKeyword &&
-                matchesEventType &&
-                matchesLocation &&
-                matchesMinBudget &&
-                matchesMaxBudget;
-          }).toList();
-        });
-  }
-
+  /// Bounded public discovery. Filters apply locally to avoid relying on uneven
+  /// legacy searchTokens coverage. Pagination remains a backend handoff.
   Stream<List<ProviderModel>> searchAllVerifiedProviders({
     required String keyword,
     String? categoryCode,
@@ -2868,19 +2821,7 @@ class FeastaRepository {
     required double? minBudget,
     required double? maxBudget,
   }) {
-    final normalizedCategoryCode = categoryCode?.trim().toLowerCase() ?? '';
-
-    final normalizedTerm = normalizedCategoryCode.isEmpty
-        ? (keyword.trim().isNotEmpty
-              ? keyword.trim().toLowerCase().split(RegExp(r'[^a-z0-9]+')).first
-              : location
-                    .trim()
-                    .toLowerCase()
-                    .split(RegExp(r'[^a-z0-9]+'))
-                    .first)
-        : '';
-
-    Query<Map<String, dynamic>> providerQuery = _db
+    return _db
         .collection(FirestoreCollections.providers)
         .where(
           'verificationStatus',
@@ -2889,83 +2830,28 @@ class FeastaRepository {
         .where('publiclyVisible', isEqualTo: true)
         .where('isActive', isEqualTo: true)
         .where('isSuspended', isEqualTo: false)
-        .where('isDeleted', isEqualTo: false);
-
-    if (normalizedCategoryCode.isNotEmpty) {
-      providerQuery = providerQuery.where(
-        'providerCategory',
-        isEqualTo: normalizedCategoryCode,
-      );
-    } else if (normalizedTerm.isNotEmpty) {
-      providerQuery = providerQuery.where(
-        'searchTokens',
-        arrayContains: normalizedTerm,
-      );
-    }
-
-    return providerQuery
+        .where('isDeleted', isEqualTo: false)
         .orderBy('favoriteCount', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
         .limit(50)
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
-        .map((snapshot) {
-          final query = normalizedCategoryCode.isEmpty
-              ? keyword.trim().toLowerCase()
-              : '';
-          final selectedEventType = eventType.trim().toLowerCase();
-          final selectedLocation = location.trim().toLowerCase();
-
-          final providers = snapshot.docs.map(ProviderModel.fromDoc).toList();
-
-          return providers.where((provider) {
-            final businessName = provider.businessName.toLowerCase();
-            final providerLocation = provider.location.toLowerCase();
-            final city = provider.city.toLowerCase();
-            final province = provider.province.toLowerCase();
-            final category = provider.providerCategory.toLowerCase();
-            final serviceType = provider.providerServiceType.toLowerCase();
-
-            final categoryLabel = providerCategoryLabel(
-              provider.providerCategory,
-            ).toLowerCase();
-
-            final matchesKeyword =
-                query.isEmpty ||
-                businessName.contains(query) ||
-                providerLocation.contains(query) ||
-                city.contains(query) ||
-                province.contains(query) ||
-                category.contains(query) ||
-                categoryLabel.contains(query) ||
-                serviceType.contains(query);
-
-            final matchesEventType =
-                selectedEventType == 'all' ||
-                selectedEventType.isEmpty ||
-                provider.eventTypesSupported.any(
-                  (type) => type.toLowerCase() == selectedEventType,
-                );
-
-            final matchesLocation =
-                selectedLocation.isEmpty ||
-                providerLocation.contains(selectedLocation) ||
-                city.contains(selectedLocation) ||
-                province.contains(selectedLocation);
-
-            final matchesMinBudget =
-                minBudget == null || provider.maxPrice >= minBudget;
-
-            final matchesMaxBudget =
-                maxBudget == null || provider.minPrice <= maxBudget;
-
-            return matchesKeyword &&
-                matchesEventType &&
-                matchesLocation &&
-                matchesMinBudget &&
-                matchesMaxBudget;
-          }).toList();
-        });
+        .map(
+          (snapshot) => snapshot.docs
+              .map(ProviderModel.fromDoc)
+              .where(
+                (provider) => matchesProviderDiscovery(
+                  provider,
+                  keyword: keyword,
+                  categoryCode: categoryCode,
+                  eventType: eventType,
+                  location: location,
+                  minBudget: minBudget,
+                  maxBudget: maxBudget,
+                ),
+              )
+              .toList(),
+        );
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> providerReviews(
