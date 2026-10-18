@@ -114,7 +114,7 @@ void main() {
         if (!guest) {
           expect(overlay, findsOneWidget);
           expect(find.text('Authorized Home'), findsNothing);
-          expect(find.text('Getting things ready…'), findsOneWidget);
+          expect(find.text('Getting things ready…'), findsNothing);
         }
         // Complete only through the real controller and gate; the shell does not authorize.
         repository.load.complete(

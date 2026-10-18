@@ -565,7 +565,7 @@ class _OpeningAnimationState extends State<OpeningAnimation>
                       ),
                     ),
                   ),
-                  if (_holding)
+                  if (_holding && _slow)
                     Positioned(
                       left: 24,
                       right: 24,
@@ -576,11 +576,9 @@ class _OpeningAnimationState extends State<OpeningAnimation>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              _slow
-                                  ? widget.onBrowse == null
-                                        ? 'Startup is taking longer than expected. Please restart FEASTA.'
-                                        : 'Startup is taking longer than expected. Please restart FEASTA or try browsing as a guest.'
-                                  : 'Getting things ready…',
+                              widget.onBrowse == null
+                                  ? 'Startup is taking longer than expected. Please restart FEASTA.'
+                                  : 'Startup is taking longer than expected. Please restart FEASTA or try browsing as a guest.',
                               textAlign: TextAlign.center,
                             ),
                             if (_slow && widget.onBrowse != null)

@@ -52,7 +52,7 @@ void main() {
       );
       expect(appBuilt, false);
       await tester.pumpAndSettle();
-      expect(find.text('Getting things ready…'), findsOneWidget);
+      expect(find.text('Getting things ready…'), findsNothing);
       expect(overlay, findsOneWidget);
       security.complete();
       await tester.pump();
@@ -163,7 +163,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(overlay, findsOneWidget);
         expect(tester.widget<Opacity>(part('wordmark')).opacity, 1);
-        expect(find.text('Getting things ready…'), findsOneWidget);
+        expect(find.text('Getting things ready…'), findsNothing);
         expect(find.bySemanticsLabel('Signing in...'), findsNothing);
         expect(find.bySemanticsLabel('Sign out and browse'), findsNothing);
         expect(
