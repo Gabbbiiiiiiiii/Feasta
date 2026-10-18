@@ -1,10 +1,17 @@
+"use client";
+import {useLifecycleNow} from "./booking-lifecycle-status";
+import {ENDED_REVIEW_MESSAGE} from "@/lib/presentation/booking-lifecycle";
 import type {BookingPolicyPresentation} from "@/lib/payments/booking-policy-v3-presentation";
 const money = (value: number) => new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"}).format(value / 100);
 const time = (value: string) => new Intl.DateTimeFormat("en-PH", {timeZone: "Asia/Manila", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true}).format(new Date(value));
 export function BookingPolicySummary({policy, audience = "customer"}: {policy?: BookingPolicyPresentation | null; audience?: "customer" | "provider" | "admin"}) {
+  const now = useLifecycleNow(policy?.endAt);
   if (!policy) return null;
+  const ended = policy.endAt != null && now != null && now >= policy.endAt;
+  const label = ended && policy.state === "in_progress" ? "Awaiting completion" : policy.label;
   return <section className="my-3 rounded-xl border p-4" aria-label="Booking payment policy">
-    <h3 className="font-semibold">{policy.readyToComplete && audience === "provider" ? "Ready to Complete" : policy.label}</h3>
+    <h3 className="font-semibold">{label}</h3>
+    {(policy.endedReview || (ended && policy.state === "review")) && <p>{ENDED_REVIEW_MESSAGE}</p>}
     {policy.state === "hold" && <p>Your payment was started before the deadline. We’re waiting for final payment confirmation.</p>}
     {["due", "grace_period", "upcoming"].includes(policy.state) && policy.remainingAmountInCentavos != null && policy.remainingAmountInCentavos > 0 && <>
       <p>Remaining balance: {money(policy.remainingAmountInCentavos)}</p><p>Becomes due: {time(policy.dueAt)}</p>

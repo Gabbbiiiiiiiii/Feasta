@@ -60,8 +60,8 @@ it.each(Object.keys(adminBookingPaymentLabels).filter(value => !["partially_refu
 it.each([
   ["all", null, null],
   ["today", "2026-10-05T16:00:00.000Z", "2026-10-06T16:00:00.000Z"],
-  ["upcoming", "2026-10-06T02:00:00.000Z", null],
-  ["past", null, "2026-10-06T02:00:00.000Z"],
+  ["upcoming", "2026-10-06T16:00:00.000Z", null],
+  ["past", null, "2026-10-05T16:00:00.000Z"],
 ] as const)("queries %s event dates in Manila time", async (date, start, end) => {
   await getAdminBookingPage({...filters, date});
   const ranges = list().conditions.filter(condition => condition[0] === "eventDate");
@@ -71,6 +71,53 @@ it.each([
   expect(list().orders[0]).toEqual([date === "all" ? "createdAt" : "eventDate", "desc"]);
 });
 
+it.each([
+  [
+    "2026-10-06T15:59:59.999Z",
+    "2026-10-05T16:00:00.000Z",
+    "2026-10-06T16:00:00.000Z",
+  ],
+  [
+    "2026-10-06T16:00:00.000Z",
+    "2026-10-06T16:00:00.000Z",
+    "2026-10-07T16:00:00.000Z",
+  ],
+] as const)(
+  "keeps event date filters separate across Manila midnight at %s",
+  async (currentTime, todayStart, tomorrowStart) => {
+    vi.setSystemTime(new Date(currentTime));
+
+    const cases = [
+      ["today", todayStart, tomorrowStart],
+      ["upcoming", tomorrowStart, null],
+      ["past", null, todayStart],
+    ] as const;
+
+    for (const [date, start, end] of cases) {
+      state.queries.length = 0;
+
+      await getAdminBookingPage({
+        ...filters,
+        date,
+      });
+
+      const ranges = list().conditions.filter(
+        ([field]) => field === "eventDate",
+      );
+
+      expect(
+        ranges.map(([field, operator, value]) => [
+          field,
+          operator,
+          (value as Timestamp).toDate().toISOString(),
+        ]),
+      ).toEqual([
+        ...(start ? [["eventDate", ">=", start]] : []),
+        ...(end ? [["eventDate", "<", end]] : []),
+      ]);
+    }
+  },
+);
 it("combines booking, payment and event filters and retains a compatible pagination cursor", async () => {
   const cursor = Buffer.from(JSON.stringify({field: "eventDate", milliseconds: Date.parse("2026-10-08T00:00:00Z"), documentId: "event-next"})).toString("base64url");
   await getAdminBookingPage({...filters, status: "confirmed", paymentStatus: "paid", date: "upcoming", cursor});

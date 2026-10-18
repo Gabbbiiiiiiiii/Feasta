@@ -37,6 +37,7 @@ import {
   resumeExistingProviderAfterPhoneAuth,
   resumeProviderPhoneRegistration,
   type ProviderPhoneRegistrationResult,
+  loadProviderPolicyVersions,
   UNVERSIONED_POLICY_VERSION,
 } from "@/lib/auth/provider-client";
 
@@ -87,6 +88,7 @@ export function ProviderPhoneRegistrationForm() {
     password: "",
     confirmPassword: "",
   });
+  const [policyVersions, setPolicyVersions] = useState<{terms: string; privacy: string} | null>(null);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
   const [accountErrors, setAccountErrors] = useState<AccountDetailsErrors>({});
@@ -197,6 +199,17 @@ export function ProviderPhoneRegistrationForm() {
       confirmationRef.current = null;
     };
   }, [clearVerifier, handleClassification]);
+
+  useEffect(() => {
+    if (view !== "account-details") return;
+    let cancelled = false;
+    void loadProviderPolicyVersions().then((versions) => {
+      if (!cancelled) setPolicyVersions(versions);
+    }).catch(() => {
+      if (!cancelled) setError("Terms and Privacy Policy versions are unavailable. Reload registration to try again.");
+    });
+    return () => { cancelled = true; };
+  }, [view]);
 
   useEffect(() => countdown(cooldown, setCooldown), [cooldown]);
   useEffect(() => countdown(expiry, setExpiry), [expiry]);
@@ -373,6 +386,10 @@ export function ProviderPhoneRegistrationForm() {
     setAccountErrors(nextErrors);
     setError(null);
     if (Object.keys(nextErrors).length > 0) return;
+    if (!policyVersions) {
+      setError("Terms and Privacy Policy versions are unavailable. Reload registration to try again.");
+      return;
+    }
 
     actionInProgress.current = true;
     setBusy(true);
@@ -385,8 +402,8 @@ export function ProviderPhoneRegistrationForm() {
         phoneNumber: verifiedPhone,
         acceptedTerms: true,
         acceptedPrivacy: true,
-        termsPolicyVersion: UNVERSIONED_POLICY_VERSION,
-        privacyPolicyVersion: UNVERSIONED_POLICY_VERSION,
+        termsPolicyVersion: policyVersions.terms,
+        privacyPolicyVersion: policyVersions.privacy,
       });
       setAccountDetails((current) => ({
         ...current,
@@ -588,7 +605,7 @@ export function ProviderPhoneRegistrationForm() {
                 onChange={(event) => setAcceptedTerms(event.target.checked)}
                 className="mt-1 size-5 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
-              <span>I accept the <Link href="/terms" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary-strong underline">Terms</Link>.</span>
+              <span>I accept the <Link href="/terms" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary-strong underline">Terms</Link>{policyVersions ? ` (version ${policyVersions.terms})` : ""}.</span>
             </label>
             {accountErrors.acceptedTerms ? (
               <p id="provider-terms-error" role="alert" className="text-sm font-semibold text-destructive">
@@ -605,7 +622,7 @@ export function ProviderPhoneRegistrationForm() {
                 onChange={(event) => setAcceptedPrivacy(event.target.checked)}
                 className="mt-1 size-5 accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               />
-              <span>I accept the <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary-strong underline">Privacy Policy</Link>.</span>
+              <span>I accept the <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="font-semibold text-primary-strong underline">Privacy Policy</Link>{policyVersions ? ` (version ${policyVersions.privacy})` : ""}.</span>
             </label>
             {accountErrors.acceptedPrivacy ? (
               <p id="provider-privacy-error" role="alert" className="text-sm font-semibold text-destructive">

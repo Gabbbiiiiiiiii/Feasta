@@ -7,6 +7,7 @@ import '../../../../core/constants/firestore_collections.dart';
 import '../../../../core/constants/status_constants.dart';
 import '../../../../core/firestore/query_builder.dart';
 import '../../../../shared/models/customer_payment_request.dart';
+import '../../../../shared/models/booking_complaint.dart';
 import '../../../../shared/models/feasta_models.dart';
 import '../../../../core/domain/service_category.dart';
 import '../../../../core/helpers/provider_category_helper.dart';
@@ -2208,6 +2209,96 @@ class FeastaRepository {
       throw Exception(
         _chatErrorMessage(error, 'The message could not be sent.'),
       );
+    }
+  }
+
+  Future<List<BookingComplaintService>> bookingComplaintServices(
+    BookingModel booking,
+  ) async {
+    if (booking.customerId != currentUid) {
+      throw Exception('Only the booking owner can report an issue.');
+    }
+    final services = <BookingComplaintService>[];
+    if (booking.providerRequestIds.toSet().length != booking.providerRequestIds.length ||
+        booking.providerRequestIds.any((id) => !RegExp(r'^[A-Za-z0-9_-]{8,160}$').hasMatch(id))) {
+      throw Exception('The booked service information is invalid.');
+    }
+    for (final id in booking.providerRequestIds) {
+      final snapshot = await _db
+          .collection(FirestoreCollections.providerRequests)
+          .doc(id)
+          .get();
+      final data = snapshot.data();
+      if (data == null ||
+          data['customerId'] != currentUid ||
+          data['mainEventId'] != booking.id ||
+          data['bookingId'] != booking.id ||
+          data['providerRequestId'] != id) {
+        throw Exception('The booked service information is unavailable.');
+      }
+      final providerName =
+          data['providerBusinessName'] as String? ?? 'Provider';
+      final packageName = data['packageName'] as String?;
+      services.add(
+        BookingComplaintService(
+          id: id,
+          name: packageName == null || packageName.isEmpty
+              ? providerName
+              : '$providerName - $packageName',
+        ),
+      );
+    }
+    if (services.isEmpty) {
+      throw Exception('No reportable services are attached to this booking.');
+    }
+    return services;
+  }
+
+  Future<void> submitBookingComplaint({
+    required String providerRequestId,
+    required String category,
+    required String description,
+  }) async {
+    currentUid; // Require authentication before invoking the callable.
+    final validation = validateBookingComplaint(category, description);
+    if (validation != null) throw Exception(validation);
+    try {
+      final response = await _functions
+          .httpsCallable('createComplaint')
+          .call<Map<String, dynamic>>({
+            'providerRequestId': providerRequestId,
+            'category': category,
+            'description': description.trim(),
+          });
+      final data = response.data;
+      if (data['success'] != true ||
+          data['complaintId'] is! String ||
+          !RegExp(r'^complaint_[a-f0-9]{32}$').hasMatch(data['complaintId'] as String) ||
+          data['created'] is! bool ||
+          data['idempotentReplay'] is! bool) {
+        throw Exception(
+          'The report could not be confirmed. Please retry with the same details.',
+        );
+      }
+    } on FirebaseFunctionsException catch (error) {
+      switch (error.code) {
+        case 'unauthenticated':
+          throw Exception('Please sign in again before reporting an issue.');
+        case 'permission-denied':
+        case 'not-found':
+        case 'failed-precondition':
+          throw Exception(
+            'This booked service is unavailable for reporting. Refresh the booking and try again.',
+          );
+        case 'resource-exhausted':
+          throw Exception(
+            'Too many reports were attempted. Please wait before trying again.',
+          );
+        default:
+          throw Exception(
+            'Your report could not be submitted. Please retry with the same details.',
+          );
+      }
     }
   }
 

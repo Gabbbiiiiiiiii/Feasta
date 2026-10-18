@@ -38,7 +38,7 @@ const BOOKING_STATUS_OPTIONS = CUSTOMER_BOOKING_STATUS_OPTIONS;
 const MAIN_EVENT_STATUS_LABELS: Record<MainEventStatus, string> = {
   draft: "Draft",
   pending_provider_approval: "Awaiting provider",
-  needs_provider_replacement: "Provider update needed",
+  needs_provider_replacement: "Provider rejected",
   waiting_for_down_payment: "Awaiting payment",
   confirmed: "Confirmed",
   in_progress: "In progress",
@@ -159,8 +159,8 @@ function bookingNextStep(
       return "Wait for providers to review your requests.";
     case "needs_provider_replacement":
       return booking.pendingProviderRequestCount > 0 ?
-        "At least one provider declined. Review the affected request while other providers respond." :
-        "At least one provider declined. Review the affected provider request.";
+        "A provider rejected your request. Open booking details to see why. Other providers are still reviewing your event." :
+        "A provider rejected your request. Open booking details to see why, then browse other providers if you still need the service.";
     case "waiting_for_down_payment":
       return hasPartialUpfrontPayment({
         amount: booking.estimatedEventTotal,
@@ -198,7 +198,7 @@ function providerResponseSummary(booking: Pick<
     }
   };
 
-  add(booking.rejectedProviderRequestCount, "declined");
+  add(booking.rejectedProviderRequestCount, "rejected");
   add(
     booking.waitingPaymentProviderRequestCount +
       booking.paymentProcessingProviderRequestCount,
@@ -261,7 +261,7 @@ function providerRequestOutcomeLabel(
     case "confirmed":
       return "Accepted — confirmed";
     case "rejected":
-      return `Declined by ${boundedText(request.providerName, "provider", 120)}`;
+      return `Rejected by ${boundedText(request.providerName, "provider", 120)}`;
     case "in_progress":
       return "Service in progress";
     case "completed":

@@ -25,8 +25,8 @@ export default function AdminPaymentsLoading() {
         aria-label="Loading payment statistics"
       >
         <SummaryCard
-          label="Paid amount"
-          supportingMetric="Amount retained after completed refunds"
+          label="Net customer payments"
+          supportingMetric="Total payments received after refunds."
           loading
         />
 

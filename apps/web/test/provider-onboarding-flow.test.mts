@@ -56,6 +56,13 @@ describe("provider onboarding routing policy", () => {
     );
   });
 
+  it("does not mark unsaved earlier steps as completed", () => {
+    assert.equal(onboardingStepState(
+      PROVIDER_ONBOARDING_STEPS[4],
+      PROVIDER_ONBOARDING_STEPS[7],
+      [1, 2, 3, 4, 6, 7],
+    ), "incomplete");
+  });
   it("exposes completed, current and incomplete progress text", () => {
     assert.equal(onboardingStepState(
       PROVIDER_ONBOARDING_STEPS[0],

@@ -1,6 +1,7 @@
 import type {TransferEvidence} from "./provider-disbursement-domain.js";
 import {defineSecret} from "firebase-functions/params";
 import {providerSettlementCapability} from "./provider-settlement-capability.js";
+import {transportSettingsFingerprint} from "./provider-transport-verification-domain.js";
 import {
   createPayMongoDisbursementClient, testDestination, TEST_WALLET_ID,
 } from "./paymongo-disbursement-client.js";
@@ -38,9 +39,16 @@ export const providerDisbursementTransport: ProviderDisbursementTransport = {
     if (settings.providerDisbursementTestMode !== true) {
       return {ready: false, reason: "paymongo_test_mode_required"};
     }
+    const proof = account.settlementTransportVerification as Data;
+    if (proof.settingsFingerprint !== transportSettingsFingerprint(settings)) {
+      return {ready: false, reason: "paymongo_test_verification_settings_changed"};
+    }
     const allowedDisbursementId = settings.providerDisbursementTestAllowedDisbursementId;
     if (typeof allowedDisbursementId !== "string" || !DISBURSEMENT_ID.test(allowedDisbursementId)) {
       return {ready: false, reason: "paymongo_test_disbursement_allowlist_invalid"};
+    }
+    if (proof.disbursementId !== allowedDisbursementId) {
+      return {ready: false, reason: "paymongo_test_verification_entitlement_changed"};
     }
     const walletId = settings.providerDisbursementTestWalletId;
     if (typeof walletId !== "string" || !TEST_WALLET_ID.test(walletId)) {
@@ -53,6 +61,7 @@ export const providerDisbursementTransport: ProviderDisbursementTransport = {
       return {ready: true, transportMode: "wallet_transfer",
         destinationSnapshot: {
           testMode: true, livemode: false, allowedDisbursementId, walletId, provider, destinationAccount,
+          sourceMerchantId: proof.merchantId, verificationExpiresAtMs: proof.expiresAtMs,
         }};
     } catch {
       return {ready: false, reason: "paymongo_test_destination_configuration_invalid"};

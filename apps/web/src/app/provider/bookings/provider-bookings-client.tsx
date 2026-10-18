@@ -1,4 +1,5 @@
 "use client";
+import {ProviderBookingStatus} from "@/components/provider/provider-booking-status";
 
 import {formatEventTime} from "@/lib/presentation/event-time";
 
@@ -50,7 +51,7 @@ const filterOptions: readonly {
   value: ProviderBookingFilter;
   label: string;
 }[] = [
-  {value: "upcoming", label: "Upcoming"},
+  {value: "upcoming", label: "Active events"},
   {value: "waiting_payment", label: "Waiting for Payment"},
   {value: "past", label: "Past Bookings"},
   {value: "all", label: "All Bookings"},
@@ -127,10 +128,7 @@ export function ProviderBookingsClient({
       id: "status",
       header: "Status",
       cell: (booking) => (
-        <StatusBadge
-          status={booking.providerRequestStatus}
-          label={(booking.providerRequestStatus === "pending" ? "Pending request" : undefined)}
-        />
+        <ProviderBookingStatus booking={booking} />
       ),
     },
   ], []);
@@ -262,7 +260,7 @@ export function ProviderBookingsClient({
 
   return (
     <div className="grid min-w-0 gap-6">
-      <PageHeading title="My Bookings" description="View your upcoming events, payments, and past bookings." />
+      <PageHeading title="My Bookings" description="View your active events, payments, and past bookings." />
       <FilterToolbar searchValue={searchValue} onSearchChange={setSearchValue}
         onSearchInvalidate={() => {listGeneration.current += 1; setLoading(false);}}
         onSearchSubmit={search => void loadPage({...filters, search, cursor: null}, [], 1)}
@@ -296,7 +294,7 @@ export function ProviderBookingsClient({
       </section>
 
       {filters.secondary === "disputed" ? <p role="status" className="text-sm text-muted-foreground">Dispute tracking is not available in the current booking records. Choose All statuses to review unresolved bookings and their updates.</p> : null}
-      {filters.status === "upcoming" ? <p className="text-sm text-muted-foreground">Events are ordered by date, then scheduled time within this page. Events awaiting a status update remain visible after their scheduled date.</p> : null}
+      {filters.status === "upcoming" ? <p className="text-sm text-muted-foreground">Events are ordered by date, then scheduled time within this page. Ended events remain available here as Awaiting completion until completed.</p> : null}
       <DataTable
         columns={columns}
         rows={page.bookings}
@@ -428,7 +426,7 @@ function BookingMobileCard({
           <h3 className="truncate font-bold">{booking.customerDisplayName}</h3>
           <p className="mt-1 text-sm text-muted-foreground">{formatLabel(booking.eventType)}</p>
         </div>
-        <StatusBadge status={booking.providerRequestStatus}  />
+        <ProviderBookingStatus booking={booking} />
       </div>
       <dl className="grid grid-cols-2 gap-3 text-sm">
         <div>
@@ -455,7 +453,7 @@ function getEmptyCopy(status: ProviderBookingFilter): {title: string; descriptio
 
   const label = filterOptions.find((option) => option.value === status)?.label.toLowerCase() ?? "matching";
   return {
-    title: `No ${label} bookings on this page`,
+    title: status === "upcoming" ? "No active events on this page" : `No ${label} bookings on this page`,
     description: "No matches in the records checked. If Next is available, continue to check more bookings.",
   };
 }

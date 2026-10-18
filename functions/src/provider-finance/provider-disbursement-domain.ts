@@ -108,9 +108,14 @@ export function assertTransferEvidence(attempt: Data, evidence: TransferEvidence
 }
 export function aggregateOutcomePlan(input: {
   disbursement: Data; attempt: Data; sources: DisbursementSource[];
-  evidence?: TransferEvidence; timestamp: unknown;
+  evidence?: TransferEvidence; timestamp: unknown; notSubmittedReason?: string;
 }) {
   const {disbursement: d, attempt: a, evidence} = input;
+  const notSubmitted = input.notSubmittedReason !== undefined;
+  if (notSubmitted && (evidence || a.status !== "reserved" || a.gatewayResourceId != null ||
+      a.gatewayEvidence != null || !/^[a-z_]{1,80}$/u.test(input.notSubmittedReason!))) {
+    throw new Error("Not-submitted recovery requires an untouched reservation.");
+  }
   if (d.disbursementId !== a.providerDisbursementId || d.activePayoutAttemptId !== a.externalAttemptId ||
       !["reserved/reserved", "processing/processing", "reconciliation_required/ambiguous"].includes(`${d.status}/${a.status}`)) throw new Error("Inactive aggregate attempt.");
   if (evidence) assertTransferEvidence(a, evidence);
@@ -138,8 +143,8 @@ export function aggregateOutcomePlan(input: {
     }
     assertProviderSettlementPayoutOutcomeState({...source, payoutAttempt: member});
     if (!evidence || evidence.status === "failed") return failProviderSettlementPayout({
-      ...source, payoutAttempt: member, certainty: evidence ? "failed" : "ambiguous",
-      failureCode: evidence ? "gateway_terminal_failure" : "gateway_outcome_unknown",
+      ...source, payoutAttempt: member, certainty: evidence || notSubmitted ? "failed" : "ambiguous",
+      failureCode: notSubmitted ? input.notSubmittedReason! : evidence ? "gateway_terminal_failure" : "gateway_outcome_unknown",
       failureMessage: null, timestamp: input.timestamp});
     if (evidence.status === "succeeded") return completeProviderSettlementPayout({
       settlement: source.settlement, earning: source.earning,
@@ -149,15 +154,20 @@ export function aggregateOutcomePlan(input: {
   });
   const total = input.sources.reduce((sum, s) => sum + Number(s.payoutAttempt?.amountInCentavos), 0);
   if (!Number.isSafeInteger(total) || total !== a.amountInCentavos) throw new Error("Constituent total mismatch.");
-  const status = !evidence ? "reconciliation_required" : evidence.status === "succeeded" ? "paid" : evidence.status === "failed" ? "failed" : "processing";
+  const status = notSubmitted ? "failed" : !evidence ? "reconciliation_required" : evidence.status === "succeeded" ? "paid" : evidence.status === "failed" ? "failed" : "processing";
+  const submissionOutcome = notSubmitted ? "not_submitted" : !evidence ? "unknown" :
+    evidence.status === "succeeded" ? "completed" : evidence.status === "failed" ? "failed" : "submitted";
+  if (notSubmitted) for (const plan of plans) Object.assign(plan.payoutAttemptUpdate, {submissionOutcome});
   return {plans, disbursementUpdate: {status, updatedAt: input.timestamp,
     ...(status === "paid" ? {paidAt: input.timestamp} : {}),
     ...(["paid", "failed"].includes(status) ? {activePayoutAttemptId: null, lastPayoutAttemptId: a.externalAttemptId} : {}),
-    gatewayResourceId: evidence?.id ?? a.gatewayResourceId},
-  attemptUpdate: {status: !evidence ? "ambiguous" : evidence.status === "pending" ? "processing" : evidence.status,
+    submissionOutcome, gatewayResourceId: evidence?.id ?? a.gatewayResourceId},
+  attemptUpdate: {status: notSubmitted ? "not_submitted" : !evidence ? "ambiguous" : evidence.status === "pending" ? "processing" : evidence.status,
+    submissionOutcome,
     gatewayResourceId: evidence?.id ?? a.gatewayResourceId, updatedAt: input.timestamp,
     ...(evidence ? {gatewayEvidence: evidence,
       ...(evidence.status === "pending" ? {submittedAt: input.timestamp} : {completedAt: input.timestamp}),
       ...(evidence.status === "failed" ? {failureCode: "gateway_terminal_failure"} : {})
-    } : {reconciliationReason: "gateway_outcome_unknown"})}};
+    } : notSubmitted ? {failureCode: input.notSubmittedReason, completedAt: input.timestamp,
+      reconciliationReason: null} : {reconciliationReason: "gateway_outcome_unknown"})}};
 }

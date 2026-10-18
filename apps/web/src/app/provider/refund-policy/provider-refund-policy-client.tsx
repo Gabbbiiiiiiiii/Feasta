@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArrowLeft,
   AlertTriangle,
   CheckCircle2,
   FileText,
@@ -10,6 +11,7 @@ import {
   Plus,
   RotateCcw,
 } from "lucide-react";
+import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {useMemo, useState} from "react";
 
@@ -24,6 +26,7 @@ import {PageHeading} from "@/components/layout/page-heading";
 import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
+import {Dialog, DialogContent, DialogDescription, DialogTitle} from "@/components/ui/dialog";
 import {Input} from "@/components/ui/input";
 import {Textarea} from "@/components/ui/textarea";
 import {
@@ -97,10 +100,18 @@ export function ProviderRefundPolicyClient({data}: {
 
   return (
     <div className="grid min-w-0 gap-6">
+      <div className="flex items-center">
+        <Button asChild variant="secondary" size="compact">
+          <Link href="/provider/payments">
+            <ArrowLeft aria-hidden="true" className="size-4" />
+            Back to payments
+          </Link>
+        </Button>
+      </div>
       <PageHeading
         eyebrow="Provider management"
         title="Refund Policy"
-        description="Define how much Customers may receive back when an accepted booking is cancelled."
+        description="Choose how much customers receive if a booking is cancelled."
       />
 
       {feedback ? (
@@ -122,10 +133,10 @@ export function ProviderRefundPolicyClient({data}: {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 id="provider-default-policy" className="text-2xl font-black tracking-tight">
-              Provider Default Policy
+              Default Refund Policy
             </h2>
             <p className="mt-1 text-muted-foreground">
-              This policy applies to future bookings unless a package has its own override.
+              Used for future bookings unless a package has its own refund policy.
             </p>
           </div>
         </div>
@@ -169,27 +180,37 @@ export function ProviderRefundPolicyClient({data}: {
       </section>
 
       {editor ? (
-        <PolicyEditor
-          key={editorKey(editor)}
-          target={editor}
-          providerPolicy={data.providerPolicy}
-          onCancel={() => setEditor(null)}
-          onPublished={(message) => {
-            setEditor(null);
-            setFeedback({tone: "success", message});
-            router.refresh();
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setEditor(null);
           }}
-          onError={(message) => setFeedback({tone: "error", message})}
-        />
+        >
+          <DialogContent aria-labelledby="policy-editor-heading" className="max-w-4xl overflow-y-hidden p-0">
+            <div className="min-h-0 max-h-[min(90vh,48rem)] overflow-y-auto">
+              <PolicyEditor
+              key={editorKey(editor)}
+              target={editor}
+              providerPolicy={data.providerPolicy}
+              onCancel={() => setEditor(null)}
+              onPublished={(message) => {
+                setEditor(null);
+                setFeedback({tone: "success", message});
+                router.refresh();
+              }}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
       ) : null}
 
       <section aria-labelledby="package-overrides" className="grid gap-4">
         <div>
           <h2 id="package-overrides" className="text-2xl font-black tracking-tight">
-            Package Overrides
+            Package Refund Policies
           </h2>
           <p className="mt-1 max-w-3xl text-muted-foreground">
-            A package override completely replaces your Provider default refund policy for bookings using this package. It does not merge with the default policy.
+            You can set a separate refund policy for a package. It replaces the default policy for future bookings of that package.
           </p>
         </div>
 
@@ -232,10 +253,10 @@ export function ProviderRefundPolicyClient({data}: {
           <Info aria-hidden="true" className="mt-0.5 size-6 shrink-0 text-info" />
           <div>
             <h2 id="important-refund-information" className="text-lg font-bold">
-              Important Information
+              Good to Know
             </h2>
             <p className="mt-2 text-sm leading-6">
-              Publishing creates a new policy version for future bookings. Existing bookings keep the refund policy they agreed to when booking. Additional terms explain your policy but never change the configured refund percentages.
+              Changes apply to future bookings only. Existing bookings keep their agreed refund policy. Extra notes do not change the percentages.
             </p>
           </div>
         </div>
@@ -259,12 +280,12 @@ export function ProviderRefundPolicyClient({data}: {
   );
 }
 
-function PolicyEditor({target, providerPolicy, onCancel, onPublished, onError}: {
+function PolicyEditor({target, providerPolicy, onCancel, onPublished}: {
   target: EditorTarget;
   providerPolicy: ProviderRefundPolicyDto | null;
   onCancel: () => void;
   onPublished: (message: string) => void;
-  onError: (message: string) => void;
+
 }) {
   const sourcePolicy = target.kind === "provider"
     ? target.policy
@@ -276,6 +297,7 @@ function PolicyEditor({target, providerPolicy, onCancel, onPublished, onError}: 
   const [draft, setDraft] = useState<RefundPolicyDraftPayload | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const isPackage = target.kind === "package";
   const editing = isPackage ? target.package.override !== null : target.policy !== null;
 
@@ -286,6 +308,7 @@ function PolicyEditor({target, providerPolicy, onCancel, onPublished, onError}: 
 
   function preparePublish(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setSaveError(null);
     const result = validateRefundPolicy(values, terms);
     setErrors(result.errors);
     if (!result.draft) return;
@@ -307,7 +330,7 @@ function PolicyEditor({target, providerPolicy, onCancel, onPublished, onError}: 
       setConfirmOpen(false);
     } catch (caught) {
       setConfirmOpen(false);
-      onError(refundPolicyErrorMessage(caught, target.kind === "package"));
+      setSaveError(refundPolicyErrorMessage(caught, target.kind === "package"));
     } finally {
       setSubmitting(false);
     }
@@ -318,17 +341,24 @@ function PolicyEditor({target, providerPolicy, onCancel, onPublished, onError}: 
     : editing ? "Publish Updated Policy" : "Publish Policy";
 
   return (
-    <section aria-labelledby="policy-editor-heading" className="scroll-mt-6 rounded-xl border border-primary/30 bg-card p-5 shadow-sm sm:p-6">
+    <section className="min-w-0 p-5 sm:p-6">
       <form onSubmit={preparePublish} noValidate className="grid min-w-0 gap-6">
         <div>
           <p className="text-sm font-bold uppercase tracking-widest text-primary-strong">
             {isPackage ? "Package policy" : "Provider default"}
           </p>
-          <h2 id="policy-editor-heading" className="mt-1 text-2xl font-black tracking-tight">
+          <DialogTitle asChild>
+            <h2 id="policy-editor-heading" className="mt-1 pr-10 text-2xl font-black tracking-tight">
             {isPackage
               ? `${editing ? "Edit" : "Create"} Override: ${target.package.name}`
               : `${editing ? "Edit" : "Create"} Refund Policy`}
-          </h2>
+            </h2>
+          </DialogTitle>
+          <DialogDescription className="mt-2 text-sm">
+            {isPackage
+              ? "Set a separate refund policy for this package."
+              : "Set the refund percentage for each stage."}
+          </DialogDescription>
           {isPackage && !target.package.override && providerPolicy ? (
             <p className="mt-2 text-sm text-muted-foreground">
               Values are prefilled from your current Provider default for convenience. Publishing saves all three rules as a complete, independent package override.
@@ -337,7 +367,7 @@ function PolicyEditor({target, providerPolicy, onCancel, onPublished, onError}: 
         </div>
 
         <fieldset className="grid gap-4">
-          <legend className="text-lg font-bold">Refund percentages by stage</legend>
+          <legend className="text-lg font-bold">Customer refund percentages</legend>
           <div className="grid gap-4 lg:grid-cols-3">
             {REFUND_ELIGIBILITY_STAGES.map((stage) => (
               <FormField
@@ -370,8 +400,8 @@ function PolicyEditor({target, providerPolicy, onCancel, onPublished, onError}: 
 
         <FormField
           id="refund-policy-terms"
-          label="Additional Policy Terms"
-          description="Use this to explain your refund policy in plain language. These terms do not change the refund percentages above."
+          label="Additional notes (optional)"
+          description="Add details customers should know. These notes do not change the refund percentages."
           error={errors.terms}
         >
           <Textarea
@@ -388,7 +418,7 @@ function PolicyEditor({target, providerPolicy, onCancel, onPublished, onError}: 
         </FormField>
 
         <div className="rounded-xl bg-muted p-4 sm:p-5">
-          <h3 className="font-bold">Plain-language preview</h3>
+          <h3 className="font-bold">Refund preview</h3>
           <dl className="mt-3 grid gap-3 sm:grid-cols-3">
             {preview.map(({stage, display}) => (
               <div key={stage} className="rounded-lg bg-card p-3">
@@ -404,14 +434,20 @@ function PolicyEditor({target, providerPolicy, onCancel, onPublished, onError}: 
             ))}
           </dl>
           <p className="mt-3 text-xs text-muted-foreground">
-            This preview is informational. FEASTA’s trusted backend remains authoritative.
+            This is a preview. FEASTA calculates refunds using the published policy.
           </p>
         </div>
 
         <div className="rounded-xl border border-warning bg-warning-subtle p-4 text-sm">
-          <p className="font-bold">Publishing creates a new policy version.</p>
+          <p className="font-bold">Updates apply to future bookings only.</p>
           <p className="mt-1">Existing bookings keep the refund policy they agreed to when booking.</p>
         </div>
+
+        {saveError ? (
+          <p role="alert" className="rounded-lg border border-destructive bg-destructive-subtle p-3 text-sm text-destructive">
+            {saveError}
+          </p>
+        ) : null}
 
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button>

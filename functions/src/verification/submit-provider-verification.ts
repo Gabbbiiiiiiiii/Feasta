@@ -1,3 +1,10 @@
+import {
+  isServiceCategoryCode,
+  type ServiceCategoryCode,
+} from "../shared/service-category-code.js";
+import {
+  resolveServiceCategoryCapacityCapabilitiesInTransaction,
+} from "../shared/service-category-policy.js";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 import {getAuth} from "firebase-admin/auth";
 import {getStorage} from "firebase-admin/storage";
@@ -235,8 +242,35 @@ export const submitProviderVerification = onCall(
             );
           }
 
+          const providerServiceType = providerData?.providerServiceType;
+
+          if (
+            providerServiceType !== "catering" &&
+            providerServiceType !== "addon" &&
+            providerServiceType !== "both"
+          ) {
+            throw new HttpsError(
+              "failed-precondition",
+              "Complete your provider service selection before submitting.",
+            );
+          }
+
+          const capacityCapabilities =
+            await resolveServiceCategoryCapacityCapabilitiesInTransaction(
+              transaction,
+              Array.isArray(providerData?.serviceCategories)
+                ? providerData.serviceCategories.filter(
+                    (category): category is ServiceCategoryCode =>
+                      typeof category === "string" &&
+                      isServiceCategoryCode(category),
+                  )
+                : [],
+              providerServiceType,
+            );
+
           const profileIssues = providerSubmissionProfileIssues(
             providerData ?? {},
+            capacityCapabilities,
           );
           if (profileIssues.length > 0) {
             throw new HttpsError(

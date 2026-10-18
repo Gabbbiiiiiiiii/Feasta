@@ -10,7 +10,6 @@ import {
   CircleCheckBig,
   Clock3,
   MapPin,
-  PackageOpen,
   Palette,
   ReceiptText,
   Soup,
@@ -23,6 +22,7 @@ import {
 import {useRouter} from "next/navigation";
 import {BookingOfferSelection} from "@/components/customer/bookings/booking-offer-selection";
 import {useCustomizationDraft} from "@/lib/customer/bookings/use-customization-draft";
+import {bookingSubmissionDeadlineNotice} from "@/lib/customer/bookings/booking-submission-deadline";
 import {
   bookingCustomizationReviewLabel,
   clearStaleSetupReference,
@@ -38,6 +38,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useId,
   useRef,
   useState,
   type ReactNode,
@@ -62,11 +63,12 @@ import {
   type CustomerRefundPolicyDisclosureResult,
 } from "@/lib/customer/bookings/customer-refund-policy-client";
 
-import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
+import {ProviderDatePicker, type ProviderCalendarCache} from "./provider-date-picker";
 import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
 import {PriceDisplay} from "@/components/shared/price-display";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
+import {Dialog, DialogClose, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger} from "@/components/ui/dialog";
 import {Textarea} from "@/components/ui/textarea";
 import {formatPhilippineDate} from "@/lib/dates/philippine-date";
 import type {
@@ -210,8 +212,9 @@ const submissionIdentityRef =
     setSelectedEventServiceIds,
   ] = useState<string[]>([]);
 
-  const [willArrangeOwnAddOns, setWillArrangeOwnAddOns] = useState(false);
-  const [customerArrangedAddOnsNote, setCustomerArrangedAddOnsNote] = useState("");
+  // Legacy draft and submission fields stay inert after the UI removal.
+  const willArrangeOwnAddOns = false;
+  const customerArrangedAddOnsNote = "";
   const [serviceTier, setServiceTier] = useState<CateringPackageServiceTier | null>(null);
   const [packageThemeId, setPackageThemeId] = useState<string | null>(null);
   const [themeInspiration, setThemeInspiration] = useState<BookingThemeInspiration>(
@@ -241,8 +244,6 @@ const submissionIdentityRef =
         themeInspiration: saved.themeInspiration,
       });
       setDraft(saved.event);
-      setWillArrangeOwnAddOns(saved.ownAddons ?? false);
-      setCustomerArrangedAddOnsNote(saved.ownAddonsNote ?? "");
       setCustomizationDraft({
         selectedFoods: saved.customization.selectedFoods.filter((item) => customization.foods.includes(item)),
         selectedDecorations: saved.customization.selectedDecorations.filter((item) => customization.decorations.includes(item)),
@@ -339,7 +340,7 @@ const submissionIdentityRef =
       setRefundPolicyStatus("error");
       setRefundPolicyError(normalizeDisclosureError(error));
     }
-  }, [packageRecord.id, provider.id, selectedEventServiceIds]);
+  }, [packageRecord.id, provider.id, selectedEventServiceIds, setAcknowledgedPolicyKeys]);
 
   useEffect(() => {
     if (planningOnly || step !== 4) return undefined;
@@ -351,7 +352,6 @@ const submissionIdentityRef =
       refundPolicyGenerationRef.current += 1;
     };
   }, [loadRefundPolicyDisclosures, step, planningOnly]);
-
 
   const [errors, setErrors] =
     useState<EventDetailsErrors>({});
@@ -368,15 +368,15 @@ const submissionIdentityRef =
     useState<string | null>(null);
   const [selectionAvailabilityError, setSelectionAvailabilityError] =
     useState<string | null>(null);
+  const [providerCalendarCache] = useState<ProviderCalendarCache>(() => new Map());
+  const [calendarBlockedDate, setCalendarBlockedDate] = useState<string | null>(null);
+  const onCalendarAvailability = useCallback((date: string, blocked: boolean) => {
+    setCalendarBlockedDate(blocked ? date : null);
+    if (blocked) setAvailabilityCheckedKey(null);
+  }, [setAvailabilityCheckedKey]);
   const [availabilityRetryNonce, setAvailabilityRetryNonce] =
     useState(0);
   const availabilityGenerationRef = useRef(0);
-
-  const eventDateInput = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    // Refresh after commits, including when returning to the schedule step.
-    if (eventDateInput.current) eventDateInput.current.min = tomorrowDateValue();
-  });
 
   const expectedAvailabilityProviderIds = useMemo(
     () => [
@@ -477,12 +477,12 @@ const submissionIdentityRef =
     ? offerSelection.displayedServicePrice
     : packageRecord.price;
 
-  const selectedCustomizationCount =
-    customizationDraft.selectedFoods.length +
-    customizationDraft.selectedDecorations.length +
-    customizationDraft.selectedFurniture.length +
-    Number(offerSelection.serviceTier !== null) +
-    Number(offerSelection.packageThemeId !== null);
+  // Tier cards already display these published inclusions.
+  const additionalIncludedServices = customization.services.filter((service) =>
+    !offerSelection.availableTiers.some((tier) =>
+      packageRecord.serviceOptions?.[tier]?.includedServices.includes(service),
+    ),
+  );
 
   const selectedEventServices =
     eventServices.filter((service) =>
@@ -512,6 +512,8 @@ const submissionIdentityRef =
         total + (service.price ?? 0),
       0,
     );
+
+  const previewServices = eventServices.slice(0, 4);
 
   const cateringProviderServices =
     eventServices.filter(
@@ -677,8 +679,6 @@ function buildSubmissionInput(
   const specialRequest =
     draft.specialRequest.trim();
 
-  const ownAddOnsNote =
-    customerArrangedAddOnsNote.trim();
 
   return omitUntrustedBookingCustomization({
     clientRequestId,
@@ -727,15 +727,7 @@ function buildSubmissionInput(
         }
       : {}),
 
-    willArrangeOwnAddOns,
-
-    ...(willArrangeOwnAddOns &&
-    ownAddOnsNote
-      ? {
-          customerArrangedAddOnsNote:
-            ownAddOnsNote,
-        }
-      : {}),
+    willArrangeOwnAddOns: false,
   });
 }
 
@@ -839,6 +831,16 @@ function navigateToSubmittedBooking(
 }
 
 async function handleSubmitBooking() {
+  if (!planningOnly) {
+    const notice = bookingSubmissionDeadlineNotice(draft);
+
+    if (notice) {
+      setSubmissionError(notice);
+      setErrors((current) => ({...current, eventTime: notice}));
+      setStep(1);
+      return;
+    }
+  }
   if (!everyAgreementAcknowledged) {
     setSubmissionError("Review and acknowledge each Booking & Payment Agreement before submitting.");
     return;
@@ -940,6 +942,8 @@ async function handleSubmitBooking() {
     );
 
     if (unavailableProviders.length > 0) {
+      setAvailabilityRetryNonce((current) => current + 1);
+      setAvailabilityCheckedKey(null);
       const primaryUnavailable = unavailableProviders.some(
         (result) => result.providerId === provider.id,
       );
@@ -963,6 +967,25 @@ async function handleSubmitBooking() {
 
     navigateToSubmittedBooking(result);
   } catch (error) {
+    if (
+      (error as {reason?: string})?.reason ===
+      "booking_submission_payment_deadline_passed"
+    ) {
+      setSubmissionError(
+        error instanceof Error
+          ? error.message
+          : "The booking payment deadline has passed.",
+      );
+
+      setErrors((current) => ({
+        ...current,
+        eventTime: "Choose a later event date or start time.",
+      }));
+
+      setStep(1);
+      return;
+    }
+
     if ((error as {reason?: string})?.reason?.startsWith("BOOKING_PAYMENT_AGREEMENT_")) {
       setAgreementAcknowledged({});
       setAgreements([]);
@@ -1008,6 +1031,19 @@ async function handleSubmitBooking() {
       return;
     }
 
+    if (!planningOnly) {
+      const notice = bookingSubmissionDeadlineNotice(draft);
+
+      if (notice) {
+        setErrors({...nextErrors, eventTime: notice});
+        return;
+      }
+    }
+
+    if (!planningOnly && calendarBlockedDate === draft.eventDate) {
+      setAvailabilityError("This date is no longer available. Choose another date.");
+      return;
+    }
     if (!planningOnly && !availabilityIsCurrent) {
       setAvailabilityError(
         availabilityStatus === "loading"
@@ -1154,29 +1190,8 @@ function discardAndLeave() {
 }
 
   return (
-    <div className="mx-auto grid w-full max-w-[1240px] min-w-0 gap-6">
-      <div
-        role="status"
-        aria-live="polite"
-        className="inline-flex min-h-9 items-center gap-2 rounded-full border border-primary/15 bg-primary/[0.06] px-3.5 py-2 text-sm font-semibold text-primary-strong"
-      >
-        <span
-          aria-hidden="true"
-          className="size-2 rounded-full bg-primary"
-        />
-
-        {savedDraft.status}
-      </div>
-      {savedDraft.choices.length ? <div className="flex flex-wrap gap-2" aria-label="Saved event plans">
-        {savedDraft.choices.map((choice) => <Button key={choice.key} variant="secondary" onClick={() => savedDraft.resume(choice)}>
-          Continue draft{choice.value.event.eventDate ? ` for ${formatPhilippineDate(choice.value.event.eventDate)}` : " without a date"}
-        </Button>)}
-      </div> : null}
-      {planningOnly ? <p className="text-sm text-muted-foreground">Plan your event here. Sign in to check availability, review refund policies, and submit a booking. Nothing is reserved yet.</p> : null}
-      {/* ============================================================
-          BACK
-         ============================================================ */}
-
+    <div className="mx-auto grid w-full max-w-[1240px] min-w-0 gap-4 [overflow-wrap:anywhere] sm:gap-5">
+      <header className="grid min-w-0 gap-2">
       <button
         type="button"
         onClick={() =>
@@ -1198,61 +1213,41 @@ function discardAndLeave() {
 
         Back to package
       </button>
-
-      {/* ============================================================
-          PAGE INTRO
-         ============================================================ */}
-
-      <section className="relative overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white p-5 shadow-[0_10px_34px_rgb(0_75_59/0.045)] sm:p-7 lg:p-8">
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -right-28 -top-32 size-72 rounded-full bg-primary/[0.055] blur-3xl"
-        />
-
-        <div className="relative grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-          <div className="max-w-3xl">
-            <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
-              Build your celebration
-            </p>
-
-            <h1 className="mt-2 text-3xl font-extrabold tracking-[-0.045em] text-foreground sm:text-4xl lg:text-[46px] lg:leading-[1.04]">
-              Customize your event.
+        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-extrabold tracking-[-0.035em] text-foreground sm:text-3xl">
+              Customize your event
             </h1>
-
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-feasta-text-secondary sm:text-base">
-              Tell FEASTA when and where
-              your celebration will happen,
-              then personalize the package
-              using the options published by
-              the provider.
+            <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
+              Add your event details, personalize your package, and review your request.
             </p>
           </div>
-
-          <div className="rounded-[18px] border border-feasta-border-soft bg-feasta-canvas px-4 py-3">
-            <p className="text-[11px] font-extrabold uppercase tracking-[0.09em] text-feasta-text-tertiary">
-              Selected package
-            </p>
-
-            <p className="mt-1 max-w-[15rem] break-words text-sm font-extrabold text-foreground">
-              {packageRecord.name}
-            </p>
-
-            <p className="mt-1 text-xs text-feasta-text-secondary">
-              {provider.businessName}
-            </p>
-          </div>
+          <p role="status" aria-live="polite" aria-atomic="true"
+            className={[
+              "flex w-fit max-w-full shrink-0 items-start gap-2 rounded-xl px-3 py-2 text-xs leading-5 sm:max-w-72",
+              /unable|could not/i.test(savedDraft.status)
+                ? "bg-warning-subtle text-warning"
+                : "bg-feasta-canvas text-feasta-text-secondary",
+            ].join(" ")}>
+            <span aria-hidden="true" className="mt-1.5 size-1.5 shrink-0 rounded-full bg-current" />
+            {savedDraft.status === "Draft saved" && savedDraft.isDirty
+              ? "Saving draft?"
+              : savedDraft.status}
+          </p>
         </div>
-      </section>
-
-      {/* ============================================================
-          PROGRESS
-         ============================================================ */}
+        {savedDraft.choices.length ? <div className="flex flex-wrap gap-2" aria-label="Saved event plans">
+          {savedDraft.choices.map((choice) => <Button key={choice.key} variant="secondary" onClick={() => savedDraft.resume(choice)}>
+            Continue draft{choice.value.event.eventDate ? ` for ${formatPhilippineDate(choice.value.event.eventDate)}` : " without a date"}
+          </Button>)}
+        </div> : null}
+        {planningOnly ? <p className="text-xs leading-5 text-muted-foreground">Plan your event here. Sign in to check availability, review refund policies, and submit a booking. Nothing is reserved yet.</p> : null}
+      </header>
 
       <nav
         aria-label="Booking progress"
-        className="rounded-[22px] border border-feasta-border-soft bg-white p-4 shadow-[0_5px_20px_rgb(0_75_59/0.03)] sm:p-5"
+        className="rounded-[22px] border border-feasta-border-soft bg-white p-2 shadow-[0_5px_20px_rgb(0_75_59/0.03)] sm:p-3"
       >
-        <ol className="grid gap-2 sm:grid-cols-4">
+        <ol className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
           {STEPS.map((item) => {
             const active =
               item.number === step;
@@ -1269,7 +1264,7 @@ function discardAndLeave() {
                     : undefined
                 }
                 className={[
-                  "flex min-w-0 items-center gap-3 rounded-[14px] px-3 py-3",
+                  "flex min-w-0 items-center gap-2 rounded-xl px-2 py-2",
                   active
                     ? "bg-secondary"
                     : "bg-feasta-canvas",
@@ -1305,6 +1300,7 @@ function discardAndLeave() {
                   ].join(" ")}
                 >
                   {item.label}
+                  {completed ? <span className="sr-only"> (completed)</span> : null}
                 </span>
               </li>
             );
@@ -1316,7 +1312,7 @@ function discardAndLeave() {
           MAIN LAYOUT
          ============================================================ */}
 
-      <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_19rem] lg:items-start">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-5 lg:items-start">
         <main className="min-w-0">
           {/* ========================================================
               STEP 1 — EVENT DETAILS
@@ -1325,7 +1321,7 @@ function discardAndLeave() {
           {step === 1 ? (
             <section
               aria-labelledby="event-details-title"
-              className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6 lg:p-7"
+              className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6"
             >
               <p className="text-xs font-extrabold uppercase tracking-[0.13em] text-primary-strong">
                 Step 1 of 4
@@ -1333,56 +1329,75 @@ function discardAndLeave() {
 
               <h2
                 id="event-details-title"
-                className="mt-2 text-2xl font-extrabold tracking-[-0.035em] text-foreground"
+                className="mt-1 text-xl font-extrabold tracking-[-0.035em] text-foreground"
               >
                 Event details
               </h2>
 
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-feasta-text-secondary">
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-feasta-text-secondary">
                 Add the schedule, guest
                 count, and venue information
                 for your celebration.
               </p>
 
-              <div className="mt-7 grid gap-5">
-                <ReadOnlyField
-                  icon={
-                    <CalendarDays
-                      aria-hidden="true"
+              <div className="mt-4 grid gap-4">
+                <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                  <span className="text-feasta-text-secondary">Event type</span>
+                  <span className="font-bold text-foreground">
+                    {packageRecord.eventType ? humanizeProviderValue(packageRecord.eventType) : "Package event"}
+                  </span>
+                </p>
+
+                <div className="grid min-w-0 items-start gap-4 sm:grid-cols-2">
+                  <div className="grid min-w-0 gap-2">
+                    <span className="text-sm font-bold">Event date</span>
+                    <ProviderDatePicker
+                      providerId={provider.id}
+                      planningOnly={planningOnly}
+                      revision={`${availabilityRetryNonce}:${primaryProviderAvailability?.reasonCode ?? ""}`}
+                      sessionCache={providerCalendarCache}
+                      onAvailability={onCalendarAvailability}
+                      value={draft.eventDate}
+                      invalid={Boolean(errors.eventDate)}
+                      onChange={(value) => updateDraft("eventDate", value)}
                     />
-                  }
-                  label="Event type"
-                  value={
-                    packageRecord.eventType
-                      ? humanizeProviderValue(
-                          packageRecord.eventType,
+                    {errors.eventDate ? <p role="alert" className="text-xs font-semibold text-destructive">{errors.eventDate}</p> : null}
+                  </div>
+
+                  <Field
+                    label="Number of guests"
+                    hint={guestGuidance}
+                    error={errors.guestCount}
+                  >
+                    <Input
+                      type="number"
+                      min={
+                        packageRecord
+                          .minimumGuests ?? 1
+                      }
+                      max={
+                        packageRecord
+                          .maximumGuests ??
+                        10_000
+                      }
+                      inputMode="numeric"
+                      placeholder="Enter guest count"
+                      value={draft.guestCount}
+                      onChange={(event) =>
+                        updateDraft(
+                          "guestCount",
+                          event.currentTarget
+                            .value,
                         )
-                      : "Package event"
-                  }
-                  description="Based on the selected package."
-                />
+                      }
+                      aria-invalid={Boolean(
+                        errors.guestCount,
+                      )}
+                    />
+                  </Field>
+                </div>
 
-                <Field
-                  label="Event date"
-                  error={errors.eventDate}
-                >
-                  <PhilippineDateInput
-                    ref={eventDateInput}
-                    value={draft.eventDate}
-                    onChange={(event) =>
-                      updateDraft(
-                        "eventDate",
-                        event.currentTarget
-                          .value,
-                      )
-                    }
-                    aria-invalid={Boolean(
-                      errors.eventDate,
-                    )}
-                  />
-                </Field>
-
-                <div className="grid gap-5 sm:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-2">
                   <Field
                     label="Start time"
                     error={errors.eventTime}
@@ -1428,41 +1443,10 @@ function discardAndLeave() {
                   </Field>
                 </div>
 
-                <Field
-                  label="Number of guests"
-                  hint={guestGuidance}
-                  error={errors.guestCount}
-                >
-                  <Input
-                    type="number"
-                    min={
-                      packageRecord
-                        .minimumGuests ?? 1
-                    }
-                    max={
-                      packageRecord
-                        .maximumGuests ??
-                      10_000
-                    }
-                    inputMode="numeric"
-                    placeholder="Enter guest count"
-                    value={draft.guestCount}
-                    onChange={(event) =>
-                      updateDraft(
-                        "guestCount",
-                        event.currentTarget
-                          .value,
-                      )
-                    }
-                    aria-invalid={Boolean(
-                      errors.guestCount,
-                    )}
-                  />
-                </Field>
 
                 <ProviderAvailabilityPanel
                   providerName={provider.businessName}
-                  status={availabilityStatus}
+                  status={planningOnly || !availabilityParameters ? "idle" : availabilityIsCurrent ? "ready" : availabilityStatus === "error" ? "error" : "loading"}
                   result={primaryProviderAvailability}
                   error={availabilityError}
                   onRetry={() =>
@@ -1472,7 +1456,7 @@ function discardAndLeave() {
 
                 <Field
                   label="Event location"
-                  hint="City, municipality, venue, or general location."
+                  hint="City, municipality, or venue"
                   error={
                     errors.eventLocation
                   }
@@ -1505,7 +1489,8 @@ function discardAndLeave() {
                 >
                   <Textarea
                     maxLength={500}
-                    rows={4}
+                    rows={2}
+                    className="min-h-20"
                     placeholder="Street, barangay, landmark, venue details..."
                     value={
                       draft.eventAddress
@@ -1533,7 +1518,8 @@ function discardAndLeave() {
                 >
                   <Textarea
                     maxLength={1000}
-                    rows={5}
+                    rows={3}
+                    className="min-h-24"
                     placeholder="Dietary notes, timing concerns, setup requests, or other event details..."
                     value={
                       draft.specialRequest
@@ -1549,12 +1535,9 @@ function discardAndLeave() {
                 </Field>
               </div>
 
-              <div className="mt-7 flex flex-col-reverse gap-3 border-t border-feasta-divider pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mt-5 flex flex-col-reverse gap-3 border-t border-feasta-divider pt-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="max-w-md text-xs leading-5 text-feasta-text-secondary">
-                  Nothing is submitted at this
-                  stage. You&apos;ll review your
-                  selections before sending a
-                  provider request.
+                  You&apos;ll review your request before sending it to the provider.
                 </p>
 
                 <Button
@@ -1562,7 +1545,7 @@ function discardAndLeave() {
                   onClick={
                     continueFromEventDetails
                   }
-                  className="min-h-12 rounded-full px-5"
+                  className="min-h-12 w-full shrink-0 rounded-full px-5 sm:w-auto"
                 >
                   Continue
 
@@ -1582,7 +1565,7 @@ function discardAndLeave() {
           {step === 2 ? (
             <section
               aria-labelledby="package-customization-title"
-              className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6 lg:p-7"
+              className="rounded-[26px] border border-feasta-border-soft bg-white p-5 shadow-[0_8px_28px_rgb(0_75_59/0.04)] sm:p-6"
             >
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="max-w-2xl">
@@ -1592,38 +1575,28 @@ function discardAndLeave() {
 
                   <h2
                     id="package-customization-title"
-                    className="mt-2 text-2xl font-extrabold tracking-[-0.035em] text-foreground"
+                    className="mt-1 text-xl font-extrabold tracking-[-0.035em] text-foreground"
                   >
                     Customize your package
                   </h2>
 
-                  <p className="mt-3 text-sm leading-6 text-feasta-text-secondary">
-                    Choose from the package
-                    options published by{" "}
-                    {provider.businessName}.
-                    Your selections will be
-                    verified again when the
-                    booking request is
-                    submitted.
+                  <p className="mt-1 text-sm leading-6 text-feasta-text-secondary">
+                    {offerSelection.availableTiers.length > 0
+                      ? "Choose your service level and any published package options."
+                      : "Choose any published package options you would like."}
                   </p>
                 </div>
 
-                <div className="shrink-0 rounded-xl bg-feasta-canvas px-3.5 py-2.5">
-                  <p className="text-xs font-semibold text-feasta-text-secondary">
-                    <span className="font-extrabold text-foreground">
-                      {
-                        selectedCustomizationCount
-                      }
-                    </span>{" "}
-                    {selectedCustomizationCount ===
-                    1
-                      ? "selection"
-                      : "selections"}
+                {offerSelection.availableTiers.length > 0 ? (
+                  <p className="max-w-full rounded-xl bg-feasta-canvas px-3 py-2 text-xs font-bold text-primary-strong sm:max-w-52">
+                    {offerSelection.serviceTier
+                      ? bookingCustomizationReviewLabel(offerSelection.serviceTier)
+                      : "Choose a service level (required)"}
                   </p>
-                </div>
+                ) : null}
               </div>
 
-              <div className="mt-7 grid gap-6">
+              <div className="mt-5 grid gap-5">
                 <BookingOfferSelection
                   availableTiers={offerSelection.availableTiers}
                   serviceOptions={packageRecord.serviceOptions}
@@ -1670,7 +1643,6 @@ function discardAndLeave() {
                       value,
                     )
                   }
-                  emptyMessage="No selectable food options are currently listed for this package."
                 />
 
                 <CustomizationGroup
@@ -1694,7 +1666,6 @@ function discardAndLeave() {
                       value,
                     )
                   }
-                  emptyMessage="No selectable decoration options are currently listed for this package."
                 />
 
                 <CustomizationGroup
@@ -1718,24 +1689,26 @@ function discardAndLeave() {
                       value,
                     )
                   }
-                  emptyMessage="No selectable furniture options are currently listed for this package."
                 />
 
                 <IncludedServices
                   services={
-                    customization.services
+                    additionalIncludedServices
                   }
                 />
+                {customization.foods.length + customization.decorations.length + customization.furniture.length + additionalIncludedServices.length === 0 ? (
+                  <p className="text-sm text-feasta-text-secondary">No additional package options are published.</p>
+                ) : null}
               </div>
 
-              <div className="mt-7 flex flex-col-reverse gap-3 border-t border-feasta-divider pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mt-5 flex flex-col-reverse gap-3 border-t border-feasta-divider pt-4 sm:flex-row sm:items-center sm:justify-between">
                 <Button
                   type="button"
                   variant="secondary"
                   onClick={() =>
                     setStep(1)
                   }
-                  className="min-h-12 rounded-full px-5"
+                  className="min-h-12 w-full rounded-full px-5 sm:w-auto"
                 >
                   <ArrowLeft
                     aria-hidden="true"
@@ -1747,11 +1720,9 @@ function discardAndLeave() {
 
                 <div className="flex flex-col gap-3 sm:items-end">
                   <p className="max-w-md text-xs leading-5 text-feasta-text-secondary sm:text-right">
-                    Package customization is
-                    optional unless the provider
-                    requires specific choices
-                    outside this current public
-                    configuration.
+                    {offerSelection.availableTiers.length > 0
+                      ? "Choose a service level to continue. Other package options are optional."
+                      : "Package options are optional."}
                   </p>
 
                   <Button
@@ -1840,37 +1811,46 @@ function discardAndLeave() {
                     title={`From ${provider.businessName}`}
                     description="Additional services offered by your selected catering provider."
                     services={
-                      cateringProviderServices
+                      cateringProviderServices.filter((service) => previewServices.includes(service))
                     }
                     selectedIds={
                       selectedEventServiceIds
                     }
                     availabilityByProvider={availabilityResults}
                     availabilityCurrent={availabilityIsCurrent}
+                    requireAvailability={!planningOnly}
                     onToggle={
                       toggleEventService
                     }
-                    emptyMessage="This caterer does not currently have additional selectable services."
+                    emptyMessage={cateringProviderServices.length ? "More services from this provider are in Browse More Services." : "This caterer does not currently have additional selectable services."}
                   />
 
                   <EventServiceGroup
                     title="Other FEASTA event services"
                     description="Add optional services from other eligible FEASTA providers."
                     services={
-                      marketplaceServices
+                      marketplaceServices.filter((service) => previewServices.includes(service))
                     }
                     selectedIds={
                       selectedEventServiceIds
                     }
                     availabilityByProvider={availabilityResults}
                     availabilityCurrent={availabilityIsCurrent}
+                    requireAvailability={!planningOnly}
                     onToggle={
                       toggleEventService
                     }
-                    emptyMessage="No additional marketplace event services are currently available."
+                    emptyMessage={marketplaceServices.length ? "Browse the loaded collection for more FEASTA services." : "No additional marketplace event services are currently available."}
                   />
 
-                  <div className="rounded-[18px] border border-feasta-border-soft bg-feasta-canvas p-4 sm:p-5">
+                  {eventServices.length > 4 ? <EventServiceBrowser
+                    services={eventServices} selectedIds={selectedEventServiceIds}
+                    availabilityByProvider={availabilityResults} availabilityCurrent={availabilityIsCurrent}
+                    requireAvailability={!planningOnly} onToggle={toggleEventService}
+                    subtotal={selectedEventServicesSubtotal} selectionError={selectionAvailabilityError}
+                  /> : null}
+
+                  <section aria-label="Selected optional services" className="rounded-[18px] border border-feasta-border-soft bg-feasta-canvas p-4 sm:p-5">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                       <div>
                         <p className="text-[11px] font-extrabold uppercase tracking-[0.09em] text-feasta-text-tertiary">
@@ -1909,7 +1889,18 @@ function discardAndLeave() {
                         />
                       </div>
                     </div>
-                  </div>
+                    {selectedEventServices.length > 0 ? <ul className="mt-4 grid gap-2 border-t border-feasta-divider pt-3">
+                      {selectedEventServices.map((service) => <li key={service.id} className="flex min-w-0 items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="break-words text-sm font-bold text-foreground">{service.name}</p>
+                          <p className="break-words text-xs text-feasta-text-secondary">{service.providerName}</p>
+                        </div>
+                        <Button type="button" variant="ghost" size="compact" className="min-h-11 shrink-0"
+                          aria-label={`Remove ${service.name} from ${service.providerName}`}
+                          onClick={() => toggleEventService(service.id)}>Remove</Button>
+                      </li>)}
+                    </ul> : null}
+                  </section>
                 </div>
               ) : (
                 <div className="mt-7 rounded-[18px] border border-dashed border-feasta-border-strong bg-feasta-canvas p-5">
@@ -1929,94 +1920,6 @@ function discardAndLeave() {
                   </p>
                 </div>
               )}
-
-              <section className="mt-6 overflow-hidden rounded-[20px] border border-feasta-border-soft">
-                <div className="bg-feasta-canvas p-4 sm:p-5">
-                  <label className="flex cursor-pointer items-start gap-3">
-                    <input
-                      type="checkbox"
-                      checked={willArrangeOwnAddOns}
-                      onChange={(event) => {
-                        const checked =
-                          event.currentTarget.checked;
-
-                        setWillArrangeOwnAddOns(
-                          checked,
-                        );
-
-                        if (!checked) {
-                          setCustomerArrangedAddOnsNote(
-                            "",
-                          );
-                        }
-                      }}
-                      className="peer sr-only"
-                    />
-
-                    <span
-                      aria-hidden="true"
-                      className={[
-                        "mt-0.5 grid size-5 shrink-0 place-items-center rounded-[6px] border",
-                        "transition-[border-color,background-color,color]",
-                        willArrangeOwnAddOns
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-feasta-border-strong bg-white text-transparent",
-                        "peer-focus-visible:ring-2 peer-focus-visible:ring-primary",
-                        "peer-focus-visible:ring-offset-2",
-                      ].join(" ")}
-                    >
-                      <Check className="size-3.5" />
-                    </span>
-
-                    <span className="min-w-0">
-                      <span className="block text-sm font-extrabold text-foreground">
-                        I&apos;ll arrange some event
-                        services myself
-                      </span>
-
-                      <span className="mt-1 block text-xs leading-5 text-feasta-text-secondary">
-                        Use this when you plan to hire or
-                        arrange services outside FEASTA in
-                        addition to, or instead of, the
-                        marketplace services above.
-                      </span>
-                    </span>
-                  </label>
-                </div>
-
-                {willArrangeOwnAddOns ? (
-                  <div className="border-t border-feasta-divider bg-white p-4 sm:p-5">
-                    <Field
-                      label="Services you'll arrange yourself"
-                      optional
-                      hint={`${customerArrangedAddOnsNote.length}/500 characters`}
-                    >
-                      <Textarea
-                        rows={4}
-                        maxLength={500}
-                        value={
-                          customerArrangedAddOnsNote
-                        }
-                        placeholder="e.g. Photographer from another supplier, family-provided decorations, personal sound system..."
-                        onChange={(event) =>
-                          setCustomerArrangedAddOnsNote(
-                            event.currentTarget.value,
-                          )
-                        }
-                      />
-                    </Field>
-
-                    <p className="mt-3 text-xs leading-5 text-feasta-text-secondary">
-                      Services arranged outside FEASTA are
-                      recorded only as part of your event
-                      request. Their availability, price,
-                      payment, and fulfillment are not
-                      calculated from the FEASTA event-service
-                      listings shown above.
-                    </p>
-                  </div>
-                ) : null}
-              </section>
 
               <div className="mt-7 flex flex-col-reverse gap-3 border-t border-feasta-divider pt-5 sm:flex-row sm:items-center sm:justify-between">
                 <Button
@@ -2136,12 +2039,6 @@ function discardAndLeave() {
               selectedEventServicesSubtotal={
                 selectedEventServicesSubtotal
               }
-              willArrangeOwnAddOns={
-                willArrangeOwnAddOns
-              }
-              customerArrangedAddOnsNote={
-                customerArrangedAddOnsNote
-              }
               serviceTierLabel={bookingCustomizationReviewLabel(offerSelection.serviceTier)}
               displayedServicePrice={estimatedServicePrice}
               packageThemeName={
@@ -2190,6 +2087,9 @@ function discardAndLeave() {
               onBack={() =>
                 setStep(3)
               }
+              onEditEvent={() => setStep(1)}
+              onEditPackage={() => setStep(2)}
+              onEditServices={() => setStep(3)}
               onSubmit={
                 handleSubmitBooking
               }
@@ -2201,29 +2101,14 @@ function discardAndLeave() {
             STICKY SUMMARY
            ============================================================ */}
 
-        <aside className="min-w-0 lg:sticky lg:top-24">
+        <aside aria-label="Package summary" className="order-first min-w-0 lg:order-none lg:sticky lg:top-24">
           <section className="overflow-hidden rounded-[22px] border border-feasta-border-soft bg-white shadow-[0_8px_26px_rgb(0_75_59/0.04)]">
-            {packageRecord.imageUrl ? (
-              // Public package image URL is normalized server-side.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={
-                  packageRecord.imageUrl
-                }
-                alt=""
-                aria-hidden="true"
-                className="aspect-[16/9] w-full object-cover"
-              />
-            ) : (
-              <div className="grid aspect-[16/9] place-items-center bg-feasta-surface-muted">
-                <PackageOpen
-                  aria-hidden="true"
-                  className="size-7 text-feasta-text-tertiary"
-                />
-              </div>
-            )}
-
-            <div className="p-5">
+            <div className="p-4 sm:p-5">
+              {packageRecord.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={packageRecord.imageUrl} alt="" aria-hidden="true"
+                  className="float-right mb-2 ml-3 size-14 rounded-xl object-cover" />
+              ) : null}
               <p className="text-[11px] font-extrabold uppercase tracking-[0.09em] text-primary-strong">
                 Your package
               </p>
@@ -2236,14 +2121,16 @@ function discardAndLeave() {
                 {provider.businessName}
               </p>
 
-              <div className="mt-5 border-t border-feasta-divider pt-4">
+              <div className="mt-3 border-t border-feasta-divider pt-4">
                 {offerSelection.serviceTier ? (
                   <p className="mb-3 text-xs leading-5 text-feasta-text-secondary">
                     Selected service: {bookingCustomizationReviewLabel(offerSelection.serviceTier)}
                   </p>
                 ) : null}
                 <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
-                  Estimated service price
+                  {offerSelection.availableTiers.length > 0 && !offerSelection.serviceTier
+                    ? "Starting price ? no service level selected"
+                    : "Estimated service price"}
                 </p>
 
                 <PriceDisplay
@@ -2253,10 +2140,33 @@ function discardAndLeave() {
                   className="mt-1"
                 />
 
-                <div className="mt-3"><PackagePaymentTerms source={packageRecord} /></div>
+                {step === 4 && !planningOnly ? (
+                  <div className="mt-3 rounded-xl border border-primary/15 bg-secondary p-3" aria-label="Current booking payment requirement">
+                    <p className="text-[11px] font-extrabold uppercase tracking-wide text-primary-strong">Payment requirement for this request</p>
+                    {loadedAgreementInput === agreementInputJSON && agreements.length > 0 ? (
+                      <div className="mt-2 grid gap-3">
+                        {agreements.map((agreement) => (
+                          <div key={agreement.providerId} className="grid gap-1 border-t border-primary/10 pt-2 first:border-t-0 first:pt-0">
+                            <p className="break-words text-xs font-semibold text-feasta-text-secondary">{agreement.providerName}</p>
+                            <p className="text-sm font-extrabold text-foreground">{agreement.depositEligible ? "Deposit currently available" : "Full payment required"}</p>
+                            <PriceDisplay amount={agreement.requiredUpfrontAmountInCentavos / 100} />
+                            {agreement.depositEligible ? (
+                              <p className="text-xs leading-5 text-feasta-text-secondary">Remaining balance: {new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"}).format(agreement.remainingBalanceInCentavos / 100)}. Eligibility is finalized on submission.</p>
+                            ) : agreement.eligibilityReason === "short_notice" ? (
+                              <p className="text-xs leading-5 text-feasta-text-secondary">The 72-hour deposit cutoff has passed for this event.</p>
+                            ) : null}
+                          </div>
+                        ))}
+                        <p className="text-xs leading-5 text-feasta-text-secondary">The detailed agreement below shows all deadlines. Payment is not collected by submitting this request.</p>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs leading-5 text-feasta-text-secondary">{agreementError ? "Current payment terms could not be loaded. Use the agreement retry option below." : "Checking current booking-specific payment requirements..."}</p>
+                    )}
+                  </div>
+                ) : <div className="mt-3"><PackagePaymentTerms source={packageRecord} /></div>}
               </div>
 
-              <div className="mt-4 grid gap-3 border-t border-feasta-divider pt-4">
+              <div className="mt-3 grid grid-cols-2 gap-3 border-t border-feasta-divider pt-4">
                 {draft.eventDate ? (
                   <SummaryLine
                     icon={
@@ -2539,7 +2449,6 @@ function CustomizationGroup({
   options,
   selected,
   onToggle,
-  emptyMessage,
 }: {
   title: string;
   description: string;
@@ -2547,12 +2456,13 @@ function CustomizationGroup({
   options: readonly string[];
   selected: readonly string[];
   onToggle: (value: string) => void;
-  emptyMessage: string;
 }) {
+  if (options.length === 0) return null;
+
   return (
-    <section className="overflow-hidden rounded-[20px] border border-feasta-border-soft">
-      <div className="flex items-start gap-3 border-b border-feasta-divider bg-feasta-canvas p-4 sm:p-5">
-        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-primary-strong shadow-sm [&_svg]:size-[18px]">
+    <section className="min-w-0 border-t border-feasta-divider pt-4">
+      <div className="flex items-start gap-2">
+        <span className="grid size-8 shrink-0 place-items-center rounded-xl bg-white text-primary-strong shadow-sm [&_svg]:size-[18px]">
           {icon}
         </span>
 
@@ -2567,130 +2477,77 @@ function CustomizationGroup({
         </div>
       </div>
 
-      {options.length > 0 ? (
-        <div className="grid gap-2 p-3 sm:grid-cols-2 sm:p-4">
-          {options.map((option) => {
-            const checked =
-              selected.includes(option);
+      <div className="grid gap-2 mt-3 sm:grid-cols-2">
+        {options.map((option) => {
+          const checked =
+            selected.includes(option);
 
-            return (
-              <label
-                key={option}
+          return (
+            <label
+              key={option}
+              className={[
+                "group relative flex min-w-0 cursor-pointer items-start gap-3",
+                "min-h-11 rounded-xl border px-3 py-2.5",
+                "transition-[border-color,background-color,box-shadow]",
+                checked
+                  ? "border-primary/35 bg-secondary shadow-brand-subtle"
+                  : "border-feasta-border-soft bg-white hover:border-primary/20 hover:bg-feasta-canvas",
+              ].join(" ")}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                onChange={() =>
+                  onToggle(option)
+                }
+                className="peer sr-only"
+              />
+
+              <span
+                aria-hidden="true"
                 className={[
-                  "group relative flex min-w-0 cursor-pointer items-start gap-3",
-                  "rounded-[14px] border p-3.5",
-                  "transition-[border-color,background-color,box-shadow]",
+                  "mt-0.5 grid size-5 shrink-0 place-items-center rounded-[6px] border",
+                  "transition-[border-color,background-color,color]",
                   checked
-                    ? "border-primary/35 bg-secondary shadow-brand-subtle"
-                    : "border-feasta-border-soft bg-white hover:border-primary/20 hover:bg-feasta-canvas",
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-feasta-border-strong bg-white text-transparent",
+                  "peer-focus-visible:ring-2 peer-focus-visible:ring-primary",
+                  "peer-focus-visible:ring-offset-2",
                 ].join(" ")}
               >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() =>
-                    onToggle(option)
-                  }
-                  className="peer sr-only"
-                />
+                <Check className="size-3.5" />
+              </span>
 
-                <span
-                  aria-hidden="true"
-                  className={[
-                    "mt-0.5 grid size-5 shrink-0 place-items-center rounded-[6px] border",
-                    "transition-[border-color,background-color,color]",
-                    checked
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-feasta-border-strong bg-white text-transparent",
-                    "peer-focus-visible:ring-2 peer-focus-visible:ring-primary",
-                    "peer-focus-visible:ring-offset-2",
-                  ].join(" ")}
-                >
-                  <Check className="size-3.5" />
-                </span>
-
-                <span
-                  className={[
-                    "min-w-0 break-words text-sm leading-5",
-                    checked
-                      ? "font-bold text-foreground"
-                      : "font-semibold text-feasta-text-secondary",
-                  ].join(" ")}
-                >
-                  {option}
-                </span>
-              </label>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="p-4 sm:p-5">
-          <p className="rounded-[14px] border border-dashed border-feasta-border-strong bg-feasta-canvas px-4 py-3 text-sm leading-6 text-feasta-text-secondary">
-            {emptyMessage}
-          </p>
-        </div>
-      )}
+              <span
+                className={[
+                  "min-w-0 break-words text-sm leading-5",
+                  checked
+                    ? "font-bold text-foreground"
+                    : "font-semibold text-feasta-text-secondary",
+                ].join(" ")}
+              >
+                {option}
+              </span>
+            </label>
+          );
+        })}
+      </div>
     </section>
   );
 }
 
-function IncludedServices({
-  services,
-}: {
-  services: readonly string[];
-}) {
+function IncludedServices({services}: {services: readonly string[]}) {
+  if (services.length === 0) return null;
   return (
-    <section className="overflow-hidden rounded-[20px] border border-feasta-border-soft">
-      <div className="flex items-start gap-3 border-b border-feasta-divider bg-feasta-canvas p-4 sm:p-5">
-        <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-primary-strong shadow-sm">
-          <Sparkles
-            aria-hidden="true"
-            className="size-[18px]"
-          />
-        </span>
-
-        <div className="min-w-0">
-          <h3 className="text-base font-extrabold tracking-[-0.02em] text-foreground">
-            Included services
-          </h3>
-
-          <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
-            These are published package
-            inclusions and are not separate
-            marketplace add-ons.
-          </p>
-        </div>
-      </div>
-
-      {services.length > 0 ? (
-        <ul className="grid gap-2 p-4 sm:grid-cols-2">
-          {services.map((service) => (
-            <li
-              key={service}
-              className="flex min-w-0 items-start gap-3 rounded-[14px] bg-feasta-canvas px-3.5 py-3"
-            >
-              <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-secondary text-primary-strong">
-                <Check
-                  aria-hidden="true"
-                  className="size-3.5"
-                />
-              </span>
-
-              <span className="min-w-0 break-words text-sm font-semibold leading-5 text-feasta-text-secondary">
-                {service}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <div className="p-4 sm:p-5">
-          <p className="rounded-[14px] border border-dashed border-feasta-border-strong bg-feasta-canvas px-4 py-3 text-sm leading-6 text-feasta-text-secondary">
-            No additional included services
-            are currently listed for this
-            package.
-          </p>
-        </div>
-      )}
+    <section className="min-w-0 border-t border-feasta-divider pt-4">
+      <h3 className="text-base font-extrabold text-foreground">Included services</h3>
+      <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">Included with the package; no selection needed.</p>
+      <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+        {services.map((service) => <li key={service} className="flex min-w-0 items-start gap-2 text-sm leading-5 text-feasta-text-secondary">
+          <Check aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
+          <span className="min-w-0 break-words">{service}</span>
+        </li>)}
+      </ul>
     </section>
   );
 }
@@ -2702,6 +2559,7 @@ function EventServiceGroup({
   selectedIds,
   availabilityByProvider,
   availabilityCurrent,
+  requireAvailability,
   onToggle,
   emptyMessage,
 }: {
@@ -2711,9 +2569,11 @@ function EventServiceGroup({
   selectedIds: readonly string[];
   availabilityByProvider: ReadonlyMap<string, CustomerProviderAvailability>;
   availabilityCurrent: boolean;
+  requireAvailability: boolean;
   onToggle: (serviceId: string) => void;
   emptyMessage: string;
 }) {
+  if (services.length === 0) return null;
   return (
     <section className="overflow-hidden rounded-[20px] border border-feasta-border-soft">
       <div className="border-b border-feasta-divider bg-feasta-canvas p-4 sm:p-5">
@@ -2746,6 +2606,7 @@ function EventServiceGroup({
                   ? availabilityByProvider.get(service.providerId) ?? null
                   : null
               }
+              requireAvailability={requireAvailability}
               onToggle={() =>
                 onToggle(service.id)
               }
@@ -2763,26 +2624,87 @@ function EventServiceGroup({
   );
 }
 
+function EventServiceBrowser({services, selectedIds, availabilityByProvider, availabilityCurrent, requireAvailability, onToggle, subtotal, selectionError}: {
+  services: readonly PublicEventService[];
+  selectedIds: readonly string[];
+  availabilityByProvider: ReadonlyMap<string, CustomerProviderAvailability>;
+  availabilityCurrent: boolean;
+  requireAvailability: boolean;
+  onToggle: (serviceId: string) => void;
+  subtotal: number;
+  selectionError: string | null;
+}) {
+  const [query, setQuery] = useState("");
+  const searchId = useId();
+  const searchRef = useRef<HTMLInputElement>(null);
+  const filteredServices = useMemo(() => {
+    const search = query.trim().toLocaleLowerCase();
+    return services.filter((service) => [service.name, service.providerName, service.category,
+      service.category ? humanizeProviderValue(service.category) : null]
+      .some((value) => value?.toLocaleLowerCase().includes(search)));
+  }, [services, query]);
+  return <Dialog onOpenChange={(open) => {if (!open) setQuery("");}}>
+    <DialogTrigger asChild><Button type="button" variant="secondary" className="min-h-12 w-full sm:w-fit">Browse More Services</Button></DialogTrigger>
+    <DialogContent showCloseButton={false}
+      className="flex max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-6xl flex-col gap-0 overflow-hidden p-0 sm:max-h-[90dvh]"
+      onOpenAutoFocus={(event) => {event.preventDefault(); searchRef.current?.focus();}}>
+      <DialogHeader className="shrink-0 border-b border-feasta-divider p-4 pr-4 sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <DialogTitle>Browse FEASTA Event Services</DialogTitle>
+          <DialogClose asChild><Button type="button" variant="ghost" size="compact" className="min-h-11 shrink-0">Close</Button></DialogClose>
+        </div>
+        <DialogDescription className="text-sm leading-6">Explore services loaded for this booking. Selections update your event immediately.</DialogDescription>
+        <label htmlFor={searchId} className="mt-2 text-sm font-bold">Search services</label>
+        <Input ref={searchRef} id={searchId} type="search" value={query} placeholder="Name, provider, or category"
+          onChange={(event) => setQuery(event.currentTarget.value)} />
+      </DialogHeader>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5">
+        <p role="status" className="mb-3 text-xs text-feasta-text-secondary">{filteredServices.length} of {services.length} loaded services</p>
+        {filteredServices.length > 0 ? <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {filteredServices.map((service) => <EventServiceCard key={service.id} service={service}
+            selected={selectedIds.includes(service.id)} selectionLimitReached={selectedIds.length >= 20 && !selectedIds.includes(service.id)}
+            availability={availabilityCurrent ? availabilityByProvider.get(service.providerId) ?? null : null}
+            requireAvailability={requireAvailability} onToggle={() => onToggle(service.id)} />)}
+        </div> : <p className="py-8 text-center text-sm text-feasta-text-secondary">No loaded services match your search.</p>}
+      </div>
+      <footer className="shrink-0 border-t border-feasta-divider bg-feasta-canvas p-4 sm:p-5">
+        {selectionError ? <p role="alert" className="mb-2 text-sm font-semibold text-destructive">{selectionError}</p> : null}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div role="status" aria-live="polite" aria-atomic="true" className="min-w-0">
+            <p className="text-sm font-bold">{selectedIds.length} optional {selectedIds.length === 1 ? "service" : "services"} selected</p>
+            <p className="text-xs text-feasta-text-secondary">Displayed add-ons subtotal</p>
+            <PriceDisplay amount={subtotal} />
+            {selectedIds.length >= 20 ? <p className="text-xs text-feasta-text-secondary">20-service limit reached. Remove a service to choose another.</p> : null}
+          </div>
+          <DialogClose asChild><Button type="button" className="min-h-12 w-full sm:w-auto">Done</Button></DialogClose>
+        </div>
+      </footer>
+    </DialogContent>
+  </Dialog>;
+}
+
 function EventServiceCard({
   service,
   selected,
   selectionLimitReached,
   availability,
+  requireAvailability,
   onToggle,
 }: {
   service: PublicEventService;
   selected: boolean;
   selectionLimitReached: boolean;
   availability: CustomerProviderAvailability | null;
+  requireAvailability: boolean;
   onToggle: () => void;
 }) {
   const unavailable = availability?.available === false;
-  const disabled = selectionLimitReached || (unavailable && !selected);
+  const disabled = !selected && (selectionLimitReached || unavailable || (requireAvailability && availability?.available !== true));
 
   return (
     <label
       className={[
-        "group relative grid min-w-0 overflow-hidden rounded-[16px] border",
+        "group relative grid min-w-0 overflow-hidden rounded-[16px] border focus-within:ring-2 focus-within:ring-primary focus-within:ring-offset-2",
         "transition-[border-color,background-color,box-shadow,transform]",
         selected
           ? "border-primary/35 bg-secondary shadow-brand-subtle"
@@ -2868,7 +2790,7 @@ function EventServiceCard({
                     : availability.message}
                 </span>
               </p>
-            ) : null}
+            ) : <p className="mt-2 text-xs leading-5 text-feasta-text-secondary">{requireAvailability ? "Availability not checked for current event details." : "Sign in to check provider availability."}</p>}
           </div>
         </div>
 
@@ -2919,8 +2841,6 @@ function BookingReview({
   includedServices,
   selectedEventServices,
   selectedEventServicesSubtotal,
-  willArrangeOwnAddOns,
-  customerArrangedAddOnsNote,
   serviceTierLabel,
   displayedServicePrice,
   packageThemeName,
@@ -2938,6 +2858,9 @@ function BookingReview({
   onRefundPolicyAcknowledgementChange,
   onRetryRefundPolicies,
   onBack,
+  onEditEvent,
+  onEditPackage,
+  onEditServices,
   onSubmit,
 }: {
   packageRecord:
@@ -2959,12 +2882,6 @@ function BookingReview({
 
   selectedEventServicesSubtotal:
     number;
-
-  willArrangeOwnAddOns:
-    boolean;
-
-  customerArrangedAddOnsNote:
-    string;
 
   serviceTierLabel: string | null;
 
@@ -3004,6 +2921,9 @@ function BookingReview({
 
   onBack:
     () => void;
+  onEditEvent: () => void;
+  onEditPackage: () => void;
+  onEditServices: () => void;
 
   onSubmit:
     () => Promise<void>;
@@ -3056,6 +2976,8 @@ function BookingReview({
         <ReviewSection
           title="Event details"
           description="When and where your celebration will take place."
+          actionLabel="Edit event"
+          onAction={onEditEvent}
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <ReviewValue
@@ -3112,121 +3034,55 @@ function BookingReview({
           ) : null}
         </ReviewSection>
 
-        {/* ==========================================================
-            PACKAGE
-           ========================================================== */}
-
+        {/* PACKAGE AND CUSTOMIZATION: display only meaningful selections. */}
         <ReviewSection
-          title="Selected package"
-          description="The catering package attached to this booking request."
+          title="Package & customization"
+          description="Your catering package, selected service level, and published inclusions."
+          actionLabel="Edit package"
+          onAction={onEditPackage}
         >
-          <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
             <div className="min-w-0">
-              <p className="break-words text-lg font-extrabold tracking-[-0.025em] text-foreground">
-                {packageRecord.name}
-              </p>
-
-              <p className="mt-1 text-sm text-feasta-text-secondary">
-                {providerName}
-              </p>
-
-              {packageRecord.eventType ? (
-                <p className="mt-2 text-xs font-semibold text-feasta-text-secondary">
-                  {humanizeProviderValue(
-                    packageRecord.eventType,
-                  )}
-                </p>
+              <h4 className="break-words text-lg font-extrabold text-foreground">{packageRecord.name}</h4>
+              <p className="mt-1 text-sm text-feasta-text-secondary">{providerName}</p>
+              {packageRecord.eventType ? <p className="mt-1 text-xs font-semibold text-feasta-text-secondary">{humanizeProviderValue(packageRecord.eventType)}</p> : null}
+            </div>
+            <div className="rounded-xl bg-feasta-canvas px-3 py-2 sm:text-right">
+              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">Estimated package price</p>
+              <PriceDisplay amount={displayedServicePrice} className="mt-1" />
+            </div>
+          </div>
+          {serviceTierLabel ? (
+            <div className="mt-4"><ReviewValue label="Selected service level" value={serviceTierLabel} /></div>
+          ) : null}
+          {packageThemeName || themeNotes ? (
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {packageThemeName ? <ReviewValue label="Visual style" value={packageThemeName} /> : null}
+              {themeNotes ? <ReviewValue label="Visual notes" value={themeNotes} /> : null}
+            </div>
+          ) : null}
+          {customizationDraft.selectedFoods.length > 0 ||
+          customizationDraft.selectedDecorations.length > 0 ||
+          customizationDraft.selectedFurniture.length > 0 ||
+          includedServices.length > 0 ? (
+            <div className="mt-4 grid gap-4 border-t border-feasta-divider pt-4">
+              {customizationDraft.selectedFoods.length > 0 ? (
+                <ReviewSelectionList title="Food selections" values={customizationDraft.selectedFoods} emptyText="" />
+              ) : null}
+              {customizationDraft.selectedDecorations.length > 0 ? (
+                <ReviewSelectionList title="Decorations" values={customizationDraft.selectedDecorations} emptyText="" />
+              ) : null}
+              {customizationDraft.selectedFurniture.length > 0 ? (
+                <ReviewSelectionList title="Furniture" values={customizationDraft.selectedFurniture} emptyText="" />
+              ) : null}
+              {includedServices.length > 0 ? (
+                <ReviewSelectionList title="Included package services" values={includedServices} emptyText="" fixed />
               ) : null}
             </div>
-
-            <div className="sm:text-right">
-              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
-                Estimated service price
-              </p>
-
-              <PriceDisplay
-                amount={
-                  displayedServicePrice
-                }
-                className="mt-1"
-              />
-            </div>
-          </div>
-        </ReviewSection>
-
-        {serviceTierLabel ? (
-          <ReviewSection
-            title="Service level"
-            description="Your selected catering service level stays in this draft until FEASTA validates it."
-          >
-            <ReviewValue
-              label="Selected service level"
-              value={serviceTierLabel}
-            />
-            <div className="mt-4">
-              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">
-                Estimated service price
-              </p>
-              <PriceDisplay amount={displayedServicePrice} className="mt-1" />
-              <p className="mt-2 text-xs leading-5 text-feasta-text-secondary">
-                This estimate is based on your current selection. FEASTA verifies the final amount when you submit.
-              </p>
-            </div>
-            {packageThemeName ? (
-              <div className="mt-4">
-                <ReviewValue label="Visual style" value={packageThemeName} />
-              </div>
-            ) : null}
-            {themeNotes ? (
-              <div className="mt-4">
-                <ReviewValue label="Visual notes" value={themeNotes} />
-              </div>
-            ) : null}
-          </ReviewSection>
-        ) : null}
-
-        {/* ==========================================================
-            CUSTOMIZATION
-           ========================================================== */}
-
-        <ReviewSection
-          title="Package customization"
-          description="Your selections from the package options published by the provider."
-        >
-          <div className="grid gap-5">
-            <ReviewSelectionList
-              title="Food selections"
-              values={
-                customizationDraft.selectedFoods
-              }
-              emptyText="No food options selected."
-            />
-
-            <ReviewSelectionList
-              title="Decorations"
-              values={
-                customizationDraft
-                  .selectedDecorations
-              }
-              emptyText="No decoration options selected."
-            />
-
-            <ReviewSelectionList
-              title="Furniture"
-              values={
-                customizationDraft
-                  .selectedFurniture
-              }
-              emptyText="No furniture options selected."
-            />
-
-            <ReviewSelectionList
-              title="Included package services"
-              values={includedServices}
-              emptyText="No additional included services are listed."
-              fixed
-            />
-          </div>
+          ) : (
+            <p className="mt-3 text-xs leading-5 text-feasta-text-secondary">No additional package options were selected.</p>
+          )}
+          <p className="mt-3 text-xs leading-5 text-feasta-text-secondary">FEASTA revalidates the package price and selections when your request is submitted.</p>
         </ReviewSection>
 
         {/* ==========================================================
@@ -3234,8 +3090,10 @@ function BookingReview({
            ========================================================== */}
 
         <ReviewSection
-          title="Event services"
-          description="Optional FEASTA services selected in addition to the package."
+          title="Optional event services"
+          description="Additional FEASTA services selected for this booking."
+          actionLabel="Edit services"
+          onAction={onEditServices}
         >
           {selectedEventServices.length >
           0 ? (
@@ -3309,53 +3167,6 @@ function BookingReview({
           )}
         </ReviewSection>
 
-        {/* ==========================================================
-            OWN ARRANGEMENTS
-           ========================================================== */}
-
-        <ReviewSection
-          title="Customer-arranged services"
-          description="Services you plan to arrange outside the FEASTA marketplace."
-        >
-          {willArrangeOwnAddOns ? (
-            <div className="rounded-[16px] border border-feasta-border-soft bg-feasta-canvas p-4">
-              <div className="flex items-start gap-3">
-                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-secondary text-primary-strong">
-                  <Check
-                    aria-hidden="true"
-                    className="size-4"
-                  />
-                </span>
-
-                <div className="min-w-0">
-                  <p className="text-sm font-extrabold text-foreground">
-                    Customer will arrange
-                    additional services
-                  </p>
-
-                  {customerArrangedAddOnsNote ? (
-                    <p className="mt-2 whitespace-pre-line break-words text-sm leading-6 text-feasta-text-secondary">
-                      {
-                        customerArrangedAddOnsNote
-                      }
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
-                      No additional note was
-                      provided.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <ReviewEmptyState>
-              No customer-arranged services
-              indicated.
-            </ReviewEmptyState>
-          )}
-        </ReviewSection>
-
         {agreementReview}
         <RefundPolicyReview
           status={refundPolicyStatus}
@@ -3406,12 +3217,7 @@ function BookingReview({
                   </p>
 
                   <p className="mt-1 max-w-lg text-xs leading-5 text-feasta-text-secondary">
-                    Final pricing,
-                    availability, provider
-                    ownership, and payment
-                    requirements are validated
-                    by FEASTA when the request
-                    is submitted.
+                    FEASTA verifies prices, availability, and payment terms when you submit. This action sends a booking request for provider review; it does not confirm the booking or collect payment.
                   </p>
                 </div>
 
@@ -3507,9 +3313,11 @@ function BookingReview({
           >
             {refundPolicyStatus !== "ready"
               ? "Current refund policies must be loaded before submission."
-              : !everyPolicyAcknowledged
-                ? "Acknowledge every displayed Provider refund policy to continue."
-                : "Sending this request asks each selected Provider to review your event."}
+              : !agreementReady
+                ? "Review and accept every Booking & Payment Agreement to continue."
+                : !everyPolicyAcknowledged
+                  ? "Acknowledge every displayed Provider refund policy to continue."
+                  : "Submitting sends your request to the selected Providers. Your booking is not yet confirmed."}
           </p>
 
           <Button
@@ -3552,22 +3360,24 @@ function BookingReview({
 function ReviewSection({
   title,
   description,
+  actionLabel,
+  onAction,
   children,
 }: {
   title: string;
   description: string;
+  actionLabel?: string;
+  onAction?: () => void;
   children: ReactNode;
 }) {
   return (
     <section className="overflow-hidden rounded-[20px] border border-feasta-border-soft">
-      <div className="border-b border-feasta-divider bg-feasta-canvas px-4 py-4 sm:px-5">
-        <h3 className="text-base font-extrabold tracking-[-0.02em] text-foreground">
-          {title}
-        </h3>
-
-        <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
-          {description}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-feasta-divider bg-feasta-canvas px-4 py-3 sm:px-5">
+        <div className="min-w-0 flex-1">
+          <h3 className="text-base font-extrabold tracking-[-0.02em] text-foreground">{title}</h3>
+          <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">{description}</p>
+        </div>
+        {actionLabel && onAction ? <Button type="button" size="compact" variant="ghost" className="min-h-11 shrink-0" onClick={onAction}>{actionLabel}</Button> : null}
       </div>
 
       <div className="p-4 sm:p-5">
@@ -3843,8 +3653,8 @@ function ProviderAvailabilityPanel({
 }) {
   if (status === "idle") {
     return (
-      <div className="rounded-[16px] border border-feasta-border-soft bg-feasta-canvas px-4 py-3">
-        <p className="text-sm font-extrabold text-foreground">
+      <div className="rounded-xl border border-feasta-border-soft bg-feasta-canvas px-4 py-3">
+        <p className="text-sm font-bold text-foreground">
           Provider availability
         </p>
         <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
@@ -3857,15 +3667,15 @@ function ProviderAvailabilityPanel({
   if (status === "loading") {
     return (
       <div
-        className="rounded-[16px] border border-info/20 bg-info-subtle px-4 py-3"
+        className="rounded-xl border border-info/20 bg-info-subtle px-4 py-3"
         role="status"
         aria-live="polite"
       >
-        <p className="text-sm font-extrabold text-info">
+        <p className="text-sm font-bold text-info">
           Checking provider availability…
         </p>
         <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
-          FEASTA is checking the selected schedule with each provider.
+          Checking your selected schedule.
         </p>
       </div>
     );
@@ -3875,7 +3685,7 @@ function ProviderAvailabilityPanel({
     return (
       <div
         className={[
-          "rounded-[16px] border px-4 py-3",
+          "rounded-xl border px-4 py-3",
           result.available
             ? "border-success/20 bg-success-subtle"
             : "border-warning/25 bg-warning-subtle",
@@ -3884,7 +3694,7 @@ function ProviderAvailabilityPanel({
         aria-live="polite"
       >
         <p className={[
-          "flex items-center gap-2 text-sm font-extrabold",
+          "flex items-center gap-2 text-sm font-bold",
           result.available ? "text-success" : "text-warning",
         ].join(" ")}>
           {result.available ? (
@@ -3905,10 +3715,10 @@ function ProviderAvailabilityPanel({
 
   return (
     <div
-      className="rounded-[16px] border border-destructive/20 bg-destructive/[0.05] px-4 py-3"
+      className="rounded-xl border border-destructive/20 bg-destructive/[0.05] px-4 py-3"
       role="alert"
     >
-      <p className="text-sm font-extrabold text-destructive">
+      <p className="text-sm font-bold text-destructive">
         Availability could not be checked
       </p>
       <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
@@ -3918,7 +3728,7 @@ function ProviderAvailabilityPanel({
         type="button"
         variant="secondary"
         size="compact"
-        className="mt-3"
+        className="mt-2"
         onClick={onRetry}
       >
         Try again
@@ -4001,40 +3811,6 @@ function Field({
         </span>
       ) : null}
     </label>
-  );
-}
-
-function ReadOnlyField({
-  icon,
-  label,
-  value,
-  description,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  description: string;
-}) {
-  return (
-    <div className="flex min-w-0 items-start gap-3 rounded-[16px] border border-feasta-border-soft bg-feasta-canvas p-4">
-      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-primary-strong shadow-sm [&_svg]:size-[18px]">
-        {icon}
-      </span>
-
-      <div className="min-w-0">
-        <p className="text-[11px] font-extrabold uppercase tracking-[0.08em] text-feasta-text-tertiary">
-          {label}
-        </p>
-
-        <p className="mt-1 break-words text-sm font-extrabold text-foreground">
-          {value}
-        </p>
-
-        <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">
-          {description}
-        </p>
-      </div>
-    </div>
   );
 }
 
@@ -4283,7 +4059,6 @@ function formatEventDate(
 ): string {
   return formatPhilippineDate(value);
 }
-
 
 function formatCurrency(
   amount: number,

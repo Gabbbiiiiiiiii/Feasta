@@ -12,12 +12,13 @@ import {serverTimestamp} from "../shared/timestamps.js";
 import {requireObject, requireString} from "../shared/validation.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {requireActiveUser} from "../shared/authorization.js";
+import {createBookingComplaint} from "./booking-complaint.js";
 
 export const createComplaint = onCall(
   appCheckCallableOptions,
   async (request) => {
     const user = requireAuth(request);
-    await requireActiveUser(user.uid);
+    const account = await requireActiveUser(user.uid);
     await enforceCallableRateLimit(request, {
       scope: "createComplaint",
       limit: 3,
@@ -28,6 +29,14 @@ export const createComplaint = onCall(
       minLength: 10,
       maxLength: 4000,
     });
+    const bookingScoped = ["providerRequestId", "bookingId", "mainEventId", "customerId"]
+      .some(field => input[field] !== undefined);
+    if (bookingScoped) {
+      if (account.role !== "customer") {
+        throw new HttpsError("permission-denied", "Only customers can report booking issues.");
+      }
+      return createBookingComplaint(user.uid, input, description);
+    }
     const category = typeof input.category === "string" ?
       input.category.trim().slice(0, 80) : "general";
     const providerId = typeof input.providerId === "string" ?

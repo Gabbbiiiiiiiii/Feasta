@@ -1,6 +1,7 @@
 import {redirect} from "next/navigation";
 
 import {ApplicationErrorState} from "@/components/feedback/application-states";
+import {BusinessProfileBackLink} from "@/components/provider/business-profile-back-link";
 import {ProviderOnboardingShell} from "@/components/provider/onboarding-shell";
 import {
   loadOwnedProviderVerification,
@@ -52,24 +53,27 @@ export default async function ProviderVerificationPage({
   ];
 
   return (
-    <ProviderOnboardingShell
-      currentStep={currentStep}
-      completedSteps={completedSteps}
-      recoveryMessage={status === "resubmission_required"
-        ? verification.resubmissionReason
-        : null}
-    >
-      <ProviderVerificationActions
-        providerId={account.provider.id}
-        verificationId={verification.id}
-        canSubmit={requiredDocumentsReady}
-        editable={verification.editable}
-        documents={verification.documents}
-        policy={verification.policy}
-        documentCatalog={verification.documentCatalog}
-        consent={verification.consent}
-        reviewMode={reviewing}
-      />
-    </ProviderOnboardingShell>
+    <div className="grid min-w-0 gap-4">
+      <BusinessProfileBackLink />
+      <ProviderOnboardingShell
+        currentStep={currentStep}
+        completedSteps={completedSteps}
+        recoveryMessage={status === "resubmission_required"
+          ? verification.resubmissionReason
+          : null}
+      >
+        <ProviderVerificationActions
+          providerId={account.provider.id}
+          verificationId={verification.id}
+          canSubmit={requiredDocumentsReady}
+          editable={verification.editable}
+          documents={verification.documents}
+          policy={verification.policy}
+          documentCatalog={verification.documentCatalog}
+          consent={verification.consent}
+          reviewMode={reviewing}
+        />
+      </ProviderOnboardingShell>
+    </div>
   );
 }

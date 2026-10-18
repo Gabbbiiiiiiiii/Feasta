@@ -1,3 +1,4 @@
+import {FirebaseError} from "firebase/app";
 import {beforeEach, expect, it, vi} from "vitest";
 
 const mocks = vi.hoisted(() => ({call: vi.fn()}));
@@ -60,4 +61,18 @@ it("rejects missing acknowledgement before calling Firebase", async () => {
   await expect(submitCustomerProviderRequestCancellation({providerRequestId: requestId,
     reason: "Our schedule changed", idempotencyKey: "attempt-0001", acknowledged: false})).rejects.toThrow(/Acknowledge/u);
   expect(mocks.call).not.toHaveBeenCalled();
+});
+
+it('accepts server cutoff reasons and expiry without inferring eligibility from device time', async () => {
+ mocks.call.mockResolvedValue({data: {...options(null), cancellationAllowed: false, reasonCode: 'EVENT_ENDED', eligibilityExpiresInMs: 0}});
+ expect(await getCustomerProviderRequestCancellationOptions(requestId)).toMatchObject({cancellationAllowed: false, reasonCode: 'EVENT_ENDED', eligibilityExpiresInMs: 0});
+});
+it.each([-1, 0.5, '1000'])('rejects malformed server expiry %s', async eligibilityExpiresInMs => {
+ mocks.call.mockResolvedValue({data: {...options(), eligibilityExpiresInMs}});
+ await expect(getCustomerProviderRequestCancellationOptions(requestId)).rejects.toThrow();
+});
+
+it('surfaces the authoritative ended reason on a stale submission', async () => {
+ mocks.call.mockRejectedValue(Object.assign(new FirebaseError('functions/failed-precondition', 'Closed'), {details: {reason: 'EVENT_ENDED'}}));
+ await expect(submitCustomerProviderRequestCancellation({providerRequestId: requestId, reason: 'Plans have changed', acknowledged: true, idempotencyKey: 'attempt_cutoff'})).rejects.toThrow(/Cancellation closed.*event ended/u);
 });

@@ -201,11 +201,8 @@ test("execution error after successful readiness does not mark obligation for fi
 
 test("P13-C simulator reservation still requires separate dispatch flag", async () => {
  const real=require("../lib/provider-finance/provider-disbursement-transport.js").providerDisbursementTransport;
- const h=harness(),account=h.records.get("providerPaymentAccounts/provider");
- account.settlementTransportMode="wallet_transfer";
- const settings={providerDisbursementTestMode:true,providerDisbursementTestAllowedDisbursementId:"disbursement",providerDisbursementTestWalletId:"wallet_fixture",
-  providerDisbursementTestDestination:{number:"999999990002",name:"FEASTA TEST PROVIDER",bic:"UBPHPHMMXXX",provider:"instapay"}};
- h.records.set("appSettings/platform",settings);
+ const h=isolatedTestHarness(),account=h.records.get("providerPaymentAccounts/provider");
+ const settings=h.records.get("appSettings/platform");delete settings.providerDisbursementsEnabled;
  assert.equal(real.capability(account,settings).ready,true);
  await assert.rejects(execution.reserveProviderDisbursement("disbursement",real),/disabled/);
  assert.equal(h.commits,0);settings.providerDisbursementsEnabled=true;
@@ -217,14 +214,11 @@ test("P13-C simulator reservation still requires separate dispatch flag", async 
 test("P13-C exhausted HTTP retries retain reservations and prohibit Admin retry",async()=>{
  const {createPayMongoDisbursementClient}=require("../lib/provider-finance/paymongo-disbursement-client.js");
  const real=require("../lib/provider-finance/provider-disbursement-transport.js").providerDisbursementTransport;
- const h=harness();h.records.get("providerPaymentAccounts/provider").settlementTransportMode="wallet_transfer";
- h.records.set("appSettings/platform",{providerDisbursementsEnabled:true,providerDisbursementTestMode:true,providerDisbursementTestAllowedDisbursementId:"disbursement",
-  providerDisbursementTestWalletId:"wallet_fixture",providerDisbursementTestDestination:{
-   number:"999999990002",name:"FEASTA TEST PROVIDER",bic:"UBPHPHMMXXX",provider:"instapay"}});
+ const h=isolatedTestHarness();
  const keys=[];
  const client=createPayMongoDisbursementClient({secretKey:()=>"sk_test_mock_only",sleep:async()=>{},
   http:async(url,init)=>{
-   if(url.includes("/wallets/"))return new Response(JSON.stringify({data:{id:"wallet_fixture",livemode:false,status:"activated",balance:{available:900000},
+   if(url.includes("/wallets/"))return new Response(JSON.stringify({data:{id:"wallet_fixture",merchant_id:"org_parent",livemode:false,status:"activated",balance:{available:900000},
     account:{provider:"paymongo",currency:"PHP",account_number:"0001",account_name:"TEST"}}}));
    keys.push(init.headers["Idempotency-Key"]);throw new Error("mock timeout");
   }});
@@ -256,14 +250,10 @@ test("pending identifiers survive terminal webhook with omitted optional fields"
 });
 
 for(const status of ["pending","succeeded","failed"])test("mocked V2 "+status+" applies existing financial outcome",async()=>{
- const h=harness(),real=require("../lib/provider-finance/provider-disbursement-transport.js").providerDisbursementTransport;
- h.records.get("providerPaymentAccounts/provider").settlementTransportMode="wallet_transfer";
- h.records.set("appSettings/platform",{providerDisbursementsEnabled:true,providerDisbursementTestMode:true,providerDisbursementTestAllowedDisbursementId:"disbursement",
-  providerDisbursementTestWalletId:"wallet_fixture",providerDisbursementTestDestination:{
-   number:"999999990002",name:"FEASTA TEST PROVIDER",bic:"UBPHPHMMXXX",provider:"instapay"}});
+ const h=isolatedTestHarness(),real=require("../lib/provider-finance/provider-disbursement-transport.js").providerDisbursementTransport;
  const client=require("../lib/provider-finance/paymongo-disbursement-client.js").createPayMongoDisbursementClient({
   secretKey:()=>"sk_test_mock_only",sleep:async()=>{},http:async(url,init)=>{
-   if(url.includes("/wallets/"))return new Response(JSON.stringify({data:{id:"wallet_fixture",livemode:false,status:"activated",balance:{available:900000},
+   if(url.includes("/wallets/"))return new Response(JSON.stringify({data:{id:"wallet_fixture",merchant_id:"org_parent",livemode:false,status:"activated",balance:{available:900000},
     account:{provider:"paymongo",currency:"PHP",account_number:"0001",account_name:"TEST"}}}));
    const transfer=JSON.parse(init.body).transfers[0];
    return new Response(JSON.stringify({data:{id:"btr_fixture",transfers:[{
@@ -318,6 +308,10 @@ function isolatedTestHarness() {
  h.records.set("appSettings/platform",{providerDisbursementsEnabled:true,providerDisbursementTestMode:true,
   providerDisbursementTestAllowedDisbursementId:"disbursement",providerDisbursementTestWalletId:"wallet_fixture",
   providerDisbursementTestDestination:{number:"999999990002",name:"FEASTA TEST PROVIDER",bic:"UBPHPHMMXXX",provider:"instapay"}});
+ h.records.set("providerPaymentAccounts/provider",require("./provider-transport-fixtures.cjs").verifiedAccount(
+   h.records.get("providerPaymentAccounts/provider"),h.records.get("appSettings/platform")));
+ h.records.set("providers/provider",{ownerId:"owner",verificationStatus:"approved",isActive:true,businessRegistrationType:"registered_business"});
+ h.records.set("users/owner",{role:"provider",providerId:"provider",accountStatus:"active"});
  return h;
 }
 for(const [name,value] of [["missing",undefined],["wrong","other-disbursement"],["malformed","invalid/id"]]){
@@ -343,7 +337,7 @@ test("exact allowlisted ID reserves one payout and leaves another ready payout u
  assert.equal(h.commits,1);assert.equal(JSON.stringify(other),before);assert.equal(other.status,"ready");
  assert.equal([...h.records.keys()].filter(k=>k.startsWith("providerDisbursementAttempts/")).length,1);
 });
-test("allowlist change after reservation cannot alter frozen attempt or its dispatch authority",async()=>{
+test("allowlist change after reservation blocks dispatch despite frozen attempt",async()=>{
  const h=isolatedTestHarness(),real=require("../lib/provider-finance/provider-disbursement-transport.js").providerDisbursementTransport;
  const a=await execution.reserveProviderDisbursement("disbursement",real),before=JSON.stringify(a);
  h.records.get("appSettings/platform").providerDisbursementTestAllowedDisbursementId="other-disbursement";
@@ -352,12 +346,12 @@ test("allowlist change after reservation cannot alter frozen attempt or its disp
  let posts=0;
  const client=require("../lib/provider-finance/paymongo-disbursement-client.js").createPayMongoDisbursementClient({
   secretKey:()=>"sk_test_mock_only",sleep:async()=>{},http:async(url,init)=>{
-   if(url.includes("/wallets/"))return new Response(JSON.stringify({data:{id:"wallet_fixture",livemode:false,status:"activated",
+   if(url.includes("/wallets/"))return new Response(JSON.stringify({data:{id:"wallet_fixture",merchant_id:"org_parent",livemode:false,status:"activated",
     balance:{available:a.amountInCentavos},account:{provider:"paymongo",currency:"PHP",account_number:"0001",account_name:"TEST"}}}));
    posts++;return new Response(JSON.stringify({data:{id:"btr_fixture",transfers:[{
     ...evidence({attempt:a}),id:"tr_fixture",destination_account:a.destinationSnapshot.destinationAccount}]}}),{status:201});
   }});
- await client.dispatch(a);assert.equal(posts,1);assert.equal(JSON.stringify(a),before);
+ await assert.rejects(client.dispatch(a),e=>e.certainty==="not_submitted");assert.equal(posts,0);assert.equal(JSON.stringify(a),before);
 });
 for(const value of [undefined,"other-disbursement","invalid/id"]){
  test("financial readiness remains ready despite isolated dispatch block "+String(value),async()=>{
@@ -379,17 +373,117 @@ test("unallowlisted ready payout is skipped before reservation or HTTP",async()=
   assert.equal(h.commits,0);assert.equal(h.d.status,"ready");
  }finally{db.collection=originalCollection;}
 });
-test("insufficient test wallet funding preserves reservations without terminal failure",async()=>{
+test("insufficient test wallet funding releases reservations as definitely not submitted",async()=>{
  const h=isolatedTestHarness(),real=require("../lib/provider-finance/provider-disbursement-transport.js").providerDisbursementTransport;
  let posts=0;
  const client=require("../lib/provider-finance/paymongo-disbursement-client.js").createPayMongoDisbursementClient({
   secretKey:()=>"sk_test_mock_only",sleep:async()=>{},http:async(url)=>{
    if(!url.includes("/wallets/")){posts++;throw new Error("unexpected POST");}
-   return new Response(JSON.stringify({data:{id:"wallet_fixture",livemode:false,status:"activated",
+   return new Response(JSON.stringify({data:{id:"wallet_fixture",merchant_id:"org_parent",livemode:false,status:"activated",
     balance:{available:899999},account:{provider:"paymongo",currency:"PHP",account_number:"0001",account_name:"TEST"}}}));
   }});
  await execution.dispatchProviderDisbursement("disbursement",{...client,capability:real.capability});
- assert.equal(posts,0);assert.equal(h.records.get("providerDisbursements/disbursement").status,"reconciliation_required");
+ assert.equal(posts,0);assert.equal(h.records.get("providerDisbursements/disbursement").status,"failed");
+ assert.equal(h.records.get("providerDisbursements/disbursement").submissionOutcome,"not_submitted");
+ for(const id of h.d.sourceSettlementIds)assert.equal(h.records.get("providerSettlements/"+id).reservedAmountInCentavos,0);
+ await execution.prepareFailedProviderDisbursementRetry("disbursement");
+});
+
+for(const outcome of ["pending","failed","succeeded"]) test("trusted dispatch " + outcome + " classifies outcome",async()=>{
+ const h=harness();h.transport.dispatch=async a=>evidence({attempt:a},outcome);
+ await execution.dispatchProviderDisbursement("disbursement",h.transport);
+ assert.equal(h.records.get("providerDisbursements/disbursement").submissionOutcome,
+  outcome==="pending"?"submitted":outcome==="failed"?"failed":"completed");
+});
+test("untyped preflight-looking errors cannot unlock a possibly submitted transfer",async()=>{
+ const h=harness();h.transport.dispatch=async()=>{throw Object.assign(new Error("not submitted"),{certainty:"not_submitted"});};
+ await execution.dispatchProviderDisbursement("disbursement",h.transport);
+ assert.equal(h.records.get("providerDisbursements/disbursement").submissionOutcome,"unknown");
  for(const id of h.d.sourceSettlementIds)assert.equal(h.records.get("providerSettlements/"+id).reservedAmountInCentavos,450000);
+});
+test("not-submitted retries revalidate finance and generate a new identity",async()=>{
+ const h=harness(),{DisbursementSubmissionError}=require("../lib/provider-finance/provider-disbursement-errors.js");
+ h.transport.dispatch=async()=>{throw new DisbursementSubmissionError("not_submitted","secret_invalid");};
+ await execution.dispatchProviderDisbursement("disbursement",h.transport);
+ const first=[...h.records.values()].find(r=>r.externalAttemptId&&r.status==="not_submitted");
+ await execution.prepareFailedProviderDisbursementRetry("disbursement");
+ await reconcile.reconcileOne("disbursement",new Date("2026-10-09T00:00:00Z"));
+ const second=await execution.reserveProviderDisbursement("disbursement",h.transport);
+ assert.notEqual(first.idempotencyKey,second.idempotencyKey);
+ assert.equal(second.attemptSequence,2);
+});
+test("accounting error after submission does not downgrade trusted evidence to ambiguous",async()=>{
+ const h=harness(),original=db.runTransaction;let calls=0;
+ h.transport.dispatch=async a=>evidence({attempt:a});
+ db.runTransaction=async callback=>{calls++;if(calls===2)throw new Error("accounting unavailable");return original(callback);};
+ await assert.rejects(execution.dispatchProviderDisbursement("disbursement",h.transport),/accounting unavailable/);
+ assert.equal(calls,2);assert.equal(h.records.get("providerDisbursements/disbursement").status,"reserved");
+});
+
+test("late not-submitted recovery cannot undo trusted completion",async()=>{
+ const h=harness(),a=await execution.reserveProviderDisbursement("disbursement",h.transport);
+ await execution.applyProviderDisbursementEvidence(a.externalAttemptId,evidence({attempt:a},"succeeded"));
+ const {DisbursementSubmissionError}=require("../lib/provider-finance/provider-disbursement-errors.js");
+ await assert.rejects(execution.applyProviderDisbursementEvidence(a.externalAttemptId,undefined,
+  new DisbursementSubmissionError("not_submitted","authority_invalid")));
+ assert.equal(h.records.get("providerDisbursements/disbursement").status,"paid");
+ for(const id of ["deposit","balance"])assert.equal(h.records.get("providerEarnings/"+id).paidAmountInCentavos,450000);
+});
+
+function boundaryClient(h, onPost = () => {throw new Error("mock timeout");}, onSleep = () => {}) {
+ const keys=[];
+ const client=require("../lib/provider-finance/paymongo-disbursement-client.js").createPayMongoDisbursementClient({
+  secretKey:()=>"sk_test_mock_only",sleep:async()=>onSleep(),http:async(url,init)=>{
+   if(url.includes("/wallets/"))return new Response(JSON.stringify({data:{id:"wallet_fixture",merchant_id:"org_parent",
+    livemode:false,status:"activated",balance:{available:900000},
+    account:{provider:"paymongo",currency:"PHP",account_number:"0001",account_name:"TEST"}}}));
+   keys.push(init.headers["Idempotency-Key"]);return onPost(init);
+  }});
+ return {client,keys};
+}
+for(const [name,revoke] of [
+ ["disabled",h=>h.records.get("appSettings/platform").providerDisbursementsEnabled=false],
+ ["removed allowlist",h=>delete h.records.get("appSettings/platform").providerDisbursementTestAllowedDisbursementId],
+ ["provider revoked",h=>h.records.get("providers/provider").verificationStatus="rejected"],
+ ["owner revoked",h=>h.records.get("users/owner").accountStatus="disabled"],
+ ["account revoked",h=>h.records.get("providerPaymentAccounts/provider").payoutReady=false],
+ ["proof expired",h=>h.records.get("providerPaymentAccounts/provider").settlementTransportVerification.expiresAtMs=Date.now()-1],
+]) test(name+" after reservation prevents final POST",async()=>{
+ const h=isolatedTestHarness(),real=require("../lib/provider-finance/provider-disbursement-transport.js").providerDisbursementTransport;
+ const a=await execution.reserveProviderDisbursement("disbursement",real),{client,keys}=boundaryClient(h);
+ revoke(h);await assert.rejects(client.dispatch(a),e=>e.certainty==="not_submitted");assert.equal(keys.length,0);
+ await execution.applyProviderDisbursementEvidence(a.externalAttemptId,undefined,
+  new (require("../lib/provider-finance/provider-disbursement-errors.js").DisbursementSubmissionError)("not_submitted","authority_invalid"));
+ assert.equal(h.records.get("providerDisbursements/disbursement").submissionOutcome,"not_submitted");
+});
+test("revocation between POST retries stops writes and preserves unknown reconciliation",async()=>{
+ const h=isolatedTestHarness(),real=require("../lib/provider-finance/provider-disbursement-transport.js").providerDisbursementTransport;
+ const {client,keys}=boundaryClient(h,undefined,()=>{h.records.get("appSettings/platform").providerDisbursementsEnabled=false;});
+ await execution.dispatchProviderDisbursement("disbursement",{...client,capability:real.capability});
+ assert.equal(keys.length,1);
+ const d=h.records.get("providerDisbursements/disbursement"),a=h.records.get("providerDisbursementAttempts/"+d.activePayoutAttemptId);
+ assert.equal(d.status,"reconciliation_required");assert.equal(a.status,"ambiguous");
+ for(const id of h.d.sourceSettlementIds)assert.equal(h.records.get("providerSettlements/"+id).reservedAmountInCentavos,450000);
+ await assert.rejects(client.dispatch(a));assert.equal(keys.length,1);
  await assert.rejects(execution.prepareFailedProviderDisbursementRetry("disbursement"));
+ const originalCollection=db.collection.bind(db);
+ db.collection=name=>({doc:id=>{const reference=originalCollection(name).doc(id);return Object.assign(Object.create(reference),{get:async()=>h.snapshot(reference)});}});
+ try {
+  const readClient=require("../lib/provider-finance/paymongo-disbursement-client.js").createPayMongoDisbursementClient({
+   secretKey:()=>"sk_test_mock_only",http:async(url,init)=>{
+    assert.equal(init.method,"GET");assert.ok(url.includes("/v2/transfers?"));
+    return new Response(JSON.stringify({data:[{...evidence({attempt:a},"succeeded"),destination_account:a.destinationSnapshot.destinationAccount}],has_more:false}));
+   }});
+  await execution.reconcileProviderDisbursementAttempt("disbursement",{...readClient,capability:real.capability});
+  assert.equal(h.records.get("providerDisbursements/disbursement").status,"paid");assert.equal(keys.length,1);
+ } finally {db.collection=originalCollection;}
+});
+test("submission claim blocks a second dispatcher while permitted retries retain key",async()=>{
+ const h=isolatedTestHarness(),real=require("../lib/provider-finance/provider-disbursement-transport.js").providerDisbursementTransport;
+ const a=await execution.reserveProviderDisbursement("disbursement",real);
+ await execution.authorizeProviderDisbursementSubmission(a,"first");
+ await assert.rejects(execution.authorizeProviderDisbursementSubmission(a,"second"),e=>e.certainty==="unknown");
+ await execution.authorizeProviderDisbursementSubmission(a,"first");
+ assert.equal(h.records.get("providerDisbursementAttempts/"+a.externalAttemptId).submissionAuthorizationCount,2);
+ assert.equal(h.records.get("providerDisbursementAttempts/"+a.externalAttemptId).idempotencyKey,a.idempotencyKey);
 });

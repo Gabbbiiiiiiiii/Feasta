@@ -1,3 +1,5 @@
+import {selectPublishedLegalAgreement} from "../documents/current-legal-agreement.js";
+import {providerPolicyConsentPatch} from "./provider-policy-consent.js";
 import {getAuth} from "firebase-admin/auth";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 
@@ -93,6 +95,23 @@ export const ensureProviderIdentity = onCall(
       const result = await db.runTransaction(async (transaction) => {
         const snapshot = await transaction.get(userReference);
         const existing = snapshot.data();
+        let currentTerms: string | null = null;
+        let currentPrivacy: string | null = null;
+        if (existing?.termsAcceptedAt == null || existing?.privacyAcceptedAt == null) {
+          const types = await transaction.get(db.collection("agreementTypes"));
+          const agreements = await transaction.get(db.collection("agreementTemplates"));
+          currentTerms = selectPublishedLegalAgreement(
+            "platform_terms", types, agreements,
+          )?.version ?? null;
+          currentPrivacy = selectPublishedLegalAgreement(
+            "privacy_notice", types, agreements,
+          )?.version ?? null;
+        }
+        const consentPatch = providerPolicyConsentPatch(
+          existing, {acceptedTerms, acceptedPrivacy,
+            termsPolicyVersion, privacyPolicyVersion},
+          {terms: currentTerms, privacy: currentPrivacy}, serverTimestamp,
+        );
         if (snapshot.exists) {
           if (existing?.role !== USER_ROLES.provider) {
             throw new HttpsError(
@@ -149,14 +168,7 @@ export const ensureProviderIdentity = onCall(
               null,
             authProvider: "password",
             updatedAt: serverTimestamp(),
-            ...(acceptedTerms && existing.termsAcceptedAt == null ? {
-              termsAcceptedAt: serverTimestamp(),
-              termsPolicyVersion,
-            } : {}),
-            ...(acceptedPrivacy && existing.privacyAcceptedAt == null ? {
-              privacyAcceptedAt: serverTimestamp(),
-              privacyPolicyVersion,
-            } : {}),
+            ...consentPatch,
           });
         } else {
           requireLinkedProviderAuthState(
@@ -182,14 +194,7 @@ export const ensureProviderIdentity = onCall(
             isActive: true,
             isBlocked: false,
             authProvider: "password",
-            ...(acceptedTerms ? {
-              termsAcceptedAt: serverTimestamp(),
-              termsPolicyVersion,
-            } : {}),
-            ...(acceptedPrivacy ? {
-              privacyAcceptedAt: serverTimestamp(),
-              privacyPolicyVersion,
-            } : {}),
+            ...consentPatch,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           });

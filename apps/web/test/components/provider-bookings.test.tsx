@@ -241,7 +241,7 @@ describe("provider bookings workspace", () => {
   it("shows honest empty copy without fabricating records", () => {
     renderWorkspace([], "upcoming");
 
-    expect(screen.getByText("No upcoming bookings on this page")).toBeVisible();
+    expect(screen.getByText("No active events on this page")).toBeVisible();
     expect(screen.getByText("No matches in the records checked. If Next is available, continue to check more bookings.")).toBeVisible();
   });
 
@@ -269,7 +269,7 @@ describe("provider bookings workspace", () => {
   });
 
   it.each([
-        ["Upcoming", "upcoming"],
+        ["Active events", "upcoming"],
     ["Waiting for Payment", "waiting_payment"],
     ["Past Bookings", "past"],
   ] as const)("maps the %s filter to %s", async (label, status) => {
@@ -447,14 +447,14 @@ describe("provider bookings workspace", () => {
   });
   it("v3 hides manual preparation and event start while retaining completion at the valid end", async () => {
     const automatic = {...booking(), automaticLifecycle: true, bookingPolicy: {
-      label: "In Progress", state: "in_progress" as const, dueAt: "2026-09-13T04:00:00Z", deadlineAt: "2026-09-14T04:00:00Z",
+      label: "Awaiting Completion", state: "awaiting_completion" as const, dueAt: "2026-09-13T04:00:00Z", deadlineAt: "2026-09-14T04:00:00Z",
       preparationAt: "2026-09-14T04:00:00Z", eventAt: "2026-09-15T04:00:00Z", remainingAmountInCentavos: 0,
       readyToComplete: true, allocation: null,
     }};
     mocks.loadBooking.mockResolvedValueOnce(automatic);
     const user = userEvent.setup(); renderWorkspace([automatic]);
     await user.click(screen.getAllByRole("button", {name: "View booking for Ana Reyes"})[0]);
-    expect(await screen.findByText("Ready to Complete")).toBeVisible();
+    expect(await screen.findByText("Awaiting Completion")).toBeVisible();
     expect(screen.queryByRole("button", {name: "Start Event"})).not.toBeInTheDocument();
     expect(screen.queryByRole("button", {name: "Mark Preparation Started"})).not.toBeInTheDocument();
     expect(screen.getByRole("button", {name: "Mark Completed"})).toBeVisible();
@@ -493,4 +493,34 @@ it("ignores details from a booking closed before its response arrives", async ()
   await screen.findByText("Latest details");
   resolveOld({...booking(), customerDisplayName: "Stale details"});
   await waitFor(() => expect(screen.queryByText("Stale details")).not.toBeInTheDocument());
+});
+
+it('shows ended status consistently in desktop, mobile and drawer while retaining completion', async () => {
+ mocks.complete.mockClear();
+ const ended = {...booking('in_progress'), automaticLifecycle: true, eventTime: '12:00', eventEndTime: '16:00',
+ bookingPolicy: {state: 'awaiting_completion' as const, label: 'Awaiting Completion', eventAt: '2026-09-15T04:00:00.000Z', dueAt: '', deadlineAt: '', preparationAt: '', remainingAmountInCentavos: 0, readyToComplete: true, allocation: null}};
+ mocks.loadBooking.mockResolvedValue(ended);
+ renderWorkspace([ended], 'upcoming');
+ expect(screen.getAllByLabelText('Status: Awaiting completion')).toHaveLength(2);
+ expect(screen.getByRole('button', {name: 'Active events'})).toBeVisible();
+ await userEvent.setup().click(screen.getAllByRole('button', {name: 'View booking for Ana Reyes'})[0]);
+ const drawer = await screen.findByRole('dialog');
+ expect((await within(drawer).findAllByLabelText('Status: Awaiting completion'))[0]).toBeVisible();
+ expect(within(drawer).getByRole('button', {name: 'Mark Completed'})).toBeVisible();
+ expect(ended.providerRequestStatus).toBe('in_progress');
+ expect(mocks.complete).not.toHaveBeenCalled();
+});
+
+it.each([
+ {activeCancellationLocked: true, reconciliationLocked: false, warning: /cancellation request is being reviewed/},
+ {activeCancellationLocked: false, reconciliationLocked: true, warning: /resolves a booking reconciliation issue/},
+])('keeps preparation controls blocked with accurate review reason $activeCancellationLocked', async ({activeCancellationLocked, reconciliationLocked, warning}) => {
+ const data = {...booking('confirmed'), refundEligibility: {evidenceStatus:'policy_backed' as const,currentStage:'preparation_started' as const,activeCancellationLocked,reconciliationLocked,canMarkPreparationStarted:false}};
+ mocks.loadBooking.mockResolvedValue(data);renderWorkspace([data]);
+ await userEvent.setup().click(screen.getAllByRole('button', {name:'View booking for Ana Reyes'})[0]);
+ const drawer=await screen.findByRole('dialog');
+ expect(await within(drawer).findByText(warning)).toBeVisible();
+ expect(within(drawer).getByText('Preparation Started')).toBeVisible();
+ expect(within(drawer).queryByRole('button',{name:'Mark Preparation Started'})).not.toBeInTheDocument();
+ if(!activeCancellationLocked) expect(within(drawer).queryByText(/cancellation request is being reviewed/)).not.toBeInTheDocument();
 });

@@ -1,3 +1,4 @@
+import {cancellationDeadline} from "./cancellation-deadline.js";
 import {Timestamp} from "firebase-admin/firestore";
 import {
   cancellationPaymentSetState,
@@ -251,8 +252,10 @@ async function cancellationOptions(
     });
     const status = parseProviderRequestStatus(providerRequest.status);
     if (!status) throw policyInvalid();
+    const deadline = cancellationDeadline(providerRequest, mainEvent);
     const result = (...args: Parameters<typeof optionsResult>) => ({
       ...optionsResult(...args), providerRequestStatus: status,
+      eligibilityExpiresInMs: deadline.eligibilityExpiresInMs,
     });
     const activeCancellation = safeCancellation &&
       isCancellationWorkflowActive(safeCancellation.status)
@@ -262,6 +265,9 @@ async function cancellationOptions(
       ? policyDisclosure(providerRequest)
       : null;
 
+    if (deadline.reason) {
+      return result(providerRequestId, false, deadline.reason, activeCancellation, policy, null);
+    }
     if (rollout.customerCancellationMode === "off") {
       return result(providerRequestId, false, "ROLLOUT_DISABLED",
         activeCancellation, policy, null);

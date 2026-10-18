@@ -19,3 +19,13 @@ export const getCurrentLegalAgreement = onCall(appCheckCallableOptions, async (r
   const agreement = resolvePublishedLegalAgreement(purpose, types, agreements);
   return {agreement};
 });
+
+// Keep the provider-registration API while sharing the canonical
+// published-policy resolver used by customer consent and this callable.
+export function selectPublishedLegalAgreement(
+  purpose: "platform_terms" | "privacy_notice",
+  types: FirebaseFirestore.QuerySnapshot,
+  agreements: FirebaseFirestore.QuerySnapshot,
+) {
+  return resolvePublishedLegalAgreement(purpose, types, agreements);
+}

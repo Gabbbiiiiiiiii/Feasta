@@ -8,16 +8,32 @@ vi.mock("@/lib/provider/dashboard/provider-dashboard-service", () => ({getProvid
 vi.mock("@/lib/provider/dashboard/limited-provider-dashboard-service", () => ({getLimitedProviderDashboardData: mocks.limited}));
 vi.mock("@/components/provider/limited-provider-dashboard", () => ({LimitedProviderDashboard: () => <p>Verify your account</p>}));
 import ProviderPage from "@/app/provider/page";
-import Loading from "@/app/provider/loading";
+import Loading from "@/app/provider/provider-dashboard-loading";
 import ErrorPage from "@/app/provider/error";
+async function renderResolvedDashboard() {
+  // ProviderPage returns a Suspense boundary around an async
+  // server component. Resolve that child explicitly for Vitest.
+  const suspense = ProviderPage();
+  const content = (suspense.props as {
+    children?: {
+      type?: () => Promise<Parameters<typeof render>[0]>;
+    };
+  }).children;
+
+  if (!content || typeof content.type !== "function") {
+    throw new Error("Expected the asynchronous provider dashboard child.");
+  }
+
+  render(await content.type());
+}
 beforeEach(() => {
   mocks.account.mockResolvedValue({emailVerified: true}); mocks.data.mockReset();
   mocks.data.mockResolvedValue({summary: {new: 2, upcoming: 3, payment: 1, completed: 7}, upcomingEvents: [], recentRequests: []});
 });
 describe("provider dashboard", () => {
   it("renders four real counts with corresponding filtered destinations and clear empty states", async () => {
-    render(await ProviderPage());
-    const overview = screen.getByRole("region", {name: "Booking overview"});
+    await renderResolvedDashboard();
+    const overview = await screen.findByRole("region", {name: "Booking overview"});
     expect(within(overview).getAllByRole("link")).toHaveLength(4);
     expect(within(overview).getByRole("link", {name: /New Requests/u})).toHaveAttribute("href", "/provider/requests?dashboard=new");
     expect(within(overview).getByRole("link", {name: /Waiting for Payment/u})).toHaveAttribute("href", "/provider/bookings?status=accepted&dashboard=payment");
@@ -30,16 +46,16 @@ describe("provider dashboard", () => {
     mocks.data.mockResolvedValue({summary: {new: 1, upcoming: 1, payment: 0, completed: 0},
       upcomingEvents: [{id: "request1", customer: "Maria Santos", event: "wedding", packageName: "Buffet", status: "confirmed", eventAt: "2026-10-10T06:00:00Z"}],
       recentRequests: [{id: "request2", customer: "Juan Cruz", event: "birthday", packageName: null, status: "rejected", eventAt: null}]});
-    render(await ProviderPage());
-    expect(screen.getByRole("link", {name: /Maria Santos/u})).toHaveAttribute("href", "/provider/bookings?request=request1");
+    await renderResolvedDashboard();
+    expect(await screen.findByRole("link", {name: /Maria Santos/u})).toHaveAttribute("href", "/provider/bookings?request=request1");
     expect(screen.getByText(/2:00/u)).toBeVisible();
     expect(screen.getByText("Declined")).toBeVisible();
     expect(screen.getByRole("link", {name: /Juan Cruz/u})).toHaveAttribute("href", "/provider/requests?request=request2");
   });
   it("preserves the limited identity dashboard without querying approved-provider data", async () => {
     mocks.account.mockResolvedValue({emailVerified: false});
-    render(await ProviderPage());
-    expect(screen.getByText("Verify your account")).toBeVisible();
+    await renderResolvedDashboard();
+    expect(await screen.findByText("Verify your account")).toBeVisible();
     expect(mocks.data).not.toHaveBeenCalled();
   });
   it("provides loading placeholders and a working retry action", async () => {

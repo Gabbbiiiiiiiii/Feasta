@@ -10,6 +10,7 @@ export type ProviderRefundEligibilityView = {
   evidenceStatus: "policy_backed" | "legacy" | "invalid";
   currentStage: RefundEligibilityStage | null;
   activeCancellationLocked: boolean;
+  reconciliationLocked?: boolean;
   canMarkPreparationStarted: boolean;
 };
 
@@ -59,6 +60,7 @@ export type ProviderBookingService = {
 };
 
 export type ProviderBooking = {
+  lifecycle?: import("@/lib/presentation/booking-lifecycle").LifecycleEvidence;
   paymentAttention?: "Down Payment Due" | "Remaining Balance Due" | "Payment Being Checked" | null;
   automaticLifecycle?: boolean;
   bookingPolicy?: import("@/lib/payments/booking-policy-v3-presentation").BookingPolicyPresentation | null;

@@ -4,6 +4,7 @@ import {
   CalendarDays,
   ChevronDown,
   Heart,
+  LogOut,
   MessageSquareText,
   Search,
   Settings,
@@ -341,6 +342,8 @@ function CustomerAccountMenu({
   detailsRef: RefObject<HTMLDetailsElement | null>;
   summaryRef: RefObject<HTMLElement | null>;
 }) {
+  const pathname = usePathname();
+  const [expanded, setExpanded] = useState(false);
   const trustedFirstName = firstName.trim();
   const trustedLastName = lastName.trim();
   const trustedEmail = email.trim() || (/^[^@\s]+@[^@\s]+$/u.test(accountLabel.trim()) ? accountLabel.trim() : "");
@@ -353,8 +356,23 @@ function CustomerAccountMenu({
   return (
     <details
       ref={detailsRef}
+      onToggle={(event) => setExpanded(event.currentTarget.open)}
       className="group relative shrink-0"
       onKeyDown={(event) => {
+        if (event.defaultPrevented) return;
+        const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
+        if (keys.includes(event.key)) {
+          event.preventDefault();
+          if (!detailsRef.current) return;
+          detailsRef.current.open = true;
+          const items = Array.from(detailsRef.current.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+          const index = items.indexOf(document.activeElement as HTMLElement);
+          const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
+            : event.key === "ArrowDown" ? (index + 1) % items.length
+              : (index <= 0 ? items.length : index) - 1;
+          items[next]?.focus();
+          return;
+        }
         if (event.key !== "Escape" || !detailsRef.current?.open) return;
         event.preventDefault();
         detailsRef.current.removeAttribute("open");
@@ -365,46 +383,63 @@ function CustomerAccountMenu({
         ref={summaryRef}
         aria-haspopup="menu"
         aria-label="Open customer account menu"
+        aria-expanded={expanded}
+        aria-controls="customer-account-menu"
         className="flex min-h-10 max-w-44 cursor-pointer list-none items-center gap-1.5 rounded-[10px] px-1 transition-colors duration-200 hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none [&::-webkit-details-marker]:hidden"
       >
-        <span aria-hidden="true" className="inline-flex size-9 items-center justify-center rounded-[10px] bg-primary text-xs font-black uppercase text-primary-foreground">
+        <span aria-hidden="true" className="inline-flex size-9 items-center justify-center rounded-full bg-primary text-xs font-black uppercase text-primary-foreground">
           {avatarLabel.trim().charAt(0).toLocaleUpperCase("en-PH") || "F"}
         </span>
         <span className="hidden max-w-24 truncate text-sm font-semibold xl:block">{triggerLabel}</span>
         <ChevronDown aria-hidden="true" className="hidden size-3.5 transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none sm:block" />
       </summary>
 
-      <div role="menu" className="absolute right-0 top-[calc(100%+0.5rem)] z-50 grid w-72 gap-1 rounded-xl border border-feasta-border-soft bg-white p-2 shadow-floating">
-        <div className="min-w-0 border-b border-feasta-divider px-3 py-3">
-          <p className="truncate text-sm font-bold text-foreground">{displayName}</p>
-          {trustedEmail ? <p className="mt-0.5 truncate text-xs text-feasta-text-secondary">{trustedEmail}</p> : null}
+      <div id="customer-account-menu" role="menu" aria-label="Customer account" className="absolute right-0 top-[calc(100%+0.5rem)] z-50 grid max-h-[calc(100dvh-5rem)] w-72 max-w-[calc(100vw-2rem)] gap-1 overflow-y-auto rounded-xl border border-feasta-border-soft bg-white p-2 shadow-floating">
+        <div role="presentation" className="mb-1 flex min-w-0 items-center gap-3 border-b border-feasta-divider px-3 py-3">
+          <span aria-hidden="true" className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-tint text-sm font-bold uppercase text-primary">
+            {`${trustedFirstName.charAt(0)}${trustedLastName.charAt(0)}` || avatarLabel.trim().charAt(0) || "F"}
+          </span>
+          <div className="min-w-0 flex-1">
+            <p title={displayName} className="truncate text-sm font-bold text-foreground">{displayName}</p>
+            {trustedEmail ? <p title={trustedEmail} className="mt-0.5 truncate text-xs text-feasta-text-secondary">{trustedEmail}</p> : null}
+          </div>
         </div>
-        <CustomerMenuLink href="/customer/account" label="Account Settings" icon={<Settings aria-hidden="true" />} detailsRef={detailsRef} />
-        <CustomerMenuLink href={CUSTOMER_BOOKINGS_PATH} label="My Bookings" icon={<CalendarDays aria-hidden="true" />} detailsRef={detailsRef} />
-        <CustomerMenuLink href={CUSTOMER_FAVORITES_PATH} label="Favorites" icon={<Heart aria-hidden="true" />} detailsRef={detailsRef} />
-        <CustomerMenuLink href={CUSTOMER_MESSAGES_PATH} label="Messages" icon={<MessageSquareText aria-hidden="true" />} detailsRef={detailsRef} />
-        <div className="mt-1 border-t border-feasta-divider pt-1">
-          <LogoutButton destination="/customer/providers" />
-        </div>
+        {[
+          {href: CUSTOMER_BOOKINGS_PATH, label: "My Bookings", icon: <CalendarDays aria-hidden="true" />},
+          {href: CUSTOMER_MESSAGES_PATH, label: "Messages", icon: <MessageSquareText aria-hidden="true" />},
+          {href: CUSTOMER_FAVORITES_PATH, label: "Favorites", icon: <Heart aria-hidden="true" />},
+          {href: "/customer/account", label: "Account Settings", icon: <Settings aria-hidden="true" />},
+        ].map((item) => <CustomerMenuLink key={item.href} {...item} active={isNavigationItemActive(pathname, item.href)} detailsRef={detailsRef} />)}
+        <div role="separator" className="my-1 border-t border-feasta-divider" />
+        <LogoutButton destination="/customer/providers" trigger={
+          <button type="button" role="menuitem" className={customerMenuRowClass}>
+            <LogOut aria-hidden="true" className="size-[18px] shrink-0 text-feasta-text-secondary" />
+            Sign Out
+          </button>
+        } />
       </div>
     </details>
   );
 }
 
-function CustomerMenuLink({href, label, icon, detailsRef}: {
+const customerMenuRowClass = "flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold text-foreground hover:bg-primary-tint focus-visible:bg-primary-tint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40";
+
+function CustomerMenuLink({href, label, icon, active, detailsRef}: {
   href: string;
   label: string;
   icon: ReactNode;
+  active: boolean;
   detailsRef: RefObject<HTMLDetailsElement | null>;
 }) {
   return (
     <Link
       role="menuitem"
       href={href}
-      className="flex min-h-11 items-center gap-3 rounded-[10px] px-3 font-semibold hover:bg-primary-tint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+      aria-current={active ? "page" : undefined}
+      className={cn(customerMenuRowClass, active && "bg-primary-tint text-primary")}
       onClick={() => detailsRef.current?.removeAttribute("open")}
     >
-      <span className="text-feasta-text-secondary [&_svg]:size-5">{icon}</span>
+      <span className="shrink-0 text-feasta-text-secondary [&_svg]:size-[18px]">{icon}</span>
       {label}
     </Link>
   );

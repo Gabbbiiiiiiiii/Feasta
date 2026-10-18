@@ -45,7 +45,7 @@ test("P11 finance-health counts use bounded Firestore aggregate queries", () => 
 
 test("P11 Payment Monitoring clearly separates failed Customer payments and Provider payouts", () => {
   for (const label of [
-    "Paid amount",
+    "Net customer payments",
     "Failed payments",
     "Refunded amount",
   ]) {
@@ -53,6 +53,8 @@ test("P11 Payment Monitoring clearly separates failed Customer payments and Prov
   }
   assert.match(attention, /Failed provider payouts/u);
   assert.match(attention, /Payouts needing review/u);
+  assert.match(client, /label="Net customer payments"\s+supportingMetric="Total payments received after refunds\."\s+value=\{\s*page\.statistics\s*\.confirmedVolumeFormatted\s*\}/u);
+  assert.match(service, /confirmedVolumeInCentavos = totals\.paid === null \? null : Math\.round\(totals\.paid \* 100\)/u);
 });
 
 test("P11 Payment Monitoring exposes the existing issue filter", () => {

@@ -49,8 +49,50 @@ vi.mock("@/lib/customer/payments/customer-payment-client", () => ({
 import CustomerBookingsError from "@/app/customer/bookings/error";
 import CustomerBookingsPage from "@/app/customer/bookings/page";
 import {CustomerBookingExperience} from "@/components/customer/bookings/customer-booking-experience";
+import {CustomerBookingProviderRequestCard} from "@/components/customer/bookings/customer-booking-provider-request-card";
 
 describe("customer booking history and details", () => {
+  it.each(["rejected", "expired"] as const)(
+    "hides stale upcoming lifecycle information for %s requests",
+    (status) => {
+      const stalePolicy = {
+        label: "Confirmed / Upcoming",
+        state: "upcoming" as const,
+        dueAt: "2026-10-17T00:00:00.000Z",
+        deadlineAt: "2026-10-18T00:00:00.000Z",
+        preparationAt: "2026-10-18T00:00:00.000Z",
+        eventAt: "2026-10-19T00:00:00.000Z",
+        remainingAmountInCentavos: null,
+        readyToComplete: false,
+        allocation: null,
+      };
+
+      const view = render(
+        <CustomerBookingProviderRequestCard
+          request={providerRequestFixture({
+            status,
+            bookingPolicy: stalePolicy,
+            rejectionReason: "Provider unavailable",
+          })}
+        />,
+      );
+
+      expect(screen.queryByText("Confirmed / Upcoming"))
+        .not.toBeInTheDocument();
+
+      view.rerender(
+        <CustomerBookingProviderRequestCard
+          request={providerRequestFixture({
+            status: "confirmed",
+            bookingPolicy: stalePolicy,
+          })}
+        />,
+      );
+
+      expect(screen.getByText("Confirmed / Upcoming"))
+        .toBeVisible();
+    },
+  );
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getPage.mockResolvedValue(pageFixture());
@@ -101,14 +143,35 @@ describe("customer booking history and details", () => {
       pageSize: 10,
       cursor: null,
     });
-    expect(screen.getByRole("heading", {name: "Bookings"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "My Bookings"})).toBeVisible();
     expect(screen.getAllByText("FEA-2026-0001").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Wedding reception").length).toBeGreaterThan(0);
-    expect(screen.getByRole("columnheader", {name: "Provider responses"})).toBeVisible();
+    for (const name of ["Booking", "Event date", "Status", "Amount", "Action"]) {
+      expect(screen.getByRole("columnheader", {name})).toBeVisible();
+    }
+    expect(screen.queryByRole("columnheader", {name: "Provider responses"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", {name: "Party"})).not.toBeInTheDocument();
     expect(screen.queryByText("Maria's Catering")).not.toBeInTheDocument();
     expect(screen.queryByText("Premium Wedding Package")).not.toBeInTheDocument();
     expect(screen.getAllByText("Aug 15, 2026").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/125,000\.00/u).length).toBeGreaterThan(0);
+  });
+
+  it("shows summary titles in order with their existing metrics", () => {
+    const page = pageFixture();
+    page.statistics = {...page.statistics, total: 21, upcoming: 8, awaitingProvider: 5, awaitingPayment: 3};
+    render(<CustomerBookingExperience initialPage={page} />);
+    const summary = screen.getByRole("region", {name: "Booking summary"});
+    const cards = within(summary).getAllByRole("region");
+    expect(cards.map((card) => card.getAttribute("aria-label"))).toEqual([
+      "Total Bookings", "Upcoming Events", "Pending Responses", "Payments Due",
+    ]);
+    ["21", "8", "5", "3"].forEach((value, index) => {
+      expect(within(cards[index]).getByText(value)).toBeVisible();
+    });
+    expect(within(cards[0]).getByText("All your booking requests")).toBeVisible();
+    expect(within(cards[1]).getByText("Scheduled events ahead")).toBeVisible();
+    expect(mocks.loadBookings).not.toHaveBeenCalled();
   });
 
   it("sends exact owned-booking search and customer status groups through the action", async () => {
@@ -116,7 +179,7 @@ describe("customer booking history and details", () => {
     render(<CustomerBookingExperience initialPage={pageFixture()} />);
 
     await user.type(
-      screen.getByRole("searchbox", {name: "Search by booking code prefix or booking ID"}),
+      screen.getByRole("searchbox", {name: "Find a booking"}),
       "FEA-2026-0001",
     );
     await user.click(screen.getByRole("button", {name: "Search"}));
@@ -130,7 +193,7 @@ describe("customer booking history and details", () => {
       });
     });
 
-    const statusSelect = screen.getByLabelText("Booking status");
+    const statusSelect = screen.getByLabelText("Filter by status");
     await waitFor(() => expect(statusSelect).toBeEnabled());
     await user.selectOptions(statusSelect, "in_progress");
 
@@ -231,10 +294,10 @@ describe("customer booking history and details", () => {
     expect(screen.getAllByText("Lights & sounds").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Accepted - payment required")).toBeVisible();
     expect(screen.getByText("Accepted — confirmed")).toBeVisible();
-    expect(screen.getByText("Declined by Alternative Caterer")).toBeVisible();
+    expect(screen.getByText("Rejected by Alternative Caterer")).toBeVisible();
     expect(screen.getAllByText(/Response received Aug 1, 2026/u).length).toBeGreaterThanOrEqual(3);
     expect(screen.getByText("Provider could not accommodate the event date.")).toBeVisible();
-    expect(screen.getByText("Replacement required")).toBeVisible();
+    expect(screen.getByRole("link", {name: "browse other providers"})).toBeVisible();
     expect(screen.getAllByText(/100,000\.00/u).length).toBeGreaterThan(0);
     expect(screen.getAllByLabelText("Status: Unpaid").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", {name: "Open full booking details"})).toHaveAttribute(
@@ -300,12 +363,12 @@ describe("customer booking history and details", () => {
     expect(screen.getByRole("region", {name: "Filter bookings"})).toBeInTheDocument();
     expect(screen.getByRole("table", {name: "Customer booking history"})).toBeInTheDocument();
     expect(screen.getByLabelText("Customer booking history, mobile view")).toBeInTheDocument();
-    expect(screen.getByRole("searchbox", {name: "Search by booking code prefix or booking ID"})).toHaveAccessibleDescription(
-      "Searches only your bookings using a booking code prefix or booking ID.",
+    expect(screen.getByRole("searchbox", {name: "Find a booking"})).toHaveAccessibleDescription(
+      "Enter the start of your booking code or the full booking ID.",
     );
     expect(screen.getAllByLabelText("Status: Awaiting payment").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Accepted provider requests require an upfront payment. Review each request's payment status.").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Searches only your bookings/u)).toBeVisible();
+    expect(screen.getByText(/Enter the start of your booking code/u)).toBeVisible();
   });
 
   it("summarizes canonical provider responses for parent and mixed outcomes", () => {
@@ -363,8 +426,8 @@ describe("customer booking history and details", () => {
           confirmedProviderRequestCount: 0,
           rejectedProviderRequestCount: 1,
         }),
-        summary: "1 declined",
-        nextStep: "At least one provider declined. Review the affected provider request.",
+        summary: "1 rejected",
+        nextStep: "A provider rejected your request. Open booking details to see why, then browse other providers if you still need the service.",
       },
       {
         booking: bookingFixture({
@@ -393,8 +456,8 @@ describe("customer booking history and details", () => {
           confirmedProviderRequestCount: 0,
           rejectedProviderRequestCount: 1,
         }),
-        summary: "1 declined · 1 awaiting response",
-        nextStep: "At least one provider declined. Review the affected request while other providers respond.",
+        summary: "1 rejected · 1 awaiting response",
+        nextStep: "A provider rejected your request. Open booking details to see why. Other providers are still reviewing your event.",
       },
       {
         booking: bookingFixture({
@@ -419,8 +482,8 @@ describe("customer booking history and details", () => {
     expect(screen.queryByText("Maria's Catering")).not.toBeInTheDocument();
     expect(screen.queryByText("Premium Wedding Package")).not.toBeInTheDocument();
     for (const scenario of scenarios) {
-      expect(screen.getAllByText(scenario.summary).length).toBeGreaterThanOrEqual(2);
-      expect(screen.getAllByText(scenario.nextStep).length).toBeGreaterThanOrEqual(2);
+      expect(screen.getAllByText(scenario.summary)).toHaveLength(1);
+      expect(screen.getAllByText(scenario.nextStep)).toHaveLength(1);
     }
   });
 
@@ -428,10 +491,10 @@ describe("customer booking history and details", () => {
     const user = userEvent.setup();
     render(<CustomerBookingExperience initialPage={pageFixture()} />);
 
-    await user.selectOptions(screen.getByLabelText("Booking status"), "awaiting_provider");
-    await waitFor(() => expect(screen.getByLabelText("Booking status")).toBeEnabled());
+    await user.selectOptions(screen.getByLabelText("Filter by status"), "awaiting_provider");
+    await waitFor(() => expect(screen.getByLabelText("Filter by status")).toBeEnabled());
     await user.type(
-      screen.getByRole("searchbox", {name: "Search by booking code prefix or booking ID"}),
+      screen.getByRole("searchbox", {name: "Find a booking"}),
       "  FEA-2026-0001  ",
     );
     await user.keyboard("{Enter}");
@@ -445,7 +508,7 @@ describe("customer booking history and details", () => {
       });
     });
 
-    const clearSearchInput = screen.getByRole("button", {name: "Clear booking search input"});
+    const clearSearchInput = screen.getByRole("button", {name: "Clear booking search"});
     await waitFor(() => expect(clearSearchInput).toBeEnabled());
     await user.click(clearSearchInput);
     await waitFor(() => {
@@ -456,7 +519,7 @@ describe("customer booking history and details", () => {
         cursor: null,
       });
     });
-    expect(screen.getByLabelText("Booking status")).toHaveValue("awaiting_provider");
+    expect(screen.getByLabelText("Filter by status")).toHaveValue("awaiting_provider");
   });
 
   it("recovers from a detail-load failure without leaking the server error", async () => {
@@ -499,24 +562,24 @@ describe("customer booking history and details", () => {
 
     mocks.loadBookings.mockResolvedValueOnce(pageFixture([], null));
     await user.type(
-      screen.getByRole("searchbox", {name: "Search by booking code prefix or booking ID"}),
+      screen.getByRole("searchbox", {name: "Find a booking"}),
       "MISSING-BOOKING",
     );
     await user.click(screen.getByRole("button", {name: "Search"}));
-    expect(await screen.findByRole("heading", {name: "No booking found in your account"})).toBeVisible();
+    expect(await screen.findByRole("heading", {name: "No matching bookings"})).toBeVisible();
     expect(screen.getByRole("button", {name: "Clear search"})).toBeVisible();
     expect(screen.queryByRole("link", {name: "Browse event services"})).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", {name: "Clear filters"}));
-    await waitFor(() => expect(screen.getByLabelText("Booking status")).toBeEnabled());
+    await waitFor(() => expect(screen.getByLabelText("Filter by status")).toBeEnabled());
     mocks.loadBookings.mockResolvedValueOnce(pageFixture([], null));
-    await user.selectOptions(screen.getByLabelText("Booking status"), "completed");
+    await user.selectOptions(screen.getByLabelText("Filter by status"), "completed");
     expect(await screen.findByRole("heading", {name: "No bookings match this status"})).toBeVisible();
     expect(screen.getByRole("button", {name: "Show all bookings"})).toBeVisible();
     expect(screen.queryByRole("link", {name: "Browse event services"})).not.toBeInTheDocument();
 
     mocks.loadBookings.mockRejectedValueOnce(new Error("raw backend details"));
-    await user.selectOptions(screen.getByLabelText("Booking status"), "confirmed");
+    await user.selectOptions(screen.getByLabelText("Filter by status"), "confirmed");
     expect(await screen.findByText("Your booking history could not be updated. Please try again.")).toBeVisible();
     expect(screen.queryByText("raw backend details")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", {name: "Browse event services"})).not.toBeInTheDocument();

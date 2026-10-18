@@ -50,6 +50,8 @@ it("separates cancellation from refund completion and removes the manual refresh
   expect(cells[4]).not.toHaveTextContent(/refund/i);
   expect(cells[5]).toHaveTextContent("Refund confirmed");
   expect(cells[5]).toHaveTextContent("5,000.00");
+  expect(screen.getByRole("heading", {name: "Cancellations & refunds"})).toBeVisible();
+  expect(screen.getByRole("button", {name: "View details of cancellation for Maria's Catering"})).toBeVisible();
 });
 
 it("polls silently while preserving the rejection form and its drawer", async () => {
@@ -109,7 +111,12 @@ function renderQueue(items: AdminCancellationQueueItem[]) {
 }
 
 async function openReview(user: ReturnType<typeof userEvent.setup>, providerName = "Maria's Catering") {
-  await user.click(screen.getAllByRole("button", {name: `Review cancellation for ${providerName}`})[0]);
+  const actionButton = screen.getAllByRole("button", {
+    name: (name) =>
+      name === `Review cancellation for ${providerName}` ||
+      name === `View details of cancellation for ${providerName}`,
+  })[0];
+  await user.click(actionButton);
   return screen.getByRole("dialog", {name: "Cancellation details"});
 }
 
@@ -402,7 +409,7 @@ it("keeps internal IDs only in Support references and presents plain cancellatio
   expect(within(table).getByText(record.bookingCode)).toBeVisible();
   expect(within(table).queryByText(record.providerRequestId)).not.toBeInTheDocument();
   expect(within(table).queryByText(record.cancellationRequestId)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", {name: "Review cancellation for Maria's Catering"}));
+  fireEvent.click(screen.getByRole("button", {name: "View details of cancellation for Maria's Catering"}));
   const drawer = screen.getByRole("dialog", {name: "Cancellation details"});
   for (const label of ["Refund summary", "Refund amount", "Refund status", "Payment status", "Reason for cancellation", "Preparation had not started", "Policy recorded", "Refunded", "Refund confirmed", "₱5,000.00 has been refunded.", "Support references"]) {
     expect(within(drawer).getByText(label)).toBeVisible();
@@ -417,7 +424,7 @@ it("shows a saved confirmed refund without asking Admin to check it", () => {
   const completed = item({cancellationStatus: "refund_completed", operationStatus: "completed", refundProgress: "full_completed",
     refundAmountInCentavos: 500000, completedRefundAmountInCentavos: 500000, paymentStatus: "refunded", canApprove: false, canReject: false});
   render(<CancellationManagementClient initialQueue={queue([completed])} />);
-  fireEvent.click(screen.getByRole("button", {name: "Review cancellation for Maria's Catering"}));
+  fireEvent.click(screen.getByRole("button", {name: "View details of cancellation for Maria's Catering"}));
   const drawer = screen.getByRole("dialog", {name: "Cancellation details"});
   expect(within(drawer).getByText("Refund confirmed")).toBeVisible();
   expect(within(drawer).getByText("₱5,000.00 has been refunded.")).toBeVisible();

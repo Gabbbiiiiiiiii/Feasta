@@ -6,13 +6,14 @@ import {readFileSync} from "node:fs";
 import {join} from "node:path";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 
+import {EventFinder} from "@/components/customer/layout/event-finder";
 import {CustomerMarketplaceShell} from "@/components/customer/layout/customer-marketplace-shell";
 import {CustomerMarketplaceHeader} from "@/components/customer/layout/customer-marketplace-header";
 import {PublicProviderMarketplaceShell} from "@/components/customer/layout/public-provider-marketplace-shell";
 import {ProviderIndustrySelector} from "@/components/customer/providers/provider-industry-selector";
 import {TEST_SERVICE_CATEGORY_OPTIONS} from "../fixtures/service-category-options";
 
-const mocks = vi.hoisted(() => ({push: vi.fn(), searchEventVenues: vi.fn(), getEventVenueDetails: vi.fn()}));
+const mocks = vi.hoisted(() => ({push: vi.fn(), replace: vi.fn(), searchEventVenues: vi.fn(), getEventVenueDetails: vi.fn()}));
 
 vi.mock("@/lib/customer/planning/event-venue-client", () => ({
   searchEventVenues: mocks.searchEventVenues,
@@ -27,7 +28,7 @@ let pathname = "/customer/providers";
 let query = new URLSearchParams();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({push: mocks.push}),
+  useRouter: () => ({push: mocks.push, replace: mocks.replace}),
   usePathname: () => pathname,
   useSearchParams: () => query,
 }));
@@ -41,7 +42,7 @@ vi.mock("@/components/layout/notification-menu", () => ({
 }));
 
 vi.mock("@/components/auth/logout-button", () => ({
-  LogoutButton: () => <button type="button">Sign Out</button>,
+  LogoutButton: ({trigger}: {trigger?: import("react").ReactNode}) => trigger ?? <button type="button">Sign Out</button>,
 }));
 
 describe("customer marketplace header", () => {
@@ -52,6 +53,44 @@ describe("customer marketplace header", () => {
     query = new URLSearchParams();
   });
 
+  it("orders account links, selects only the active route, and supports keyboard navigation", async () => {
+    pathname = "/customer/messages/thread-1";
+    const user = userEvent.setup();
+    render(<CustomerMarketplaceHeader accountLabel="customer" accountFirstName="Gabriel" accountLastName="Santos" accountEmail="gabriel@example.test" />);
+    const trigger = screen.getByLabelText("Open customer account menu");
+    trigger.focus();
+    await user.keyboard("{ArrowDown}");
+    const menu = screen.getByRole("menu", {name: "Customer account"});
+    const items = within(menu).getAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual(["My Bookings", "Messages", "Favorites", "Account Settings", "Sign Out"]);
+    expect(items.slice(0, 4).map((item) => item.getAttribute("href"))).toEqual(["/customer/bookings", "/customer/messages", "/customer/favorites", "/customer/account"]);
+    expect(items[0]).toHaveFocus();
+    expect(items[1]).toHaveAttribute("aria-current", "page");
+    expect(items.filter((item) => item.hasAttribute("aria-current"))).toHaveLength(1);
+    expect(within(menu).getByText("GS")).toHaveClass("rounded-full");
+    expect(within(menu).getByText("gabriel@example.test")).toHaveClass("truncate");
+    expect(menu).toHaveClass("max-w-[calc(100vw-2rem)]");
+    expect(within(menu).getByRole("separator")).toBeInTheDocument();
+    for (const item of items) expect(item).toHaveClass("min-h-11", "hover:bg-primary-tint", "focus-visible:bg-primary-tint");
+    await user.keyboard("{ArrowDown}");
+    expect(items[1]).toHaveFocus();
+    await user.keyboard("{End}");
+    expect(items[4]).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(items[0]).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(trigger).toHaveFocus();
+    expect(trigger.closest("details")).not.toHaveAttribute("open");
+  });
+
+  it("does not select an account link on the marketplace and closes on outside click", async () => {
+    render(<CustomerMarketplaceHeader accountLabel="customer@example.test" />);
+    fireEvent.click(screen.getByLabelText("Open customer account menu"));
+    const menu = screen.getByRole("menu");
+    expect(within(menu).getAllByRole("menuitem").every((item) => !item.hasAttribute("aria-current"))).toBe(true);
+    fireEvent.pointerDown(document.body);
+    expect(screen.getByLabelText("Open customer account menu").closest("details")).not.toHaveAttribute("open");
+  });
   it("centers marketplace links beside an accessible search icon and preserves guest actions", () => {
     query = new URLSearchParams("service=catering");
     render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} authReturnTo="/customer/providers?service=catering" />);
@@ -94,11 +133,11 @@ describe("customer marketplace header", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(within(finder).queryByLabelText("Service Type")).not.toBeInTheDocument();
     expect(within(finder).getByRole("option", {name: "What service do you need?"})).toHaveValue("all");
-    expect(within(finder).getByRole("combobox", {name: "Location"})).toHaveAttribute("placeholder", "Select your location and where you want the event held");
+    expect(within(finder).getByRole("combobox", {name: "Location"})).toHaveAttribute("placeholder", "Enter where your event will take place");
     expect(within(finder).getByRole("button", {name: "Choose on map"})).toHaveAttribute("aria-expanded", "false");
     expect(within(finder).getByLabelText("Event Date")).toHaveAttribute("type", "date");
     expect(within(finder).getByText("Select event date")).toBeVisible();
-    expect(within(finder).getByRole("combobox", {name: "Service Category"})).toHaveValue("all");
+    expect(within(finder).getByRole("combobox", {name: "Type of Service"})).toHaveValue("all");
     await user.tab();
     expect(within(finder).getByRole("combobox", {name: "Location"})).toHaveFocus();
     await user.keyboard("{Escape}");
@@ -161,7 +200,7 @@ describe("customer marketplace header", () => {
     query = new URLSearchParams("category=photographer");
     render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
-    const selector = screen.getByRole("combobox", {name: "Service Category"});
+    const selector = screen.getByRole("combobox", {name: "Type of Service"});
     expect(within(selector).getAllByRole("option").map((option) => option.getAttribute("value")))
       .toEqual(["all", ...TEST_SERVICE_CATEGORY_OPTIONS.map((option) => option.code)]);
     expect(selector).toHaveValue("photographer");
@@ -170,7 +209,7 @@ describe("customer marketplace header", () => {
     fireEvent.click(screen.getByRole("button", {name: "Close Event Finder"}));
     expect(screen.queryByRole("search", {name: "Event Finder"})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
-    expect(screen.getByRole("combobox", {name: "Service Category"})).toHaveValue("venue_provider");
+    expect(screen.getByRole("combobox", {name: "Type of Service"})).toHaveValue("venue_provider");
   });
 
   it("submits canonical category and date state, preserves existing filters, and resets pagination", () => {
@@ -178,7 +217,7 @@ describe("customer marketplace header", () => {
     render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
     fireEvent.change(screen.getByLabelText("Event Date"), {target: {value: "2099-09-10"}});
-    fireEvent.change(screen.getByRole("combobox", {name: "Service Category"}), {target: {value: "photographer"}});
+    fireEvent.change(screen.getByRole("combobox", {name: "Type of Service"}), {target: {value: "photographer"}});
     fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
     const url = new URL(mocks.push.mock.calls[0][0], "https://feasta.test");
     expect(url.pathname).toBe("/customer/providers");
@@ -231,9 +270,9 @@ describe("customer marketplace header", () => {
     fireEvent.click(more);
     expect(screen.getByRole("option", {name: "All provider types"})).toHaveValue("all");
     expect(screen.getByRole("option", {name: "Catering provider"})).toHaveValue("catering");
-    fireEvent.change(screen.getByRole("searchbox", {name: "Search approved providers"}), {target: {value: "garden venue"}});
+    fireEvent.change(screen.getByRole("searchbox", {name: "Search providers or services"}), {target: {value: "garden venue"}});
     fireEvent.change(screen.getByRole("combobox", {name: "Provider Type"}), {target: {value: "addon"}});
-    fireEvent.change(screen.getByRole("combobox", {name: "Service Category"}), {target: {value: "venue_provider"}});
+    fireEvent.change(screen.getByRole("combobox", {name: "Type of Service"}), {target: {value: "venue_provider"}});
     fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
     expect(mocks.push).toHaveBeenCalledWith("/customer/providers?q=garden+venue&service=addon&category=venue_provider");
   });
@@ -248,6 +287,29 @@ describe("customer marketplace header", () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({eventDate: "2099-09-10", eventTime: "18:00", eventEndTime: "22:00", guestCount: "100"});
   });
 
+  it.each(["clear", "submit"] as const)("cancels pending live search after %s while the finder remains mounted", (action) => {
+    vi.useFakeTimers();
+    try {
+      render(<EventFinder query="q=garden&service=addon&category=venue_provider&cursor=old&eventDate=2099-09-10&eventTime=18%3A00&eventEndTime=22%3A00&guestCount=100" onFind={() => {}} serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
+      fireEvent.change(screen.getByRole("searchbox", {name: "Search providers or services"}), {target: {value: "new keyword"}});
+      fireEvent.click(screen.getByRole("button", {name: action === "clear" ? "Clear filters" : "Find Services"}));
+      act(() => vi.advanceTimersByTime(1000));
+      expect(mocks.push).toHaveBeenCalledTimes(1);
+      expect(mocks.replace).not.toHaveBeenCalled();
+      const url = new URL(mocks.push.mock.calls[0][0], "https://feasta.test");
+      expect(url.searchParams.has("cursor")).toBe(false);
+      expect(url.searchParams.get("eventTime")).toBe("18:00");
+      expect(url.searchParams.get("eventEndTime")).toBe("22:00");
+      expect(url.searchParams.get("guestCount")).toBe("100");
+      if (action === "clear") {
+        for (const field of ["q", "service", "category"]) expect(url.searchParams.has(field)).toBe(false);
+      } else {
+        expect(url.searchParams.get("q")).toBe("new keyword");
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("resets disclosure and defaults after route or URL navigation", () => {
     const view = render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
@@ -255,7 +317,7 @@ describe("customer marketplace header", () => {
     view.rerender(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     expect(screen.queryByRole("search", {name: "Event Finder"})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
-    expect(screen.getByRole("combobox", {name: "Service Category"})).toHaveValue("venue_provider");
+    expect(screen.getByRole("combobox", {name: "Type of Service"})).toHaveValue("venue_provider");
     expect(screen.getByLabelText("Event Date")).toHaveValue("2099-09-12");
     pathname = "/customer/packages";
     query = new URLSearchParams();
@@ -291,10 +353,10 @@ describe("customer marketplace header", () => {
     const menuItems = screen.getAllByRole("menuitem");
     const bookingsIndex = menuItems.indexOf(screen.getByRole("menuitem", {name: "My Bookings"}));
     expect(menuItems.indexOf(screen.getByRole("menuitem", {name: "Favorites"})))
-      .toBe(bookingsIndex + 1);
-    expect(menuItems.indexOf(screen.getByRole("menuitem", {name: "Messages"})))
       .toBe(bookingsIndex + 2);
-    expect(screen.getByRole("button", {name: "Sign Out"})).toBeInTheDocument();
+    expect(menuItems.indexOf(screen.getByRole("menuitem", {name: "Messages"})))
+      .toBe(bookingsIndex + 1);
+    expect(screen.getByRole("menuitem", {name: "Sign Out"})).toBeInTheDocument();
     expect(screen.getByRole("link", {name: "Notifications"}))
       .toHaveAttribute("href", "/customer/notifications");
     expect(screen.getByLabelText("Open customer account menu")).not.toHaveTextContent(

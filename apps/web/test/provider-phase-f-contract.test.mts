@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
+import {runInNewContext} from "node:vm";
 
 import {
   providerAccountDestination,
@@ -164,15 +166,54 @@ test("verification document actions use direct file selection and consistent nav
       "app/provider/verification/provider-verification-actions.tsx",
     );
 
-  assert.match(
-    verificationActions,
-    /input\.click\(\)/u,
-  );
-
-  assert.match(
-    verificationActions,
-    />\s*Upload file\s*</u,
-  );
+  const source = ts.createSourceFile("verification.tsx", verificationActions,
+    ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const pickers: ts.JsxSelfClosingElement[] = [];
+  const buttons: ts.JsxElement[] = [];
+  function visit(node: ts.Node) {
+    if (ts.isJsxSelfClosingElement(node) && node.tagName.getText(source) === "input") pickers.push(node);
+    if (ts.isJsxElement(node) && node.openingElement.tagName.getText(source) === "Button") buttons.push(node);
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  function attribute(attributes: ts.JsxAttributes, name: string) {
+    return attributes.properties.find((item): item is ts.JsxAttribute =>
+      ts.isJsxAttribute(item) && item.name.getText(source) === name);
+  }
+  const picker = pickers.find((node) => attribute(node.attributes, "type")?.initializer?.getText(source) === '"file"');
+  assert.ok(picker, "Each document must expose a file picker");
+  assert.ok(attribute(picker.attributes, "aria-label"), "File selection must have a document-specific accessible label");
+  const change = attribute(picker.attributes, "onChange")?.initializer;
+  assert.ok(change && ts.isJsxExpression(change) && change.expression);
+  const trigger = buttons.find((node) => attribute(node.openingElement.attributes, "onClick")?.initializer?.getText(source).includes("pickerId"));
+  assert.ok(trigger, "The document action must open its own picker");
+  const click = attribute(trigger.openingElement.attributes, "onClick")?.initializer;
+  assert.ok(click && ts.isJsxExpression(click) && click.expression);
+  function handler(expression: ts.Expression, context: Record<string, unknown>) {
+    const code = ts.transpileModule('const handler = ' + expression.getText(source) + '; handler;', {
+      compilerOptions: {target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS},
+    }).outputText;
+    return runInNewContext(code, context);
+  }
+  const selections: unknown[][] = [];
+  for (const code of ["business_permit", "valid_id"]) {
+    const pickerId = "verification-file-verification-one-" + code;
+    let clicks = 0;
+    handler(click.expression, {pickerId, document: {getElementById: (id: string) => {
+      assert.equal(id, pickerId);
+      return {click: () => clicks++};
+    }}})();
+    assert.equal(clicks, 1);
+    const file = {name: code + ".pdf"};
+    const select = handler(change.expression, {definition: {code},
+      onUpload: (...args: unknown[]) => selections.push(args)});
+    const currentTarget = {files: [file], value: file.name};
+    select({currentTarget});
+    assert.deepEqual(selections.at(-1), [code, file]);
+    assert.equal(currentTarget.value, "", "Allow selecting the same file again for replacement");
+    select({currentTarget: {files: [], value: ""}});
+  }
+  assert.equal(selections.length, 2, "Cancelling the picker must not start an upload");
 
   assert.match(
     verificationActions,

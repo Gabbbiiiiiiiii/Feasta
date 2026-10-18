@@ -143,13 +143,13 @@ describe("provider booking payments workspace", () => {
     expect(screen.getByRole("heading", {level: 1, name: "Payments & Payouts"}))
       .toBeVisible();
     expect(screen.getByText("Provider finance")).toBeVisible();
-    expect(screen.getByLabelText("Confirmed Customer Payments"))
+    expect(screen.getByLabelText("Customer payments received"))
       .toHaveTextContent(/₱5,000\.00/u);
-    expect(screen.getByLabelText("Processing Payments"))
+    expect(screen.getByLabelText("Payments processing"))
       .toHaveTextContent(/₱1,250\.00/u);
     expect(screen.getByLabelText("Failed / Expired"))
       .toHaveTextContent(/₱1,750\.00/u);
-    expect(screen.getByLabelText("Fully Refunded"))
+    expect(screen.getByLabelText("Fully refunded payments"))
       .toHaveTextContent(/₱500\.00/u);
     expect(screen.getByLabelText("Payment record information"))
       .toHaveTextContent("7 payment records");

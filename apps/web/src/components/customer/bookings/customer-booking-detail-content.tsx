@@ -25,10 +25,12 @@ import {
   formatCurrency,
 } from "@/components/customer/bookings/booking-formatters";
 import {CustomerBookingPaymentAction} from "./customer-booking-payment-action";
+import {CustomerCancellationAction} from "./customer-cancellation-action";
 import {CustomerBookingCancellationDialog} from "@/components/customer/bookings/customer-booking-cancellation-dialog";
 import {CustomerBookingCancellationStatus} from "@/components/customer/bookings/customer-booking-cancellation-status";
 import {CustomerBookingProviderRequestCard} from "@/components/customer/bookings/customer-booking-provider-request-card";
 import {CustomerBookingReviewDialog} from "@/components/customer/bookings/customer-booking-review-dialog";
+import {CustomerBookingComplaintAction} from "./customer-booking-complaint-action";
 import {feastaToast} from "@/components/feedback/toast";
 import {Button} from "@/components/ui/button";
 import {
@@ -194,6 +196,8 @@ function CustomerBookingDetailContent({
                 key={request.id}
                 request={request}
                 durableConfirmation
+                complaintAction={SAFE_DOCUMENT_ID.test(request.providerRequestId) && request.id === request.providerRequestId && request.mainEventId === booking.id ?
+                  <CustomerBookingComplaintAction key={request.providerRequestId} providerRequestId={request.providerRequestId} providerName={boundedText(request.providerName, "provider", 80)} /> : undefined}
                 paymentAction={<CustomerBookingPaymentAction
                   request={request}
                   bookingId={booking.id}
@@ -327,20 +331,8 @@ function cancellationActionForRequest({
 
   const providerName = boundedText(request.providerName, "provider", 80);
   return (
-    <div className="grid gap-2 border-t border-border pt-4">
-      <Button
-        id={triggerId}
-        variant="secondary"
-        fullWidth
-        aria-label={`Cancellation options for ${providerName}'s service`}
-        onClick={() => onCancel(request.providerRequestId, triggerId)}
-      >
-        Cancellation options
-      </Button>
-      <p className="text-xs leading-5 text-muted-foreground">
-        Cancellation options depend on this service and event date.
-      </p>
-    </div>
+    <CustomerCancellationAction providerRequestId={request.providerRequestId} providerName={providerName}
+      triggerId={triggerId} onOpen={() => onCancel(request.providerRequestId, triggerId)} />
   );
 }
 

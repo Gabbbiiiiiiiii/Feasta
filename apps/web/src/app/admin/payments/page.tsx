@@ -6,7 +6,10 @@ import {
   getAdminPaymentPage,
 } from "@/lib/admin/payments/admin-payment-service";
 
+import {requireRole} from "@/lib/auth/session";
+
 export default async function AdminPaymentsPage() {
+  await requireRole(["admin"]);
   const [
     initialPage,
     initialAttention,

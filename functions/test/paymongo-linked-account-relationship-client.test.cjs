@@ -22,6 +22,53 @@ const {
 const originalFetch =
   global.fetch;
 
+const directInput = {
+  secretKey: "sk_test_feasta_relationship",
+  childAccountId: "org_child123456789",
+  invitationId: null,
+};
+
+test("direct account discovery verifies a null-invitation relationship by ID", async () => {
+  const calls = [];
+  global.fetch = async (url) => {
+    calls.push(String(url));
+    const data = relationship({linking_request_id: null, enabled: false});
+    return jsonResponse(calls.length === 1 ? {data: [data], has_more: false} : {data});
+  };
+  const result = await findPayMongoLinkedAccountRelationship(directInput);
+  assert.equal(result.linkingRequestId, null);
+  assert.equal(result.enabled, false);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1], /relationships\/mr_123456789$/);
+});
+
+test("missing invitation never adopts an invitation-created relationship", async () => {
+  global.fetch = async () => jsonResponse({data: [relationship()], has_more: false});
+  assert.equal(await findPayMongoLinkedAccountRelationship(directInput), null);
+});
+
+test("direct account discovery rejects multiple matching relationships", async () => {
+  global.fetch = async () => jsonResponse({data: [
+    relationship({linking_request_id: null}),
+    relationship({id: "mr_other123", linking_request_id: null}),
+  ], has_more: false});
+  await assert.rejects(() => findPayMongoLinkedAccountRelationship(directInput), /ambiguous/);
+});
+
+test("direct account discovery rejects changed parent, child, or invitation on retrieval", async () => {
+  for (const change of [
+    {parent_account: {id: "org_otherparent"}},
+    {child_account: {id: "org_otherchild"}},
+    {linking_request_id: "lr_other123"},
+  ]) {
+    let calls = 0;
+    global.fetch = async () => jsonResponse(++calls === 1
+      ? {data: [relationship({linking_request_id: null})], has_more: false}
+      : {data: relationship({linking_request_id: null, ...change})});
+    await assert.rejects(() => findPayMongoLinkedAccountRelationship(directInput), /changed/);
+  }
+});
+
 afterEach(() => {
   global.fetch =
     originalFetch;

@@ -59,7 +59,7 @@ it("renders refund-aware Payment Receipt amounts", () => {
   ).toBeVisible();
 
   expect(
-    screen.getByText("₱5,000.00"),
+    screen.getAllByText("₱5,000.00")[0],
   ).toBeVisible();
 
   expect(
@@ -67,7 +67,7 @@ it("renders refund-aware Payment Receipt amounts", () => {
   ).toBeVisible();
 
   expect(
-    screen.getByText("₱3,500.00"),
+    screen.getAllByText("₱3,500.00")[0],
   ).toBeVisible();
 });
 

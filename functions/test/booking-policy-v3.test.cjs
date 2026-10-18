@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {Timestamp} = require('firebase-admin/firestore');
 const {bookingPolicyTimingV3, frozenBookingPolicyTimingV3, balanceStatusV3,
-  effectiveBookingStageV3, paymentDefaultAllocation, bookingPolicyV3Evidence} = require('../lib/bookings/booking-policy-v3.js');
+  effectiveBookingStageV3, paymentDefaultAllocation, bookingPolicyV3Evidence, bookingSubmissionDeadlinePassedV3} = require('../lib/bookings/booking-policy-v3.js');
 const {evaluateSubmissionPaymentEligibility, enforceInitialPaymentEligibility} = require('../lib/payments/initial-payment-eligibility.js');
 const {buildBookingPaymentPolicySnapshot} = require('../lib/bookings/booking-payment-eligibility-policy.js');
 const {rejectClientBookingFinancialAuthority} = require('../lib/bookings/booking-package-offer.js');
@@ -45,6 +45,35 @@ for (const [offset, eligible] of [[-1000, true], [0, true], [1000, false]]) {
       ...evidence.initialPaymentEligibility, submittedAt: Timestamp.fromMillis(submitted.getTime() + 1)}}, 'full'));
   });
 }
+test('new booking submission closes exactly at T-24', () => {
+  const deadline = timing.hardPaymentDeadlineAt.getTime();
+
+  assert.equal(
+    bookingSubmissionDeadlinePassedV3(event, new Date(deadline - 1)),
+    false,
+  );
+
+  assert.equal(
+    bookingSubmissionDeadlinePassedV3(event, new Date(deadline)),
+    true,
+  );
+
+  assert.equal(
+    bookingSubmissionDeadlinePassedV3(event, new Date(deadline + 1)),
+    true,
+  );
+
+  assert.equal(
+    bookingSubmissionDeadlinePassedV3(event, timing.depositEligibilityCutoffAt),
+    false,
+  );
+
+  assert.equal(
+    bookingSubmissionDeadlinePassedV3(event, timing.remainingBalanceDueAt),
+    false,
+  );
+});
+
 test('browser cannot author new submission/agreement financial authorities', () => {
   for (const field of ['submittedAt', 'submissionTime', 'evaluatedAt', 'authorityTimeSource',
     'bookingPaymentAgreement', 'agreementSchemaVersion', 'customerDefaultRefundRateBps',
@@ -113,7 +142,7 @@ test('manual preparation is rejected for v3 and retains legacy authority', () =>
 test('provider completion time rejects early completion and permits exact end including overnight service', () => {
   const {assertV3CompletionTime} = require('../lib/provider-requests/update-provider-booking-lifecycle.js');
   for (const [eventEndTime, end] of [['20:00', '2026-10-16T20:00:00+08:00'], ['02:00', '2026-10-17T02:00:00+08:00']]) {
-    const saved = {...request(), eventDate: Timestamp.fromDate(event), eventEndTime};
+    const saved = {...request(), eventDate: Timestamp.fromDate(event), eventTime: "18:00", eventEndTime};
     assert.throws(() => assertV3CompletionTime(saved, new Date(new Date(end).getTime() - 1)), /completion time/);
     assert.doesNotThrow(() => assertV3CompletionTime(saved, new Date(end)));
   }

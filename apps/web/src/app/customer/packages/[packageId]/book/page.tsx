@@ -9,7 +9,6 @@ import {
 import {
   EventCustomizationExperience,
 } from "@/components/customer/bookings/event-customization-experience";
-import {PackageEventListAction} from "@/components/customer/event-list/package-event-list-action";
 import {
   requireCustomer,
   requireVerifiedEmail,
@@ -119,10 +118,6 @@ export default async function CustomerPackageBookingPage({
 
   return (
     <div className="grid gap-4">
-      <PackageEventListAction
-        packageRecord={detail.packageRecord}
-        layout="banner"
-      />
       <EventCustomizationExperience
         key={`${account.uid}:${packageId}:${eventContextQuery}`}
         draftOwner={`customer:${account.uid}`}

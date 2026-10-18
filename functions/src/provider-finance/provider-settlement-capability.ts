@@ -1,3 +1,5 @@
+import {freshTransportVerification} from "./provider-transport-verification-domain.js";
+
 export const PROVIDER_SETTLEMENT_TRANSPORT_MODES = [
   "disabled",
   "wallet_transfer",
@@ -153,7 +155,7 @@ export function providerSettlementCapability(
    */
   if (
     account.settlementTransportReady !==
-      true
+      true || (transportMode === "wallet_transfer" && !freshTransportVerification(account))
   ) {
     return {
       schemaVersion: 1,

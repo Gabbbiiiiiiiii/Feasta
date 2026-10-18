@@ -294,6 +294,12 @@ export async function getAdminAgreementTypes():
 export async function getProviderOnboardingAgreement():
   Promise<AdminAgreementTemplate | null> {
   await ensureDocumentCatalog();
+  return getPublishedProviderAgreement();
+}
+
+// Read-only entry point for profile viewers; never initializes catalog records.
+export async function getPublishedProviderAgreement():
+  Promise<AdminAgreementTemplate | null> {
   const [agreements, agreementTypes] = await Promise.all([
     getAdminAgreementTemplates(),
     getAdminAgreementTypes(),

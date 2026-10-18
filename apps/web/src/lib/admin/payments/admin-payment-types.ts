@@ -19,7 +19,8 @@ export type AdminPaymentStatusFilter =
 
 export type AdminPaymentTypeFilter =
   | "all"
-  | AdminPaymentType;
+  | AdminPaymentType
+  | "full";
 
 export type AdminPaymentDateFilter =
   | "all"
@@ -86,6 +87,8 @@ export type AdminPayment = {
   currency: string;
 
   paymentType: AdminPaymentType;
+  /** Distinguishes upfront full payment from minimum deposit. Null for legacy records. */
+  paymentChoice?: "minimum" | "full" | "remaining_balance" | null;
   gateway: AdminPaymentGateway;
   status: AdminPaymentStatus;
 

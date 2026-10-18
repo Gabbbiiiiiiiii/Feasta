@@ -50,6 +50,8 @@ export const REFUND_CANCELLATION_ERROR_REASONS = {
   eligibilityInvalid: "REFUND_ELIGIBILITY_INVALID",
   transitionInvalid: "REFUND_ELIGIBILITY_TRANSITION_INVALID",
   eligibilityLocked: "REFUND_ELIGIBILITY_LOCKED",
+  eventEnded: "EVENT_ENDED",
+  scheduleReconciliationRequired: "SCHEDULE_RECONCILIATION_REQUIRED",
   cancellationNotAllowed: "CANCELLATION_NOT_ALLOWED",
   cancellationAlreadyActive: "CANCELLATION_ALREADY_ACTIVE",
   policyEvidenceInvalid: "CANCELLATION_POLICY_EVIDENCE_INVALID",

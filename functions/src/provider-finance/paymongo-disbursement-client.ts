@@ -1,6 +1,9 @@
+import {randomUUID} from "node:crypto";
 import {
   assertTransferEvidence, externalAttemptIdentity, type TransferEvidence,
 } from "./provider-disbursement-domain.js";
+import {DisbursementSubmissionError} from "./provider-disbursement-errors.js";
+import {parsePayMongoWalletResource} from "./paymongo-wallet-client.js";
 
 type Data = Record<string, unknown>;
 export const TEST_DESTINATION_NUMBERS = new Set([
@@ -36,7 +39,10 @@ export function validateTestAttempt(attempt: Data, dispatch = false) {
       Number(attempt.amountInCentavos) <= 0 || attempt.transportMode !== "wallet_transfer" ||
       snapshot.testMode !== true || snapshot.livemode !== false ||
       (dispatch && (typeof snapshot.allowedDisbursementId !== "string" ||
-        snapshot.allowedDisbursementId !== attempt.providerDisbursementId)) ||
+        snapshot.allowedDisbursementId !== attempt.providerDisbursementId ||
+        !Number.isSafeInteger(snapshot.verificationExpiresAtMs) ||
+        Number(snapshot.verificationExpiresAtMs) <= Date.now() ||
+        typeof snapshot.sourceMerchantId !== "string" || !/^org_[A-Za-z0-9_-]{3,200}$/u.test(snapshot.sourceMerchantId))) ||
       typeof snapshot.walletId !== "string" || !TEST_WALLET_ID.test(snapshot.walletId) ||
       Object.entries(identity).some(([key, value]) => attempt[key] !== value) ||
       (dispatch ? attempt.status !== "reserved" || attempt.gatewayResourceId != null :
@@ -115,19 +121,20 @@ function assertTestWalletFunding(value: unknown, amountInCentavos: number) {
   const a = resource.attributes === undefined ? resource : record(resource.attributes);
   const balance = a.balance;
   if (!balance || typeof balance !== "object" || Array.isArray(balance)) {
-    throw new Error("paymongo_test_wallet_balance_invalid");
+    throw new DisbursementSubmissionError("not_submitted", "wallet_balance_invalid");
   }
   const available = (balance as Data).available;
   if (!Number.isSafeInteger(available) || Number(available) < 0) {
-    throw new Error("paymongo_test_wallet_balance_invalid");
+    throw new DisbursementSubmissionError("not_submitted", "wallet_balance_invalid");
   }
   if (Number(available) < amountInCentavos) {
-    throw new Error("paymongo_test_wallet_balance_insufficient");
+    throw new DisbursementSubmissionError("not_submitted", "wallet_balance_insufficient");
   }
 }
 
 export type TestClientOptions = {
   secretKey: () => string;
+  authorizeSubmission?: (attempt: Data, dispatchToken: string) => Promise<void>;
   http?: typeof fetch;
   sleep?: (milliseconds: number) => Promise<void>;
 };
@@ -136,16 +143,19 @@ export function createPayMongoDisbursementClient(options: TestClientOptions) {
   const http = options.http ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
   const sleep = options.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
   async function request(
-    path: string, method = "GET", body?: string, key?: string,
+    path: string, method = "GET", body?: string, key?: string, beforeWrite?: () => Promise<void>,
   ): Promise<unknown> {
     const secret = options.secretKey();
     if (typeof secret !== "string" || !/^sk_test_[A-Za-z0-9_-]+$/u.test(secret)) {
-      throw new Error("PayMongo test secret required.");
+      throw new DisbursementSubmissionError("not_submitted", "secret_invalid");
     }
     for (let exchange = 0; exchange < 3; exchange++) {
       let response: Response | undefined;
       let payload: unknown;
+      // Fail closed outside the catch that retries HTTP failures.
+      if (method === "POST") await beforeWrite?.();
       try {
+        // Mark uncertainty BEFORE handing a POST to the HTTP implementation.
         response = await http("https://api.paymongo.com" + path, {
           method, body, redirect: "error", signal: AbortSignal.timeout(10_000),
           headers: {Accept: "application/json", "Content-Type": "application/json",
@@ -174,9 +184,24 @@ export function createPayMongoDisbursementClient(options: TestClientOptions) {
     throw new Error("PayMongo test request outcome unknown.");
   }
   return {
+    /** Read-only verification also validates source name/number required for a later transfer. */
+    async verifyWallet(walletId: string) {
+      if (!TEST_WALLET_ID.test(walletId)) throw invalid();
+      const value = await request("/v2/wallets/" + walletId + "?fields=account&fields=balance");
+      testWalletSource(value, walletId);
+      return parsePayMongoWalletResource(value);
+    },
     async dispatch(attempt: Data): Promise<TransferEvidence> {
+      let submissionPossible = false;
+      const dispatchToken = randomUUID();
+      let phase: "authority_invalid" | "wallet_verification_failed" = "authority_invalid";
+      try {
       const {walletId, destination} = validateTestAttempt(attempt, true);
+      phase = "wallet_verification_failed";
       const wallet = await request("/v2/wallets/" + walletId + "?fields=account&fields=balance");
+      const resource = record(record(wallet).data);
+      const walletAttributes = resource.attributes === undefined ? resource : record(resource.attributes);
+      if (walletAttributes.merchant_id !== record(attempt.destinationSnapshot).sourceMerchantId) throw invalid();
       const source = testWalletSource(wallet, walletId);
       assertTestWalletFunding(wallet, Number(attempt.amountInCentavos));
       const {provider, ...destinationAccount} = destination;
@@ -187,8 +212,16 @@ export function createPayMongoDisbursementClient(options: TestClientOptions) {
         metadata: {feasta_external_attempt_id: attempt.externalAttemptId,
           feasta_disbursement_id: attempt.providerDisbursementId, feasta_test_mode: true},
       }]});
+      // GET retries can outlast the proof; recheck immediately before any POST.
+      validateTestAttempt(attempt, true);
       const batch = record(record(await request("/v2/batch_transfers", "POST", body,
-        String(attempt.idempotencyKey))).data);
+        String(attempt.idempotencyKey), async () => {
+          validateTestAttempt(attempt, true);
+          const authorize = options.authorizeSubmission ??
+            (await import("./provider-disbursement-execution.js")).authorizeProviderDisbursementSubmission;
+          await authorize(attempt, dispatchToken);
+          submissionPossible = true;
+        })).data);
       const attributes = batch.attributes === undefined ? batch : record(batch.attributes);
       if (typeof batch.id !== "string" ||
           !/^(?:btr_|batch_tr_)[A-Za-z0-9_-]{1,200}$/u.test(batch.id) ||
@@ -200,6 +233,11 @@ export function createPayMongoDisbursementClient(options: TestClientOptions) {
       evidence.batch_transfer_id = batch.id;
       assertTransferEvidence(attempt, evidence);
       return evidence;
+      } catch (error) {
+        if (submissionPossible) throw new DisbursementSubmissionError("unknown", "submission_unconfirmed");
+        if (error instanceof DisbursementSubmissionError) throw error;
+        throw new DisbursementSubmissionError("not_submitted", phase);
+      }
     },
     async retrieve(attempt: Data): Promise<TransferEvidence | null> {
       validateTestAttempt(attempt);
@@ -209,24 +247,45 @@ export function createPayMongoDisbursementClient(options: TestClientOptions) {
         assertTransferEvidence(attempt, evidence);
         return evidence;
       }
-      const result = record(await request("/v2/transfers?reference_number=" +
-        encodeURIComponent(String(attempt.referenceNumber)) + "&limit=100"));
-      const rows = Array.isArray(result.data) ? result.data : record(result.data).transfers;
-      const page = Array.isArray(result.data) ? result : record(result.data);
-      // Never accept a truncated page as proof of a unique reference.
-      if (!Array.isArray(rows) || rows.length >= 100 || result.has_more === true ||
-          page.has_more === true ||
-          (result.meta && record(result.meta).has_more === true)) throw invalid();
-      const matches = rows.filter(value => {
-        const row = record(value);
-        return (row.attributes === undefined ? row : record(row.attributes)).reference_number ===
-          attempt.referenceNumber;
-      });
-      if (!matches.length) return null;
-      if (matches.length !== 1) throw new Error("PayMongo test reference lookup is conflicting.");
-      const evidence = normalizePayMongoTransfer(matches[0]);
-      assertTransferEvidence(attempt, evidence);
-      return evidence;
+      // Official Get List Transfer documents limit/before_id, NOT reference_number.
+      // Traverse older pages and establish uniqueness only after exhaustion.
+      const seen = new Set<string>();
+      let cursor: string | undefined;
+      let match: TransferEvidence | undefined;
+      const limit = 100;
+      for (let pageIndex = 0; pageIndex < 5; pageIndex++) {
+        const query = new URLSearchParams({limit: String(limit)});
+        if (cursor) query.set("before_id", cursor);
+        const result = record(await request("/v2/transfers?" + query.toString()));
+        const page = Array.isArray(result.data) ? result : record(result.data);
+        const rows = Array.isArray(result.data) ? result.data : page.transfers;
+        if (!Array.isArray(rows) || rows.length > limit) throw invalid();
+        const flags = [result.has_more, page.has_more,
+          result.meta === undefined ? undefined : record(result.meta).has_more];
+        if (flags.some(flag => flag !== undefined && typeof flag !== "boolean") ||
+            (flags.includes(true) && flags.includes(false))) throw invalid();
+        for (const value of rows) {
+          const row = record(value);
+          const a = row.attributes === undefined ? row : record(row.attributes);
+          if (typeof row.id !== "string" || !TRANSFER_ID.test(row.id) || seen.has(row.id) ||
+              typeof a.reference_number !== "string") throw invalid();
+          seen.add(row.id);
+          if (a.reference_number === attempt.referenceNumber) {
+            if (match) throw new Error("PayMongo test reference lookup is conflicting.");
+            match = normalizePayMongoTransfer(row);
+            assertTransferEvidence(attempt, match);
+          }
+        }
+        const more = flags.includes(true) || (!flags.includes(false) && rows.length === limit);
+        if (!more) return match ?? null;
+        if (!rows.length) throw invalid();
+        cursor = String(record(rows[rows.length - 1]).id);
+      }
+      throw new Error("PayMongo test reference lookup exceeded its safe page bound.");
     },
   };
+}
+
+export function retrievePayMongoTestSettlementWallet(input: {secretKey: string; walletId: string}) {
+  return createPayMongoDisbursementClient({secretKey: () => input.secretKey}).verifyWallet(input.walletId);
 }

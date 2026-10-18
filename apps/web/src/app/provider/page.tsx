@@ -1,5 +1,7 @@
 import {CalendarCheck2, ClipboardCheck, CircleDollarSign, CheckCircle2} from "lucide-react";
 import Link from "next/link";
+import {Suspense} from "react";
+import ProviderDashboardLoading from "./provider-dashboard-loading";
 import {LimitedProviderDashboard} from "@/components/provider/limited-provider-dashboard";
 import {SummaryCard} from "@/components/data";
 import {PageHeading} from "@/components/layout/page-heading";
@@ -9,7 +11,11 @@ import {getProviderDashboardData} from "@/lib/provider/dashboard/provider-dashbo
 import {getLimitedProviderDashboardData} from "@/lib/provider/dashboard/limited-provider-dashboard-service";
 import type {ProviderDashboardItem} from "@/lib/provider/dashboard/provider-dashboard-types";
 
-export default async function ProviderPage() {
+export default function ProviderPage() {
+  return <Suspense fallback={<ProviderDashboardLoading />}><ProviderDashboardContent /></Suspense>;
+}
+
+async function ProviderDashboardContent() {
   const account = requireProviderIdentityAccess(await requireProvider());
   if (!account.emailVerified) return <LimitedProviderDashboard dashboard={await getLimitedProviderDashboardData()} />;
   const dashboard = await getProviderDashboardData();

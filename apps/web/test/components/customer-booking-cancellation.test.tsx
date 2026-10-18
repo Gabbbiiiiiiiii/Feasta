@@ -146,7 +146,7 @@ describe("Customer Provider-service cancellation", () => {
   it.each([
     [50_000, 0, "full refund"],
     [25_000, 25_000, "partial refund"],
-    [0, 50_000, "down payment is non-refundable"],
+    [0, 50_000, "no additional refund is currently available"],
   ] as const)("shows the trusted financial breakdown for %s centavos", async (refundable, retained, message) => {
     mocks.loadOptions.mockResolvedValue(policyBackedOptions({
       providerRequestStatus: "in_progress",
@@ -157,7 +157,7 @@ describe("Customer Provider-service cancellation", () => {
       },
     }));
     renderDialog(providerRequest({status: "confirmed", downPaymentAmount: 999_999}));
-    expect(await screen.findByText("Down payment paid")).toBeVisible();
+    expect(await screen.findByText("Total originally paid")).toBeVisible();
     expect(screen.getByText("Refundable amount")).toBeVisible();
     expect(screen.getByText("Non-refundable amount")).toBeVisible();
     expect(screen.getByText(new RegExp(message, "u"))).toBeVisible();

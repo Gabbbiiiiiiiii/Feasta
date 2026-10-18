@@ -138,9 +138,8 @@ export function ProviderFinancePanel({
             </div>
 
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Complete your PayMongo linked-account setup before accepting new paid
-              bookings. Account readiness and settlement transport readiness are
-              tracked separately.
+              Finish setting up your PayMongo payout account before accepting new paid
+              bookings. Connecting an account does not mean payouts are available yet.
             </p>
           </div>
 
@@ -152,16 +151,20 @@ export function ProviderFinancePanel({
           />
         </div>
 
-        <dl className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <details className="mt-5 rounded-lg border border-border bg-muted/20 p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-primary-strong">
+            View payout setup details
+          </summary>
+          <dl className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <FinanceDetail
-            label="Setup status"
+            label="Account setup"
             value={formatLabel(
               payout.setupStatus,
             )}
           />
 
           <FinanceDetail
-            label="Linked account"
+            label="Account type"
             value={
               payout.linkedAccountType
                 ? formatLinkedAccount(
@@ -172,7 +175,7 @@ export function ProviderFinancePanel({
           />
 
           <FinanceDetail
-            label="Invitation"
+            label="PayMongo invitation"
             value={
               payout.invitationStatus
                 ? formatLabel(
@@ -183,7 +186,7 @@ export function ProviderFinancePanel({
           />
 
           <FinanceDetail
-            label="Activation"
+            label="Activation status"
             value={
               payout.activationStatus
                 ? formatLabel(
@@ -194,7 +197,7 @@ export function ProviderFinancePanel({
           />
 
           <FinanceDetail
-            label="Relationship"
+            label="Account verification"
             value={
               payout.relationshipStatus
                 ? formatLabel(
@@ -205,13 +208,24 @@ export function ProviderFinancePanel({
           />
 
           <FinanceDetail
-            label="Settlement transport"
+            label="Payout transfer setup"
             value={formatSettlementTransport(
               payout.settlementTransportMode,
               payout.settlementTransportReady,
             )}
           />
-        </dl>
+          </dl>
+        </details>
+
+        {!payout.settlementTransportReady ? (
+          <p
+            className="mt-4 rounded-md border border-warning/20 bg-warning/5 p-3 text-sm text-muted-foreground"
+            role="status"
+          >
+            Payout transfers are currently unavailable. Available earnings have
+            not yet been transferred to your account.
+          </p>
+        ) : null}
 
         {error ? (
           <p
@@ -303,7 +317,7 @@ export function ProviderFinancePanel({
             id="provider-earnings-heading"
             className="text-xl font-bold"
           >
-            Provider earnings
+            Your earnings
           </h2>
 
           <p className="mt-1 text-sm text-muted-foreground">
@@ -331,14 +345,14 @@ export function ProviderFinancePanel({
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SummaryCard
-            label="Pending"
+            label="Pending earnings"
             value={formatCentavos(
               finance.earningSummary
                 .pendingAmountInCentavos,
             )}
             trend={{
               label:
-                "Awaiting payout availability",
+                "Not yet available for payout",
               direction: "neutral",
             }}
             icon={
@@ -347,14 +361,14 @@ export function ProviderFinancePanel({
           />
 
           <SummaryCard
-            label="Available"
+            label="Available earnings"
             value={formatCentavos(
               finance.earningSummary
                 .availableAmountInCentavos,
             )}
             trend={{
               label:
-                "Available for settlement",
+                "Eligible for payout; not transferred",
               direction: "neutral",
             }}
             icon={
@@ -370,7 +384,7 @@ export function ProviderFinancePanel({
             )}
             trend={{
               label:
-                "Already paid out",
+                "Confirmed as paid to you",
               direction: "neutral",
             }}
             icon={
@@ -379,7 +393,7 @@ export function ProviderFinancePanel({
           />
 
           <SummaryCard
-            label="Reversed"
+            label="Reversed by refunds"
             value={formatCentavos(
               finance.earningSummary
                 .reversedAmountInCentavos,
@@ -405,7 +419,7 @@ export function ProviderFinancePanel({
             id="earning-history-heading"
             className="text-xl font-bold"
           >
-            Earnings history
+            Earnings activity
           </h2>
 
           <p className="mt-1 text-sm text-muted-foreground">
@@ -516,7 +530,7 @@ export function ProviderFinancePanel({
 
       {(finance.disbursements?.length ?? 0) > 0 ? (
         <section className="grid gap-3" aria-labelledby="provider-payouts-heading">
-          <h2 id="provider-payouts-heading" className="text-xl font-bold">Provider payouts</h2>
+          <h2 id="provider-payouts-heading" className="text-xl font-bold">Payout updates</h2>
           {finance.disbursements?.map(payout => (
             <article key={payout.id} className="rounded-card border border-border bg-card p-4">
               <p className="font-semibold">{({scheduled: "Scheduled", held: "On hold",
@@ -547,7 +561,7 @@ export function ProviderFinancePanel({
             id="provider-settlements-heading"
             className="text-xl font-bold"
           >
-            Provider settlements
+            Payout tracking
           </h2>
 
           <p className="mt-1 text-sm text-muted-foreground">
@@ -559,14 +573,14 @@ export function ProviderFinancePanel({
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SummaryCard
-            label="Awaiting availability"
+            label="Not yet available"
             value={formatCentavos(
               finance.settlementSummary
                 .awaitingAvailabilityAmountInCentavos,
             )}
             trend={{
               label:
-                "Customer paid; settlement not released yet",
+                "Customer paid; payout not yet available",
               direction: "neutral",
             }}
             icon={
@@ -575,14 +589,14 @@ export function ProviderFinancePanel({
           />
 
           <SummaryCard
-            label="Ready for settlement"
+            label="Eligible for payout"
             value={formatCentavos(
               finance.settlementSummary
                 .readyAmountInCentavos,
             )}
             trend={{
               label:
-                "Earning cleared for settlement",
+                "Earnings eligible; transfer not confirmed",
               direction: "neutral",
             }}
             icon={
@@ -598,7 +612,7 @@ export function ProviderFinancePanel({
             )}
             trend={{
               label:
-                "Locked by settlement state",
+                "Amount reserved or being processed",
               direction: "neutral",
             }}
             icon={
@@ -761,7 +775,7 @@ export function ProviderFinancePanel({
 
           <div>
             <h2 className="text-xl font-bold">
-              Customer booking payments
+              Customer payments
             </h2>
 
             <p className="mt-1 text-sm text-muted-foreground">
@@ -808,7 +822,7 @@ function PayoutReadyIndicator({
           aria-hidden="true"
           className="size-4"
         />
-        Settlement transport verified
+        Payout transfer setup verified
       </span>
     );
   }
@@ -820,7 +834,7 @@ function PayoutReadyIndicator({
           aria-hidden="true"
           className="size-4"
         />
-        Account linked - settlement transport unavailable
+        Account connected - payouts unavailable
       </span>
     );
   }

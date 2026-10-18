@@ -1,3 +1,4 @@
+import 'booking_lifecycle_presentation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -18,6 +19,7 @@ import 'full_payment_presentation.dart';
 import 'payment_required_screen.dart';
 import 'recovery_offers_screen.dart';
 import 'review_screen.dart';
+import 'booking_complaint_action.dart';
 
 class BookingDetailsScreen extends StatelessWidget {
   const BookingDetailsScreen({required this.bookingId, super.key});
@@ -330,7 +332,12 @@ class BookingStatusCard extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => BookingLifecycleBuilder(booking: booking, builder: (context, label, message) => _buildContent(context, label, message));
+
+  Widget _buildContent(BuildContext context, String? label, String? message) {
+    final statusLabel = label ?? this.statusLabel;
+    final statusMessage = message ?? this.statusMessage;
+
     return Container(
       padding: const EdgeInsets.all(AppSpacing.card),
       decoration: BoxDecoration(
@@ -585,8 +592,12 @@ class _BookingNextActionCard extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final step = _nextStep;
+  Widget build(BuildContext context) => BookingLifecycleBuilder(booking: booking, builder: (context, label, message) => _buildContent(context, label, message));
+
+  Widget _buildContent(BuildContext context, String? label, String? message) {
+
+
+    final step = label == null ? _nextStep : _BookingNextStep(icon: Icons.info_outline_rounded, title: label, message: message ?? label, accent: AppColors.primaryStrong, background: AppColors.primarySubtle);
 
     return Container(
       padding: const EdgeInsets.all(AppSpacing.card),
@@ -1854,6 +1865,12 @@ class ActionButtons extends StatelessWidget {
         ),
 
         _ProviderPaymentAction(booking: booking),
+        const SizedBox(height: AppSpacing.sm),
+        BookingComplaintAction(
+          key: ValueKey('complaint-${booking.id}'),
+          loadServices: () => FeastaRepository().bookingComplaintServices(booking),
+          submit: FeastaRepository().submitBookingComplaint,
+        ),
 
         if (booking.status == BookingStatus.completed) ...[
           const SizedBox(height: AppSpacing.sm),

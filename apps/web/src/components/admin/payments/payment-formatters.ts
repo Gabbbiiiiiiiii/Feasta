@@ -47,6 +47,45 @@ export function formatPaymentDate(
   return manilaDateTimeFormatter.format(date);
 }
 
+const manilaTableDateFormatter = new Intl.DateTimeFormat("en-PH", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "Asia/Manila",
+});
+
+const manilaTableTimeFormatter = new Intl.DateTimeFormat("en-PH", {
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+  timeZone: "Asia/Manila",
+});
+
+export function formatPaymentTableDateParts(
+  value: string | null,
+): {date: string; time: string} | null {
+  if (!value) return null;
+
+  const parsed = new Date(value);
+
+  if (!Number.isFinite(parsed.getTime())) return null;
+
+  return {
+    date: manilaTableDateFormatter.format(parsed),
+    time: manilaTableTimeFormatter.format(parsed),
+  };
+}
+/** Use paymentChoice for new records; preserve legacy payment labels. */
+export function formatAdminPaymentPurpose(
+  payment: {
+    paymentType: AdminPaymentType;
+    paymentChoice?: "minimum" | "full" | "remaining_balance" | null;
+  },
+): string {
+  return payment.paymentType === "provider_down_payment" && payment.paymentChoice === "full"
+    ? "Full payment"
+    : formatPaymentType(payment.paymentType);
+}
 export function formatPaymentType(
   type: AdminPaymentType,
 ): string {

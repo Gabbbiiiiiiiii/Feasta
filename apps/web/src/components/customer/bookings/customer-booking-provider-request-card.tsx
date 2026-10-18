@@ -1,4 +1,6 @@
+import {BookingLifecycleStatus, BookingLifecycleText} from "@/components/shared/booking-lifecycle-status";
 import {TriangleAlert} from "lucide-react";
+import Link from "next/link";
 import {BookingPolicySummary} from "@/components/shared/booking-policy-summary";
 import type {ReactNode} from "react";
 
@@ -34,6 +36,7 @@ type CustomerBookingProviderRequestCardProps = {
   reviewAction?: ReactNode;
   cancellationStatus?: ReactNode;
   cancellationAction?: ReactNode;
+  complaintAction?: ReactNode;
 };
 
 const MAX_SERVICES_PER_REQUEST = 30;
@@ -48,8 +51,10 @@ function CustomerBookingProviderRequestCard({
   reviewAction,
   cancellationStatus,
   cancellationAction,
+  complaintAction,
 }: CustomerBookingProviderRequestCardProps) {
   const services = request.services.slice(0, MAX_SERVICES_PER_REQUEST);
+  const showBookingPolicy = ["confirmed", "in_progress", "completed", "cancelled"].includes(request.status);
   const explanation = request.status === "rejected" ?
     boundedText(request.rejectionReason, "The provider did not include an explanation.", 500) :
     request.status === "cancelled" ?
@@ -68,8 +73,8 @@ function CustomerBookingProviderRequestCard({
       "grid min-w-0 gap-4 rounded-card border border-border bg-card p-4 shadow-none",
       !compact && "sm:p-5",
     )}>
-      <BookingPolicySummary policy={request.bookingPolicy} />
-      {!request.bookingPolicy && request.balanceEnforcement ? <div role="status" className="grid gap-1 text-sm">
+      <BookingPolicySummary policy={showBookingPolicy ? request.bookingPolicy : null} />
+      {!["rejected", "expired"].includes(request.status) && !request.bookingPolicy && request.balanceEnforcement ? <div role="status" className="grid gap-1 text-sm">
         <p className="font-bold">{request.balanceEnforcement.label}</p>
         {request.balanceEnforcement.explanation ? <p>{request.balanceEnforcement.explanation}</p> : null}
       </div> : null}
@@ -88,7 +93,7 @@ function CustomerBookingProviderRequestCard({
           ) : null}
         </div>
         <div className="flex flex-wrap gap-1.5 sm:max-w-[13rem] sm:justify-end">
-          <StatusBadge status={request.status} label={bookingStatusLabel(request.status)} />
+          <BookingLifecycleStatus status={request.status} evidence={request.lifecycle} label={bookingStatusLabel(request.status)} />
           {!durableConfirmation ? (
             <StatusBadge status={request.paymentStatus} />
           ) : null}
@@ -100,7 +105,7 @@ function CustomerBookingProviderRequestCard({
         outcomeClassName(request.status),
       )}>
         <p className="text-sm font-bold">
-          {request.status === "waiting_for_down_payment" ? "Accepted - payment required" : providerRequestOutcomeLabel(request)}
+          <BookingLifecycleText status={request.status} evidence={request.lifecycle}>{request.status === "waiting_for_down_payment" ? "Accepted - payment required" : providerRequestOutcomeLabel(request)}</BookingLifecycleText>
         </p>
         {request.status === "completed" && request.completedAt ? (
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -185,6 +190,7 @@ function CustomerBookingProviderRequestCard({
       {reviewAction}
       {cancellationStatus}
       {cancellationAction}
+      {complaintAction}
 
       <section
         className="grid min-w-0 gap-2.5"
@@ -226,7 +232,11 @@ function CustomerBookingProviderRequestCard({
       {request.status === "rejected" && request.replacementStatus === "required" ? (
         <p className="flex min-w-0 items-start gap-2 rounded-xl border border-warning/25 bg-warning-subtle p-3 text-sm font-bold text-warning">
           <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          <span className="break-words">Replacement required</span>
+          <span className="break-words">
+            This provider rejected the request. Review the reason above, or{" "}
+            <Link className="underline underline-offset-2" href="/customer/providers">browse other providers</Link>{" "}
+            for a new booking request.
+          </span>
         </p>
       ) : null}
     </article>

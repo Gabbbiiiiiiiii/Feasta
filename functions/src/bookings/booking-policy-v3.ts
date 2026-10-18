@@ -32,6 +32,19 @@ export function bookingPolicyTimingV3(eventStartAt: Date) {
   };
 }
 
+/** New bookings close at the hard payment deadline, exactly T-24h. */
+export function bookingSubmissionDeadlinePassedV3(
+  eventStartAt: Date,
+  now: Date,
+): boolean {
+  if (!Number.isFinite(now.getTime())) {
+    throw new Error("Booking submission time is invalid.");
+  }
+
+  return now.getTime() >=
+    bookingPolicyTimingV3(eventStartAt).hardPaymentDeadlineAt.getTime();
+}
+
 /** Floors customer/provider shares; the fee receives the residual centavo(s). */
 export function paymentDefaultAllocation(paidDepositInCentavos: number) {
   if (!Number.isSafeInteger(paidDepositInCentavos) || paidDepositInCentavos <= 0) {

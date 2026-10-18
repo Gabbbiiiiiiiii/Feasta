@@ -38,7 +38,7 @@ import type {
 } from "@/lib/admin/payments/admin-payment-types";
 import {requireAdmin} from "@/lib/auth/session";
 import {adminDb} from "@/lib/firebase/admin";
-import {bookingPaymentStatusMismatch, matchesPaymentReview} from "./payment-review";
+import {bookingPaymentStatusMismatch, matchesAdminPaymentChoice, matchesPaymentReview} from "./payment-review";
 import {hasBookingSettlement, projectBookingPayment} from "@/lib/payments/booking-payment-projection";
 import {
   bookingPaymentAccounting,
@@ -161,14 +161,35 @@ export async function getAdminPaymentPage(
     query = query.startAfter(cursorValue, cursor.documentId);
   }
 
-  const snapshot = await query
-    .limit(filters.pageSize + 1)
-    .get();
+  let visibleDocuments: QueryDocumentSnapshot<DocumentData>[];
+  let hasMore: boolean;
 
-  const hasMore = snapshot.docs.length > filters.pageSize;
-  const visibleDocuments = hasMore
-    ? snapshot.docs.slice(0, filters.pageSize)
-    : snapshot.docs;
+  if (filters.paymentType === "full" || filters.paymentType === "provider_down_payment") {
+    // A post-query filter on just one Firestore page would cause missing rows
+    // and incorrect Next-page cursors. Scan candidate pages until there are
+    // pageSize + 1 matching results or the query is exhausted.
+    const matching: QueryDocumentSnapshot<DocumentData>[] = [];
+    const batchSize = Math.max(30, filters.pageSize + 1);
+    let scanQuery = query;
+    while (true) {
+      const batch = await scanQuery.limit(batchSize).get();
+      for (const document of batch.docs) {
+        if (!matchesAdminPaymentChoice(document.data(), filters.paymentType)) continue;
+        matching.push(document);
+        if (matching.length > filters.pageSize) break;
+      }
+      if (matching.length > filters.pageSize || batch.docs.length < batchSize) break;
+      const lastScanned = batch.docs.at(-1);
+      if (!lastScanned) break;
+      scanQuery = query.startAfter(lastScanned);
+    }
+    hasMore = matching.length > filters.pageSize;
+    visibleDocuments = matching.slice(0, filters.pageSize);
+  } else {
+    const snapshot = await query.limit(filters.pageSize + 1).get();
+    hasMore = snapshot.docs.length > filters.pageSize;
+    visibleDocuments = snapshot.docs.slice(0, filters.pageSize);
+  }
 
   const relations = await loadPaymentRelations(visibleDocuments);
   const payments = visibleDocuments
@@ -2585,7 +2606,7 @@ function normalizeFilters(input: AdminPaymentFilters): NormalizedFilters {
         ? input.status
         : "all",
     paymentType:
-      input.paymentType === "all" || isPaymentType(input.paymentType)
+      input.paymentType === "all" || input.paymentType === "full" || isPaymentType(input.paymentType)
         ? input.paymentType
         : "all",
     date: isDateFilter(input.date) ? input.date : "all",
@@ -2640,8 +2661,13 @@ function applyPaymentFilters(
     query = query.where("status", "==", filters.status);
   }
 
-  if (filters.paymentType !== "all") {
-    query = query.where("paymentType", "==", filters.paymentType);
+  // Firestore stores full upfront payments as provider_down_payment.
+  // Use the existing indexed paymentType query, then distinguish paymentChoice.
+  const storedType = filters.paymentType === "full"
+    ? "provider_down_payment"
+    : filters.paymentType;
+  if (storedType !== "all") {
+    query = query.where("paymentType", "==", storedType);
   }
 
   const range = getDateRange(filters.date);
@@ -2894,6 +2920,8 @@ function mapPaymentDocument(
     formattedAmount: formatCentavos(amountInCentavos, currency),
     currency,
     paymentType: paymentType(data.paymentType),
+    paymentChoice: data.paymentChoice === "full" || data.paymentChoice === "minimum" || data.paymentChoice === "remaining_balance"
+      ? data.paymentChoice : null,
     gateway: paymentGateway(data.gateway),
     status,
     gatewayResourceId,
@@ -3240,10 +3268,7 @@ function paymentMatchesFilters(
     return false;
   }
 
-  if (
-    filters.paymentType !== "all" &&
-    payment.paymentType !== filters.paymentType
-  ) {
+  if (!matchesAdminPaymentChoice(payment, filters.paymentType)) {
     return false;
   }
 

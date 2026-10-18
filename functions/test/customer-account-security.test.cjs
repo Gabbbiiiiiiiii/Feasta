@@ -10,7 +10,7 @@ const {requireRecentAuthentication} = require(
 const source = (relative) => readFileSync(
   path.resolve(__dirname, "../src", relative),
   "utf8",
-);
+).replace(/\r\n/g, "\n");
 
 test("profile callable accepts an explicit safe-field allowlist", () => {
   const content = source("auth/manage-customer-account.ts");
@@ -49,6 +49,21 @@ test("provider and admin account management preserve trusted fields", () => {
 test("shared preference and session mutations require trusted roles", () => {
   const content = source("auth/manage-role-account.ts");
   assert.ok(content.includes('"customer",\n      "provider",\n      "admin"'));
+  for (const name of ["updateAccountPreferences", "revokeAllAccountSessions"]) {
+    const start = content.indexOf("export const " + name + " = onCall(");
+    const end = content.indexOf("\nexport const ", start + 1);
+    assert.ok(start >= 0 && end > start, "Expected the complete " + name + " handler.");
+    const handler = content.slice(start, end);
+    assert.match(handler, /appCheckCallableOptions/u);
+    assert.match(handler, /const actor = requireAuth\(request\);/u);
+    assert.match(handler, /await requireRole\(actor\.uid,\s*\[\s*"customer",\s*"provider",\s*"admin",?\s*\]\)/u);
+    assert.match(handler, /enforceCallableRateLimit/u);
+    if (name === "revokeAllAccountSessions") {
+      assert.match(handler, /requireRecentAuthentication\(request\.auth\?\.token\.auth_time\)/u);
+      assert.match(handler, /revokeRefreshTokens\(actor\.uid\)/u);
+      assert.match(handler, /account_sessions_revoked/u);
+    }
+  }
   assert.ok(content.includes("requireRecentAuthentication"));
   assert.ok(content.includes("revokeRefreshTokens(actor.uid)"));
   assert.ok(content.includes("account_sessions_revoked"));

@@ -436,8 +436,8 @@ export async function activatePayMongoChildAccount(
  * Read-only PayMongo Relationship API integration.
  *
  * FEASTA discovers the relationship by the canonical child account
- * and onboarding invitation, then retrieves the exact relationship
- * again by ID before trusting it.
+ * and onboarding invitation (null for directly created accounts), then
+ * retrieves the exact relationship again by ID before trusting it.
  *
  * No relationship mutation and no money movement happen here.
  */
@@ -445,7 +445,7 @@ export async function findPayMongoLinkedAccountRelationship(
   input: {
     secretKey: string;
     childAccountId: string;
-    invitationId: string;
+    invitationId: string | null;
   },
 ): Promise<
   PayMongoLinkedAccountRelationship |
@@ -457,9 +457,11 @@ export async function findPayMongoLinkedAccountRelationship(
     );
 
   const invitationId =
-    requireInvitationId(
-      input.invitationId,
-    );
+    input.invitationId === null
+      ? null
+      : requireInvitationId(
+        input.invitationId,
+      );
 
   const query =
     new URLSearchParams({
@@ -571,6 +573,8 @@ export async function findPayMongoLinkedAccountRelationship(
   if (
     relationship.childAccountId !==
       childAccountId ||
+    relationship.parentAccountId !==
+      discovered.parentAccountId ||
     relationship.linkingRequestId !==
       invitationId
   ) {

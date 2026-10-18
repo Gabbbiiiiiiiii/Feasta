@@ -47,6 +47,7 @@ import {ApplicationShell} from "@/components/layout/application-shell";
 import {PageHeading} from "@/components/layout/page-heading";
 import {
   getRoleNavigation,
+  isNavigationItemActive,
   roleNavigation,
   type ProviderNavigationContext,
 } from "@/components/layout/navigation";
@@ -151,10 +152,13 @@ describe("ApplicationShell", () => {
       },
     );
 
-  expect(both.filter((item) => item.kind === "link" && item.label === "Packages & Services")).toEqual([
-    expect.objectContaining({href: "/provider/packages", activeRouteAliases: ["/provider/services"]}),
-  ]);
-
+  expect(both).toEqual(expect.arrayContaining([
+    expect.objectContaining({kind: "link", label: "Packages & Services", href: "/provider/packages", activeRouteAliases: ["/provider/services"]}),
+  ]));
+  const catalog = both.find((item) => item.kind === "link" && item.href === "/provider/packages")!;
+  if (catalog.kind !== "link") throw new Error("Expected catalog link");
+  expect(isNavigationItemActive("/provider/packages", catalog)).toBe(true);
+  expect(isNavigationItemActive("/provider/services", catalog)).toBe(true);
 });
   it("renders role-specific navigation with an accessible active state", () => {
     render(

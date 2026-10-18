@@ -78,6 +78,10 @@ describe("shared account management", () => {
   it("updates only customer presentation fields", async () => {
     const user = userEvent.setup();
     render(<AccountManagementPanel profile={baseProfile} />);
+    expect(screen.queryByRole("button", {name: /deactivate account/i}))
+      .not.toBeInTheDocument();
+    expect(screen.queryByText("Deactivate account"))
+      .not.toBeInTheDocument();
     const firstName = screen.getByRole("textbox", {name: /^First name/});
     await user.clear(firstName);
     await user.type(firstName, "Updated");

@@ -1040,6 +1040,13 @@ function ComplaintDetails({
         ]}
       />
 
+      {complaint.bookingId || complaint.providerRequestId ? (
+        <DetailSection title="Related booking" rows={[
+          ["Booking ID", complaint.bookingId || "Unavailable"],
+          ["Provider request ID", complaint.providerRequestId || "Event-level report"],
+        ]} />
+      ) : null}
+
       {complaint.providerId ? (
         <DetailSection
           title="Related provider"

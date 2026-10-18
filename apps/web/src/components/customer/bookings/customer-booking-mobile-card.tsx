@@ -1,4 +1,6 @@
 "use client";
+import {BookingLifecycleStatus, BookingLifecycleText} from "@/components/shared/booking-lifecycle-status";
+
 
 import {CalendarDays, Eye, PackageOpen, Users} from "lucide-react";
 
@@ -12,7 +14,6 @@ import {
   formatCurrency,
   providerResponseSummary,
 } from "@/components/customer/bookings/booking-formatters";
-import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
 import type {CustomerBooking} from "@/lib/customer/bookings/customer-booking-types";
 
@@ -41,9 +42,7 @@ function CustomerBookingMobileCard({
             {formatCount(booking.providerRequestCount)} provider {booking.providerRequestCount === 1 ? "request" : "requests"}
           </p>
         </div>
-        <StatusBadge
-          status={booking.status}
-          label={bookingStatusLabel(booking.status)}
+        <BookingLifecycleStatus status={booking.status} evidence={booking.lifecycle} label={bookingStatusLabel(booking.status)}
         />
       </div>
 
@@ -81,7 +80,7 @@ function CustomerBookingMobileCard({
           Next step
         </p>
         <p className="mt-1 text-sm leading-5 text-foreground">
-          {bookingNextStep(booking)}
+          <BookingLifecycleText status={booking.status} evidence={booking.lifecycle} description>{bookingNextStep(booking)}</BookingLifecycleText>
         </p>
       </div>
 

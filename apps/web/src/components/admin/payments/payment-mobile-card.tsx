@@ -12,7 +12,7 @@ import {
 } from "@/components/admin/payments/payment-issue-badges";
 import {
   formatPaymentDate,
-  formatPaymentType,
+  formatAdminPaymentPurpose,
   paymentBookingLabel,
   paymentReferenceLabel,
 } from "@/components/admin/payments/payment-formatters";
@@ -63,9 +63,7 @@ function PaymentMobileCard({
       </p>
 
       <p className="mt-1 text-sm font-medium text-muted-foreground">
-        {formatPaymentType(
-          payment.paymentType,
-        )}
+        {formatAdminPaymentPurpose(payment)}
       </p>
 
       <dl className="mt-4 grid min-w-0 gap-3 text-sm">

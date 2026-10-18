@@ -10,12 +10,14 @@ const domain = require("../lib/provider-finance/provider-disbursement-domain.js"
 const execution = require("../lib/provider-finance/provider-disbursement-execution.js");
 const webhook = require("../lib/provider-finance/provider-disbursement-webhook.js");
 const {fixture} = require("./provider-disbursement-fixtures.cjs");
-const account = {schemaVersion: 1, setupStatus: "ready", payoutReady: true,
+const {verifiedAccount} = require("./provider-transport-fixtures.cjs");
+let account = {schemaVersion: 1, setupStatus: "ready", payoutReady: true,
   paymongoAccountId: "org_provider", activationStatus: "activated", relationshipStatus: "enabled",
   settlementTransportMode: "wallet_transfer", settlementTransportReady: true};
 const settings = {providerDisbursementTestMode: true, providerDisbursementTestAllowedDisbursementId: "disbursement", providerDisbursementTestWalletId: "wallet_fixture",
   providerDisbursementTestDestination: {number: "999999990002", name: "FEASTA TEST PROVIDER",
     bic: "UBPHPHMMXXX", provider: "instapay"}};
+account = verifiedAccount(account, settings);
 function attempt() {
   const f = fixture(), cap = transport.capability(account, settings);
   return domain.aggregateReservationPlan({...f, transportMode: cap.transportMode,
@@ -26,13 +28,14 @@ function evidence(a = attempt(), status = "pending") {
     currency: "PHP", livemode: false, status, destination_account: {...a.destinationSnapshot.destinationAccount}};
 }
 function wallet() {
-  return {data: {id: "wallet_fixture", livemode: false, status: "activated", balance: {available: 900000},
+  return {data: {id: "wallet_fixture", merchant_id: "org_parent", livemode: false, status: "activated", balance: {available: 900000},
     account: {provider: "paymongo", currency: "PHP", account_number: "000000000001", account_name: "FEASTA TEST"}}};
 }
 const json = (body, status = 200) => new Response(JSON.stringify(body), {status});
 function harness({a = attempt(), secret = "sk_test_mock_only", steps = [], w = wallet()} = {}) {
   const requests = [], delays = [];
   const client = clientModule.createPayMongoDisbursementClient({
+    authorizeSubmission: async () => {},
     secretKey: () => secret, sleep: async ms => {delays.push(ms);},
     http: async (url, init) => {
       requests.push({url, ...init});
@@ -60,7 +63,7 @@ for (const [name, mutate] of [
 });
 for (const number of clientModule.TEST_DESTINATION_NUMBERS) test("capability accepts simulator " + number, () => {
   const s = structuredClone(settings); s.providerDisbursementTestDestination.number = number;
-  const cap = transport.capability(account, s); assert.equal(cap.ready, true);
+  const cap = transport.capability(verifiedAccount(account, s), s); assert.equal(cap.ready, true);
   assert.equal(cap.destinationSnapshot.livemode, false);
 });
 for (const patch of [{payoutReady: false}, {settlementTransportReady: false},
@@ -136,7 +139,7 @@ for (const status of [400, 401, 403, 408, 409, 422, 429]) test("ordinary HTTP " 
 });
 test("retry exhaustion returns no trusted failure evidence", async () => {
   const h = harness({steps: Array.from({length: 3}, () => new Error("mock outage"))});
-  await assert.rejects(h.client.dispatch(h.a), /outcome unknown/);
+  await assert.rejects(h.client.dispatch(h.a), error => error.certainty === "unknown");
   assert.equal(h.requests.filter(r => r.method === "POST").length, 3);
 });
 for (const [name, mutate] of [
@@ -188,7 +191,8 @@ for (const shape of ["array", "transfers"]) test("reference lookup supports " + 
   const a = attempt(); a.status = "ambiguous"; const e = evidence(a, "failed");
   const h = harness({a, steps: [json({data: shape === "array" ? [e] : {transfers: [e]}})]});
   assert.deepEqual(await h.client.retrieve(a), e);
-  assert.ok(h.requests[0].url.includes("reference_number=" + a.referenceNumber));
+  assert.equal(new URL(h.requests[0].url).searchParams.has("reference_number"), false);
+  assert.equal(new URL(h.requests[0].url).searchParams.get("limit"), "100");
   assert.ok(h.requests.every(r => r.method === "GET"));
 });
 test("zero reference matches returns null", async () => {
@@ -313,7 +317,7 @@ for (const [name, balance] of [
   const h = harness({w});
   await assert.rejects(h.client.dispatch(h.a),
     name === "insufficient" || name === "zero" ?
-      /paymongo_test_wallet_balance_insufficient/ : /paymongo_test_wallet_balance_invalid/);
+      /wallet_balance_insufficient/ : /wallet_balance_invalid/);
   assert.equal(h.requests.length, 1);
   assert.equal(h.requests[0].method, "GET");
   assert.deepEqual(h.delays, []);
@@ -353,7 +357,9 @@ test("default transport reads dedicated sk_test secret and ignores shared key", 
       return url.includes("/wallets/") ? json(wallet()) :
         json({data: {id: "btr_fixture", transfers: [evidence(a)]}}, 201);
     };
-    await transport.dispatch(a);
+    const originalAuthorize = execution.authorizeProviderDisbursementSubmission;
+    execution.authorizeProviderDisbursementSubmission = async () => {};
+    try {await transport.dispatch(a);} finally {execution.authorizeProviderDisbursementSubmission = originalAuthorize;}
     assert.equal(requests.length, 2);
     for (const request of requests) {
       assert.equal(request.headers.Authorization,
@@ -385,4 +391,79 @@ for (const file of [
   const source = fs.readFileSync(path.join(__dirname, "../src", file), "utf8");
   assert.match(source, /defineSecret\(\s*"PAYMONGO_SECRET_KEY"\s*,?\s*\)/);
   assert.doesNotMatch(source, /PAYMONGO_DISBURSEMENT_TEST_SECRET_KEY/);
+});
+
+for (const [name, response] of [
+  ["network", () => {throw new Error("sensitive transport details");}],
+  ["HTTP failure", () => json({}, 503)],
+  ["malformed JSON", () => new Response("not JSON")],
+]) test("wallet GET " + name + " is definitely not submitted", async () => {
+  let writes = 0;
+  const client = clientModule.createPayMongoDisbursementClient({secretKey: () => "sk_test_mock_only",
+    sleep: async () => {}, http: async (_url, init) => {
+      if (init.method === "POST") writes++;
+      return response();
+    }});
+  await assert.rejects(client.dispatch(attempt()), e => e.certainty === "not_submitted" &&
+    !e.message.includes("sensitive"));
+  assert.equal(writes, 0);
+});
+for (const [name, steps] of [
+  ["timeout", Array.from({length: 3}, () => new Error("timeout"))],
+  ["HTTP rejection", [json({}, 422)]],
+  ["malformed successful body", [json({data: {id: "bad"}}, 201)]],
+  ["timeout followed by rejection", [new Error("timeout"), json({}, 422)]],
+]) test("possible POST " + name + " remains unknown", async () => {
+  const h = harness({steps});
+  await assert.rejects(h.client.dispatch(h.a), e => e.certainty === "unknown");
+  assert.ok(h.requests.some(r => r.method === "POST"));
+});
+test("expired proof prevents submission", async () => {
+  const h = harness(); h.a.destinationSnapshot.verificationExpiresAtMs = Date.now() - 1;
+  await assert.rejects(h.client.dispatch(h.a), e => e.certainty === "not_submitted");
+  assert.equal(h.requests.length, 0);
+});
+function pageRows(prefix, count = 100) {
+  return Array.from({length: count}, (_, i) => ({id: `tr_${prefix}${i}`, reference_number: "unrelated"}));
+}
+test("reference match on second page uses documented before_id and completes traversal", async () => {
+  const a = attempt(), first = pageRows("first"), e = evidence(a);
+  const h = harness({a, steps: [json({data: first}), json({data: [e]})]});
+  assert.deepEqual(await h.client.retrieve(a), e);
+  assert.equal(new URL(h.requests[1].url).searchParams.get("before_id"), "tr_first99");
+  assert.ok(h.requests.every(r => r.method === "GET" && !new URL(r.url).searchParams.has("reference_number")));
+});
+test("duplicate references on separate pages cannot establish identity", async () => {
+  const a = attempt(), first = pageRows("first"); first[0] = evidence(a);
+  const h = harness({a, steps: [json({data: first}), json({data: [{...evidence(a), id: "tr_duplicate"}]})]});
+  await assert.rejects(h.client.retrieve(a), /conflicting/);
+});
+test("no match after exhausted pages is not proof of failed submission", async () => {
+  const h = harness({steps: [json({data: pageRows("first")}), json({data: []})]});
+  assert.equal(await h.client.retrieve(h.a), null);
+  assert.equal(h.requests.length, 2);
+});
+test("a later page API failure cannot return an earlier match", async () => {
+  const a = attempt(), first = pageRows("first"); first[0] = evidence(a);
+  const h = harness({a, steps: [json({data: first}), json({}, 403)]});
+  await assert.rejects(h.client.retrieve(a));
+});
+for (const [name, data] of [
+  ["missing data", {}], ["malformed rows", {data: [null]}],
+  ["invalid ID", {data: [{id: "bad", reference_number: "other"}]}],
+  ["empty continuing page", {data: [], has_more: true}],
+  ["invalid pagination flag", {data: [], has_more: "false"}],
+]) test("reference lookup rejects " + name, async () => {
+  const h = harness({steps: [json(data)]}); await assert.rejects(h.client.retrieve(h.a));
+});
+test("overlapping pages fail closed", async () => {
+  const first = pageRows("first"), h = harness({steps: [json({data: first}), json({data: [first[99]]})]});
+  await assert.rejects(h.client.retrieve(h.a));
+});
+test("bounded traversal cannot return a match before exhaustion", async () => {
+  const a = attempt(), pages = Array.from({length: 5}, (_, i) => pageRows(`p${i}_`));
+  pages[0][0] = evidence(a);
+  const h = harness({a, steps: pages.map(rows => json({data: rows}))});
+  await assert.rejects(h.client.retrieve(a), /page bound/);
+  assert.equal(h.requests.length, 5);
 });

@@ -1,4 +1,5 @@
 import {ProviderDirectoryShell} from "@/components/customer/providers/provider-directory-shell";
+import {MarketplaceActiveEventStrip} from "@/components/customer/discovery/marketplace-active-event-strip";
 import {ProviderPagination} from "@/components/customer/providers/provider-pagination";
 import {ProviderResults} from "@/components/customer/providers/provider-results";
 import {ProviderEventContextPanel} from "@/components/customer/providers/provider-event-context-panel";
@@ -36,6 +37,7 @@ export default async function CustomerProvidersPage({
 
   return (
     <ProviderDirectoryShell>
+      {authenticatedCustomer ? <MarketplaceActiveEventStrip /> : null}
       <ProviderEventContextPanel filters={filters} />
       <div className="grid min-w-0 gap-5">
         <ProviderResults

@@ -1,4 +1,6 @@
 "use client";
+import {BookingLifecycleStatus} from "@/components/shared/booking-lifecycle-status";
+
 
 import {
   CalendarCheck,
@@ -30,14 +32,14 @@ import {
 import {loadCustomerBookingsAction} from "@/app/customer/bookings/actions";
 import {
   BOOKING_STATUS_OPTIONS,
-  bookingNextStep,
+
   bookingStatusLabel,
   boundedText,
   formatBookingDate,
   formatBookingTimeRange,
   formatCount,
   formatCurrency,
-  providerResponseSummary,
+
 } from "@/components/customer/bookings/booking-formatters";
 import {CustomerBookingDetailsDrawer} from "@/components/customer/bookings/customer-booking-details-drawer";
 import {CustomerBookingMobileCard} from "@/components/customer/bookings/customer-booking-mobile-card";
@@ -147,7 +149,7 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
     },
     {
       id: "schedule",
-      header: "Event schedule",
+      header: "Event date",
       cell: (booking) => (
         <div className="min-w-[10rem]">
           <p className="font-semibold">{formatBookingDate(booking.eventDate)}</p>
@@ -158,50 +160,34 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
       ),
     },
     {
-      id: "provider-responses",
-      header: "Provider responses",
-      cell: (booking) => (
-        <div className="min-w-[11rem]">
-          <p className="break-words font-semibold">
-            {providerResponseSummary(booking)}
-          </p>
-          <p className="mt-1 text-muted-foreground">Open details for each provider.</p>
-        </div>
-      ),
-    },
-    {
-      id: "party",
-      header: "Party",
-      cell: (booking) => (
-        <div className="min-w-[8rem]">
-          <p className="font-semibold">{formatCount(booking.guestCount)} guests</p>
-          <p className="mt-1 text-muted-foreground">
-            {formatCount(booking.providerRequestCount)} provider {booking.providerRequestCount === 1 ? "request" : "requests"}
-          </p>
-        </div>
-      ),
-    },
-    {
       id: "status",
-      header: "Status & next step",
+      header: "Status",
       cell: (booking) => (
-        <div className="grid min-w-[13rem] justify-items-start gap-2">
+        <div className="grid min-w-[9rem] justify-items-start gap-1">
           <div className="flex flex-wrap gap-2">
-            <StatusBadge status={booking.status} label={bookingStatusLabel(booking.status)} />
+            <BookingLifecycleStatus status={booking.status} evidence={booking.lifecycle} label={bookingStatusLabel(booking.status)} />
           </div>
-          <p className="max-w-[16rem] text-xs leading-5 text-muted-foreground">
-            {bookingNextStep(booking)}
-          </p>
+          {booking.status === "needs_provider_replacement" ? (
+            <p className="text-xs text-muted-foreground">
+              {booking.pendingProviderRequestCount > 0
+                ? "Other providers still responding"
+                : "Review rejected request"}
+            </p>
+          ) : booking.status === "waiting_for_down_payment" ? (
+            <p className="text-xs text-muted-foreground">
+              Payment required
+            </p>
+          ) : null}
         </div>
       ),
     },
     {
       id: "total",
-      header: "Event estimate",
+      header: "Amount",
       cell: (booking) => (
         <div className="min-w-[9rem]">
           <p className="font-black">{formatCurrency(booking.estimatedEventTotal)}</p>
-          <p className="mt-1 text-muted-foreground">Payments shown per request</p>
+          <p className="mt-1 text-xs text-muted-foreground">Estimated total</p>
         </div>
       ),
     },
@@ -276,7 +262,7 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
   }, [cursorHistory, filters, loadPage, pageNumber]);
 
   const activeFilters = [
-    filters.search ? `Booking prefix: ${boundedText(filters.search, "", 80)}` : "",
+    filters.search ? `Search: ${boundedText(filters.search, "", 80)}` : "",
     filters.status !== "all" ? `Status: ${bookingStatusLabel(filters.status)}` : "",
   ].filter(Boolean);
   const previousCursor = cursorHistory.at(-1) ?? null;
@@ -296,8 +282,8 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
       </p>
       <PageHeading
         eyebrow="Your celebrations"
-        title="Bookings"
-        description="Track provider responses, event schedules, booking totals, and payment readiness in one place."
+        title="My Bookings"
+        description="Keep track of your events, provider responses, and payments."
         className="pb-4"
       />
 
@@ -442,28 +428,30 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
         aria-label="Booking summary"
       >
         <SummaryCard
-          label="Total bookings"
+          label="Total Bookings"
+          supportingMetric="All your booking requests"
           value={formatCount(page.statistics.total)}
           icon={<SummaryIcon icon={<CalendarDays className="size-4" />} />}
-          className="h-full p-4 shadow-none sm:p-4 [&>div]:items-center [&>p]:mt-2"
+          className="h-full p-4 shadow-none sm:p-4 [&>div]:items-center [&>div>p]:font-bold [&>div>p]:text-foreground [&>p]:mt-2 [&>p:nth-child(3)]:text-xs [&>p:nth-child(3)]:leading-5"
         />
         <SummaryCard
-          label="Upcoming events"
+          label="Upcoming Events"
+          supportingMetric="Scheduled events ahead"
           value={formatCount(page.statistics.upcoming)}
           icon={<SummaryIcon icon={<CalendarCheck className="size-4" />} />}
-          className="h-full p-4 shadow-none sm:p-4 [&>div]:items-center [&>p]:mt-2"
+          className="h-full p-4 shadow-none sm:p-4 [&>div]:items-center [&>div>p]:font-bold [&>div>p]:text-foreground [&>p]:mt-2 [&>p:nth-child(3)]:text-xs [&>p:nth-child(3)]:leading-5"
         />
         <SummaryCard
-          label="Awaiting providers"
+          label="Pending Responses"
           value={formatCount(page.statistics.awaitingProvider)}
           icon={<SummaryIcon icon={<Clock3 className="size-4" />} />}
-          className="h-full p-4 shadow-none sm:p-4 [&>div]:items-center [&>p]:mt-2"
+          className="h-full p-4 shadow-none sm:p-4 [&>div]:items-center [&>div>p]:font-bold [&>div>p]:text-foreground [&>p]:mt-2 [&>p:nth-child(3)]:text-xs [&>p:nth-child(3)]:leading-5"
         />
         <SummaryCard
-          label="Awaiting payment"
+          label="Payments Due"
           value={formatCount(page.statistics.awaitingPayment)}
           icon={<SummaryIcon icon={<PhilippinePeso className="size-4" />} />}
-          className="h-full p-4 shadow-none sm:p-4 [&>div]:items-center [&>p]:mt-2"
+          className="h-full p-4 shadow-none sm:p-4 [&>div]:items-center [&>div>p]:font-bold [&>div>p]:text-foreground [&>p]:mt-2 [&>p:nth-child(3)]:text-xs [&>p:nth-child(3)]:leading-5"
         />
       </section>
 
@@ -497,17 +485,18 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
           loading={isPending}
           error={error}
           onRetry={() => loadPage(filters)}
-          rowActionsLabel="Details"
+          rowActionsLabel="Action"
           rowActions={(booking) => (
             <Button
-              variant="ghost"
+              variant="secondary"
               size="compact"
+              className="min-w-[7rem] whitespace-nowrap border border-border shadow-sm"
               disabled={isPending}
               onClick={() => openBooking(booking)}
               aria-label={`View booking ${boundedText(booking.bookingCode, "details", 80)}`}
             >
               <Eye aria-hidden="true" className="size-4" />
-              View
+              View details
             </Button>
           )}
           renderMobileRow={(booking) => (
@@ -590,15 +579,15 @@ function CustomerBookingFilterToolbar({
       >
         <div className="grid min-w-0 gap-1.5">
           <label htmlFor={searchId} className="text-xs font-bold text-foreground">
-            Booking code prefix or ID
+            Find a booking
           </label>
           <SearchInput
             id={searchId}
-            aria-label="Search by booking code prefix or booking ID"
+            aria-label="Find a booking"
             aria-describedby={searchHintId}
-            placeholder="Enter a booking code prefix or booking ID"
+            placeholder="Booking code or ID"
             value={searchValue}
-            clearLabel="Clear booking search input"
+            clearLabel="Clear booking search"
             className="min-h-12 rounded-xl py-2.5 text-sm"
             onChange={(event) => {
               live.change(event.currentTarget.value);
@@ -610,7 +599,7 @@ function CustomerBookingFilterToolbar({
             } : undefined}
           />
           <p id={searchHintId} className="text-[0.6875rem] leading-4 text-muted-foreground">
-            Searches only your bookings using a booking code prefix or booking ID.
+            Enter the start of your booking code or the full booking ID.
           </p>
         </div>
         <Button
@@ -633,7 +622,7 @@ function CustomerBookingFilterToolbar({
         <p className="min-w-0 break-words text-xs text-muted-foreground" aria-live="polite">
           {activeFilters.length > 0 ?
             `Active: ${activeFilters.join(", ")}` :
-            "Showing all booking statuses"}
+            "All statuses selected"}
         </p>
         <Button
           variant="ghost"
@@ -662,7 +651,7 @@ function FilterSelect({
 
   return (
     <div className="grid min-w-0 gap-1.5">
-      <label htmlFor={id} className="text-xs font-bold">Booking status</label>
+      <label htmlFor={id} className="text-xs font-bold">Filter by status</label>
       <Select
         id={id}
         value={value}
@@ -692,13 +681,13 @@ function CustomerBookingEmptyState({
   const title = initial ?
     "No bookings yet" :
     search ?
-      "No booking found in your account" :
+      "No matching bookings" :
       "No bookings match this status";
   const description = initial ?
-    "Your submitted event requests will appear here." :
+    "Your booking requests will appear here once submitted." :
     search ?
-      "Check the booking code prefix or booking ID, then search again." :
-      "Choose another status or show all bookings.";
+      "Check your booking code or ID, or try another status." :
+      "Try another status or view all your bookings.";
 
   return (
     <section className="grid justify-items-center gap-3 rounded-card border border-border bg-card px-5 py-8 text-center sm:py-10">

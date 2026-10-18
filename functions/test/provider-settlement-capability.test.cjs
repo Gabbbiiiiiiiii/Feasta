@@ -14,7 +14,7 @@ const {
 ));
 
 function readyAccount(overrides = {}) {
-  return {
+  const account = {
     schemaVersion: 1,
     setupStatus: "ready",
     payoutReady: true,
@@ -34,6 +34,9 @@ function readyAccount(overrides = {}) {
 
     ...overrides,
   };
+  return overrides.settlementTransportMode === "wallet_transfer" && overrides.settlementTransportReady === true ?
+    require("./provider-transport-fixtures.cjs").verifiedAccount(account,
+      require("./provider-transport-fixtures.cjs").testSettings) : account;
 }
 
 test(

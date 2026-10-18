@@ -11,6 +11,7 @@ import {
 import type {
   CateringPackageServiceTier,
 } from "@/lib/catering/catering-service-tier";
+import {BOOKING_SUBMISSION_DEADLINE_NOTICE} from "@/lib/customer/bookings/booking-submission-deadline";
 import type {
   BookingRefundPolicyAcknowledgement,
 } from "@/lib/customer/bookings/customer-refund-policy-client";
@@ -195,6 +196,13 @@ function normalizeBookingSubmissionError(
     "",
   );
   const agreementReason = (error as FirebaseError & {details?: {reason?: unknown}}).details?.reason;
+
+  if (agreementReason === "booking_submission_payment_deadline_passed") {
+    return Object.assign(
+      new Error(BOOKING_SUBMISSION_DEADLINE_NOTICE),
+      {reason: agreementReason},
+    );
+  }
   if (agreementReason === "BOOKING_PAYMENT_AGREEMENT_CHANGED" || agreementReason === "BOOKING_PAYMENT_AGREEMENT_REQUIRED") {
     return Object.assign(new Error("Booking terms changed. Review and acknowledge the current agreement again."), {reason: agreementReason});
   }

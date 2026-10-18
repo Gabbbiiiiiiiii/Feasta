@@ -12,7 +12,7 @@ const event = new Date("2026-10-16T18:00:00+08:00");
 const time = (hours: number) => ({toDate: () => new Date(event.getTime() - hours * 3_600_000)});
 const raw = () => ({remainingBalanceTimingSchemaVersion: 3, balanceDueHoursBeforeEvent: 48,
   eventStartAt: time(0), remainingBalanceDueAt: time(48), hardPaymentDeadlineAt: time(24), preparationStartsAt: time(24),
-  eventDate: time(0), eventEndTime: "20:00", bookingLifecyclePolicySnapshot: {schemaVersion: 3, preparationLeadTimeHours: 24,
+  eventDate: time(0), eventTime: "18:00", eventEndTime: "20:00", bookingLifecyclePolicySnapshot: {schemaVersion: 3, preparationLeadTimeHours: 24,
     providerStartsManually: false, requiresFullPayment: true, autoStartAtScheduledTime: true, providerConfirmsCompletion: true},
   status: "confirmed", settlementStatus: "deposit_settled", outstandingAmountInCentavos: 500000});
 describe("v3 booking presentation", () => {
@@ -24,7 +24,15 @@ describe("v3 booking presentation", () => {
     const paid = {...raw(), settlementStatus: "fully_settled", outstandingAmountInCentavos: 0};
     expect(bookingPolicyV3Presentation(paid, time(24).toDate())?.state).toBe("preparation");
     expect(bookingPolicyV3Presentation(paid, event)?.state).toBe("in_progress");
-    expect(bookingPolicyV3Presentation(paid, new Date(event.getTime() + 2 * 3_600_000))?.readyToComplete).toBe(true);
+    const atEnd = new Date(event.getTime() + 2 * 3_600_000);
+    expect(bookingPolicyV3Presentation(paid, new Date(atEnd.getTime() - 1))?.readyToComplete).toBe(false);
+    const awaiting = bookingPolicyV3Presentation(paid, atEnd);
+    expect(awaiting?.readyToComplete).toBe(true);
+    expect(awaiting?.state).toBe("awaiting_completion");
+    expect(awaiting?.label).toBe("Awaiting Completion");
+    render(<BookingPolicySummary policy={awaiting} audience="provider" />);
+    expect(screen.getByText("Awaiting Completion")).toBeVisible();
+    expect(bookingPolicyV3Presentation({...paid, eventEndTime: "25:00"}, atEnd)?.readyToComplete).toBe(false);
     expect(bookingPolicyV3Presentation({...paid, activeCancellationRequestId: "private_id"}, event)?.state).toBe("review");
     expect(bookingPolicyV3Presentation({...paid, status: "completed"}, event)?.state).toBe("completed");
     expect(bookingPolicyV3Presentation({...raw(), remainingBalanceTimingSchemaVersion: 2}, event)).toBeNull();

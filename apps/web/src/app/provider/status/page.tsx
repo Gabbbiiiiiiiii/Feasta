@@ -2,6 +2,7 @@ import Link from "next/link";
 import {redirect} from "next/navigation";
 
 import {PageHeading} from "@/components/layout/page-heading";
+import {BusinessProfileBackLink} from "@/components/provider/business-profile-back-link";
 import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
 import {
@@ -25,6 +26,7 @@ export default async function ProviderStatusPage() {
 
   return (
     <div className="grid gap-6">
+      <BusinessProfileBackLink />
       <PageHeading eyebrow="Provider account status" title={presentation.title} description={presentation.description} actions={<StatusBadge status={status} />} />
       <section className="rounded-card border border-border bg-card p-6 shadow-card" aria-labelledby="provider-next-steps-title">
         <h2 id="provider-next-steps-title" className="text-xl font-bold">What happens next</h2>

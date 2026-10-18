@@ -3,8 +3,8 @@ import {resolve} from "node:path";
 import {render, screen, within} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {describe, expect, it, vi} from "vitest";
-import {bookingPaymentStatusMismatch, matchesPaymentReview} from "@/lib/admin/payments/payment-review";
-import {formatPaymentType, paymentBookingLabel, paymentReferenceLabel} from "@/components/admin/payments/payment-formatters";
+import {bookingPaymentStatusMismatch, matchesAdminPaymentChoice, matchesPaymentReview} from "@/lib/admin/payments/payment-review";
+import {formatAdminPaymentPurpose, formatPaymentTableDateParts, formatPaymentType, paymentBookingLabel, paymentReferenceLabel} from "@/components/admin/payments/payment-formatters";
 import {PaymentDetailsDrawer, refundMonitoringLabel} from "@/components/admin/payments/payment-details-drawer";
 import {PaymentMonitoringClient} from "@/components/admin/payments/payment-monitoring-client";
 import {PaymentFinanceAttention} from "@/components/admin/payments/payment-finance-attention";
@@ -68,6 +68,70 @@ describe("payment review prerequisites", () => {
 it.each([["provider_down_payment", "Down payment"], ["provider_balance", "Remaining balance"], ["refund", "Refund"], ["adjustment", "Payment adjustment"]] as const)("formats %s", (type, label) => {
   expect(formatPaymentType(type)).toBe(label);
 });
+it("shows only checkout payment types while retaining refund statuses", () => {
+  render(
+    <PaymentMonitoringClient
+      initialPage={page}
+      initialAttention={queue}
+    />,
+  );
+
+  const paymentType = screen.getByRole("combobox", {
+    name: "Payment type",
+  });
+
+  expect(
+    within(paymentType)
+      .getAllByRole("option")
+      .map((option) => option.textContent?.trim()),
+  ).toEqual([
+    "All payment types",
+    "Down payment",
+    "Full payment",
+    "Remaining balance",
+  ]);
+
+  const paymentStatus = screen.getByRole("combobox", {
+    name: "Payment status",
+  });
+
+  expect(
+    within(paymentStatus).getByRole("option", {
+      name: "Refunded",
+    }),
+  ).toBeInTheDocument();
+
+  expect(
+    within(paymentStatus).getByRole("option", {
+      name: "Partially refunded",
+    }),
+  ).toBeInTheDocument();
+});
+it("distinguishes full upfront payments from deposits without changing Firestore types", () => {
+  const full = {...payment, paymentChoice: "full" as const};
+  const minimum = {...payment, paymentChoice: "minimum" as const};
+  const legacy = {...payment, paymentChoice: null};
+  expect(formatAdminPaymentPurpose(full)).toBe("Full payment");
+  expect(formatAdminPaymentPurpose(minimum)).toBe("Down payment");
+  expect(matchesAdminPaymentChoice(full, "full")).toBe(true);
+  expect(matchesAdminPaymentChoice(full, "provider_down_payment")).toBe(false);
+  expect(matchesAdminPaymentChoice(minimum, "provider_down_payment")).toBe(true);
+  expect(matchesAdminPaymentChoice(legacy, "provider_down_payment")).toBe(true);
+  expect(matchesAdminPaymentChoice(legacy, "full")).toBe(false);
+  expect(matchesAdminPaymentChoice({...payment, paymentType: "provider_balance"}, "full")).toBe(false);
+});
+
+it("shows a distinct full-payment filter and label", () => {
+  render(<PaymentMonitoringClient
+    initialPage={{...page, payments: [{...payment, paymentChoice: "full"}]}}
+    initialAttention={queue}
+  />);
+  const types = screen.getByRole("combobox", {name: "Payment type"});
+  expect(within(types).getAllByRole("option").map(item => item.textContent?.trim()))
+    .toEqual(["All payment types", "Down payment", "Full payment", "Remaining balance"]);
+  const table = screen.getByRole("table", {name: "Payment monitoring records"});
+  expect(within(table).getByText("Full payment")).toBeInTheDocument();
+});
 it("uses existing references with a simple missing-booking fallback", () => {
   expect(paymentBookingLabel(payment)).toBe("Booking unavailable");
   expect(paymentBookingLabel({...payment, bookingCode: "BK-12345678"})).toBe("BK-12345678");
@@ -76,7 +140,7 @@ it("uses existing references with a simple missing-booking fallback", () => {
 it("shows four cards and plain filters without normal internal references", () => {
   render(<PaymentMonitoringClient initialPage={page} initialAttention={queue} />);
   const statistics = screen.getByRole("region", {name: "Payment statistics"});
-  for (const label of ["Paid amount", "Pending payments", "Failed payments", "Refunded amount"]) expect(within(statistics).getByText(label)).toBeInTheDocument();
+  for (const label of ["Net customer payments", "Pending payments", "Failed payments", "Refunded amount"]) expect(within(statistics).getByText(label)).toBeInTheDocument();
   expect(within(statistics).queryByText("Failed provider payouts")).not.toBeInTheDocument();
   const select = screen.getByRole("combobox", {name: "Review status"});
   expect(within(select).getAllByRole("option").map(option => option.textContent?.trim())).toEqual(["All", "Needs review", "No issues"]);
@@ -85,6 +149,126 @@ it("shows four cards and plain filters without normal internal references", () =
   expect(screen.queryByRole("button", {name: "Request refund"})).not.toBeInTheDocument();
   expect(screen.getByRole("columnheader", {name: "Date"})).toBeInTheDocument();
   expect(screen.getByRole("columnheader", {name: "Issue"})).toBeInTheDocument();
+});
+it("distinguishes original payment amounts from completed refunds", () => {
+  const refundedPayment: AdminPayment = {
+    ...payment,
+    status: "refunded",
+    refundedAmountFormatted: "₱20,000.00",
+    issues: [],
+  };
+
+  render(
+    <PaymentMonitoringClient
+      initialPage={{...page, payments: [refundedPayment]}}
+      initialAttention={queue}
+    />,
+  );
+
+  const table = screen.getByRole("table", {
+    name: "Payment monitoring records",
+  });
+
+  expect(
+    within(table).getByRole("columnheader", {
+      name: "Original amount",
+    }),
+  ).toBeInTheDocument();
+
+  expect(
+    within(table).getByText("Refunded ₱20,000.00"),
+  ).toBeInTheDocument();
+
+  expect(screen.getByText("Net customer payments"))
+    .toBeInTheDocument();
+});
+it("separates customer and provider into different table columns", () => {
+  render(
+    <PaymentMonitoringClient
+      initialPage={page}
+      initialAttention={queue}
+    />,
+  );
+
+  const table = screen.getByRole("table", {
+    name: "Payment monitoring records",
+  });
+
+  expect(within(table).getByRole("columnheader", {
+    name: "Customer",
+  })).toBeInTheDocument();
+
+  expect(within(table).getByRole("columnheader", {
+    name: "Provider",
+  })).toBeInTheDocument();
+
+  expect(within(table).queryByRole("columnheader", {
+    name: "Customer / Provider",
+  })).not.toBeInTheDocument();
+
+  const dataRow = within(table).getAllByRole("row")[1];
+  const cells = within(dataRow).getAllByRole("cell");
+
+  expect(cells[2]).toHaveTextContent("Sophia");
+  expect(cells[2]).not.toHaveTextContent("Provider business");
+  expect(cells[3]).toHaveTextContent("Provider business");
+
+  expect(table.parentElement?.parentElement?.className)
+    .toContain("[&_td:last-child]:sticky");
+});
+
+it("formats payment dates on two lines in Philippine time", () => {
+  expect(formatPaymentTableDateParts(
+    "2026-10-13T03:27:00Z",
+  )).toEqual({
+    date: "Oct 13, 2026",
+    time: "11:27 AM",
+  });
+
+  expect(formatPaymentTableDateParts(null)).toBeNull();
+  expect(formatPaymentTableDateParts("invalid")).toBeNull();
+
+  render(
+    <PaymentMonitoringClient
+      initialPage={page}
+      initialAttention={queue}
+    />,
+  );
+
+  const table = screen.getByRole("table", {
+    name: "Payment monitoring records",
+  });
+
+  expect(within(table).getByText("Oct 1, 2026"))
+    .toBeInTheDocument();
+
+  expect(within(table).getByText("12:13 PM"))
+    .toBeInTheDocument();
+});
+it("keeps platform revenue out of payment monitoring", () => {
+  render(
+    <PaymentMonitoringClient
+      initialPage={page}
+      initialAttention={queue}
+    />,
+  );
+
+  expect(screen.queryByRole("region", {
+    name: "FEASTA earnings",
+  })).not.toBeInTheDocument();
+
+  expect(screen.queryByText("FEASTA Revenue"))
+    .not.toBeInTheDocument();
+
+  const statistics = screen.getByRole("region", {
+    name: "Payment statistics",
+  });
+
+  expect(within(statistics).getByText("Net customer payments"))
+    .toBeInTheDocument();
+
+  expect(within(statistics).getByText("₱20,000.00"))
+    .toBeInTheDocument();
 });
 it("has one overview, a labelled dialog, and collapsed technical history", async () => {
   render(<PaymentDetailsDrawer payment={payment} details={details} open loading={false} onRetry={vi.fn()} onOpenChange={vi.fn()} />);
@@ -121,7 +305,7 @@ it("keeps payout review and validated setup-repair actions", async () => {
 it("loading uses the same four primary cards", () => {
   render(<AdminPaymentsLoading />);
   const statistics = screen.getByRole("region", {name: "Loading payment statistics"});
-  for (const label of ["Paid amount", "Pending payments", "Failed payments", "Refunded amount"]) expect(within(statistics).getByText(label)).toBeInTheDocument();
+  for (const label of ["Net customer payments", "Pending payments", "Failed payments", "Refunded amount"]) expect(within(statistics).getByText(label)).toBeInTheDocument();
   expect(within(statistics).queryByText("Payments to review")).not.toBeInTheDocument();
   expect(within(statistics).queryByText("Failed provider payouts")).not.toBeInTheDocument();
 });

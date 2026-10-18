@@ -1093,3 +1093,6 @@ export {
 export {scheduleProviderDefaultCompensation} from "./provider-finance/provider-disbursement-compensation.js";
 
 export {retryFailedProviderDisbursement} from "./provider-finance/provider-disbursement-admin.js";
+export {verifyProviderSettlementTransport, invalidateProviderTransportOnProfileChange,
+  invalidateProviderTransportOnOwnerChange} from "./provider-finance/provider-transport-verification.js";
+export {getCustomerProviderCalendarAvailability} from "./provider-availability/get-customer-provider-calendar-availability.js";

@@ -92,11 +92,13 @@ describe("provider payout activation form", () => {
       />,
     );
 
-    expect(screen.getByRole("status")).toHaveTextContent(
+    const setupWarning = screen.getByText(/PayMongo could not start payout setup/u);
+    expect(setupWarning).toHaveAttribute("role", "status");
+    expect(setupWarning).toHaveTextContent(
       "PayMongo could not start payout setup",
     );
-    expect(screen.getByRole("status")).not.toHaveTextContent("PAYMONGO_SECRET_KEY");
-    expect(screen.getByRole("status")).not.toHaveTextContent("cannot call");
+    expect(setupWarning).not.toHaveTextContent("PAYMONGO_SECRET_KEY");
+    expect(setupWarning).not.toHaveTextContent("cannot call");
     expect(screen.getByText("Payout setup required")).toBeVisible();
 
     await user.click(screen.getByRole("button", {name: "Set up payouts"}));
@@ -154,8 +156,10 @@ describe("provider payout activation form", () => {
     await user.click(screen.getByRole("button", {name: "Refresh status"}));
 
     expect(await screen.findByText(
-      "Account linked - settlement transport unavailable",
+      "Account connected - payouts unavailable",
     )).toBeVisible();
+    expect(screen.getByText(/Payout transfers are currently unavailable/u)).toBeVisible();
+    await user.click(screen.getByText("View payout setup details"));
     expect(screen.getByText("Ready")).toBeVisible();
     expect(screen.queryByText("Payout setup required")).not.toBeInTheDocument();
   });

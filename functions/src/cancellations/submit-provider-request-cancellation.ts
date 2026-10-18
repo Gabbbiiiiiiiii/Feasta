@@ -1,3 +1,4 @@
+import {assertNewCancellationBeforeEnd} from "./cancellation-deadline.js";
 import {Timestamp} from "firebase-admin/firestore";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 
@@ -315,6 +316,7 @@ async function submitCancellation(input: {
       throw cancellationNotAllowed();
     }
 
+    assertNewCancellationBeforeEnd(providerRequest, mainEvent);
     assertCancellationSubmissionAllowed(
       providerRequestStatus,
     );
@@ -437,6 +439,8 @@ async function submitCancellation(input: {
         }
       : null;
 
+    // Recheck after asynchronous reads; transaction retries also use a fresh server clock.
+    assertNewCancellationBeforeEnd(providerRequest, mainEvent);
     transaction.create(cancellationReference, {
       schemaVersion: PROVIDER_REQUEST_CANCELLATION_SCHEMA_VERSION,
       mainEventId,

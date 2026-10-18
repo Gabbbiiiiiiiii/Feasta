@@ -183,7 +183,7 @@ function BookingDetailsDrawer({
             />
 
             <FinancialItem
-              label="Paid"
+              label="Net amount paid"
               value={booking.totalPaidAmount}
               tone="success"
             />
@@ -330,6 +330,26 @@ function BookingDetailsDrawer({
   );
 }
 
+function showAdminBookingPolicy(request: AdminBookingProviderRequest): boolean {
+  const policy = request.bookingPolicy;
+
+  if (!policy) return false;
+
+  // Historical refund allocations remain visible.
+  if (policy.allocation) return true;
+
+  // An inactive provider must not appear confirmed or upcoming.
+  if (["rejected", "cancelled", "expired"].includes(request.status)) {
+    return false;
+  }
+
+  // Do not label an unconfirmed request as confirmed.
+  if (policy.state === "upcoming") {
+    return ["confirmed", "in_progress", "completed"].includes(request.status);
+  }
+
+  return true;
+}
 function ProviderRequestCard({
   request,
 }: {
@@ -337,7 +357,9 @@ function ProviderRequestCard({
 }) {
   return (
     <article className="grid min-w-0 gap-3 rounded-card border border-border p-4">
-      <BookingPolicySummary policy={request.bookingPolicy} audience="admin" />
+      {showAdminBookingPolicy(request) ? (
+        <BookingPolicySummary policy={request.bookingPolicy} audience="admin" />
+      ) : null}
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-primary-tint text-primary-strong">

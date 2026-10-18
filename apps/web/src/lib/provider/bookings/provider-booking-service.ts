@@ -1,3 +1,4 @@
+import {lifecycleEvidence} from "@/lib/presentation/booking-lifecycle";
 import "server-only";
 import {bookingView, bookingMatchesView, bookingMatchesSecondary, bookingPaymentAttention, bookingScheduledStart, manilaDay} from "./provider-booking-projection";
 
@@ -401,6 +402,7 @@ function mapProviderBooking(
     providerId,
     customerId,
     providerRequestStatus: requestStatus,
+    lifecycle: {...lifecycleEvidence(request), cancellation: lifecycleEvidence(request).cancellation || lifecycleEvidence(mainEvent).cancellation, reconciliation: lifecycleEvidence(request).reconciliation || lifecycleEvidence(mainEvent).reconciliation},
     paymentAttention: bookingPaymentAttention(request, mainEvent, new Date()),
     automaticLifecycle: request.remainingBalanceTimingSchemaVersion === 3,
     bookingPolicy: bookingPolicyV3Presentation(request),
@@ -413,6 +415,7 @@ function mapProviderBooking(
     canCompleteEvent: requestStatus === "in_progress" && mainEventStatus === "in_progress" &&
       mapRefundEligibility(request, requestStatus, payment).evidenceStatus !== "invalid" &&
       !mapRefundEligibility(request, requestStatus, payment).activeCancellationLocked &&
+      !lifecycleEvidence(request).reconciliation && !lifecycleEvidence(mainEvent).reconciliation && !lifecycleEvidence(mainEvent).cancellation &&
       !balanceEnforcementBlocksActions(request) &&
       (!hasBookingSettlement(request) || projectBookingPayment(request) === "paid"),
     requestType,
@@ -470,7 +473,10 @@ function mapProviderBooking(
     ),
     cancellationReason: optionalText(request.cancellationReason, 500),
     cancellationActor: optionalText(request.cancellationActor, 80),
-    refundEligibility: mapRefundEligibility(request, requestStatus, payment),
+    refundEligibility: {...mapRefundEligibility(request, requestStatus, payment),
+      reconciliationLocked: mapRefundEligibility(request, requestStatus, payment).reconciliationLocked || lifecycleEvidence(mainEvent).reconciliation,
+      activeCancellationLocked: mapRefundEligibility(request, requestStatus, payment).activeCancellationLocked || lifecycleEvidence(mainEvent).cancellation,
+      canMarkPreparationStarted: mapRefundEligibility(request, requestStatus, payment).canMarkPreparationStarted && !lifecycleEvidence(mainEvent).reconciliation && !lifecycleEvidence(mainEvent).cancellation},
     timelineCount: null,
   };
 }
@@ -479,7 +485,7 @@ function canStartProviderEvent(request: DocumentData, mainEvent: DocumentData, s
   if (request.remainingBalanceTimingSchemaVersion === 3) return false;
   const eligibility = mapRefundEligibility(request, status, payment);
   if (status !== "confirmed" || !["confirmed", "in_progress"].includes(mainEvent.status) ||
-    eligibility.evidenceStatus === "invalid" || eligibility.activeCancellationLocked ||
+    eligibility.evidenceStatus === "invalid" || eligibility.activeCancellationLocked || eligibility.reconciliationLocked ||
     balanceEnforcementBlocksActions(request) ||
     (hasBookingSettlement(request) &&
       (request.settlementSchemaVersion !== 1 || projectBookingPayment(request) !== "paid"))) return false;
@@ -541,14 +547,15 @@ function mapRefundEligibility(
     return {
       evidenceStatus: "invalid",
       currentStage: null,
-      activeCancellationLocked: true,
+      activeCancellationLocked: lifecycleEvidence(request).cancellation,
+      reconciliationLocked: true,
       canMarkPreparationStarted: false,
     };
   }
 
   const cancellationLocked = activeCancellationId !== null || request.activeCancellationRequestId != null ||
-    request.approvedCancellationRequestId != null || request.refundExecutionLock != null ||
-    request.reconciliationRequired === true || request.lifecycleReconciliationRequired === true;
+    request.approvedCancellationRequestId != null;
+  const reconciliationLocked = lifecycleEvidence(request).reconciliation;
   const paymentReady = nonNegativeMoney(request.downPaymentAmount) === 0 || (
     request.paymentStatus === "paid" &&
     payment?.status === "paid" &&
@@ -559,10 +566,11 @@ function mapRefundEligibility(
     evidenceStatus: "policy_backed",
     currentStage: stage,
     activeCancellationLocked: cancellationLocked,
+    reconciliationLocked,
     canMarkPreparationStarted:
       request.remainingBalanceTimingSchemaVersion !== 3 &&
       stage === "preparation_not_started" &&
-      !cancellationLocked &&
+      !cancellationLocked && !reconciliationLocked &&
       requestStatus === "confirmed" &&
       !balanceEnforcementBlocksActions(request) &&
       paymentReady,

@@ -22,6 +22,7 @@ import {useLiveSearch} from "@/lib/search/use-live-search";
 import {SearchInput} from "@/components/forms/search-input";
 import {Select} from "@/components/ui/select";
 import {ProviderPackageCard} from "./provider-package-card";
+import {ProviderPackageResultsSkeleton} from "./provider-package-results-skeleton";
 import {
   ConfirmationDialog,
 } from "@/components/shared/confirmation-dialog";
@@ -456,19 +457,7 @@ export function ProviderPackagesClient({
       </div>
 
       {loading ? (
-        <div
-          aria-live="polite"
-          className="grid min-h-56 place-items-center rounded-xl border bg-card p-6"
-        >
-          <div className="flex items-center gap-3 text-sm text-muted-foreground">
-            <RefreshCw
-              aria-hidden="true"
-              className="size-4 animate-spin"
-            />
-
-            Loading packages…
-          </div>
-        </div>
+        <ProviderPackageResultsSkeleton />
       ) : !error ? (
         <section aria-label="Provider package results">
           {filteredPackages.length ? <div className="grid grid-cols-1 items-start gap-3 xl:grid-cols-2">

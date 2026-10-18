@@ -76,13 +76,9 @@ describe(
           2,
         );
 
-        expect(service).toContain(
-          '.where(\n          "paidOutAt",\n          ">=",',
-        );
+        expect(service).toMatch(/\.where\(\s*"paidOutAt"\s*,\s*">="\s*,/u);
 
-        expect(service).toContain(
-          '.where(\n          "paidAt",\n          ">=",',
-        );
+        expect(service).toMatch(/\.where\(\s*"paidAt"\s*,\s*">="\s*,/u);
 
         expect(
           service.match(

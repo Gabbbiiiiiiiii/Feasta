@@ -1,17 +1,17 @@
+import {isProviderOwnerAccountActive} from "../shared/constants.js";
+import {trustedScheduledEventEnd, automaticCompletionAt} from "../bookings/booking-completion-policy.js";
+import {assertCompletionEvidenceClear, assertCompletionSafetyInTransaction} from "../bookings/booking-completion-safety.js";
 import {Timestamp} from "firebase-admin/firestore";
 import {assertBalanceEnforcementAllowsProgress} from "../payments/remaining-balance-enforcement-domain.js";
 import {effectiveBookingStageV3, frozenBookingPolicyTimingV3} from "../bookings/booking-policy-v3.js";
 import {scheduledEventStart} from "../payments/canonical-balance-timing.js";
 
 export function assertV3CompletionTime(request: Readonly<Record<string, unknown>>, now: Date): void {
-  const start = frozenBookingPolicyTimingV3(request).eventStartAt;
-  const date = request.eventDate as {toDate?: () => Date} | null;
-  if (typeof request.eventEndTime !== "string" || typeof date?.toDate !== "function" || !Number.isFinite(now.getTime())) {
+  let end: Date;
+  try { end = trustedScheduledEventEnd(request); } catch {
     throw new HttpsError("failed-precondition", "The scheduled service completion time is invalid.");
   }
-  let end = scheduledEventStart(date.toDate(), request.eventEndTime);
-  if (end <= start) end = new Date(end.getTime() + 86_400_000);
-  if (now < end) throw new HttpsError("failed-precondition", "The scheduled service has not reached its completion time.");
+  if (!Number.isFinite(now.getTime()) || now < end) throw new HttpsError("failed-precondition", "The scheduled service has not reached its completion time.");
 }
 import {readTrustedProviderRequestPaymentSetInTransaction} from "../payments/provider-request-payment-reader.js";
 import {
@@ -162,6 +162,17 @@ async function updateProviderBookingLifecycle(
     },
   );
 
+  return executeProviderBookingLifecycle(providerRequestId, targetStatus, {kind: "provider", uid: actor.uid});
+}
+
+/** Internal server operation; callers cannot select system authority through callable data. */
+export async function executeProviderBookingLifecycle(
+  providerRequestId: string, targetStatus: LifecycleTarget,
+  actor: {kind: "provider"; uid: string} | {kind: "system"; uid: "feasta"},
+  // Capture once; transaction retries use the same completion/holding-period anchor.
+  completionInstant = new Date(),
+): Promise<LifecycleResult> {
+  if (actor.kind === "system" && targetStatus !== "completed") throw new Error("Invalid system operation.");
   try {
     const providerRequestReference = db
       .collection("providerRequests")
@@ -199,8 +210,6 @@ async function updateProviderBookingLifecycle(
     const mainEventReference = db
       .collection("mainEvents")
       .doc(mainEventId);
-    // Trusted server instant captured once; retries reuse the completion authority.
-    const completionInstant = new Date();
     const result = await db.runTransaction(
       async (transaction) => {
         const requestSnapshot =
@@ -251,9 +260,20 @@ async function updateProviderBookingLifecycle(
           transaction.get(mainEventReference),
           transaction.get(allRequestsQuery),
         ]);
+        if (actor.kind === "system" && requestData.providerOwnerId !== providerSnapshot.data()?.ownerId) {
+          throw new HttpsError("failed-precondition", "Completion ownership evidence is invalid.");
+        }
+        if (actor.kind === "system") {
+          const ownerId = providerSnapshot.data()?.ownerId;
+          if (typeof ownerId !== "string" || !ownerId) throw new HttpsError("failed-precondition", "Provider owner is unavailable.");
+          const owner = await transaction.get(db.collection("users").doc(ownerId));
+          if (!owner.exists || !isProviderOwnerAccountActive(providerId, owner.data()!)) {
+            throw new HttpsError("failed-precondition", "Provider owner is not eligible for automatic completion.");
+          }
+        }
         const authorized =
           authorizeProviderRequest({
-            actorUid: actor.uid,
+            actorUid: actor.kind === "system" ? String(providerSnapshot.data()?.ownerId ?? "") : actor.uid,
             providerRequestSnapshot:
               requestSnapshot,
             providerSnapshot,
@@ -316,14 +336,15 @@ async function updateProviderBookingLifecycle(
             authorized.requestData,
           );
 
-        if (evidenceClassification.status === "invalid") {
+        if (evidenceClassification.status === "invalid" ||
+          (actor.kind === "system" && evidenceClassification.status !== "policy_backed")) {
           throw policyEvidenceInvalid();
         }
 
         const eligibilityState =
           evidenceClassification.status === "policy_backed"
             ? requireRefundEligibilityState(
-                authorized.requestData,
+                authorized.requestData, completionInstant,
               )
             : null;
         const activeCancellationRequestId =
@@ -410,12 +431,20 @@ async function updateProviderBookingLifecycle(
 
         const v3 = authorized.requestData.remainingBalanceTimingSchemaVersion === 3;
         const effectiveStarted = v3 && effectiveBookingStageV3({request: authorized.requestData,
-          now: new Date(Date.now())}) === "service_started";
+          now: completionInstant}) === "service_started";
+        const canonicalCompletion = targetStatus === "completed" &&
+          ["financialSnapshot", "settlementSchemaVersion", "settlementStatus",
+            "grossSettledAmountInCentavos", "outstandingAmountInCentavos"]
+            .some(field => authorized.requestData[field] != null);
         if (v3) {
           frozenBookingPolicyTimingV3(authorized.requestData);
           assertBalanceEnforcementAllowsProgress(authorized.requestData);
           assertProviderRequestFullySettledForServiceStart(authorized.requestData);
           if (!effectiveStarted) throw new HttpsError("failed-precondition", "The booking cannot progress before its scheduled event start.");
+        }
+        if (v3 || canonicalCompletion) {
+          assertBalanceEnforcementAllowsProgress(authorized.requestData);
+          assertProviderRequestFullySettledForServiceStart(authorized.requestData);
           const paymentSet = await readTrustedProviderRequestPaymentSetInTransaction({transaction, providerRequestId,
             providerRequest: authorized.requestData, mainEventId, customerId: authorized.customerId, providerId,
             mainEvent, invalid: () => {throw new HttpsError("failed-precondition", "The booking's financial authority requires reconciliation.");}});
@@ -423,12 +452,27 @@ async function updateProviderBookingLifecycle(
             paymentSet.settlement.outstandingAmountInCentavos !== 0) {
             throw new HttpsError("failed-precondition", "The booking must be fully settled before progression.");
           }
+          if (targetStatus === "completed") {
+            if (!paymentSet.payments.length || paymentSet.payments.some(payment => payment.data.status !== "paid")) {
+              throw new HttpsError("failed-precondition", "Refunded or unresolved payments cannot authorize completion.");
+            }
+            for (const payment of paymentSet.payments) assertCompletionEvidenceClear(payment.data);
+          }
           if (!areAllAssignedProvidersAccepted(calculateMainEventRequestSummary(allRequestsSnapshot.docs, currentMainEventStatus))) {
             throw new HttpsError("failed-precondition", "Every assigned provider must accept before service starts.");
           }
-          if (targetStatus === "completed") {
-            assertV3CompletionTime(authorized.requestData, new Date(Date.now()));
+        }
+        if (targetStatus === "completed") {
+          assertV3CompletionTime(authorized.requestData, completionInstant);
+          if (actor.kind === "system" && (!v3 || completionInstant < automaticCompletionAt(authorized.requestData))) {
+            throw new HttpsError("failed-precondition", "Automatic completion is not due.");
           }
+          if ((actor.kind === "system" || v3 || canonicalCompletion) &&
+            (authorized.requestData.settlementSchemaVersion !== 1 ||
+            authorized.requestData.financialSnapshot?.providerDisbursementPolicyVersion !== 1)) {
+            throw new HttpsError("failed-precondition", "Completion requires the canonical disbursement contract; missing enrollment requires explicit reconciliation.");
+          }
+          await assertCompletionSafetyInTransaction(transaction, authorized.requestData, mainEvent, {providerRequestId, mainEventId});
         }
         assertLifecycleTransition(
           targetStatus === "completed" && effectiveStarted ? "in_progress" : authorized.status,
@@ -551,8 +595,10 @@ async function updateProviderBookingLifecycle(
           }
         } else {
           requestUpdate.completedAt = Timestamp.fromDate(completionInstant);
+          requestUpdate.completionSource = actor.kind === "system" ? "automatic_fallback" : "provider";
           if (v3) {
             requestUpdate.lifecycleNextTransitionAt = null;
+            requestUpdate.lifecycleReconciliationRequired = false;
             if (authorized.status === "confirmed") requestUpdate.startedAt = authorized.requestData.eventStartAt;
             if (eligibilityState) requestUpdate.refundEligibilityState = eligibilityState;
           }
@@ -609,6 +655,7 @@ async function updateProviderBookingLifecycle(
             .doc(),
           timelineEntry({
             actorUid: actor.uid,
+            automatic: actor.kind === "system",
             providerId,
             providerRequestId,
             targetStatus,
@@ -621,20 +668,25 @@ async function updateProviderBookingLifecycle(
           customerNotification({
             customerId:
               authorized.customerId,
+            automatic: actor.kind === "system",
             providerRequestId,
             targetStatus,
           }),
         );
 
+        if (actor.kind === "system") createNotificationInTransaction(transaction, {
+          ...customerNotification({customerId: authorized.providerOwnerId, providerRequestId, targetStatus, automatic: true}),
+        });
+
         writeAuditLogInTransaction(
           transaction,
           {
             actorId: actor.uid,
-            actorRole: "provider",
+            actorRole: actor.kind,
             action:
               targetStatus === "in_progress"
                 ? "provider_request.in_progress"
-                : "provider_request.completed",
+                : actor.kind === "system" ? "booking.completion_automatic" : "provider_request.completed",
             targetCollection:
               "providerRequests",
             targetId: providerRequestId,
@@ -651,6 +703,9 @@ async function updateProviderBookingLifecycle(
             metadata: {
               mainEventId,
               providerId,
+              completionSource: actor.kind === "system" ? "automatic_fallback" : "provider",
+              ...(actor.kind === "system" ? {scheduledEventEndAt: trustedScheduledEventEnd(authorized.requestData).toISOString(),
+                fallbackEligibleAt: automaticCompletionAt(authorized.requestData).toISOString()} : {}),
             },
           },
         );
@@ -819,6 +874,7 @@ function assertIdempotentParentStatus(
 
 function timelineEntry(input: {
   actorUid: string;
+  automatic?: boolean;
   providerId: string;
   providerRequestId: string;
   targetStatus: LifecycleTarget;
@@ -834,19 +890,20 @@ function timelineEntry(input: {
       ? "Provider Service Completed"
       : "Provider Service In Progress",
     description: completed
-      ? "A provider marked the requested service as completed."
+      ? input.automatic ? "FEASTA automatically completed the service 24 hours after its scheduled end." : "A provider marked the requested service as completed."
       : "A provider started fulfilling the requested service.",
     providerRequestId:
       input.providerRequestId,
     providerId: input.providerId,
     createdBy: input.actorUid,
-    createdByRole: "provider",
+    createdByRole: input.automatic ? "system" : "provider",
     createdAt: serverTimestamp(),
   };
 }
 
 function customerNotification(input: {
   customerId: string;
+  automatic?: boolean;
   providerRequestId: string;
   targetStatus: LifecycleTarget;
 }): Parameters<
@@ -861,7 +918,7 @@ function customerNotification(input: {
       ? "Provider Service Completed"
       : "Provider Service Started",
     message: completed
-      ? "A provider marked your requested service as completed."
+      ? input.automatic ? "FEASTA automatically completed your service 24 hours after its scheduled end." : "A provider marked your requested service as completed."
       : "A provider started fulfilling your requested service.",
     type: "booking",
     relatedId: input.providerRequestId,
@@ -870,6 +927,8 @@ function customerNotification(input: {
     metadata: {
       providerRequestStatus:
         input.targetStatus,
+      completionSource: input.automatic ? "automatic_fallback" : "provider",
+      createdByRole: input.automatic ? "system" : "provider",
     },
   };
 }

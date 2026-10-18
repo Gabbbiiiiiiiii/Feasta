@@ -70,13 +70,43 @@ test("trusted owner and lifecycle fields are backend-derived", () => {
   assert.ok(!registration.match(/input\.isActive/u));
 });
 
-test("provider consent timestamps are server generated", () => {
-  assert.ok(identity.includes("acceptedTerms"));
-  assert.ok(identity.includes("acceptedPrivacy"));
-  assert.ok(identity.includes("termsAcceptedAt: serverTimestamp()"));
-  assert.ok(identity.includes("privacyAcceptedAt: serverTimestamp()"));
-  assert.ok(!identity.includes("input.termsAcceptedAt"));
-  assert.ok(!identity.includes("input.privacyAcceptedAt"));
+test("provider consent timestamps are server generated and preserve historical evidence", () => {
+  const {providerPolicyConsentPatch} = require("../lib/auth/provider-policy-consent.js");
+  const {serverTimestamp} = require("../lib/shared/timestamps.js");
+  const input = {acceptedTerms: true, acceptedPrivacy: true,
+    termsPolicyVersion: "terms-current", privacyPolicyVersion: "privacy-current",
+    termsAcceptedAt: "browser-forged", privacyAcceptedAt: "browser-forged"};
+  const current = {terms: "terms-current", privacy: "privacy-current"};
+  const patch = providerPolicyConsentPatch(null, input, current, serverTimestamp);
+  assert.ok(patch.termsAcceptedAt.isEqual(serverTimestamp()));
+  assert.ok(patch.privacyAcceptedAt.isEqual(serverTimestamp()));
+  assert.equal(patch.termsPolicyVersion, current.terms);
+  assert.equal(patch.privacyPolicyVersion, current.privacy);
+
+  const existing = {termsAcceptedAt: {seconds: 1}, privacyAcceptedAt: {seconds: 2},
+    termsPolicyVersion: "unversioned", privacyPolicyVersion: "older-policy"};
+  const before = structuredClone(existing);
+  assert.deepEqual(providerPolicyConsentPatch(existing, input, current,
+    () => {throw new Error("Historical consent must not be restamped");}), {});
+  assert.deepEqual(existing, before);
+  assert.deepEqual(providerPolicyConsentPatch({termsAcceptedAt: existing.termsAcceptedAt},
+    input, current, () => "server-generated"), {
+    privacyAcceptedAt: "server-generated", privacyPolicyVersion: current.privacy,
+  });
+  for (const invalid of [
+    {...input, acceptedTerms: false}, {...input, acceptedPrivacy: false},
+    {...input, termsPolicyVersion: "stale"}, {...input, privacyPolicyVersion: "unversioned"},
+  ]) assert.throws(() => providerPolicyConsentPatch(null, invalid, current, serverTimestamp),
+    (error) => error.code === "failed-precondition");
+
+  // Verify the callable supplies the server factory and writes the derived patch
+  // for both identity creation and update; timestamp fields are not accepted inputs.
+  assert.match(identity, /providerPolicyConsentPatch\([\s\S]*?serverTimestamp,?\s*\)/u);
+  assert.equal((identity.match(/\.\.\.consentPatch/gu) ?? []).length, 2);
+  const allowed = identity.match(/rejectUnknownFields\(input, \[([\s\S]*?)\]\)/u)?.[1];
+  assert.ok(allowed);
+  assert.doesNotMatch(allowed, /termsAcceptedAt|privacyAcceptedAt/u);
+  assert.doesNotMatch(identity, /input\.(termsAcceptedAt|privacyAcceptedAt)/u);
 });
 
 test("onboarding drafts are server-owned, sequential, and resumable", () => {
