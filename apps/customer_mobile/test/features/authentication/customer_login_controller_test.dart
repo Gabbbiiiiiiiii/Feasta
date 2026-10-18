@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:feasta/features/authentication/domain/google_consent.dart';
 
 import 'package:feasta/features/authentication/application/customer_login_controller.dart';
 import 'package:feasta/features/authentication/domain/customer_login.dart';
@@ -8,6 +9,43 @@ const _testCredential = 'secret1';
 const _spacedTestCredential = ' secret ';
 
 void main() {
+  test(
+    'native selection disables duplicate taps without a loader; selection starts loading',
+    () async {
+      final gateway = PhasedLoginGateway();
+      final controller = CustomerLoginController(gateway: gateway);
+      final result = controller.signInWithGoogle();
+      expect(controller.state.isSubmitting, isTrue);
+      expect(controller.state.selectingGoogleAccount, isTrue);
+      expect(controller.state.showsSignInLoading, isFalse);
+      expect(await controller.signInWithGoogle(), isNull);
+      expect(gateway.calls, 1);
+      gateway.onSelected();
+      expect(controller.state.showsSignInLoading, isTrue);
+      gateway.release();
+      expect(await result, isNotNull);
+      expect(controller.state.isSubmitting, isFalse);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'Google tap hands off exact independent versions and clears on next attempt',
+    () async {
+      final gateway = FakeLoginGateway();
+      final controller = CustomerLoginController(gateway: gateway);
+      final consent = GoogleConsent([
+        {'version': ' terms-7 '},
+        {'version': 'privacy-19'},
+      ]);
+      await controller.signInWithGoogle(consent: consent);
+      expect(gateway.consent?.termsVersion, ' terms-7 ');
+      expect(gateway.consent?.privacyVersion, 'privacy-19');
+      await controller.signInWithGoogle();
+      expect(gateway.consent, isNull);
+    },
+  );
+
   test('correct email login is normalized without changing password', () async {
     final gateway = FakeLoginGateway();
     final result = await CustomerLoginController(gateway: gateway)
@@ -56,7 +94,7 @@ void main() {
     );
     expect(await cancelled.signInWithGoogle(), isNull);
     expect(cancelled.state.generalError, isNull);
-    expect(cancelled.state.notice, contains('cancelled'));
+    expect(cancelled.state.notice, isNull);
   });
 
   for (final entry in <CustomerLoginFailureKind, String>{
@@ -96,7 +134,13 @@ void main() {
   });
 }
 
-class FakeLoginGateway implements CustomerLoginGateway {
+class FakeLoginGateway implements CustomerLoginGateway, GoogleConsentGateway {
+  GoogleConsent? consent;
+  @override
+  void stageGoogleConsent(GoogleConsent? value) {
+    consent = value;
+  }
+
   FakeLoginGateway({
     this.failure,
     this.block = false,
@@ -136,4 +180,17 @@ class FakeLoginGateway implements CustomerLoginGateway {
 
   @override
   Future<CustomerLoginResult> signInWithGoogle() => _result();
+}
+
+class PhasedLoginGateway extends FakeLoginGateway
+    implements PhasedGoogleLoginGateway {
+  PhasedLoginGateway() : super(block: true);
+  late void Function() onSelected;
+  @override
+  Future<CustomerLoginResult> signInWithGooglePhased({
+    required void Function() onAccountSelected,
+  }) {
+    onSelected = onAccountSelected;
+    return super.signInWithGoogle();
+  }
 }

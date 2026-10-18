@@ -1,3 +1,4 @@
+import '../../../../core/security/auth_timing.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -10,6 +11,7 @@ import '../../../../core/constants/firestore_collections.dart';
 import '../../../../core/security/secure_debug_log.dart';
 import '../../../../core/enums/enums.dart';
 import '../../domain/auth_account_state.dart';
+import '../../domain/google_consent.dart';
 import '../services/customer_profile_bootstrap.dart';
 
 class CustomerAuthIdentity {
@@ -97,10 +99,21 @@ class FirebaseCustomerAuthStateRepository
        _call =
            callable ??
            ((name, data) async {
-             await (functions ??
-                     FirebaseFunctions.instanceFor(region: 'asia-southeast1'))
-                 .httpsCallable(name)
-                 .call<void>(data);
+             try {
+               await (functions ??
+                       FirebaseFunctions.instanceFor(region: 'asia-southeast1'))
+                   .httpsCallable(name)
+                   .call<void>(data);
+             } on FirebaseFunctionsException catch (error) {
+               // Debug-only: no user IDs, emails, exception messages, or tokens.
+               secureDebugLog('FEASTA_AUTH_CALL name=$name code=${error.code}');
+               rethrow;
+             } catch (error) {
+               secureDebugLog(
+                 'FEASTA_AUTH_CALL name=$name exceptionType=${error.runtimeType}',
+               );
+               rethrow;
+             }
            }) {
     // The first restored-session replay is not an identity transition.
     _observedUid = _auth.currentUser?.uid;
@@ -189,7 +202,9 @@ class FirebaseCustomerAuthStateRepository
     required bool forceTokenRefresh,
   }) {
     final generation = _sessionGeneration;
+    final queued = AuthTiming.start();
     return AuthOperationCoordinator.shared.run(() {
+      AuthTiming.finish('authorization_queue_wait', queued);
       if (generation != _sessionGeneration) {
         throw const CustomerAuthLoadFailure(CustomerAuthLoadFailureKind.server);
       }
@@ -221,7 +236,7 @@ class FirebaseCustomerAuthStateRepository
         );
       }
 
-      await user.reload();
+      await AuthTiming.measure('firebase_user_reload', user.reload);
 
       final refreshedUser = _auth.currentUser;
 
@@ -232,7 +247,10 @@ class FirebaseCustomerAuthStateRepository
       }
 
       checkCurrent();
-      await refreshedUser.getIdToken(forceTokenRefresh);
+      await AuthTiming.measure(
+        'firebase_token_preparation',
+        () => refreshedUser.getIdToken(forceTokenRefresh),
+      );
 
       final latestUser = _auth.currentUser;
 
@@ -244,18 +262,38 @@ class FirebaseCustomerAuthStateRepository
 
       checkCurrent();
       if (_bootstrappedUid != identity.uid) {
+        final accepted = PendingGoogleConsent.take(identity.uid);
         await CustomerProfileBootstrap(
-          call: _call,
+          call: (name, data) async {
+            checkCurrent();
+            await AuthTiming.measure(
+              'protected_callable_$name',
+              () => _call(
+                name,
+                name == 'ensureUserProfile' && accepted != null
+                    ? {
+                        'acceptedTerms': true,
+                        'acceptedPrivacy': true,
+                        'termsPolicyVersion': accepted.termsVersion,
+                        'privacyPolicyVersion': accepted.privacyVersion,
+                      }
+                    : data,
+              ),
+            );
+          },
           checkCurrent: () => checkCurrent(),
         ).synchronize();
         checkCurrent();
         _bootstrappedUid = identity.uid;
       }
 
-      final userSnapshot = await _firestore
-          .collection(FirestoreCollections.users)
-          .doc(identity.uid)
-          .get();
+      final userSnapshot = await AuthTiming.measure(
+        'firestore_user_authorization_profile',
+        () => _firestore
+            .collection(FirestoreCollections.users)
+            .doc(identity.uid)
+            .get(),
+      );
 
       checkCurrent();
       final userData = userSnapshot.data();
@@ -288,19 +326,28 @@ class FirebaseCustomerAuthStateRepository
       if (prerequisite.kind == AuthenticationGateKind.customerReady ||
           prerequisite.kind ==
               AuthenticationGateKind.customerPhoneVerificationRequired) {
-        final customerSnapshot = await _firestore
-            .collection(FirestoreCollections.customers)
-            .doc(identity.uid)
-            .get();
+        final customerSnapshot = await AuthTiming.measure(
+          'firestore_customer_profile',
+          () => _firestore
+              .collection(FirestoreCollections.customers)
+              .doc(identity.uid)
+              .get(),
+        );
 
         checkCurrent();
         if (!customerSnapshot.exists) {
-          await _call('ensureUserProfile', const <String, dynamic>{});
+          await AuthTiming.measure(
+            'protected_callable_profile_repair',
+            () => _call('ensureUserProfile', const <String, dynamic>{}),
+          );
           checkCurrent();
-          final repaired = await _firestore
-              .collection(FirestoreCollections.customers)
-              .doc(identity.uid)
-              .get();
+          final repaired = await AuthTiming.measure(
+            'firestore_repaired_customer_profile',
+            () => _firestore
+                .collection(FirestoreCollections.customers)
+                .doc(identity.uid)
+                .get(),
+          );
           checkCurrent();
           if (!repaired.exists) {
             throw const CustomerAuthLoadFailure(
@@ -434,6 +481,7 @@ class FirebaseCustomerAuthStateRepository
   static CustomerAuthLoadFailureKind _firebaseFailureKind(String code) {
     return switch (code) {
       'permission-denied' => CustomerAuthLoadFailureKind.accountAccess,
+      'unauthenticated' => CustomerAuthLoadFailureKind.sessionExpired,
       'unavailable' ||
       'deadline-exceeded' => CustomerAuthLoadFailureKind.network,
       'failed-precondition' => CustomerAuthLoadFailureKind.configuration,

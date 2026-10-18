@@ -39,3 +39,10 @@ abstract interface class CustomerLoginGateway {
 
   Future<CustomerLoginResult> signInWithGoogle();
 }
+
+/// Reports native account selection before Firebase credentials are exchanged.
+abstract interface class PhasedGoogleLoginGateway {
+  Future<CustomerLoginResult> signInWithGooglePhased({
+    required void Function() onAccountSelected,
+  });
+}

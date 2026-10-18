@@ -46,7 +46,7 @@ void main() {
     await tester.pumpWidget(harness.widget());
 
     expect(find.byType(SplashScreen), findsOneWidget);
-    expect(find.text('Feasta'), findsOneWidget);
+    expect(find.bySemanticsLabel('FEASTA logo'), findsOneWidget);
     await harness.dispose();
   });
 
@@ -77,7 +77,7 @@ void main() {
     await harness.dispose();
   });
 
-  testWidgets('transient profile failure displays retry and recovers', (
+  testWidgets('transient profile failure recovers automatically', (
     tester,
   ) async {
     final harness = GateHarness();
@@ -88,9 +88,7 @@ void main() {
     harness.repository.emitAuth(widgetIdentity);
     await tester.pumpAndSettle();
 
-    expect(find.text('You appear to be offline'), findsOneWidget);
-    await tester.tap(find.text('Try again'));
-    await tester.pumpAndSettle();
+    expect(find.text('You appear to be offline'), findsNothing);
     expect(find.textContaining('customer destination:'), findsOneWidget);
     await harness.dispose();
   });

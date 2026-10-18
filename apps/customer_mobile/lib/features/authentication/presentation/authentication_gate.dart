@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../app/router/customer_route_guard.dart';
 import '../../../core/widgets/widgets.dart';
+import '../../../core/theme/app_colors.dart';
+import '../../../core/theme/app_spacing.dart';
 import '../../customer/customer_main_screen.dart';
 import '../../presentation/screens/email_verification_screen.dart';
 import '../../presentation/screens/login_screen.dart';
@@ -9,6 +11,7 @@ import '../../presentation/screens/legal_document_screen.dart';
 import '../../splash/splash_screen.dart';
 import '../application/customer_auth_controller.dart';
 import 'customer_consent_screen.dart';
+import 'authentication_loading.dart';
 import '../domain/auth_account_presentation.dart';
 import '../domain/auth_account_state.dart';
 
@@ -18,7 +21,7 @@ typedef AuthenticationGateBuilder =
       CustomerAuthenticationController controller,
     );
 
-class AuthenticationGate extends StatelessWidget {
+class AuthenticationGate extends StatefulWidget {
   const AuthenticationGate({
     required this.controller,
     this.publicBuilder,
@@ -38,11 +41,38 @@ class AuthenticationGate extends StatelessWidget {
   final LegalDocumentLoader consentDocumentLoader;
 
   @override
+  State<AuthenticationGate> createState() => _AuthenticationGateState();
+}
+
+class _AuthenticationGateState extends State<AuthenticationGate> {
+  Widget? stableBackground;
+  CustomerAuthenticationController get controller => widget.controller;
+  AuthenticationGateBuilder? get publicBuilder => widget.publicBuilder;
+  AuthenticationGateBuilder? get customerBuilder => widget.customerBuilder;
+  AuthenticationGateBuilder? get loginBuilder => widget.loginBuilder;
+  AuthenticationGateBuilder? get verificationBuilder =>
+      widget.verificationBuilder;
+  LegalDocumentLoader get consentDocumentLoader => widget.consentDocumentLoader;
+
+  @override
+  void didUpdateWidget(AuthenticationGate oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != controller) stableBackground = null;
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        return _buildState(context);
+        if (controller.modalSignInActive &&
+            !controller.signingOut &&
+            stableBackground != null) {
+          return stableBackground!;
+        }
+        final background = _buildState(context);
+        stableBackground = background;
+        return background;
       },
     );
   }
@@ -99,6 +129,7 @@ class AuthenticationGate extends StatelessWidget {
         key: const ValueKey('authentication-transient-error'),
         child: _RecoveryActions(
           controller: controller,
+          cancelLabel: 'Cancel sign-in and browse',
           child: FeastaApplicationErrorState(
             kind: state.failure == CustomerAuthenticationFailureKind.network
                 ? FeastaErrorKind.connectivity
@@ -118,27 +149,35 @@ class AuthenticationGate extends StatelessWidget {
     // LOADING
     //
     if (kind == AuthenticationGateKind.loading) {
+      if (controller.currentIdentity == null && !controller.signingOut) {
+        return const SplashScreen();
+      }
       return Scaffold(
         key: const ValueKey('authentication-loading'),
-        body: Stack(
-          children: [
-            const SplashScreen(),
-            if (controller.currentIdentity != null)
-              SafeArea(
-                child: Align(
-                  alignment: Alignment.bottomCenter,
-                  child: TextButton(
-                    onPressed: controller.signingOut
-                        ? null
-                        : controller.signOut,
-                    child: Text(
-                      controller.signingOut ? 'Signing out…' : 'Cancel sign-in',
+        backgroundColor: AppColors.background,
+        body: controller.modalSignInActive
+            ? const SizedBox.shrink()
+            : SafeArea(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        AuthenticationLoading(
+                          signingOut: controller.signingOut,
+                        ),
+                        if (!controller.signingOut)
+                          TextButton(
+                            key: const Key('restoration-sign-out'),
+                            onPressed: controller.signOut,
+                            child: const Text('Sign out and browse'),
+                          ),
+                      ],
                     ),
                   ),
                 ),
               ),
-          ],
-        ),
       );
     }
 
@@ -214,7 +253,7 @@ class AuthenticationGate extends StatelessWidget {
         );
       }
 
-      final intended = controller.consumeIntendedLocation();
+      final intended = controller.intendedLocation;
 
       //
       // IMPORTANT:
@@ -300,6 +339,7 @@ class AuthenticationGate extends StatelessWidget {
     return switch (location) {
       CustomerAppLocations.bookings => 2,
       CustomerAppLocations.favorites => 3,
+      CustomerAppLocations.messages => 3,
       CustomerAppLocations.account => 4,
       _ => 0,
     };
@@ -307,9 +347,14 @@ class AuthenticationGate extends StatelessWidget {
 }
 
 class _RecoveryActions extends StatelessWidget {
-  const _RecoveryActions({required this.controller, required this.child});
+  const _RecoveryActions({
+    required this.controller,
+    required this.child,
+    this.cancelLabel = 'Sign out and browse as guest',
+  });
   final CustomerAuthenticationController controller;
   final Widget child;
+  final String cancelLabel;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -318,7 +363,7 @@ class _RecoveryActions extends StatelessWidget {
       child,
       TextButton(
         onPressed: controller.signingOut ? null : controller.signOut,
-        child: const Text('Sign out and browse as guest'),
+        child: Text(cancelLabel),
       ),
     ],
   );

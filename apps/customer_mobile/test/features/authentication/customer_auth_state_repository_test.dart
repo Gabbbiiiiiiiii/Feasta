@@ -2,6 +2,8 @@
 // ignore_for_file: subtype_of_sealed_class
 
 import 'dart:async';
+import 'package:feasta/core/security/auth_operation_coordinator.dart';
+import 'package:feasta/features/authentication/domain/google_consent.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -113,6 +115,59 @@ class TestSnapshot extends Fake
 }
 
 void main() {
+  tearDown(PendingGoogleConsent.clear);
+  for (final existing in [true, false]) {
+    test(
+      'Google consent only provisions missing profile: existing=$existing',
+      () async {
+        PendingGoogleConsent.uid = 'one';
+        PendingGoogleConsent.epoch = AuthOperationCoordinator.shared.epoch;
+        PendingGoogleConsent.consent = GoogleConsent([
+          {'version': ' terms-7 '},
+          {'version': 'privacy-19'},
+        ]);
+        final calls = <String>[];
+        final store = TestStore();
+        store.documents['users/one'] = profile;
+        store.documents['customers/one'] = {};
+        final repository = FirebaseCustomerAuthStateRepository(
+          auth: TestAuth(),
+          firestore: store,
+          callable: (name, data) async {
+            calls.add(name);
+            if (name == 'syncUserAuthState') {
+              expect(data, isNull);
+              if (!existing) {
+                throw FirebaseFunctionsException(
+                  code: 'not-found',
+                  message: 'User profile was not found.',
+                );
+              }
+            } else {
+              expect(data, {
+                'acceptedTerms': true,
+                'acceptedPrivacy': true,
+                'termsPolicyVersion': ' terms-7 ',
+                'privacyPolicyVersion': 'privacy-19',
+              });
+            }
+          },
+        );
+        await repository.loadAccount(
+          identity: identity,
+          forceTokenRefresh: false,
+        );
+        expect(
+          calls,
+          existing
+              ? ['syncUserAuthState']
+              : ['syncUserAuthState', 'ensureUserProfile'],
+        );
+        expect(PendingGoogleConsent.consent, isNull);
+      },
+    );
+  }
+
   for (final entry in [
     (
       'failed-precondition',

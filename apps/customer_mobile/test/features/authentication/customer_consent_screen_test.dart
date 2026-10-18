@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('requires both explicit acceptances; decline never accepts', (
+  testWidgets('compact affirmative action; decline never accepts', (
     tester,
   ) async {
     var accepts = 0;
@@ -36,20 +36,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
-      isNull,
+      isNotNull,
     );
     await tester.tap(find.text('Cancel sign-in'));
     expect(declines, 1);
     expect(accepts, 0);
-    await tester.tap(find.byType(CheckboxListTile).first);
-    await tester.pump();
-    expect(
-      tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
-      isNull,
-    );
-    await tester.tap(find.byType(CheckboxListTile).last);
-    await tester.pump();
-    await tester.tap(find.text('Accept and continue'));
+    expect(find.byType(CheckboxListTile), findsNothing);
+    expect(find.text('Current text'), findsNothing);
+    await tester.tap(find.text('Agree and continue'));
     await tester.pumpAndSettle();
     expect(accepts, 1);
   });
@@ -95,19 +89,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
-        isNull,
+        isNotNull,
       );
-      expect(
-        tester
-            .widgetList<CheckboxListTile>(find.byType(CheckboxListTile))
-            .every((tile) => tile.value == false),
-        isTrue,
-      );
-      await tester.tap(find.byType(CheckboxListTile).first);
-      await tester.pump();
-      await tester.tap(find.byType(CheckboxListTile).last);
-      await tester.pump();
-      await tester.tap(find.text('Accept and continue'));
+      expect(find.byType(CheckboxListTile), findsNothing);
+      await tester.tap(find.text('Agree and continue'));
       await tester.pumpAndSettle();
       expect(submitted, versions);
     });
@@ -203,10 +188,10 @@ void main() {
       failLoad = false;
       await tester.tap(find.text('Retry policies'));
       await tester.pumpAndSettle();
-      expect(find.byType(CheckboxListTile), findsNWidgets(2));
+      expect(find.byType(CheckboxListTile), findsNothing);
       expect(
         tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
-        isNull,
+        isNotNull,
       );
     });
   }
@@ -235,7 +220,7 @@ void main() {
     expect(find.text('Version 1.2'), findsNWidgets(2));
     expect(
       tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
-      isNull,
+      isNotNull,
     );
   });
   testWidgets('cancellation during loading never accepts late completion', (

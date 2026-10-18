@@ -19,6 +19,7 @@ abstract final class CustomerAppLocations {
   static const protectedLocations = {
     customer,
     bookings,
+    messages,
     favorites,
     account,
     booking,

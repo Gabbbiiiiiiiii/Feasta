@@ -1,3 +1,4 @@
+import '../../../core/security/auth_timing.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -47,7 +48,14 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
   CustomerAuthenticationState get state => _state;
   CustomerAuthIdentity? get currentIdentity => repository.currentIdentity;
+  bool modalSignInActive = false;
+  void endModalSignIn() {
+    modalSignInActive = false;
+    if (!_disposed) notifyListeners();
+  }
+
   bool get signingOut => _signingOut;
+  bool get loadingAccount => _activeLoad != null;
 
   String _intendedLocation;
 
@@ -64,6 +72,9 @@ class CustomerAuthenticationController extends ChangeNotifier {
   Future<void>? _activeLoad;
 
   bool _reloadQueued = false;
+  bool _initialAuthSeen = false;
+  bool _initialTokenSeen = false;
+  bool _recoveryExhausted = false;
   bool _forceRefreshQueued = false;
   bool _started = false;
   bool _signingOut = false;
@@ -84,7 +95,8 @@ class CustomerAuthenticationController extends ChangeNotifier {
     );
 
     _tokenSubscription = repository.idTokenChanges().listen(
-      (identity) => _handleIdentity(identity, forceTokenRefresh: false),
+      (identity) =>
+          _handleIdentity(identity, forceTokenRefresh: false, tokenEvent: true),
       onError: (_) =>
           _setTransientFailure(CustomerAuthenticationFailureKind.network),
     );
@@ -131,7 +143,8 @@ class CustomerAuthenticationController extends ChangeNotifier {
   }
 
   Future<void> refresh({bool forceTokenRefresh = true}) async {
-    if (_signingOut) return;
+    if (_signingOut || _disposed) return;
+    _recoveryExhausted = false;
     final identity = repository.currentIdentity;
 
     if (identity == null) {
@@ -156,6 +169,7 @@ class CustomerAuthenticationController extends ChangeNotifier {
     _identity = identity;
 
     if (identityChanged) {
+      _recoveryExhausted = false;
       _consentRequired = false;
       _identityGeneration++;
       unawaited(_accountSubscription?.cancel());
@@ -194,7 +208,7 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
     try {
       // Invalidate repository work before awaiting listener cancellation.
-      await repository.signOut();
+      await repository.signOut().timeout(const Duration(seconds: 15));
     } catch (_) {
       _signingOut = false;
       _identity = repository.currentIdentity;
@@ -235,11 +249,14 @@ class CustomerAuthenticationController extends ChangeNotifier {
   void _handleIdentity(
     CustomerAuthIdentity? identity, {
     required bool forceTokenRefresh,
+    bool tokenEvent = false,
   }) {
     if (_signingOut) return;
     if (identity == null) {
       _consentRequired = false;
       _identity = null;
+      _initialAuthSeen = false;
+      _initialTokenSeen = false;
 
       _identityGeneration++;
 
@@ -266,9 +283,31 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
     final identityChanged = _identity?.uid != identity.uid;
 
+    final sameVerification = _identity?.emailVerified == identity.emailVerified;
+    if (identityChanged) {
+      _initialAuthSeen = false;
+      _initialTokenSeen = false;
+    }
+    final initialReplay = tokenEvent ? !_initialTokenSeen : !_initialAuthSeen;
+    if (tokenEvent) {
+      _initialTokenSeen = true;
+    } else {
+      _initialAuthSeen = true;
+    }
     _identity = identity;
+    // authStateChanges and idTokenChanges both replay the new session. Join
+    // that first matching replay only. Subsequent token/profile changes still
+    // queue a fresh authorization pass, even during an active load.
+    if (!identityChanged &&
+        sameVerification &&
+        initialReplay &&
+        !forceTokenRefresh &&
+        _activeLoad != null) {
+      return;
+    }
 
     if (identityChanged) {
+      _recoveryExhausted = false;
       _consentRequired = false;
       _identityGeneration++;
 
@@ -283,7 +322,7 @@ class CustomerAuthenticationController extends ChangeNotifier {
       );
     }
 
-    if (!_consentRequired) {
+    if (!_consentRequired && !_recoveryExhausted) {
       unawaited(_requestLoad(forceTokenRefresh: forceTokenRefresh));
     }
   }
@@ -297,14 +336,14 @@ class CustomerAuthenticationController extends ChangeNotifier {
         .accountChanges(uid)
         .listen(
           (_) {
-            if (!_isCurrent(uid, generation)) {
+            if (!_isCurrent(uid, generation) || _recoveryExhausted) {
               return;
             }
 
             unawaited(_requestLoad(forceTokenRefresh: false));
           },
           onError: (Object error, StackTrace stackTrace) {
-            if (!_isCurrent(uid, generation)) {
+            if (!_isCurrent(uid, generation) || _recoveryExhausted) {
               return;
             }
 
@@ -330,6 +369,7 @@ class CustomerAuthenticationController extends ChangeNotifier {
   }
 
   Future<void> _drainLoads() async {
+    var recoveryAttempts = 0;
     try {
       do {
         _reloadQueued = false;
@@ -339,9 +379,45 @@ class CustomerAuthenticationController extends ChangeNotifier {
         _forceRefreshQueued = false;
 
         await _performLoad(forceTokenRefresh: forceTokenRefresh);
+        final failure = state.failure;
+        if (recoveryAttempts >= 2 &&
+            (failure == CustomerAuthenticationFailureKind.network ||
+                failure == CustomerAuthenticationFailureKind.server)) {
+          _recoveryExhausted = true;
+          _reloadQueued = false;
+        }
+        if (_preserveTerminalState ||
+            failure == CustomerAuthenticationFailureKind.accountAccess ||
+            failure == CustomerAuthenticationFailureKind.callableAccess) {
+          _reloadQueued = false;
+        }
+        if (!_disposed &&
+            !_preserveTerminalState &&
+            _identity != null &&
+            (failure == CustomerAuthenticationFailureKind.network ||
+                failure == CustomerAuthenticationFailureKind.server) &&
+            recoveryAttempts < 2) {
+          final generation = _identityGeneration;
+          recoveryAttempts++;
+          _setState(
+            CustomerAuthenticationState(
+              gate: const AuthenticationGateResult(
+                AuthenticationGateKind.loading,
+              ),
+              email: _identity?.email,
+            ),
+          );
+          await Future<void>.delayed(
+            Duration(milliseconds: 400 * recoveryAttempts),
+          );
+          if (_disposed || _identity == null) break;
+          if (generation != _identityGeneration) recoveryAttempts = 0;
+          _reloadQueued = true;
+        }
       } while (_reloadQueued && !_disposed && !_consentRequired);
     } finally {
       _activeLoad = null;
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -356,9 +432,12 @@ class CustomerAuthenticationController extends ChangeNotifier {
     final generation = _identityGeneration;
 
     try {
-      final result = await repository.loadAccount(
-        identity: identity,
-        forceTokenRefresh: forceTokenRefresh,
+      final result = await AuthTiming.measure(
+        'customer_authorization',
+        () => repository.loadAccount(
+          identity: identity,
+          forceTokenRefresh: forceTokenRefresh,
+        ),
       );
 
       if (!_isCurrent(identity.uid, generation)) {

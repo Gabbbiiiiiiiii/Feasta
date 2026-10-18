@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 
 import '../../presentation/screens/legal_document_screen.dart';
+import '../../../core/theme/app_colors.dart';
 
-/// Acceptance is local to this onboarding screen and starts unchecked.
+/// A fresh affirmative action accepts only the loaded agreement snapshots.
 class CustomerConsentScreen extends StatefulWidget {
   const CustomerConsentScreen({
     required this.onAccept,
@@ -40,31 +42,20 @@ class _CustomerConsentScreenState extends State<CustomerConsentScreen> {
   }
 
   void _load() {
-    _terms = false;
-    _privacy = false;
-    _documents = Future.wait([
-      Future.sync(() => widget.loader(FeastaLegalDocument.termsOfService)),
-      Future.sync(() => widget.loader(FeastaLegalDocument.privacyPolicy)),
-    ]);
-  }
-
-  static bool _validAgreement(Map<String, dynamic>? document) {
-    bool text(Object? value) => value is String && value.trim().isNotEmpty;
-    if (document == null ||
-        !text(document['version']) ||
-        !text(document['name']) ||
-        document['sections'] is! List) {
-      return false;
-    }
-    final sections = document['sections'] as List;
-    return sections.isNotEmpty &&
-        sections.every(
-          (section) =>
-              section is Map &&
-              text(section['title']) &&
-              section['paragraphs'] is List &&
-              (section['paragraphs'] as List).isNotEmpty &&
-              (section['paragraphs'] as List).every(text),
+    _documents =
+        Future.wait([
+          Future.sync(() => widget.loader(FeastaLegalDocument.termsOfService)),
+          Future.sync(() => widget.loader(FeastaLegalDocument.privacyPolicy)),
+        ]).then(
+          (documents) => documents
+              .map(
+                (document) => document == null
+                    ? null
+                    : Map<String, dynamic>.from(
+                        jsonDecode(jsonEncode(document)) as Map,
+                      ),
+              )
+              .toList(),
         );
   }
 
@@ -77,12 +68,11 @@ class _CustomerConsentScreenState extends State<CustomerConsentScreen> {
     return 'Current policies could not be verified. Retry or cancel sign-in.';
   }
 
-  bool _terms = false;
-  bool _privacy = false;
   bool _busy = false;
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    backgroundColor: AppColors.background,
     appBar: AppBar(title: const Text('Complete customer sign-in')),
     body: FutureBuilder<List<Map<String, dynamic>?>>(
       future: _documents,
@@ -93,7 +83,7 @@ class _CustomerConsentScreenState extends State<CustomerConsentScreen> {
             !snapshot.hasError &&
             documents != null &&
             documents.length == 2 &&
-            documents.every(_validAgreement);
+            documents.every(validPublishedAgreement);
         final termsVersion = available
             ? documents[0]!['version'] as String
             : null;
@@ -103,6 +93,11 @@ class _CustomerConsentScreenState extends State<CustomerConsentScreen> {
         return ListView(
           padding: const EdgeInsets.all(24),
           children: [
+            Text(
+              'Review and continue',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 12),
             if (widget.policyRecoveryNotice != null)
               Text(widget.policyRecoveryNotice!),
             if (widget.policiesOutdated)
@@ -119,40 +114,54 @@ class _CustomerConsentScreenState extends State<CustomerConsentScreen> {
                 child: const Text('Retry policies'),
               ),
             if (available) ...[
-              for (var index = 0; index < documents.length; index++) ...[
-                Text(
-                  documents[index]!['name'] as String,
-                  style: Theme.of(context).textTheme.titleLarge,
+              for (var index = 0; index < documents.length; index++)
+                Card(
+                  elevation: 0,
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          documents[index]!['name'] as String,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Version ${index == 0 ? termsVersion : privacyVersion}',
+                        ),
+                        TextButton.icon(
+                          icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                          onPressed: _busy
+                              ? null
+                              : () {
+                                  final snapshot = documents[index]!;
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) => LegalDocumentScreen(
+                                        document:
+                                            FeastaLegalDocument.values[index],
+                                        loader: (_) async => snapshot,
+                                      ),
+                                    ),
+                                  );
+                                },
+                          label: Text(
+                            index == 0 ? 'Terms of Service' : 'Privacy Policy',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-                Text('Version ${index == 0 ? termsVersion : privacyVersion}'),
-                if (documents[index]!['summary'] is String &&
-                    (documents[index]!['summary'] as String).trim().isNotEmpty)
-                  Text(documents[index]!['summary'] as String),
-                if (documents[index]!['effectiveDate'] is String)
-                  Text('Effective date: ${documents[index]!["effectiveDate"]}'),
-                for (final section
-                    in documents[index]!['sections'] as List) ...[
-                  Text('${section['title']}'),
-                  for (final paragraph in section['paragraphs'] as List)
-                    Text('$paragraph'),
-                ],
-              ],
-              CheckboxListTile(
-                title: const Text('I accept the Terms of Service'),
-                value: _terms,
-                onChanged: _busy
-                    ? null
-                    : (value) => setState(() => _terms = value == true),
-              ),
-              CheckboxListTile(
-                title: const Text('I accept the Privacy Policy'),
-                value: _privacy,
-                onChanged: _busy
-                    ? null
-                    : (value) => setState(() => _privacy = value == true),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Text(
+                  "By selecting Agree and continue, you accept FEASTA's Terms of Service and acknowledge its Privacy Policy.",
+                ),
               ),
               FilledButton(
-                onPressed: !_terms || !_privacy || _busy
+                onPressed: _busy
                     ? null
                     : () async {
                         setState(() => _busy = true);
@@ -165,7 +174,7 @@ class _CustomerConsentScreenState extends State<CustomerConsentScreen> {
                           if (mounted) setState(() => _busy = false);
                         }
                       },
-                child: const Text('Accept and continue'),
+                child: const Text('Agree and continue'),
               ),
             ],
             TextButton(

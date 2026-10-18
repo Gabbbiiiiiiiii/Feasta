@@ -80,7 +80,7 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
 
     final signedIn = await showCustomerLoginModal(
       context,
-      intendedLocation: CustomerAppLocations.account,
+      intendedLocation: CustomerAppLocations.customer,
       contextMessage:
           'Log in or create a Feasta account to manage your profile.',
     );
@@ -89,12 +89,7 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
       return;
     }
 
-    await gateController.refresh(forceTokenRefresh: true);
-
-    if (!mounted) {
-      return;
-    }
-
+    _openTab(0);
     setState(() {
       customerFuture = _loadCustomer();
     });

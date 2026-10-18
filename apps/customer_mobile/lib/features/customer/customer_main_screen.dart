@@ -113,11 +113,9 @@ class _CustomerMainScreenState extends State<CustomerMainScreen>
     required String intendedLocation,
     String? message,
   }) async {
-    final controller = CustomerAuthenticationScope.maybeOf(context);
-
     final signedIn = await showCustomerLoginModal(
       context,
-      intendedLocation: intendedLocation,
+      intendedLocation: CustomerAppLocations.customer,
       contextMessage: message,
     );
 
@@ -134,49 +132,9 @@ class _CustomerMainScreenState extends State<CustomerMainScreen>
       return;
     }
 
-    // Login succeeded. Explicitly synchronize the central FEASTA
-    // authentication controller before deciding which protected screen
-    // should become available.
-    if (!mounted) {
-      return;
+    if (_isAuthenticated) {
+      setState(() => _destination = _MainDestination.home);
     }
-
-    final kind = controller?.state.gate.kind;
-
-    debugPrint(
-      'FEASTA MAIN LOGIN SHEET CLOSED: '
-      'gate=$kind '
-      'authenticated=$_isAuthenticated '
-      'intended=$intendedLocation',
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    debugPrint(
-      'FEASTA MAIN AFTER LOGIN: '
-      'gate=$kind '
-      'authenticated=$_isAuthenticated '
-      'intended=$intendedLocation',
-    );
-
-    final authenticated =
-        kind == AuthenticationGateKind.customerReady ||
-        kind == AuthenticationGateKind.customerPhoneVerificationRequired;
-
-    if (!authenticated) {
-      return;
-    }
-
-    setState(() {
-      _destination = switch (intendedLocation) {
-        CustomerAppLocations.bookings => _MainDestination.bookings,
-        CustomerAppLocations.messages => _MainDestination.messages,
-        CustomerAppLocations.account => _MainDestination.account,
-        _ => _destination,
-      };
-    });
   }
 
   void _selectDestination(_MainDestination destination) {

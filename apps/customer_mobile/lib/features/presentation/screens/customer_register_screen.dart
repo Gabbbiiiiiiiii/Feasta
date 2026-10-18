@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -14,11 +13,16 @@ import '../../authentication/application/customer_login_controller.dart';
 import '../../authentication/application/customer_registration_controller.dart';
 import '../../authentication/data/repositories/auth_repository.dart';
 import '../../authentication/domain/customer_login.dart';
+import '../../authentication/domain/google_consent.dart';
 import '../../authentication/domain/customer_registration.dart';
-import '../widgets/feasta_google_auth_button.dart';
+import '../widgets/google_consent_button.dart';
+import '../../authentication/application/google_policy_loader.dart';
+import '../../authentication/presentation/authentication_loading.dart';
 import 'email_verification_screen.dart';
 import 'login_screen.dart';
 import 'legal_document_screen.dart';
+
+enum _RegistrationPolicyState { loading, ready, error }
 
 class CustomerRegisterScreen extends StatefulWidget {
   const CustomerRegisterScreen({
@@ -58,42 +62,43 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
 
   Map<String, dynamic>? _termsDocument;
   Map<String, dynamic>? _privacyDocument;
-  bool _loadingPolicies = true;
+  _RegistrationPolicyState _policyState = _RegistrationPolicyState.loading;
+  bool get _loadingPolicies => _policyState == _RegistrationPolicyState.loading;
   int _policyGeneration = 0;
   bool get _policiesReady =>
-      !_loadingPolicies && _termsDocument != null && _privacyDocument != null;
+      _policyState == _RegistrationPolicyState.ready &&
+      _termsDocument != null &&
+      _privacyDocument != null;
 
   Future<void> _loadPolicies() async {
     final generation = ++_policyGeneration;
     setState(() {
-      _loadingPolicies = true;
+      _policyState = _RegistrationPolicyState.loading;
       _termsDocument = null;
       _privacyDocument = null;
       _acceptedTerms = false;
       _acceptedPrivacy = false;
     });
     try {
-      final documents = await Future.wait([
-        Future.sync(
-          () => widget.legalDocumentLoader(FeastaLegalDocument.termsOfService),
-        ),
-        Future.sync(
-          () => widget.legalDocumentLoader(FeastaLegalDocument.privacyPolicy),
-        ),
-      ]);
+      final consent = await GooglePolicyLoader.shared.load(
+        widget.legalDocumentLoader,
+      );
       if (!mounted || generation != _policyGeneration) return;
-      if (documents.every(validPublishedAgreement)) {
-        // Detach the displayed snapshot from mutable loader responses.
-        _termsDocument =
-            jsonDecode(jsonEncode(documents[0])) as Map<String, dynamic>;
-        _privacyDocument =
-            jsonDecode(jsonEncode(documents[1])) as Map<String, dynamic>;
+      if (consent != null) {
+        final documents = consent.documents;
+        _termsDocument = documents[0];
+        _privacyDocument = documents[1];
       }
     } catch (_) {
       // Fail closed; retry never submits consent.
     } finally {
       if (mounted && generation == _policyGeneration) {
-        setState(() => _loadingPolicies = false);
+        setState(
+          () =>
+              _policyState = _termsDocument != null && _privacyDocument != null
+              ? _RegistrationPolicyState.ready
+              : _RegistrationPolicyState.error,
+        );
       }
     }
   }
@@ -217,12 +222,18 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
     );
   }
 
-  Future<void> _continueWithGoogle() async {
+  Future<Map<String, dynamic>?> _googlePolicyDocument(
+    FeastaLegalDocument document,
+  ) async => document == FeastaLegalDocument.termsOfService
+      ? _termsDocument
+      : _privacyDocument;
+
+  Future<void> _continueWithGoogle(GoogleConsent? consent) async {
     if (_isSubmitting) return;
 
     FocusScope.of(context).unfocus();
 
-    final result = await _googleController.signInWithGoogle();
+    final result = await _googleController.signInWithGoogle(consent: consent);
 
     if (!mounted || result == null) return;
 
@@ -304,6 +315,12 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_googleController.state.isSubmitting) {
+      return const Scaffold(
+        body: SafeArea(child: Center(child: AuthenticationLoading())),
+      );
+    }
+
     final registrationState = _registrationController.state;
 
     final googleState = _googleController.state;
@@ -466,7 +483,8 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
 
                   const SizedBox(height: AppSpacing.lg),
 
-                  if (_loadingPolicies) const Text('Loading current policies?'),
+                  if (_loadingPolicies)
+                    const Text('Loading Terms and Privacy Policy\u2026'),
                   if (!_loadingPolicies && !_policiesReady)
                     const Text(
                       'Current policies could not be verified. Retry policies to continue.',
@@ -553,8 +571,10 @@ class _CustomerRegisterScreenState extends State<CustomerRegisterScreen> {
 
                   const SizedBox(height: AppSpacing.xl),
 
-                  FeastaGoogleAuthButton(
-                    key: const Key('google-register-button'),
+                  GoogleConsentButton(
+                    key: ValueKey(_policyGeneration),
+                    buttonKey: const Key('google-register-button'),
+                    loader: _googlePolicyDocument,
                     isLoading: googleState.isSubmitting,
                     onPressed: _isSubmitting ? null : _continueWithGoogle,
                   ),

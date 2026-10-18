@@ -32,6 +32,55 @@ Future<void> settleController() async {
 }
 
 void main() {
+  for (final tokenFirst in [false, true]) {
+    test(
+      'initial auth/token replay shares one authorization, tokenFirst=$tokenFirst',
+      () async {
+        final repository = FakeCustomerAuthStateRepository(
+          loadDelay: const Duration(milliseconds: 20),
+        );
+        final controller = CustomerAuthenticationController(
+          repository: repository,
+        )..start();
+        if (tokenFirst) {
+          repository.emitToken(identity);
+          repository.emitAuth(identity);
+        } else {
+          repository.emitAuth(identity);
+          repository.emitToken(identity);
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(repository.loadCount, 1);
+        expect(
+          controller.state.gate.kind,
+          AuthenticationGateKind.customerReady,
+        );
+        repository.emitToken(identity);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(repository.loadCount, 2);
+        repository.emitAccountChange();
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        expect(repository.loadCount, 3);
+        controller.dispose();
+        await repository.close();
+      },
+    );
+  }
+
+  test('persistent server failure stops after two recovery attempts', () async {
+    final repository = AlwaysFailingRepository();
+    final controller = CustomerAuthenticationController(repository: repository)
+      ..start();
+    repository.emitAuth(identity);
+    await Future<void>.delayed(const Duration(milliseconds: 1400));
+    expect(repository.attempts, 3);
+    expect(controller.loadingAccount, false);
+    expect(controller.state.failure, CustomerAuthenticationFailureKind.server);
+    expect(repository.listenerCount, 0);
+    controller.dispose();
+    await repository.close();
+  });
+
   test(
     'callable setup failure is retryable and never starts listeners',
     () async {
@@ -292,7 +341,8 @@ void main() {
       ..start();
 
     repository.emitAuth(identity);
-    repository.emitToken(identity);
+    repository.emitToken(identity); // Initial matching replay joins the load.
+    repository.emitToken(identity); // A later event must queue fresh checks.
     repository.emitAccountChange();
     await settleController();
     await settleController();
@@ -304,23 +354,28 @@ void main() {
     controller.dispose();
   });
 
-  test('transient Firestore failure is retryable', () async {
-    final repository = FakeCustomerAuthStateRepository();
-    final controller = CustomerAuthenticationController(repository: repository)
-      ..start();
-    repository.nextFailure = const CustomerAuthLoadFailure(
-      CustomerAuthLoadFailureKind.network,
-    );
-    repository.emitAuth(identity);
-    await settleController();
-    expect(controller.state.failure, CustomerAuthenticationFailureKind.network);
-
-    await controller.refresh();
-    expect(controller.state.failure, isNull);
-    expect(controller.state.gate.kind, AuthenticationGateKind.customerReady);
-    await repository.close();
-    controller.dispose();
-  });
+  test(
+    'transient Firestore failure recovers with bounded automatic retry',
+    () async {
+      final repository = FakeCustomerAuthStateRepository();
+      final controller = CustomerAuthenticationController(
+        repository: repository,
+      )..start();
+      repository.nextFailure = const CustomerAuthLoadFailure(
+        CustomerAuthLoadFailureKind.network,
+      );
+      repository.emitAuth(identity);
+      await settleController();
+      expect(controller.state.failure, isNull);
+      expect(controller.loadingAccount, isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      expect(repository.loadCount, 2);
+      expect(controller.state.failure, isNull);
+      expect(controller.state.gate.kind, AuthenticationGateKind.customerReady);
+      await repository.close();
+      controller.dispose();
+    },
+  );
 
   test(
     'logout clears protected destination and cached account context',
@@ -447,5 +502,17 @@ class FakeCustomerAuthStateRepository implements CustomerAuthStateRepository {
     await _auth.close();
     await _token.close();
     await _account.close();
+  }
+}
+
+class AlwaysFailingRepository extends FakeCustomerAuthStateRepository {
+  int attempts = 0;
+  @override
+  Future<CustomerAccountLoadResult> loadAccount({
+    required CustomerAuthIdentity identity,
+    required bool forceTokenRefresh,
+  }) async {
+    attempts++;
+    throw const CustomerAuthLoadFailure(CustomerAuthLoadFailureKind.server);
   }
 }
