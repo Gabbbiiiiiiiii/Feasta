@@ -1,4 +1,5 @@
 import 'widgets/provider_brand_visual.dart';
+import '../../core/domain/service_category.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -49,48 +50,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   late Future<CustomerAddressModel> _selectedAddressFuture;
   late final Future<Map<String, String>> _serviceCategoryNames;
 
-  static const List<_EventServiceItem> _eventServices = [
-    _EventServiceItem(
-      label: 'Catering',
-      searchQuery: 'Catering Service',
-      icon: Icons.restaurant_menu_rounded,
-    ),
-    _EventServiceItem(
-      label: 'Photography & Video',
-      searchQuery: '',
-      icon: Icons.photo_camera_rounded,
-    ),
-    _EventServiceItem(
-      label: 'Event Styling',
-      searchQuery: 'Event Styling',
-      icon: Icons.auto_awesome_rounded,
-    ),
-    _EventServiceItem(
-      label: 'Venues',
-      searchQuery: 'Venue Provider',
-      icon: Icons.location_city_rounded,
-    ),
-    _EventServiceItem(
-      label: 'Cakes',
-      searchQuery: 'Cake Provider',
-      icon: Icons.cake_rounded,
-    ),
-    _EventServiceItem(
-      label: 'Entertainment',
-      searchQuery: 'Singer / Band',
-      icon: Icons.music_note_rounded,
-    ),
-    _EventServiceItem(
-      label: 'Rentals',
-      searchQuery: 'Rental',
-      icon: Icons.chair_alt_outlined,
-    ),
-    _EventServiceItem(
-      label: 'Other Services',
-      searchQuery: '',
-      icon: Icons.grid_view_rounded,
-    ),
-  ];
+  late Future<List<ServiceCategory>> _eventServices;
 
   @override
   void initState() {
@@ -99,14 +59,22 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     _addressStorage = widget.addressStorage ?? CustomerAddressStorageService();
     _selectedAddressFuture = _addressStorage.getSelectedOrDefault();
     _serviceCategoryNames = _repository.getServiceCategoryNameMap();
+    _eventServices = _repository.getActiveServiceCategories(forceRefresh: true);
   }
 
   Future<void> _refresh() async {
     setState(() {
+      _eventServices = _repository.getActiveServiceCategories(
+        forceRefresh: true,
+      );
       _selectedAddressFuture = _addressStorage.getSelectedOrDefault();
     });
 
-    await Future<void>.delayed(const Duration(milliseconds: 400));
+    try {
+      await _eventServices;
+    } catch (_) {
+      // The section renders the error and retry action.
+    }
   }
 
   Future<void> _changeLocation() async {
@@ -131,6 +99,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
 
   void _openSearch({
     String initialQuery = '',
+    String? categoryCode,
     bool autofocus = false,
     bool showFilters = false,
   }) {
@@ -138,6 +107,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       MaterialPageRoute(
         builder: (_) => CustomerSearchScreen(
           initialQuery: initialQuery,
+          initialCategoryCode: categoryCode,
           repository: _repository,
           initialShowFilters: showFilters,
           autofocusSearch: autofocus,
@@ -197,17 +167,24 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               ),
               const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
               SliverToBoxAdapter(
-                child: _EventServicesSection(
-                  items: _eventServices,
-                  onSeeAll: _openAllServices,
-                  onItemTap: (item) {
-                    if (item.label == 'Photography & Video' ||
-                        item.label == 'Other Services') {
-                      _openSearch();
-                      return;
-                    }
-
-                    _openSearch(initialQuery: item.searchQuery);
+                child: FutureBuilder<List<ServiceCategory>>(
+                  future: _eventServices,
+                  builder: (context, snapshot) {
+                    final loaded =
+                        snapshot.connectionState == ConnectionState.done &&
+                        !snapshot.hasError;
+                    return _EventServicesSection(
+                      items: loaded
+                          ? snapshot.data ?? const <ServiceCategory>[]
+                          : const [],
+                      loading: snapshot.connectionState != ConnectionState.done,
+                      failed:
+                          snapshot.hasError &&
+                          snapshot.connectionState == ConnectionState.done,
+                      onRetry: _refresh,
+                      onSeeAll: _openAllServices,
+                      onItemTap: (item) => _openSearch(categoryCode: item.code),
+                    );
                   },
                 ),
               ),
@@ -765,104 +742,120 @@ class _EventServicesSection extends StatelessWidget {
     required this.items,
     required this.onSeeAll,
     required this.onItemTap,
+    required this.onRetry,
+    required this.loading,
+    required this.failed,
   });
 
-  final List<_EventServiceItem> items;
-  final VoidCallback onSeeAll;
-  final ValueChanged<_EventServiceItem> onItemTap;
+  final List<ServiceCategory> items;
+  final VoidCallback onSeeAll, onRetry;
+  final ValueChanged<ServiceCategory> onItemTap;
+  final bool loading, failed;
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        HomeSectionHeader(
-          title: 'Event Services',
-          subtitle: 'Everything you need for your celebration',
-          onSeeAll: onSeeAll,
-        ),
-        const SizedBox(height: AppSpacing.md),
-        SizedBox(
-          height:
-              100 +
-              32 *
-                  (MediaQuery.textScalerOf(context).scale(1) - 1).clamp(
-                    0.0,
-                    2.0,
-                  ),
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screen),
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
-            itemBuilder: (context, index) {
-              final item = items[index];
-
-              return _EventServiceCard(
-                item: item,
-                onTap: () => onItemTap(item),
-              );
-            },
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screen),
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'SERVICE CATEGORIES',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.primaryStrong,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2,
+            ),
           ),
-        ),
-      ],
-    );
-  }
+          const SizedBox(height: 4),
+          Text(
+            'Choose a service',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.secondaryTextAccessible,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _ServiceCategoryChip(
+                  label: 'All services',
+                  selected: true,
+                  onTap: onSeeAll,
+                ),
+                for (final item in items) ...[
+                  const SizedBox(width: 8),
+                  _ServiceCategoryChip(
+                    label: item.name,
+                    selected: false,
+                    onTap: () => onItemTap(item),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (loading) ...[
+            const SizedBox(height: 12),
+            const LinearProgressIndicator(minHeight: 2),
+          ] else if (failed) ...[
+            const SizedBox(height: 8),
+            const Text('Event Services could not be loaded.'),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+          ] else if (items.isEmpty) ...[
+            const SizedBox(height: 12),
+            const Text('No event services are currently available.'),
+          ],
+        ],
+      ),
+    ),
+  );
 }
 
-class _EventServiceCard extends StatelessWidget {
-  const _EventServiceCard({required this.item, required this.onTap});
-
-  final _EventServiceItem item;
+class _ServiceCategoryChip extends StatelessWidget {
+  const _ServiceCategoryChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
   final VoidCallback onTap;
-
   @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 88,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        onTap: onTap,
-        child: Column(
-          children: [
-            Container(
-              height: 60,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(AppRadius.card),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Container(
-                width: 36,
-                height: 36,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: AppColors.primarySubtle,
-                  borderRadius: BorderRadius.circular(AppRadius.medium),
-                ),
-                child: Icon(
-                  item.icon,
-                  color: customerDecorativeIconColor,
-                  size: 24,
-                ),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              item.label,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: AppTypography.caption.copyWith(
-                color: HomeTextColors.primary,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
+  Widget build(BuildContext context) => Semantics(
+    selected: selected,
+    button: true,
+    child: Material(
+      color: selected ? AppColors.primaryStrong : AppColors.surface,
+      shape: StadiumBorder(
+        side: BorderSide(
+          color: selected ? AppColors.primaryStrong : AppColors.border,
         ),
       ),
-    );
-  }
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          child: Text(
+            label,
+            style: AppTypography.bodySmall.copyWith(
+              color: selected
+                  ? AppColors.primaryForeground
+                  : AppColors.mainText,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _PopularSection extends StatefulWidget {
@@ -1186,16 +1179,4 @@ class HomeSectionHeader extends StatelessWidget {
       ),
     );
   }
-}
-
-class _EventServiceItem {
-  const _EventServiceItem({
-    required this.label,
-    required this.searchQuery,
-    required this.icon,
-  });
-
-  final String label;
-  final String searchQuery;
-  final IconData icon;
 }

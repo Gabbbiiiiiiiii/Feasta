@@ -162,7 +162,7 @@ void main() {
     }
   });
 
-  testWidgets('Home uses neutral category icons and provider logos', (
+  testWidgets('Home uses service category chips and provider logos', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -175,10 +175,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(
-      tester.widget<Icon>(find.byIcon(Icons.restaurant_menu_rounded)).color,
-      customerDecorativeIconColor,
-    );
+    expect(find.text('SERVICE CATEGORIES'), findsOneWidget);
+    expect(find.text('Choose a service'), findsOneWidget);
+    expect(find.text('All services'), findsOneWidget);
+    expect(find.text('Catering'), findsOneWidget);
+    expect(find.byIcon(Icons.restaurant_menu_rounded), findsNothing);
     await tester.ensureVisible(find.byType(ProviderLogoBadge));
     await tester.pumpAndSettle();
     expect(find.byType(ProviderBrandVisual), findsOneWidget);

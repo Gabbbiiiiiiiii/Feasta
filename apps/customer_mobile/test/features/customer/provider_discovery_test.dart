@@ -12,6 +12,7 @@ import 'package:firebase_core_platform_interface/test.dart';
 import 'package:firebase_auth_platform_interface/firebase_auth_platform_interface.dart';
 import 'package:feasta/core/helpers/provider_category_helper.dart';
 import 'dart:async';
+import 'package:feasta/core/domain/service_category.dart';
 import 'package:feasta/features/customer/customer_search_screen.dart';
 import 'package:feasta/features/authentication/data/repositories/feasta_repository.dart';
 import 'package:feasta/core/helpers/provider_discovery.dart';
@@ -90,6 +91,17 @@ class DiscoveryRepository implements FeastaRepository {
   final List<ProviderModel>? providers;
   int searchCalls = 0;
   int subscriptions = 0;
+  @override
+  Future<List<ServiceCategory>> getActiveServiceCategories({
+    bool forceRefresh = false,
+  }) async => const [
+    ServiceCategory(
+      code: 'catering_service',
+      name: 'Catering',
+      serviceType: 'catering',
+      status: 'active',
+    ),
+  ];
   @override
   Future<Map<String, String>> getServiceCategoryNameMap({
     bool forceRefresh = false,
@@ -244,8 +256,10 @@ void main() {
       expect(find.byType(CustomerSearchScreen), findsOneWidget);
       expect(find.text('Ana Catering').hitTestable(), findsOneWidget);
       expect(
-        tester.widget<TextField>(find.byType(TextField).first).controller!.text,
-        'Catering Service',
+        tester
+            .widget<CustomerSearchScreen>(find.byType(CustomerSearchScreen))
+            .initialCategoryCode,
+        'catering_service',
       );
       expect(tester.takeException(), isNull);
     });
