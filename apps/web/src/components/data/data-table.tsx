@@ -30,6 +30,7 @@ export type DataTableProps<T> = {
   getRowId: (row: T) => string;
   caption: string;
   loading?: boolean;
+  updating?: boolean;
   error?: string;
   errorKind?: ApplicationErrorKind;
   onRetry?: () => void;
@@ -50,6 +51,7 @@ function DataTable<T>({
   getRowId,
   caption,
   loading = false,
+  updating = false,
   error,
   errorKind = "load",
   onRetry,
@@ -73,7 +75,7 @@ function DataTable<T>({
       </div>
     );
   }
-  if (rows.length === 0) {
+  if (rows.length === 0 && !updating) {
     if (emptyKind && emptyTitle === "No results" && emptyDescription === "No records match the current query.") {
       return <div className={cn("rounded-card border border-border bg-card", className)}><ApplicationEmptyState kind={emptyKind} /></div>;
     }
@@ -99,13 +101,14 @@ function DataTable<T>({
     <div className={cn("min-w-0", className)}>
       {renderMobileRow ? (
         <div className="grid gap-3 md:hidden" aria-label={`${caption}, mobile view`}>
+          {updating ? <p className="min-h-48 p-4 text-sm text-muted-foreground">Loading results...</p> : null}
           {rows.map((row) => (
             <div key={getRowId(row)}>{renderMobileRow(row)}</div>
           ))}
         </div>
       ) : null}
       <div className={cn("max-w-full overflow-x-auto overscroll-x-contain rounded-card border border-border bg-card shadow-card", renderMobileRow && "hidden md:block")}> 
-        <table className="w-full min-w-[42rem] border-collapse text-left">
+        <table aria-busy={updating} className="w-full min-w-[42rem] border-collapse text-left">
           <caption className="sr-only">{caption}</caption>
           <thead className="border-b border-muted bg-secondary text-foreground">
             <tr>
@@ -145,6 +148,7 @@ function DataTable<T>({
             </tr>
           </thead>
           <tbody className="divide-y divide-muted">
+            {updating ? <tr><td colSpan={columns.length + (rowActions ? 1 : 0)} className="h-48 px-4 py-3 text-sm text-muted-foreground">Loading results...</td></tr> : null}
             {rows.map((row) => (
               <tr key={getRowId(row)} className="hover:bg-table-hover focus-within:bg-accent">
                 {columns.map((column) => (

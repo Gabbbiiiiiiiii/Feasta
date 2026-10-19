@@ -5,8 +5,8 @@ export default function ProviderPaymentsLoading() {
     <div className="grid min-w-0 gap-6" aria-busy="true">
       <PageHeading
         eyebrow="Provider finance"
-        title="Payments & Payouts"
-        description="Track customer payments associated with your FEASTA booking requests."
+        title="Payments"
+        description="Track customer payments, manage your earnings, and check payout status."
       />
 
       <p className="sr-only" role="status">Loading booking payments</p>

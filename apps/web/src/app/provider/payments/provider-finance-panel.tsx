@@ -2,14 +2,12 @@
 
 import {
   BadgeCheck,
-  Banknote,
   CircleDollarSign,
   CircleOff,
   Clock3,
   ExternalLink,
   FileText,
   RefreshCw,
-  RotateCcw,
   WalletCards,
 } from "lucide-react";
 import Link from "next/link";
@@ -343,7 +341,7 @@ export function ProviderFinancePanel({
           </Button>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <SummaryCard
             label="Pending earnings"
             value={formatCentavos(
@@ -379,12 +377,12 @@ export function ProviderFinancePanel({
           <SummaryCard
             label="Paid out"
             value={formatCentavos(
-              finance.earningSummary
-                .paidAmountInCentavos,
+              finance.settlementSummary
+                .paidOutAmountInCentavos,
             )}
             trend={{
               label:
-                "Confirmed as paid to you",
+                "Confirmed payout transfers",
               direction: "neutral",
             }}
             icon={
@@ -392,140 +390,9 @@ export function ProviderFinancePanel({
             }
           />
 
-          <SummaryCard
-            label="Reversed by refunds"
-            value={formatCentavos(
-              finance.earningSummary
-                .reversedAmountInCentavos,
-            )}
-            trend={{
-              label:
-                "Adjusted by completed refunds",
-              direction: "neutral",
-            }}
-            icon={
-              <RotateCcw className="size-5" />
-            }
-          />
+
         </div>
-      </section>
-
-      <section
-        className="grid gap-4"
-        aria-labelledby="earning-history-heading"
-      >
-        <div>
-          <h2
-            id="earning-history-heading"
-            className="text-xl font-bold"
-          >
-            Earnings activity
-          </h2>
-
-          <p className="mt-1 text-sm text-muted-foreground">
-            Latest provider earning records created from successfully settled
-            customer payments.
-          </p>
-        </div>
-
-        {finance.earnings.length === 0 ? (
-          <div className="rounded-card border border-border bg-card p-6 text-sm text-muted-foreground shadow-card">
-            No provider earnings have been recorded yet.
-          </div>
-        ) : (
-          <div className="overflow-hidden rounded-card border border-border bg-card shadow-card">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] text-sm">
-                <thead className="border-b border-border bg-muted/40 text-left">
-                  <tr>
-                    <th className="px-4 py-3 font-semibold">
-                      Date
-                    </th>
-                    <th className="px-4 py-3 font-semibold">
-                      Status
-                    </th>
-                    <th className="px-4 py-3 font-semibold">
-                      Gross earning
-                    </th>
-                    <th className="px-4 py-3 font-semibold">
-                      Pending
-                    </th>
-                    <th className="px-4 py-3 font-semibold">
-                      Available
-                    </th>
-                    <th className="px-4 py-3 font-semibold">
-                      Paid
-                    </th>
-                    <th className="px-4 py-3 font-semibold">
-                      Reversed
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y divide-border">
-                  {finance.earnings.map(
-                    (earning) => (
-                      <tr
-                        key={earning.earningId}
-                        className="align-top"
-                      >
-                        <td className="px-4 py-3">
-                          {formatDateTime(
-                            earning.createdAt,
-                          )}
-                          <p>{earning.economicSource === "payment_default_reservation_compensation" ? "Reservation compensation" : "Service earnings"}</p>
-                        </td>
-
-                        <td className="px-4 py-3">
-                          <EarningStatus
-                            status={
-                              earning.status
-                            }
-                          />
-                        </td>
-
-                        <td className="px-4 py-3 font-semibold">
-                          {formatCentavos(
-                            earning
-                              .earningAmountInCentavos,
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          {formatCentavos(
-                            earning
-                              .pendingAmountInCentavos,
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          {formatCentavos(
-                            earning
-                              .availableAmountInCentavos,
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          {formatCentavos(
-                            earning
-                              .paidAmountInCentavos,
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          {formatCentavos(
-                            earning
-                              .reversedAmountInCentavos,
-                          )}
-                        </td>
-                      </tr>
-                    ),
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        <p className="text-sm">Reversed by refunds: <strong>{formatCentavos(finance.earningSummary.reversedAmountInCentavos)}</strong></p>
       </section>
 
       {(finance.disbursements?.length ?? 0) > 0 ? (
@@ -571,71 +438,15 @@ export function ProviderFinancePanel({
           </p>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard
-            label="Not yet available"
-            value={formatCentavos(
-              finance.settlementSummary
-                .awaitingAvailabilityAmountInCentavos,
-            )}
-            trend={{
-              label:
-                "Customer paid; payout not yet available",
-              direction: "neutral",
-            }}
-            icon={
-              <Clock3 className="size-5" />
-            }
-          />
-
-          <SummaryCard
-            label="Eligible for payout"
-            value={formatCentavos(
-              finance.settlementSummary
-                .readyAmountInCentavos,
-            )}
-            trend={{
-              label:
-                "Earnings eligible; transfer not confirmed",
-              direction: "neutral",
-            }}
-            icon={
-              <CircleDollarSign className="size-5" />
-            }
-          />
-
-          <SummaryCard
-            label="Reserved / processing"
-            value={formatCentavos(
-              finance.settlementSummary
-                .reservedAmountInCentavos,
-            )}
-            trend={{
-              label:
-                "Amount reserved or being processed",
-              direction: "neutral",
-            }}
-            icon={
-              <WalletCards className="size-5" />
-            }
-          />
-
-          <SummaryCard
-            label="Paid out"
-            value={formatCentavos(
-              finance.settlementSummary
-                .paidOutAmountInCentavos,
-            )}
-            trend={{
-              label:
-                "Confirmed Provider settlement",
-              direction: "neutral",
-            }}
-            icon={
-              <BadgeCheck className="size-5" />
-            }
-          />
-        </div>
+        <p className="text-sm">Reserved / processing: <strong>{formatCentavos(finance.settlementSummary.reservedAmountInCentavos)}</strong></p>
+        <details className="rounded-card border border-border p-4">
+          <summary className="cursor-pointer font-semibold">Settlement accounting details</summary>
+          <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+            <FinanceDetail label="Not yet available" value={formatCentavos(finance.settlementSummary.awaitingAvailabilityAmountInCentavos)} />
+            <FinanceDetail label="Earnings eligible; transfer not confirmed" value={formatCentavos(finance.settlementSummary.readyAmountInCentavos)} />
+            <FinanceDetail label="Paid earnings (earnings accounting)" value={formatCentavos(finance.earningSummary.paidAmountInCentavos)} />
+          </dl>
+        </details>
 
         {finance.settlementSummary
           .reconciliationRequiredCount > 0 ? (
@@ -670,120 +481,23 @@ export function ProviderFinancePanel({
           </div>
         ) : null}
 
-        {finance.settlements.length === 0 ? (
-          <div className="rounded-card border border-border bg-card p-6 text-sm text-muted-foreground shadow-card">
-            No Provider settlement records have been created yet.
-          </div>
-        ) : (
-          <div className="overflow-hidden rounded-card border border-border bg-card shadow-card">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[880px] text-sm">
-                <thead className="border-b border-border bg-muted/40 text-left">
-                  <tr>
-                    <th className="px-4 py-3 font-semibold">
-                      Created
-                    </th>
-
-                    <th className="px-4 py-3 font-semibold">
-                      Status
-                    </th>
-
-                    <th className="px-4 py-3 font-semibold">
-                      Settlement
-                    </th>
-
-                    <th className="px-4 py-3 font-semibold">
-                      Reserved
-                    </th>
-
-                    <th className="px-4 py-3 font-semibold">
-                      Paid out
-                    </th>
-
-                    <th className="px-4 py-3 font-semibold">
-                      Reconciliation
-                    </th>
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y divide-border">
-                  {finance.settlements.map(
-                    (settlement) => (
-                      <tr
-                        key={settlement.settlementId}
-                        className="align-top"
-                      >
-                        <td className="px-4 py-3">
-                          {formatDateTime(
-                            settlement.createdAt,
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          <SettlementStatus
-                            status={settlement.status}
-                          />
-                        </td>
-
-                        <td className="px-4 py-3 font-semibold">
-                          {formatCentavos(
-                            settlement
-                              .netSettlementAmountInCentavos,
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          {formatCentavos(
-                            settlement
-                              .reservedAmountInCentavos,
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          {formatCentavos(
-                            settlement
-                              .paidOutAmountInCentavos,
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3">
-                          {settlement.reconciliationRequired ? (
-                            <span className="font-semibold text-warning">
-                              Review required
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">
-                              No issue
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ),
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        <details className="rounded-card border border-border p-4">
+          <summary className="cursor-pointer font-semibold">Recent payout status history</summary>
+          {finance.settlements.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">No provider settlement records yet.</p> : (
+            <ul className="mt-3 divide-y divide-border">
+              {finance.settlements.map(settlement => (
+                <li key={settlement.settlementId} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
+                  <span>{formatDateTime(settlement.createdAt)}</span>
+                  <SettlementStatus status={settlement.status} />
+                  <span>{formatCentavos(settlement.netSettlementAmountInCentavos)}</span>
+                  {settlement.reconciliationRequired ? <strong className="text-warning">Review required</strong> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </details>
       </section>
-      <div className="border-t border-border pt-6">
-        <div className="flex items-center gap-2">
-          <Banknote
-            aria-hidden="true"
-            className="size-5 text-primary"
-          />
 
-          <div>
-            <h2 className="text-xl font-bold">
-              Customer payments
-            </h2>
-
-            <p className="mt-1 text-sm text-muted-foreground">
-              Customer payment records are shown separately from provider earnings.
-            </p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
@@ -850,22 +564,6 @@ function PayoutReadyIndicator({
   );
 }
 
-function EarningStatus({
-  status,
-}: {
-  status:
-    | "pending"
-    | "available"
-    | "paid"
-    | "reversed";
-}) {
-  return (
-    <span className="inline-flex rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs font-semibold">
-      {formatLabel(status)}
-    </span>
-  );
-}
-
 function SettlementStatus({
   status,
 }: {
@@ -874,7 +572,7 @@ function SettlementStatus({
 }) {
   return (
     <span className="inline-flex rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs font-semibold">
-      {formatLabel(status)}
+      {({awaiting_availability: "Waiting for eligibility", ready: "Eligible for payout", reserved: "Transfer reserved", processing: "Transfer processing", paid: "Transfer confirmed", reconciliation_required: "Requires attention", cancelled: "Cancelled"} as Record<ProviderSettlementStatus, string>)[status]}
     </span>
   );
 }

@@ -1,20 +1,15 @@
 "use client";
 
 import {
-  CircleCheckBig,
-  CircleX,
-  Clock3,
   Eye,
   FileClock,
-  RotateCcw,
 } from "lucide-react";
-import {usePathname, useRouter} from "next/navigation";
+
 import {useEffect, useMemo, useRef, useState} from "react";
 
 import {
   CursorPagination,
   DataTable,
-  SummaryCard,
   type DataTableColumn,
 } from "@/components/data";
 import {PageHeading} from "@/components/layout/page-heading";
@@ -98,8 +93,7 @@ export function ProviderPaymentsClient({
   initialFilters,
   initialFinance = EMPTY_PROVIDER_FINANCE,
 }: ProviderPaymentsClientProps) {
-  const pathname = usePathname();
-  const router = useRouter();
+
   const [page, setPage] = useState(initialPage);
   const [filters, setFilters] = useState(initialFilters);
   const [cursorHistory, setCursorHistory] = useState<string[]>([]);
@@ -111,31 +105,15 @@ export function ProviderPaymentsClient({
   const [selectedPayment, setSelectedPayment] = useState<ProviderPaymentDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const listRequestId = useRef(0);
   const detailRequestId = useRef(0);
-  useEffect(() => () => { detailRequestId.current += 1; }, []);
+  useEffect(() => () => { detailRequestId.current += 1; listRequestId.current += 1; }, []);
 
   const columns = useMemo<readonly DataTableColumn<ProviderPayment>[]>(() => [
     {
       id: "customer",
-      header: "Customer",
-      cell: (payment) => (
-        <span className="font-semibold">{payment.customerDisplayName}</span>
-      ),
-    },
-    {
-      id: "event",
-      header: "Event",
-      cell: (payment) => (
-        <span>
-          <span className="block font-medium">{formatLabel(payment.eventType)}</span>
-          <span className="text-muted-foreground">{formatDate(payment.eventDate)}</span>
-        </span>
-      ),
-    },
-    {
-      id: "service",
-      header: "Service / Package",
-      cell: (payment) => payment.serviceSummary,
+      header: "Customer / Event",
+      cell: (payment) => <span><span className="block font-semibold">{payment.customerDisplayName}</span><span className="text-muted-foreground">{formatLabel(payment.eventType)} / {formatDate(payment.eventDate)}</span></span>,
     },
     {
       id: "amount",
@@ -170,30 +148,46 @@ export function ProviderPaymentsClient({
     nextHistory: string[],
     nextPageNumber: number,
   ) => {
+    const requestId = ++listRequestId.current;
+    setFilters(nextFilters);
+    setCursorHistory(nextHistory);
+    setPageNumber(nextPageNumber);
     setLoading(true);
     setLoadError(null);
 
     try {
       const result = await loadProviderPaymentsAction(nextFilters);
-      setPage(result);
+      if (requestId !== listRequestId.current) return;
+      setPage(current => ({...current, ...result, summary: current.summary}));
       setFilters(nextFilters);
       setCursorHistory(nextHistory);
       setPageNumber(nextPageNumber);
     } catch {
+      if (requestId !== listRequestId.current) return;
       setLoadError("Payment activity could not be loaded. Please try again.");
     } finally {
-      setLoading(false);
+      if (requestId === listRequestId.current) setLoading(false);
     }
   };
 
   const selectFilter = (status: ProviderPaymentFilter) => {
-    if (loading || status === filters.status) return;
-
-    const nextFilters = {...filters, status, cursor: null};
-    const query = status === "all" ? "" : `?status=${encodeURIComponent(status)}`;
-    router.replace(`${pathname}${query}`, {scroll: false});
-    void loadPage(nextFilters, [], 1);
+    if (status === filters.status) return;
+    const url = new URL(window.location.href);
+    if (status === "all") url.searchParams.delete("status");
+    else url.searchParams.set("status", status);
+    window.history.pushState(null, "", url);
+    void loadPage({...filters, status, cursor: null}, [], 1);
   };
+
+  useEffect(() => {
+    const restore = () => {
+      const requested = new URL(window.location.href).searchParams.get("status");
+      const status = filterOptions.find(option => option.value === requested)?.value ?? "all";
+      void loadPage({status, pageSize: initialFilters.pageSize, cursor: null}, [], 1);
+    };
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, [initialFilters.pageSize]);
 
   const openPayment = async (paymentId: string) => {
     const requestId = ++detailRequestId.current;
@@ -215,10 +209,6 @@ export function ProviderPaymentsClient({
     }
   };
 
-  const failedOrExpiredCount = page.summary.failedPayments.count +
-    page.summary.expiredPayments.count;
-  const failedOrExpiredAmount = page.summary.failedPayments.totalAmountInCentavos +
-    page.summary.expiredPayments.totalAmountInCentavos;
   const previousCursor = cursorHistory.at(-1) ?? null;
   const emptyCopy = getEmptyCopy(filters.status);
 
@@ -226,68 +216,22 @@ export function ProviderPaymentsClient({
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Provider finance"
-        title="Payments & Payouts"
-        description="Check customer payments, see your earnings, and track payouts and refunds."
+        title="Payments"
+        description="Track customer payments, manage your earnings, and check payout status."
       />
 
       <ProviderFinancePanel
         initialFinance={initialFinance}
       />
 
-      <aside
-        className="rounded-card border border-primary/20 bg-primary-tint/40 px-4 py-3 text-sm text-muted-foreground"
-        role="note"
-        aria-label="About booking payment amounts"
-      >
-        Payment amounts shown here are customer payments recorded for your booking requests.
-        They do not represent an available provider balance or payout.
-      </aside>
-
-      <section
-        className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4"
-        aria-label="Payment summary"
-      >
-        <SummaryCard
-          label="Customer payments received"
-          value={formatCentavos(page.summary.confirmedCustomerPayments.totalAmountInCentavos)}
-          trend={paymentCountTrend(page.summary.confirmedCustomerPayments.count)}
-          icon={<CircleCheckBig className="size-5" />}
-        />
-        <SummaryCard
-          label="Payments processing"
-          value={formatCentavos(page.summary.processingPayments.totalAmountInCentavos)}
-          trend={paymentCountTrend(page.summary.processingPayments.count)}
-          icon={<Clock3 className="size-5" />}
-        />
-        <SummaryCard
-          label="Failed / Expired"
-          value={formatCentavos(failedOrExpiredAmount)}
-          trend={paymentCountTrend(failedOrExpiredCount)}
-          icon={<CircleX className="size-5" />}
-        />
-        <SummaryCard
-          label="Fully refunded payments"
-          value={formatCentavos(page.summary.fullyRefundedPayments.totalAmountInCentavos)}
-          trend={paymentCountTrend(page.summary.fullyRefundedPayments.count)}
-          icon={<RotateCcw className="size-5" />}
-        />
-      </section>
-
-      <section
-        className="flex flex-col gap-2 rounded-card border border-border bg-card px-4 py-3 text-sm shadow-card sm:flex-row sm:items-center sm:justify-between"
-        aria-label="Payment record information"
-      >
-        <p>
-          <span className="font-semibold">{page.summary.paymentRecords.toLocaleString("en-PH")}</span>{" "}
-          payment {page.summary.paymentRecords === 1 ? "record" : "records"}
+      {page.summary.refundAwaitingConfirmation > 0 ? (
+        <p role="status" aria-label="Refunds awaiting confirmation" className="rounded-md border border-warning/20 bg-warning/5 px-3 py-2 text-sm">
+          {page.summary.refundAwaitingConfirmation.toLocaleString("en-PH")}{" "}
+          {page.summary.refundAwaitingConfirmation === 1 ? "refund is" : "refunds are"} awaiting confirmation.
         </p>
-        <p className="text-muted-foreground">
-          Refund awaiting confirmation:{" "}
-          <span className="font-semibold text-foreground">
-            {page.summary.refundAwaitingConfirmation.toLocaleString("en-PH")}
-          </span>
-        </p>
-      </section>
+      ) : null}
+
+      <p className="text-sm text-muted-foreground">Customer payments are separate from earnings and payouts. Reload the page to refresh all financial summaries.</p>
 
       <section
         className="rounded-card border border-border bg-card p-3 shadow-card"
@@ -308,7 +252,6 @@ export function ProviderPaymentsClient({
               size="compact"
               className="shrink-0"
               aria-pressed={filters.status === option.value}
-              disabled={loading}
               onClick={() => selectFilter(option.value)}
             >
               {option.label}
@@ -320,19 +263,20 @@ export function ProviderPaymentsClient({
       <section className="grid min-w-0 gap-4" aria-labelledby="payment-history-heading">
         <div>
           <h2 id="payment-history-heading" className="text-xl font-bold">
-            Customer payment history
+            Customer Payments
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Customer payment records linked to your provider requests.
           </p>
         </div>
 
+        <p role="status" className="text-sm text-muted-foreground">{loading ? "Loading matching payments..." : loadError ? "Payment results unavailable." : `${page.payments.length} payments shown.`}</p>
         <DataTable
           columns={columns}
-          rows={page.payments}
+          rows={loading || loadError ? [] : page.payments}
           getRowId={(payment) => payment.paymentId}
           caption="Provider booking payment results"
-          loading={loading}
+          updating={loading}
           error={loadError ?? undefined}
           onRetry={() => void loadPage(filters, cursorHistory, pageNumber)}
           emptyTitle={emptyCopy.title}
@@ -361,7 +305,7 @@ export function ProviderPaymentsClient({
       <CursorPagination
         previousCursor={previousCursor}
         nextCursor={page.nextCursor}
-        loading={loading}
+        loading={loading || loadError !== null}
         pageLabel={`Page ${pageNumber}`}
         onPrevious={(cursor) => {
           const nextHistory = cursorHistory.slice(0, -1);
@@ -446,10 +390,6 @@ function PaymentMobileCard({
           <dt className="text-muted-foreground">Activity</dt>
           <dd className="mt-1 font-medium">{formatDateTime(activityDate(payment))}</dd>
         </div>
-        <div className="col-span-2">
-          <dt className="text-muted-foreground">Service / package</dt>
-          <dd className="mt-1 font-medium">{payment.serviceSummary}</dd>
-        </div>
       </dl>
       <Button
         variant="secondary"
@@ -462,13 +402,6 @@ function PaymentMobileCard({
       </Button>
     </article>
   );
-}
-
-function paymentCountTrend(count: number) {
-  return {
-    label: `${count.toLocaleString("en-PH")} ${count === 1 ? "payment" : "payments"}`,
-    direction: "neutral" as const,
-  };
 }
 
 function getEmptyCopy(status: ProviderPaymentFilter) {

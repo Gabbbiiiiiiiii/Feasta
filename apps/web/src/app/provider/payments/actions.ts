@@ -9,7 +9,7 @@ import type {
 
 import {
   getProviderPayment,
-  getProviderPaymentPage,
+  getProviderPaymentRows,
 } from "@/lib/provider/payments/provider-payment-service";
 import type {
   ProviderPaymentDetail,
@@ -19,8 +19,8 @@ import type {
 
 export async function loadProviderPaymentsAction(
   filters: ProviderPaymentFilters,
-): Promise<ProviderPaymentPage> {
-  return await getProviderPaymentPage(filters);
+): Promise<Omit<ProviderPaymentPage, "summary">> {
+  return await getProviderPaymentRows(filters);
 }
 
 export async function loadProviderPaymentAction(

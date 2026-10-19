@@ -64,7 +64,18 @@ export async function getProviderPaymentPage(
   const account = await requireApprovedProvider();
   const providerId = normalizeDocumentId(account.providerId);
   const filters = normalizeFilters(input);
-  const summaryPromise = loadProviderPaymentSummary(providerId);
+  const [summary, rows] = await Promise.all([
+    loadProviderPaymentSummary(providerId), loadProviderPaymentRows(providerId, filters),
+  ]);
+  return {...rows, summary};
+}
+
+export async function getProviderPaymentRows(input: Partial<ProviderPaymentFilters> = {}): Promise<Omit<ProviderPaymentPage, "summary">> {
+  const account = await requireApprovedProvider();
+  return loadProviderPaymentRows(normalizeDocumentId(account.providerId), normalizeFilters(input));
+}
+
+async function loadProviderPaymentRows(providerId: string, filters: NormalizedFilters): Promise<Omit<ProviderPaymentPage, "summary">> {
 
   let query: Query<DocumentData> = adminDb
     .collection(COLLECTIONS.payments)
@@ -115,7 +126,6 @@ export async function getProviderPaymentPage(
 
   return {
     payments,
-    summary: await summaryPromise,
     nextCursor,
     hasMore: nextCursor !== null,
     skippedMalformedCount: documents.length - payments.length,

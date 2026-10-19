@@ -164,3 +164,27 @@ describe("provider payout activation form", () => {
     expect(screen.queryByText("Payout setup required")).not.toBeInTheDocument();
   });
 });
+
+
+describe("compact provider finance overview", () => {
+  it("keeps earnings, settlement totals, reversals and warnings distinct", async () => {
+    render(<ProviderFinancePanel initialFinance={{...finance,
+      payoutAccount: {...finance.payoutAccount, payoutReady: true},
+      earningSummary: {pendingAmountInCentavos: 1100, availableAmountInCentavos: 2200, paidAmountInCentavos: 3300, reversedAmountInCentavos: 4400},
+      settlementSummary: {awaitingAvailabilityAmountInCentavos: 5500, readyAmountInCentavos: 6600, reservedAmountInCentavos: 7700, paidOutAmountInCentavos: 8800, reconciliationRequiredCount: 1},
+    }} />);
+    expect(screen.getByLabelText("Pending earnings")).toHaveTextContent("11.00");
+    expect(screen.getByLabelText("Available earnings")).toHaveTextContent("22.00");
+    expect(screen.getByLabelText("Paid out")).toHaveTextContent("88.00");
+    expect(screen.getByLabelText("Paid out")).not.toHaveTextContent("33.00");
+    const user = userEvent.setup();
+    await user.click(screen.getByText("Settlement accounting details"));
+    expect(screen.getByText("Paid earnings (earnings accounting)").nextElementSibling).toHaveTextContent("33.00");
+    expect(screen.getByText(/Reversed by refunds:/)).toHaveTextContent("44.00");
+    expect(screen.getByText(/Reserved \/ processing:/)).toHaveTextContent("77.00");
+    expect(screen.getByText("Settlement review required")).toBeVisible();
+    expect(screen.getByText("Account connected - payouts unavailable")).toBeVisible();
+    expect(screen.queryByRole("heading", {name: "Earnings activity"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+});
