@@ -41,6 +41,7 @@ import {adminAuth, adminDb} from "@/lib/firebase/admin";
 import {logWebSecurityEvent} from "@/lib/security/logging";
 import {
   isRoleAllowed,
+  isSafeRelativeReturnTo,
   sessionCookiePolicy,
   verifyRevocationAwareSession,
 } from "@/lib/security/policy";
@@ -238,9 +239,7 @@ export async function requireAuthenticatedAccount(options: {
     : await getDefaultAccountContext();
   if (account) return account;
 
-  const requested = typeof options.returnTo === "string" &&
-    options.returnTo.startsWith("/") &&
-    !options.returnTo.startsWith("//")
+  const requested = isSafeRelativeReturnTo(options.returnTo)
     ? options.returnTo
     : "/login";
   if (hadCookie) {
@@ -286,8 +285,8 @@ export function requireActiveAccount(account: SessionUser): SessionUser {
   return account;
 }
 
-export async function requireCustomer(): Promise<SessionUser> {
-  return requireRole(["customer"]);
+export async function requireCustomer(options: {returnTo?: string} = {}): Promise<SessionUser> {
+  return requireRole(["customer"], options);
 }
 
 export async function requireProvider(): Promise<SessionUser> {

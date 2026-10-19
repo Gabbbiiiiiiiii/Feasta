@@ -1,5 +1,9 @@
 import type {Metadata} from "next";
 import {headers} from "next/headers";
+import {
+  CUSTOMER_PAYMENT_RETURN_HEADER,
+  isCustomerPaymentReturnPath,
+} from "@/lib/customer/payments/payment-return-route-policy";
 
 import {CustomerMarketplaceShell} from "@/components/customer/layout/customer-marketplace-shell";
 import {PublicProviderMarketplaceShell} from "@/components/customer/layout/public-provider-marketplace-shell";
@@ -73,8 +77,11 @@ export default async function CustomerLayout({
     );
   }
 
+  const paymentReturnTo = requestHeaders.get(CUSTOMER_PAYMENT_RETURN_HEADER);
   const user = requireVerifiedEmail(
-    await requireCustomer(),
+    await (isCustomerPaymentReturnPath(paymentReturnTo)
+      ? requireCustomer({returnTo: paymentReturnTo})
+      : requireCustomer()),
   );
   const identity = await customerHeaderIdentity(user);
 

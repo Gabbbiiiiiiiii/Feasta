@@ -3,6 +3,7 @@ import {NextResponse} from "next/server";
 import {
   destroySession,
   homeForAccount,
+  safeAccountReturnPath,
   isInvalidSessionError,
   SESSION_COOKIE_NAME,
   verifySessionCookie,
@@ -23,7 +24,10 @@ export async function GET(request: Request) {
   if (cookie) {
     try {
       const account = await verifySessionCookie(cookie);
-      return NextResponse.redirect(new URL(homeForAccount(account), url.origin));
+      return NextResponse.redirect(new URL(
+        returnTo === "/login" ? homeForAccount(account) : safeAccountReturnPath(returnTo, account),
+        url.origin,
+      ));
     } catch (error) {
       if (!isInvalidSessionError(error)) {
         return NextResponse.json(
