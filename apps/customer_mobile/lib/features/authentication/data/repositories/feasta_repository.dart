@@ -1781,10 +1781,10 @@ class FeastaRepository {
       'title': 'Booking Request Accepted',
       'description':
           booking.remainingBalance > 0 &&
-                  booking.downPaymentAmount > 0 &&
-                  booking.downPaymentAmount < booking.totalAmount
-              ? 'Provider accepted the booking request. Customer must complete the down payment.'
-              : 'Provider accepted the booking request. Customer must complete the full payment.',
+              booking.downPaymentAmount > 0 &&
+              booking.downPaymentAmount < booking.totalAmount
+          ? 'Provider accepted the booking request. Customer must complete the down payment.'
+          : 'Provider accepted the booking request. Customer must complete the full payment.',
       'createdBy': currentUid,
       'createdByRole': UserRoles.provider,
       'createdAt': now,
@@ -1795,10 +1795,10 @@ class FeastaRepository {
       'title': 'Booking Accepted',
       'message':
           booking.remainingBalance > 0 &&
-                  booking.downPaymentAmount > 0 &&
-                  booking.downPaymentAmount < booking.totalAmount
-              ? '${booking.providerBusinessName} accepted your booking request. Please complete your down payment.'
-              : '${booking.providerBusinessName} accepted your booking request. Please complete your full payment.',
+              booking.downPaymentAmount > 0 &&
+              booking.downPaymentAmount < booking.totalAmount
+          ? '${booking.providerBusinessName} accepted your booking request. Please complete your down payment.'
+          : '${booking.providerBusinessName} accepted your booking request. Please complete your full payment.',
       'type': NotificationType.booking,
       'relatedId': booking.id,
       'relatedCollection': FirestoreCollections.mainEvents,
