@@ -1,3 +1,4 @@
+import '../../shared/models/booking_contract.dart';
 import 'location_picker_screen.dart';
 import 'widgets/preparation_availability.dart';
 import 'widgets/package_option_cards.dart';
@@ -697,6 +698,12 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
           ].where((value) => value.isNotEmpty).join('\n'),
         ),
       );
+      // Validate the transport shape locally without invoking any callable.
+      BookingSelection(
+        providerId: widget.provider.id,
+        packageId: fresh.id,
+        customization: customization,
+      ).toJson(clientRequestId: 'preparation_only');
       _saveDraft();
       if (!mounted) return;
       if (FirebaseAuth.instance.currentUser?.uid != _draftOwner) {
@@ -715,6 +722,8 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
           ),
         ),
       );
+    } on FormatException catch (error) {
+      if (mounted) _showMessage(error.message);
     } catch (_) {
       if (mounted) {
         _showMessage(

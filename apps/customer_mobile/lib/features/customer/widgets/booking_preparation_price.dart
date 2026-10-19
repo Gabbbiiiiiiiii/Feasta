@@ -81,7 +81,7 @@ class BookingPreparationPrice extends StatelessWidget {
               'Customer-arranged services and special requests: costs unconfirmed and excluded from the known estimate.',
             ),
           const Text(
-            'Based on published prices. Final charges and availability are subject to booking confirmation.',
+            'Based on published prices for selected services. This is not a confirmed whole-event total. Final charges and availability are subject to booking confirmation.',
           ),
         ],
       ),

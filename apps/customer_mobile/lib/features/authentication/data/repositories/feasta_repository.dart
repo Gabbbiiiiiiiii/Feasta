@@ -1,3 +1,5 @@
+import '../../../../shared/models/booking_contract.dart';
+import '../../../../shared/models/event_customization_data.dart';
 import '../../../../core/security/auth_operation_coordinator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -879,7 +881,7 @@ class FeastaRepository {
     await batch.commit();
   }
 
-  Future<String> createBookingRequest({
+  Future<BookingSubmissionResult> createBookingRequest({
     required CustomerModel customer,
     required ProviderModel provider,
     required PackageModel package,
@@ -897,38 +899,37 @@ class FeastaRepository {
     required bool willArrangeOwnAddOns,
     required String customerArrangedAddOnsNote,
     required String specialRequest,
+    String? serviceTier,
+    String? packageThemeId,
   }) async {
     await _requireVerifiedActiveCustomer();
     final requestId = '${currentUid}_${DateTime.now().microsecondsSinceEpoch}';
-    final result = await _functions.httpsCallable('submitBookingRequest').call({
-      'clientRequestId': requestId,
-      'providerId': provider.id,
-      'packageId': package.id,
-      'eventType': eventType,
-      'eventDate': eventDate.toUtc().toIso8601String(),
-      'eventTime': eventTime,
-      'eventEndTime': eventEndTime,
-      'guestCount': guestCount,
-      'eventLocation': eventLocation,
-      'eventAddress': eventAddress,
-      'selectedFoods': selectedFoods,
-      'selectedDecorations': selectedDecorations,
-      'selectedFurniture': selectedFurniture,
-      'addonIds': selectedAddOns
-          .map((addon) => addon['addonId']?.toString() ?? '')
-          .where((id) => id.isNotEmpty)
-          .toSet()
-          .toList(),
-      'willArrangeOwnAddOns': willArrangeOwnAddOns,
-      'customerArrangedAddOnsNote': customerArrangedAddOnsNote,
-      'specialRequest': specialRequest,
-    });
-    final data = Map<String, dynamic>.from(result.data as Map);
-    final bookingId = data['bookingId'];
-    if (bookingId is! String || bookingId.isEmpty) {
-      throw Exception('Booking submission did not return a valid reference.');
-    }
-    return bookingId;
+    final selection = BookingSelection(
+      providerId: provider.id,
+      packageId: package.id,
+      customization: EventCustomizationData(
+        eventType: eventType,
+        eventDate: eventDate,
+        eventTime: eventTime,
+        eventEndTime: eventEndTime,
+        guestCount: guestCount,
+        eventLocation: eventLocation,
+        eventAddress: eventAddress,
+        selectedFoods: selectedFoods,
+        selectedDecorations: selectedDecorations,
+        selectedFurniture: selectedFurniture,
+        selectedAddOns: selectedAddOns,
+        willArrangeOwnAddOns: willArrangeOwnAddOns,
+        customerArrangedAddOnsNote: customerArrangedAddOnsNote,
+        specialRequest: specialRequest,
+        serviceTier: serviceTier,
+        packageThemeId: packageThemeId,
+      ),
+    );
+    final result = await _functions
+        .httpsCallable('submitBookingRequest')
+        .call(selection.toJson(clientRequestId: requestId));
+    return BookingSubmissionResult.fromJson(result.data);
   }
 
   // Kept temporarily as a migration reference while downstream add-on request

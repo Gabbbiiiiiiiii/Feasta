@@ -21,7 +21,7 @@ class BookingSummaryScreen extends StatefulWidget {
     required this.provider,
     required this.eventPackage,
     required this.customization,
-    this.preparationOnly = false,
+    this.preparationOnly = true,
     super.key,
   });
 
@@ -111,10 +111,12 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     try {
       final customer = await repository.getCurrentCustomer();
 
-      final bookingId = await repository.createBookingRequest(
+      final result = await repository.createBookingRequest(
         customer: customer,
         provider: widget.provider,
         package: widget.eventPackage,
+        serviceTier: widget.customization.serviceTier,
+        packageThemeId: widget.customization.packageThemeId,
         eventType: widget.customization.eventType,
         eventDate: widget.customization.eventDate,
         eventTime: widget.customization.eventTime,
@@ -140,7 +142,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         context,
         MaterialPageRoute(
           builder: (_) => BookingSubmittedScreen(
-            bookingId: bookingId,
+            bookingId: result.bookingId,
             providerName: widget.provider.businessName,
           ),
         ),

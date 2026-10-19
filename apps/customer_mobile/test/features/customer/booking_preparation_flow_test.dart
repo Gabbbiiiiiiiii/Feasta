@@ -1,3 +1,12 @@
+import 'package:flutter/services.dart';
+// ignore: depend_on_referenced_packages, implementation_imports
+import 'package:cloud_firestore_platform_interface/src/pigeon/messages.pigeon.dart'
+    as firestore_host;
+// ignore: depend_on_referenced_packages, implementation_imports
+import 'package:cloud_functions_platform_interface/src/pigeon/messages.pigeon.dart'
+    as functions_host;
+import 'package:feasta/features/customer/availability_check_screen.dart';
+import 'package:feasta/shared/models/event_customization_data.dart';
 import 'package:feasta/features/customer/widgets/package_option_cards.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -17,6 +26,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'provider_discovery_test.dart' show provider, GuestAuth, SignedUser;
 import 'booking_preparation_test.dart' show preparationPackage;
+
+// Firestore's production codec writes FieldPath for native code but does not
+// decode it in Dart. Supply the native-side decoding needed by this test mock.
+class AvailabilityQueryCodec extends firestore_host.PigeonCodec {
+  const AvailabilityQueryCodec();
+  @override
+  Object? readValueOfType(int type, ReadBuffer buffer) {
+    if (type == 192) {
+      return List.generate(readSize(buffer), (_) => readValue(buffer));
+    }
+    return super.readValueOfType(type, buffer);
+  }
+}
 
 class PreparationUser extends SignedUser {
   @override
@@ -135,6 +157,23 @@ Future<void> openStep(WidgetTester tester, String label) async {
   }
 }
 
+EventCustomizationData reviewData() => EventCustomizationData(
+  eventType: 'wedding',
+  eventDate: DateTime(2030, 1, 2),
+  eventTime: '14:00',
+  eventEndTime: '18:00',
+  guestCount: 50,
+  eventLocation: 'Ormoc City',
+  eventAddress: 'Main Street',
+  selectedFoods: ['Rice'],
+  selectedDecorations: ['Flowers'],
+  selectedFurniture: ['Tables'],
+  selectedAddOns: [],
+  willArrangeOwnAddOns: false,
+  customerArrangedAddOnsNote: '',
+  specialRequest: 'No peanuts',
+);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUpAll(() async {
@@ -142,15 +181,122 @@ void main() {
     await Firebase.initializeApp();
     FirebaseAuthPlatform.instance = PreparationAuth();
   });
+  const callableChannel = BasicMessageChannel<Object?>(
+    'dev.flutter.pigeon.cloud_functions_platform_interface.CloudFunctionsHostApi.call',
+    functions_host.CloudFunctionsHostApi.pigeonChannelCodec,
+  );
+  const queryChannel = BasicMessageChannel<Object?>(
+    'dev.flutter.pigeon.cloud_firestore_platform_interface.FirebaseFirestoreHostApi.queryGet',
+    AvailabilityQueryCodec(),
+  );
+  final callableNames = <String>[];
   setUp(() {
+    callableNames.clear();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockDecodedMessageHandler<Object?>(callableChannel, (
+          message,
+        ) async {
+          final arguments = (message as List).single as Map;
+          callableNames.add(arguments['name'] as String);
+          // Fail closed: no callable ever reaches a native Firebase plugin.
+          return [
+            'unavailable',
+            'Blocked by preparation regression test',
+            null,
+          ];
+        });
     GuestAuth.signedIn = true;
     preparationDraftMemory.clear();
     SharedPreferences.setMockInitialValues({});
   });
   tearDown(() {
+    expect(callableNames, isNot(contains('submitBookingRequest')));
+    expect(callableNames, isNot(contains('createPaymentSession')));
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      ..setMockDecodedMessageHandler<Object?>(callableChannel, null)
+      ..setMockDecodedMessageHandler<Object?>(queryChannel, null);
     GuestAuth.signedIn = false;
     preparationDraftMemory.clear();
   });
+  testWidgets(
+    'omitted preparationOnly defaults to safe review without submission',
+    (tester) async {
+      phone(tester);
+      final screen = BookingSummaryScreen(
+        provider: provider(),
+        eventPackage: preparationPackage(),
+        customization: reviewData(),
+      );
+      expect(screen.preparationOnly, isTrue);
+      await tester.pumpWidget(MaterialApp(home: screen));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'Preparation only. Availability is unverified. No booking has been sent.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Submit Booking Request'), findsNothing);
+      expect(find.text('Edit event details and selections'), findsOneWidget);
+      expect(callableNames, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'older availability navigation inherits preparation-only default',
+    (tester) async {
+      phone(tester);
+      var availabilityReads = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockDecodedMessageHandler<Object?>(queryChannel, (message) async {
+            expect((message as List)[1], 'mainEvents');
+            availabilityReads++;
+            return [
+              firestore_host.InternalQuerySnapshot(
+                documents: [],
+                documentChanges: [],
+                metadata: firestore_host.InternalSnapshotMetadata(
+                  hasPendingWrites: false,
+                  isFromCache: false,
+                ),
+              ),
+            ];
+          });
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AvailabilityCheckScreen(
+            provider: provider(),
+            eventPackage: preparationPackage(),
+            customization: reviewData(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        availabilityReads,
+        1,
+        reason: tester
+            .widgetList<Text>(find.byType(Text))
+            .map((w) => w.data)
+            .join(' | '),
+      );
+      expect(find.text('Available'), findsOneWidget);
+      await tester.tap(find.text('Continue to Booking Summary'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<BookingSummaryScreen>(find.byType(BookingSummaryScreen))
+            .preparationOnly,
+        isTrue,
+      );
+      expect(find.text('Submit Booking Request'), findsNothing);
+      await tester.tap(find.text('Edit event details and selections'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AvailabilityCheckScreen), findsOneWidget);
+      expect(callableNames, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
   for (final image in [null, 'https://invalid.example/missing-package.jpg']) {
     testWidgets('missing or failed package image keeps hero compact ($image)', (
       tester,

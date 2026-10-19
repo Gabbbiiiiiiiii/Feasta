@@ -114,7 +114,7 @@ String? validatePreparation({
     return 'Choose a future event date and start time.';
   }
   final maximum = preparationMaximumGuests(package);
-  if (guests > 100000 ||
+  if (guests > 10000 ||
       guests < preparationMinimumGuests(package) ||
       (maximum != null && guests > maximum)) {
     return "Guest count is outside this package's supported range.";
@@ -123,6 +123,16 @@ String? validatePreparation({
     return 'Event location must be Ormoc City.';
   }
   if (address.trim().isEmpty) return 'Please enter the complete event address.';
+  if (address.trim().length > 500 || city.trim().length > 180) {
+    return 'Event location or address is too long.';
+  }
+  if ([foods, decorations, furniture].any(
+    (values) =>
+        values.length > 50 ||
+        values.any((v) => v.trim().isEmpty || v.trim().length > 120),
+  )) {
+    return 'Package selections exceed the supported field limits.';
+  }
   if (!validatePackageOptions) return null;
   bool allowed(List<String> chosen, List<String> options) =>
       chosen.toSet().length == chosen.length && chosen.every(options.contains);
