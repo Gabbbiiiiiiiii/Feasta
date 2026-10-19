@@ -19,6 +19,7 @@ class BookingRefundPolicyController extends ChangeNotifier {
   final AgreementProviderResolver resolveProviders;
   RefundReviewStatus status = RefundReviewStatus.idle;
   RefundDisclosures? disclosures;
+  DateTime? loadedAt;
   String? message;
   String? _signature;
   BookingAgreementRequest? _request;
@@ -99,6 +100,7 @@ class BookingRefundPolicyController extends ChangeNotifier {
           );
         }
         disclosures = result;
+        loadedAt = DateTime.now().toUtc();
         status = RefundReviewStatus.ready;
       } catch (error) {
         if (_disposed || generation != _generation) return;
@@ -139,6 +141,8 @@ class BookingRefundPolicyController extends ChangeNotifier {
       !_disposed &&
       status == RefundReviewStatus.ready &&
       disclosures!.policies.every(acknowledged);
+  bool matchesSelection(BookingSelection selection, String uid) =>
+      !_disposed && _signature == agreementSelectionSignature(selection, uid);
   List<Map<String, String>> get acknowledgements {
     if (!allAcknowledged) {
       throw const RefundReviewFailure(

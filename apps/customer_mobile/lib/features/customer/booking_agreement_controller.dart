@@ -22,6 +22,7 @@ class BookingAgreementController extends ChangeNotifier {
   final DateTime Function() now;
   AgreementReviewStatus status = AgreementReviewStatus.idle;
   List<BookingAgreement> agreements = const [];
+  DateTime? loadedAt;
   String? message;
   String? _signature;
   BookingAgreementRequest? _request;
@@ -99,6 +100,7 @@ class BookingAgreementController extends ChangeNotifier {
           );
         }
         agreements = List.unmodifiable(result);
+        loadedAt = DateTime.now().toUtc();
         status = AgreementReviewStatus.ready;
         _scheduleExpiry();
       } catch (error) {
@@ -184,6 +186,8 @@ class BookingAgreementController extends ChangeNotifier {
       status == AgreementReviewStatus.ready &&
       agreements.isNotEmpty &&
       agreements.every(acknowledged);
+  bool matchesSelection(BookingSelection selection, String uid) =>
+      !_disposed && _signature == agreementSelectionSignature(selection, uid);
   List<Map<String, String>> get acknowledgements {
     if (!allAcknowledged) {
       throw const AgreementReviewFailure(

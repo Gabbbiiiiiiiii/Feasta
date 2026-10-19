@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'booking_attempt_coordinator.dart';
 import 'booking_refund_policy_review_screen.dart';
 import '../../shared/models/booking_contract.dart';
 import 'booking_agreement_review_screen.dart';
@@ -39,6 +42,60 @@ class BookingSummaryScreen extends StatefulWidget {
 
 class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   final FeastaRepository repository = FeastaRepository();
+
+  static final _attempts = BookingAttemptCoordinator(
+    store: const SecureBookingAttemptStore(),
+    currentUid: () => FirebaseAuth.instance.currentUser?.uid,
+  );
+  bool _savingAttempt = false;
+  String? _attemptMessage;
+  StreamSubscription<User?>? _attemptAuth;
+
+  @override
+  void initState() {
+    super.initState();
+    _attemptAuth = FirebaseAuth.instance.authStateChanges().listen((_) {
+      _attempts.invalidateSession();
+      if (mounted) setState(() => _attemptMessage = null);
+    });
+  }
+
+  @override
+  void dispose() {
+    _attemptAuth?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _prepareAttempt() async {
+    if (_savingAttempt) return;
+    setState(() => _savingAttempt = true);
+    try {
+      final attempt = await _attempts.prepare(
+        BookingSelection(
+          providerId: widget.provider.id,
+          packageId: widget.eventPackage.id,
+          customization: snapshotCustomization(widget.customization),
+        ),
+      );
+      if (!mounted) return;
+      setState(
+        () => _attemptMessage = attempt.result != null
+            ? 'This request already has a confirmed booking result. Review booking history.'
+            : attempt.status == BookingAttemptStatus.requiresReconciliation
+            ? 'Previous request outcome needs reconciliation. No new booking has been sent.'
+            : 'Request identity saved securely. No booking has been sent. Fresh agreement and refund-policy reviews are required before future submission.',
+      );
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _attemptMessage =
+              'Request identity could not be safely prepared. Submission remains blocked; existing attempts have been retained.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _savingAttempt = false);
+    }
+  }
 
   bool isSubmitting = false;
 
@@ -200,6 +257,15 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           const CustomizationProgress(step: 3),
+          OutlinedButton(
+            onPressed: _savingAttempt ? null : _prepareAttempt,
+            child: Text(
+              _savingAttempt
+                  ? 'Saving request identity...'
+                  : 'Prepare request identity',
+            ),
+          ),
+          if (_attemptMessage != null) Text(_attemptMessage!),
           const SizedBox(height: 8),
           const Text(
             'Preparation only. Availability is unverified. No booking has been sent.',
