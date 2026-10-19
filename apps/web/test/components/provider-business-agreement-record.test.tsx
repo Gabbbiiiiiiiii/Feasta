@@ -1,8 +1,11 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
+import {createHash} from "node:crypto";
+import {readFileSync} from "node:fs";
+import {resolve} from "node:path";
 import {PDFDocument, PDFRawStream, decodePDFRawStream} from "pdf-lib";
 import {loadProviderAgreementAcceptanceSummary} from "@/lib/provider/provider-agreement-download";
 
-const database = vi.hoisted(() => ({collection: vi.fn(), providerGet: vi.fn(), verificationGet: vi.fn(), limit: vi.fn(), write: vi.fn()}));
+const database = vi.hoisted(() => ({collection: vi.fn(), providerGet: vi.fn(), verificationGet: vi.fn(), acceptanceGet: vi.fn(), limit: vi.fn(), write: vi.fn()}));
 vi.mock("@/lib/firebase/admin", () => ({adminDb: {collection: database.collection}}));
 const downloads = vi.hoisted(() => ({published: vi.fn(), account: vi.fn()}));
 vi.mock("@/lib/documents/document-catalog-service", () => ({getPublishedProviderAgreement: downloads.published}));
@@ -16,7 +19,143 @@ beforeEach(() => {
   database.collection.mockImplementation((name: string) => {
     if (name === "providers") return {doc: () => ({get: database.providerGet, set: database.write, update: database.write})};
     if (name === "providerVerifications") return {where: () => ({limit: database.limit})};
+    if (name === "providerAgreementAcceptances") return {doc: (id: string) => ({get: () => database.acceptanceGet(id)})};
     throw new Error(`Unexpected collection ${name}`);
+  });
+});
+
+describe("voluntary acceptance chain", () => {
+  it("keeps the Functions and Web validation policy identical", () => {
+    const policy = (source: string) => source.replace(/\r\n/g, "\n").split("// BEGIN acceptance history policy")[1].split("// END acceptance history policy.")[0];
+    expect(policy(readFileSync(resolve(process.cwd(), "../../functions/src/providers/accept-current-provider-agreement.ts"), "utf8")))
+      .toBe(policy(readFileSync(resolve(process.cwd(), "src/lib/provider/provider-agreement-download.ts"), "utf8")));
+  });
+  const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
+  const id = hash(["provider-one", "provider_agreement", "1.7"]);
+  const acceptedAt = {seconds: 1792377600, nanoseconds: 0};
+  const snapshot = {code: "provider_agreement", name: "Provider Agreement", summary: "Published summary", version: "1.7",
+    effectiveDate: "2026-10-01", sections: [{title: "New terms", paragraphs: ["Exact new accepted content."]}], acceptedAt};
+  function seed(historicalSnapshot: boolean) {
+    const legacy = {providerId: "provider-one", ownerId: "owner-one", providerAgreementAccepted: true,
+      providerAgreementVersion: "2026-09-23", providerAgreementAcceptedAt: {seconds: 1790553600},
+      ...(historicalSnapshot ? {providerAgreementSnapshot: {...snapshot, version: "2026-09-23", acceptedAt: {seconds: 1790553600}}} : {})};
+    database.providerGet.mockResolvedValue({data: () => ({ownerId: "owner-one", providerAgreementCurrentAcceptanceId: id})});
+    database.verificationGet.mockResolvedValue({size: 1, docs: [{data: () => legacy}]});
+    database.acceptanceGet.mockResolvedValue({data: () => ({ownerId: "owner-one", providerId: "provider-one",
+      digest: hash({...snapshot, acceptedAt: undefined}),
+      snapshot, acceptedAt, previousAcceptanceId: null, businessName: "Business at acceptance", representativeName: "Original Representative"})});
+  }
+  it.each([true, false])("reads new exact snapshot and retains original history, authentic legacy snapshot: %s", async (hasSnapshot) => {
+    seed(hasSnapshot);
+    const summary = await loadProviderAgreementAcceptanceSummary({uid: "owner-one", providerId: "provider-one"});
+    expect(summary).toMatchObject({acceptedVersion: "1.7", snapshot: {version: "1.7", sections: snapshot.sections, acceptedAt}});
+    expect(summary?.history).toHaveLength(1);
+    expect(summary?.history?.[0].acceptedVersion).toBe("2026-09-23");
+    expect(summary?.history?.[0].acceptedAtLabel).not.toBe(summary?.acceptedAtLabel);
+    expect(Boolean(summary?.history?.[0].snapshot)).toBe(hasSnapshot);
+    expect(database.write).not.toHaveBeenCalled();
+  });
+  it("PDF contains only the exact new accepted snapshot and its new date", async () => {
+    seed(false);
+    const response = await GET(new Request("http://localhost/api/provider/agreement/pdf?copy=accepted"));
+    expect(response.status).toBe(200);
+    const pdf = await PDFDocument.load(await response.arrayBuffer());
+    const content = pdf.context.enumerateIndirectObjects().flatMap(([, object]) => object instanceof PDFRawStream
+      ? [Buffer.from(decodePDFRawStream(object).decode()).toString("latin1")] : []).join("\n");
+    const text = [...content.matchAll(/<([0-9A-Fa-f]+)>/g)].map(match => Buffer.from(match[1], "hex").toString("latin1")).join("\n");
+    expect(text).toContain("Exact new accepted content.");
+    expect(text).toContain("Version: 1.7");
+    expect(text).toContain("October 19, 2026");
+    expect(text).toContain("Business at acceptance");
+    expect(text).not.toContain("September 28");
+    expect(downloads.published).not.toHaveBeenCalled();
+  });
+  it("reads different voluntary versions as a sequence and keeps the original metadata", async () => {
+    seed(false);
+    const previousSnapshot = {...snapshot, version: "1.6", acceptedAt: {seconds: 1791000000, nanoseconds: 0}};
+    const previousId = hash(["provider-one", "provider_agreement", "1.6"]);
+    const common = {ownerId: "owner-one", providerId: "provider-one"};
+    database.acceptanceGet.mockImplementation(async (requestedId: string) => ({data: () => requestedId === id
+      ? {...common, snapshot, acceptedAt, digest: hash({...snapshot, acceptedAt: undefined}), previousAcceptanceId: previousId}
+      : {...common, snapshot: previousSnapshot, acceptedAt: previousSnapshot.acceptedAt,
+        digest: hash({...previousSnapshot, acceptedAt: undefined}), previousAcceptanceId: null}}));
+    const summary = await loadProviderAgreementAcceptanceSummary({uid: "owner-one", providerId: "provider-one"});
+    expect(summary?.acceptedVersion).toBe("1.7");
+    expect(summary?.history?.map(entry => entry.acceptedVersion)).toEqual(["1.6", "2026-09-23"]);
+  });
+  it("same-version contradictory legacy and new evidence still fails closed", async () => {
+    seed(false);
+    database.verificationGet.mockResolvedValue({size: 1, docs: [{data: () => ({ownerId: "owner-one", providerId: "provider-one",
+      providerAgreementVersion: "1.7", providerAgreementAccepted: true, providerAgreementAcceptedAt: {seconds: 1790553600}})}]});
+    expect(await loadProviderAgreementAcceptanceSummary({uid: "owner-one", providerId: "provider-one"})).toBeNull();
+  });
+  it.each(["owner", "timestamp", "cycle", "malformed", "digest"])("fails closed on %s corruption in the current chain", async (corruption) => {
+    seed(false);
+    database.acceptanceGet.mockResolvedValue({data: () => ({ownerId: corruption === "owner" ? "other" : "owner-one",
+      providerId: "provider-one", snapshot: corruption === "malformed" ? {} : snapshot,
+      digest: corruption === "digest" ? "incorrect" : hash({...snapshot, acceptedAt: undefined}),
+      acceptedAt: corruption === "timestamp" ? {seconds: 1} : acceptedAt,
+      previousAcceptanceId: corruption === "cycle" ? id : null})});
+    expect(await loadProviderAgreementAcceptanceSummary({uid: "owner-one", providerId: "provider-one"})).toBeNull();
+    const response = await GET(new Request("http://localhost/api/provider/agreement/pdf?copy=accepted"));
+    expect(response.status).toBe(404);
+  });
+  function chain(length: number) {
+    const records = new Map<string, Record<string, unknown>>();
+    let previousAcceptanceId: string | null = null;
+    const ids: string[] = [];
+    for (let i = length - 1; i >= 0; i--) {
+      const document = {...snapshot, version: `history-${i}`};
+      const eventId = hash(["provider-one", document.code, document.version]);
+      records.set(eventId, {ownerId: "owner-one", providerId: "provider-one", snapshot: document,
+        acceptedAt, digest: hash({...document, acceptedAt: undefined}), previousAcceptanceId});
+      ids[i] = eventId;
+      previousAcceptanceId = eventId;
+    }
+    database.providerGet.mockResolvedValue({data: () => ({ownerId: "owner-one", providerAgreementCurrentAcceptanceId: previousAcceptanceId})});
+    database.acceptanceGet.mockImplementation(async (eventId: string) => ({data: () => records.get(eventId)}));
+    return {records, ids};
+  }
+  it.each(["digest", "id", "timestamp", "owner", "provider", "cycle", "broken", "missing link", "summary", "duplicate version"])("rejects %s in a deeper chain event", async (corruption) => {
+    seed(false);
+    const {records, ids} = chain(3);
+    const event = records.get(ids[1])!;
+    if (corruption === "digest") event.digest = "corrupted";
+    if (corruption === "id") {
+      records.set("f".repeat(64), event);
+      records.get(ids[0])!.previousAcceptanceId = "f".repeat(64);
+    }
+    if (corruption === "timestamp") event.acceptedAt = {seconds: 1};
+    if (corruption === "owner") event.ownerId = "other";
+    if (corruption === "provider") event.providerId = "other";
+    if (corruption === "cycle") event.previousAcceptanceId = ids[0];
+    if (corruption === "broken") records.delete(ids[2]);
+    if (corruption === "missing link") delete event.previousAcceptanceId;
+    if (corruption === "summary") event.snapshot = {...snapshot, version: "history-1", summary: 42};
+    if (corruption === "duplicate version") {
+      const document = {...snapshot, version: "history-0", code: "another_agreement"};
+      const duplicateId = hash(["provider-one", document.code, document.version]);
+      records.set(duplicateId, {...event, snapshot: document, digest: hash({...document, acceptedAt: undefined})});
+      records.get(ids[0])!.previousAcceptanceId = duplicateId;
+    }
+    expect(await loadProviderAgreementAcceptanceSummary({uid: "owner-one", providerId: "provider-one"})).toBeNull();
+    expect(database.write).not.toHaveBeenCalled();
+  });
+  it.each([100, 101])("bounds history reads at 100 for a %i-event chain", async (length) => {
+    seed(false); chain(length);
+    const result = await loadProviderAgreementAcceptanceSummary({uid: "owner-one", providerId: "provider-one"});
+    expect(Boolean(result)).toBe(length === 100);
+    expect(database.acceptanceGet).toHaveBeenCalledTimes(100);
+  });
+  it.each(["version", "timestamp", "snapshot", "malformed timestamp"])("rejects conflicting raw legacy %s evidence alongside a valid chain", async (conflict) => {
+    seed(false);
+    const original = {ownerId: "owner-one", providerId: "provider-one", providerAgreementAccepted: true,
+      providerAgreementVersion: "2026-09-23", providerAgreementAcceptedAt: {seconds: 1790553600}};
+    const other = {...original, ...(conflict === "version" ? {providerAgreementVersion: "other"} :
+      conflict === "timestamp" ? {providerAgreementAcceptedAt: acceptedAt} :
+      conflict === "snapshot" ? {providerAgreementSnapshot: {}} : {providerAgreementAcceptedAt: "invalid"})};
+    database.verificationGet.mockResolvedValue({size: 2, docs: [original, other].map(record => ({data: () => record}))});
+    expect(await loadProviderAgreementAcceptanceSummary({uid: "owner-one", providerId: "provider-one"})).toBeNull();
   });
 });
 

@@ -25,6 +25,10 @@ export async function loadBusinessAgreementView(input: {
       acceptedAtLabel: acceptance.acceptedAtLabel,
       document: providerAgreementClientData(document),
       unavailable: false,
+      history: acceptance.history?.map((entry) => ({
+        acceptedVersion: entry.acceptedVersion, acceptedAtLabel: entry.acceptedAtLabel,
+        document: providerAgreementClientData(entry.snapshot),
+      })),
     };
   } catch {
     return {accepted: false, acceptedVersion: "", acceptedAtLabel: null, document: null, unavailable: true};

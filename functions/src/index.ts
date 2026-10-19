@@ -24,6 +24,7 @@ import {logError} from "./shared/logger.js";
 import {db} from "./shared/firestore.js";
 import {serverTimestamp} from "./shared/timestamps.js";
 import {logSecurityEvent} from "./shared/security-events.js";
+export {acceptCurrentProviderAgreement} from "./providers/accept-current-provider-agreement.js";
 export {
   ensureUserProfile,
 } from "./auth/ensure-user-profile.js";

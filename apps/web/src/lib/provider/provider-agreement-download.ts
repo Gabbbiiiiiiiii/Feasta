@@ -1,4 +1,5 @@
 import "server-only";
+import {createHash} from "node:crypto";
 
 import {getPublishedProviderAgreement} from "@/lib/documents/document-catalog-service";
 import {adminDb} from "@/lib/firebase/admin";
@@ -11,10 +12,8 @@ import {
   type ProviderAgreementSnapshot,
 } from "@/lib/provider/provider-agreement-record";
 
-// Read one extra record to detect overflow before trusting any acceptance evidence.
-const MAX_AGREEMENT_VERIFICATIONS = 10;
-
 export type ProviderAgreementAcceptanceSummary = {
+  history?: {acceptedVersion: string; acceptedAtLabel: string | null; snapshot: ProviderAgreementSnapshot | null}[];
   accepted: boolean;
   acceptedVersion: string;
   acceptedAtLabel: string | null;
@@ -36,6 +35,7 @@ export async function loadProviderAgreementAcceptanceSummary(input: {
     accepted: identity.accepted,
     acceptedVersion: identity.acceptedVersion,
     acceptedAtLabel: identity.acceptedAtLabel,
+    history: identity.history,
   };
 }
 
@@ -89,6 +89,7 @@ async function loadProviderAgreementIdentity(input: {
   representativeName: string;
   providerId: string | null;
   snapshot: ProviderAgreementSnapshot | null;
+  history?: {acceptedVersion: string; acceptedAtLabel: string | null; snapshot: ProviderAgreementSnapshot | null}[];
 } | null> {
   if (input.providerId) {
     const providerSnapshot = await adminDb
@@ -117,10 +118,11 @@ async function loadProviderAgreementIdentity(input: {
     })).sort((a, b) => b.rank - a.rank || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
     const identity = ranked[0]?.identity ?? identityFromRecord(provider, undefined, input.providerId);
     // Compare every pair, including weak metadata that may contradict stronger evidence.
-    if (evidence.some((record, index) => evidence.slice(index).some((other) => acceptanceConflict(record, other)))) {
-      return {...identity, snapshot: null};
+    if (legacyEvidenceConflict(evidence)) {
+      if (provider.providerAgreementCurrentAcceptanceId != null) return null;
+      return loadVoluntaryAcceptances(provider, {...identity, snapshot: null}, input.uid, evidence);
     }
-    return identity;
+    return loadVoluntaryAcceptances(provider, identity, input.uid, evidence);
   }
 
   const draftSnapshot = await adminDb
@@ -135,6 +137,7 @@ function identityFromRecord(
   acceptanceSource: Record<string, unknown> | undefined,
   providerId: string | null,
 ): {
+  acceptedAt: unknown;
   accepted: boolean;
   acceptedVersion: string;
   acceptedAtLabel: string | null;
@@ -158,6 +161,7 @@ function identityFromRecord(
     snapshot.acceptedAt = source.providerAgreementAcceptedAt;
   }
   return {
+    acceptedAt: source.providerAgreementAcceptedAt ?? snapshot?.acceptedAt,
     accepted: source.providerAgreementAccepted === true ||
       source.providerAgreementAcceptedAt != null || snapshot !== null,
     acceptedVersion: text(source.providerAgreementVersion) || snapshot?.version || "",
@@ -174,6 +178,10 @@ function identityFromRecord(
   };
 }
 
+// BEGIN acceptance history policy (kept identical in Web and Functions by regression test).
+const MAX_AGREEMENT_VERIFICATIONS = 10;
+const MAX_AGREEMENT_HISTORY = 100;
+
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -183,18 +191,22 @@ function stamp(value: unknown): string | null {
   if (value instanceof Date) {
     if (!Number.isFinite(value.getTime())) return null;
     const seconds = Math.floor(value.getTime() / 1000);
-    return seconds + ":" + ((value.getTime() - seconds * 1000) * 1000000);
+    return stamp({seconds, nanoseconds: (value.getTime() - seconds * 1000) * 1000000});
   }
   const timestamp = value as {seconds?: number; nanoseconds?: number};
   const nanos = timestamp.nanoseconds ?? 0;
   return typeof timestamp.seconds === "number" && Number.isInteger(timestamp.seconds) &&
+    timestamp.seconds >= -62135596800 && timestamp.seconds <= 253402300799 &&
     Number.isInteger(nanos) && nanos >= 0 && nanos < 1000000000
     ? timestamp.seconds + ":" + nanos : null;
 }
 
 function acceptanceConflict(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
   if (a.providerAgreementAccepted === false || b.providerAgreementAccepted === false) return true;
-  for (const key of ["providerAgreementVersion", "providerAgreementCode", "providerAgreementTemplateCode"]) {
+  const fields = [
+    "providerAgreementVersion", "providerAgreementCode", "providerAgreementTemplateCode",
+  ];
+  for (const key of fields) {
     if (text(a[key]) && text(b[key]) && text(a[key]) !== text(b[key])) return true;
   }
   const aSnapshot = parseProviderAgreementSnapshot(a.providerAgreementSnapshot);
@@ -203,14 +215,17 @@ function acceptanceConflict(a: Record<string, unknown>, b: Record<string, unknow
   const bVersion = text(b.providerAgreementVersion) || bSnapshot?.version;
   const aCode = text(a.providerAgreementCode) || aSnapshot?.code;
   const bCode = text(b.providerAgreementCode) || bSnapshot?.code;
-  if ((aVersion && bVersion && aVersion !== bVersion) || (aCode && bCode && aCode !== bCode)) return true;
+  if ((aVersion && bVersion && aVersion !== bVersion) ||
+    (aCode && bCode && aCode !== bCode)) return true;
   const left = stamp(a.providerAgreementAcceptedAt ?? aSnapshot?.acceptedAt);
   const right = stamp(b.providerAgreementAcceptedAt ?? bSnapshot?.acceptedAt);
   if (left && right && left !== right) return true;
   for (const record of [a, b]) {
-    if ((record.providerAgreementAccepted != null && typeof record.providerAgreementAccepted !== "boolean") ||
-      (record.providerAgreementAcceptedAt != null && stamp(record.providerAgreementAcceptedAt) === null)) return true;
-    for (const key of ["providerAgreementVersion", "providerAgreementCode", "providerAgreementTemplateCode"]) {
+    if ((record.providerAgreementAccepted != null &&
+      typeof record.providerAgreementAccepted !== "boolean") ||
+      (record.providerAgreementAcceptedAt != null &&
+        stamp(record.providerAgreementAcceptedAt) === null)) return true;
+    for (const key of fields) {
       if (record[key] != null && !text(record[key])) return true;
     }
   }
@@ -218,17 +233,104 @@ function acceptanceConflict(a: Record<string, unknown>, b: Record<string, unknow
   for (const record of [a, b]) {
     if (record.providerAgreementSnapshot == null) continue;
     const snapshot = parseProviderAgreementSnapshot(record.providerAgreementSnapshot);
-    if (!snapshot || (snapshot.acceptedAt != null && stamp(snapshot.acceptedAt) === null) || (text(record.providerAgreementVersion) && snapshot.version !== text(record.providerAgreementVersion)) ||
-      (text(record.providerAgreementCode) && snapshot.code !== text(record.providerAgreementCode)) ||
-      (text(record.providerAgreementTemplateCode) && snapshot.code !== text(record.providerAgreementTemplateCode)) ||
-      (snapshot.acceptedAt != null && record.providerAgreementAcceptedAt != null && stamp(snapshot.acceptedAt) !== stamp(record.providerAgreementAcceptedAt))) return true;
+    if (!snapshot ||
+      (snapshot.acceptedAt != null && stamp(snapshot.acceptedAt) === null) ||
+      (text(record.providerAgreementVersion) &&
+        snapshot.version !== text(record.providerAgreementVersion)) ||
+      (text(record.providerAgreementCode) &&
+        snapshot.code !== text(record.providerAgreementCode)) ||
+      (text(record.providerAgreementTemplateCode) &&
+        snapshot.code !== text(record.providerAgreementTemplateCode)) ||
+      (snapshot.acceptedAt != null && record.providerAgreementAcceptedAt != null &&
+        stamp(snapshot.acceptedAt) !== stamp(record.providerAgreementAcceptedAt))) return true;
   }
   const first = parseProviderAgreementSnapshot(a.providerAgreementSnapshot);
   const second = parseProviderAgreementSnapshot(b.providerAgreementSnapshot);
-  return Boolean(first && second && JSON.stringify({...first, acceptedAt: undefined}) !== JSON.stringify({...second, acceptedAt: undefined}));
+  return Boolean(first && second &&
+    JSON.stringify({...first, acceptedAt: undefined}) !==
+      JSON.stringify({...second, acceptedAt: undefined}));
 }
 function hasAgreementEvidence(record: Record<string, unknown>): boolean {
-  return Object.keys(record).some((key) => key.startsWith("providerAgreement") && record[key] != null);
+  return Object.keys(record).some((key) => key.startsWith("providerAgreement") &&
+    key !== "providerAgreementCurrentAcceptanceId" && record[key] != null);
+}
+
+function legacyEvidenceConflict(evidence: Record<string, unknown>[]): boolean {
+  return evidence.some((record, index) =>
+    evidence.slice(index).some((other) => acceptanceConflict(record, other)),
+  );
+}
+
+function validAcceptanceEvent(
+  id: string,
+  record: Record<string, unknown> | undefined,
+  uid: string,
+  providerId: string,
+  evidence: Record<string, unknown>[],
+): boolean {
+  const snapshot = parseProviderAgreementSnapshot(record?.snapshot);
+  if (!record || record.ownerId !== uid || record.providerId !== providerId ||
+    !snapshot || !stamp(record.acceptedAt) ||
+    stamp(snapshot.acceptedAt) !== stamp(record.acceptedAt)) return false;
+  if (record.previousAcceptanceId !== null &&
+    (typeof record.previousAcceptanceId !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(record.previousAcceptanceId))) return false;
+  const raw = record.snapshot as Record<string, unknown>;
+  if (typeof raw.summary !== "string") return false;
+  const hash = (value: unknown) => createHash("sha256")
+    .update(JSON.stringify(value)).digest("hex");
+  if (id !== hash([providerId, snapshot.code, snapshot.version]) ||
+    record.digest !== hash({code: snapshot.code, name: snapshot.name, summary: raw.summary,
+      version: snapshot.version, effectiveDate: snapshot.effectiveDate,
+      sections: snapshot.sections})) return false;
+  const eventEvidence = {
+    providerAgreementAccepted: true,
+    providerAgreementVersion: snapshot.version,
+    providerAgreementSnapshot: snapshot,
+    providerAgreementAcceptedAt: record.acceptedAt,
+  };
+  return evidence.every((legacy) => {
+    const version = text(legacy.providerAgreementVersion) ||
+      parseProviderAgreementSnapshot(legacy.providerAgreementSnapshot)?.version;
+    return version !== snapshot.version || !acceptanceConflict(legacy, eventEvidence);
+  });
+}
+// END acceptance history policy.
+
+// Legacy verification evidence still describes ONE acceptance and uses all the
+// original conflict checks. Only the server-created chain denotes later events.
+async function loadVoluntaryAcceptances(
+  provider: Record<string, unknown>,
+  legacy: ReturnType<typeof identityFromRecord>,
+  uid: string,
+  evidence: Record<string, unknown>[],
+) {
+  let id = provider.providerAgreementCurrentAcceptanceId;
+  if (id == null) return legacy;
+  const history: ReturnType<typeof identityFromRecord>[] = [];
+  const seen = new Set<string>();
+  const versions = new Set<string>();
+  let current: ReturnType<typeof identityFromRecord> | null = null;
+  while (id != null) {
+    if (typeof id !== "string" || !/^[a-f0-9]{64}$/u.test(id) || seen.has(id) || seen.size >= MAX_AGREEMENT_HISTORY) return null;
+    seen.add(id);
+    const record = (await adminDb.collection("providerAgreementAcceptances").doc(id).get()).data();
+    if (!record || !legacy.providerId ||
+      !validAcceptanceEvent(id, record, uid, legacy.providerId, evidence)) return null;
+    const snapshot = parseProviderAgreementSnapshot(record.snapshot)!;
+    if (versions.has(snapshot.version)) return null;
+    versions.add(snapshot.version);
+    const entry = {
+      ...legacy, accepted: true, acceptedVersion: snapshot.version, acceptedAt: record.acceptedAt,
+      acceptedAtLabel: formatTrustedAcceptanceTimestamp(record.acceptedAt), snapshot,
+      businessName: text(record.businessName), representativeName: text(record.representativeName),
+    };
+    if (!current) current = entry;
+    else history.push(entry);
+    id = record.previousAcceptanceId;
+  }
+  if (legacy.accepted) history.push(legacy);
+  return current ? {...current, history} : null;
 }
 
 function evidenceRank(record: Record<string, unknown>): number {

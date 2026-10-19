@@ -1,6 +1,7 @@
 "use client";
 
 import {X} from "lucide-react";
+import {ProviderAgreementReacceptance} from "./provider-agreement-reacceptance";
 
 import {Button} from "@/components/ui/button";
 import {
@@ -9,6 +10,7 @@ import {
 import type {ProviderAgreementSnapshot} from "@/lib/provider/provider-agreement-record";
 
 export type BusinessAgreementView = {
+  history?: {acceptedVersion: string; acceptedAtLabel: string | null; document: ProviderAgreementSnapshot | null}[];
   accepted: boolean;
   acceptedVersion: string;
   acceptedAtLabel: string | null;
@@ -90,6 +92,18 @@ export function ProviderBusinessAgreementCard({view}: {view: BusinessAgreementVi
           </DialogFooter>
         </DialogContent> : null}
       </Dialog>
+      {!view.unavailable ? <ProviderAgreementReacceptance /> : null}
+      {view.history?.length ? <div className="mt-6 border-t pt-4">
+        <h3 className="font-semibold">Previous acceptance history</h3>
+        <ul className="mt-3 space-y-3 text-sm">{view.history.map((entry, index) => <li key={index}>
+          <p>Version {entry.acceptedVersion || "Not available"} · {entry.acceptedAtLabel ? `${entry.acceptedAtLabel} (Asia/Manila)` : "Date not available"}</p>
+          {!entry.document ? <p className="text-muted-foreground">Acceptance recorded; historical agreement snapshot unavailable.</p> : <details>
+            <summary>View historical accepted agreement</summary>
+            <p>Version {entry.document.version} · Effective {entry.document.effectiveDate}</p>
+            {entry.document.sections.map((section, i) => <section key={i} className="mt-3"><h4 className="font-semibold">{section.title}</h4>{section.paragraphs.map((p, j) => <p key={j} className="mt-2 whitespace-pre-wrap">{p}</p>)}</section>)}
+          </details>}
+        </li>)}</ul>
+      </div> : null}
     </section>
   );
 }

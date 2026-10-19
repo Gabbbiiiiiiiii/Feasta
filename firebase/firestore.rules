@@ -682,6 +682,15 @@ service cloud.firestore {
           changesNone([
             'ownerId',
             'verificationStatus',
+            'providerAgreementCurrentAcceptanceId',
+            'providerAgreementAccepted',
+            'providerAgreementAcceptedAt',
+            'providerAgreementVersion',
+            'providerAgreementCode',
+            'providerAgreementName',
+            'providerAgreementEffectiveDate',
+            'providerAgreementTemplateCode',
+            'providerAgreementSnapshot',
             'isActive',
             'isFeatured',
             'isSuspended',
@@ -1608,6 +1617,11 @@ service cloud.firestore {
     // ============================================================
     // Default deny
     // ============================================================
+
+    // Immutable server-created voluntary Provider Agreement acceptance events.
+    match /providerAgreementAcceptances/{acceptanceId} {
+      allow read, write: if false;
+    }
 
     match /{document=**} {
       allow read, write: if false;

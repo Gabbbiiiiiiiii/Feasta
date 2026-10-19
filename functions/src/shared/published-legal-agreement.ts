@@ -6,7 +6,7 @@ import {resolveCurrentAgreementByPurpose} from "./current-agreement.js";
 
 /** Shared public-display and consent authority; never falls back to legacy text. */
 export function resolvePublishedLegalAgreement(
-  purpose: "platform_terms" | "privacy_notice",
+  purpose: "platform_terms" | "privacy_notice" | "provider_onboarding",
   types: QuerySnapshot,
   agreements: QuerySnapshot,
 ) {
@@ -16,7 +16,9 @@ export function resolvePublishedLegalAgreement(
       const type = parseAgreementType(document.id, document.data());
       return type && type.isActive ? [type] : [];
     }),
-    agreements.docs.map((document) => {
+    agreements.docs.filter((document) =>
+      purpose !== "provider_onboarding" || document.data().status === "active",
+    ).map((document) => {
       const data = document.data();
       const raw = data.versions;
       const parsed = agreementVersionsFromDocument(data).versions;
