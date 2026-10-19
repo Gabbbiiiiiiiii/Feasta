@@ -553,7 +553,7 @@ export async function getCustomerPaymentReturnDetails(
       Math.round(requestAmount * 100),
       "PHP",
     ),
-    downPaymentAmountFormatted: formatCentavos(
+    paymentAmountFormatted: formatCentavos(
       amountInCentavos,
       "PHP",
     ),

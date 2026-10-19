@@ -117,7 +117,7 @@ const processingReturn: CustomerPaymentReturnDetails = {
   serviceLabel: "Wedding photography",
   categoryLabel: "Photography",
   requestAmountFormatted: "â‚±10,000.00",
-  downPaymentAmountFormatted: "â‚±2,500.00",
+  paymentAmountFormatted: "â‚±2,500.00",
   paymentStatus: "processing",
   providerRequestStatus: "payment_processing",
   canStartCheckout: false,
@@ -846,3 +846,18 @@ function pageWithReturnedPayment(
     },
   };
 }
+
+describe("verified payment return amount labels", () => {
+  it.each([
+    ["full", "Full payment"], ["minimum", "Down payment"],
+    ["remaining_balance", "Remaining balance"], [null, "Payment amount"],
+  ] as const)("labels %s using the verified choice", async (paymentChoice, label) => {
+    mocks.readPaymentReturn.mockReturnValue(returnLookup);
+    mocks.loadPaymentReturn.mockResolvedValue({status: "ready", payment: {...processingReturn,
+      paymentChoice, paymentAmountFormatted: "\u20b11,000.00", requestAmountFormatted: "\u20b11,000.00",
+      paymentStatus: "paid", providerRequestStatus: "confirmed"}});
+    render(<CustomerPaymentsClient initialPage={initialPage} paymentReturnKind="success" />);
+    const term = await screen.findByText(label, {selector: "dt"});
+    expect(term.nextElementSibling).toHaveTextContent("\u20b11,000.00");
+  });
+});

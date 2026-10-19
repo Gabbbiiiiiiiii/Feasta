@@ -282,7 +282,7 @@ export function CustomerPaymentsClient({
         payment.providerRequestId,
       providerName: payment.providerName,
       formattedAmount:
-        payment.downPaymentAmountFormatted,
+        payment.paymentAmountFormatted,
     });
   }
 

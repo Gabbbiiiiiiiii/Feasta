@@ -59,6 +59,53 @@ export function providerInitialPaymentPresentation(data: Readonly<Record<string,
   return {kind: "full", amount: gross / 100, explanation};
 }
 
+/** Resolve catering evidence only from the matching, canonical parent lineup. */
+export function cateringPaymentPresentation(data: StoredRecord, requestId: string, parentId: string, parent: StoredRecord | null): ProviderInitialPaymentPresentation {
+  if (data.type !== "catering") return providerInitialPaymentPresentation(data);
+  const fail = unavailableProviderInitialPayment;
+  const agreement = record(parent?.bookingPaymentAgreement);
+  if (!parent || !agreement || data.mainEventId !== parentId ||
+    (data.bookingId !== undefined && data.bookingId !== parentId) ||
+    (data.providerRequestId !== undefined && data.providerRequestId !== requestId) ||
+    typeof data.customerId !== "string" || !data.customerId || parent.customerId !== data.customerId ||
+    typeof data.providerId !== "string" || !data.providerId || parent.providerId !== data.providerId ||
+    (parent.currentProviderId !== undefined && parent.currentProviderId !== data.providerId) ||
+    (parent.mainEventId !== undefined && parent.mainEventId !== parentId) ||
+    (parent.bookingId !== undefined && parent.bookingId !== parentId) ||
+    !Array.isArray(parent.providerRequestIds) || !parent.providerRequestIds.includes(requestId) ||
+    agreement.customerId !== data.customerId || agreement.providerId !== data.providerId ||
+    typeof data.amount !== "number" || !Number.isFinite(data.amount) || data.amount <= 0 ||
+    Math.round(data.amount * 100) !== agreement.grossAmountInCentavos) return fail;
+  if (data.bookingPaymentAgreement !== undefined && !sameEvidence(data.bookingPaymentAgreement, agreement)) return fail;
+  if (parent.initialPaymentEligibilitySchemaVersion !== data.initialPaymentEligibilitySchemaVersion ||
+    !sameEvidence(parent.initialPaymentEligibility, data.initialPaymentEligibility)) return fail;
+  const eligibility = record(data.initialPaymentEligibility);
+  const submittedAt = savedTime(eligibility?.submittedAt), eventStartAt = savedTime(eligibility?.eventStartAt);
+  if (submittedAt === null || eventStartAt === null || submittedAt >= eventStartAt ||
+    (eligibility?.reason === "short_notice" && eventStartAt - submittedAt >= 72 * 3600000) ||
+    (eligibility?.reason === "deposit_eligible" && eventStartAt - submittedAt < 72 * 3600000)) return fail;
+  for (const evidence of [data, parent]) {
+    for (const field of ["eventStartAt", "depositEligibilityCutoffAt", "remainingBalanceDueAt", "hardPaymentDeadlineAt", "preparationStartsAt"] as const) {
+      if (evidence[field] !== undefined && (savedTime(evidence[field]) === null ||
+        savedTime(evidence[field]) !== savedTime(agreement[field]))) return fail;
+    }
+  }
+  const projected = {...data, bookingPaymentAgreement: agreement};
+  if (!consistentOriginalAmounts(projected, data.financialSnapshot === undefined ? undefined : record(data.financialSnapshot) ?? undefined)) return fail;
+  return providerInitialPaymentPresentation(projected);
+}
+
+function sameEvidence(left: unknown, right: unknown): boolean {
+  const leftTime = savedTime(left), rightTime = savedTime(right);
+  if (leftTime !== null || rightTime !== null) return leftTime !== null && leftTime === rightTime;
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) return Array.isArray(left) && Array.isArray(right) &&
+    left.length === right.length && left.every((value, index) => sameEvidence(value, right[index]));
+  const a = record(left), b = record(right);
+  return !!a && !!b && Object.keys(a).length === Object.keys(b).length &&
+    Object.keys(a).every(key => Object.hasOwn(b, key) && sameEvidence(a[key], b[key]));
+}
+
 type StoredRecord = Readonly<Record<string, unknown>>;
 
 function fullPaymentAddonPresentation(data: StoredRecord): ProviderInitialPaymentPresentation {

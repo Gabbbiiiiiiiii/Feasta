@@ -150,8 +150,10 @@ function CustomerPaymentReturnPanel({
             value={payment.requestAmountFormatted}
           />
           <ReturnDetail
-            label="Down payment"
-            value={payment.downPaymentAmountFormatted}
+            label={payment.paymentChoice === "full" ? "Full payment" :
+              payment.paymentChoice === "minimum" ? "Down payment" :
+              payment.paymentChoice === "remaining_balance" ? "Remaining balance" : "Payment amount"}
+            value={payment.paymentAmountFormatted}
           />
         </dl>
 

@@ -1,6 +1,6 @@
 import {Timestamp} from "firebase-admin/firestore";
 import {beforeEach, describe, expect, it, vi} from "vitest";
-const mocks = vi.hoisted(() => ({providerId: "provider-one", authorize: vi.fn(), where: vi.fn(), reads: 0,
+const mocks = vi.hoisted(() => ({providerId: "provider-one", authorize: vi.fn(), where: vi.fn(), reads: 0, parentReads: 0,
   documents: [] as {id: string; data: () => Record<string, unknown>}[], parents: new Map<string, Record<string, unknown>>()}));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/auth/session", () => ({requireApprovedProvider: mocks.authorize}));
@@ -22,7 +22,7 @@ vi.mock("@/lib/firebase/admin", () => {
       },
     }; return builder;
   }
-  return {adminDb: {collection: () => query(), getAll: async (...refs: {id: string}[]) => refs.map(ref => ({id: ref.id, exists: mocks.parents.has(ref.id), data: () => mocks.parents.get(ref.id)}))}};
+  return {adminDb: {collection: () => query(), getAll: async (...refs: {id: string}[]) => {mocks.parentReads += refs.length; return refs.map(ref => ({id: ref.id, exists: mocks.parents.has(ref.id), data: () => mocks.parents.get(ref.id)}));}}};
 });
 import {getProviderRequestPage, getProviderRequestDetail} from "@/lib/provider/requests/provider-request-service";
 
@@ -34,7 +34,7 @@ function document(index: number, change: Record<string, unknown> = {}) {
     createdAt: Timestamp.fromMillis(1700000000000 - index * 1000), ...change})};
 }
 beforeEach(() => {
-  mocks.providerId = "provider-one"; mocks.reads = 0; mocks.documents = []; mocks.parents.clear(); mocks.where.mockClear();
+  mocks.providerId = "provider-one"; mocks.reads = 0; mocks.parentReads = 0; mocks.documents = []; mocks.parents.clear(); mocks.where.mockClear();
   mocks.authorize.mockReset().mockImplementation(async () => ({providerId: mocks.providerId}));
   mocks.parents.set("event-one", {customerId: "customer-one", status: "pending_provider_approval", bookingCode: "BK-MARIA-123"});
 });
@@ -77,7 +77,7 @@ describe("provider request search and pagination", () => {
   });
   it("uses only eleven request reads for an ordinary ten-row page", async () => {
     mocks.documents = Array.from({length: 50}, (_, index) => document(index));
-    expect((await getProviderRequestPage()).requests).toHaveLength(10); expect(mocks.reads).toBe(11);
+    expect((await getProviderRequestPage()).requests).toHaveLength(10); expect(mocks.reads).toBe(11); expect(mocks.parentReads).toBe(0);
   });
   it("requires authorization on search and details and prevents foreign-provider detail access", async () => {
     mocks.authorize.mockRejectedValueOnce(new Error("Provider access required"));
@@ -113,11 +113,15 @@ describe("provider frozen payment presentation projection", () => {
       initialPaymentEligibility: {mode: "full_only", reason: "short_notice", depositAllowed: true,
         depositEligible: false, depositMinimumNoticeHours: 72, authorityTimeSource: "booking_submission", submittedAt, evaluatedAt: submittedAt, eventStartAt: Timestamp.fromDate(new Date(eventStartAt))},
       bookingPaymentAgreement: {schemaVersion: 1, timingSchemaVersion: 3, channel: "booking_submission",
-        initialPaymentEligibilitySchemaVersion: 2, depositEligible: false, eligibilityReason: "short_notice", agreedAt: submittedAt, eventStartAt,
+        customerId: "customer-one", providerId: "provider-one", initialPaymentEligibilitySchemaVersion: 2, depositEligible: false, eligibilityReason: "short_notice", agreedAt: submittedAt, eventStartAt,
         grossAmountInCentavos: 100000, requiredUpfrontAmountInCentavos: 100000, remainingBalanceInCentavos: 0},
       ...(accepted ? {financialSnapshot: {schemaVersion: 1, currency: "PHP", grossAmountInCentavos: 100000,
         requiredUpfrontAmountInCentavos: 50000, remainingBalanceInCentavos: 50000}} : {})};
-    mocks.documents = [document(0, original)];
+    const {bookingPaymentAgreement, ...child} = original;
+    mocks.parents.set("event-one", {customerId: "customer-one", providerId: "provider-one", mainEventId: "event-one",
+      providerRequestIds: ["request-0000"], bookingPaymentAgreement,
+      initialPaymentEligibilitySchemaVersion: 2, initialPaymentEligibility: child.initialPaymentEligibility});
+    mocks.documents = [document(0, child)];
     const result = await getProviderRequestDetail("request-0000");
     expect(result.initialPaymentPresentation).toEqual({kind: "full", amount: 1000,
       explanation: "Full payment is required because the booking was submitted fewer than 72 hours before the event."});
@@ -125,6 +129,38 @@ describe("provider frozen payment presentation projection", () => {
     expect(result.downPaymentPercentage).toBe(50);
     expect(original.bookingPaymentAgreement.requiredUpfrontAmountInCentavos).toBe(100000);
     if (!accepted) expect(original).not.toHaveProperty("financialSnapshot");
+    expect(mocks.documents[0].data()).not.toHaveProperty("bookingPaymentAgreement");
+    const parent = mocks.parents.get("event-one")!;
+    for (const patch of [
+      {customerId: "foreign"}, {providerId: "foreign"}, {currentProviderId: "foreign"},
+      {mainEventId: "foreign"}, {bookingId: "foreign"}, {providerRequestIds: ["foreign"]},
+      {bookingPaymentAgreement: {...bookingPaymentAgreement, customerId: "foreign"}},
+      {bookingPaymentAgreement: {...bookingPaymentAgreement, providerId: "foreign"}},
+      {bookingPaymentAgreement: {...bookingPaymentAgreement, grossAmountInCentavos: 200000}},
+      {initialPaymentEligibility: {...child.initialPaymentEligibility, submittedAt: Timestamp.fromMillis(0)}},
+      {bookingPaymentAgreement: undefined}, {initialPaymentEligibility: undefined},
+    ]) {
+      mocks.parents.set("event-one", {...parent, ...patch});
+      expect((await getProviderRequestDetail("request-0000")).initialPaymentPresentation?.kind).toBe("unavailable");
+    }
+    mocks.parents.set("event-one", parent);
+    for (const patch of [{bookingId: "foreign"}, {providerRequestId: "foreign"}, {amount: 999},
+      {bookingPaymentAgreement: {...bookingPaymentAgreement, requiredUpfrontAmountInCentavos: 50000}},
+      {financialSnapshot: {schemaVersion: 1, currency: "PHP", grossAmountInCentavos: 100000,
+        requiredUpfrontAmountInCentavos: 60000, remainingBalanceInCentavos: 40000}},
+    ]) {
+      mocks.documents = [document(0, {...child, ...patch})];
+      expect((await getProviderRequestDetail("request-0000")).initialPaymentPresentation?.kind).toBe("unavailable");
+    }
+    const depositEligibility = {...child.initialPaymentEligibility, mode: "minimum_or_full", reason: "deposit_eligible",
+      depositEligible: true, submittedAt: Timestamp.fromMillis(submittedAt.toMillis() - 4 * 86400000),
+      evaluatedAt: Timestamp.fromMillis(submittedAt.toMillis() - 4 * 86400000)};
+    mocks.parents.set("event-one", {...parent, initialPaymentEligibility: depositEligibility,
+      bookingPaymentAgreement: {...bookingPaymentAgreement, depositEligible: true, eligibilityReason: "deposit_eligible",
+        agreedAt: depositEligibility.submittedAt, requiredUpfrontAmountInCentavos: 50000, remainingBalanceInCentavos: 50000}});
+    mocks.documents = [document(0, {...child, initialPaymentEligibility: depositEligibility})];
+    expect((await getProviderRequestDetail("request-0000")).initialPaymentPresentation).toMatchObject({kind: "minimum", amount: 500});
+
   });
 });
 
@@ -148,4 +184,9 @@ describe("external add-on payment projection through request details", () => {
     expect(original).not.toHaveProperty("initialPaymentEligibility");
     if (!accepted) expect(original).not.toHaveProperty("financialSnapshot");
   });
+});
+
+it("keeps historical detail payment eligibility unavailable when frozen evidence is absent", async () => {
+  mocks.documents = [document(0)];
+  expect((await getProviderRequestDetail("request-0000")).initialPaymentPresentation?.kind).toBe("unavailable");
 });

@@ -187,7 +187,7 @@ export type CustomerPaymentReturnDetails = {
   categoryLabel: string;
 
   requestAmountFormatted: string;
-  downPaymentAmountFormatted: string;
+  paymentAmountFormatted: string;
 
   paymentStatus: PaymentStatus;
   providerRequestStatus: ProviderRequestStatus;

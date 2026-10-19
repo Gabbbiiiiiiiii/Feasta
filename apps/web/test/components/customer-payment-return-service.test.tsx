@@ -59,3 +59,19 @@ describe("owned payment return reads", () => {
     expect(state.reads).not.toHaveBeenCalled();
   });
 });
+
+it.each(["full", "minimum", "remaining_balance", undefined] as const)("projects verified %s choice and amount independently of legacy payment type", async choice => {
+  const payment = state.records["payments/payment-owned"];
+  const request = state.records["providerRequests/request-owned"];
+  if (choice === undefined) delete payment.paymentChoice;
+  else payment.paymentChoice = choice;
+  payment.amount = choice === "full" ? 1000 : 500;
+  payment.amountInCentavos = choice === "full" ? 100000 : 50000;
+  request.amount = 1000; request.downPaymentAmount = 500;
+  request.financialSnapshot = {schemaVersion: 1, currency: "PHP", grossAmountInCentavos: 100000,
+    requiredUpfrontAmountInCentavos: 50000, remainingBalanceInCentavos: 50000};
+  const result = await getCustomerPaymentReturnDetails(lookup);
+  expect(result.paymentChoice).toBe(choice ?? null);
+  expect(result.paymentAmountFormatted).toBe(new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"}).format(payment.amount as number));
+  expect(payment.paymentType).toBe("provider_down_payment");
+});
