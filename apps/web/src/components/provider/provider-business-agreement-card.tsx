@@ -19,17 +19,18 @@ export type BusinessAgreementView = {
 export function ProviderBusinessAgreementCard({view}: {view: BusinessAgreementView}) {
   const canDownload = !view.unavailable && view.accepted && view.document !== null &&
     (!view.acceptedVersion || view.document.version === view.acceptedVersion);
-  const historicalUnavailable = view.accepted && !view.document;
+  const canView = !view.unavailable && view.document !== null && (!view.accepted || canDownload);
+  const historicalUnavailable = view.accepted && !canView;
   const explanation = view.unavailable
     ? "Your agreement record could not be loaded. Please reload the page to try again."
     : historicalUnavailable
-      ? "The historical content for your accepted agreement is unavailable. The current agreement is not being presented as your accepted copy."
+      ? "Your acceptance is recorded, but the accepted agreement document is unavailable."
       : !view.document
         ? "The current provider agreement is unavailable."
         : view.accepted
           ? "This is your stored accepted agreement."
           : "This is the current published agreement. No acceptance is recorded for your account.";
-  const downloadExplanation = canDownload ? null : view.unavailable || historicalUnavailable
+  const downloadExplanation = canDownload ? null : view.unavailable || historicalUnavailable || !view.document
     ? explanation : "An accepted agreement copy is not available to download because no acceptance is recorded.";
 
   function downloadAction() {
@@ -51,11 +52,11 @@ export function ProviderBusinessAgreementCard({view}: {view: BusinessAgreementVi
       </dl>
       <Dialog>
         <div className="flex flex-wrap gap-3">
-          <DialogTrigger asChild><Button type="button" variant="secondary">View Agreement</Button></DialogTrigger>
+          <DialogTrigger asChild><Button type="button" variant="secondary" disabled={!canView} aria-describedby={!canView ? "agreement-unavailable" : undefined}>View Agreement</Button></DialogTrigger>
           {downloadAction()}
         </div>
-        {downloadExplanation ? <p className="mt-3 text-sm leading-6 text-muted-foreground">{downloadExplanation}</p> : null}
-        <DialogContent showCloseButton={false} className="flex max-h-[calc(100dvh-2rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 break-words">
+        {downloadExplanation ? <p id="agreement-unavailable" role="status" className="mt-3 text-sm leading-6 text-muted-foreground">{downloadExplanation}</p> : null}
+        {canView ? <DialogContent showCloseButton={false} className="flex max-h-[calc(100dvh-2rem)] max-w-3xl flex-col gap-0 overflow-hidden p-0 break-words">
           <header className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3 sm:px-6">
             <DialogHeader className="min-w-0 flex-1 pr-0">
               <DialogTitle>FEASTA Provider Agreement</DialogTitle>
@@ -71,7 +72,7 @@ export function ProviderBusinessAgreementCard({view}: {view: BusinessAgreementVi
           <p className="mb-5 text-sm leading-6 text-muted-foreground">{explanation}</p>
           {view.document ? (
             <article className="min-w-0">
-              <p className="mb-6 text-sm text-muted-foreground">{view.accepted ? "Accepted agreement" : "Current agreement"} · Version {view.document.version} · Effective {view.document.effectiveDate}</p>
+              <p className="mb-6 text-sm text-muted-foreground">{view.accepted ? "Accepted agreement" : "Current published agreement"} · Version {view.document.version} · Effective {view.document.effectiveDate}</p>
               <div className="grid gap-6">
                 {view.document.sections.map((section, index) => (
                   <section key={index}>
@@ -87,7 +88,7 @@ export function ProviderBusinessAgreementCard({view}: {view: BusinessAgreementVi
             {downloadAction()}
             <DialogClose asChild><Button type="button">Close</Button></DialogClose>
           </DialogFooter>
-        </DialogContent>
+        </DialogContent> : null}
       </Dialog>
     </section>
   );

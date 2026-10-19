@@ -54,10 +54,10 @@ describe("Business Profile read-only Provider Agreement", () => {
     mocks.acceptance.mockResolvedValue({...summary, snapshot});
     render(<ProviderBusinessAgreementCard view={await loadBusinessAgreementView(input)} />);
     expect(screen.getByText("1.0")).toBeVisible();
-    await userEvent.click(screen.getByRole("button", {name: "View Agreement"}));
-    expect(screen.getByRole("status")).toHaveTextContent("historical content for your accepted agreement is unavailable");
-    expect(within(screen.getByRole("dialog")).getByRole("button", {name: "Download Agreement (PDF)"})).toBeDisabled();
-    expect(screen.queryByRole("link", {name: "Download Agreement (PDF)"})).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "View Agreement"})).toBeDisabled();
+    expect(screen.getAllByText(/Your acceptance is recorded, but/)).toHaveLength(1);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "Download Agreement (PDF)"})).toBeDisabled();
     expect(mocks.published).not.toHaveBeenCalled();
   });
 
@@ -67,14 +67,14 @@ describe("Business Profile read-only Provider Agreement", () => {
     expect(screen.getByText("No acceptance recorded")).toBeVisible();
     await userEvent.click(screen.getByRole("button", {name: "View Agreement"}));
     expect(screen.getByText("Current content.")).toBeVisible();
-    expect(screen.getByText(/Current agreement · Version 2.0/)).toBeVisible();
+    expect(screen.getByText(/Current published agreement · Version 2.0/)).toBeVisible();
   });
 
   it("reports read failures without claiming no acceptance", async () => {
     mocks.acceptance.mockRejectedValue(new Error("offline"));
     render(<ProviderBusinessAgreementCard view={await loadBusinessAgreementView(input)} />);
     expect(screen.getByText("Unavailable")).toBeVisible();
-    await userEvent.click(screen.getByRole("button", {name: "View Agreement"}));
+    expect(screen.getByRole("button", {name: "View Agreement"})).toBeDisabled();
     expect(screen.getByRole("status")).toHaveTextContent("could not be loaded");
   });
 
@@ -152,4 +152,16 @@ describe("Business Profile read-only Provider Agreement", () => {
     expect(mocks.acceptance).toHaveBeenCalledTimes(1);
     expect(mocks.published).not.toHaveBeenCalled();
   });
+  it("explains unavailable current content when no acceptance is recorded", async () => {
+    mocks.acceptance.mockResolvedValue({...summary, accepted: false, acceptedVersion: "", acceptedAtLabel: null, snapshot: null});
+    mocks.published.mockResolvedValue(null);
+    render(<ProviderBusinessAgreementCard view={await loadBusinessAgreementView(input)} />);
+    expect(screen.getByText("No acceptance recorded")).toBeVisible();
+    expect(screen.getAllByText("The current provider agreement is unavailable.")).toHaveLength(1);
+    expect(screen.getByRole("button", {name: "View Agreement"})).toBeDisabled();
+    expect(screen.getByRole("button", {name: "View Agreement"})).toHaveAttribute("aria-describedby", "agreement-unavailable");
+    expect(screen.getByRole("button", {name: "Download Agreement (PDF)"})).toBeDisabled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
 });
