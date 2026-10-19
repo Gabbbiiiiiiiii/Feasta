@@ -1,8 +1,9 @@
 import {createHash} from "node:crypto";
 import {readFileSync} from "node:fs";
 import {Timestamp} from "firebase-admin/firestore";
-import {fireEvent, render, screen, waitFor} from "@testing-library/react";
+import {fireEvent, render, screen, waitFor, within} from "@testing-library/react";
 import {beforeEach, describe, expect, it, vi} from "vitest";
+import userEvent from "@testing-library/user-event";
 
 const mocks = vi.hoisted(() => ({
   records: new Map<string, Record<string, unknown>>(),
@@ -190,30 +191,175 @@ describe("public ratings presentation", () => {
     expect(section.id).toBe("provider-reviews");
     expect(section.compareDocumentPosition(screen.getByRole("heading", {name: "Found something that fits your celebration?"})) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
-  it("renders verified reviews, distribution and provider replies", async () => {
+  it("shows compact summary counts and gold distribution without redundant text", async () => {
     const page = await getPublicReviewPage("provider");
     render(<ProviderPublicReviews providerId="provider" summary={publicReviewSummary(counters)} initialPage={page} />);
-    expect(screen.getByText("Verified booking")).toBeVisible();
-    expect(screen.getByText("Verified customer")).toBeVisible();
-    expect(screen.getByText("Thank you!")).toBeVisible();
-    expect(screen.getByLabelText("5 star reviews")).toHaveAttribute("value", "2");
-    expect(screen.getByText("4.3 out of 5")).toBeVisible();
+    expect(screen.getByLabelText("4.33 out of 5 stars")).toBeVisible();
+    expect(screen.getByText("(3 reviews)")).toBeVisible();
+    expect(screen.queryByText("4.3 out of 5")).not.toBeInTheDocument();
+    const meter = screen.getByRole("meter", {name: "5 star reviews"});
+    expect(meter).toHaveAttribute("aria-valuenow", "2");
+    expect(meter).toHaveAttribute("aria-valuemax", "3");
+    expect(meter.firstElementChild).toHaveClass("bg-[#F5B301]");
+    expect(meter.firstElementChild).toHaveStyle({width: `${2 / 3 * 100}%`});
+    expect(screen.queryByText("Thank you!")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {name: /Read more/}));
+    expect(within(screen.getByRole("dialog")).getByText("Thank you!")).toBeVisible();
   });
-  it("shows an empty review state", () => {
-    render(<ProviderPublicReviews providerId="provider" initialPage={{reviews: [], nextCursor: null}} />);
+
+  it("shows neutral empty states without fabricated stars or navigation", () => {
+    render(<ProviderPublicReviews providerId="provider" summary={publicReviewSummary({})} initialPage={{reviews: [], nextCursor: null}} />);
     expect(screen.getByText("No customer reviews yet.")).toBeVisible();
+    expect(screen.getByText("No reviews yet")).toBeVisible();
+    expect(screen.queryByRole("meter")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
-  it("loads more bounded pages and retains existing reviews on failure", async () => {
-    const page = (await getPublicReviewPage("provider"))!;
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({ok: false} as Response)
-      .mockResolvedValueOnce({ok: true, json: async () => ({reviews: [{...page.reviews[0], id: "second", comment: "Another genuine review."}], nextCursor: null})} as Response);
-    render(<ProviderPublicReviews providerId="provider" initialPage={{...page, nextCursor: "cursor"}} />);
-    fireEvent.click(screen.getByRole("button", {name: "Load more reviews"}));
-    expect(await screen.findByRole("alert")).toBeVisible();
-    expect(screen.getByText("Excellent service.")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", {name: "Load more reviews"}));
-    expect(await screen.findByText("Another genuine review.")).toBeVisible();
-    await waitFor(() => expect(screen.queryByRole("button")).not.toBeInTheDocument());
-    expect(fetchMock).toHaveBeenLastCalledWith("/customer/providers/provider/reviews?cursor=cursor", {cache: "no-store"});
+
+  function reviews(start: number, count: number) {
+    return Array.from({length: count}, (_, index) => ({id: `review-${start + index}`, rating: 5,
+      comment: `Full review ${start + index}. ${"Long comment with details. ".repeat(30)}`,
+      createdAt: "2023-11-14T22:13:20.123Z", providerReply: `Reply ${start + index}`}));
+  }
+  function response(page: {reviews: ReturnType<typeof reviews>; nextCursor: string | null}) {
+    return {ok: true, json: async () => page} as Response;
+  }
+
+  it.each([1, 3])("shows %i compact previews with full comments and replies accessible", async (count) => {
+    const user = userEvent.setup();
+    const items = reviews(1, count);
+    render(<ProviderPublicReviews providerId="provider" initialPage={{reviews: items, nextCursor: null}} />);
+    const previews = screen.getByLabelText("Recent review previews");
+    expect(within(previews).getAllByRole("article")).toHaveLength(count);
+    expect(within(previews).getByText(items[0].comment.trim())).toHaveClass("line-clamp-2");
+    expect(screen.queryByRole("button", {name: "View all reviews"})).not.toBeInTheDocument();
+    await user.click(within(previews).getAllByRole("button", {name: /Read more/})[0]);
+    const dialog = screen.getByRole("dialog", {name: "All reviews"});
+    expect(within(dialog).getAllByRole("article")).toHaveLength(count);
+    expect(within(dialog).getByText(items[0].comment.trim())).not.toHaveClass("line-clamp-2");
+    expect(within(dialog).getByText("Reply 1")).toBeVisible();
+    expect(within(dialog).getByRole("button", {name: "Next"})).toBeDisabled();
+    expect(within(dialog).getByRole("button", {name: "Previous"})).toBeDisabled();
   });
+
+  it("limits previews to three and replaces pages across thirteen reviews", async () => {
+    const user = userEvent.setup();
+    const first = {reviews: reviews(1, 5), nextCursor: "cursor-5"};
+    const second = {reviews: reviews(6, 5), nextCursor: "cursor-10"};
+    const third = {reviews: reviews(11, 3), nextCursor: null};
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(response(second)).mockResolvedValueOnce(response(third))
+      .mockResolvedValueOnce(response(second)).mockResolvedValueOnce(response(first));
+    render(<ProviderPublicReviews providerId="provider" summary={{totalReviews: 13, averageRating: 5, ratingDistribution: {1: 0, 2: 0, 3: 0, 4: 0, 5: 13}}} initialPage={first} />);
+    const previews = screen.getByLabelText("Recent review previews");
+    expect(within(previews).getAllByRole("article")).toHaveLength(3);
+    await user.click(screen.getByRole("button", {name: "View all reviews"}));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getAllByRole("article")).toHaveLength(5);
+    await user.click(within(dialog).getByRole("button", {name: "Next"}));
+    await waitFor(() => expect(within(dialog).getByRole("status")).toHaveTextContent("Page 2"));
+    expect(within(dialog).queryByText(first.reviews[0].comment)).not.toBeInTheDocument();
+    expect(within(dialog).getAllByRole("article")).toHaveLength(5);
+    await user.click(within(dialog).getByRole("button", {name: "Next"}));
+    await waitFor(() => expect(within(dialog).getByRole("status")).toHaveTextContent("Page 3"));
+    expect(within(dialog).getAllByRole("article")).toHaveLength(3);
+    expect(within(dialog).getByRole("button", {name: "Next"})).toBeDisabled();
+    await user.click(within(dialog).getByRole("button", {name: "Previous"}));
+    await waitFor(() => expect(within(dialog).getByRole("status")).toHaveTextContent("Page 2"));
+    await user.click(within(dialog).getByRole("button", {name: "Previous"}));
+    await waitFor(() => expect(within(dialog).getByRole("status")).toHaveTextContent("Page 1"));
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/customer/providers/provider/reviews?cursor=cursor-5",
+      "/customer/providers/provider/reviews?cursor=cursor-10",
+      "/customer/providers/provider/reviews?cursor=cursor-5",
+      "/customer/providers/provider/reviews",
+    ]);
+    await user.click(within(dialog).getByRole("button", {name: "Close dialog"}));
+    expect(within(previews).getAllByRole("article")).toHaveLength(3);
+    expect(screen.getByText("(13 reviews)")).toBeVisible();
+    expect(screen.getByRole("meter", {name: "5 star reviews"})).toHaveAttribute("aria-valuenow", "13");
+  });
+
+  it("retries the failed cursor, preserves the current page, and advances empty batches", async () => {
+    const user = userEvent.setup();
+    let finish: (value: Response) => void = () => {};
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => {finish = resolve;}))
+      .mockResolvedValueOnce(response({reviews: [], nextCursor: "empty-cursor"}))
+      .mockResolvedValueOnce(response({reviews: reviews(6, 1), nextCursor: null}));
+    render(<ProviderPublicReviews providerId="provider" initialPage={{reviews: reviews(1, 1), nextCursor: "cursor"}} />);
+    await user.click(screen.getByRole("button", {name: "View all reviews"}));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", {name: "Next"}));
+    expect(within(dialog).getByRole("status")).toHaveTextContent("Loading reviews");
+    expect(within(dialog).getByRole("button", {name: "Next"})).toBeDisabled();
+    finish({ok: false} as Response);
+    expect(await within(dialog).findByRole("alert")).toBeVisible();
+    expect(within(dialog).getByText("Reply 1")).toBeVisible();
+    await user.click(within(dialog).getByRole("button", {name: "Try again"}));
+    expect(await within(dialog).findByText("No published reviews in this batch. Continue to the next page.")).toBeVisible();
+    expect(within(dialog).getByRole("button", {name: "Next"})).toBeEnabled();
+    await user.click(within(dialog).getByRole("button", {name: "Next"}));
+    expect(await within(dialog).findByText("Reply 6")).toBeVisible();
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/customer/providers/provider/reviews?cursor=cursor",
+      "/customer/providers/provider/reviews?cursor=cursor",
+      "/customer/providers/provider/reviews?cursor=empty-cursor",
+    ]);
+  });
+
+  it("loads missing initial pages and offers retry and empty states", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(response({reviews: [], nextCursor: null}));
+    render(<ProviderPublicReviews providerId="provider" />);
+    await user.click(screen.getByRole("button", {name: "View all reviews"}));
+    const dialog = screen.getByRole("dialog");
+    expect(await within(dialog).findByRole("alert")).toBeVisible();
+    await user.click(within(dialog).getByRole("button", {name: "Try again"}));
+    expect(await within(dialog).findByText("No customer reviews on this page.")).toBeVisible();
+  });
+
+  it("supports keyboard opening, traps focus, closes with Escape, and restores each opener", async () => {
+    const user = userEvent.setup();
+    render(<ProviderPublicReviews providerId="provider" initialPage={{reviews: reviews(1, 5), nextCursor: null}} />);
+    const opener = screen.getByRole("button", {name: "View all reviews"});
+    opener.focus();
+    await user.keyboard("{Enter}");
+    const dialog = screen.getByRole("dialog", {name: "All reviews"});
+    await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true));
+    const close = within(dialog).getByRole("button", {name: "Close dialog"});
+    close.focus();
+    await user.tab();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await user.tab({shift: true});
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(opener).toHaveFocus();
+    const readMore = screen.getAllByRole("button", {name: /Read more/})[1];
+    await user.click(readMore);
+    expect(within(screen.getByRole("dialog")).getAllByRole("article")[1]).toHaveFocus();
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", {name: "Close dialog"}));
+    expect(readMore).toHaveFocus();
+  });
+
+  it("ignores a response after closing and reopens on the first page", async () => {
+    const user = userEvent.setup();
+    let finish: (value: Response) => void = () => {};
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(() => new Promise<Response>((resolve) => {finish = resolve;}));
+    render(<ProviderPublicReviews providerId="provider" initialPage={{reviews: reviews(1, 5), nextCursor: "cursor"}} />);
+    const opener = screen.getByRole("button", {name: "View all reviews"});
+    await user.click(opener);
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", {name: "Next"}));
+    await user.keyboard("{Escape}");
+    finish(response({reviews: reviews(6, 1), nextCursor: null}));
+    await user.click(opener);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getAllByRole("article")).toHaveLength(5);
+    expect(within(dialog).getByText("Reply 1")).toBeVisible();
+    expect(within(dialog).queryByText("Reply 6")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("status")).toHaveTextContent("Page 1");
+    expect(within(dialog).getByRole("button", {name: "Next"})).toBeEnabled();
+  });
+
 });
