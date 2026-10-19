@@ -1419,7 +1419,7 @@ function maskPhone(
   return `+63 ${local.slice(
     0,
     3,
-  )} â€¢â€¢â€¢ â€¢â€¢${local.slice(
+  )} \u2022\u2022\u2022 \u2022\u2022${local.slice(
     -2,
   )}`;
 }
