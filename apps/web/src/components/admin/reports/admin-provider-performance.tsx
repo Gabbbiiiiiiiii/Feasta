@@ -1,3 +1,4 @@
+import {filledRatingStarClassName} from "@/components/ui/rating-styles";
 import {
   BadgeCheck,
   CalendarCheck2,
@@ -341,7 +342,7 @@ function ProviderRating({provider, minimumReviews, compact = false}: {
   }
   return (
     <span className="inline-flex flex-wrap items-center gap-1 text-xs">
-      <Star className="size-3.5 fill-warning text-warning" aria-hidden="true" />
+      <Star className={`size-3.5 ${filledRatingStarClassName}`} aria-hidden="true" />
       <strong>{provider.averageRating.toFixed(1)}</strong>
       <span className="text-muted-foreground">({provider.publishedReviewCount})</span>
       {!compact && (

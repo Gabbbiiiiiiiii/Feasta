@@ -1,5 +1,6 @@
 "use client";
 
+import {ratingGlyphClassName, ratingMeterClassName} from "@/components/ui/rating-styles";
 import {useState} from "react";
 import type {PublicReviewPage, PublicReviewSummary} from "@/lib/customer/providers/public-review-types";
 import {ProviderRating} from "./provider-rating";
@@ -33,7 +34,7 @@ export function ProviderPublicReviews({providerId, summary, initialPage}: {
     {summary && summary.totalReviews > 0 ? <div className="my-5 grid gap-2" aria-label="Rating distribution">
       {[5, 4, 3, 2, 1].map((rating) => <div key={rating} className="flex items-center gap-3 text-sm">
         <span className="w-14">{rating} stars</span>
-        <meter className="h-3 min-w-0 flex-1 accent-primary" min={0} max={summary.totalReviews} value={summary.ratingDistribution[rating as 1 | 2 | 3 | 4 | 5]} aria-label={`${rating} star reviews`} />
+        <meter className={`h-3 min-w-0 flex-1 ${ratingMeterClassName}`} min={0} max={summary.totalReviews} value={summary.ratingDistribution[rating as 1 | 2 | 3 | 4 | 5]} aria-label={`${rating} star reviews`} />
         <span>{summary.ratingDistribution[rating as 1 | 2 | 3 | 4 | 5]}</span>
       </div>)}
     </div> : null}
@@ -41,7 +42,7 @@ export function ProviderPublicReviews({providerId, summary, initialPage}: {
       {page?.reviews.map((review) => <article key={review.id} className="min-w-0 rounded-xl border border-feasta-border-soft p-4">
         <p className="font-bold">Verified customer</p>
         <p className="text-xs font-semibold text-primary-strong">Verified booking</p>
-        <p className="mt-2 text-sm"><span aria-hidden="true">{"★".repeat(review.rating)} </span>{review.rating} out of 5 stars</p>
+        <p className="mt-2 text-sm"><span className={ratingGlyphClassName} aria-hidden="true">{"★".repeat(review.rating)} </span>{review.rating} out of 5 stars</p>
         <time className="text-xs text-feasta-text-secondary" dateTime={review.createdAt}>{new Date(review.createdAt).toLocaleDateString("en-PH", {year: "numeric", month: "short", day: "numeric", timeZone: "Asia/Manila"})}</time>
         <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 [overflow-wrap:anywhere]">{review.comment}</p>
         {review.providerReply ? <div className="mt-4 rounded-lg bg-feasta-canvas p-3">

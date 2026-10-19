@@ -10,6 +10,7 @@ import {
   type DataTableColumn,
 } from "@/components/data";
 import {PageHeading} from "@/components/layout/page-heading";
+import {emptyRatingStarClassName, filledRatingStarClassName, ratingBarClassName} from "@/components/ui/rating-styles";
 import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
 import type {
@@ -376,7 +377,7 @@ function RatingOverview({summary}: {summary: ProviderReviewSummary}) {
                 <span className="font-semibold">{rating} stars</span>
                 <span className="h-2.5 overflow-hidden rounded-pill bg-muted" aria-hidden="true">
                   <span
-                    className="block h-full rounded-pill bg-primary"
+                    className={`block h-full rounded-pill ${ratingBarClassName}`}
                     style={{width: `${percentage}%`}}
                   />
                 </span>
@@ -451,12 +452,11 @@ function StarRating({rating}: {rating: number}) {
       className="inline-flex items-center gap-2"
       aria-label={`${formatAverageRating(rating)} out of 5 stars`}
     >
-      <span className="inline-flex gap-0.5 text-warning" aria-hidden="true">
+      <span className="inline-flex gap-0.5" aria-hidden="true">
         {starRatings.map((star) => (
           <Star
             key={star}
-            className="size-4"
-            fill={star <= roundedRating ? "currentColor" : "none"}
+            className={`size-4 ${star <= roundedRating ? filledRatingStarClassName : emptyRatingStarClassName}`}
           />
         ))}
       </span>

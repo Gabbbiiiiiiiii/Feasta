@@ -4,6 +4,7 @@ import {CalendarDays, MessageSquareQuote, PackageOpen, Star} from "lucide-react"
 
 import {DetailDrawer} from "@/components/data";
 import {SectionLoading} from "@/components/feedback/application-states";
+import {emptyRatingStarClassName, filledRatingStarClassName} from "@/components/ui/rating-styles";
 import {Badge} from "@/components/ui/badge";
 import {Button} from "@/components/ui/button";
 import type {ProviderReviewDetail} from "@/lib/provider/reviews/provider-review-types";
@@ -60,12 +61,11 @@ export function ProviderReviewDetailDrawer({
                 className="mt-2 inline-flex items-center gap-2"
                 aria-label={`${review.rating} out of 5 stars`}
               >
-                <span className="inline-flex gap-0.5 text-warning" aria-hidden="true">
+                <span className="inline-flex gap-0.5" aria-hidden="true">
                   {[1, 2, 3, 4, 5].map((star) => (
                     <Star
                       key={star}
-                      className="size-4"
-                      fill={star <= review.rating ? "currentColor" : "none"}
+                      className={`size-4 ${star <= review.rating ? filledRatingStarClassName : emptyRatingStarClassName}`}
                     />
                   ))}
                 </span>

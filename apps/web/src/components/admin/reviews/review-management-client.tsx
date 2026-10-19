@@ -1,5 +1,7 @@
 "use client";
 
+import {filledRatingStarClassName} from "@/components/ui/rating-styles";
+
 import {
   Eye,
   EyeOff,
@@ -675,7 +677,7 @@ function ReviewStatus({review, compact = false}: {review: AdminReview; compact?:
 function Rating({rating}: {rating: number}) {
   return (
     <span className="inline-flex items-center gap-1 font-bold" aria-label={`${rating} out of 5 stars`}>
-      <Star aria-hidden="true" className="size-4 fill-warning text-warning" />
+      <Star aria-hidden="true" className={`size-4 ${filledRatingStarClassName}`} />
       {rating.toFixed(1)}
     </span>
   );
