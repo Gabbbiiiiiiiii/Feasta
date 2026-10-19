@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:feasta/features/customer/booking_agreement_review_screen.dart';
 // ignore: depend_on_referenced_packages, implementation_imports
 import 'package:cloud_firestore_platform_interface/src/pigeon/messages.pigeon.dart'
     as firestore_host;
@@ -49,6 +50,8 @@ class PreparationAuth extends GuestAuth {
   @override
   UserPlatform? get currentUser =>
       GuestAuth.signedIn ? PreparationUser() : null;
+  @override
+  Stream<UserPlatform?> authStateChanges() => Stream.value(currentUser);
 }
 
 class PreparationRepository implements FeastaRepository {
@@ -197,7 +200,7 @@ void main() {
           message,
         ) async {
           final arguments = (message as List).single as Map;
-          callableNames.add(arguments['name'] as String);
+          callableNames.add(arguments['functionName'] as String);
           // Fail closed: no callable ever reaches a native Firebase plugin.
           return [
             'unavailable',
@@ -295,6 +298,51 @@ void main() {
       expect(find.byType(AvailabilityCheckScreen), findsOneWidget);
       expect(callableNames, isEmpty);
       expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'preparation review opens only disclosure callable and keeps submission disabled',
+    (tester) async {
+      phone(tester);
+      seedDraft();
+      final repo = PreparationRepository();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EventCustomizationScreen(
+            provider: provider(),
+            eventPackage: preparationPackage(),
+            repository: repo,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await openStep(tester, '3 Services');
+      await tester.tap(find.text('Review Event'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<BookingSummaryScreen>(find.byType(BookingSummaryScreen))
+            .preparationOnly,
+        isTrue,
+      );
+      final link = find.text('Review Booking & Payment Agreements');
+      await tester.scrollUntilVisible(
+        link,
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(link);
+      await tester.pumpAndSettle();
+      expect(find.byType(BookingAgreementReviewScreen), findsOneWidget);
+      expect(callableNames, ['getBookingPaymentAgreementDisclosures']);
+      expect(find.text('Submit Booking Request'), findsNothing);
+      expect(find.byType(CheckboxListTile), findsNothing);
+      expect(find.text('Reload current agreements'), findsOneWidget);
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(BookingSummaryScreen), findsOneWidget);
+      expect(repo.unexpected, isEmpty);
     },
   );
   for (final image in [null, 'https://invalid.example/missing-package.jpg']) {

@@ -1,3 +1,4 @@
+import '../../../../shared/models/booking_agreement.dart';
 import '../../../../shared/models/booking_contract.dart';
 import '../../../../shared/models/event_customization_data.dart';
 import '../../../../core/security/auth_operation_coordinator.dart';
@@ -879,6 +880,32 @@ class FeastaRepository {
     }
 
     await batch.commit();
+  }
+
+  /// Refresh ownership through existing server-only preparation reads.
+  Future<Set<String>> resolveBookingAgreementProviders(
+    BookingAgreementRequest request,
+  ) => request.expectedProviderIds(
+    lookupOwner: (id) async =>
+        (await getEligiblePreparationAddon(id))?.providerId,
+  );
+
+  /// Disclosure only. Uses the existing regional Functions/App Check setup.
+  Future<List<BookingAgreement>> getBookingPaymentAgreementDisclosures(
+    BookingAgreementRequest request,
+  ) async {
+    if (_auth.currentUser == null) {
+      throw const AgreementReviewFailure(
+        'Sign in again to review your booking agreements.',
+      );
+    }
+    final result = await _functions
+        .httpsCallable(
+          'getBookingPaymentAgreementDisclosures',
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
+        )
+        .call(request.toJson());
+    return parseAgreementDisclosures(result.data);
   }
 
   Future<BookingSubmissionResult> createBookingRequest({

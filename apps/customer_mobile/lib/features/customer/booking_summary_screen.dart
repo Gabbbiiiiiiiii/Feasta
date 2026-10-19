@@ -1,3 +1,5 @@
+import '../../shared/models/booking_contract.dart';
+import 'booking_agreement_review_screen.dart';
 import 'widgets/package_option_cards.dart';
 import 'package:flutter/material.dart';
 
@@ -297,6 +299,23 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                   value: data.specialRequest,
                 ),
             ],
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.description_outlined),
+            label: const Text('Review Booking & Payment Agreements'),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => BookingAgreementReviewScreen(
+                  selection: BookingSelection(
+                    providerId: widget.provider.id,
+                    packageId: widget.eventPackage.id,
+                    customization: snapshotCustomization(widget.customization),
+                  ),
+                ),
+              ),
+            ),
           ),
           const SizedBox(height: 12),
           BookingPreparationPrice(
