@@ -319,11 +319,20 @@ test('historical fully paid booking completes only through authorized reconcilia
   assert.equal(timeline.length, 1);assert.equal(timeline[0].createdByRole, 'admin');assert.equal(h.count('notifications/'), 2);
 });
 
-test('historical booking without a lifecycle hold also requires and records the explicit decision', async () => {
-  const h = historicalHarness();
-  assert.equal((await reconcile()).changed, true);assertHistoricalFinancials(h);
-  assert.equal(stored(h).historicalCompletionReconciliation.resolvedLifecycleReconciliationReason, null);
-});
+for (const [name, patch] of [
+  ['no lifecycle hold', {}],
+  ['hold marked false', {lifecycleReconciliationRequired: false}],
+  ['reason without an active hold', {lifecycleReconciliationReason: enrollmentMissing}],
+  ['false hold with matching reason', {lifecycleReconciliationRequired: false, lifecycleReconciliationReason: enrollmentMissing}],
+]) {
+  test('historical reconciliation rejects ' + name, async () => {
+    const h = historicalHarness();Object.assign(h.request, patch);
+    await assert.rejects(reconcile(), /not classified as missing disbursement enrollment/);
+    assert.equal(h.commits, 0);
+    assert.equal(h.count('providerSettlements/'), 0);
+    assert.equal(h.count('providerDisbursements/'), 0);
+  });
+}
 
 for (const actor of [providerActor, systemActor]) {
   test(actor.kind + ' cannot complete a historical booking without authorized reconciliation', async () => {
@@ -358,7 +367,7 @@ test('cursor sweep also parks a discovered missing-enrollment failure', async ()
 
 const unclassifiedHold = /not classified as missing disbursement enrollment/;
 for (const [name, patch, expected] of [
-  ['legacy unclassified hold', {lifecycleReconciliationRequired: true}, unclassifiedHold],
+  ['legacy unclassified hold', {lifecycleReconciliationRequired: true, lifecycleReconciliationReason: undefined}, unclassifiedHold],
   ['unclassified hold', {lifecycleReconciliationRequired: true, lifecycleReconciliationReason: 'unclassified'}, unclassifiedHold],
   ['unknown hold reason', {lifecycleReconciliationRequired: true, lifecycleReconciliationReason: 'other'}, unclassifiedHold],
   ['malformed hold flag', {lifecycleReconciliationRequired: 'yes', lifecycleReconciliationReason: enrollmentMissing}, unclassifiedHold],
@@ -367,7 +376,7 @@ for (const [name, patch, expected] of [
   ['pending remaining-balance lifecycle', {remainingBalanceNextCheckAt: Timestamp.fromDate(end)}, /Remaining-balance lifecycle work/],
 ]) {
   test('historical reconciliation preserves existing lock: ' + name, async () => {
-    const h = historicalHarness();Object.assign(h.request, patch);
+    const h = parkedHarness();Object.assign(h.request, patch);
     await assert.rejects(reconcile(), expected);assert.equal(h.commits, 0);assert.equal(h.count('providerSettlements/'), 0);
   });
 }

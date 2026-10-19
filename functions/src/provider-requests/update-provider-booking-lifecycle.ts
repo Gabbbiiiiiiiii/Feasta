@@ -1015,8 +1015,7 @@ async function assertHistoricalCompletionReconcilable(
     throw new HttpsError("failed-precondition",
       "Historical completion reconciliation applies only to canonical V3 bookings whose original financial snapshot predates provider disbursement enrollment.");
   }
-  if (request.lifecycleReconciliationRequired != null && request.lifecycleReconciliationRequired !== false &&
-    !isMissingEnrollmentLifecycleHold(request)) {
+  if (!isMissingEnrollmentLifecycleHold(request)) {
     throw new HttpsError("failed-precondition",
       "The booking's lifecycle hold is not classified as missing disbursement enrollment and requires separate reconciliation.");
   }
