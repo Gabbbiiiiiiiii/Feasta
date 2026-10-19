@@ -12,11 +12,11 @@ export default async function ProviderAccountPage() {
   );
   const profile = await loadAccountManagementProfile(account);
   return (
-    <div className="grid gap-6">
+    <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Provider account"
         title="Settings"
-        description="Manage owner identity, sign-in security, sessions, and account preferences."
+        description="Manage your account, notifications, and sign-in security."
       />
       <AccountManagementPanel profile={profile} />
     </div>

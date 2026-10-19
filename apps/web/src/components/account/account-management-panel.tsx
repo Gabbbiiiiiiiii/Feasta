@@ -89,9 +89,11 @@ export function AccountManagementPanel({
   function submitPreferences(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void run("preferences", async () => {
+      // The callable requires all three booleans, including hidden provider consent.
+      // It also refreshes the consent timestamp even when that value is unchanged.
       await updateAccountPreferences(preferences);
       router.refresh();
-    }, "Privacy and notification preferences were saved.");
+    }, profile.role === "provider" ? "Notification preferences were saved." : "Privacy and notification preferences were saved.");
   }
 
   function submitPassword(event: FormEvent<HTMLFormElement>) {
@@ -114,6 +116,7 @@ export function AccountManagementPanel({
   }
 
   const loginPath = loginPathForRole(profile.role);
+  const isProvider = profile.role === "provider";
   const legalIdentityEditable =
     profile.provider?.verificationStatus === "draft" ||
     profile.provider?.verificationStatus === "resubmission_required";
@@ -122,12 +125,13 @@ export function AccountManagementPanel({
     <div className="grid gap-6">
       <section className="grid gap-4 rounded-card border border-border bg-card p-5 shadow-card sm:p-6" aria-labelledby="account-summary-title">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 id="account-summary-title" className="text-xl font-bold">Account summary</h2>
-          <StatusBadge status="active" label={`Active ${profile.role}`} />
+          <h2 id="account-summary-title" className="text-xl font-bold">{isProvider ? "Account overview" : "Account summary"}</h2>
+          {isProvider ? <span className="text-sm font-semibold text-muted-foreground">Provider account</span> : <StatusBadge status="active" label={`Active ${profile.role}`} />}
         </div>
         <dl className="grid gap-4 sm:grid-cols-2">
           <div><dt className="text-sm font-bold text-muted-foreground">Email</dt><dd className="break-all font-medium">{profile.email}</dd></div>
           <div><dt className="text-sm font-bold text-muted-foreground">Sign-in method</dt><dd className="font-medium">{profile.supportsPasswordChanges ? "Email and password" : "External identity provider"}</dd></div>
+          {isProvider ? <div className="sm:col-span-2"><dt className="text-sm font-bold text-muted-foreground">Account owner</dt><dd className="break-words font-medium">{[profile.firstName, profile.lastName].filter(Boolean).join(" ") || "Not provided"}</dd></div> : null}
           <div><dt className="text-sm font-bold text-muted-foreground">Terms version</dt><dd>{profile.termsPolicyVersion}</dd></div>
           <div><dt className="text-sm font-bold text-muted-foreground">Privacy version</dt><dd>{profile.privacyPolicyVersion}</dd></div>
         </dl>
@@ -136,7 +140,7 @@ export function AccountManagementPanel({
       {profile.role !== "provider" || profile.provider ? (
         <section className="rounded-card border border-border bg-card p-5 shadow-card sm:p-6" aria-labelledby="profile-edit-title">
           <h2 id="profile-edit-title" className="text-xl font-bold">Profile details</h2>
-          <p className="mt-2 text-sm text-muted-foreground">Only role-appropriate fields are accepted by the trusted backend.</p>
+          <p className="mt-2 text-sm text-muted-foreground">{isProvider ? "Update the account owner's details." : "Only role-appropriate fields are accepted by the trusted backend."}</p>
           <form className="mt-5 grid gap-4 sm:grid-cols-2" onSubmit={submitProfile}>
             {profile.role === "provider" ? (
               <>
@@ -159,7 +163,7 @@ export function AccountManagementPanel({
                     <div>
                       <h3 className="font-bold">Public business information</h3>
                       <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                        Business contact, description, location, logo, and cover image are managed in Business Profile. Verified business identity and service capabilities remain read-only there.
+                        Manage business contact details, description, location, and images in Business Profile. Verified business identity changes require FEASTA review.
                       </p>
                     </div>
                     {profile.provider?.verificationStatus === "approved" ? (
@@ -200,9 +204,9 @@ export function AccountManagementPanel({
       )}
 
       <section className="rounded-card border border-border bg-card p-5 shadow-card sm:p-6" aria-labelledby="preferences-title">
-        <h2 id="preferences-title" className="text-xl font-bold">Privacy and notifications</h2>
+        <h2 id="preferences-title" className="text-xl font-bold">{isProvider ? "Notification preferences" : "Privacy and notifications"}</h2>
         <form className="mt-5 grid gap-4" onSubmit={submitPreferences}>
-          <PreferenceCheckbox label="Marketing messages" checked={preferences.marketingConsent} disabled={busy != null} onChange={(checked) => setPreferences((current) => ({...current, marketingConsent: checked}))} />
+          {!isProvider ? <PreferenceCheckbox label="Marketing messages" checked={preferences.marketingConsent} disabled={busy != null} onChange={(checked) => setPreferences((current) => ({...current, marketingConsent: checked}))} /> : null}
           <PreferenceCheckbox label="Push notifications" checked={preferences.pushNotificationsEnabled} disabled={busy != null} onChange={(checked) => setPreferences((current) => ({...current, pushNotificationsEnabled: checked}))} />
           <PreferenceCheckbox label="Email notifications" checked={preferences.emailNotificationsEnabled} disabled={busy != null} onChange={(checked) => setPreferences((current) => ({...current, emailNotificationsEnabled: checked}))} />
           <Button className="justify-self-start" type="submit" loading={busy === "preferences"} disabled={busy != null}>Save preferences</Button>
@@ -214,6 +218,7 @@ export function AccountManagementPanel({
         {profile.supportsPasswordChanges ? (
           <>
             <form className="grid gap-4 sm:grid-cols-2" onSubmit={submitPassword}>
+              {isProvider ? <div className="sm:col-span-2"><h3 className="font-bold">Change password</h3><p className="mt-1 text-sm text-muted-foreground">Changing your password signs you out of all sessions.</p></div> : null}
               <FormField label="Current password" required disabled={busy != null}><PasswordInput autoComplete="current-password" value={passwordValues.current} onChange={(event) => setPasswordValues((current) => ({...current, current: event.target.value}))} /></FormField>
               <div className="hidden sm:block" aria-hidden="true" />
               <FormField label="New password" required disabled={busy != null}><PasswordInput autoComplete="new-password" value={passwordValues.next} onChange={(event) => setPasswordValues((current) => ({...current, next: event.target.value}))} /></FormField>
@@ -221,6 +226,7 @@ export function AccountManagementPanel({
               <div className="sm:col-span-2"><Button type="submit" loading={busy === "password"} disabled={busy != null}>Change password and sign out</Button></div>
             </form>
             <form className="grid gap-4 sm:grid-cols-2" onSubmit={submitEmail}>
+              {isProvider ? <div className="border-t border-border pt-5 sm:col-span-2"><h3 className="font-bold">Change email address</h3><p className="mt-1 text-sm text-muted-foreground">Your current email stays active until you verify the new address.</p></div> : null}
               <FormField label="Current password for email change" required disabled={busy != null}><PasswordInput autoComplete="current-password" value={emailValues.currentPassword} onChange={(event) => setEmailValues((current) => ({...current, currentPassword: event.target.value}))} /></FormField>
               <FormField label="New email address" required disabled={busy != null}><Input type="email" autoComplete="email" value={emailValues.newEmail} onChange={(event) => setEmailValues((current) => ({...current, newEmail: event.target.value}))} /></FormField>
               <div className="sm:col-span-2"><Button type="submit" variant="secondary" loading={busy === "email"} disabled={busy != null}>Send email-change verification</Button></div>
@@ -233,6 +239,7 @@ export function AccountManagementPanel({
 
       <section className="grid gap-4 rounded-card border border-border bg-card p-5 shadow-card sm:p-6" aria-labelledby="sessions-title">
         <h2 id="sessions-title" className="text-xl font-bold">Sessions</h2>
+        {isProvider ? <p className="text-sm text-muted-foreground">Sign out ends this browser session. Sign out all sessions ends access on every device and requires reauthentication.</p> : null}
         {profile.supportsPasswordChanges ? (
           <FormField label="Current password for all-session sign out" required disabled={busy != null}>
             <PasswordInput autoComplete="current-password" value={sessionPassword} onChange={(event) => setSessionPassword(event.target.value)} />
@@ -247,19 +254,22 @@ export function AccountManagementPanel({
       </section>
 
       {profile.role === "provider" ? (
-        <section className="grid gap-4 rounded-card border border-destructive/40 bg-card p-5 shadow-card sm:p-6" aria-labelledby="deactivation-title">
-          <h2 id="deactivation-title" className="text-xl font-bold">Deactivate account</h2>
-          <p className="text-sm text-muted-foreground">{profile.role === "provider" ? "Active event obligations must be resolved first. Booking, payment, dispute, and audit records are retained." : "This is a soft deactivation. Booking, payment, dispute, and audit records are retained."}</p>
-          <FormField label="Optional reason" disabled={busy != null}><Textarea value={reason} maxLength={300} onChange={(event) => setReason(event.target.value)} /></FormField>
-          {profile.supportsPasswordChanges ? (
-            <FormField label="Current password for deactivation" required disabled={busy != null}>
-              <PasswordInput autoComplete="current-password" value={deactivationPassword} onChange={(event) => setDeactivationPassword(event.target.value)} />
-            </FormField>
-          ) : (
-            <p className="text-sm text-muted-foreground">Your identity provider will ask you to reauthenticate before deactivation.</p>
-          )}
-          <ConfirmationDialog open={deactivateOpen} onOpenChange={setDeactivateOpen} title="Deactivate this account?" description="Protected access will end and all sessions will be revoked. This does not delete retained operational records." destructive confirmLabel="Deactivate account" onConfirm={() => run("deactivate", async () => { await deactivateWebAccount(profile.role, reason, deactivationPassword); router.replace(loginPath); router.refresh(); })} trigger={<Button className="justify-self-start" variant="destructive" disabled={busy != null}>Deactivate account</Button>} />
-        </section>
+        <details className="rounded-card border border-destructive/40 bg-card p-5 shadow-card sm:p-6">
+          <summary className="cursor-pointer rounded-sm font-bold text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring">Danger zone</summary>
+          <div className="mt-5 grid gap-4">
+            <h2 id="deactivation-title" className="text-lg font-bold">Deactivate account</h2>
+            <p className="text-sm text-muted-foreground">Deactivation ends account access; it is not permanent data deletion. Active event obligations must be resolved first. Booking, payment, dispute, and audit records are retained.</p>
+            <FormField label="Optional reason" disabled={busy != null}><Textarea value={reason} maxLength={300} onChange={(event) => setReason(event.target.value)} /></FormField>
+            {profile.supportsPasswordChanges ? (
+              <FormField label="Current password for deactivation" required disabled={busy != null}>
+                <PasswordInput autoComplete="current-password" value={deactivationPassword} onChange={(event) => setDeactivationPassword(event.target.value)} />
+              </FormField>
+            ) : (
+              <p className="text-sm text-muted-foreground">Your identity provider will ask you to reauthenticate before deactivation.</p>
+            )}
+            <ConfirmationDialog open={deactivateOpen} onOpenChange={setDeactivateOpen} title="Deactivate this account?" description="Protected access will end and all sessions will be revoked. This does not delete retained operational records." destructive confirmLabel="Deactivate account" onConfirm={() => run("deactivate", async () => { await deactivateWebAccount(profile.role, reason, deactivationPassword); router.replace(loginPath); router.refresh(); })} trigger={<Button className="justify-self-start" variant="destructive" disabled={busy != null}>Deactivate account</Button>}>{error ? <AuthStatus message={error} tone="error" /> : null}</ConfirmationDialog>
+          </div>
+        </details>
       ) : profile.role === "admin" ? (
         <section className="rounded-card border border-border bg-card p-5 shadow-card sm:p-6">
           <h2 className="text-xl font-bold">Admin account lifecycle</h2>
@@ -268,7 +278,7 @@ export function AccountManagementPanel({
       ) : null}
 
       {notice ? <AuthStatus message={notice} tone="success" /> : null}
-      {error ? <AuthStatus message={error} tone="error" /> : null}
+      {error && !deactivateOpen ? <AuthStatus message={error} tone="error" /> : null}
     </div>
   );
 }
