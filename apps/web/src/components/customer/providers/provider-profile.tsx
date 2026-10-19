@@ -1,3 +1,6 @@
+import {ProviderRating} from "./provider-rating";
+import {ProviderPublicReviews} from "./provider-public-reviews";
+import type {PublicReviewPage} from "@/lib/customer/providers/public-review-types";
 import {
   ArrowLeft,
   ArrowRight,
@@ -35,9 +38,11 @@ export function ProviderProfile({
   detail,
   backHref = "/customer/providers",
   favoriteState,
+  reviewPage = {reviews: [], nextCursor: null},
 }: {
   serviceCategoryOptions?: readonly ServiceCategoryOption[];
   detail: PublicProviderDetail;
+  reviewPage?: PublicReviewPage | null;
   backHref?: string;
   favoriteState?: {
     authenticated: boolean;
@@ -143,6 +148,10 @@ export function ProviderProfile({
               <h1 className="mt-2 break-words text-3xl font-extrabold leading-[1.02] tracking-[-0.045em] text-foreground sm:text-4xl lg:text-[48px]">
                 {provider.businessName}
               </h1>
+              <div className="mt-2 flex flex-wrap items-baseline gap-3">
+                <ProviderRating summary={provider.reviewSummary} />
+                <a href="#provider-reviews" className="rounded text-sm font-bold text-primary-strong underline focus-visible:ring-2 focus-visible:ring-primary">Read reviews</a>
+              </div>
 
               {provider.location ? (
                 <p className="mt-3 flex min-w-0 items-start gap-2 text-sm text-feasta-text-secondary sm:text-base">
@@ -561,6 +570,8 @@ export function ProviderProfile({
       </section> : null}
 
       {capabilities.catering && detail.setups && detail.setups.length > 0 ? <ProviderSetupGallery setups={detail.setups} /> : null}
+
+      <ProviderPublicReviews key={provider.id} providerId={provider.id} summary={provider.reviewSummary} initialPage={reviewPage} />
 
       <section
         className="relative min-w-0 overflow-hidden rounded-[28px] border border-feasta-border-soft bg-white shadow-[0_10px_34px_rgb(0_75_59/0.055)]"

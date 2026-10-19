@@ -10,6 +10,7 @@ import {
 
 import type {PublicProvider} from "./provider-types";
 import {isPublicProviderId} from "./provider-route-policy";
+import {publicReviewSummary} from "./public-review-summary";
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
 
@@ -59,6 +60,7 @@ export function normalizePublicProvider(
   );
 
   return {
+    reviewSummary: publicReviewSummary(provider),
     id,
     businessName,
     description: safeText(provider.description, 1200),

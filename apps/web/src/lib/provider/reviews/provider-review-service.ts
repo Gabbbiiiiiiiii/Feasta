@@ -170,9 +170,10 @@ Promise<ProviderReviewSummary> {
   };
 }
 
-async function loadReviewRelations(
+export async function loadReviewRelations(
   reviewDocuments: readonly DocumentSnapshot<DocumentData>[],
   expectedProviderId: string,
+  includeCustomerNames = true,
 ): Promise<ReviewRelations> {
   const mainEventIds = new Set<string>();
   const providerRequestIds = new Set<string>();
@@ -196,7 +197,7 @@ async function loadReviewRelations(
       addDocumentId(mainEventIds, data.bookingId);
     }
     addDocumentId(packageIds, data.packageId);
-    addDocumentId(customerIds, data.customerId);
+    if (includeCustomerNames) addDocumentId(customerIds, data.customerId);
   }
 
   const [providerRequests, mainEvents, packages, users] = await Promise.all([
@@ -224,7 +225,7 @@ async function loadDocuments(
   return new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]));
 }
 
-function mapProviderReview(
+export function mapProviderReview(
   document: DocumentSnapshot<DocumentData>,
   expectedProviderId: string,
   relations: ReviewRelations,

@@ -152,7 +152,9 @@ describe("public provider profile presentation", () => {
       level: 3,
       name: "No public packages currently listed.",
     })).toBeVisible();
-    expect(screen.queryByText(/\brating\b|\breviews\b|starting at|available today/iu))
+    expect(screen.getByRole("link", {name: "Read reviews"})).toHaveAttribute("href", "#provider-reviews");
+    expect(screen.getByText("No customer reviews yet.")).toBeVisible();
+    expect(screen.queryByText(/starting at|available today/iu))
       .not.toBeInTheDocument();
   });
 
@@ -455,7 +457,8 @@ describe("public provider detail security contracts", () => {
     expect(profile).toContain("min-w-0");
     expect(profile).toContain("break-words");
     expect(profile).not.toMatch(/min-h-screen|w-screen|overflow-x-hidden/u);
-    expect(profile).not.toMatch(/\brating\b|review count|response time|most popular/iu);
+    expect(profile).toContain('href="#provider-reviews"');
+    expect(profile).not.toMatch(/response time|most popular/iu);
     expect(loading).toContain("motion-reduce:animate-none");
   });
 });

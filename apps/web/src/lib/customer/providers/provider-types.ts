@@ -17,6 +17,7 @@ export type ProviderDiscoveryFilters = {
 };
 
 export type PublicProvider = {
+  reviewSummary?: import("./public-review-types").PublicReviewSummary | null;
   id: string;
   businessName: string;
   description: string | null;

@@ -1,3 +1,4 @@
+import {ProviderRating} from "./provider-rating";
 import {
   ArrowUpRight,
   CalendarClock,
@@ -224,6 +225,7 @@ export function ProviderCard({
                   {provider.businessName}
                 </Link>
               </h3>
+              <ProviderRating summary={provider.reviewSummary} />
             </div>
 
             <ArrowUpRight

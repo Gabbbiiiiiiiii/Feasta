@@ -1,3 +1,4 @@
+import {ProviderRating} from "./provider-rating";
 import {
   ArrowUpRight,
   CalendarClock,
@@ -163,6 +164,7 @@ export function ProviderLogoCard({
           <h3 className="mt-1.5 line-clamp-2 min-h-10 break-words text-sm font-extrabold leading-5 tracking-[-0.02em] text-primary transition-colors group-hover:text-primary-pressed">
             {provider.businessName}
           </h3>
+          <ProviderRating summary={provider.reviewSummary} />
 
           {provider.location ? (
             <p className="mt-1.5 flex items-center justify-center gap-1 text-xs text-feasta-text-secondary">

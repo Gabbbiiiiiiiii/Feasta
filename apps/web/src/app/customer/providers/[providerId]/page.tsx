@@ -1,3 +1,4 @@
+import {getPublicReviewPage} from "@/lib/customer/providers/public-review-service";
 import {notFound} from "next/navigation";
 
 import {ProviderProfile} from "@/components/customer/providers/provider-profile";
@@ -31,6 +32,7 @@ export default async function PublicProviderDetailPage({
   ]);
 
   if (!detail) notFound();
+  const reviewPage = await getPublicReviewPage(providerId).catch(() => null);
   const backHref = parseMarketplaceReturnHref(query.returnTo);
   const authenticatedCustomer = account?.role === "customer" &&
     account.emailVerified;
@@ -41,6 +43,7 @@ export default async function PublicProviderDetailPage({
   return (
     <ProviderProfile
       detail={detail}
+      reviewPage={reviewPage}
       backHref={backHref}
       serviceCategoryOptions={serviceCategoryOptions}
       favoriteState={{
