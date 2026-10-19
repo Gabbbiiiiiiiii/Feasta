@@ -1,3 +1,4 @@
+import '../../../../shared/models/booking_refund_policy.dart';
 import '../../../../shared/models/booking_agreement.dart';
 import '../../../../shared/models/booking_contract.dart';
 import '../../../../shared/models/event_customization_data.dart';
@@ -906,6 +907,24 @@ class FeastaRepository {
         )
         .call(request.toJson());
     return parseAgreementDisclosures(result.data);
+  }
+
+  /// Refund disclosure only; never forwards the full booking payload.
+  Future<RefundDisclosures> getBookingRefundPolicyDisclosures(
+    BookingAgreementRequest request,
+  ) async {
+    if (_auth.currentUser == null) {
+      throw const RefundReviewFailure(
+        'Sign in again to review refund policies.',
+      );
+    }
+    final result = await _functions
+        .httpsCallable(
+          'getBookingRefundPolicyDisclosures',
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
+        )
+        .call(refundDisclosureRequest(request));
+    return RefundDisclosures.fromJson(result.data);
   }
 
   Future<BookingSubmissionResult> createBookingRequest({

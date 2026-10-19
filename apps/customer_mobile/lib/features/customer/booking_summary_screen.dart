@@ -1,3 +1,4 @@
+import 'booking_refund_policy_review_screen.dart';
 import '../../shared/models/booking_contract.dart';
 import 'booking_agreement_review_screen.dart';
 import 'widgets/package_option_cards.dart';
@@ -308,6 +309,23 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
               context,
               MaterialPageRoute(
                 builder: (_) => BookingAgreementReviewScreen(
+                  selection: BookingSelection(
+                    providerId: widget.provider.id,
+                    packageId: widget.eventPackage.id,
+                    customization: snapshotCustomization(widget.customization),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.policy_outlined),
+            label: const Text('Review Refund Policies'),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => BookingRefundPolicyReviewScreen(
                   selection: BookingSelection(
                     providerId: widget.provider.id,
                     packageId: widget.eventPackage.id,

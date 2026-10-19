@@ -1,3 +1,4 @@
+import 'package:feasta/features/customer/booking_refund_policy_review_screen.dart';
 import 'package:flutter/services.dart';
 import 'package:feasta/features/customer/booking_agreement_review_screen.dart';
 // ignore: depend_on_referenced_packages, implementation_imports
@@ -339,6 +340,25 @@ void main() {
       expect(find.byType(CheckboxListTile), findsNothing);
       expect(find.text('Reload current agreements'), findsOneWidget);
       expect(find.byType(LinearProgressIndicator), findsNothing);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.byType(BookingSummaryScreen), findsOneWidget);
+      final refundLink = find.text('Review Refund Policies');
+      await tester.scrollUntilVisible(
+        refundLink,
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(refundLink);
+      await tester.pumpAndSettle();
+      expect(find.byType(BookingRefundPolicyReviewScreen), findsOneWidget);
+      expect(callableNames, [
+        'getBookingPaymentAgreementDisclosures',
+        'getBookingRefundPolicyDisclosures',
+      ]);
+      expect(find.byType(CheckboxListTile), findsNothing);
+      expect(find.text('Reload current refund policies'), findsOneWidget);
+      expect(find.text('Submit Booking Request'), findsNothing);
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.byType(BookingSummaryScreen), findsOneWidget);
