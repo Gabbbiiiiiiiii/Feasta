@@ -1,5 +1,6 @@
 "use client";
 
+import {unavailableProviderInitialPayment} from "@/lib/provider/requests/provider-request-payment-presentation";
 import {formatEventTime} from "@/lib/presentation/event-time";
 import {requestStatusLabel} from "@/lib/provider/requests/provider-request-presentation";
 
@@ -57,6 +58,9 @@ export function ProviderRequestDetailDrawer({
   if (!request) {
     return null;
   }
+
+  const originalTermsSubject = request.type === "addon" ? "service" : "package";
+  const payment = request.initialPaymentPresentation ?? unavailableProviderInitialPayment;
 
   return (
     <DetailDrawer
@@ -280,35 +284,20 @@ export function ProviderRequestDetailDrawer({
               amount={request.amount}
             />
 
-            <AmountRow
-              label={
-                request.downPaymentAmount > 0 &&
-                request.downPaymentAmount < request.amount
-                  ? "Required down payment"
-                  : "Full payment"
-              }
-              amount={
-                request.downPaymentAmount
-              }
-            />
-
-            {request.downPaymentPercentage !==
-            null &&
-            request.downPaymentAmount > 0 &&
-            request.downPaymentAmount < request.amount ? (
-              <div className="flex items-center justify-between gap-4 text-sm">
-                <span className="text-muted-foreground">
-                  Down payment rate
-                </span>
-
-                <span className="font-medium">
-                  {
-                    request.downPaymentPercentage
-                  }
-                  %
-                </span>
-              </div>
-            ) : null}
+            {payment.amount !== null ? <AmountRow
+              label={payment.kind === "full" ? "Required customer payment" : "Minimum customer deposit"}
+              amount={payment.amount}
+            /> : null}
+            <p className="text-sm font-medium">
+              {payment.kind === "full" ? "Full payment required" : payment.kind === "minimum" ? "Deposit or full payment" : "Payment eligibility unavailable"}
+            </p>
+            <p className="text-sm text-muted-foreground">{payment.explanation}</p>
+            <div className="grid gap-2 border-t border-border pt-3">
+              <p className="text-sm font-medium">Original {originalTermsSubject} payment terms</p>
+              <AmountRow label={`Original ${originalTermsSubject} upfront amount`} amount={request.downPaymentAmount} />
+              {request.downPaymentPercentage !== null ? <p className="text-sm text-muted-foreground">Original {originalTermsSubject} upfront rate: {request.downPaymentPercentage}%</p> : null}
+              <p className="text-sm text-muted-foreground">These original terms do not indicate the current amount due.</p>
+            </div>
           </div>
         </Section>
 

@@ -1,3 +1,4 @@
+import type {ProviderInitialPaymentPresentation} from "./provider-request-payment-presentation";
 import type {
   ProviderRequestStatus,
   ProviderRequestType,
@@ -35,6 +36,7 @@ export type ProviderRequestService = {
 };
 
 export type ProviderRequestListItem = {
+  initialPaymentPresentation?: ProviderInitialPaymentPresentation;
   bookingReference?: string | null;
   responseUnavailableReason?: string | null;
   id: string;

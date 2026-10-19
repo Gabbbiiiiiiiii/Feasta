@@ -101,3 +101,51 @@ describe("provider request search and pagination", () => {
     expect((await getProviderRequestDetail("request-0000")).responseUnavailableReason).toContain("cannot be responded to");
   });
 });
+
+
+describe("provider frozen payment presentation projection", () => {
+  it.each([false, true])("carries frozen agreement amounts through request details (accepted: %s)", async accepted => {
+    const submittedAt = Timestamp.fromDate(new Date("2026-10-19T00:00:00Z"));
+    const eventStartAt = "2026-10-20T00:00:00Z";
+    const original = {status: accepted ? "accepted" : "pending", amount: 1000, downPaymentAmount: 500, downPaymentPercentage: 50,
+      packagePaymentTerms: {paymentPolicy: "deposit_then_balance"},
+      initialPaymentEligibilitySchemaVersion: 2,
+      initialPaymentEligibility: {mode: "full_only", reason: "short_notice", depositAllowed: true,
+        depositEligible: false, depositMinimumNoticeHours: 72, authorityTimeSource: "booking_submission", submittedAt, evaluatedAt: submittedAt, eventStartAt: Timestamp.fromDate(new Date(eventStartAt))},
+      bookingPaymentAgreement: {schemaVersion: 1, timingSchemaVersion: 3, channel: "booking_submission",
+        initialPaymentEligibilitySchemaVersion: 2, depositEligible: false, eligibilityReason: "short_notice", agreedAt: submittedAt, eventStartAt,
+        grossAmountInCentavos: 100000, requiredUpfrontAmountInCentavos: 100000, remainingBalanceInCentavos: 0},
+      ...(accepted ? {financialSnapshot: {schemaVersion: 1, currency: "PHP", grossAmountInCentavos: 100000,
+        requiredUpfrontAmountInCentavos: 50000, remainingBalanceInCentavos: 50000}} : {})};
+    mocks.documents = [document(0, original)];
+    const result = await getProviderRequestDetail("request-0000");
+    expect(result.initialPaymentPresentation).toEqual({kind: "full", amount: 1000,
+      explanation: "Full payment is required because the booking was submitted fewer than 72 hours before the event."});
+    expect(result.downPaymentAmount).toBe(500);
+    expect(result.downPaymentPercentage).toBe(50);
+    expect(original.bookingPaymentAgreement.requiredUpfrontAmountInCentavos).toBe(100000);
+    if (!accepted) expect(original).not.toHaveProperty("financialSnapshot");
+  });
+});
+
+
+describe("external add-on payment projection through request details", () => {
+  it.each([false, true])("reads agreement-only add-on payment (accepted: %s)", async accepted => {
+    const eventStartAt = Timestamp.fromDate(new Date("2030-10-10T06:00:00Z"));
+    const agreement = {schemaVersion: 1, timingSchemaVersion: 3, channel: "booking_submission",
+      initialPaymentEligibilitySchemaVersion: 2, paymentPolicy: {paymentPolicy: "full_payment"},
+      customerId: "customer-one", providerId: "provider-one", agreedAt: Timestamp.fromMillis(1700000000000),
+      eventStartAt: eventStartAt.toDate().toISOString(), depositEligible: false, eligibilityReason: "package_full_payment",
+      grossAmountInCentavos: 100000, requiredUpfrontAmountInCentavos: 100000, remainingBalanceInCentavos: 0};
+    const original = {type: "addon", status: accepted ? "accepted" : "pending", amount: 1000, downPaymentAmount: 1000,
+      downPaymentPercentage: 100, eventStartAt, bookingPaymentAgreement: agreement,
+      ...(accepted ? {financialSnapshot: {schemaVersion: 1, currency: "PHP", grossAmountInCentavos: 100000,
+        requiredUpfrontAmountInCentavos: 100000, remainingBalanceInCentavos: 0}} : {})};
+    mocks.documents = [document(0, original)];
+    const result = await getProviderRequestDetail("request-0000");
+    expect(result.initialPaymentPresentation).toMatchObject({kind: "full", amount: 1000});
+    expect(result.downPaymentAmount).toBe(1000);
+    expect(original).not.toHaveProperty("initialPaymentEligibility");
+    if (!accepted) expect(original).not.toHaveProperty("financialSnapshot");
+  });
+});

@@ -1,32 +1,24 @@
+import {unavailableProviderInitialPayment, type ProviderInitialPaymentPresentation} from "./provider-request-payment-presentation";
+
 export type ProviderRequestPaymentPolicy =
   | "full_payment"
   | "deposit_then_balance";
 
 export function providerRequestAcceptanceDescription(input: {
+  initialPaymentPresentation?: ProviderInitialPaymentPresentation;
   paymentPolicy: ProviderRequestPaymentPolicy | null;
   amount: number;
   downPaymentAmount: number;
 }): string {
-  if (input.paymentPolicy === "deposit_then_balance") {
-    return "The customer will be asked to complete the required down payment after you accept.";
+  const payment = input.initialPaymentPresentation ?? unavailableProviderInitialPayment;
+  if (payment.kind === "full") {
+    return "The customer will be asked to pay the full amount after you accept. " + payment.explanation;
   }
-
-  if (input.paymentPolicy === "full_payment") {
-    return "The customer will be asked to pay the full amount after you accept.";
+  if (payment.kind === "minimum") {
+    return "After you accept, the customer may choose the minimum deposit or full payment.";
   }
+  return payment.explanation;
 
-  if (
-    input.downPaymentAmount > 0 &&
-    input.downPaymentAmount < input.amount
-  ) {
-    return "The customer will be asked to complete the required down payment after you accept.";
-  }
-
-  if (input.downPaymentAmount > 0) {
-    return "The customer will be asked to pay the full amount after you accept.";
-  }
-
-  return "This request will be confirmed after you accept it.";
 }
 
 export class ProviderRequestActionError extends Error {

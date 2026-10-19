@@ -1,4 +1,5 @@
 import "server-only";
+import {providerInitialPaymentPresentation} from "./provider-request-payment-presentation";
 import {dashboardMatches, dashboardEventStart, storedDate} from "../dashboard/provider-dashboard-projection";
 import {matchesRequestSearch} from "./provider-request-presentation";
 
@@ -231,6 +232,7 @@ function mapProviderRequest(
     );
 
   return {
+    initialPaymentPresentation: providerInitialPaymentPresentation(data),
     id: document.id,
 
     mainEventId,
