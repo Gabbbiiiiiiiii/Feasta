@@ -36,6 +36,10 @@ const policies = [
   ["revokeAllAccountSessions", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "enforceCallableRateLimit", "revokeRefreshTokens", "appCheckCallableOptions"]],
   ["deactivateProviderAccount", "auth/manage-role-account.ts", ["requireAuth(request)", "requireRole", "requireRecentAuthentication", "enforceCallableRateLimit", "activeProviderRequestStatuses", "revokeRefreshTokens", "writeAuditLogInTransaction", "appCheckCallableOptions"]],
   ["submitBookingRequest", "bookings/submit-booking-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "assertBookingSubmissionAllowed", "runTransaction", "appCheckCallableOptions"]],
+  ["searchCustomerBookings", "bookings/search-customer-bookings.ts", [
+    "requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions",
+    "enforceAppCheck: true", "requireBookingSearchReadiness", "secrets: [signingSecret]",
+  ]],
   ["getBookingPaymentAgreementDisclosures", "bookings/submit-booking-request.ts", ["requireAuth(request)", "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions", "disclosureOnly", "buildBookingPaymentAgreement", "bookingPaymentAgreementDisclosure"]],
   [
     "getBookingRefundPolicyDisclosures",
@@ -519,6 +523,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
     }
   }
   assert.deepEqual([...names].sort(), [
+  "acceptCurrentProviderAgreement",
   "acceptProviderRequest",
   "advanceProviderRequestRefundEligibilityStage",
   "approveProviderRequestCancellationRefund",
@@ -603,6 +608,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "saveProviderOnboardingDraft",
   "saveProviderPayoutActivationProfile",
   "scheduleProviderDefaultCompensation",
+  "searchCustomerBookings",
   "searchPlaces",
   "sendChatMessage",
   "setPackageRefundPolicyOverride",
