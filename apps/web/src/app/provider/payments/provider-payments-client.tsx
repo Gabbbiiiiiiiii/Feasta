@@ -270,7 +270,7 @@ export function ProviderPaymentsClient({
           </p>
         </div>
 
-        <p role="status" className="text-sm text-muted-foreground">{loading ? "Loading matching payments..." : loadError ? "Payment results unavailable." : `${page.payments.length} payments shown.`}</p>
+        <p role="status" className={loading ? "sr-only" : "text-sm text-muted-foreground"}>{loading ? "" : loadError ? "Payment results unavailable." : `${page.payments.length} payments shown.`}</p>
         <DataTable
           columns={columns}
           rows={loading || loadError ? [] : page.payments}

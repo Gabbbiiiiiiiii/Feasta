@@ -5,6 +5,7 @@ import type {ReactNode} from "react";
 
 import {ApplicationEmptyState, ApplicationErrorState, TableLoadingSkeleton, type ApplicationEmptyKind, type ApplicationErrorKind} from "@/components/feedback/application-states";
 import {EmptyState} from "@/components/feedback/states";
+import {LoadingSkeleton} from "@/components/feedback/loading";
 import {Button} from "@/components/ui/button";
 import {cn} from "@/lib/utils";
 
@@ -99,10 +100,20 @@ function DataTable<T>({
 
   return (
     <div className={cn("min-w-0", className)}>
+      <span role="status" className="sr-only">{updating ? "Loading results..." : ""}</span>
       {renderMobileRow ? (
-        <div className="grid gap-3 md:hidden" aria-label={`${caption}, mobile view`}>
-          {updating ? <p className="min-h-48 p-4 text-sm text-muted-foreground">Loading results...</p> : null}
-          {rows.map((row) => (
+        <div className="grid gap-3 md:hidden" aria-busy={updating} aria-label={`${caption}, mobile view`}>
+          {updating ? Array.from({length: 4}, (_, index) => (
+            <div key={index} aria-hidden="true" className="grid gap-4 rounded-card border border-border bg-card p-4 shadow-card">
+              <div className="flex justify-between gap-3">
+                <div className="grid flex-1 gap-2"><LoadingSkeleton className="h-5 w-2/3" /><LoadingSkeleton className="h-4 w-1/2" /></div>
+                <LoadingSkeleton className="h-6 w-20" />
+              </div>
+              <div className="grid grid-cols-2 gap-3"><LoadingSkeleton className="h-8 w-3/4" /><LoadingSkeleton className="h-8 w-5/6" /></div>
+              <LoadingSkeleton className="h-8 w-full" />
+            </div>
+          )) : null}
+          {!updating && rows.map((row) => (
             <div key={getRowId(row)}>{renderMobileRow(row)}</div>
           ))}
         </div>
@@ -148,8 +159,18 @@ function DataTable<T>({
             </tr>
           </thead>
           <tbody className="divide-y divide-muted">
-            {updating ? <tr><td colSpan={columns.length + (rowActions ? 1 : 0)} className="h-48 px-4 py-3 text-sm text-muted-foreground">Loading results...</td></tr> : null}
-            {rows.map((row) => (
+            {updating ? Array.from({length: 4}, (_, rowIndex) => (
+              <tr key={rowIndex} aria-hidden="true">
+                {columns.map((column, columnIndex) => (
+                  <td key={column.id} className={cn("h-20 px-4 py-4 align-top", column.cellClassName)}>
+                    <LoadingSkeleton className={cn("h-4 max-w-full", ["w-3/4", "w-2/3", "w-1/2"][(rowIndex + columnIndex) % 3])} />
+                    {columnIndex === 0 || columnIndex === columns.length - 1 ? <LoadingSkeleton className="mt-2 h-4 w-5/6" /> : null}
+                  </td>
+                ))}
+                {rowActions ? <td className="px-4 py-4 align-top"><LoadingSkeleton className="ml-auto h-8 w-20" /></td> : null}
+              </tr>
+            )) : null}
+            {!updating && rows.map((row) => (
               <tr key={getRowId(row)} className="hover:bg-table-hover focus-within:bg-accent">
                 {columns.map((column) => (
                   <td key={column.id} className={cn("max-w-md px-4 py-4 align-top text-sm", column.cellClassName)}>

@@ -397,20 +397,31 @@ describe("provider booking payments workspace", () => {
     const filters = screen.getByRole("group", {name: "Payment status filters"});
     await user.click(within(filters).getByRole("button", {name: "Paid"}));
     expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByText("Loading results...")).toHaveClass("sr-only");
+    expect(screen.queryByText("Loading matching payments...")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ana Reyes")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", {name: "Customer Payments"})).toBeVisible();
+    expect(within(filters).getByRole("button", {name: "Paid"})).toHaveFocus();
     await user.click(within(filters).getByRole("button", {name: "Failed"}));
     await screen.findAllByLabelText("Status: Failed");
     await act(async () => resolveOld(paymentPage([payment("paid")])));
     expect(screen.queryByLabelText("Status: Paid")).not.toBeInTheDocument();
     expect(within(filters).getByRole("button", {name: "Failed"})).toHaveAttribute("aria-pressed", "true");
     expect(mocks.loadPage).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Loading matching payments...")).not.toBeInTheDocument();
+    expect(screen.getByText("1 payments shown.")).toBeVisible();
   });
 
   it("restores URL filters on popstate and resets cursors", async () => {
     renderWorkspace({status: "paid"});
-    window.history.pushState(null, "", "/provider/payments?status=refunded");
-    await act(async () => window.dispatchEvent(new PopStateEvent("popstate")));
-    expect(mocks.loadPage).toHaveBeenLastCalledWith({status: "refunded", pageSize: 10, cursor: null});
-    expect(screen.getByRole("button", {name: "Refunded", pressed: true})).toBeVisible();
+    // Simulate the URL and popstate delivered by Back, then Forward.
+    for (const status of ["all", "refunded"] as const) {
+      window.history.replaceState(null, "", status === "all" ? "/provider/payments" : `/provider/payments?status=${status}`);
+      await act(async () => window.dispatchEvent(new PopStateEvent("popstate")));
+      expect(mocks.loadPage).toHaveBeenLastCalledWith({status, pageSize: 10, cursor: null});
+      const label = status === "all" ? "All" : "Refunded";
+      expect(screen.getByRole("button", {name: label, pressed: true})).toBeVisible();
+    }
   });
 
   it("retries a failed filter without showing previous rows", async () => {

@@ -28,6 +28,28 @@ const columns: readonly DataTableColumn<Row>[] = [
 ];
 
 describe("DataTable", () => {
+  it("replaces existing desktop and mobile records while updating and restores them after success", () => {
+    const props = {columns, rows, getRowId: (row: Row) => row.id, caption: "Records", renderMobileRow: (row: Row) => <article>{row.name} mobile</article>};
+    const {container, rerender} = render(<DataTable {...props} updating />);
+    expect(screen.queryByText("Alpha Catering")).not.toBeInTheDocument();
+    expect(screen.queryByText("Alpha Catering mobile")).not.toBeInTheDocument();
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(4);
+    expect(container.querySelectorAll("tbody td")).toHaveLength(8);
+    expect(screen.getByLabelText("Records, mobile view").children).toHaveLength(4);
+    expect(screen.getByLabelText("Records, mobile view")).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("columnheader", {name: /Name/})).toBeVisible();
+    expect(container.querySelectorAll(".motion-reduce\\:animate-none").length).toBeGreaterThan(0);
+    rerender(<DataTable {...props} />);
+    expect(screen.getByText("Alpha Catering")).toBeVisible();
+    expect(screen.getByRole("table")).toHaveAttribute("aria-busy", "false");
+    expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
+    rerender(<DataTable {...props} updating />);
+    expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
+    rerender(<DataTable {...props} error="Network unavailable" />);
+    expect(container.querySelector(".animate-pulse")).not.toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
   it("renders typed rows, controlled sorting, row actions, and overflow semantics", async () => {
     const user = userEvent.setup();
     const onSortChange = vi.fn();

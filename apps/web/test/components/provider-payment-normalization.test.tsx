@@ -74,6 +74,18 @@ function records(overrides: {
 }
 
 describe("provider payment normalization", () => {
+  it.each(["paid", "refunded"])("retains historical %s records for completed and cancelled bookings", status => {
+    for (const bookingStatus of ["completed", "cancelled"]) {
+      const result = normalizeProviderPaymentRecord(records({
+        payment: {status},
+        providerRequest: {status: bookingStatus, eventDate: new Date("2020-01-01T00:00:00Z")},
+        mainEvent: {status: bookingStatus, eventDate: new Date("2020-01-01T00:00:00Z")},
+      }));
+      expect(result?.payment.status).toBe(status);
+      expect(result?.payment.eventDate).toBe("2020-01-01T00:00:00.000Z");
+    }
+  });
+
   it("maps centavo-based provider-safe payment and joined event data", () => {
     const result = normalizeProviderPaymentRecord(records());
 
@@ -152,6 +164,13 @@ describe("provider payment normalization", () => {
   });
 
   it("fails closed for missing relations and malformed financial fields", () => {
+    for (const payment of [
+      {providerRequestId: null}, {mainEventId: "missing_event"},
+      {paymentId: "conflicting_payment"}, {createdAt: null},
+      {amountInCentavos: undefined, amount: 1250},
+    ]) {
+      expect(normalizeProviderPaymentRecord(records({payment}))).toBeNull();
+    }
     expect(normalizeProviderPaymentRecord({
       ...records(),
       providerRequest: null,
