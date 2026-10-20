@@ -59,8 +59,10 @@ class FeastaRepository {
         data['isBlocked'] == true ||
         data['accountStatus'] != 'active';
     if (unavailable) {
-      AuthOperationCoordinator.shared.noteTransition();
-      await _auth.signOut();
+      await AuthOperationCoordinator.shared.protectSession(() async {
+        AuthOperationCoordinator.shared.noteTransition();
+        await _auth.signOut();
+      });
       throw Exception('Your account is currently unavailable.');
     }
     if (data['isPhoneVerified'] != true) {

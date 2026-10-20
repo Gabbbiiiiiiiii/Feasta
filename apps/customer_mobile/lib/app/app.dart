@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../core/security/customer_session_coordinator.dart';
 
 import '../core/theme/app_theme.dart';
 import '../features/authentication/application/customer_auth_controller.dart';
@@ -27,7 +28,7 @@ class FeastaApp extends StatefulWidget {
   State<FeastaApp> createState() => _FeastaAppState();
 }
 
-class _FeastaAppState extends State<FeastaApp> {
+class _FeastaAppState extends State<FeastaApp> with WidgetsBindingObserver {
   late final CustomerAuthenticationController _controller;
   late final bool _ownsController;
   bool _onboardingLoaded = false;
@@ -36,6 +37,7 @@ class _FeastaAppState extends State<FeastaApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _ownsController = widget.authenticationController == null;
 
@@ -43,10 +45,15 @@ class _FeastaAppState extends State<FeastaApp> {
         widget.authenticationController ??
         CustomerAuthenticationController(
           repository: FirebaseCustomerAuthStateRepository(),
+          sessions: CustomerSessionCoordinator.shared,
           initialLocation: widget.initialLocation,
         );
 
     _controller.start();
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) {
+      _controller.sessions?.suspend();
+    }
     _controller.addListener(_reportStartup);
     _reportStartup();
   }
@@ -68,7 +75,18 @@ class _FeastaAppState extends State<FeastaApp> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final sessions = _controller.sessions;
+    if (state == AppLifecycleState.resumed) {
+      sessions?.resume();
+    } else {
+      sessions?.suspend();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _controller.removeListener(_reportStartup);
     if (_ownsController) {
       _controller.dispose();

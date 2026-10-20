@@ -116,12 +116,14 @@ class FirebaseCustomerAccountRepository
     final uid = _user.uid;
     _changingPassword = true;
     try {
-      await AuthOperationCoordinator.shared.run(
-        () => _performPasswordOperation(
-          uid,
-          currentPassword: currentPassword,
-          newPassword: newPassword,
-          resumeOnly: resumeOnly,
+      await AuthOperationCoordinator.shared.protectSession(
+        () => AuthOperationCoordinator.shared.run(
+          () => _performPasswordOperation(
+            uid,
+            currentPassword: currentPassword,
+            newPassword: newPassword,
+            resumeOnly: resumeOnly,
+          ),
         ),
       );
     } finally {

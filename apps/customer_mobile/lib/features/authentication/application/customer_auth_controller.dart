@@ -1,4 +1,5 @@
 import '../../../core/security/auth_timing.dart';
+import '../../../core/security/customer_session_coordinator.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -35,6 +36,7 @@ class CustomerAuthenticationState {
 class CustomerAuthenticationController extends ChangeNotifier {
   CustomerAuthenticationController({
     required this.repository,
+    this.sessions,
     String initialLocation = CustomerAppLocations.browse,
   }) : _intendedLocation =
            CustomerRouteGuard.sanitizeIntendedLocation(initialLocation) ??
@@ -42,6 +44,7 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
   @visibleForTesting
   final CustomerAuthStateRepository repository;
+  final CustomerSessionCoordinator? sessions;
 
   CustomerAuthenticationState _state =
       const CustomerAuthenticationState.loading();
@@ -87,6 +90,11 @@ class CustomerAuthenticationController extends ChangeNotifier {
     if (_started) return;
 
     _started = true;
+    sessions?.attach(
+      owner: this,
+      currentUid: () => repository.currentIdentity?.uid,
+      revalidate: () => unawaited(refresh()),
+    );
 
     _authSubscription = repository.authStateChanges().listen(
       (identity) => _handleIdentity(identity, forceTokenRefresh: false),
@@ -144,6 +152,7 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
   Future<void> refresh({bool forceTokenRefresh = true}) async {
     if (_signingOut || _disposed) return;
+    sessions?.requireValidation();
     _recoveryExhausted = false;
     final identity = repository.currentIdentity;
 
@@ -188,6 +197,7 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
   Future<void> signOut() async {
     if (_signingOut) return;
+    sessions?.invalidate();
     _signingOut = true;
     _preserveTerminalState = false;
     _consentRequired = false;
@@ -251,6 +261,12 @@ class CustomerAuthenticationController extends ChangeNotifier {
     required bool forceTokenRefresh,
     bool tokenEvent = false,
   }) {
+    if (_disposed) return;
+    sessions?.observeIdentity(identity?.uid);
+    // A delayed observation must not drive authorization for a historical UID.
+    if (sessions != null && identity?.uid != repository.currentIdentity?.uid) {
+      return;
+    }
     if (_signingOut) return;
     if (identity == null) {
       _consentRequired = false;
@@ -323,7 +339,15 @@ class CustomerAuthenticationController extends ChangeNotifier {
     }
 
     if (!_consentRequired && !_recoveryExhausted) {
-      unawaited(_requestLoad(forceTokenRefresh: forceTokenRefresh));
+      unawaited(
+        _requestLoad(
+          forceTokenRefresh: forceTokenRefresh,
+          // Existing token surveillance remains intact. An identical observation
+          // alone is not an authorization boundary; failures still close access.
+          closeSession:
+              identityChanged || !sameVerification || forceTokenRefresh,
+        ),
+      );
     }
   }
 
@@ -352,7 +376,11 @@ class CustomerAuthenticationController extends ChangeNotifier {
         );
   }
 
-  Future<void> _requestLoad({required bool forceTokenRefresh}) {
+  Future<void> _requestLoad({
+    required bool forceTokenRefresh,
+    bool closeSession = true,
+  }) {
+    if (closeSession) sessions?.requireValidation();
     _forceRefreshQueued = _forceRefreshQueued || forceTokenRefresh;
 
     if (_activeLoad != null) {
@@ -430,6 +458,7 @@ class CustomerAuthenticationController extends ChangeNotifier {
     }
 
     final generation = _identityGeneration;
+    final sessionValidation = sessions?.beginValidation();
 
     try {
       final result = await AuthTiming.measure(
@@ -443,6 +472,10 @@ class CustomerAuthenticationController extends ChangeNotifier {
       if (!_isCurrent(identity.uid, generation)) {
         return;
       }
+      if (sessionValidation != null &&
+          !sessions!.canPublishValidation(sessionValidation, identity.uid)) {
+        return;
+      }
 
       final gate = resolveAuthenticationGate(
         AuthenticationGateInput(
@@ -452,6 +485,16 @@ class CustomerAuthenticationController extends ChangeNotifier {
           requiredRoles: const {UserRole.customer},
         ),
       );
+      if (sessionValidation != null) {
+        sessions!.completeValidation(
+          sessionValidation,
+          validatedUid: result.identity.uid,
+          authorizedCustomer:
+              gate.kind == AuthenticationGateKind.customerReady ||
+              gate.kind ==
+                  AuthenticationGateKind.customerPhoneVerificationRequired,
+        );
+      }
       _consentRequired = false;
 
       if (_accountSubscription == null &&
@@ -469,6 +512,10 @@ class CustomerAuthenticationController extends ChangeNotifier {
       }
     } on CustomerAuthLoadFailure catch (failure) {
       if (!_isCurrent(identity.uid, generation)) {
+        return;
+      }
+      if (sessionValidation != null &&
+          !sessions!.canPublishValidation(sessionValidation, identity.uid)) {
         return;
       }
 
@@ -659,6 +706,12 @@ class CustomerAuthenticationController extends ChangeNotifier {
 
   void _setState(CustomerAuthenticationState value) {
     if (_disposed) return;
+    if (value.failure != null ||
+        (value.gate.kind != AuthenticationGateKind.customerReady &&
+            value.gate.kind !=
+                AuthenticationGateKind.customerPhoneVerificationRequired)) {
+      sessions?.requireValidation();
+    }
 
     _state = value;
 
@@ -701,6 +754,7 @@ class CustomerAuthenticationController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    sessions?.detach(this);
 
     unawaited(_authSubscription?.cancel());
 
