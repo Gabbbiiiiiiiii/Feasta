@@ -749,6 +749,8 @@ class BookingModel {
   final double downPaymentPercentage;
   final double downPaymentAmount;
   final double remainingBalance;
+  final int? pendingProviderRequestCount;
+  final int? rejectedProviderRequestCount;
   final String status;
   final String paymentStatus;
   final String? cancellationReason;
@@ -809,6 +811,8 @@ class BookingModel {
     required this.downPaymentPercentage,
     required this.downPaymentAmount,
     required this.remainingBalance,
+    this.pendingProviderRequestCount,
+    this.rejectedProviderRequestCount,
     required this.status,
     required this.paymentStatus,
     this.cancellationReason,
@@ -836,6 +840,9 @@ class BookingModel {
     this.createdAt,
     this.updatedAt,
   });
+
+  static int? _responseCount(dynamic value) =>
+      value is int && value >= 0 ? value : null;
 
   factory BookingModel.fromDoc(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
@@ -873,7 +880,14 @@ class BookingModel {
       downPaymentPercentage: doubleFromValue(data['downPaymentPercentage']),
       downPaymentAmount: doubleFromValue(data['downPaymentAmount']),
       remainingBalance: doubleFromValue(data['remainingBalance']),
-      status: data['status'] ?? 'pending',
+      pendingProviderRequestCount: _responseCount(
+        data['pendingProviderRequestCount'],
+      ),
+      rejectedProviderRequestCount: _responseCount(
+        data['rejectedProviderRequestCount'],
+      ),
+      // Preserve strings exactly; absent or malformed data must not enable actions.
+      status: data['status'] is String ? data['status'] as String : '',
       paymentStatus: data['paymentStatus'] ?? 'unpaid',
       cancellationReason: data['cancellationReason'],
       rejectedReason: data['rejectedReason'],

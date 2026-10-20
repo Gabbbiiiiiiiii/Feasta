@@ -10,6 +10,7 @@ import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../chat/chat_screen.dart';
 import 'booking_details_screen.dart';
+import 'customer_booking_presentation.dart';
 import 'full_payment_presentation.dart';
 import 'payment_required_screen.dart';
 
@@ -160,65 +161,10 @@ class BookingCard extends StatelessWidget {
 
   final BookingModel booking;
 
-  String get statusLabel {
-    switch (booking.status) {
-      case 'pending':
-        return 'Pending Review';
-
-      case 'accepted':
-        return 'Accepted';
-
-      case 'waiting_payment':
-      case 'waiting_for_down_payment':
-        return 'Payment Required';
-
-      case 'payment_processing':
-        return 'Processing Payment';
-
-      case 'confirmed':
-        return 'Confirmed';
-
-      case 'completed':
-        return 'Completed';
-
-      case 'cancelled':
-        return 'Cancelled';
-
-      case 'rejected':
-        return 'Rejected';
-
-      case 'expired':
-        return 'Expired';
-
-      default:
-        return booking.status;
-    }
-  }
-
-  FeastaStatusTone get statusTone {
-    switch (booking.status) {
-      case 'pending':
-      case 'waiting_payment':
-      case 'waiting_for_down_payment':
-      case 'payment_processing':
-        return FeastaStatusTone.warning;
-
-      case 'accepted':
-      case 'confirmed':
-        return FeastaStatusTone.success;
-
-      case 'completed':
-        return FeastaStatusTone.info;
-
-      case 'cancelled':
-      case 'rejected':
-      case 'expired':
-        return FeastaStatusTone.error;
-
-      default:
-        return FeastaStatusTone.neutral;
-    }
-  }
+  CustomerBookingPresentation get presentation =>
+      CustomerBookingPresentation(booking);
+  String get statusLabel => presentation.label;
+  FeastaStatusTone get statusTone => presentation.tone;
 
   String get formattedDate {
     final date = booking.eventDate;
@@ -246,148 +192,11 @@ class BookingCard extends StatelessWidget {
         '${date.day}, ${date.year}';
   }
 
-  String get nextStepTitle {
-    switch (booking.status) {
-      case 'pending':
-        return 'Waiting for provider review';
-
-      case 'accepted':
-        return 'Provider accepted your request';
-
-      case 'waiting_payment':
-      case 'waiting_for_down_payment':
-        return isHistoricalDepositTerms(
-              amount: booking.totalAmount,
-              upfrontAmount: booking.downPaymentAmount,
-            )
-            ? 'Down payment required'
-            : 'Full payment required';
-
-      case 'payment_processing':
-        return 'Payment is processing';
-
-      case 'confirmed':
-        return 'Your booking is confirmed';
-
-      case 'completed':
-        return 'Event completed';
-
-      case 'cancelled':
-        return 'Booking cancelled';
-
-      case 'rejected':
-        return 'Provider declined the request';
-
-      case 'expired':
-        return 'Booking request expired';
-
-      default:
-        return 'Booking updated';
-    }
-  }
-
-  String get nextStepDescription {
-    switch (booking.status) {
-      case 'pending':
-        return 'You’ll be notified once the provider responds.';
-
-      case 'accepted':
-        return 'Open your booking to see the next required step.';
-
-      case 'waiting_payment':
-      case 'waiting_for_down_payment':
-        return isHistoricalDepositTerms(
-              amount: booking.totalAmount,
-              upfrontAmount: booking.downPaymentAmount,
-            )
-            ? 'Complete the required down payment to confirm your booking.'
-            : 'Complete the full payment to confirm your booking.';
-
-      case 'payment_processing':
-        return 'Your payment is being verified. No action is needed right now.';
-
-      case 'confirmed':
-        return 'Your booking is confirmed. You can coordinate with your provider through Chat.';
-
-      case 'completed':
-        return 'Your event is complete. You can review the provider from the booking details page.';
-
-      case 'cancelled':
-        return 'Open the booking to review the cancellation information.';
-
-      case 'rejected':
-        return 'Open the booking to review the provider response.';
-
-      case 'expired':
-        return 'This booking request can no longer be confirmed.';
-
-      default:
-        return 'Open the booking to see the latest details.';
-    }
-  }
-
-  IconData get nextStepIcon {
-    switch (booking.status) {
-      case 'pending':
-        return Icons.schedule_rounded;
-
-      case 'accepted':
-        return Icons.thumb_up_alt_outlined;
-
-      case 'waiting_payment':
-      case 'waiting_for_down_payment':
-        return Icons.account_balance_wallet_outlined;
-
-      case 'payment_processing':
-        return Icons.sync_rounded;
-
-      case 'confirmed':
-        return Icons.verified_rounded;
-
-      case 'completed':
-        return Icons.check_circle_outline_rounded;
-
-      case 'cancelled':
-      case 'rejected':
-      case 'expired':
-        return Icons.info_outline_rounded;
-
-      default:
-        return Icons.event_note_outlined;
-    }
-  }
-
-  Color get nextStepColor {
-    switch (booking.status) {
-      case 'confirmed':
-      case 'completed':
-        return AppColors.success;
-
-      case 'cancelled':
-      case 'rejected':
-      case 'expired':
-        return AppColors.error;
-
-      default:
-        return AppColors.primaryStrong;
-    }
-  }
-
-  Color get nextStepBackground {
-    switch (booking.status) {
-      case 'confirmed':
-      case 'completed':
-        return AppColors.successSubtle;
-
-      case 'cancelled':
-      case 'rejected':
-      case 'expired':
-        return AppColors.errorSubtle;
-
-      default:
-        return AppColors.primarySubtle;
-    }
-  }
+  String get nextStepTitle => presentation.title;
+  String get nextStepDescription => presentation.message;
+  IconData get nextStepIcon => presentation.icon;
+  Color get nextStepColor => presentation.foreground;
+  Color get nextStepBackground => presentation.background;
 
   void _openDetails(BuildContext context) {
     Navigator.push(

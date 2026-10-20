@@ -15,6 +15,7 @@ import '../authentication/data/repositories/feasta_repository.dart';
 import '../chat/chat_screen.dart';
 import 'addon_payment_required_screen.dart';
 import 'full_payment_presentation.dart';
+import 'customer_booking_presentation.dart';
 import 'payment_required_screen.dart';
 import 'recovery_offers_screen.dart';
 import 'review_screen.dart';
@@ -91,7 +92,7 @@ class BookingDetailsScreen extends StatelessWidget {
 
               const SizedBox(height: AppSpacing.md),
 
-              _BookingNextActionCard(booking: booking),
+              BookingNextActionCard(booking: booking),
               const SizedBox(height: AppSpacing.md),
 
               BookingTimelineCard(bookingId: booking.id),
@@ -178,156 +179,13 @@ class BookingStatusCard extends StatelessWidget {
 
   final BookingModel booking;
 
-  String get statusLabel {
-    switch (booking.status) {
-      case BookingStatus.pending:
-        return 'Pending Review';
-
-      case BookingStatus.accepted:
-        return 'Accepted';
-
-      case BookingStatus.waitingPayment:
-        return 'Payment Required';
-
-      case BookingStatus.paymentProcessing:
-        return 'Processing Payment';
-
-      case BookingStatus.confirmed:
-        return 'Confirmed';
-
-      case BookingStatus.inProgress:
-        return 'In Progress';
-
-      case BookingStatus.completed:
-        return 'Completed';
-
-      case BookingStatus.cancelled:
-        return 'Cancelled';
-
-      case BookingStatus.rejected:
-        return 'Rejected';
-
-      case BookingStatus.expired:
-        return 'Expired';
-
-      default:
-        return booking.status;
-    }
-  }
-
-  String get statusMessage {
-    switch (booking.status) {
-      case BookingStatus.pending:
-        return 'Your booking request is waiting for the provider to review it.';
-
-      case BookingStatus.accepted:
-        return 'The provider accepted your booking request.';
-
-      case BookingStatus.waitingPayment:
-        return isHistoricalDepositTerms(
-              amount: booking.totalAmount,
-              upfrontAmount: booking.downPaymentAmount,
-            )
-            ? 'Your booking was accepted. Complete the required down payment to confirm it.'
-            : 'Your booking was accepted. Complete the full payment to confirm it.';
-
-      case BookingStatus.paymentProcessing:
-        return 'Your payment is currently being processed.';
-
-      case BookingStatus.confirmed:
-        return 'Your booking is confirmed and reserved with the provider.';
-
-      case BookingStatus.inProgress:
-        return 'Your event or service is currently in progress.';
-
-      case BookingStatus.completed:
-        return 'This booking has been completed.';
-
-      case BookingStatus.cancelled:
-        return 'This booking has been cancelled.';
-
-      case BookingStatus.rejected:
-        return 'The provider was unable to accept this booking request.';
-
-      case BookingStatus.expired:
-        return 'This booking request has expired.';
-
-      default:
-        return 'Your booking status has been updated.';
-    }
-  }
-
-  IconData get statusIcon {
-    switch (booking.status) {
-      case BookingStatus.pending:
-        return Icons.schedule_rounded;
-
-      case BookingStatus.accepted:
-        return Icons.thumb_up_alt_outlined;
-
-      case BookingStatus.waitingPayment:
-        return Icons.account_balance_wallet_outlined;
-
-      case BookingStatus.paymentProcessing:
-        return Icons.sync_rounded;
-
-      case BookingStatus.confirmed:
-        return Icons.verified_rounded;
-
-      case BookingStatus.inProgress:
-        return Icons.celebration_outlined;
-
-      case BookingStatus.completed:
-        return Icons.check_circle_outline_rounded;
-
-      case BookingStatus.cancelled:
-      case BookingStatus.rejected:
-      case BookingStatus.expired:
-        return Icons.cancel_outlined;
-
-      default:
-        return Icons.info_outline_rounded;
-    }
-  }
-
-  Color get foregroundColor {
-    switch (booking.status) {
-      case BookingStatus.confirmed:
-      case BookingStatus.completed:
-        return AppColors.success;
-
-      case BookingStatus.cancelled:
-      case BookingStatus.rejected:
-      case BookingStatus.expired:
-        return AppColors.error;
-
-      case BookingStatus.pending:
-      case BookingStatus.accepted:
-      case BookingStatus.waitingPayment:
-      case BookingStatus.paymentProcessing:
-      case BookingStatus.inProgress:
-        return AppColors.primaryStrong;
-
-      default:
-        return AppColors.secondaryTextAccessible;
-    }
-  }
-
-  Color get backgroundColor {
-    switch (booking.status) {
-      case BookingStatus.confirmed:
-      case BookingStatus.completed:
-        return AppColors.successSubtle;
-
-      case BookingStatus.cancelled:
-      case BookingStatus.rejected:
-      case BookingStatus.expired:
-        return AppColors.errorSubtle;
-
-      default:
-        return AppColors.primarySubtle;
-    }
-  }
+  CustomerBookingPresentation get presentation =>
+      CustomerBookingPresentation(booking);
+  String get statusLabel => presentation.label;
+  String get statusMessage => presentation.message;
+  IconData get statusIcon => presentation.icon;
+  Color get foregroundColor => presentation.foreground;
+  Color get backgroundColor => presentation.background;
 
   @override
   Widget build(BuildContext context) {
@@ -384,204 +242,20 @@ class BookingStatusCard extends StatelessWidget {
   }
 }
 
-class _BookingNextActionCard extends StatelessWidget {
-  const _BookingNextActionCard({required this.booking});
+class BookingNextActionCard extends StatelessWidget {
+  const BookingNextActionCard({required this.booking, super.key});
 
   final BookingModel booking;
 
-  String _formatDeadline(DateTime value) {
-    const months = <String>[
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-
-    final hour = value.hour % 12 == 0 ? 12 : value.hour % 12;
-    final minute = value.minute.toString().padLeft(2, '0');
-    final period = value.hour >= 12 ? 'PM' : 'AM';
-
-    return '${months[value.month - 1]} ${value.day}, ${value.year} '
-        'at $hour:$minute $period';
-  }
-
   _BookingNextStep get _nextStep {
-    if (booking.cancellationStatus == 'requested') {
-      return const _BookingNextStep(
-        icon: Icons.hourglass_top_rounded,
-        title: 'Cancellation request pending',
-        message:
-            'Your cancellation request was sent to the provider. '
-            'Your booking remains active until the provider reviews it.',
-        accent: AppColors.primaryStrong,
-        background: AppColors.primarySubtle,
-      );
-    }
-
-    if (booking.recoveryStatus == BookingRecoveryStatus.offerReceived) {
-      return const _BookingNextStep(
-        icon: Icons.replay_circle_filled_rounded,
-        title: 'Recovery offers are available',
-        message:
-            'Another qualified caterer has offered to handle your event. '
-            'Review the available recovery offers before choosing a provider.',
-        accent: AppColors.primaryStrong,
-        background: AppColors.primarySubtle,
-      );
-    }
-
-    if (booking.recoveryStatus == BookingRecoveryStatus.open) {
-      return const _BookingNextStep(
-        icon: Icons.search_rounded,
-        title: 'FEASTA recovery is in progress',
-        message:
-            'Your original provider could not accept the booking. '
-            'Qualified caterers can now send recovery offers for your event.',
-        accent: AppColors.primaryStrong,
-        background: AppColors.primarySubtle,
-      );
-    }
-
-    switch (booking.status) {
-      case BookingStatus.pending:
-        return _BookingNextStep(
-          icon: Icons.schedule_rounded,
-          title: 'Waiting for ${booking.providerBusinessName}',
-          message:
-              'The provider is reviewing your booking request. '
-              'No payment is required until the booking is accepted.',
-          accent: AppColors.primaryStrong,
-          background: AppColors.primarySubtle,
-        );
-
-      case BookingStatus.accepted:
-        return const _BookingNextStep(
-          icon: Icons.thumb_up_alt_outlined,
-          title: 'Provider accepted your request',
-          message:
-              'Your booking was accepted. Wait for the booking to move to '
-              'payment required before paying.',
-          accent: AppColors.primaryStrong,
-          background: AppColors.primarySubtle,
-        );
-
-      case BookingStatus.waitingPayment:
-        final deadline = booking.paymentDeadline;
-
-        return _BookingNextStep(
-          icon: Icons.account_balance_wallet_outlined,
-          title: isHistoricalDepositTerms(
-            amount: booking.totalAmount,
-            upfrontAmount: booking.downPaymentAmount,
-          )
-              ? 'Complete your down payment'
-              : 'Complete your full payment',
-          message: deadline == null
-              ? 'Payment is now required to confirm and reserve your booking.'
-              : 'Payment is now required to confirm your booking. '
-                    'Complete it by ${_formatDeadline(deadline)}.',
-          accent: AppColors.primaryStrong,
-          background: AppColors.primarySubtle,
-        );
-
-      case BookingStatus.paymentProcessing:
-        return const _BookingNextStep(
-          icon: Icons.sync_rounded,
-          title: 'Payment is being verified',
-          message:
-              'Your payment is processing. You do not need to submit another '
-              'payment while FEASTA waits for confirmation.',
-          accent: AppColors.primaryStrong,
-          background: AppColors.primarySubtle,
-        );
-
-      case BookingStatus.confirmed:
-        return _BookingNextStep(
-          icon: Icons.verified_rounded,
-          title: 'Your booking is confirmed',
-          message:
-              'Your event is reserved with ${booking.providerBusinessName}. '
-              'Use Messages if you need to coordinate final event details.',
-          accent: AppColors.success,
-          background: AppColors.successSubtle,
-        );
-
-      case BookingStatus.inProgress:
-        return const _BookingNextStep(
-          icon: Icons.celebration_outlined,
-          title: 'Your event is in progress',
-          message:
-              'The booked service is currently underway. '
-              'The provider will mark the booking completed when finished.',
-          accent: AppColors.primaryStrong,
-          background: AppColors.primarySubtle,
-        );
-
-      case BookingStatus.completed:
-        return const _BookingNextStep(
-          icon: Icons.star_outline_rounded,
-          title: 'Share your experience',
-          message:
-              'This booking is complete. You can now leave a review for the '
-              'provider from the booking actions below.',
-          accent: AppColors.success,
-          background: AppColors.successSubtle,
-        );
-
-      case BookingStatus.rejected:
-        final reason = booking.rejectedReason?.trim();
-
-        return _BookingNextStep(
-          icon: Icons.cancel_outlined,
-          title: 'Booking request was rejected',
-          message: reason == null || reason.isEmpty
-              ? 'The provider could not accept this booking request.'
-              : 'Provider reason: $reason',
-          accent: AppColors.error,
-          background: AppColors.errorSubtle,
-        );
-
-      case BookingStatus.cancelled:
-        return const _BookingNextStep(
-          icon: Icons.event_busy_outlined,
-          title: 'No further booking action is required',
-          message:
-              'This booking has been cancelled. Check the booking timeline '
-              'for the recorded cancellation details.',
-          accent: AppColors.error,
-          background: AppColors.errorSubtle,
-        );
-
-      case BookingStatus.expired:
-        return const _BookingNextStep(
-          icon: Icons.timer_off_outlined,
-          title: 'This booking has expired',
-          message:
-              'The booking can no longer continue in its current state. '
-              'Create a new booking if you still need the service.',
-          accent: AppColors.error,
-          background: AppColors.errorSubtle,
-        );
-
-      default:
-        return const _BookingNextStep(
-          icon: Icons.info_outline_rounded,
-          title: 'Check your booking status',
-          message:
-              'Your booking has been updated. Review the timeline below for '
-              'the latest details.',
-          accent: AppColors.secondaryTextAccessible,
-          background: AppColors.surfaceMuted,
-        );
-    }
+    final presentation = CustomerBookingPresentation(booking);
+    return _BookingNextStep(
+      icon: presentation.icon,
+      title: presentation.title,
+      message: presentation.message,
+      accent: presentation.foreground,
+      background: presentation.background,
+    );
   }
 
   @override
