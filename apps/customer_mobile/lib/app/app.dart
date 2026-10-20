@@ -1,3 +1,4 @@
+import '../features/customer/event_list/event_list_scope.dart';
 import 'package:flutter/material.dart';
 import '../core/security/customer_session_coordinator.dart';
 
@@ -99,28 +100,30 @@ class _FeastaAppState extends State<FeastaApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return CustomerAuthenticationScope(
       controller: _controller,
-      child: MaterialApp(
-        title: 'Feasta',
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.light,
-        builder: widget.startupPresentation == null
-            ? (context, child) => OpeningAnimation(child: child!)
-            : null,
-        home: OnboardingGate(
-          onLoaded: (completed) {
-            _onboardingLoaded = true;
-            _needsOnboarding = !completed;
-            _reportStartup();
-          },
-          onFirstOnboardingCompleted: () {
-            _controller.requestIntendedLocation(CustomerAppLocations.browse);
-          },
-          // Restoration and onboarding run immediately, but the destination's
-          // initial build/layout must not compete with the utensil flight.
-          child: Builder(
-            builder: (context) => OpeningDestination.shouldPrepare(context)
-                ? AuthenticationGate(controller: _controller)
-                : const SizedBox.shrink(),
+      child: EventListScope(
+        child: MaterialApp(
+          title: 'Feasta',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          builder: widget.startupPresentation == null
+              ? (context, child) => OpeningAnimation(child: child!)
+              : null,
+          home: OnboardingGate(
+            onLoaded: (completed) {
+              _onboardingLoaded = true;
+              _needsOnboarding = !completed;
+              _reportStartup();
+            },
+            onFirstOnboardingCompleted: () {
+              _controller.requestIntendedLocation(CustomerAppLocations.browse);
+            },
+            // Restoration and onboarding run immediately, but the destination's
+            // initial build/layout must not compete with the utensil flight.
+            child: Builder(
+              builder: (context) => OpeningDestination.shouldPrepare(context)
+                  ? AuthenticationGate(controller: _controller)
+                  : const SizedBox.shrink(),
+            ),
           ),
         ),
       ),

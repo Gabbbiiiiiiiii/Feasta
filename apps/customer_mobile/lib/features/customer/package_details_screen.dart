@@ -1,3 +1,4 @@
+import 'event_list/save_package_to_event_list.dart';
 import 'widgets/package_option_cards.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -209,6 +210,10 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
               ),
               sliver: SliverList.list(
                 children: [
+                  SavePackageToEventList(
+                    provider: provider,
+                    eventPackage: eventPackage,
+                  ),
                   if (_selectionError != null) ...[
                     Text(
                       _selectionError!,

@@ -1,3 +1,4 @@
+import 'event_list/event_list_navigation.dart';
 import 'widgets/provider_brand_visual.dart';
 import '../../core/domain/service_category.dart';
 import 'package:flutter/material.dart';
@@ -152,6 +153,21 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           child: CustomScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.screen,
+                  ),
+                  child: OutlinedButton.icon(
+                    onPressed: () => openCustomerEventList(context),
+                    icon: const Icon(
+                      Icons.checklist,
+                      color: AppColors.mainText,
+                    ),
+                    label: const Text('My Event List'),
+                  ),
+                ),
+              ),
               SliverToBoxAdapter(
                 child: _HomeHeader(
                   repository: _repository,
