@@ -1,3 +1,4 @@
+import 'customer_bookings_source.dart';
 import '../../../../shared/models/booking_refund_policy.dart';
 import '../../../../shared/models/booking_agreement.dart';
 import '../../../../shared/models/booking_contract.dart';
@@ -1635,6 +1636,9 @@ class FeastaRepository {
 
     await batch.commit();
   }
+
+  FirestoreCustomerBookingsSource customerBookingsSource() =>
+      FirestoreCustomerBookingsSource(_db, _auth);
 
   Stream<List<BookingModel>> customerBookings() {
     return _db

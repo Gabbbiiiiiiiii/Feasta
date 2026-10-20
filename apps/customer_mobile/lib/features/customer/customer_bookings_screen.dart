@@ -11,18 +11,35 @@ import '../authentication/data/repositories/feasta_repository.dart';
 import '../chat/chat_screen.dart';
 import 'booking_details_screen.dart';
 import 'customer_booking_presentation.dart';
+import 'customer_bookings_controller.dart';
 import 'full_payment_presentation.dart';
 import 'payment_required_screen.dart';
 
 class CustomerBookingsScreen extends StatefulWidget {
-  const CustomerBookingsScreen({super.key});
+  const CustomerBookingsScreen({super.key, this.source});
+
+  final CustomerBookingsSource? source;
 
   @override
   State<CustomerBookingsScreen> createState() => _CustomerBookingsScreenState();
 }
 
 class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
-  final FeastaRepository repository = FeastaRepository();
+  late final CustomerBookingsController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = CustomerBookingsController(
+      widget.source ?? FeastaRepository().customerBookingsSource(),
+    );
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,10 +49,10 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
         children: [
           const FeastaPageHeader(title: 'My Bookings'),
           Expanded(
-            child: StreamBuilder<List<BookingModel>>(
-              stream: repository.customerBookings(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
+            child: ListenableBuilder(
+              listenable: controller,
+              builder: (context, _) {
+                if (controller.loading && controller.bookings.isEmpty) {
                   return const FeastaListSkeleton(
                     itemCount: 5,
                     padding: EdgeInsets.fromLTRB(
@@ -47,34 +64,37 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
                   );
                 }
 
-                if (snapshot.hasError) {
+                if (controller.error != null && controller.bookings.isEmpty) {
                   return Center(
                     child: FeastaApplicationErrorState(
                       kind: FeastaErrorKind.load,
                       message:
                           'We could not load your bookings. Please try again.',
                       onRetry: () {
-                        setState(() {});
+                        controller.refresh();
                       },
                     ),
                   );
                 }
 
-                final bookings = snapshot.data ?? const <BookingModel>[];
+                final bookings = controller.bookings;
 
                 if (bookings.isEmpty) {
-                  return const _BookingsEmptyState();
+                  return RefreshIndicator(
+                    onRefresh: controller.refresh,
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: const [
+                        SizedBox(height: 100),
+                        _BookingsEmptyState(),
+                      ],
+                    ),
+                  );
                 }
 
                 return RefreshIndicator(
                   color: AppColors.primary,
-                  onRefresh: () async {
-                    setState(() {});
-
-                    await Future<void>.delayed(
-                      const Duration(milliseconds: 500),
-                    );
-                  },
+                  onRefresh: controller.refresh,
                   child: ListView.separated(
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(
@@ -83,7 +103,7 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
                       AppSpacing.screen,
                       AppSpacing.massive,
                     ),
-                    itemCount: bookings.length + 1,
+                    itemCount: bookings.length + 2,
                     separatorBuilder: (context, index) {
                       return const SizedBox(height: AppSpacing.md);
                     },
@@ -92,7 +112,53 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
                         return _BookingsIntro(bookingCount: bookings.length);
                       }
 
-                      return BookingCard(booking: bookings[index - 1]);
+                      if (index == bookings.length + 1) {
+                        return Column(
+                          children: [
+                            if (controller.historyUpdated)
+                              Semantics(
+                                liveRegion: true,
+                                child: const Text(
+                                  'Bookings updated. Load older bookings again.',
+                                ),
+                              ),
+                            if (controller.error != null)
+                              Semantics(
+                                liveRegion: true,
+                                child: const Text(
+                                  'Could not load older bookings. Please retry.',
+                                ),
+                              ),
+                            if (controller.loading)
+                              Semantics(
+                                liveRegion: true,
+                                label: 'Loading more bookings.',
+                                child: const ExcludeSemantics(
+                                  child: Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                ),
+                              )
+                            else if (controller.hasMore)
+                              OutlinedButton(
+                                onPressed: controller.loadMore,
+                                child: Text(
+                                  controller.error == null
+                                      ? 'Load More'
+                                      : 'Retry',
+                                ),
+                              )
+                            else
+                              const Text(
+                                'You have reached the end of available bookings.',
+                              ),
+                          ],
+                        );
+                      }
+                      return BookingCard(
+                        booking: bookings[index - 1],
+                        onReturn: controller.refresh,
+                      );
                     },
                   ),
                 );
@@ -126,8 +192,8 @@ class _BookingsIntro extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.xxs),
           Text(
-            '$bookingCount booking'
-            '${bookingCount == 1 ? '' : 's'} in your account',
+            'Showing $bookingCount booking'
+            '${bookingCount == 1 ? '' : 's'}',
             style: AppTypography.bodySmall.copyWith(
               color: AppColors.secondaryTextAccessible,
             ),
@@ -157,7 +223,9 @@ class _BookingsEmptyState extends StatelessWidget {
 }
 
 class BookingCard extends StatelessWidget {
-  const BookingCard({required this.booking, super.key});
+  const BookingCard({required this.booking, super.key, this.onReturn});
+
+  final Future<void> Function()? onReturn;
 
   final BookingModel booking;
 
@@ -199,31 +267,31 @@ class BookingCard extends StatelessWidget {
   Color get nextStepBackground => presentation.background;
 
   void _openDetails(BuildContext context) {
-    Navigator.push(
+    Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (_) => BookingDetailsScreen(bookingId: booking.id),
       ),
-    );
+    ).then((_) => onReturn?.call());
   }
 
   void _openChat(BuildContext context) {
-    Navigator.push(
+    Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (_) =>
             ChatScreen(booking: booking, currentRole: UserRoles.customer),
       ),
-    );
+    ).then((_) => onReturn?.call());
   }
 
   void _openPayment(BuildContext context) {
-    Navigator.push(
+    Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (_) => PaymentRequiredScreen(booking: booking),
       ),
-    );
+    ).then((_) => onReturn?.call());
   }
 
   @override
