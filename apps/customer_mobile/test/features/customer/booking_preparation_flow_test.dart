@@ -1,3 +1,8 @@
+import 'package:feasta/core/widgets/widgets.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'event_draft_persistence_test.dart' show DraftStore;
+import 'package:feasta/features/customer/event_draft_persistence.dart';
 import 'package:feasta/features/customer/booking_refund_policy_review_screen.dart';
 import 'package:flutter/services.dart';
 import 'package:feasta/features/customer/booking_agreement_review_screen.dart';
@@ -44,10 +49,11 @@ class AvailabilityQueryCodec extends firestore_host.PigeonCodec {
 
 class PreparationUser extends SignedUser {
   @override
-  String get uid => 'customer-1';
+  String get uid => PreparationAuth.owner;
 }
 
 class PreparationAuth extends GuestAuth {
+  static String owner = 'customer-1';
   @override
   UserPlatform? get currentUser =>
       GuestAuth.signedIn ? PreparationUser() : null;
@@ -97,9 +103,12 @@ class PreparationRepository implements FeastaRepository {
   }
 }
 
-void seedDraft() {
-  preparationDraftMemory.open('customer-1', 'caterer-1', 'package-1');
-  preparationDraftMemory.save('customer-1', 'caterer-1', 'package-1', {
+Future<void> seedDraft() async {
+  await eventDraftPersistence.save('customer-1', 'caterer-1', 'package-1', {
+    'step': 0,
+    'customTheme': '',
+    'themeChoice': null,
+    'eventAddress': null,
     'date': DateTime.now().add(const Duration(days: 30)),
     'start': const TimeOfDay(hour: 14, minute: 0),
     'end': const TimeOfDay(hour: 18, minute: 0),
@@ -116,7 +125,7 @@ void seedDraft() {
     'own': false,
     'tier': null,
     'theme': null,
-  });
+  }, () => 'customer-1');
 }
 
 void phone(WidgetTester tester) {
@@ -210,6 +219,8 @@ void main() {
           ];
         });
     GuestAuth.signedIn = true;
+    PreparationAuth.owner = 'customer-1';
+    eventDraftPersistence = EventDraftPersistence(DraftStore());
     preparationDraftMemory.clear();
     SharedPreferences.setMockInitialValues({});
   });
@@ -221,6 +232,387 @@ void main() {
       ..setMockDecodedMessageHandler<Object?>(queryChannel, null);
     GuestAuth.signedIn = false;
     preparationDraftMemory.clear();
+  });
+  for (final source in ['catering_provider', 'feasta_addon_provider']) {
+    testWidgets(
+      'duplicate $source record blocks recovery without displaying an inflated estimate',
+      (tester) async {
+        phone(tester);
+        await seedDraft();
+        final store = eventDraftPersistence.store as DraftStore;
+        final key = eventDraftPersistence.key(
+          'customer-1',
+          'caterer-1',
+          'package-1',
+        );
+        final record = jsonDecode(store.values[key]!) as Map<String, dynamic>;
+        final addon = {
+          'addonId': 'duplicate',
+          'providerId': 'caterer-1',
+          'source': source,
+        };
+        (record['form'] as Map)['addons'] = [addon, addon];
+        final raw = jsonEncode(record);
+        store.values[key] = raw;
+        final repo = PreparationRepository();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: EventCustomizationScreen(
+              provider: provider(),
+              eventPackage: preparationPackage(),
+              repository: repo,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.textContaining('could not be safely recovered'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Known estimate:'), findsNothing);
+        expect(find.byType(CustomizationProgress), findsNothing);
+        expect(repo.validations, 0);
+        expect(store.values[key], raw);
+      },
+    );
+  }
+  testWidgets(
+    'canceling valid draft deletion preserves data and duplicate dialog requests are ignored',
+    (tester) async {
+      phone(tester);
+      await seedDraft();
+      final store = eventDraftPersistence.store as DraftStore;
+      final original = Map<String, String>.from(store.values);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EventCustomizationScreen(
+            provider: provider(),
+            eventPackage: preparationPackage(),
+            repository: PreparationRepository(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final discard = tester
+          .widget<TextButton>(
+            find.widgetWithText(TextButton, 'Discard unfinished draft'),
+          )
+          .onPressed!;
+      discard();
+      discard();
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      await tester.tap(find.text('Keep draft'));
+      await tester.pumpAndSettle();
+      expect(store.values, original);
+      expect(store.deleteCalls, 0);
+      expect(find.byType(CustomizationProgress), findsOneWidget);
+      expect(find.text('Discarding unfinished draft?'), findsNothing);
+    },
+  );
+  for (final outcome in ['success', 'failure', 'account change', 'disposal']) {
+    testWidgets('delayed draft deletion: $outcome', (tester) async {
+      phone(tester);
+      await seedDraft();
+      final store = eventDraftPersistence.store as DraftStore;
+      final key = eventDraftPersistence.key(
+        'customer-1',
+        'caterer-1',
+        'package-1',
+      );
+      final original = store.values[key];
+      const otherKey = 'unrelated_draft';
+      store.values[otherKey] = 'untouched';
+      store.deleteGate = Completer<void>();
+      store.failDelete = outcome == 'failure';
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => EventCustomizationScreen(
+                      provider: provider(),
+                      eventPackage: preparationPackage(),
+                      repository: PreparationRepository(),
+                    ),
+                  ),
+                ),
+                child: const Text('Open customization'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open customization'));
+      await tester.pumpAndSettle();
+      // Keep stale callbacks to exercise the guards as well as the visible UI.
+      final discard = tester
+          .widget<TextButton>(
+            find.widgetWithText(TextButton, 'Discard unfinished draft'),
+          )
+          .onPressed!;
+      final next = tester
+          .widget<FeastaPrimaryButton>(
+            find.widgetWithText(FeastaPrimaryButton, 'Continue'),
+          )
+          .onPressed;
+      await tester.scrollUntilVisible(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is TextField && widget.decoration?.labelText == 'Guests',
+        ),
+        150,
+        scrollable: find.byType(Scrollable).first,
+      );
+      final fields = tester
+          .widgetList<TextField>(find.byType(TextField))
+          .toList();
+      final guest = fields.firstWhere(
+        (field) => field.keyboardType == TextInputType.number,
+      );
+      // A change schedules a debounce immediately before confirmed deletion.
+      discard();
+      await tester.pumpAndSettle();
+      guest.controller!.text = '51';
+      guest.onChanged!('51');
+      await tester.tap(find.text('Discard'));
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Discarding unfinished draft?'), findsOneWidget);
+      expect(find.byType(TextField), findsNothing);
+      expect(store.deleteCalls, 1);
+      final writes = store.writes;
+      guest.onChanged!('999');
+      next?.call();
+      discard();
+      await tester.binding.handlePopRoute();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('Discarding unfinished draft?'), findsOneWidget);
+      expect(store.deleteCalls, 1);
+      expect(store.writes, writes);
+      if (outcome == 'account change') {
+        PreparationAuth.owner = 'customer-2';
+        final other = eventDraftPersistence.key(
+          'customer-2',
+          'caterer-1',
+          'package-1',
+        );
+        store.values[other] = 'other customer';
+      }
+      if (outcome == 'disposal') {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pump();
+      }
+      store.deleteGate!.complete();
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 1));
+      expect(store.values[otherKey], 'untouched');
+      if (outcome == 'failure') {
+        expect(store.values[key], original);
+        expect(
+          find.textContaining('Draft could not be deleted'),
+          findsOneWidget,
+        );
+        expect(find.byType(CustomizationProgress), findsOneWidget);
+        // Stale edit callback was ignored: only the pre-delete guest edit remains.
+        next?.call();
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<CustomizationProgress>(find.byType(CustomizationProgress))
+              .step,
+          1,
+        );
+        await tester.pump(const Duration(seconds: 1));
+        final retained = await eventDraftPersistence.read(
+          'customer-1',
+          'caterer-1',
+          'package-1',
+        );
+        expect(retained!['guests'], 51);
+      } else {
+        expect(store.values.containsKey(key), isFalse);
+        if (outcome == 'account change') {
+          expect(
+            store.values[eventDraftPersistence.key(
+              'customer-2',
+              'caterer-1',
+              'package-1',
+            )],
+            'other customer',
+          );
+          expect(find.textContaining('Please sign in again'), findsOneWidget);
+        }
+      }
+      expect(tester.takeException(), isNull);
+      expect(original, isNotNull);
+      expect(callableNames, isEmpty);
+    });
+  }
+  testWidgets(
+    'recovery refreshes both add-on sources and removes unavailable or foreign selections',
+    (tester) async {
+      phone(tester);
+      await seedDraft();
+      final saved = (await eventDraftPersistence.read(
+        'customer-1',
+        'caterer-1',
+        'package-1',
+      ))!;
+      AddonModel addon(String id, String providerId, double price) =>
+          AddonModel(
+            id: id,
+            providerId: providerId,
+            name: id,
+            description: 'Current',
+            category: 'staff',
+            price: price,
+            isAvailable: true,
+            isActive: true,
+            providerBusinessName: providerId,
+            providerType: 'catering_provider',
+          );
+      Map<String, dynamic> ref(String id, String providerId, String source) => {
+        'addonId': id,
+        'providerId': providerId,
+        'source': source,
+        'price': 1,
+      };
+      await eventDraftPersistence.save('customer-1', 'caterer-1', 'package-1', {
+        ...saved,
+        'step': 2,
+        'addons': [
+          ref('staff', 'caterer-1', 'catering_provider'),
+          ref('market', 'market-provider', 'feasta_addon_provider'),
+          ref('foreign', 'foreign-provider', 'catering_provider'),
+          ref('gone', 'caterer-1', 'catering_provider'),
+        ],
+      }, () => 'customer-1');
+      final repo = PreparationRepository()
+        ..addons = [
+          addon('staff', 'caterer-1', 900),
+          addon('market', 'market-provider', 700),
+          addon('foreign', 'foreign-provider', 600),
+        ];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EventCustomizationScreen(
+            provider: provider(),
+            eventPackage: preparationPackage(),
+            repository: repo,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Unfinished draft recovered'), findsOneWidget);
+      await tester.tap(find.text('Review Event'));
+      await tester.pumpAndSettle();
+      final review = tester.widget<BookingSummaryScreen>(
+        find.byType(BookingSummaryScreen),
+      );
+      expect(review.customization.selectedAddOns.map((a) => a['addonId']), [
+        'staff',
+        'market',
+      ]);
+      expect(review.customization.selectedAddOns.map((a) => a['price']), [
+        900,
+        700,
+      ]);
+      expect(review.preparationOnly, isTrue);
+    },
+  );
+  testWidgets(
+    'fresh process restores saved step, tier and notes before initial defaults',
+    (tester) async {
+      phone(tester);
+      await seedDraft();
+      final saved = (await eventDraftPersistence.read(
+        'customer-1',
+        'caterer-1',
+        'package-1',
+      ))!;
+      final package = preparationPackage({
+        'serviceOptions': {
+          'full_service': {'price': 15000},
+          'drop_off': {'price': 5000},
+        },
+      });
+      await eventDraftPersistence.save('customer-1', 'caterer-1', 'package-1', {
+        ...saved,
+        'step': 2,
+        'tier': 'full_service',
+        'themeChoice': 'custom',
+        'customTheme': 'Ocean blue',
+      }, () => 'customer-1');
+      eventDraftPersistence = EventDraftPersistence(
+        eventDraftPersistence.store,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: EventCustomizationScreen(
+            provider: provider(),
+            eventPackage: package,
+            initialServiceTier: 'drop_off',
+            repository: PreparationRepository()..current = package,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<CustomizationProgress>(find.byType(CustomizationProgress))
+            .step,
+        2,
+      );
+      expect(find.textContaining('Unfinished draft recovered'), findsOneWidget);
+      await tester.tap(find.text('Review Event'));
+      await tester.pumpAndSettle();
+      final review = tester.widget<BookingSummaryScreen>(
+        find.byType(BookingSummaryScreen),
+      );
+      expect(review.customization.serviceTier, 'full_service');
+      expect(review.customization.specialRequest, contains('Ocean blue'));
+      expect(review.preparationOnly, isTrue);
+      expect(find.text('Submit Booking Request'), findsNothing);
+    },
+  );
+  testWidgets('unreadable draft is retained until confirmed discard', (
+    tester,
+  ) async {
+    phone(tester);
+    final store = eventDraftPersistence.store as DraftStore;
+    final key = eventDraftPersistence.key(
+      'customer-1',
+      'caterer-1',
+      'package-1',
+    );
+    store.values[key] = 'broken';
+    await tester.pumpWidget(
+      MaterialApp(
+        home: EventCustomizationScreen(
+          provider: provider(),
+          eventPackage: preparationPackage(),
+          repository: PreparationRepository(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(store.values[key], 'broken');
+    expect(find.byType(CustomizationProgress), findsNothing);
+    await tester.tap(find.text('Discard unfinished draft'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Keep draft'));
+    await tester.pumpAndSettle();
+    expect(store.values[key], 'broken');
+    await tester.tap(find.text('Discard unfinished draft'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Discard'));
+    await tester.pumpAndSettle();
+    expect(store.values.containsKey(key), isFalse);
+    expect(find.byType(CustomizationProgress), findsOneWidget);
+    expect(callableNames, isEmpty);
   });
   testWidgets(
     'omitted preparationOnly defaults to safe review without submission',
@@ -305,7 +697,7 @@ void main() {
     'preparation review opens only disclosure callable and keeps submission disabled',
     (tester) async {
       phone(tester);
-      seedDraft();
+      await seedDraft();
       final repo = PreparationRepository();
       await tester.pumpWidget(
         MaterialApp(
@@ -397,7 +789,7 @@ void main() {
     'Continue and Back retain draft fields; keyboard hides sticky footer',
     (tester) async {
       phone(tester);
-      seedDraft();
+      await seedDraft();
       final repo = PreparationRepository();
       await tester.pumpWidget(
         MaterialApp(
@@ -450,7 +842,7 @@ void main() {
     'Select Package opens existing customization and preparation-only review; edits persist',
     (tester) async {
       phone(tester);
-      seedDraft();
+      await seedDraft();
       final repo = PreparationRepository();
       await tester.pumpWidget(
         MaterialApp(
@@ -499,7 +891,7 @@ void main() {
         scrollable: find.byType(Scrollable).first,
       );
       expect(find.text('Main Street, District 1'), findsOneWidget);
-      expect(repo.validations, 3);
+      expect(repo.validations, 5);
       expect(repo.unexpected, isEmpty);
       expect(tester.takeException(), isNull);
     },
@@ -532,7 +924,7 @@ void main() {
   testWidgets(
     'package withdrawn before review is rejected without submitting',
     (tester) async {
-      seedDraft();
+      await seedDraft();
       final repo = PreparationRepository()..current = null;
       await tester.pumpWidget(
         MaterialApp(
@@ -544,11 +936,12 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await openStep(tester, '3 Services');
-      await tester.tap(find.text('Review Event'));
-      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('could not be safely recovered'),
+        findsOneWidget,
+      );
       expect(find.byType(BookingSummaryScreen), findsNothing);
-      expect(find.textContaining('no longer available'), findsWidgets);
+      expect(find.byType(CustomizationProgress), findsNothing);
       expect(repo.unexpected, isEmpty);
     },
   );
@@ -588,7 +981,7 @@ void main() {
   testWidgets(
     'food and add-on selections use current published prices in review',
     (tester) async {
-      seedDraft();
+      await seedDraft();
       AddonModel addon(double price) => AddonModel(
         id: 'staff',
         providerId: 'caterer-1',
@@ -654,7 +1047,7 @@ void main() {
   testWidgets('manual address route returns address to the draft without maps', (
     tester,
   ) async {
-    seedDraft();
+    await seedDraft();
     final repo = PreparationRepository();
     await tester.pumpWidget(
       MaterialApp(
@@ -706,7 +1099,7 @@ void main() {
   testWidgets('new package choices reconcile stale selections before review', (
     tester,
   ) async {
-    seedDraft();
+    await seedDraft();
     final repo = PreparationRepository()
       ..current = preparationPackage({
         'foodInclusions': ['Rice'],
@@ -724,11 +1117,8 @@ void main() {
     await openStep(tester, '3 Services');
     await tester.tap(find.text('Review Event'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Package options changed'), findsOneWidget);
-    expect(find.byType(BookingSummaryScreen), findsNothing);
-    await openStep(tester, '3 Services');
-    await tester.tap(find.text('Review Event'));
-    await tester.pumpAndSettle();
+    // Recovery already refreshed and removed the stale inclusion before review.
+    expect(find.byType(BookingSummaryScreen), findsOneWidget);
     final review = tester.widget<BookingSummaryScreen>(
       find.byType(BookingSummaryScreen),
     );
@@ -738,7 +1128,7 @@ void main() {
   testWidgets('invalid typed guest count is rejected before review', (
     tester,
   ) async {
-    seedDraft();
+    await seedDraft();
     final repo = PreparationRepository();
     await tester.pumpWidget(
       MaterialApp(
@@ -771,7 +1161,7 @@ void main() {
   testWidgets(
     'published catering service and theme selections are preserved in review',
     (tester) async {
-      seedDraft();
+      await seedDraft();
       final package = preparationPackage({
         'serviceOptions': {
           'full_service': {
@@ -795,6 +1185,11 @@ void main() {
       );
       await tester.pumpAndSettle();
       await openStep(tester, '2 Package');
+      await tester.scrollUntilVisible(
+        find.text('Full-Service Catering'),
+        150,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.text('Full-Service Catering').first);
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
@@ -833,7 +1228,7 @@ void main() {
     'review stays readable at enlarged text and never offers submission for unknown pricing',
     (tester) async {
       phone(tester);
-      seedDraft();
+      await seedDraft();
       final package = preparationPackage({'price': null});
       final repo = PreparationRepository()..current = package;
       await tester.pumpWidget(
@@ -873,8 +1268,16 @@ void main() {
       'unknown pricing, capacity and responsive preparation at $scale',
       (tester) async {
         phone(tester);
-        seedDraft();
+        await seedDraft();
         final repo = PreparationRepository();
+        repo.current = preparationPackage({
+          'price': null,
+          'maximumGuests': null,
+          'guestCapacity': null,
+          'foodInclusions': [],
+          'decorInclusions': [],
+          'furnitureInclusions': [],
+        });
         await tester.pumpWidget(
           MaterialApp(
             builder: (context, child) => MediaQuery(

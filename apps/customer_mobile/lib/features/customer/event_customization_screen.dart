@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'event_draft_persistence.dart';
 import '../../shared/models/booking_contract.dart';
 import 'location_picker_screen.dart';
 import 'widgets/preparation_availability.dart';
@@ -23,17 +25,19 @@ import 'manual_address_screen.dart';
 import '../../shared/models/customer_address_model.dart';
 import '../../core/helpers/booking_preparation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../authentication/data/services/customer_address_storage_service.dart';
 
 class EventCustomizationScreen extends StatefulWidget {
   const EventCustomizationScreen({
     required this.provider,
     required this.eventPackage,
     this.repository,
+    this.draftPersistence,
     this.initialServiceTier,
     this.onServiceChanged,
     super.key,
   });
+
+  final EventDraftPersistence? draftPersistence;
 
   final ValueChanged<String>? onServiceChanged;
   final String? initialServiceTier;
@@ -46,7 +50,48 @@ class EventCustomizationScreen extends StatefulWidget {
       _EventCustomizationScreenState();
 }
 
-class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
+class _EventCustomizationScreenState extends State<EventCustomizationScreen>
+    with WidgetsBindingObserver {
+  EventDraftPersistence get _drafts =>
+      widget.draftPersistence ?? eventDraftPersistence;
+  Timer? _draftTimer;
+  StreamSubscription<User?>? _draftAuth;
+  bool _draftReady = false;
+  bool _draftDirty = false;
+  bool _draftBlocked = false;
+  bool _deletingDraft = false;
+  bool _discardDialogOpen = false;
+  int _draftActionEpoch = 0;
+
+  bool get _canEditDraft =>
+      _draftReady &&
+      !_draftBlocked &&
+      !_deletingDraft &&
+      FirebaseAuth.instance.currentUser?.uid == _draftOwner;
+  bool _canFinishAction(int epoch) =>
+      mounted && _canEditDraft && epoch == _draftActionEpoch;
+  bool _applyingDraft = false;
+  String? _draftMessage;
+
+  @override
+  void setState(VoidCallback fn) {
+    if (_deletingDraft && !_applyingDraft) return;
+    super.setState(fn);
+    if (_draftReady && !_applyingDraft) _scheduleDraft();
+  }
+
+  void _scheduleDraft() {
+    if (!_canEditDraft || _applyingDraft) return;
+    _draftDirty = true;
+    _draftTimer?.cancel();
+    _draftTimer = Timer(const Duration(milliseconds: 350), _saveDraft);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) _saveDraft();
+  }
+
   late final FeastaRepository repository;
   late PackageModel _eventPackage;
   String? _draftOwner;
@@ -59,6 +104,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   final _scrollController = ScrollController();
 
   void _goToStep(int step) {
+    if (!_canEditDraft) return;
     FocusScope.of(context).unfocus();
     _saveDraft();
     setState(() => _step = step);
@@ -120,7 +166,6 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
     selectedDecorations = List<String>.from(_eventPackage.decorInclusions);
 
     selectedFurniture = List<String>.from(_eventPackage.furnitureInclusions);
-    _restoreDraft();
     if (preparationServices(
       _eventPackage,
     ).containsKey(widget.initialServiceTier)) {
@@ -133,26 +178,30 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
     }
     _step = 0;
     guestCountController.text = '$guestCount';
-    _loadSelectedAddress();
-  }
-
-  Future<void> _loadSelectedAddress() async {
-    try {
-      final address = await CustomerAddressStorageService()
-          .getSelectedAddress();
-      if (!mounted ||
-          address == null ||
-          addressController.text.trim().isNotEmpty) {
-        return;
+    WidgetsBinding.instance.addObserver(this);
+    _draftAuth = FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user?.uid != _draftOwner && mounted) {
+        _draftTimer?.cancel();
+        _draftActionEpoch++;
+        _applyingDraft = true;
+        setState(() {
+          _draftBlocked = true;
+          _draftReady = true;
+        });
+        _applyingDraft = false;
       }
-      setState(() {
-        _eventAddress = address;
-        locationController.text = address.city;
-        addressController.text = address.fullAddress;
-      });
-    } catch (_) {
-      // Manual address entry remains available if local storage cannot load.
+    });
+    for (final controller in [
+      locationController,
+      addressController,
+      guestCountController,
+      specialRequestController,
+      customerArrangedAddOnsController,
+      customThemeController,
+    ]) {
+      controller.addListener(_scheduleDraft);
     }
+    unawaited(_restoreDraft());
   }
 
   Map<String, dynamic> get _formSnapshot => {
@@ -174,6 +223,8 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
         .map((item) => Map<String, dynamic>.from(item))
         .toList(),
     'own': willArrangeOwnAddOns,
+    'useCatering': useCateringProviderAddOns,
+    'useMarketplace': useMarketplaceAddOns,
     'tier': selectedServiceTier,
     'theme': selectedThemeId,
     'themeChoice': themeChoice,
@@ -190,30 +241,103 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   }
 
   void _saveDraft() {
+    _draftTimer?.cancel();
     final owner = _draftOwner;
-    if (owner != null && FirebaseAuth.instance.currentUser?.uid == owner) {
-      preparationDraftMemory.save(
+    if (_deletingDraft ||
+        !_draftReady ||
+        !_draftDirty ||
+        _draftBlocked ||
+        owner == null ||
+        FirebaseAuth.instance.currentUser?.uid != owner) {
+      return;
+    }
+    unawaited(
+      _drafts
+          .save(
+            owner,
+            widget.provider.id,
+            _eventPackage.id,
+            _formSnapshot,
+            () => FirebaseAuth.instance.currentUser?.uid,
+          )
+          .catchError((Object _) {
+            if (mounted && FirebaseAuth.instance.currentUser?.uid == owner) {
+              _applyingDraft = true;
+              setState(
+                () => _draftMessage =
+                    'Draft could not be saved on this device. Please keep your details until saving is available.',
+              );
+              _applyingDraft = false;
+            }
+          }),
+    );
+  }
+
+  Future<void> _restoreDraft() async {
+    final owner = _draftOwner;
+    if (owner == null) {
+      setState(() => _draftReady = true);
+      return;
+    }
+    try {
+      final saved = await _drafts.read(
         owner,
         widget.provider.id,
         _eventPackage.id,
-        _formSnapshot,
       );
+      if (!mounted || FirebaseAuth.instance.currentUser?.uid != owner) return;
+      if (saved != null) {
+        final fresh = await repository.getEligiblePackageForPreparation(
+          widget.provider.id,
+          _eventPackage.id,
+        );
+        if (!mounted || FirebaseAuth.instance.currentUser?.uid != owner) return;
+        if (fresh == null ||
+            fresh.id != _eventPackage.id ||
+            !eligiblePreparationPackage(fresh, widget.provider.id)) {
+          throw StateError('Package unavailable');
+        }
+        _eventPackage = fresh;
+        final refreshed = <Map<String, dynamic>>[];
+        for (final item in saved['addons'] as List) {
+          final current = await repository.getEligiblePreparationAddon(
+            item['addonId'] as String,
+          );
+          if (!mounted || FirebaseAuth.instance.currentUser?.uid != owner) {
+            return;
+          }
+          if (current != null &&
+              current.id == item['addonId'] &&
+              current.providerId == item['providerId'] &&
+              (item['source'] != 'catering_provider' ||
+                  current.providerId == widget.provider.id)) {
+            refreshed.add(
+              current.toBookingMap(source: item['source'] as String),
+            );
+          }
+        }
+        saved['addons'] = refreshed;
+        _applyDraft(saved);
+        if (_stepValidation() != null) _step = 0;
+        guestCountController.text = '$guestCount';
+        _draftMessage =
+            'Unfinished draft recovered. Review the current package, add-ons and prices before continuing. Unavailable selections were removed. Nothing has been submitted.';
+      }
+    } catch (_) {
+      if (!mounted || FirebaseAuth.instance.currentUser?.uid != owner) return;
+      _draftBlocked = true;
+      _draftMessage =
+          'Saved draft could not be safely recovered. It has been kept unchanged. Reopen to retry, or discard it to start again.';
     }
+    if (!mounted || FirebaseAuth.instance.currentUser?.uid != owner) return;
+    _applyingDraft = true;
+    setState(() => _draftReady = true);
+    _applyingDraft = false;
   }
 
-  void _restoreDraft() {
-    final owner = _draftOwner;
-    if (owner == null) {
-      preparationDraftMemory.clear();
-      return;
-    }
-    final saved = preparationDraftMemory.open(
-      owner,
-      widget.provider.id,
-      _eventPackage.id,
-    );
-    if (saved == null) return;
+  void _applyDraft(Map<String, dynamic> saved) {
     _step = (saved['step'] as int? ?? 0).clamp(0, 2);
+    selectedEventType = _eventTypes.isEmpty ? '' : _eventTypes.first;
     selectedDate = saved['date'] as DateTime?;
     selectedStartTime = saved['start'] as TimeOfDay?;
     selectedEndTime = saved['end'] as TimeOfDay?;
@@ -240,6 +364,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
       ),
     );
     willArrangeOwnAddOns = saved['own'] == true;
+    useCateringProviderAddOns = saved['useCatering'] != false;
     selectedServiceTier = saved['tier'] as String?;
     selectedThemeId = saved['theme'] as String?;
     themeChoice = saved['themeChoice'] as String?;
@@ -258,7 +383,18 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
         (addon) => addon['source'] == 'feasta_addon_provider',
       ),
     );
-    useMarketplaceAddOns = selectedMarketplaceAddOns.isNotEmpty;
+    useMarketplaceAddOns =
+        saved['useMarketplace'] == true || selectedMarketplaceAddOns.isNotEmpty;
+    if (selectedThemeId == null && themeChoice == 'package') themeChoice = null;
+    if (!['buffet_setup', 'full_service'].contains(selectedServiceTier)) {
+      selectedThemeId = null;
+      themeChoice = null;
+    }
+    if (!_eventPackage.isCustomizable) {
+      selectedFoods = List.of(_eventPackage.foodInclusions);
+      selectedDecorations = List.of(_eventPackage.decorInclusions);
+      selectedFurniture = List.of(_eventPackage.furnitureInclusions);
+    }
   }
 
   void _invalidateMapAddress(String _) {
@@ -267,6 +403,8 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   }
 
   Future<void> _chooseOnMap() async {
+    if (!_canEditDraft) return;
+    final epoch = _draftActionEpoch;
     final result = await Navigator.push<CustomerAddressModel>(
       context,
       MaterialPageRoute(
@@ -276,7 +414,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
         ),
       ),
     );
-    if (!mounted || result == null) return;
+    if (!_canFinishAction(epoch) || result == null) return;
     setState(() {
       _eventAddress = result;
       locationController.text = result.city;
@@ -286,11 +424,13 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   }
 
   Future<void> _manualAddress() async {
+    if (!_canEditDraft) return;
+    final epoch = _draftActionEpoch;
     final result = await Navigator.push<CustomerAddressModel>(
       context,
       MaterialPageRoute(builder: (_) => const ManualAddressScreen()),
     );
-    if (!mounted || result == null) return;
+    if (!_canFinishAction(epoch) || result == null) return;
     setState(() {
       _eventAddress = result;
       locationController.text = result.city;
@@ -302,6 +442,9 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   @override
   void dispose() {
     _saveDraft();
+    _draftTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _draftAuth?.cancel();
     _scrollController.dispose();
     customThemeController.dispose();
     locationController.dispose();
@@ -349,6 +492,8 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   }
 
   Future<void> _pickDate() async {
+    if (!_canEditDraft) return;
+    final epoch = _draftActionEpoch;
     final now = DateTime.now();
 
     final initialDate =
@@ -364,7 +509,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
       initialDate: initialDate,
     );
 
-    if (!mounted || picked == null) {
+    if (!_canFinishAction(epoch) || picked == null) {
       return;
     }
 
@@ -374,12 +519,14 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   }
 
   Future<void> _pickStartTime() async {
+    if (!_canEditDraft) return;
+    final epoch = _draftActionEpoch;
     final picked = await showTimePicker(
       context: context,
       initialTime: selectedStartTime ?? const TimeOfDay(hour: 14, minute: 0),
     );
 
-    if (!mounted || picked == null) {
+    if (!_canFinishAction(epoch) || picked == null) {
       return;
     }
 
@@ -389,12 +536,14 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   }
 
   Future<void> _pickEndTime() async {
+    if (!_canEditDraft) return;
+    final epoch = _draftActionEpoch;
     final picked = await showTimePicker(
       context: context,
       initialTime: selectedEndTime ?? const TimeOfDay(hour: 18, minute: 0),
     );
 
-    if (!mounted || picked == null) {
+    if (!_canFinishAction(epoch) || picked == null) {
       return;
     }
 
@@ -444,6 +593,8 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   }
 
   Future<void> _openMarketplace() async {
+    if (!_canEditDraft) return;
+    final epoch = _draftActionEpoch;
     final result = await Navigator.push<List<Map<String, dynamic>>>(
       context,
       MaterialPageRoute(
@@ -454,7 +605,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
       ),
     );
 
-    if (!mounted || result == null) {
+    if (!_canFinishAction(epoch) || result == null) {
       return;
     }
 
@@ -502,7 +653,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
         );
 
   Future<void> _continueToAvailability() async {
-    if (_checking) return;
+    if (_checking || !_canEditDraft) return;
     if (_draftOwner == null ||
         FirebaseAuth.instance.currentUser?.uid != _draftOwner) {
       _showMessage('Please sign in again to continue preparing your event.');
@@ -735,8 +886,156 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
     }
   }
 
+  Future<void> _discardDraft() async {
+    if (_deletingDraft || _discardDialogOpen || _checking) return;
+    final owner = _draftOwner;
+    if (owner == null || FirebaseAuth.instance.currentUser?.uid != owner) {
+      return;
+    }
+    _discardDialogOpen = true;
+    final bool? confirmed;
+    try {
+      confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Discard unfinished draft?'),
+          content: const Text(
+            'This deletes this event draft from this device. Existing request identities remain unchanged.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Keep draft'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Discard'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      _discardDialogOpen = false;
+    }
+    if (confirmed != true ||
+        !mounted ||
+        FirebaseAuth.instance.currentUser?.uid != owner) {
+      return;
+    }
+    _draftTimer?.cancel();
+    final wasBlocked = _draftBlocked;
+    _draftActionEpoch++;
+    _applyingDraft = true;
+    setState(() {
+      _deletingDraft = true;
+      _draftBlocked = true;
+    });
+    _applyingDraft = false;
+    try {
+      await _drafts.delete(
+        owner,
+        widget.provider.id,
+        _eventPackage.id,
+        () => FirebaseAuth.instance.currentUser?.uid,
+      );
+      if (!mounted || FirebaseAuth.instance.currentUser?.uid != owner) return;
+      _applyingDraft = true;
+      setState(() {
+        _step = 0;
+        selectedDate = null;
+        selectedStartTime = null;
+        selectedEndTime = null;
+        selectedEventType = _eventTypes.isEmpty ? '' : _eventTypes.first;
+        guestCount = preparationMinimumGuests(_eventPackage);
+        guestCountController.text = '$guestCount';
+        locationController.text = 'Ormoc City';
+        addressController.clear();
+        specialRequestController.clear();
+        customerArrangedAddOnsController.clear();
+        customThemeController.clear();
+        _eventAddress = null;
+        selectedServiceTier = null;
+        selectedThemeId = null;
+        themeChoice = null;
+        selectedFoods = List.of(_eventPackage.foodInclusions);
+        selectedDecorations = List.of(_eventPackage.decorInclusions);
+        selectedFurniture = List.of(_eventPackage.furnitureInclusions);
+        selectedAddOns.clear();
+        selectedMarketplaceAddOns.clear();
+        willArrangeOwnAddOns = false;
+        useMarketplaceAddOns = false;
+        useCateringProviderAddOns = true;
+        _draftMessage = 'Unfinished draft discarded. You can start again.';
+      });
+      _draftBlocked = false;
+      _draftDirty = false;
+      _applyingDraft = false;
+    } catch (_) {
+      if (mounted && FirebaseAuth.instance.currentUser?.uid == owner) {
+        _applyingDraft = true;
+        setState(() => _draftBlocked = wasBlocked);
+        _applyingDraft = false;
+        _showMessage('Draft could not be deleted. Please try again.');
+      }
+    } finally {
+      if (mounted) {
+        _applyingDraft = true;
+        setState(() => _deletingDraft = false);
+        _applyingDraft = false;
+      }
+    }
+  }
+
+  Widget _draftStatusScreen(Widget body) => Scaffold(
+    appBar: AppBar(title: const Text('Customize Event')),
+    body: body,
+  );
+
   @override
   Widget build(BuildContext context) {
+    if (!_draftReady) {
+      return _draftStatusScreen(
+        const Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (FirebaseAuth.instance.currentUser?.uid != _draftOwner) {
+      return _draftStatusScreen(
+        const Center(
+          child: Text('Please sign in again to customize your event.'),
+        ),
+      );
+    }
+    if (_deletingDraft) {
+      return PopScope(
+        canPop: false,
+        child: _draftStatusScreen(
+          const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Discarding unfinished draft?'),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    if (_draftBlocked) {
+      return _draftStatusScreen(
+        ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text(_draftMessage ?? 'Draft recovery is unavailable.'),
+            TextButton(
+              onPressed: _discardDraft,
+              child: const Text('Discard unfinished draft'),
+            ),
+          ],
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -761,6 +1060,15 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
           140,
         ),
         children: [
+          if (_draftMessage != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(_draftMessage!),
+            ),
+          TextButton(
+            onPressed: _discardDraft,
+            child: const Text('Discard unfinished draft'),
+          ),
           Text(
             'Customize your event',
             style: Theme.of(context).textTheme.headlineSmall,
@@ -1320,7 +1628,11 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
               serviceTier: selectedServiceTier,
               onBack: _step > 0 ? () => _goToStep(_step - 1) : null,
               continueLabel: _step < 2 ? 'Continue' : 'Review Event',
-              onContinue: _checking
+              onContinue:
+                  (!_draftReady ||
+                      _draftBlocked ||
+                      FirebaseAuth.instance.currentUser?.uid != _draftOwner ||
+                      _checking)
                   ? null
                   : () {
                       if (_step < 2) {

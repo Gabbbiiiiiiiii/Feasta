@@ -1,3 +1,5 @@
+import 'event_draft_persistence_test.dart' show DraftStore;
+import 'package:feasta/features/customer/event_draft_persistence.dart';
 import 'package:feasta/features/customer/location_picker_screen.dart';
 import 'package:feasta/shared/models/customer_address_model.dart';
 import 'dart:io';
@@ -54,6 +56,7 @@ void main() {
   });
   setUp(() {
     GuestAuth.signedIn = true;
+    eventDraftPersistence = EventDraftPersistence(DraftStore());
     preparationDraftMemory.clear();
     SharedPreferences.setMockInitialValues({});
   });
@@ -88,7 +91,7 @@ void main() {
     tester,
   ) async {
     phone(tester);
-    seedDraft();
+    await seedDraft();
     final repo = PreparationRepository()..current = package;
     await tester.pumpWidget(
       MaterialApp(
@@ -150,11 +153,11 @@ void main() {
     ).pop(confirmed);
     await tester.pumpAndSettle();
     expect(find.text('Exact venue, Isabel'), findsOneWidget);
-    final saved = preparationDraftMemory.open(
+    final saved = (await eventDraftPersistence.read(
       'customer-1',
       'caterer-1',
       'package-1',
-    )!;
+    ))!;
     expect(
       (saved['eventAddress'] as CustomerAddressModel).latitude,
       confirmed.latitude,
@@ -183,11 +186,11 @@ void main() {
     await tester.pump();
     expect(find.text('Choose on Map'), findsOneWidget);
     expect(
-      preparationDraftMemory.open(
+      (await eventDraftPersistence.read(
         'customer-1',
         'caterer-1',
         'package-1',
-      )!['eventAddress'],
+      ))!['eventAddress'],
       isNull,
     );
   });
@@ -195,7 +198,7 @@ void main() {
     'details cards are read-only while customization remains selectable',
     (tester) async {
       phone(tester);
-      seedDraft();
+      await seedDraft();
       final repo = PreparationRepository()..current = package;
       await tester.pumpWidget(
         MaterialApp(
@@ -311,7 +314,7 @@ void main() {
     'required service blocks Continue and Back preserves compatible theme',
     (tester) async {
       phone(tester);
-      seedDraft();
+      await seedDraft();
       await tester.pumpWidget(
         MaterialApp(
           home: EventCustomizationScreen(
@@ -394,7 +397,7 @@ void main() {
     'missing package category stays unknown despite provider categories',
     (tester) async {
       phone(tester);
-      seedDraft();
+      await seedDraft();
       final unknown = preparationPackage({'eventType': ''});
       await tester.pumpWidget(
         MaterialApp(
@@ -425,7 +428,7 @@ void main() {
     'theme toggles, exclusive requests, draft restoration and review notes',
     (tester) async {
       phone(tester);
-      seedDraft();
+      await seedDraft();
       final repo = PreparationRepository()..current = package;
       Future<void> show(String text) async {
         tester
@@ -510,11 +513,11 @@ void main() {
       await show('Cancel request');
       await tester.tap(find.text('Cancel request'));
       await tester.pumpAndSettle();
-      final cleared = preparationDraftMemory.open(
+      final cleared = (await eventDraftPersistence.read(
         'customer-1',
         'caterer-1',
         'package-1',
-      )!;
+      ))!;
       expect(cleared['themeChoice'], isNull);
       expect(cleared['customTheme'], '');
       expect(cleared['notes'], 'No peanuts');
@@ -530,11 +533,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Back'));
       await tester.pumpAndSettle();
-      final saved = preparationDraftMemory.open(
+      final saved = (await eventDraftPersistence.read(
         'customer-1',
         'caterer-1',
         'package-1',
-      )!;
+      ))!;
       expect(saved['themeChoice'], 'custom');
       expect(saved['theme'], isNull);
       expect(saved['customTheme'], 'Ocean blue');
