@@ -5,6 +5,8 @@ import {ProviderPackagesClient} from "@/app/provider/packages/provider-packages-
 import {ProviderMenuManager} from "@/app/provider/packages/provider-menu-manager";
 import ProviderPackagesPage from "@/app/provider/packages/page";
 import type {ProviderPackage} from "@/lib/provider/provider-package-client";
+import {createProviderPackage, updateProviderPackage} from "@/lib/provider/provider-package-client";
+import {uploadProviderServiceImage} from "@/lib/provider/provider-media-client";
 
 const mocks = vi.hoisted(() => ({list: vi.fn(), publish: vi.fn(), archive: vi.fn(), load: vi.fn(), account: vi.fn()}));
 vi.mock("@/lib/provider/provider-package-client", () => ({listProviderPackages: mocks.list, publishProviderPackage: mocks.publish, archiveProviderPackage: mocks.archive, createProviderPackage: vi.fn(), updateProviderPackage: vi.fn()}));
@@ -96,6 +98,9 @@ const menu = {revision: 3, images: [
   {id: "untitled", title: "", url: "https://example.com/menu.png", isPublished: false},
 ]};
 beforeEach(() => {
+  vi.mocked(createProviderPackage).mockReset();
+  vi.mocked(updateProviderPackage).mockReset();
+  vi.mocked(uploadProviderServiceImage).mockReset();
   mocks.list.mockReset().mockResolvedValue(records);
   mocks.publish.mockReset().mockResolvedValue({success: true});
   mocks.archive.mockReset().mockResolvedValue({success: true});
@@ -106,10 +111,207 @@ const cardNames = () => screen.getAllByRole("article").map((element) => element.
 it("keeps the deposit editable and explains the FEASTA deadline without a day input", async () => {
   render(<ProviderPackagesClient {...props} />);
   fireEvent.click(await screen.findByRole("button", {name: `Edit ${base.name}`}));
+  fireEvent.click(screen.getByRole("button", {name: "Next"}));
   expect(screen.getByLabelText(/Deposit required/)).toHaveValue(20);
   expect(screen.queryByLabelText(/Remaining balance due \(days before event\)/)).not.toBeInTheDocument();
   expect(screen.getByText("24 hours before the scheduled event start")).toBeVisible();
   expect(screen.getByText(/FEASTA automatically sets the remaining balance deadline/)).toBeVisible();
+});
+
+it("guides edits through five steps and preserves categorized dishes", async () => {
+  render(<ProviderPackagesClient {...props} />);
+  fireEvent.click(await screen.findByRole("button", {name: `Edit ${base.name}`}));
+  expect(screen.getByRole("heading", {name: "Step 1: Basic details"})).toBeVisible();
+  fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "Retained package draft"}});
+  fireEvent.change(screen.getByLabelText(/Pricing model/), {target: {value: "per_pax"}});
+  fireEvent.change(screen.getByLabelText("Preview service tier"), {target: {value: "drop_off"}});
+  fireEvent.change(screen.getByLabelText("Preview guest count"), {target: {value: "25"}});
+  const scroller = screen.getByRole("region", {name: "Package details"});
+  scroller.scrollTop = 400;
+  fireEvent.click(screen.getByRole("button", {name: "Next"}));
+  await waitFor(() => expect(scroller.scrollTop).toBe(0));
+  expect(screen.getByRole("heading", {name: "Step 2: Pricing & capacity"})).toBeVisible();
+  expect(screen.getByText(/Drop-Off Catering price \(PHP per person\)/)).toBeVisible();
+  fireEvent.change(screen.getByLabelText(/Deposit required/), {target: {value: "35"}});
+  fireEvent.click(screen.getByRole("checkbox", {name: /Buffet Setup/}));
+  fireEvent.change(screen.getByLabelText(/Buffet Setup price/), {target: {value: "13000.25"}});
+  fireEvent.click(screen.getByRole("button", {name: "Next"}));
+  fireEvent.click(screen.getByRole("button", {name: "Add Category"}));
+  fireEvent.change(screen.getByLabelText("Category name"), {target: {value: "Drinks"}});
+  fireEvent.click(within(screen.getByRole("dialog", {name: "Add Category"})).getByRole("button", {name: "Add Category"}));
+  fireEvent.click(screen.getByRole("button", {name: "Add Dish"}));
+  fireEvent.change(screen.getByLabelText("Category"), {target: {value: "Chicken"}});
+  fireEvent.change(screen.getByLabelText("Dish name"), {target: {value: "Provider chicken dish"}});
+  fireEvent.click(screen.getByRole("button", {name: "Save Dish"}));
+  fireEvent.click(screen.getByRole("button", {name: "Next"}));
+  expect(screen.getByRole("heading", {name: "Step 4: Services & media"})).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name: "Add Theme"}));
+  fireEvent.change(screen.getByLabelText("Theme name"), {target: {value: "Custom Garden"}});
+  fireEvent.change(screen.getByLabelText("Theme description"), {target: {value: "Custom styling"}});
+  fireEvent.click(screen.getByRole("button", {name: "Save Theme"}));
+  fireEvent.click(screen.getByRole("button", {name: "Back"}));
+  expect(screen.getByRole("button", {name: "Edit dish Provider chicken dish"})).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name: "Add Dish"}));
+  expect(screen.getByRole("option", {name: "Drinks"})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
+  fireEvent.click(screen.getByRole("button", {name: "Next"}));
+  fireEvent.click(screen.getByRole("button", {name: "Next"}));
+  expect(screen.getByRole("region", {name: "Package review"})).toHaveTextContent("Provider chicken dish");
+  expect(screen.getByRole("button", {name: "Save changes"})).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
+  expect(screen.getByRole("dialog", {name: "Discard package changes?"})).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name: "Keep editing"}));
+  expect(screen.getByRole("region", {name: "Package review"})).toHaveTextContent("Provider chicken dish");
+  expect(screen.getByRole("region", {name: "Package review"})).toHaveTextContent("Retained package draft");
+  expect(screen.getByRole("region", {name: "Package review"})).toHaveTextContent("Custom Garden");
+  expect(screen.getByLabelText("Preview guest count")).toHaveValue("25");
+  fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+  await waitFor(() => expect(updateProviderPackage).toHaveBeenCalledWith(base.id, expect.objectContaining({
+    pricingModel: "per_pax",
+    name: "Retained package draft",
+    price: 12000,
+    foodInclusions: ["Chicken: Provider chicken dish"],
+    depositPercentage: 35,
+    minimumGuests: base.minimumGuests,
+    maximumGuests: base.maximumGuests,
+    imageUrls: base.imageUrls,
+    serviceOptions: expect.objectContaining({buffet_setup: {price: 13000.25, includedServices: []}}),
+    themeOptions: [expect.objectContaining({name: "Custom Garden", description: "Custom styling"})],
+  })));
+});
+
+it.each(["Close dialog", "Cancel"])("confirms %s on an untouched editor and keeps form state and focus", async (action) => {
+  const user = userEvent.setup();
+  render(<ProviderPackagesClient {...props} />);
+  await user.click(await screen.findByRole("button", {name: "New package"}));
+  const editor = screen.getByRole("dialog", {name: "Create package"});
+  const trigger = within(editor).getByRole("button", {name: action});
+  await user.click(trigger);
+  const confirmation = screen.getByRole("dialog", {name: "Discard package changes?"});
+  expect(confirmation).toHaveTextContent("Your unsaved package details, pricing, dishes, themes, and images will be lost if you close this editor.");
+  await user.click(within(confirmation).getByRole("button", {name: "Keep editing"}));
+  expect(screen.getByRole("dialog", {name: "Create package"})).toBe(editor);
+  await waitFor(() => expect(trigger).toHaveFocus());
+  expect(createProviderPackage).not.toHaveBeenCalled();
+  expect(updateProviderPackage).not.toHaveBeenCalled();
+});
+
+it("discards only after confirmation and restores the package-list opener without saving", async () => {
+  const user = userEvent.setup();
+  render(<ProviderPackagesClient {...props} />);
+  const trigger = await screen.findByRole("button", {name: `Edit ${base.name}`});
+  await user.click(trigger);
+  fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "Unsaved changed name"}});
+  await user.click(screen.getByRole("button", {name: "Cancel"}));
+  await user.click(screen.getByRole("button", {name: "Discard changes"}));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  await waitFor(() => expect(trigger).toHaveFocus());
+  expect(updateProviderPackage).not.toHaveBeenCalled();
+  expect(createProviderPackage).not.toHaveBeenCalled();
+  expect(uploadProviderServiceImage).not.toHaveBeenCalled();
+});
+
+it("routes Escape through confirmation and ignores outside parent dismissal", async () => {
+  const user = userEvent.setup();
+  render(<ProviderPackagesClient {...props} />);
+  await user.click(await screen.findByRole("button", {name: `Edit ${base.name}`}));
+  fireEvent.pointerDown(document.body, {button: 0});
+  expect(screen.getByRole("dialog", {name: "Edit package"})).toBeVisible();
+  expect(screen.queryByRole("dialog", {name: "Discard package changes?"})).not.toBeInTheDocument();
+  await user.keyboard("{Escape}");
+  expect(screen.getByRole("dialog", {name: "Discard package changes?"})).toBeVisible();
+  await user.keyboard("{Escape}");
+  expect(screen.getByRole("dialog", {name: "Edit package"})).toBeVisible();
+  expect(screen.queryByRole("dialog", {name: "Discard package changes?"})).not.toBeInTheDocument();
+});
+
+it("keeps dish and theme dismissal separate from the parent discard confirmation", async () => {
+  const user = userEvent.setup();
+  render(<ProviderPackagesClient {...props} />);
+  await user.click(await screen.findByRole("button", {name: `Edit ${base.name}`}));
+  fireEvent.click(screen.getByRole("button", {name: "Next"}));
+  fireEvent.click(screen.getByRole("checkbox", {name: /Buffet Setup/}));
+  fireEvent.change(screen.getByLabelText(/Buffet Setup price/), {target: {value: "125.75"}});
+  fireEvent.click(screen.getByRole("button", {name: "Next"}));
+  await user.click(screen.getByRole("button", {name: "Add Dish"}));
+  await user.keyboard("{Escape}");
+  expect(screen.getByRole("dialog", {name: "Edit package"})).toBeVisible();
+  expect(screen.queryByRole("dialog", {name: "Discard package changes?"})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "Next"}));
+  await user.click(screen.getByRole("button", {name: "Add Theme"}));
+  await user.click(screen.getByRole("button", {name: "Cancel"}));
+  expect(screen.getByRole("dialog", {name: "Edit package"})).toBeVisible();
+  expect(screen.queryByRole("dialog", {name: "Discard package changes?"})).not.toBeInTheDocument();
+});
+
+it("prevents closing throughout uploads and closes successful saves without discard confirmation", async () => {
+  const user = userEvent.setup();
+  Object.defineProperty(URL, "createObjectURL", {configurable: true, value: vi.fn(() => "blob:upload-fixture")});
+  Object.defineProperty(URL, "revokeObjectURL", {configurable: true, value: vi.fn()});
+  let finishUpload!: (value: {url: string; publicId: string}) => void;
+  vi.mocked(uploadProviderServiceImage).mockImplementationOnce(() => new Promise((resolve) => { finishUpload = resolve; }));
+  render(<ProviderPackagesClient {...props} />);
+  await user.click(await screen.findByRole("button", {name: `Edit ${base.name}`}));
+  for (let index = 0; index < 3; index++) fireEvent.click(screen.getByRole("button", {name: "Next"}));
+  fireEvent.change(screen.getByLabelText("Package images"), {target: {files: [new File(["image"], "image.png", {type: "image/png"})]}});
+  fireEvent.click(screen.getByRole("button", {name: "Next"}));
+  await user.click(screen.getByRole("button", {name: "Save changes"}));
+  expect(screen.getByRole("button", {name: "Cancel"})).toBeDisabled();
+  expect(screen.queryByRole("button", {name: "Close dialog"})).not.toBeInTheDocument();
+  await user.keyboard("{Escape}");
+  expect(screen.getByRole("dialog", {name: "Edit package"})).toBeVisible();
+  expect(screen.queryByRole("dialog", {name: "Discard package changes?"})).not.toBeInTheDocument();
+  finishUpload({url: "https://example.com/uploaded.png", publicId: "uploaded"});
+  await waitFor(() => expect(updateProviderPackage).toHaveBeenCalled());
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+});
+
+it("explains and disables publication of canonical pricing drafts", async () => {
+  mocks.list.mockResolvedValue([{...base, pricingModel: "per_bundle"}]);
+  render(<ProviderPackagesClient {...props} />);
+  expect(await screen.findByRole("button", {name: `Publish ${base.name}`})).toBeDisabled();
+  expect(screen.getByText(/Draft-only until customer compatibility is verified/)).toBeVisible();
+});
+
+it("retains a new draft and its pricing model when an old callable rejects pricingModel", async () => {
+  vi.mocked(createProviderPackage).mockRejectedValueOnce({code: "functions/invalid-argument", message: "Unsupported package fields: pricingModel."});
+  render(<ProviderPackagesClient {...props} />);
+  fireEvent.click(await screen.findByRole("button", {name: "New package"}));
+  const form = within(screen.getByRole("dialog", {name: "Create package"}));
+  fireEvent.change(form.getByLabelText(/Package name/), {target: {value: "New catering draft"}});
+  fireEvent.change(form.getByLabelText(/Description/), {target: {value: "A complete catering package for an event."}});
+  fireEvent.change(form.getByLabelText(/Service category/), {target: {value: "catering_service"}});
+  fireEvent.click(form.getByRole("button", {name: "Next"}));
+  fireEvent.click(form.getByRole("checkbox", {name: /Drop-Off Catering/}));
+  fireEvent.change(form.getByLabelText(/Drop-Off Catering price/), {target: {value: "500.25"}});
+  fireEvent.change(form.getByLabelText(/Minimum guests/), {target: {value: "20"}});
+  fireEvent.change(form.getByLabelText(/Maximum guests/), {target: {value: "80"}});
+  for (let index = 0; index < 3; index++) fireEvent.click(form.getByRole("button", {name: "Next"}));
+  const summary = form.getByRole("complementary", {name: "Live package summary"});
+  expect(summary.className).not.toMatch(/sticky|absolute|z-/);
+  const review = within(form.getByRole("region", {name: "Package review"}));
+  for (const name of ["Package details", "Pricing model & capacity", "Service tiers & pricing", "Food inclusions", "Themes", "Images", "Payment terms"]) {
+    expect(review.getByRole("heading", {name})).toBeVisible();
+  }
+  expect(review.getByText(/Draft only:/)).toBeVisible();
+  expect(review.getByText("PHP 500.25")).toBeVisible();
+  fireEvent.click(form.getByRole("button", {name: "Create draft package"}));
+  await waitFor(() => expect(form.getByText(/connected package service does not support this pricing model/)).toBeVisible());
+  expect(createProviderPackage).toHaveBeenCalledWith(expect.objectContaining({pricingModel: "per_pax", price: 500.25}));
+  fireEvent.click(form.getByRole("button", {name: "Back"}));
+  for (let index = 0; index < 3; index++) fireEvent.click(form.getByRole("button", {name: "Back"}));
+  expect(form.getByLabelText(/Package name/)).toHaveValue("New catering draft");
+  expect(form.getByLabelText(/Pricing model/)).toHaveValue("per_pax");
+});
+
+it("keeps invalid capacity on the pricing step", async () => {
+  render(<ProviderPackagesClient {...props} />);
+  fireEvent.click(await screen.findByRole("button", {name: `Edit ${base.name}`}));
+  fireEvent.click(screen.getByRole("button", {name: "Next"}));
+  fireEvent.change(screen.getByLabelText(/Maximum guests/), {target: {value: "5"}});
+  fireEvent.click(screen.getByRole("button", {name: "Next"}));
+  expect(screen.getByRole("heading", {name: "Step 2: Pricing & capacity"})).toBeVisible();
+  expect(screen.getByText("Enter a guest range within your business capacity.")).toBeVisible();
 });
 
 it("renders real package metrics, media, prices, guests and lifecycle actions", async () => {

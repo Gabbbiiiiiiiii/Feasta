@@ -45,6 +45,15 @@ const packageRecord: PublicPackage = {
 };
 
 describe("customer package marketplace", () => {
+  it("hides canonical pricing packages until customer compatibility is verified", () => {
+    const stored = {...packageRecord, isActive: true, isPublished: true,
+      providerPubliclyVisible: true, status: "published"};
+    const providers = new Map([["provider-one", "Provider"]]);
+    for (const pricingModel of ["per_pax", "per_bundle", "unknown"]) {
+      expect(normalizePublicPackage("package-one", {...stored, pricingModel}, providers)).toBeNull();
+    }
+    expect(normalizePublicPackage("package-one", stored, providers)).not.toBeNull();
+  });
   it.each([false, true])("keeps one booking action and only published details (images: %s)", async (hasImages) => {
     const user = userEvent.setup();
     const provider = normalizePublicProvider("provider-one", {

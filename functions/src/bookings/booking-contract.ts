@@ -44,6 +44,8 @@ export function validateBookingPackage(
   } = input;
 
   if (
+    // Canonical pricing is draft-only until every public client is compatible.
+    packageData.pricingModel !== undefined ||
     packageData.providerId !==
       expectedProviderId ||
     packageData.isActive !== true ||

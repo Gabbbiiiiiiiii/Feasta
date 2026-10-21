@@ -49,6 +49,7 @@ const ALLOWED_FIELDS = [
   "description",
   "eventType",
   "serviceCategoryCode",
+  "pricingModel",
   "price",
   "serviceOptions",
   "themeOptions",
@@ -110,6 +111,7 @@ export const updateProviderPackage = onCall(
       eventType: input.eventType,
       serviceCategoryCode:
         input.serviceCategoryCode,
+      ...(input.pricingModel !== undefined ? {pricingModel: input.pricingModel} : {}),
       price: input.price,
       serviceOptions:
         input.serviceOptions,
@@ -283,6 +285,7 @@ export const updateProviderPackage = onCall(
             serviceCategoryCode:
               validated.serviceCategoryCode,
 
+            ...(validated.pricingModel !== undefined ? {pricingModel: validated.pricingModel} : {}),
             price:
               validated.price,
 

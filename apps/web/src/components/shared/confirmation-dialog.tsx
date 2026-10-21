@@ -39,6 +39,9 @@ type ConfirmationDialogProps = {
   contentClassName?: string;
   bodyClassName?: string;
   restoreFocusId?: string;
+  overlayClassName?: string;
+  onCloseAutoFocus?: React.ComponentProps<typeof DialogContent>["onCloseAutoFocus"];
+  stopEscapePropagation?: boolean;
 };
 
 function ConfirmationDialog({
@@ -58,6 +61,9 @@ function ConfirmationDialog({
   contentClassName,
   bodyClassName,
   restoreFocusId,
+  overlayClassName,
+  onCloseAutoFocus,
+  stopEscapePropagation = false,
 }: ConfirmationDialogProps) {
   const [pending, setPending] =
     React.useState(false);
@@ -98,8 +104,11 @@ function ConfirmationDialog({
 
       <DialogContent
         className={contentClassName}
+        overlayClassName={overlayClassName}
         showCloseButton={!isBusy}
         onCloseAutoFocus={(event) => {
+          onCloseAutoFocus?.(event);
+          if (event.defaultPrevented) return;
           const target = restoreFocusId
             ? document.getElementById(restoreFocusId)
             : null;
@@ -109,6 +118,7 @@ function ConfirmationDialog({
           }
         }}
         onEscapeKeyDown={(event) => {
+          if (stopEscapePropagation) event.stopPropagation();
           if (isBusy) {
             event.preventDefault();
           }

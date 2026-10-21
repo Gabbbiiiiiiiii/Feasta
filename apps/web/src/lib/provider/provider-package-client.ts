@@ -41,6 +41,7 @@ export type ProviderPackagePaymentPolicy =
   | "deposit_then_balance";
 
 export type ProviderPackageInput = {
+  pricingModel?: "per_pax" | "per_bundle";
   name: string;
   description: string;
   eventType: string;
@@ -71,6 +72,7 @@ export type ProviderPackageInput = {
 };
 
 export type ProviderPackage = {
+  pricingModel?: "per_pax" | "per_bundle";
   id: string;
   providerId: string;
 
@@ -230,6 +232,7 @@ function normalizePackageInput(
   input: ProviderPackageInput,
 ): Record<string, unknown> {
   return {
+    ...(input.pricingModel !== undefined ? {pricingModel: input.pricingModel} : {}),
     name: input.name.trim(),
 
     description:
@@ -294,6 +297,11 @@ function parseProviderPackage(
 ): ProviderPackage {
   const data =
     recordValue(value);
+
+  if (data.pricingModel !== undefined &&
+    data.pricingModel !== "per_pax" && data.pricingModel !== "per_bundle") {
+    throw invalidPackageRecord();
+  }
 
   const status =
     packageStatus(
@@ -368,6 +376,7 @@ function parseProviderPackage(
 
   return {
     id,
+    ...(data.pricingModel === "per_pax" || data.pricingModel === "per_bundle" ? {pricingModel: data.pricingModel} : {}),
 
     providerId:
       requiredString(

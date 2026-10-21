@@ -2,6 +2,7 @@
 
 import {
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -28,6 +29,12 @@ import {packageImageDrafts} from "@/lib/provider/catalog-media";
 import {providerContentCapabilities} from "@/lib/provider/provider-content-capabilities";
 import {DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS, depositRateBpsToPercentage, type ProviderPackagePaymentPolicyBounds} from "@/lib/provider/provider-package-payment-policy";
 
+import {foodInclusionsError, parsePackageDishes} from "@/lib/provider/package-food-inclusions";
+import {providerPackageSaveError} from "@/lib/provider/provider-package-save-error";
+import {packagePreviewGuestCount} from "@/lib/provider/package-pricing-preview";
+import {ProviderPackagePricePreview} from "./provider-package-price-preview";
+import {ProviderPackageReview} from "./provider-package-review";
+import {ProviderPackageFoodMenu} from "./provider-package-food-menu";
 import {Textarea} from "@/components/ui/textarea";
 import {Select} from "@/components/ui/select";
 import {
@@ -86,6 +93,21 @@ export function ProviderPackageForm({
   onCancel,
   onSubmittingChange,
 }: ProviderPackageFormProps) {
+  const [step, setStep] = useState(0);
+  const [previewGuestCount, setPreviewGuestCount] = useState("");
+  const [previewTier, setPreviewTier] = useState("");
+  const scrollContainer = useRef<HTMLDivElement>(null);
+  const stepHeading = useRef<HTMLHeadingElement>(null);
+  const [pricingModel, setPricingModel] = useState<"per_pax" | "per_bundle" | "legacy">(initialPackage ? initialPackage.pricingModel ?? "legacy" : "per_pax");
+  const steps = ["Basic details", "Pricing & capacity", "Food menu", "Services & media", "Review & save"];
+  function goToStep(next: number) {
+    setStep(next);
+    setError(null);
+    requestAnimationFrame(() => {
+      stepHeading.current?.focus({preventScroll: true});
+      if (scrollContainer.current) scrollContainer.current.scrollTop = 0;
+    });
+  }
   const capabilities = providerContentCapabilities(providerServiceType, serviceCategories);
 
   const editing =
@@ -151,12 +173,10 @@ export function ProviderPackageForm({
   );
 
   const [
-    foodInclusionsText,
-    setFoodInclusionsText,
+    foodInclusions,
+    setFoodInclusions,
   ] = useState(
-    initialPackage?.foodInclusions.join(
-      "\n",
-    ) ?? "",
+    initialPackage?.foodInclusions ?? [],
   );
 
   const [
@@ -222,6 +242,11 @@ export function ProviderPackageForm({
   const parsedPrice =
     offerConfiguration.startingPrice ??
     Number.NaN;
+
+  const foodError = foodInclusionsError(foodInclusions);
+
+  const validatedPreviewGuests = packagePreviewGuestCount({guestCount: previewGuestCount, minimumGuests, maximumGuests,
+    providerMinimumGuests: minGuestsPerEvent, providerMaximumGuests: maxGuestsPerEvent});
 
   const parsedMinimumGuests =
     Number(minimumGuests);
@@ -329,7 +354,7 @@ export function ProviderPackageForm({
   ) {
     event.preventDefault();
 
-    if (submitting || validationError || depositError) {
+    if (step !== 4 || submitting || validationError || depositError || foodError) {
       return;
     }
 
@@ -360,6 +385,7 @@ export function ProviderPackageForm({
             })),
         );
       const input: ProviderPackageInput = {
+        ...(pricingModel !== "legacy" ? {pricingModel} : {}),
         name: name.trim(),
         description:
           description.trim(),
@@ -380,10 +406,7 @@ export function ProviderPackageForm({
           parsedMaximumGuests,
         imageUrl: uploaded[0]?.url ?? "",
         imageUrls: uploaded.map((image) => image.url),
-        foodInclusions:
-          parseInclusions(
-            foodInclusionsText,
-          ),
+        foodInclusions: parsePackageDishes(foodInclusions).map((dish) => dish.raw),
         decorInclusions:
           parseInclusions(
             decorInclusionsText,
@@ -411,18 +434,7 @@ export function ProviderPackageForm({
 
       await onSaved();
     } catch (caught) {
-      console.error(
-        editing
-          ? "[FEASTA update package]"
-          : "[FEASTA create package]",
-        caught,
-      );
-
-      setError(
-        editing
-          ? "The package could not be updated. Check the details and try again."
-          : "The package could not be created. Check the details and try again.",
-      );
+      setError(providerPackageSaveError(caught));
     } finally {
       setSubmitting(false);
       onSubmittingChange?.(false);
@@ -489,6 +501,7 @@ export function ProviderPackageForm({
 
   return (
     <form
+      noValidate
       onSubmit={handleSubmit}
       className={dialogLayout ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" : "min-w-0"}
     >
@@ -500,13 +513,28 @@ export function ProviderPackageForm({
             : "grid min-w-0 gap-5"
         }
       >
-      <div role={dialogLayout ? "region" : undefined} aria-label={dialogLayout ? "Package details" : undefined} tabIndex={dialogLayout ? 0 : undefined}
+      <div ref={scrollContainer} role={dialogLayout ? "region" : undefined} aria-label={dialogLayout ? "Package details" : undefined} tabIndex={dialogLayout ? 0 : undefined}
         className={
         dialogLayout
           ? "mx-2 grid min-h-0 flex-1 content-start gap-5 overflow-y-auto overscroll-contain px-3 py-5 [scrollbar-gutter:stable] [scrollbar-width:thin] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:mx-3"
           : "grid min-w-0 gap-5"
       }>
-      <h3 className="text-sm font-bold uppercase text-primary-strong">Basic details</h3>
+      <nav aria-label="Package creation progress">
+      <ol className="grid grid-cols-5 gap-2">{steps.map((label, index) => <li key={label} aria-current={step === index ? "step" : undefined} className={step === index ? "rounded-lg bg-primary/10 p-2 text-xs font-bold text-primary-strong" : "rounded-lg bg-muted p-2 text-xs text-muted-foreground"}>{index + 1}<span className="hidden sm:block">{label}</span>
+      </li>)}</ol>
+      </nav>
+      <h3 ref={stepHeading} tabIndex={-1} className="text-lg font-bold focus:outline-none">Step {step + 1}: {steps[step]}</h3>
+      <ProviderPackagePricePreview name={name} pricingModel={pricingModel} minimumGuests={minimumGuests}
+        maximumGuests={maximumGuests} guestCount={previewGuestCount} onGuestCountChange={setPreviewGuestCount}
+        validatedGuestCount={validatedPreviewGuests} selectedTier={previewTier} onTierChange={setPreviewTier} offerDraft={offerDraft} />
+      <section hidden={step !== 0} className="space-y-4">
+      <FormField label="Pricing model" required>
+      <Select value={pricingModel} onChange={(event) => setPricingModel(event.target.value as typeof pricingModel)}>{editing && !initialPackage.pricingModel ? <option value="legacy">Legacy fixed price</option> : null}<option value="per_pax">Per Pax - price per person</option>
+      <option value="per_bundle">Per Bundle - fixed price for a guest range</option>
+      </Select>
+      <p className="text-sm text-muted-foreground">Prices are charged per person for Per Pax. One fixed price covers the package&apos;s guest range for Per Bundle.</p>
+      <p className="text-xs text-muted-foreground">Per Pax and Per Bundle drafts cannot be published until customer pricing compatibility is verified.</p>
+      </FormField>
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField
           label="Package name"
@@ -615,6 +643,33 @@ export function ProviderPackageForm({
         />
       </FormField>
 
+      </section>
+      <section hidden={step !== 1} className="space-y-4">
+      <ProviderPackageOfferBuilder
+        section="pricing"
+        priceUnit={pricingModel === "per_pax" ? "per person" : "fixed package price"}
+        value={offerDraft}
+        onChange={(next) => {
+          setOfferInteracted(true);
+          setOfferDraft(next);
+        }}
+        disabled={submitting}
+        error={
+          offerInteracted &&
+          validationError?.field ===
+            "serviceOptions"
+            ? validationError.message
+            : undefined
+        }
+        legacyNotice={
+          editing &&
+          Object.keys(
+            initialPackage.serviceOptions,
+          ).length === 0
+            ? "This legacy package remains readable, but you must configure at least one service tier before saving changes."
+            : undefined
+        }
+      />
       <h3 className="text-sm font-bold uppercase text-primary-strong">Pricing &amp; capacity</h3>
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField
@@ -726,44 +781,19 @@ export function ProviderPackageForm({
         per event.
         </p>
 
+      </section>
+      <section hidden={step !== 2} className="space-y-4"><ProviderPackageFoodMenu value={foodInclusions} onChange={setFoodInclusions} /><p className="text-sm text-muted-foreground">All listed dishes are package inclusions. Customer-configurable category counts and substitutions are unavailable until booking support is verified.</p></section>
+      <section hidden={step !== 3} className="space-y-4">
+      <ProviderPackageOfferBuilder section="themes" value={offerDraft} onChange={setOfferDraft} disabled={submitting} />
       <section aria-label="Images" className="grid gap-3"><h3 className="text-sm font-bold uppercase text-primary-strong">Images</h3>
         <CatalogImageUploader images={images} onChange={setImages} disabled={submitting} />
       </section>
 
-      <ProviderPackageOfferBuilder
-        value={offerDraft}
-        onChange={(next) => {
-          setOfferInteracted(true);
-          setOfferDraft(next);
-        }}
-        disabled={submitting}
-        error={
-          offerInteracted &&
-          validationError?.field ===
-            "serviceOptions"
-            ? validationError.message
-            : undefined
-        }
-        legacyNotice={
-          editing &&
-          Object.keys(
-            initialPackage.serviceOptions,
-          ).length === 0
-            ? "This legacy package remains readable, but you must configure at least one service tier before saving changes."
-            : undefined
-        }
-      />
+
 
       <section aria-label="Optional inclusions" className="grid gap-4 sm:grid-cols-2">
       <div className="sm:col-span-2"><h3 className="text-sm font-bold uppercase text-primary-strong">Optional inclusions</h3>
       <p className="mt-1 text-sm text-muted-foreground">Optional — add inclusions to help customers understand what this package covers. Every inclusion field is optional.</p></div>
-      {capabilities.catering ? <InclusionTextarea
-        label="Food inclusions"
-        value={foodInclusionsText}
-        onChange={
-          setFoodInclusionsText
-        }
-      /> : null}
 
       {capabilities.decorations ? <InclusionTextarea
         label="Decoration inclusions"
@@ -792,8 +822,19 @@ export function ProviderPackageForm({
       />
       </section>
 
+      </section>
+      <div hidden={step !== 4}>
+        <ProviderPackageReview name={name} description={description} eventType={eventType}
+          serviceCategory={packageCategoryOptions.find((category) => category.code === serviceCategoryCode)?.name ?? ""}
+          pricingModel={pricingModel} minimumGuests={minimumGuests} maximumGuests={maximumGuests}
+          serviceOptions={offerConfiguration.serviceOptions} food={foodInclusions} decor={decorInclusionsText}
+          furniture={furnitureInclusionsText} services={serviceInclusionsText} offerDraft={offerDraft}
+          images={images} paymentPolicy={paymentPolicy} depositPercentage={depositPercentage}
+          previewGuestCount={validatedPreviewGuests} />
+      </div>
       </div>
       <div className={dialogLayout ? "grid shrink-0 gap-3 border-t border-border bg-card px-5 py-4 sm:px-6" : "grid gap-3"}>
+      {step === 4 && (validationError || depositError || foodError) ? <p role="alert" className="text-sm text-destructive">{validationError?.message || depositError || foodError}</p> : null}
       {error ? (
         <p
           role="alert"
@@ -813,13 +854,21 @@ export function ProviderPackageForm({
           Cancel
         </Button>
 
-        <Button
+        {step > 0 ? <Button type="button" variant="secondary" onClick={() => goToStep(step - 1)}>Back</Button> : null}
+        {step < 4 ? <Button type="button" onClick={() => {
+          const fields = step === 0 ? ["name", "description", "eventType", "serviceCategoryCode"] : step === 1 ? ["price", "minimumGuests", "maximumGuests", "serviceOptions"] : step === 3 ? ["serviceOptions"] : [];
+          const pricingError = step === 1 ? serializeProviderPackageOfferDraft({...offerDraft, themeOptions: []}).error : null;
+          const guestError = step === 1 && (!Number.isInteger(parsedMinimumGuests) || !Number.isInteger(parsedMaximumGuests) || parsedMinimumGuests < minGuestsPerEvent || parsedMaximumGuests > maxGuestsPerEvent || parsedMaximumGuests < parsedMinimumGuests) ? "Enter a guest range within your business capacity." : null;
+          const message = (step === 2 ? foodError : null) || pricingError || guestError || (validationError && fields.includes(validationError.field) && !(step === 1 && validationError.field === "serviceOptions") ? validationError.message : null) || (step === 1 ? depositError : null);
+          if (message) { setError(message); return; }
+          goToStep(step + 1);
+        }}>Next</Button> : <Button
           type="submit"
           disabled={
             submitting ||
             Boolean(
               validationError,
-            ) || Boolean(depositError)
+            ) || Boolean(depositError) || Boolean(foodError)
           }
           loading={submitting}
           loadingLabel={
@@ -831,7 +880,7 @@ export function ProviderPackageForm({
           {editing
           ? "Save changes"
           : "Create draft package"}
-        </Button>
+        </Button>}
       </div>
       </div>
       </fieldset>

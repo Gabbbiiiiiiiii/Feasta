@@ -657,6 +657,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
 
             resolvedPackageOffer =
               resolveBookingPackageOffer({
+                guestCount,
                 packageData,
                 serviceTier,
                 packageThemeId,

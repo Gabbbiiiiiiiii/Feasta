@@ -115,6 +115,16 @@ export function ProviderPackagesClient({
     null,
   );
 
+  const [discardOpen, setDiscardOpen] = useState(false);
+  const saveBusy = useRef(false);
+  const discardOpener = useRef<HTMLElement | null>(null);
+
+  function requestEditorClose() {
+    if (saveBusy.current || discardOpen) return;
+    discardOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setDiscardOpen(true);
+  }
+
   const [
     publishPackage,
     setPublishPackage,
@@ -275,7 +285,10 @@ export function ProviderPackagesClient({
   const newPackageButton = useRef<HTMLButtonElement | null>(null);
 
   return (
-    <Dialog open={createOpen} onOpenChange={(open) => { if (!formBusy) setCreateOpen(open); }}>
+    <Dialog open={createOpen} onOpenChange={(open) => {
+      if (open) { if (!saveBusy.current) setCreateOpen(true); }
+      else requestEditorClose();
+    }}>
     <div className="grid gap-4">
       <PageHeading
         eyebrow="Provider management"
@@ -306,11 +319,11 @@ export function ProviderPackagesClient({
           (opener?.isConnected ? opener : document.getElementById(opener?.id ?? "") ?? newPackageButton.current)?.focus();
         }}
         showCloseButton={!formBusy}
-        onEscapeKeyDown={(event) => { if (formBusy) event.preventDefault(); }}
+        onEscapeKeyDown={(event) => { event.preventDefault(); requestEditorClose(); }}
         onPointerDownOutside={(event) => event.preventDefault()}>
         <DialogHeader className="shrink-0 border-b border-border px-5 py-4 pr-16 sm:pl-6">
           <DialogTitle>{editingPackage ? "Edit package" : "Create package"}</DialogTitle>
-          <DialogDescription>{editingPackage ? "Update your draft package. Changes take effect when you save." : "Save a draft to review before publishing. Cancel discards unsaved changes."}</DialogDescription>
+          <DialogDescription>{editingPackage ? "Update your draft package. Changes take effect when you save." : "Save a draft to review before publishing. Closing asks you to confirm discarding unsaved changes."}</DialogDescription>
         </DialogHeader>
         <ProviderPackageForm
           key={editingPackage?.id ?? "create"}
@@ -323,10 +336,26 @@ export function ProviderPackagesClient({
           minGuestsPerEvent={minGuestsPerEvent}
           maxGuestsPerEvent={maxGuestsPerEvent}
           paymentPolicyBounds={paymentPolicyBounds}
-          onSubmittingChange={setFormBusy}
-          onCancel={() => setCreateOpen(false)}
-          onSaved={async () => { await loadPackages(); setCreateOpen(false); }}
+          onSubmittingChange={(busy) => { saveBusy.current = busy; setFormBusy(busy); }}
+          onCancel={requestEditorClose}
+          onSaved={async () => { await loadPackages(); setDiscardOpen(false); setCreateOpen(false); }}
         />
+        <ConfirmationDialog open={discardOpen} onOpenChange={(open) => {
+          if (!saveBusy.current) setDiscardOpen(open);
+        }} title="Discard package changes?"
+          description="Your unsaved package details, pricing, dishes, themes, and images will be lost if you close this editor."
+          confirmLabel="Discard changes" cancelLabel="Keep editing" destructive
+          loading={formBusy} confirmDisabled={formBusy} stopEscapePropagation
+          contentClassName="z-[70]" overlayClassName="z-[60]"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            const target = discardOpener.current;
+            (target?.isConnected ? target : packageOpener.current?.isConnected ? packageOpener.current : newPackageButton.current)?.focus();
+          }} onConfirm={() => {
+            if (saveBusy.current) return;
+            setDiscardOpen(false);
+            setCreateOpen(false);
+          }} />
       </DialogContent>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Package overview">

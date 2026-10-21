@@ -32,6 +32,7 @@ export function CatalogImageUploader({
   heading,
   helperText,
   inputLabel,
+  retainPreviewsOnUnmount = false,
 }: {
   images: readonly CatalogImageDraft[];
   onChange: (images: CatalogImageDraft[]) => void;
@@ -42,6 +43,8 @@ export function CatalogImageUploader({
   heading?: string;
   helperText?: string;
   inputLabel?: string;
+  /** When true, the parent editing session owns preview URL cleanup. */
+  retainPreviewsOnUnmount?: boolean;
 }) {
   const [error, setError] = useState<string | null>(null);
   const inputId = useId();
@@ -49,8 +52,8 @@ export function CatalogImageUploader({
   const previews = useRef(new Set<string>());
   useEffect(() => {
     const urls = previews.current;
-    return () => { for (const url of urls) URL.revokeObjectURL(url); };
-  }, []);
+    return () => { if (!retainPreviewsOnUnmount) for (const url of urls) URL.revokeObjectURL(url); };
+  }, [retainPreviewsOnUnmount]);
   useEffect(() => {
     const current = new Set(images.map((image) => image.url));
     for (const url of previews.current) {

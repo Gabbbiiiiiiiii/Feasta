@@ -63,6 +63,7 @@ export type PackageThemeOption = {
 };
 
 export type PackageInput = {
+  pricingModel?: "per_pax" | "per_bundle";
   name: string;
   description: string;
   eventType: string;
@@ -354,6 +355,11 @@ export function parsePackageInput(
 ): PackageInput {
   const data = recordValue(value);
 
+  const pricingModel = data.pricingModel;
+  if (pricingModel !== undefined && pricingModel !== "per_pax" && pricingModel !== "per_bundle") {
+    throw new HttpsError("invalid-argument", "Package pricing model is invalid.");
+  }
+
   const name = requiredString(
     data.name,
     "Package name",
@@ -377,7 +383,7 @@ export function parsePackageInput(
       data.serviceCategoryCode,
     );
 
-  const price = requiredMoney(
+  const price = (pricingModel === undefined ? requiredMoney : requiredPreciseMoney)(
     data.price,
     "Package price",
   );
@@ -471,6 +477,7 @@ export function parsePackageInput(
   const imageUrls = parsePackageImageUrls(data.imageUrls);
 
   return {
+    ...(pricingModel !== undefined ? {pricingModel} : {}),
     name,
     description,
     eventType,
@@ -602,6 +609,9 @@ export function assertPackagePublishable(
   packageData: Readonly<Record<string, unknown>>,
 ): void {
   parsePackageInput(packageData);
+  if (packageData.pricingModel !== undefined) {
+    throw new HttpsError("failed-precondition", "Per Pax and Per Bundle packages are draft-only until Customer Web and Mobile pricing compatibility is verified.");
+  }
 
   // Structured inclusions are optional, including for image-based menus.
 

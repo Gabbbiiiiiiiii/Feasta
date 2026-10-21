@@ -45,6 +45,7 @@ export function normalizePublicPackage(
   const providerId = safeText(value.providerId, 128);
   const name = safeText(value.name, 160);
   if (
+    value.pricingModel !== undefined ||
     !providerId ||
     !name ||
     !providerNames.has(providerId) ||

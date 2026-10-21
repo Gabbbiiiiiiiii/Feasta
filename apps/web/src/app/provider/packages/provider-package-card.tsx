@@ -39,12 +39,13 @@ export function ProviderPackageCard({item, serviceCategoryLabel, onEdit, onPubli
         <p className="flex items-center gap-1 text-xs text-muted-foreground"><Users aria-hidden="true" className="size-3.5 shrink-0" />{item.minimumGuests}–{item.maximumGuests} guests</p>
       </div>
       <PriceDisplay amount={item.price} />
+      {item.pricingModel ? <p className="text-xs text-muted-foreground">{item.pricingModel === "per_pax" ? "PHP per person" : "Fixed package price"} / Draft-only until customer compatibility is verified</p> : null}
       <PackagePaymentTerms source={item} />
     </div>
     {item.status !== "archived" ? <div className="mt-auto flex flex-wrap items-center gap-1 border-t border-border p-1.5">
       {item.status === "draft" ? <>
         <Button id={`provider-package-edit-${item.id}`} variant="secondary" size="compact" className="mr-auto" aria-label={`Edit ${item.name}`} onClick={onEdit}><Edit3 aria-hidden="true" className="size-4" />Edit</Button>
-        <Button variant="ghost" size="icon" aria-label={`Publish ${item.name}`} title="Publish package" onClick={onPublish}><Send aria-hidden="true" className="size-4" /></Button>
+        <Button variant="ghost" size="icon" aria-label={`Publish ${item.name}`} title={item.pricingModel ? "Customer pricing compatibility verification required" : "Publish package"} disabled={Boolean(item.pricingModel)} onClick={onPublish}><Send aria-hidden="true" className="size-4" /></Button>
       </> : null}
       {item.status === "published" ? (
         <Dialog>

@@ -177,6 +177,7 @@ export function bookingOfferFingerprintFields(
 export function resolveBookingPackageOffer(
   input: {
     packageData: Readonly<Record<string, unknown>>;
+    guestCount?: number;
     serviceTier: CateringPackageServiceTier | null;
     packageThemeId: string | null;
   },
@@ -195,10 +196,10 @@ export function resolveBookingPackageOffer(
     }
 
     return {
-      basePrice: requireStoredMoney(
+      basePrice: calculatePackageSubtotal(input.packageData, requireStoredMoney(
         input.packageData.price,
         "Package price",
-      ),
+      ), input.guestCount),
       selection: selectionSnapshot(
         null,
         [],
@@ -229,7 +230,7 @@ export function resolveBookingPackageOffer(
   }
 
   return {
-    basePrice: selectedOption.price,
+    basePrice: calculatePackageSubtotal(input.packageData, selectedOption.price, input.guestCount),
     selection: selectionSnapshot(
       input.serviceTier,
       selectedOption.includedServices,
@@ -600,4 +601,32 @@ function roundCurrency(
   return Math.round(
     (value + Number.EPSILON) * 100,
   ) / 100;
+}
+
+/** Multiply integer centavos only; absent pricingModel preserves fixed legacy pricing. */
+export function calculatePackageSubtotal(
+  data: Readonly<Record<string, unknown>>,
+  unitPrice: number,
+  guestCount?: number,
+): number {
+  const price = requireStoredMoney(unitPrice, "Package price");
+  if (data.pricingModel === undefined) return price;
+  if (data.pricingModel !== "per_pax" && data.pricingModel !== "per_bundle") {
+    throw new HttpsError("failed-precondition", "Package pricing model is invalid.");
+  }
+  if (!Number.isSafeInteger(guestCount) || !Number.isSafeInteger(data.minimumGuests) ||
+    !Number.isSafeInteger(data.maximumGuests) || (data.minimumGuests as number) < 1 ||
+    (data.maximumGuests as number) > 100_000 ||
+    (guestCount as number) < (data.minimumGuests as number) ||
+    (guestCount as number) > (data.maximumGuests as number)) {
+    throw new HttpsError("invalid-argument", "Guest count must be within the package guest range.");
+  }
+  if (Math.abs(unitPrice * 100 - Math.round(unitPrice * 100)) > 1e-8) {
+    throw new HttpsError("failed-precondition", "Package price must use at most two decimal places.");
+  }
+  const cents = Math.round(price * 100) * (data.pricingModel === "per_pax" ? guestCount! : 1);
+  if (!Number.isSafeInteger(cents) || cents > MAX_PACKAGE_PRICE * 100) {
+    throw new HttpsError("failed-precondition", "Package subtotal exceeds the supported booking limit.");
+  }
+  return cents / 100;
 }

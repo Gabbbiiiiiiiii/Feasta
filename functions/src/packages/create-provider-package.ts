@@ -46,6 +46,7 @@ const ALLOWED_FIELDS = [
   "description",
   "eventType",
   "serviceCategoryCode",
+  "pricingModel",
   "price",
   "serviceOptions",
   "themeOptions",
@@ -219,6 +220,7 @@ export const createProviderPackage = onCall(
             serviceCategoryCode:
               validated.serviceCategoryCode,
 
+            ...(validated.pricingModel !== undefined ? {pricingModel: validated.pricingModel} : {}),
             price:
               validated.price,
 
