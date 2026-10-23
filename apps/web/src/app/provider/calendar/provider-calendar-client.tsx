@@ -31,6 +31,7 @@ import {
 import {
   updateProviderAvailability,
 } from "@/lib/provider/calendar/provider-calendar-client";
+import {ProviderCalendarHoverPreview} from "./provider-calendar-hover-preview";
 
 import type {
   ProviderCalendarData,
@@ -97,6 +98,11 @@ export function ProviderCalendarClient({
   ] = useState(
     initialData.settings.unavailableDates,
   );
+
+  const [hoverPreview, setHoverPreview] = useState<{
+    date: string;
+    anchor: HTMLButtonElement;
+  } | null>(null);
 
   const [
     actionPending,
@@ -387,11 +393,35 @@ export function ProviderCalendarClient({
                       <button
                         key={dateKey}
                         type="button"
-                        onClick={() =>
-                          setSelectedDate(
-                            dateKey,
-                          )
-                        }
+                        onClick={() => {
+                          setSelectedDate(dateKey);
+                          setHoverPreview(null);
+                        }}
+                        onPointerEnter={(event) => {
+                          if (dayEvents.length > 0 &&
+                              (event.pointerType === "mouse" || event.pointerType === "pen")) {
+                            setHoverPreview({date: dateKey, anchor: event.currentTarget});
+                          }
+                        }}
+                        onPointerLeave={() => {
+                          setHoverPreview((current) => current?.date === dateKey ? null : current);
+                        }}
+                        onFocus={(event) => {
+                          if (dayEvents.length > 0 && event.currentTarget.matches(":focus-visible")) {
+                            setHoverPreview({date: dateKey, anchor: event.currentTarget});
+                          }
+                        }}
+                        onBlur={() => {
+                          setHoverPreview((current) => current?.date === dateKey ? null : current);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape") {
+                            setHoverPreview(null);
+                          }
+                        }}
+                        aria-describedby={hoverPreview?.date === dateKey
+                          ? "provider-calendar-hover-preview"
+                          : undefined}
                         aria-label={`${dateKey}: ${full ? reservationLabel : blocked ? "Blocked" : !operating ? "Closed" : "Available"}`}
                         aria-pressed={
                           selected
@@ -456,6 +486,15 @@ export function ProviderCalendarClient({
               </div>
             </div>
           </div>
+
+          {hoverPreview ? (
+            <ProviderCalendarHoverPreview
+              key={hoverPreview.date}
+              anchor={hoverPreview.anchor}
+              date={hoverPreview.date}
+              events={eventsByDate.get(hoverPreview.date) ?? []}
+            />
+          ) : null}
 
           <footer className="flex flex-wrap gap-x-5 gap-y-2 border-t border-border p-4 text-xs text-muted-foreground sm:p-5">
             <Legend
@@ -627,70 +666,40 @@ function CalendarEventCard({
 }: {
   event: ProviderCalendarEvent;
 }) {
+  const venue = [event.event.venueAddress, event.event.city]
+    .filter(Boolean).join(", ") || "Venue not provided";
+
   return (
-    <article className="grid gap-3 rounded-lg border border-border p-4">
+    <article className="grid gap-4 rounded-lg border border-border p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="font-semibold">
-            {formatLabel(
-              event.event.eventType,
-            )}
-          </p>
-
-          <p className="mt-1 break-words text-sm text-muted-foreground">
-            {event.customer.name}
-          </p>
-        </div>
-
-        <StatusBadge
-          status={event.status}
-        />
+        <p className="min-w-0 break-words font-semibold">
+          {formatLabel(event.event.eventType)}
+        </p>
+        <StatusBadge status={event.status} />
       </div>
 
-      {event.packageName ? (
-        <p className="text-sm font-medium">
-          {event.packageName}
-        </p>
-      ) : null}
+      <div className="grid gap-3">
+        <EventDetail icon={<Users className="size-4" />}
+          label="Customer name" value={event.customer.name} />
+        <EventDetail icon={<CalendarDays className="size-4" />}
+          label="Package name" value={event.packageName || "Package not provided"} />
 
-      <div className="grid gap-2 text-sm text-muted-foreground">
-        <EventDetail
-          icon={
-            <Clock3 className="size-4" />
-          }
-          value={
-            formatEventTime(event.event.eventTime) ||
-            "Time not provided"
-          }
-        />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <EventDetail icon={<Clock3 className="size-4" />}
+            label="Start time"
+            value={formatEventTime(event.event.eventTime) || "Not provided"} />
+          <EventDetail icon={<Clock3 className="size-4" />}
+            label="End time"
+            value={formatEventTime(event.event.eventEndTime) || "Not provided"} />
+        </div>
 
-        <EventDetail
-          icon={
-            <Users className="size-4" />
-          }
-          value={
-            event.event.guestCount !==
-            null
-              ? `${event.event.guestCount.toLocaleString("en-PH")} guests`
-              : "Guest count not provided"
-          }
-        />
-
-        <EventDetail
-          icon={
-            <MapPin className="size-4" />
-          }
-          value={
-            [
-              event.event
-                .venueAddress,
-              event.event.city,
-            ]
-              .filter(Boolean)
-              .join(", ") ||
-            "Venue not provided"
-          }
-        />
+        <EventDetail icon={<Users className="size-4" />}
+          label="Number of guests"
+          value={event.event.guestCount !== null
+            ? `${event.event.guestCount.toLocaleString("en-PH")} guests`
+            : "Guest count not provided"} />
+        <EventDetail icon={<MapPin className="size-4" />}
+          label="Event venue / location" value={venue} />
       </div>
     </article>
   );
@@ -698,20 +707,20 @@ function CalendarEventCard({
 
 function EventDetail({
   icon,
+  label,
   value,
 }: {
   icon: React.ReactNode;
+  label: string;
   value: string;
 }) {
   return (
-    <div className="flex items-start gap-2">
-      <span className="mt-0.5 shrink-0">
-        {icon}
-      </span>
-
-      <span className="break-words">
-        {value}
-      </span>
+    <div className="flex min-w-0 items-start gap-2 text-sm">
+      <span className="mt-0.5 shrink-0 text-muted-foreground">{icon}</span>
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+        <p className="mt-0.5 break-words font-semibold text-foreground">{value}</p>
+      </div>
     </div>
   );
 }

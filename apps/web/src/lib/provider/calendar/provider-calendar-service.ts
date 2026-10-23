@@ -201,6 +201,14 @@ function mapCalendarEvent(
     return null;
   }
 
+  const eventLocation = stringOrNull(data.eventLocation);
+  const eventAddress = stringOrNull(data.eventAddress);
+
+  const submittedVenue = [
+    eventLocation,
+    eventAddress,
+  ].filter(Boolean).join(", ");
+
   return {
     id,
 
@@ -227,20 +235,24 @@ function mapCalendarEvent(
           data.eventTime,
         ),
 
+      eventEndTime:
+        stringOrNull(
+          data.eventEndTime,
+        ),
+
       guestCount:
         integerOrNull(
           data.guestCount,
         ),
 
       venueAddress:
-        stringOrNull(
-          data.venueAddress,
-        ),
+        submittedVenue ||
+        stringOrNull(data.venueAddress),
 
       city:
-        stringOrNull(
-          data.city,
-        ),
+        submittedVenue
+          ? null
+          : stringOrNull(data.city),
     },
 
     packageName:
@@ -255,6 +267,15 @@ function mapCalendarEvent(
 function customerName(
   data: Record<string, unknown>,
 ): string {
+  const storedName = [
+    stringOrNull(data.customerFirstName),
+    stringOrNull(data.customerLastName),
+  ].filter(Boolean).join(" ").trim();
+
+  if (storedName) {
+    return storedName;
+  }
+
   const directName =
     stringOrNull(
       data.customerName,

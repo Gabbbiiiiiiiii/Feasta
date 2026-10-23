@@ -18,6 +18,7 @@ export type ProviderCalendarEvent = {
     eventType: string;
     eventDate: string;
     eventTime: string | null;
+    eventEndTime: string | null;
     guestCount: number | null;
     venueAddress: string | null;
     city: string | null;
