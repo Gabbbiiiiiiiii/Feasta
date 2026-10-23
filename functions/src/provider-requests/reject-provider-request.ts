@@ -58,6 +58,7 @@ import {
 export const rejectProviderRequest = onCall(
   {
     ...appCheckCallableOptions,
+    maxInstances: 20,
     timeoutSeconds: 30,
   },
   async (request) => {

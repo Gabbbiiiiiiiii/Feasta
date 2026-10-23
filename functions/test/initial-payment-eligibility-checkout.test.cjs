@@ -10,7 +10,7 @@ let writes = [];
 let sequence = 0;
 const ref = (path) => ({path, id: path.split("/").at(-1), collection: (name) => collection(`${path}/${name}`)});
 const collection = (path) => ({path, doc: (id) => ref(`${path}/${id ?? `auto_${++sequence}`}`),
-  where: () => ({queryCollection: path})});
+  where: () => ({queryCollection: path, where() {return this;}})});
 const snapshot = (reference) => ({id: reference.id, ref: reference, exists: records.has(reference.path),
   data: () => records.get(reference.path)});
 const db = {collection, async runTransaction(callback) {
@@ -45,6 +45,9 @@ function seed(acceptanceTime, legacy = false) {
   records.set("providerRequests/request_test", {
     providerRequestId: "request_test", mainEventId: "event_test", bookingId: "event_test",
     customerId: "customer_test", providerId: "provider_test", status: "waiting_for_down_payment", paymentStatus: "unpaid",
+    acceptedAt: Timestamp.fromMillis(Date.now() - 1000), expiresAt: Timestamp.fromMillis(Date.now() + 3600000),
+    type: "catering", guestCount: 50, eventDate: Timestamp.fromDate(new Date("2099-10-25T00:00:00+08:00")),
+    eventTime: "10:00", eventEndTime: "14:00",
     financialSnapshot: {schemaVersion: 1, currency: "PHP", grossAmountInCentavos: 100000,
       requiredUpfrontAmountInCentavos: 30000, remainingBalanceInCentavos: 70000, packagePaymentTerms: terms},
     ...(legacy ? {} : {bookingPaymentPolicySnapshot: frozen, initialPaymentEligibilitySchemaVersion: 1,
@@ -53,7 +56,10 @@ function seed(acceptanceTime, legacy = false) {
   });
   records.set("mainEvents/event_test", {mainEventId: "event_test", bookingId: "event_test", customerId: "customer_test",
     providerRequestIds: ["request_test"], status: "waiting_for_down_payment"});
-  records.set("providers/provider_test", {ownerId: "owner_test", verificationStatus: "approved", isActive: true});
+  records.set("providers/provider_test", {ownerId: "owner_test", verificationStatus: "approved", isActive: true, providerServiceType: "catering", providerCategory: "catering_service", serviceCategories: ["catering_service"],
+    operatingDays: ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+    bookingLeadTimeDays: 0, minGuestsPerEvent: 1, maxGuestsPerEvent: 100, availableStaffCount: 5,
+    availableEquipmentCount: 10, maxEventsPerDay: 1});
   records.set("users/owner_test", {role: "provider", providerId: "provider_test", accountStatus: "active"});
   records.set("providerPaymentAccounts/provider_test", {providerId: "provider_test", schemaVersion: 1,
     setupStatus: "ready", linkedAccountType: "merchant", payoutReady: true, paymongoAccountId: "org_unit_test"});

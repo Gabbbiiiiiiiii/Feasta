@@ -412,7 +412,8 @@ function mapProviderBooking(
       payment && ["refunded", "partially_refunded"].includes(payment.status) ? payment.status :
         hasBookingSettlement(request) ? projectBookingPayment(request) : payment?.status ?? null,
     canStartEvent: canStartProviderEvent(request, mainEvent, requestStatus, payment),
-    canCompleteEvent: requestStatus === "in_progress" && mainEventStatus === "in_progress" &&
+    canCompleteEvent: requestStatus === "in_progress" &&
+      ["pending_provider_approval", "needs_provider_replacement", "waiting_for_down_payment", "in_progress"].includes(mainEventStatus) &&
       mapRefundEligibility(request, requestStatus, payment).evidenceStatus !== "invalid" &&
       !mapRefundEligibility(request, requestStatus, payment).activeCancellationLocked &&
       !lifecycleEvidence(request).reconciliation && !lifecycleEvidence(mainEvent).reconciliation && !lifecycleEvidence(mainEvent).cancellation &&
@@ -484,7 +485,7 @@ function mapProviderBooking(
 function canStartProviderEvent(request: DocumentData, mainEvent: DocumentData, status: ProviderRequestStatus, payment: ProviderBookingPayment | null): boolean {
   if (request.remainingBalanceTimingSchemaVersion === 3) return false;
   const eligibility = mapRefundEligibility(request, status, payment);
-  if (status !== "confirmed" || !["confirmed", "in_progress"].includes(mainEvent.status) ||
+  if (status !== "confirmed" || !["pending_provider_approval", "needs_provider_replacement", "waiting_for_down_payment", "confirmed", "in_progress"].includes(mainEvent.status) ||
     eligibility.evidenceStatus === "invalid" || eligibility.activeCancellationLocked || eligibility.reconciliationLocked ||
     balanceEnforcementBlocksActions(request) ||
     (hasBookingSettlement(request) &&

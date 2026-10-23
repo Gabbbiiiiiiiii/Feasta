@@ -10,7 +10,7 @@ import {writeAuditLogInTransaction} from "../shared/audit.js";
 import {createNotificationWithIdInTransaction} from "../shared/notifications.js";
 import {parseMainEventStatus, isMainEventStatusTransitionAllowed, isApprovedProviderForOperations} from "../shared/constants.js";
 import {requireActiveProviderRequest, requireProviderRequestDocuments} from "../provider-requests/provider-request-relationship-integrity.js";
-import {calculateMainEventRequestSummary, areAllAssignedProvidersAccepted} from "../provider-requests/recalculate-main-event-status.js";
+import {calculateMainEventRequestSummary} from "../provider-requests/recalculate-main-event-status.js";
 import {readTrustedProviderRequestPaymentSetInTransaction} from "../payments/provider-request-payment-reader.js";
 import {enforceRemainingBalanceDeadline} from "../payments/remaining-balance-enforcement.js";
 import {remainingBalanceLifecyclePlan} from "../payments/remaining-balance-lifecycle-domain.js";
@@ -80,7 +80,7 @@ export async function materializeBookingLifecycleV3(providerRequestId: string, n
       throw new Error("Lifecycle settlement requires reconciliation.");
     }
     const parentStatus = parseMainEventStatus(mainEvent.status);
-    if (!parentStatus || !["confirmed", "in_progress"].includes(parentStatus)) {
+    if (!parentStatus || !["pending_provider_approval", "needs_provider_replacement", "waiting_for_down_payment", "confirmed", "in_progress"].includes(parentStatus)) {
       transaction.update(reference, {lifecycleNextTransitionAt: retryAt});
       return false;
     }
@@ -108,11 +108,6 @@ export async function materializeBookingLifecycleV3(providerRequestId: string, n
       }
       return true;
     }
-    const currentSummary = calculateMainEventRequestSummary(relations.activeRequests, parentStatus);
-    if (!areAllAssignedProvidersAccepted(currentSummary)) {
-      transaction.update(reference, {lifecycleNextTransitionAt: retryAt});
-      return false;
-    }
     const summary = calculateMainEventRequestSummary(relations.activeRequests, parentStatus,
       [{providerRequestId, status: "in_progress"}]);
     if (summary.status !== parentStatus && !isMainEventStatusTransitionAllowed(parentStatus, summary.status)) {
@@ -126,7 +121,7 @@ export async function materializeBookingLifecycleV3(providerRequestId: string, n
       ...(state ? {refundEligibilityState: state} : {}), updatedAt: timestamp});
     transaction.update(parentRef, {...summary, updatedAt: timestamp,
       ...(summary.status !== parentStatus ? {statusUpdatedAt: timestamp} : {}),
-      ...(parentStatus !== "in_progress" ? {startedAt: Timestamp.fromDate(timing.eventStartAt)} : {})});
+      ...(summary.status === "in_progress" && parentStatus !== "in_progress" ? {startedAt: Timestamp.fromDate(timing.eventStartAt)} : {})});
     for (const userId of [String(request.customerId), String(request.providerOwnerId)]) {
       createNotificationWithIdInTransaction(transaction, `v3_event_start_${providerRequestId}_${userId}`,
         {userId, title: "Event is now In Progress", message: "Your event is now In Progress.",
@@ -210,7 +205,8 @@ export async function reconcileAutomaticBookingCompletionsV3(now: Date): Promise
 
 /** Two single-field range queries, each bounded; no full-collection scan. */
 export const reconcileBookingPolicyV3 = onSchedule({schedule: "every 1 minutes", timeZone: "Asia/Manila",
-  region: "asia-southeast1", retryCount: 2, secrets: [secret]}, async () => {
+  region: "asia-southeast1", maxInstances: 20, memory: "256MiB", concurrency: 80,
+  timeoutSeconds: 60, retryCount: 2, secrets: [secret]}, async () => {
   const now = new Date(Date.now());
   await reconcileAutomaticBookingCompletionsV3(now);
   for (const field of ["remainingBalanceNextCheckAt", "lifecycleNextTransitionAt"] as const) {

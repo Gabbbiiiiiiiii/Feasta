@@ -71,6 +71,7 @@ export const updateProviderAvailability =
   onCall(
     {
       ...appCheckCallableOptions,
+      maxInstances: 20, memory: "256MiB", concurrency: 80,
       timeoutSeconds: 30,
     },
     async (request) => {
@@ -214,6 +215,7 @@ export const updateProviderAvailability =
                 const booking = document.data();
 
                 return providerRequestOccupiesAvailability({
+                  ...booking,
                   status: booking.status,
                   acceptedAt: booking.acceptedAt,
                   expiresAt: booking.expiresAt,

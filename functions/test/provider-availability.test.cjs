@@ -9,6 +9,7 @@ const {
   manilaDateFromKey,
   PROVIDER_PAYMENT_HOLD_WINDOW_MS,
   providerRequestOccupiesAvailability,
+  providerRequestAvailabilityState,
   validateProviderAvailability,
 } = require(
   "../lib/provider-availability/validate-provider-availability.js",
@@ -198,7 +199,7 @@ test("occupancy follows status and the stored payment hold deadline", () => {
       status: "payment_processing",
       expiresAt: expiredHold,
     })],
-  }).available, true);
+  }).available, false);
 
   for (const status of ["confirmed", "in_progress"]) {
     assert.ok(codes(validate({
@@ -262,6 +263,34 @@ test("occupancy follows status and the stored payment hold deadline", () => {
     expiresAt: {toMillis: () => now.getTime()},
     now,
   }), false);
+});
+
+test("unresolved payment evidence protects capacity without renewing an unpaid hold", () => {
+  const now = new Date("2026-08-20T12:00:00+08:00");
+  const expiresAt = new Date(now.getTime() - 1);
+  const evidence = [
+    {paymentId: "payment_legacy"}, {initialPaymentId: "payment_selected"},
+    {initialPaymentDispatchReservedAt: expiresAt}, {paymentStatus: "processing"},
+    {paymentStatus: "paid"}, {initialPaymentReview: {schemaVersion: 1}},
+    {reconciliationRequired: true}, {lifecycleReconciliationRequired: true},
+  ];
+  for (const status of ["accepted", "waiting_for_down_payment"]) for (const fields of evidence) {
+    const booking = overlappingBooking({status, expiresAt, ...fields});
+    const before = structuredClone(booking);
+    assert.equal(providerRequestAvailabilityState({...booking, now}), "payment_reconciliation");
+    assert.ok(codes(validate({now, existingBookings: [booking]})).includes("TIME_CONFLICT"));
+    assert.ok(codes(validate({now, existingBookings: [{...booking, eventTime: "18:00", eventEndTime: "20:00"}]}))
+      .includes("MAX_EVENTS_REACHED"));
+    assert.deepEqual(booking, before, "availability must not rewrite deadlines or financial evidence");
+  }
+  for (const expiresAt of [undefined, null, "malformed", new Date(now.getTime()-1)]) {
+    assert.equal(providerRequestAvailabilityState({status: "payment_processing", expiresAt, now}), "payment_reconciliation");
+  }
+  assert.equal(providerRequestAvailabilityState({status: "waiting_for_down_payment", expiresAt, now}), "released");
+  assert.equal(providerRequestAvailabilityState({status: "confirmed", expiresAt, now}), "committed");
+  for (const status of ["expired", "cancelled", "rejected"]) {
+    assert.equal(providerRequestAvailabilityState({status, expiresAt, paymentId: "retained", now}), "released");
+  }
 });
 
 test("daily booking limit is independent of configurable capacity and staff counts", () => {
@@ -403,9 +432,7 @@ test("acceptance re-reads ownership and availability in one transaction", () => 
   const validationPosition =
     acceptance.lastIndexOf("validateProviderAvailability({");
   const updatePosition =
-    acceptance.search(
-      /transaction\.update\(\s*providerRequestReference/u,
-    );
+    acceptance.indexOf("transaction.update(\n            providerRequestReference", validationPosition);
   assert.ok(validationPosition >= 0);
   assert.ok(updatePosition > validationPosition);
 });

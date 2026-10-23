@@ -56,6 +56,7 @@ type MarketplaceAvailabilityInput = {
 export const checkMarketplaceProviderAvailability = onCall(
   {
     ...appCheckCallableOptions,
+    maxInstances: 20, memory: "256MiB", concurrency: 80,
     timeoutSeconds: 30,
   },
   async (request) => {
@@ -158,6 +159,7 @@ export async function checkMarketplaceProviderAvailabilityForInput(
           services,
         },
         existingBookings: bookings?.docs.map((document) => ({
+          ...document.data(),
           providerRequestId: document.id,
           status: document.data().status,
           eventTime: document.data().eventTime,

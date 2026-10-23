@@ -1539,6 +1539,7 @@ service cloud.firestore {
           settingId != 'platform' &&
           settingId != 'refundPolicyBookingAgreement' &&
           settingId != 'cancellationRefundRollout' &&
+            settingId != 'initialPaymentExpirationPhaseA' &&
           settingId != 'customerBookingSearch';
       allow delete: if false;
     }

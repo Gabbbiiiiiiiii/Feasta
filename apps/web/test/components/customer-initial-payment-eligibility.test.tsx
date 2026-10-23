@@ -38,6 +38,14 @@ describe("frozen initial-payment eligibility projection", () => {
     expect(options(saved)).toEqual([{choice: "full", amount: 1000}]);
     expect(customerInitialPaymentExplanation(saved)).toBe("Full payment is required because fewer than 2 days remained before the event when this booking was accepted.");
   });
+  it("pending, rejected, expired and cancelled selected providers have no payment options", () => {
+    for (const status of ["pending", "accepted", "rejected", "expired", "cancelled"]) {
+      expect(options(request({status}))).toEqual([]);
+    }
+    for (const parent of ["pending_provider_approval", "needs_provider_replacement", "waiting_for_down_payment"]) {
+      expect(customerBookingCheckoutOptions("request_test", request(), parent)).toHaveLength(2);
+    }
+  });
   it("eligible and legacy requests expose both initial options", () => {
     const expected = [{choice: "minimum", amount: 300}, {choice: "full", amount: 1000}];
     expect(options(request(eligibility("minimum_or_full")))).toEqual(expected);
@@ -69,7 +77,12 @@ describe("frozen initial-payment eligibility projection", () => {
       initialPaymentChoice: "minimum", initialPaymentId: id("minimum"), paymentId: id("minimum"),
       settlementSchemaVersion: 1, settlementStatus: "deposit_settled",
       grossSettledAmountInCentavos: 30000, outstandingAmountInCentavos: 70000});
-    expect(customerBookingCheckoutOptions("request_test", saved, "confirmed"))
-      .toEqual([{choice: "remaining_balance", amount: 700}]);
+    for (const parent of ["pending_provider_approval", "needs_provider_replacement", "waiting_for_down_payment", "confirmed"]) {
+      expect(customerBookingCheckoutOptions("request_test", saved, parent))
+        .toEqual([{choice: "remaining_balance", amount: 700}]);
+    }
+    for (const parent of ["cancelled", "expired", "completed"]) {
+      expect(customerBookingCheckoutOptions("request_test", saved, parent)).toEqual([]);
+    }
   });
 });

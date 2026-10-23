@@ -14,8 +14,8 @@ import {
 
 /**
  * Statuses that may occupy a slot and must be read with the event date.
- * Occupancy is decided by providerRequestOccupiesAvailability, including
- * hold expiry. A counted status is not itself a booking conflict.
+ * Occupancy includes unpaid hold expiry and protected payment reconciliation.
+ * A counted status is not itself a booking conflict.
  */
 export const AVAILABILITY_COUNTED_REQUEST_STATUSES = [
   "accepted",
@@ -80,7 +80,17 @@ export type ProviderAvailabilityRequest = {
   services?: unknown;
 };
 
-export type ExistingProviderBooking = {
+type AvailabilityPaymentEvidence = {
+  paymentId?: unknown;
+  initialPaymentId?: unknown;
+  initialPaymentDispatchReservedAt?: unknown;
+  paymentStatus?: unknown;
+  initialPaymentReview?: unknown;
+  reconciliationRequired?: unknown;
+  lifecycleReconciliationRequired?: unknown;
+};
+
+export type ExistingProviderBooking = AvailabilityPaymentEvidence & {
   providerRequestId: string;
   status: unknown;
   eventTime: unknown;
@@ -96,43 +106,60 @@ export type ExistingProviderBooking = {
  * Confirmed, in-progress, and completed requests do. An accepted unpaid request
  * occupies only while its stored expiresAt is still ahead of now. A
  * lineup-incomplete accepted request has no expiresAt, so that hold
- * instead ends one payment window after acceptedAt.
+ * instead ends one payment window after acceptedAt. Requests with payment or
+ * reconciliation evidence retain capacity until authoritative resolution.
  */
-export function providerRequestOccupiesAvailability(input: {
+export function providerRequestAvailabilityState(input: AvailabilityPaymentEvidence & {
   status: unknown;
   expiresAt?: unknown;
   acceptedAt?: unknown;
   now: Date;
-}): boolean {
+}): "committed" | "payment_reconciliation" | "temporary_hold" | "released" {
   const status = parseProviderRequestStatus(input.status);
   const nowMs = input.now.getTime();
 
-  if (!status || !Number.isFinite(nowMs)) return false;
+  if (!status || !Number.isFinite(nowMs)) return "released";
 
   if (COMMITTED_REQUEST_STATUSES.includes(
     status as (typeof COMMITTED_REQUEST_STATUSES)[number],
   )) {
-    return true;
+    return "committed";
   }
 
   if (!TEMPORARY_HOLD_REQUEST_STATUSES.includes(
     status as (typeof TEMPORARY_HOLD_REQUEST_STATUSES)[number],
   )) {
-    return false;
+    return "released";
+  }
+
+  // A gateway expiry or elapsed booking hold is not terminal payment authority.
+  // Keep capacity reserved until verified settlement or authorized reconciliation
+  // transitions the request. This never renews expiresAt or authorizes a charge.
+  if (status === "payment_processing" || input.paymentId != null || input.initialPaymentId != null ||
+    input.initialPaymentDispatchReservedAt != null || input.initialPaymentReview != null ||
+    input.paymentStatus === "processing" || input.paymentStatus === "paid" ||
+    input.reconciliationRequired === true || input.lifecycleReconciliationRequired === true) {
+    return "payment_reconciliation";
   }
 
   const explicitDeadline = timestampMillis(input.expiresAt);
 
   if (explicitDeadline !== null) {
-    return explicitDeadline > nowMs;
+    return explicitDeadline > nowMs ? "temporary_hold" : "released";
   }
 
-  if (status !== "accepted") return false;
+  if (status !== "accepted") return "released";
 
   const acceptedAt = timestampMillis(input.acceptedAt);
 
-  return acceptedAt !== null &&
-    acceptedAt + PROVIDER_PAYMENT_HOLD_WINDOW_MS > nowMs;
+  return acceptedAt !== null && acceptedAt + PROVIDER_PAYMENT_HOLD_WINDOW_MS > nowMs
+    ? "temporary_hold" : "released";
+}
+
+export function providerRequestOccupiesAvailability(
+  input: Parameters<typeof providerRequestAvailabilityState>[0],
+): boolean {
+  return providerRequestAvailabilityState(input) !== "released";
 }
 
 type ValidateProviderAvailabilityInput = {
@@ -264,6 +291,7 @@ export function validateProviderAvailability(
   const occupyingBookings = input.existingBookings.filter((booking) =>
     booking.providerRequestId !== input.request.providerRequestId &&
     providerRequestOccupiesAvailability({
+      ...booking,
       status: booking.status,
       expiresAt: booking.expiresAt,
       acceptedAt: booking.acceptedAt,

@@ -83,6 +83,29 @@ function assertFinancials(h, now) {
   assert.equal(disbursement.payoutEligibleAt.toMillis(), providerDisbursementEligibleAt({anchor: now, trigger: 'completed_booking'}).getTime());
   assert.equal(disbursement.status, 'scheduled');assert.equal(disbursement.transportReady, false);
 }
+
+for (const [parentStatus, siblingStatus] of [["pending_provider_approval", "pending"],
+  ["needs_provider_replacement", "rejected"], ["waiting_for_down_payment", "waiting_for_down_payment"]]) {
+  test(`fully settled provider starts and completes independently under ${parentStatus}`, async () => {
+    const h = harness();
+    h.request.status = "confirmed";
+    const parent = h.records.get("mainEvents/event_owned");
+    parent.status = parentStatus;
+    parent.providerRequestIds.push("request_sibling");
+    const sibling = {...h.request, providerRequestId: "request_sibling", providerId: "provider_sibling",
+      providerOwnerId: "owner_sibling", status: siblingStatus};
+    h.records.set("providerRequests/request_sibling", sibling);
+    assert.equal(await materializeBookingLifecycleV3("request_owned", start), true);
+    assert.equal(h.records.get("providerRequests/request_owned").status, "in_progress");
+    assert.equal(h.records.get("mainEvents/event_owned").status, parentStatus);
+    assert.equal((await complete(providerActor, end)).changed, true);
+    assertFinancials(h, end);
+    assert.equal(h.records.get("mainEvents/event_owned").status, parentStatus);
+    assert.equal(h.records.get("providerRequests/request_sibling"), sibling);
+    assert.equal((await complete(providerActor, fallback)).changed, false);
+    assertFinancials(h, end);
+  });
+}
 test('manual completion at trusted end releases earnings once and retains three banking days', async () => {
   const h=harness();assert.equal((await complete(providerActor,end)).changed,true);assertFinancials(h,end);
   assert.equal((await complete(providerActor,fallback)).changed,false);assert.equal(h.commits,1);
@@ -500,4 +523,39 @@ test('historical reconciliation callable rejects unauthenticated callers', async
   await assert.rejects(reconcileHistoricalBookingCompletion.run({data: {providerRequestId: 'request_owned', mainEventId: 'event_owned',
     acknowledgement: 'complete_without_provider_disbursement_enrollment', reason: adminActor.reason}, auth: null, rawRequest: {headers: {}}}),
   error => error.code === 'unauthenticated');
+});
+
+for (const expiration of [undefined, false]) {
+  test('disabled initial expiration preserves scheduler completion and balance jobs: ' + expiration, async () => {
+    const h = harness();
+    if (expiration !== undefined) h.records.set('appSettings/initialPaymentExpirationPhaseA', {
+      schemaVersion: 1, isPublic: false, enrollmentEnabled: true, expirationEnabled: expiration, historicalReviewEnabled: true,
+    });
+    await reconcileBookingPolicyV3.run({});
+    assert.equal(stored(h).status, 'completed');
+    assert.equal(h.count('providerSettlements/'), 1);
+    assert.equal(h.count('providerDisbursements/'), 1);
+    assert.equal(h.records.has('bookingLifecycleCursors/initial_payment_expiration_v1'), false);
+    assert.equal(stored(h).initialPaymentReview, undefined);
+    assert.equal(stored(h).initialPaymentExpiredAt, undefined);
+  });
+}
+
+test('shared scheduler never reads Phase A settings while completing existing jobs', async t => {
+  const h = harness(); let reads = 0, ticks = 0;
+  h.records.set('appSettings/initialPaymentExpirationPhaseA', {
+    schemaVersion: 1, isPublic: false, enrollmentEnabled: true, expirationEnabled: true, historicalReviewEnabled: true,
+  });
+  const collection = db.collection;
+  db.collection = name => {
+    const result = collection(name);
+    if (name !== 'appSettings') return result;
+    return {...result, doc: id => {if (id === 'initialPaymentExpirationPhaseA') reads++;return result.doc(id);}};
+  };
+  t.mock.method(performance, 'now', () => ticks++ === 0 ? 0 : 41000);
+  await reconcileBookingPolicyV3.run({});
+  assert.equal(stored(h).status, 'completed');
+  assert.equal(h.count('providerSettlements/'), 1);
+  assert.equal(reads, 0);
+  assert.equal(h.records.has('bookingLifecycleCursors/initial_payment_expiration_v1'), false);
 });

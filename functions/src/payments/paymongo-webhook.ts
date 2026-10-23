@@ -29,6 +29,7 @@ const payMongoWebhookSecret = defineSecret(
 export const payMongoWebhook = onRequest(
   {
     region: FUNCTION_REGION,
+    maxInstances: 20,
     invoker: "public",
     secrets: [
       payMongoWebhookSecret,

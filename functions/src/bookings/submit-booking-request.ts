@@ -1,3 +1,4 @@
+import {readInitialPaymentRollout, initialPaymentEnrollment} from "../payments/initial-payment-rollout.js";
 import {loadBookingPaymentPolicySnapshot} from "./load-booking-payment-policy.js";
 import {evaluateSubmissionPaymentEligibility} from "../payments/initial-payment-eligibility.js";
 import {bookingPolicyV3Evidence, bookingSubmissionDeadlinePassedV3} from "./booking-policy-v3.js";
@@ -173,6 +174,9 @@ function assertBeforeSubmissionPaymentDeadline(eventStartAt: Date): void {
 export const submitBookingRequest = onCall(
   {
     ...appCheckCallableOptions,
+    maxInstances: 20,
+    memory: "256MiB",
+    concurrency: 80,
     timeoutSeconds: 30,
   },
   (request) => handleBookingSelection(request, false),
@@ -512,6 +516,8 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
               created: false,
             };
           }
+
+          const initialPaymentRollout = await readInitialPaymentRollout(transaction);
 
           if (!userSnapshot.exists) {
             throw new HttpsError(
@@ -1358,6 +1364,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
                   existingBookings:
                     snapshot.docs.map(
                       (document) => ({
+                        ...document.data(),
                         providerRequestId:
                           document.id,
                         status:
@@ -1603,6 +1610,8 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
 
               status: "pending",
               paymentStatus: "unpaid",
+              // Provenance from document birth; never add this to recovered historical requests.
+              ...initialPaymentEnrollment(initialPaymentRollout),
 
               eventType,
               eventDate:
@@ -1761,6 +1770,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
 
                 status: "pending",
                 paymentStatus: "unpaid",
+                ...initialPaymentEnrollment(initialPaymentRollout),
 
                 eventType,
                 eventDate:

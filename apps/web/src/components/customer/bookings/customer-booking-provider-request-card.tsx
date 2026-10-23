@@ -54,6 +54,8 @@ function CustomerBookingProviderRequestCard({
   complaintAction,
 }: CustomerBookingProviderRequestCardProps) {
   const services = request.services.slice(0, MAX_SERVICES_PER_REQUEST);
+  const initialPaymentReview = request.lifecycle?.initialPaymentReview &&
+    ["accepted", "waiting_for_down_payment", "payment_processing"].includes(request.status);
   const showBookingPolicy = ["confirmed", "in_progress", "completed", "cancelled"].includes(request.status);
   const explanation = request.status === "rejected" ?
     boundedText(request.rejectionReason, "The provider did not include an explanation.", 500) :
@@ -122,7 +124,18 @@ function CustomerBookingProviderRequestCard({
         <FinancialMetric label="Total service price" value={formatCurrency(request.amount)} />
         {checkoutPresentation.currentAmount !== null ? <FinancialMetric label={checkoutPresentation.dueLabel} value={formatCurrency(checkoutPresentation.currentAmount)} /> : null}
       </dl>
-      {paymentAction}
+      {request.lifecycle?.initialPaymentExpired && request.status === "expired" ? (
+        <div role="status" className="grid gap-2 rounded-xl border border-border p-3.5 text-sm">
+          <p className="font-bold">Payment expired — Submit a new booking request</p>
+          <p>The previous reservation is no longer valid. A new request is subject to current availability, prices and policies.</p>
+          <Link className="font-bold underline underline-offset-2" href="/customer/providers">Submit a new booking request</Link>
+        </div>
+      ) : initialPaymentReview ? (
+        <div role="status" className="grid gap-2 rounded-xl border border-border p-3.5 text-sm">
+          <p className="font-bold">Payment verification required — Contact support</p>
+          <p>FEASTA must verify the original reservation and payment records. Do not start another payment for this request.</p>
+        </div>
+      ) : paymentAction}
       {checkoutPresentation.showRemainingBalance ? (
         <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
           <FinancialMetric label="Deposit paid" value={formatCurrency((request.grossSettledAmountInCentavos ?? 0) / 100)} />
@@ -189,7 +202,7 @@ function CustomerBookingProviderRequestCard({
       ) : null}
       {reviewAction}
       {cancellationStatus}
-      {cancellationAction}
+      {!initialPaymentReview && request.status !== "expired" ? cancellationAction : null}
       {complaintAction}
 
       <section

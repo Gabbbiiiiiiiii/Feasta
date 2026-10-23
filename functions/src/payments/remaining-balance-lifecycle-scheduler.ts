@@ -66,6 +66,7 @@ export const reconcileRemainingBalanceLifecycle =
 
       retryCount:
         2,
+      maxInstances: 20,
       secrets: [balanceEnforcementSecret],
     },
 

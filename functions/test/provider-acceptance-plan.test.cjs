@@ -19,15 +19,15 @@ function plan(requests, overrides = {}) {
   });
 }
 
-test("pending or failed required providers keep acceptance held and payment locked", () => {
+test("pending or failed siblings never block independent acceptance", () => {
   for (const status of ["pending", "rejected", "expired", "cancelled"]) {
     const requests = [document("request_current", "pending"),
       document("request_accepted", "accepted"), document("request_other", status)];
     const result = plan(requests);
     assert.equal(result.allAccepted, false, status);
-    assert.equal(result.nextStatus, "accepted", status);
-    assert.deepEqual(result.overrides, [{providerRequestId: "request_current", status: "accepted"}]);
-    assert.equal(result.summary.acceptedProviderRequestCount, 2);
+    assert.equal(result.nextStatus, "waiting_for_down_payment", status);
+    assert.deepEqual(result.overrides, [{providerRequestId: "request_current", status: "waiting_for_down_payment"}]);
+    assert.equal(result.summary.acceptedProviderRequestCount, 1);
     if (["rejected", "expired"].includes(status)) {
       assert.equal(result.summary.status, "needs_provider_replacement");
     }
@@ -35,19 +35,17 @@ test("pending or failed required providers keep acceptance held and payment lock
   }
 });
 
-test("last response promotes all held acceptances together with each required payment", () => {
+test("last response leaves every existing sibling acceptance untouched", () => {
   const result = plan([
     document("request_current", "pending"), document("request_accepted", "accepted"),
     document("request_free", "accepted", 0),
   ]);
   assert.equal(result.allAccepted, true);
-  assert.equal(result.summary.status, "waiting_for_down_payment");
-  assert.equal(result.summary.waitingPaymentProviderRequestCount, 2);
-  assert.equal(result.summary.confirmedProviderRequestCount, 1);
+  assert.equal(result.summary.status, "pending_provider_approval");
+  assert.equal(result.summary.waitingPaymentProviderRequestCount, 1);
+  assert.equal(result.summary.confirmedProviderRequestCount, 0);
   assert.deepEqual(result.overrides, [
     {providerRequestId: "request_current", status: "waiting_for_down_payment"},
-    {providerRequestId: "request_accepted", status: "waiting_for_down_payment"},
-    {providerRequestId: "request_free", status: "confirmed"},
   ]);
 });
 
@@ -66,12 +64,13 @@ test("full upfront and partial deposit both wait for the required payment", () =
   assert.notEqual(deposit.overrides[0].status, "confirmed");
 });
 
-test("zero-deposit services also wait for all responses before confirmation", () => {
+test("zero-deposit services confirm independently without a charge", () => {
   assert.equal(plan([document("request_current", "pending", 0),
-    document("request_other", "pending", 0)]).nextStatus, "accepted");
+    document("request_other", "pending", 0)]).nextStatus, "confirmed");
   const result = plan([document("request_current", "pending", 0),
     document("request_other", "accepted", 0)]);
-  assert.equal(result.summary.status, "confirmed");
+  assert.equal(result.nextStatus, "confirmed");
+  assert.equal(result.overrides.length, 1);
 });
 
 test("legacy accepted-or-later siblings retain their existing payment state", () => {
@@ -104,11 +103,11 @@ test("cross-event/customer snapshots, unknown states, and replay plans fail clos
   }
 });
 
-test("invalid sibling financial snapshots cannot become payment-ready or confirmed", () => {
+test("sibling financial amounts are never recalculated or promoted", () => {
   for (const amount of [undefined, null, -1, NaN, Infinity, "20", 101]) {
     const sibling = document("request_other", "accepted");
     sibling.data().downPaymentAmount = amount;
-    assert.throws(() => plan([document("request_current", "pending"), sibling]),
-      {code: "failed-precondition"});
+    assert.deepEqual(plan([document("request_current", "pending"), sibling]).overrides,
+      [{providerRequestId: "request_current", status: "waiting_for_down_payment"}]);
   }
 });

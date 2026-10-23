@@ -246,7 +246,10 @@ function deriveMainEventStatus(
     return "needs_provider_replacement";
   }
 
-  if (counts.inProgress > 0) {
+  // Unresolved assignments retain the overall booking summary while paid
+  // providers fulfill independently. Never make their siblings non-payable.
+  if (counts.inProgress > 0 && counts.pending + counts.accepted +
+    counts.waitingForPayment + counts.paymentProcessing === 0) {
     return "in_progress";
   }
 

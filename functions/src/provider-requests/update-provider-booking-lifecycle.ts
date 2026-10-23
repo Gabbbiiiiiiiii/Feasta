@@ -65,7 +65,6 @@ import {
   authorizeProviderRequest,
 } from "./provider-request-authorization.js";
 import {
-  areAllAssignedProvidersAccepted,
   calculateMainEventRequestSummary,
 } from "./recalculate-main-event-status.js";
 import {
@@ -120,6 +119,7 @@ type LifecycleResult = {
 
 const lifecycleCallableOptions = {
   ...appCheckCallableOptions,
+  maxInstances: 20,
   timeoutSeconds: 30,
 } as const;
 
@@ -435,23 +435,7 @@ export async function executeProviderBookingLifecycle(
             authorized.requestData,
           );
 
-  const currentSummary =
-    calculateMainEventRequestSummary(
-      allRequestsSnapshot.docs,
-      currentMainEventStatus,
-    );
-
-  if (
-    !areAllAssignedProvidersAccepted(
-      currentSummary,
-    )
-  ) {
-    throw new HttpsError(
-      "failed-precondition",
-      "The event cannot start until every assigned provider has accepted the booking request.",
-    );
-  }
-}
+        }
 
         const v3 = authorized.requestData.remainingBalanceTimingSchemaVersion === 3;
         const effectiveStarted = v3 && effectiveBookingStageV3({request: authorized.requestData,
@@ -481,9 +465,6 @@ export async function executeProviderBookingLifecycle(
               throw new HttpsError("failed-precondition", "Refunded or unresolved payments cannot authorize completion.");
             }
             for (const payment of paymentSet.payments) assertCompletionEvidenceClear(payment.data);
-          }
-          if (!areAllAssignedProvidersAccepted(calculateMainEventRequestSummary(allRequestsSnapshot.docs, currentMainEventStatus))) {
-            throw new HttpsError("failed-precondition", "Every assigned provider must accept before service starts.");
           }
         }
         if (targetStatus === "completed") {
@@ -888,8 +869,8 @@ export function assertLifecycleTransition(
   const allowedMainEventStatuses:
     readonly MainEventStatus[] =
       targetStatus === "in_progress"
-        ? ["confirmed", "in_progress"]
-        : ["in_progress"];
+        ? ["pending_provider_approval", "needs_provider_replacement", "waiting_for_down_payment", "confirmed", "in_progress"]
+        : ["pending_provider_approval", "needs_provider_replacement", "waiting_for_down_payment", "in_progress"];
 
   if (
     !allowedMainEventStatuses.includes(
@@ -911,8 +892,8 @@ function assertIdempotentParentStatus(
   const allowedStatuses:
     readonly MainEventStatus[] =
       targetStatus === "in_progress"
-        ? ["in_progress"]
-        : ["in_progress", "completed"];
+        ? ["pending_provider_approval", "needs_provider_replacement", "waiting_for_down_payment", "in_progress"]
+        : ["pending_provider_approval", "needs_provider_replacement", "waiting_for_down_payment", "in_progress", "completed"];
 
   if (
     !allowedStatuses.includes(

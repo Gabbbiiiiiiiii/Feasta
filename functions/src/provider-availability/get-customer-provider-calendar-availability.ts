@@ -57,7 +57,7 @@ export function buildCalendarDates(month: string, providerData: Record<string, u
 }
 
 export const getCustomerProviderCalendarAvailability = onCall(
-  {...appCheckCallableOptions, timeoutSeconds: 30}, async (request) => {
+  {...appCheckCallableOptions, memory: "256MiB", concurrency: 80, timeoutSeconds: 30}, async (request) => {
     const actor = requireAuth(request);
     await requireRole(actor.uid, [USER_ROLES.customer]);
     await enforceCallableRateLimit(request, {scope: "providerAvailability.customerCalendar", limit: 60, windowSeconds: 600});

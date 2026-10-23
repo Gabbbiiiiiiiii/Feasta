@@ -325,7 +325,7 @@ function reconciliationRequired(): HttpsError {
 }
 
 export const approveProviderRequestCancellationRefund = onCall(
-  callableOptions,
+  {...callableOptions, maxInstances: 20},
   async (request): Promise<ApprovalResult> => {
     const actor = requireAuth(request);
     await requireRole(actor.uid, [USER_ROLES.admin]);

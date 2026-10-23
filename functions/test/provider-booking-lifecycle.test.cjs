@@ -153,7 +153,7 @@ test("all completed requests complete the main event", () => {
   assert.equal(summary.completedProviderRequestCount, 2);
 });
 
-test("payment readiness requires every assigned Provider to accept", () => {
+test("aggregate readiness still describes the whole lineup", () => {
   const blockedStatuses = [
     "pending",
     "rejected",
@@ -181,7 +181,7 @@ test("payment readiness requires every assigned Provider to accept", () => {
   }
 });
 
-test("payment readiness accepts all post-acceptance lifecycle states", () => {
+test("aggregate readiness recognizes post-acceptance lifecycle states", () => {
   const summary = calculateMainEventRequestSummary([
     queryDocument(
       "request_accepted",
@@ -274,7 +274,7 @@ test("lifecycle callables preserve atomic side effects", () => {
   assert.match(source, /service_started/u);
   assert.match(source, /refund_eligibility\.stage_advanced/u);
   assert.match(source, /providerRequestIds/u);
-    assert.match(
+    assert.doesNotMatch(
     source,
     /areAllAssignedProvidersAccepted/u,
   );
@@ -349,7 +349,7 @@ test("Start Event callable enforces every guard against isolated in-memory recor
       };
       const message = {future: /has not been reached/, outstanding: /remaining payment/, not_fully_settled: /fully settled/,
         malformed: /fully settled/, locked: /locked by cancellation/, unauthorized: /do not own/,
-        cancelled: /every assigned provider has accepted/, completed: /confirmed provider booking/, in_progress: /already in progress/}[kind];
+        cancelled: /confirmed provider booking/, completed: /confirmed provider booking/, in_progress: /already in progress/}[kind];
       await assert.rejects(markProviderBookingInProgress.run({data: {providerRequestId: "request_test"}}), message, kind);
       assert.equal(writes, 0, kind);
     }

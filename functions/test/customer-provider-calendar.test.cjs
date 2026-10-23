@@ -11,17 +11,30 @@ const provider = {ownerId: "owner_123", verificationStatus: "approved", isActive
 const booking = (status, extra = {}) => ({status, eventDate: new Date("2026-10-19T16:00:00Z"), ...extra});
 const state = (records, settings = {}) => buildCalendarDates("2026-10", {...provider, ...settings}, records, now).find((d) => d.date === "2026-10-20")?.state;
 for (const status of ["confirmed", "in_progress", "completed"]) test(`${status} blocks one Manila date`, () => assert.equal(state([booking(status)]), "booked"));
-for (const status of ["accepted", "waiting_for_down_payment", "payment_processing"]) {
+for (const status of ["accepted", "waiting_for_down_payment"]) {
   test(`${status} active hold blocks; expiry releases`, () => {
     assert.equal(state([booking(status, {expiresAt: new Date(now.getTime() + 1000)})]), "on_hold");
     assert.equal(state([booking(status, {expiresAt: now})]), undefined);
   });
 }
+test("payment_processing retains its hold after expiry for reconciliation", () => {
+  assert.equal(state([booking("payment_processing", {expiresAt: now})]), "on_hold");
+});
 for (const status of ["pending", "rejected", "cancelled", "expired"]) test(`${status} does not occupy`, () => assert.equal(state([booking(status)]), undefined));
 test("accepted fallback hold expires", () => {
   assert.equal(state([booking("accepted", {acceptedAt: now})]), "on_hold");
   assert.equal(state([booking("accepted", {acceptedAt: new Date(now.getTime()-86400000)})]), undefined);
 });
+test("unresolved payment capacity remains on hold after checkout expiry without leaking evidence", () => {
+  for (const extra of [{status: "payment_processing"}, {status: "waiting_for_down_payment", paymentId: "PRIVATE"},
+    {status: "accepted", initialPaymentDispatchReservedAt: now}]) {
+    const record = booking(extra.status, {...extra, expiresAt: new Date(now.getTime()-1)});
+    const dates = buildCalendarDates("2026-10", provider, [record], now);
+    assert.equal(dates.find(d => d.date === "2026-10-20").state, "on_hold");
+    assert.ok(!JSON.stringify(dates).includes("PRIVATE"));
+  }
+});
+
 test("manual blocks, closed days, lead time and Manila past days are unavailable", () => {
   assert.equal(state([], {unavailableDates: ["2026-10-20"]}), "unavailable");
   assert.equal(state([], {operatingDays: ["monday"]}), "unavailable");

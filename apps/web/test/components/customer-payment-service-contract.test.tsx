@@ -110,7 +110,7 @@ describe("customer payment service contract", () => {
 
   it("treats browser return params as context rather than payment truth", () => {
     expect(page).toContain(
-      "(await searchParams).payment",
+      "params.payment",
     );
     expect(page).toContain('value === "success"');
     expect(page).toContain('value === "cancelled"');
@@ -146,7 +146,7 @@ describe("customer payment service contract", () => {
       "isCanonicalOwnedProviderRequest(",
     );
     expect(service).toContain(
-      "areAllAssignedProvidersAcceptedForCheckout({",
+      "areCanonicalProviderRequestsValidForCheckout({",
     );
     expect(service).toContain(
       "providerRequestIds.length === 0",
@@ -157,18 +157,10 @@ describe("customer payment service contract", () => {
     expect(service).toContain(
       "input.providerRequests.length !== providerRequestIds.length",
     );
-    expect(service).toContain('"accepted",');
+    expect(service).toContain("strictProviderRequestStatus(data.status)");
+    expect(service).not.toContain("acceptedOrLaterStatuses");
     expect(service).toContain(
-      '"waiting_for_down_payment",',
-    );
-    expect(service).toContain(
-      '"payment_processing",',
-    );
-    expect(service).toContain('"confirmed",');
-    expect(service).toContain('"in_progress",');
-    expect(service).toContain('"completed",');
-    expect(service).toContain(
-      "allAssignedProvidersAccepted &&",
+      "canonicalProviderRequestsValid &&",
     );
     expect(service).toContain(
       'payment.currency !== "PHP"',
@@ -188,9 +180,7 @@ describe("customer payment service contract", () => {
     expect(service).toContain(
       "Math.round(option.amount * 100) === amountInCentavos",
     );
-    expect(service).toContain(
-      '"waiting_for_down_payment",',
-    );
+    expect(service).toContain("customerBookingCheckoutOptions(");
     expect(action).toContain(
       "isCustomerPaymentReturnUnavailableError",
     );
@@ -217,7 +207,7 @@ describe("customer payment service contract", () => {
     );
   });
 
-  it("rechecks all assigned providers before payment-return retry", () => {
+  it("rechecks canonical relationships before selected-provider payment retry", () => {
     expect(service).toContain(
       "assignedProviderRequestSnapshots",
     );
@@ -225,13 +215,13 @@ describe("customer payment service contract", () => {
       "canonicalProviderRequestIds.map(",
     );
     expect(service).toContain(
-      "allAssignedProvidersAccepted",
+      "canonicalProviderRequestsValid",
     );
     expect(service).toContain(
       "canStartCheckout:",
     );
     expect(service).toContain(
-      "allAssignedProvidersAccepted &&",
+      "canonicalProviderRequestsValid &&",
     );
     expect(service).toContain(
       "customerBookingCheckoutOptions(",

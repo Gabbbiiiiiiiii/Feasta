@@ -167,6 +167,16 @@ export function bookingConfirmationPresentation(
 export function providerPaymentPresentation(
   request: CustomerBookingProviderRequest,
 ): CustomerProviderPaymentPresentation {
+  if (request.lifecycle?.initialPaymentExpired && request.status === "expired") return {
+    label: "Payment expired — Submit a new booking request", status: "expired",
+    description: "The previous reservation is no longer valid. A new request is subject to current availability, prices and policies.",
+    showPaidAt: false, showRefundedAt: false,
+  };
+  if (request.lifecycle?.initialPaymentReview && ["accepted", "waiting_for_down_payment", "payment_processing"].includes(request.status)) return {
+    label: "Payment verification required — Contact support", status: "pending",
+    description: "FEASTA must verify the original reservation and payment records. Do not start another payment for this request.",
+    showPaidAt: false, showRefundedAt: false,
+  };
   const partialUpfront = hasPartialUpfrontPayment({
     amount: request.amount,
     upfrontAmount: request.downPaymentAmount,
@@ -276,6 +286,12 @@ export function providerPaymentPresentation(
       showRefundedAt: false,
     };
   }
+
+  if (request.status === "accepted") return {
+    label: "Acceptance verification pending", status: "accepted",
+    description: "The provider must verify the original acceptance before payment can become available. An elapsed reservation cannot be renewed.",
+    showPaidAt: false, showRefundedAt: false,
+  };
 
   return {
     label: "Payment not yet required",

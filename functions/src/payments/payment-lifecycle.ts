@@ -137,7 +137,8 @@ export function checkoutEligibilityReason(
     );
 
   if ((input.payment?.paymentChoice ?? input.paymentChoice) === "remaining_balance") {
-    if (mainEventStatus !== "confirmed") return "main_event_not_payment_eligible";
+    if (!mainEventStatus || !(mainEventStatus === "confirmed" ||
+      PAYMENT_COMPATIBLE_MAIN_EVENT_STATUSES.has(mainEventStatus))) return "main_event_not_payment_eligible";
     if (requestStatus !== "confirmed") return "provider_request_not_payment_eligible";
     if (!input.payment) return null;
     const status = parsePaymentStatus(input.payment.status);
@@ -257,8 +258,8 @@ export function webhookLifecycleConflictReason(
       );
 
     if (
-      balanceMainEventStatus !==
-        "confirmed"
+      !balanceMainEventStatus || !(balanceMainEventStatus === "confirmed" ||
+        PAYMENT_COMPATIBLE_MAIN_EVENT_STATUSES.has(balanceMainEventStatus))
     ) {
       return "main_event_lifecycle_conflict";
     }

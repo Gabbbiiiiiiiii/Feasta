@@ -563,6 +563,8 @@ export const MAIN_EVENT_STATUS_TRANSITIONS = {
   ],
 
   pending_provider_approval: [
+    // A paid sibling may already be serving when the final assignment resolves.
+    "in_progress",
     "needs_provider_replacement",
     "waiting_for_down_payment",
     "confirmed",
@@ -578,6 +580,8 @@ export const MAIN_EVENT_STATUS_TRANSITIONS = {
   ],
 
   waiting_for_down_payment: [
+    // Independent fulfillment may precede the last sibling's verified payment.
+    "in_progress",
     "needs_provider_replacement",
     "confirmed",
     "cancelled",

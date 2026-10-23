@@ -1,4 +1,5 @@
 import "server-only";
+import {initialPaymentReviewApplies} from "@/lib/presentation/booking-lifecycle";
 import {balanceEnforcementBlocksActions} from "@/lib/payments/remaining-balance-enforcement";
 
 import {createHash} from "node:crypto";
@@ -22,6 +23,8 @@ export function customerBookingCheckoutOptions(
   if (snapshot?.schemaVersion !== 1 || snapshot.currency !== "PHP" ||
     !centavos(gross) || gross <= 0 || !centavos(upfront) || !centavos(balance) ||
     upfront + balance !== gross || request.activeCancellationRequestId != null ||
+    initialPaymentReviewApplies(request) || request.lifecycleReconciliationRequired === true ||
+    request.approvedCancellationRequestId != null || request.refundExecutionLock != null ||
     request.reconciliationRequired === true) return [];
 
   const refundState = record(request.refundEligibilityState);
@@ -56,7 +59,8 @@ export function customerBookingCheckoutOptions(
   if (request.paymentId !== request.initialPaymentId &&
     (balanceId == null || request.paymentId !== balanceId)) return [];
 
-  if (request.status === "confirmed" && mainEventStatus === "confirmed" &&
+  if (request.status === "confirmed" && ["pending_provider_approval", "needs_provider_replacement", "waiting_for_down_payment", "confirmed"]
+      .includes(String(mainEventStatus)) &&
     choice === "minimum" && request.settlementStatus === "deposit_settled" &&
     request.grossSettledAmountInCentavos === upfront &&
     request.outstandingAmountInCentavos === balance && balance > 0 &&

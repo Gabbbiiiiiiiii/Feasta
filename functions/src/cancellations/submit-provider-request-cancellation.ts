@@ -90,6 +90,7 @@ type CancellationResult = {
 export const submitProviderRequestCancellation = onCall(
   {
     ...appCheckCallableOptions,
+    maxInstances: 20,
     timeoutSeconds: 30,
   },
   async (request): Promise<CancellationResult> => {

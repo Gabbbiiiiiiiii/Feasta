@@ -16,6 +16,7 @@ export function useProviderBookingPresentation(booking: ProviderBooking | null) 
   const policy = booking?.bookingPolicy;
   if (!booking || !policy) return booking;
   const status = ["completed", "cancelled", "expired"].includes(booking.mainEventStatus) ? booking.mainEventStatus : booking.providerRequestStatus;
+  if (status === "expired" && data?.initialPaymentExpired) return booking;
   const label = lifecycleLabel(status, data, now);
   if (!label) return booking;
   const awaiting = label === AWAITING_COMPLETION_LABEL;
@@ -27,9 +28,13 @@ export function useProviderBookingPresentation(booking: ProviderBooking | null) 
     label, completionHold, endedReview, explanation: endedReview ? completionHold ? ENDED_REVIEW_MESSAGE : BOOKING_REVIEW_MESSAGE : undefined,
     readyToComplete: awaiting && booking.canCompleteEvent !== false}};
 }
-export function ProviderBookingStatus({booking}: {booking: ProviderBooking; detailed?: boolean}) {
+export function ProviderBookingStatus({booking, detailed = false}: {booking: ProviderBooking; detailed?: boolean}) {
   const data = evidence(booking);
   const now = useLifecycleNow(data.end);
   const status = ["completed", "cancelled", "expired"].includes(booking.mainEventStatus) ? booking.mainEventStatus : booking.providerRequestStatus;
-  return <StatusBadge status={status} label={lifecycleLabel(status, data, now) ?? (status === "pending" ? "Pending request" : undefined)} />;
+  const badge = <StatusBadge status={status} label={lifecycleLabel(status, data, now) ?? (status === "pending" ? "Pending request" : undefined)} />;
+  if (detailed && status === "expired" && data.initialPaymentExpired) return <span className="grid gap-1">
+    {badge}<span className="text-xs text-muted-foreground">The temporary reservation has been released.</span>
+  </span>;
+  return badge;
 }

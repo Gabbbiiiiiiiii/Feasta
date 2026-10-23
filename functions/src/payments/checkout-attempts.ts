@@ -1,3 +1,4 @@
+import {requireInitialPaymentReservation} from "./initial-payment-reservation.js";
 import {randomUUID, createHash} from "node:crypto";
 import {remainingBalanceHardDeadline} from "./canonical-balance-timing.js";
 import {readBalanceDeadlineAttempt} from "./remaining-balance-enforcement-reader.js";
@@ -14,7 +15,7 @@ import {createPayMongoCheckout} from "./paymongo-client.js";
 
 type CheckoutInput = Parameters<typeof createPayMongoCheckout>[0];
 
-/** Called only after the existing ownership, amount and ALL-provider gates.
+/** Called only after the existing ownership, amount and selected-provider gates.
  * The normal checkout persistence transaction still revalidates those gates.
  * Recording gateway identity here must survive failure of that later transaction.
  */
@@ -97,6 +98,11 @@ export async function createDurableCheckout(
       }
     } else if (attempts.length > 0 || payment.currentCheckoutAttemptId) {
       throw reconciliationRequired();
+    }
+    if (payment.paymentChoice !== "remaining_balance") {
+      const request = (await transaction.get(db.collection("providerRequests").doc(payment.providerRequestId))).data();
+      if (!request || request.status !== "waiting_for_down_payment") throw reconciliationRequired();
+      await requireInitialPaymentReservation(transaction, payment.providerRequestId, request, new Date());
     }
     if (deadlineReached) throw remainingBalanceDeadlinePassed();
     const firstDispatchAt = Timestamp.now();

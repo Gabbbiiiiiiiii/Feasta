@@ -494,8 +494,8 @@ export async function getCustomerPaymentReturnDetails(
         )
       : [];
 
-  const allAssignedProvidersAccepted =
-    areAllAssignedProvidersAcceptedForCheckout({
+  const canonicalProviderRequestsValid =
+    areCanonicalProviderRequestsValidForCheckout({
       bookingId: mainEventId,
       customerId: customer.uid,
       bookingData: mainEvent,
@@ -560,7 +560,7 @@ export async function getCustomerPaymentReturnDetails(
     paymentStatus,
     providerRequestStatus,
     canStartCheckout:
-      allAssignedProvidersAccepted &&
+      canonicalProviderRequestsValid &&
       ["pending", "failed", "expired"].includes(paymentStatus) &&
       customerBookingCheckoutOptions(providerRequestId, providerRequest, mainEventStatus)
         .some((option) => option.choice === paymentChoice && Math.round(option.amount * 100) === amountInCentavos),
@@ -868,7 +868,7 @@ async function loadDocuments(
   return result;
 }
 
-function areAllAssignedProvidersAcceptedForCheckout(input: {
+function areCanonicalProviderRequestsValidForCheckout(input: {
   bookingId: string;
   customerId: string;
   bookingData: DocumentData;
@@ -889,7 +889,8 @@ function areAllAssignedProvidersAcceptedForCheckout(input: {
   if (
     providerRequestIds.length === 0 ||
     providerRequestIds.length !== rawProviderRequestIds.length ||
-    input.providerRequests.length !== providerRequestIds.length
+    input.providerRequests.length !== providerRequestIds.length ||
+    new Set(input.providerRequests.map((snapshot) => snapshot.id)).size !== providerRequestIds.length
   ) {
     return false;
   }
@@ -897,15 +898,6 @@ function areAllAssignedProvidersAcceptedForCheckout(input: {
   const canonicalProviderRequestIds =
     new Set(providerRequestIds);
 
-  const acceptedOrLaterStatuses =
-    new Set<ProviderRequestStatus>([
-      "accepted",
-      "waiting_for_down_payment",
-      "payment_processing",
-      "confirmed",
-      "in_progress",
-      "completed",
-    ]);
 
   return input.providerRequests.every((snapshot) => {
     if (!snapshot.exists) return false;
@@ -933,8 +925,7 @@ function areAllAssignedProvidersAcceptedForCheckout(input: {
     const status = strictProviderRequestStatus(data.status);
 
     return (
-      status !== null &&
-      acceptedOrLaterStatuses.has(status)
+      status !== null
     );
   });
 }
@@ -966,8 +957,8 @@ function mapPaymentDocument(
   const paymentChoice = parseCustomerPaymentChoice(data.paymentChoice);
   const ownsRequest = providerRequestData.customerId === customerId;
 
-  const allAssignedProvidersAccepted =
-    areAllAssignedProvidersAcceptedForCheckout({
+  const canonicalProviderRequestsValid =
+    areCanonicalProviderRequestsValidForCheckout({
       bookingId,
       customerId,
       bookingData,
@@ -1045,7 +1036,7 @@ function mapPaymentDocument(
     status,
     canStartCheckout:
       ownsRequest &&
-      allAssignedProvidersAccepted &&
+      canonicalProviderRequestsValid &&
       ["pending", "failed", "expired"].includes(status) &&
       providerRequestData.paymentId === document.id &&
       customerBookingCheckoutOptions(providerRequestId, providerRequestData, bookingData.status)

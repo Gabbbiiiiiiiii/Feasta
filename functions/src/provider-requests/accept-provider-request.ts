@@ -1,3 +1,6 @@
+import {existingAcceptancePlan} from "./existing-acceptance-plan.js";
+import {requireInitialPaymentReservation} from "../payments/initial-payment-reservation.js";
+import {readTrustedProviderRequestPaymentSetInTransaction} from "../payments/provider-request-payment-reader.js";
 import {loadBookingPaymentPolicySnapshot} from "../bookings/load-booking-payment-policy.js";
 import {bookingPolicyTimingV3, frozenBookingPolicyTimingV3, balanceStatusV3} from "../bookings/booking-policy-v3.js";
 import {requireBookingPaymentPolicySnapshot} from "../bookings/booking-payment-eligibility-policy.js";
@@ -78,6 +81,9 @@ import {
 export const acceptProviderRequest = onCall(
   {
     ...appCheckCallableOptions,
+    maxInstances: 20,
+    memory: "256MiB",
+    concurrency: 80,
     timeoutSeconds: 30,
   },
   async (request) => {
@@ -305,7 +311,6 @@ export const acceptProviderRequest = onCall(
             });
 
           if (
-            authorized.status === "accepted" ||
             authorized.status ===
               "waiting_for_down_payment" ||
             authorized.status ===
@@ -319,9 +324,7 @@ export const acceptProviderRequest = onCall(
             };
           }
 
-          requirePendingProviderRequest(
-            authorized,
-          );
+          if (authorized.status !== "accepted") requirePendingProviderRequest(authorized);
 
           requireProviderResponseParentStatus(
             core.mainEventStatus,
@@ -373,6 +376,35 @@ export const acceptProviderRequest = onCall(
                 core.mainEventData,
               now: acceptanceTime,
             });
+
+          if (authorized.status === "accepted") {
+            if (authorized.requestData.providerOwnerId !== authorized.providerOwnerId) {
+              throw new HttpsError("failed-precondition", "Historical provider ownership requires reconciliation.");
+            }
+            const original = existingAcceptancePlan(authorized.requestData, acceptanceTime);
+            const payments = await readTrustedProviderRequestPaymentSetInTransaction({transaction,
+              providerRequestId, providerRequest: authorized.requestData, mainEventId,
+              customerId: authorized.customerId, providerId, mainEvent: core.mainEventData,
+              invalid: () => {throw new HttpsError("failed-precondition", "Historical payment authority requires reconciliation.");}});
+            const history = await transaction.get(db.collection("payments").where("providerRequestId", "==", providerRequestId));
+            if (payments.payments.length || !history.empty) {
+              throw new HttpsError("failed-precondition", "Historical payments require reconciliation.");
+            }
+            await requireInitialPaymentReservation(transaction, providerRequestId,
+              {...authorized.requestData, expiresAt: original.expiresAt}, acceptanceTime);
+            const plan = providerAcceptancePlan({mainEventId, mainEvent: core.mainEventData,
+              mainEventStatus: core.mainEventStatus, providerRequestId, requests: allRequestsSnapshot.docs,
+              allowExistingAcceptance: true});
+            transaction.update(providerReference, {availabilityReservationUpdatedAt: serverTimestamp()});
+            transaction.update(providerRequestReference, {status: plan.nextStatus,
+              expiresAt: plan.nextStatus === "waiting_for_down_payment" ? original.expiresAt : null,
+              ...(plan.nextStatus === "confirmed" ? {confirmedAt: serverTimestamp()} : {}), updatedAt: serverTimestamp()});
+            transaction.update(mainEventReference, {...plan.summary, updatedAt: serverTimestamp()});
+            writeAuditLogInTransaction(transaction, {actorId: actor.uid, actorRole: "provider",
+              action: "provider_request.acceptance_recovered", targetCollection: "providerRequests", targetId: providerRequestId,
+              before: {status: "accepted"}, after: {status: plan.nextStatus}, metadata: {mainEventId, providerId}});
+            return {providerRequestId, mainEventId, status: plan.nextStatus, accepted: false};
+          }
 
           const financialSnapshot =
             buildProviderRequestFinancialSnapshot(
@@ -526,6 +558,7 @@ export const acceptProviderRequest = onCall(
               existingBookings:
                 activeRequestsSnapshot.docs
                   .map((document) => ({
+                    ...document.data(),
                     providerRequestId:
                       document.id,
                     status:
@@ -558,7 +591,7 @@ export const acceptProviderRequest = onCall(
             );
           }
 
-          const {nextStatus, summary, overrides} = providerAcceptancePlan({
+          const {nextStatus, summary} = providerAcceptancePlan({
             mainEventId,
             mainEvent: core.mainEventData,
             mainEventStatus: core.mainEventStatus,
@@ -566,7 +599,7 @@ export const acceptProviderRequest = onCall(
             requests: allRequestsSnapshot.docs,
           });
           // Reuse the existing payment expiry field, starting only when the
-          // entire lineup is ready and never extending beyond event start.
+          // selected provider accepts, never extending beyond event start.
           const eventStart = scheduledEventStart(acceptanceSnapshot.eventDate.toDate(), acceptanceSnapshot.eventTime);
           const legacyPaymentDeadline = Timestamp.fromMillis(Math.min(
             acceptanceTime.getTime() + PROVIDER_PAYMENT_HOLD_WINDOW_MS,
@@ -580,23 +613,6 @@ export const acceptProviderRequest = onCall(
           transaction.update(providerReference, {
             availabilityReservationUpdatedAt: serverTimestamp(),
           });
-
-          for (const override of overrides) {
-            if (override.providerRequestId === providerRequestId) continue;
-            const related = allRequestsSnapshot.docs.find((document) => document.id === override.providerRequestId)?.data();
-            const relatedDeadline = related?.remainingBalanceTimingSchemaVersion === 3
-              ? Timestamp.fromMillis(Math.min(legacyPaymentDeadline.toMillis(), frozenBookingPolicyTimingV3(related).hardPaymentDeadlineAt.getTime()))
-              : legacyPaymentDeadline;
-            transaction.update(
-              db.collection("providerRequests").doc(override.providerRequestId),
-              {
-                status: override.status,
-                expiresAt: override.status === "waiting_for_down_payment" ? relatedDeadline : null,
-                confirmedAt: override.status === "confirmed" ? serverTimestamp() : null,
-                updatedAt: serverTimestamp(),
-              },
-            );
-          }
 
           transaction.update(
             providerRequestReference,
@@ -728,12 +744,9 @@ export const acceptProviderRequest = onCall(
                 "Provider Request Accepted",
 
               description:
-                nextStatus === "accepted"
-                  ? "A provider accepted the request. Waiting for the remaining required providers."
-                  : summary.status ===
-                  "waiting_for_down_payment"
-                  ? "All required providers accepted. Down payment is now available."
-                  : "All required providers accepted and the booking is confirmed.",
+                nextStatus === "waiting_for_down_payment"
+                  ? "This provider accepted. Payment for this provider is now available."
+                  : "This provider accepted and its booking is confirmed.",
 
               providerRequestId,
               providerId,
@@ -755,13 +768,9 @@ export const acceptProviderRequest = onCall(
                 "Provider Request Accepted",
 
               message:
-                nextStatus === "accepted"
-                  ? "A provider accepted your request. " +
-                    "Payment stays locked until all required providers are ready."
-                  : summary.status ===
-                  "waiting_for_down_payment"
-                  ? "All required providers accepted. Complete the required down payments."
-                  : "All required providers accepted and your booking is confirmed.",
+                nextStatus === "waiting_for_down_payment"
+                  ? "This provider accepted your request. You can choose to pay this provider."
+                  : "This provider accepted and its booking is confirmed.",
 
               type: "booking",
 

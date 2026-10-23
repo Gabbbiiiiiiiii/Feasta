@@ -1,3 +1,4 @@
+import {requireInitialPaymentReservation} from "./initial-payment-reservation.js";
 import {enforceInitialPaymentEligibility} from "./initial-payment-eligibility.js";
 import {readBalanceDeadlineAttempt} from "./remaining-balance-enforcement-reader.js";
 import {remainingBalanceDeadlinePassed} from "./remaining-balance-enforcement-domain.js";
@@ -14,7 +15,6 @@ import {requireActiveProviderRequest, requireProviderRequestDocuments}
 import {createDurableCheckout} from "./checkout-attempts.js";
 
 import {
-  areAllAssignedProvidersAccepted,
   calculateMainEventRequestSummary,
 } from "../provider-requests/recalculate-main-event-status.js";
 import {
@@ -109,6 +109,9 @@ type PaymentSessionResult = {
 export const createPaymentSession = onCall(
   {
     ...appCheckCallableOptions,
+    maxInstances: 20,
+    memory: "256MiB",
+    concurrency: 80,
     secrets: [payMongoSecretKey],
     timeoutSeconds: 30,
   },
@@ -317,6 +320,8 @@ export async function createPaymentSessionForCustomer(
           "You do not own this provider request.",
         );
       }
+
+      requireSelectedRequestPaymentSafety(providerRequest);
 
       const cancellationEvidence =
         classifyProviderRequestRefundPolicyEvidence(
@@ -582,24 +587,9 @@ export async function createPaymentSessionForCustomer(
         );
       }
 
-      const providerRequestSummary =
-        calculateMainEventRequestSummary(
-          relationships.activeRequests,
-          currentMainEventStatus,
-        );
-
-      if (
-        !areAllAssignedProvidersAccepted(
-          providerRequestSummary,
-        )
-      ) {
-        throw new HttpsError(
-          "failed-precondition",
-          "Down payment is unavailable until every " +
-          "assigned provider has accepted the booking request.",
-        );
+      if (paymentChoice !== "remaining_balance" && !existing) {
+        await requireInitialPaymentReservation(transaction, providerRequestId, providerRequest, new Date());
       }
-
 
       const amountInCentavos =
         obligation.amountInCentavos;
@@ -782,6 +772,10 @@ export async function createPaymentSessionForCustomer(
 
             initialPaymentSelectedAt:
               selectionTimestamp,
+            // Sticky evidence, committed before any durable attempt or gateway call.
+            ...(providerRequest.initialPaymentWriteProtocolVersion === 1 ? {
+              initialPaymentDispatchReservedAt: providerRequest.initialPaymentDispatchReservedAt ?? selectionTimestamp,
+            } : {}),
 
             /*
              * Settlement identity and financial progress are
@@ -1238,12 +1232,18 @@ async function persistCheckout(
       const provider =
         providerSnapshot.data() ?? {};
 
+      requireSelectedRequestPaymentSafety(providerRequest);
+      const choice = parseCustomerPaymentChoice(payment.paymentChoice);
+      if (choice) enforceInitialPaymentEligibility(providerRequest, choice);
+      const payout = await transaction.get(db.collection("providerPaymentAccounts").doc(input.providerId));
+      if (providerPayoutReadinessReason({payoutSetupRequired: true, providerId: input.providerId,
+        account: payout.exists ? payout.data() ?? {} : null})) throw providerUnavailable();
+      const cancellation = classifyProviderRequestRefundPolicyEvidence(providerRequest);
+      if (cancellation.status === "invalid" || (cancellation.status === "policy_backed"
+        ? requireRefundEligibilityState(providerRequest).activeCancellationRequestId
+        : legacyActiveCancellationRequestId(providerRequest)) !== null) throw invalidLinkage();
+
       if (payment.paymentChoice === "remaining_balance") {
-        const evidence = classifyProviderRequestRefundPolicyEvidence(providerRequest);
-        if (evidence.status === "invalid" ||
-          (evidence.status === "policy_backed"
-            ? requireRefundEligibilityState(providerRequest).activeCancellationRequestId
-            : legacyActiveCancellationRequestId(providerRequest)) !== null) throw invalidLinkage();
         const paymentSet = await readTrustedProviderRequestPaymentSetInTransaction({
           transaction, providerRequestId: input.providerRequestId, providerRequest,
           mainEventId: input.bookingId, customerId: input.customerId,
@@ -1351,6 +1351,10 @@ async function persistCheckout(
         );
       }
 
+      if (payment.paymentChoice !== "remaining_balance") {
+        await requireInitialPaymentReservation(transaction, input.providerRequestId, providerRequest, new Date());
+      }
+
       if (payment.status === "processing") {
         if (!validStoredCheckoutReason(payment)) {
           return payment.checkoutUrl as string;
@@ -1369,22 +1373,6 @@ async function persistCheckout(
         );
       }
 
-      const providerRequestSummary =
-        calculateMainEventRequestSummary(
-          relationships.activeRequests,
-          currentMainEventStatus,
-        );
-
-      if (
-        !areAllAssignedProvidersAccepted(
-          providerRequestSummary,
-        )
-      ) {
-        throw new HttpsError(
-          "failed-precondition",
-          "Payment eligibility changed while checkout was created.",
-        );
-      }
 
       const summary =
         payment.paymentChoice === "remaining_balance" ? null : calculateMainEventRequestSummary(
@@ -1727,5 +1715,13 @@ function rejectUnknownFields(
       "invalid-argument",
       "The payment request contains unsupported fields.",
     );
+  }
+}
+
+function requireSelectedRequestPaymentSafety(request: Readonly<Record<string, unknown>>): void {
+  if ((request.initialPaymentReview != null && ["accepted", "waiting_for_down_payment", "payment_processing"].includes(String(request.status))) ||
+    request.reconciliationRequired === true || request.lifecycleReconciliationRequired === true ||
+    request.approvedCancellationRequestId != null || request.refundExecutionLock != null) {
+    throw new HttpsError("failed-precondition", "The selected request requires cancellation or payment reconciliation.");
   }
 }
