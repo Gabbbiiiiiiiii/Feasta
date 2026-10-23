@@ -122,6 +122,88 @@ describe("customer marketplace header", () => {
     expect(screen.getByRole("dialog", {name: "Customer login"})).toHaveAttribute("data-return-to", "/customer/providers?service=catering");
   });
 
+  it("displays the FEASTA finder hint below search and opens the existing finder", () => {
+    render(
+      <CustomerMarketplaceHeader
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+      />,
+    );
+
+    const nav = screen.getByRole("navigation", {
+      name: "Marketplace sections",
+    });
+
+    const hint = within(nav).getByRole("button", {
+      name: "Plan your event here!",
+    });
+
+    expect(hint).toBeVisible();
+    expect(hint).toHaveClass("absolute");
+    expect(hint).toHaveClass("top-[calc(100%+0.8rem)]");
+
+    const services = within(nav).getByRole("link", {
+      name: "Event Services",
+    });
+
+    const packages = within(nav).getByRole("link", {
+      name: "Packages",
+    });
+
+    expect(services).toHaveAttribute("href", "/customer/providers");
+    expect(packages).toHaveAttribute("href", "/customer/packages");
+
+    // Clicking the bubble opens the finder and hides the bubble.
+    fireEvent.click(hint);
+
+    expect(
+      within(nav).queryByRole("button", {
+        name: "Plan your event here!",
+      }),
+    ).not.toBeInTheDocument();
+
+    expect(
+      screen.getByRole("search", {name: "Event Finder"}),
+    ).toBeInTheDocument();
+
+    // Clicking X closes the finder and restores the bubble.
+    fireEvent.click(
+      within(nav).getByRole("button", {
+        name: "Close Event Finder",
+      }),
+    );
+
+    expect(
+      within(nav).getByRole("button", {
+        name: "Plan your event here!",
+      }),
+    ).toBeVisible();
+
+    // Clicking the search icon also hides the bubble.
+    fireEvent.click(
+      within(nav).getByRole("button", {
+        name: "Open Event Finder",
+      }),
+    );
+
+    expect(
+      within(nav).queryByRole("button", {
+        name: "Plan your event here!",
+      }),
+    ).not.toBeInTheDocument();
+
+    // Closing through the search icon restores it again.
+    fireEvent.click(
+      within(nav).getByRole("button", {
+        name: "Close Event Finder",
+      }),
+    );
+
+    expect(
+      within(nav).getByRole("button", {
+        name: "Plan your event here!",
+      }),
+    ).toBeVisible();
+  });
   it("opens with the keyboard, exposes labeled fields, and closes on Escape with focus returned", async () => {
     const user = userEvent.setup();
     render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);

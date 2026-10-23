@@ -8,6 +8,7 @@ import {
   MessageSquareText,
   Search,
   Settings,
+  Sparkles,
   X,
 } from "lucide-react";
 import Image from "next/image";
@@ -246,21 +247,45 @@ function MarketplaceNavigationContent({
             </Link>
           );
         })}
-        <button
-          ref={searchButton}
-          type="button"
-          aria-label={open ? "Close Event Finder" : "Open Event Finder"}
-          title={open ? "Close Event Finder" : "Open Event Finder"}
-          aria-expanded={open}
-          aria-controls="marketplace-event-finder"
-          onClick={() => setOpen((current) => !current)}
-          className={cn(
-            "ml-1 grid size-10 shrink-0 place-items-center rounded-xl transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transition-none",
-            open ? "bg-feasta-surface-soft text-feasta-text-secondary hover:text-primary-strong" : "text-feasta-text-secondary hover:bg-feasta-surface-soft hover:text-primary-strong",
+        <div className="relative ml-1 shrink-0">
+          <button
+            ref={searchButton}
+            type="button"
+            aria-label={open ? "Close Event Finder" : "Open Event Finder"}
+            title={open ? "Close Event Finder" : "Open Event Finder"}
+            aria-expanded={open}
+            aria-controls="marketplace-event-finder"
+            onClick={() => setOpen((current) => !current)}
+            className={cn(
+              "grid size-10 shrink-0 place-items-center rounded-xl border border-transparent bg-white shadow-sm transition-[background-color,color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transition-none",
+              open
+                ? "bg-primary-tint text-primary-strong"
+                : "text-feasta-text-secondary hover:bg-primary-tint hover:text-primary-strong",
+            )}
+          >
+            {open
+              ? <X aria-hidden="true" className="size-[18px]" />
+              : <Search aria-hidden="true" className="size-[18px]" />}
+          </button>
+
+          {!open && (
+            <button
+              type="button"
+              onClick={() => setOpen(true)}
+              className="absolute left-[calc(50%+4.25rem)] -translate-x-1/2 top-[calc(100%+0.8rem)] z-50 hidden max-w-[min(20rem,calc(100vw-2rem))] items-center gap-2.5 whitespace-nowrap rounded-full border border-emerald-200 bg-white px-4 py-3 text-sm font-bold text-primary-strong shadow-[0_14px_34px_rgba(3,72,52,0.12)] transition-[background-color,transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:bg-primary-tint hover:shadow-[0_18px_38px_rgba(3,72,52,0.16)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transform-none motion-reduce:transition-none md:inline-flex"
+            >
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute -top-[7px] left-[30px] size-3 rotate-45 border-l border-t border-emerald-200 bg-white"
+              />
+              <Sparkles
+                aria-hidden="true"
+                className="size-5 shrink-0 text-emerald-500"
+              />
+              <span>Plan your event here!</span>
+            </button>
           )}
-        >
-          {open ? <X aria-hidden="true" className="size-[18px]" /> : <Search aria-hidden="true" className="size-[18px]" />}
-        </button>
+        </div>
       </nav>
       <div
         id="marketplace-event-finder"
@@ -287,10 +312,10 @@ function MarketplaceNavigationContent({
 
 function marketplaceNavigationClass(active: boolean): string {
   return cn(
-    "inline-flex min-h-10 shrink-0 items-center rounded-full px-4 text-sm font-bold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
+    "inline-flex min-h-10 shrink-0 items-center rounded-full border border-transparent px-4 text-sm font-bold transition-[background-color,color,box-shadow] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none",
     active
-      ? "bg-accent text-primary"
-      : "text-foreground hover:bg-accent hover:text-link",
+      ? "bg-primary-tint text-primary-strong shadow-[0_3px_12px_rgba(3,72,52,0.06)]"
+      : "bg-white text-foreground hover:bg-primary-tint hover:text-primary-strong",
   );
 }
 
