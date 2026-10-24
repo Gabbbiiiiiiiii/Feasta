@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => ({
   redirectCheckout: vi.fn(),
   openChat: vi.fn(),
   push: vi.fn(),
+  refresh: vi.fn(),
+  live: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
   submitReview: vi.fn(),
@@ -33,7 +35,14 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   notFound: mocks.notFound,
-  useRouter: () => ({push: mocks.push}),
+  useRouter: () => ({push: mocks.push, refresh: mocks.refresh}),
+}));
+
+vi.mock("@/lib/customer/bookings/use-booking-changes", () => ({
+  useBookingChanges: (bookings: CustomerBooking[], refresh: () => Promise<void>, blocked: boolean) => {
+    mocks.live(bookings, refresh, blocked);
+    return {unavailable: false, retry: () => {}};
+  },
 }));
 
 vi.mock("@/lib/customer/bookings/customer-booking-service", () => ({
@@ -153,6 +162,15 @@ describe("customer booking dedicated detail page", () => {
       providerRequestId: "request-1",
       cancellation: null,
     });
+  });
+
+  it("refreshes the server-rendered details and timeline only when signaled", async () => {
+    render(<CustomerBookingDetailPage result={detailResult()} />);
+    expect(mocks.refresh).not.toHaveBeenCalled();
+    const callback = mocks.live.mock.calls.at(-1)![1];
+    await act(async () => { await callback(true); });
+    expect(mocks.refresh).toHaveBeenCalledOnce();
+    expect(mocks.live.mock.calls[0][0][0].id).toBe("owned-booking-001");
   });
 
   it("shows a prospective balance inside deposit checkout before any payment", () => {

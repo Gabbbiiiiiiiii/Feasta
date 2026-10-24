@@ -15,7 +15,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import {useRouter} from "next/navigation";
-import {useId, useState} from "react";
+import {useId, useState, useTransition} from "react";
+import {useBookingChanges} from "@/lib/customer/bookings/use-booking-changes";
 
 import {
   boundedText,
@@ -60,12 +61,16 @@ function CustomerBookingDetailContent({
   const [paymentRequestChoice, setPaymentRequestChoice] =
     useState<CustomerPaymentChoice | null>(null);
   const [messageRequestId, setMessageRequestId] = useState<string | null>(null);
+  const [refreshPending, startRefresh] = useTransition();
   const [selectedReviewRequestId, setSelectedReviewRequestId] =
     useState<string | null>(null);
   const [selectedCancellationRequestId, setSelectedCancellationRequestId] =
     useState<string | null>(null);
   const [selectedCancellationTriggerId, setSelectedCancellationTriggerId] =
     useState<string | null>(null);
+  const realtime = useBookingChanges([booking], async () => {
+    startRefresh(() => router.refresh());
+  }, refreshPending || paymentRequestId !== null || selectedReviewRequestId !== null || selectedCancellationRequestId !== null);
   const [cancellationRefreshTokens, setCancellationRefreshTokens] =
     useState<Readonly<Record<string, number>>>({});
   const cancellationTriggerPrefix = useId();
@@ -150,6 +155,11 @@ function CustomerBookingDetailContent({
 
   return (
     <div className="grid min-w-0 gap-5">
+      <div className="flex items-center gap-2 text-sm">
+        {realtime.unavailable ? <span role="status">Live updates unavailable.</span> : null}
+        <Button variant="ghost" size="compact" disabled={refreshPending || paymentRequestId !== null || realtime.refreshing}
+          onClick={() => { if (realtime.unavailable) realtime.retry(); startRefresh(() => router.refresh()); }}>Refresh booking</Button>
+      </div>
       <DetailSection title="Event details" icon={<CalendarDays />}>
         <dl className="grid gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-2">
           <DetailField label="Event type" value={boundedText(booking.eventType, "Unspecified event", 120)} />

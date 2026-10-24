@@ -107,6 +107,32 @@ export async function getCustomerBookingResults(
   return getOwnedCustomerBookingResults(customer.uid, input);
 }
 
+/** Refresh only displayed documents; never rerun the history-scanning search path. */
+export async function revalidateVisibleCustomerBookings(
+  bookingIds: readonly string[],
+  input: CustomerBookingFilters,
+  statusChanged: boolean,
+): Promise<{bookings: CustomerBooking[]; statistics?: CustomerBookingStatistics}> {
+  const customer = await requireCustomer();
+  const filters = normalizeFilters(input);
+  const ids = [...new Set(bookingIds)].filter((id) => SAFE_DOCUMENT_ID.test(id)).slice(0, filters.pageSize);
+  const documents = ids.length
+    ? await adminDb.getAll(...ids.map((id) => adminDb.collection(COLLECTIONS.mainEvents).doc(id)))
+    : [];
+  const visible = documents.filter((document) => {
+    const data = document.data();
+    return document.exists && data?.customerId === customer.uid && data.isDeleted !== true &&
+      statusMatchesFilter(data.status, filters.status) &&
+      (filters.status !== "awaiting_provider" || countPendingProviderResponses(data) > 0) &&
+      (!filters.search || document.id === filters.search ||
+        stringValue(data.bookingCode).toUpperCase().startsWith(filters.search.toUpperCase()));
+  });
+  const bookings = await Promise.all(visible.map((document) => mapBookingWithLinkedEvidence(document)));
+  return statusChanged
+    ? {bookings, statistics: await getCustomerBookingStatistics(customer.uid)}
+    : {bookings};
+}
+
 async function getOwnedCustomerBookingResults(
   customerId: string,
   input: CustomerBookingFilters,
@@ -505,7 +531,7 @@ async function searchOwnedBookings(
       );
     })
 ;
-  return Promise.all(matches.map(document => mapBookingWithLinkedEvidence(document)));
+  return Promise.all(matches.slice(0, filters.pageSize).map(document => mapBookingWithLinkedEvidence(document)));
 }
 
 async function getCustomerBookingStatistics(
@@ -574,6 +600,10 @@ function mapBookingDocument(
   return {
     id: document.id,
     bookingId: stringValue(data.bookingId) || document.id,
+    realtime: {
+      customerId: stringValue(data.customerId),
+      providerRequestIds: normalizeCanonicalProviderRequestIds(data.providerRequestIds),
+    },
     bookingCode: stringValue(data.bookingCode) || document.id,
     lifecycle: lifecycleEvidence(data),
     eventType: stringValue(data.eventType) || "Unspecified event",

@@ -20,6 +20,7 @@ import {
 } from "next/navigation";
 import {
   useCallback,
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -29,7 +30,8 @@ import {
   type ReactNode,
 } from "react";
 
-import {loadCustomerBookingsAction} from "@/app/customer/bookings/actions";
+import {loadCustomerBookingsAction, revalidateCustomerBookingPageAction} from "@/app/customer/bookings/actions";
+import {useBookingChanges} from "@/lib/customer/bookings/use-booking-changes";
 import {
   BOOKING_STATUS_OPTIONS,
 
@@ -49,7 +51,6 @@ import {SummaryCard} from "@/components/data/summary-card";
 import {useLiveSearch} from "@/lib/search/use-live-search";
 import {SearchInput} from "@/components/forms/search-input";
 import {PageHeading} from "@/components/layout/page-heading";
-import {StatusBadge} from "@/components/shared/status-badge";
 import {Button} from "@/components/ui/button";
 import {Select} from "@/components/ui/select";
 import type {
@@ -103,6 +104,22 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
   const [error, setError] = useState<string>();
   const [isPending, startTransition] = useTransition();
   const requestIdRef = useRef(0);
+  useEffect(() => () => { requestIdRef.current += 1; }, []);
+
+  const realtime = useBookingChanges(page.bookings, async (statusChanged, bookingIds = page.bookings.map((booking) => booking.id)) => {
+    const requestId = ++requestIdRef.current;
+    const result = await revalidateCustomerBookingPageAction(filters, statusChanged, bookingIds);
+    if (requestId !== requestIdRef.current) return;
+    const affected = new Set(bookingIds);
+    const refreshed = new Map(result.bookings.map((booking) => [booking.id, booking]));
+    setPage((previous) => ({
+      ...previous,
+      ...result,
+      bookings: previous.bookings.flatMap((booking) => affected.has(booking.id)
+        ? refreshed.has(booking.id) ? [refreshed.get(booking.id)!] : []
+        : [booking]),
+    }));
+  }, isPending);
 
   const openBooking = useCallback((booking: CustomerBooking) => {
       setSelectedBooking(booking);
@@ -286,6 +303,21 @@ function CustomerBookingExperience({initialPage}: CustomerBookingExperienceProps
         description="Keep track of your events, provider responses, and payments."
         className="pb-4"
       />
+      <div className="flex items-center gap-2 text-sm">
+        {realtime.unavailable ? <span role="status">Live updates unavailable.</span> : null}
+        <Button variant="ghost" size="compact" disabled={isPending || realtime.refreshing} onClick={() => {
+          if (realtime.unavailable) realtime.retry();
+          const requestId = ++requestIdRef.current;
+          startTransition(async () => {
+            try {
+              const result = await revalidateCustomerBookingPageAction(filters, true);
+              if (requestId === requestIdRef.current) setPage((previous) => ({...previous, ...result}));
+            } catch {
+              if (requestId === requestIdRef.current) setError("Your booking history could not be updated. Please try again.");
+            }
+          });
+        }}>Refresh bookings</Button>
+      </div>
 
       {submittedBookingId ? (
         <section

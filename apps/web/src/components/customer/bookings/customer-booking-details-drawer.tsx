@@ -14,6 +14,7 @@ import Link from "next/link";
 import {useCallback, useEffect, useRef, useState} from "react";
 
 import {loadCustomerBookingDetailsAction} from "@/app/customer/bookings/actions";
+import {useBookingChanges} from "@/lib/customer/bookings/use-booking-changes";
 import {
   bookingStatusLabel,
   boundedText,
@@ -54,6 +55,7 @@ function CustomerBookingDetailsDrawer({
 }: CustomerBookingDetailsDrawerProps) {
   const [details, setDetails] = useState<CustomerBookingDetails | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [silentRefreshing, setSilentRefreshing] = useState(false);
   const [detailsError, setDetailsError] = useState<string>();
   const [paymentRequestId, setPaymentRequestId] = useState<string | null>(null);
   const [paymentRequestChoice, setPaymentRequestChoice] =
@@ -62,14 +64,15 @@ function CustomerBookingDetailsDrawer({
   const detailsRequestRef = useRef(0);
   const checkoutInFlightRef = useRef(false);
 
-  const loadDetails = useCallback(async () => {
+  const loadDetails = useCallback(async (silent = false) => {
     if (!booking) return;
 
     const requestId = detailsRequestRef.current + 1;
     detailsRequestRef.current = requestId;
-    setDetails(null);
+    if (!silent) setDetails(null);
     setDetailsError(undefined);
-    setDetailsLoading(true);
+    if (!silent) setDetailsLoading(true);
+    if (silent) setSilentRefreshing(true);
 
     try {
       const result = await loadCustomerBookingDetailsAction(booking.id);
@@ -86,9 +89,15 @@ function CustomerBookingDetailsDrawer({
         "Booking details could not be loaded. The booking may no longer be available.",
       );
     } finally {
-      if (requestId === detailsRequestRef.current) setDetailsLoading(false);
+      if (requestId === detailsRequestRef.current) {
+        setDetailsLoading(false);
+        setSilentRefreshing(false);
+      }
     }
   }, [booking]);
+
+  const realtime = useBookingChanges(open && booking ? [details?.booking ?? booking] : [],
+    async () => { await loadDetails(true); }, paymentRequestId !== null || detailsLoading || silentRefreshing);
 
   useEffect(() => {
     if (!open || !booking) return undefined;
@@ -160,22 +169,30 @@ function CustomerBookingDetailsDrawer({
         </div>
       }
     >
+      <div className="mb-3 flex items-center gap-2 text-sm">
+        {realtime.unavailable ? <span role="status">Live updates unavailable.</span> : null}
+        <Button variant="ghost" size="compact" disabled={paymentRequestId !== null || detailsLoading || silentRefreshing || realtime.refreshing}
+          onClick={() => { if (realtime.unavailable) realtime.retry(); void loadDetails(true); }}>Refresh booking</Button>
+      </div>
       {detailsLoading ? (
         <SectionLoading label="Loading booking details" className="border-0 shadow-none" />
-      ) : detailsError ? (
+      ) : detailsError && !details ? (
         <ApplicationErrorState
           kind="load"
           description={detailsError}
           onRetry={() => void loadDetails()}
         />
       ) : details ? (
-        <BookingDetailsContent
-          details={details}
-          paymentRequestId={paymentRequestId}
-          paymentRequestChoice={paymentRequestChoice}
-          paymentError={paymentError}
-          onPay={(providerRequestId, paymentChoice) => void startCheckout(providerRequestId, paymentChoice)}
-        />
+        <>
+          {detailsError ? <p role="status">{detailsError}</p> : null}
+          <BookingDetailsContent
+            details={details}
+            paymentRequestId={paymentRequestId}
+            paymentRequestChoice={paymentRequestChoice}
+            paymentError={paymentError}
+            onPay={(providerRequestId, paymentChoice) => void startCheckout(providerRequestId, paymentChoice)}
+          />
+        </>
       ) : null}
     </DetailDrawer>
   );

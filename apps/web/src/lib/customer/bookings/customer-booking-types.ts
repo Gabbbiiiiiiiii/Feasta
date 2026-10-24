@@ -94,6 +94,8 @@ export type CustomerBookingProviderRequest = {
 };
 
 export type CustomerBooking = {
+  /** Subscription scope only. All presentation and eligibility still use server DTOs. */
+  realtime?: {customerId: string; providerRequestIds: string[]};
   lifecycle?: import("@/lib/presentation/booking-lifecycle").LifecycleEvidence;
   id: string;
   bookingId: string;

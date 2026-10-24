@@ -211,7 +211,7 @@ test("the drawer remains lightweight while exposing the dedicated route", async 
   assert.match(drawer, /\/customer\/bookings\/\$\{encodeURIComponent\(booking\.id\)\}/u);
 });
 
-test("summary aggregates are loaded initially, not on every client transition", async () => {
+test("summary aggregates load initially and on relevant invalidation, not ordinary pagination", async () => {
   const [service, actions] = await Promise.all([
     source("lib/customer/bookings/customer-booking-service.ts"),
     source("app/customer/bookings/actions.ts"),
@@ -219,7 +219,12 @@ test("summary aggregates are loaded initially, not on every client transition", 
 
   assert.match(service, /getCustomerBookingStatistics\(customer\.uid\)/u);
   assert.match(service, /export async function getCustomerBookingResults/u);
-  assert.doesNotMatch(actions, /getCustomerBookingPage/u);
+  const ordinaryAction = actions.slice(actions.indexOf("export async function loadCustomerBookingsAction"),
+    actions.indexOf("export async function revalidateCustomerBookingPageAction"));
+  assert.match(ordinaryAction, /return getCustomerBookingResults\(filters\)/u);
+  assert.doesNotMatch(ordinaryAction, /getCustomerBookingPage/u);
+  assert.match(actions, /statusChanged \? getCustomerBookingPage\(filters\) : getCustomerBookingResults\(filters\)/u);
+  assert.match(service, /return statusChanged\s*\? \{bookings, statistics: await getCustomerBookingStatistics\(customer\.uid\)\}/u);
 });
 
 test("completed booking reviews use bounded canonical reads and the secure callable", async () => {

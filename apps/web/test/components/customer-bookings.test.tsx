@@ -25,6 +25,8 @@ const mocks = vi.hoisted(() => ({
   redirectCheckout: vi.fn(),
   routerReplace: vi.fn(),
   searchParamGet: vi.fn(),
+  revalidate: vi.fn(),
+  live: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -39,6 +41,14 @@ vi.mock("@/lib/customer/bookings/customer-booking-service", () => ({
 vi.mock("@/app/customer/bookings/actions", () => ({
   loadCustomerBookingsAction: mocks.loadBookings,
   loadCustomerBookingDetailsAction: mocks.loadDetails,
+  revalidateCustomerBookingPageAction: mocks.revalidate,
+}));
+
+vi.mock("@/lib/customer/bookings/use-booking-changes", () => ({
+  useBookingChanges: (bookings: CustomerBooking[], refresh: () => Promise<void>, blocked: boolean) => {
+    mocks.live(bookings, refresh, blocked);
+    return {unavailable: false, retry: () => {}};
+  },
 }));
 
 vi.mock("@/lib/customer/payments/customer-payment-client", () => ({
@@ -50,6 +60,7 @@ import CustomerBookingsError from "@/app/customer/bookings/error";
 import CustomerBookingsPage from "@/app/customer/bookings/page";
 import {CustomerBookingExperience} from "@/components/customer/bookings/customer-booking-experience";
 import {CustomerBookingProviderRequestCard} from "@/components/customer/bookings/customer-booking-provider-request-card";
+import {CustomerBookingDetailsDrawer} from "@/components/customer/bookings/customer-booking-details-drawer";
 
 describe("customer booking history and details", () => {
   it.each(["rejected", "expired"] as const)(
@@ -100,6 +111,44 @@ describe("customer booking history and details", () => {
     mocks.loadDetails.mockResolvedValue(detailsFixture());
     mocks.createCheckout.mockResolvedValue(checkoutFixture());
     mocks.searchParamGet.mockReturnValue(null);
+  });
+
+  it("revalidates the visible page and summary without resetting the page number", async () => {
+    const user = userEvent.setup();
+    mocks.loadBookings.mockResolvedValue(pageFixture(undefined, "third-page"));
+    render(<CustomerBookingExperience initialPage={pageFixture(undefined, "second-page")} />);
+    await user.click(screen.getByRole("button", {name: /Next/u}));
+    expect(await screen.findByText("Page 2")).toBeVisible();
+    const refreshed = pageFixture([bookingFixture({status: "expired"})], "third-page");
+    refreshed.statistics.cancelledOrExpired = 1;
+    refreshed.statistics.awaitingPayment = 0;
+    mocks.revalidate.mockResolvedValue(refreshed);
+    const callback = mocks.live.mock.calls.filter(([bookings]) => bookings.length > 0).at(-1)![1];
+    await act(async () => { await callback(true); });
+    expect(mocks.revalidate).toHaveBeenCalledWith({search: "", status: "all", pageSize: 10, cursor: "second-page"}, true, ["owned-booking-001"]);
+    expect(screen.getByText("Page 2")).toBeVisible();
+    expect(screen.getAllByText("Expired").length).toBeGreaterThan(0);
+    expect(within(screen.getByRole("region", {name: "Payments Due"})).getByText("0")).toBeVisible();
+  });
+
+  it("silently refreshes an open drawer and removes server-ineligible checkout controls", async () => {
+    let resolve!: (result: CustomerBookingDetailsResult) => void;
+    const onOpenChange = vi.fn();
+    render(<CustomerBookingDetailsDrawer booking={bookingFixture()} open onOpenChange={onOpenChange} />);
+    await screen.findAllByRole("button", {name: /^Pay /});
+    const callback = mocks.live.mock.calls.at(-1)![1];
+    mocks.loadDetails.mockImplementationOnce(() => new Promise<CustomerBookingDetailsResult>((done) => { resolve = done; }));
+    let pending!: Promise<void>;
+    act(() => { pending = callback(true); });
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(screen.getAllByRole("button", {name: /^Pay /}).length).toBeGreaterThan(0);
+    const expired = detailsFixture();
+    expired.details.booking.status = "expired";
+    expired.details.providerRequests = expired.details.providerRequests.map((request) => ({...request, status: "expired", checkoutOptions: []}));
+    await act(async () => { resolve(expired); await pending; });
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(screen.queryByRole("button", {name: /^Pay /})).not.toBeInTheDocument();
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 
   it.each(["minimum", "full", "remaining_balance"] as const)("drawer keeps projected %s actions and amounts", async (choice) => {
