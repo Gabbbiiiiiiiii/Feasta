@@ -212,16 +212,28 @@ describe("customer marketplace header", () => {
     await user.keyboard("{Enter}");
     const finder = screen.getByRole("search", {name: "Event Finder"});
     expect(finder).toBeVisible();
+    expect(within(finder).getByRole("heading", {name: "Plan your event"})).toBeVisible();
+    expect(within(finder).getByRole("heading", {name: "What are you celebrating?"})).toBeVisible();
+    expect(within(finder).getByRole("heading", {name: "Where is your event?"})).toBeVisible();
+    expect(within(finder).getByRole("heading", {name: "Event schedule"})).toBeVisible();
+    expect(within(finder).getByRole("heading", {name: "Budget range"})).toBeVisible();
+    expect(within(finder).getByRole("heading", {name: "Services needed"})).toBeVisible();
+    expect(within(finder).getByLabelText("Number of guests")).toHaveAttribute("type", "number");
+    expect(within(finder).getByLabelText("Start time")).toHaveAttribute("type", "time");
+    expect(within(finder).getByLabelText("End time")).toHaveAttribute("type", "time");
+    expect(within(finder).getByLabelText("Maximum budget (₱)")).toHaveAttribute("type", "number");
+    expect(within(finder).getByLabelText("Starting budget (₱)")).toHaveValue(null);
+    expect(within(finder).getByLabelText("Maximum budget (₱)")).toHaveValue(null);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(within(finder).queryByLabelText("Service Type")).not.toBeInTheDocument();
-    expect(within(finder).getByRole("option", {name: "What service do you need?"})).toHaveValue("all");
+    expect(within(finder).getByRole("checkbox", {name: "Select All"})).toBeChecked();
     expect(within(finder).getByRole("combobox", {name: "Location"})).toHaveAttribute("placeholder", "Enter where your event will take place");
     expect(within(finder).getByRole("button", {name: "Choose on map"})).toHaveAttribute("aria-expanded", "false");
     expect(within(finder).getByLabelText("Event Date")).toHaveAttribute("type", "date");
     expect(within(finder).getByText("Select event date")).toBeVisible();
-    expect(within(finder).getByRole("combobox", {name: "Type of Service"})).toHaveValue("all");
+    expect(within(finder).queryByRole("combobox", {name: "Type of Service"})).not.toBeInTheDocument();
     await user.tab();
-    expect(within(finder).getByRole("combobox", {name: "Location"})).toHaveFocus();
+    expect(within(finder).getByRole("combobox", {name: "Event type"})).toHaveFocus();
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("search", {name: "Event Finder"})).not.toBeInTheDocument();
     expect(trigger).toHaveAttribute("aria-expanded", "false");
@@ -282,24 +294,143 @@ describe("customer marketplace header", () => {
     query = new URLSearchParams("category=photographer");
     render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
-    const selector = screen.getByRole("combobox", {name: "Type of Service"});
-    expect(within(selector).getAllByRole("option").map((option) => option.getAttribute("value")))
-      .toEqual(["all", ...TEST_SERVICE_CATEGORY_OPTIONS.map((option) => option.code)]);
-    expect(selector).toHaveValue("photographer");
+    expect(screen.getByRole("checkbox", {name: "Photography"})).toBeChecked();
+    expect(screen.getByRole("checkbox", {name: "Select All"})).not.toBeChecked();
+
+    for (const option of TEST_SERVICE_CATEGORY_OPTIONS) {
+      expect(screen.getByRole("checkbox", {name: option.name})).toBeInTheDocument();
+    }
     expect(screen.getByRole("link", {name: "Event Services"})).toHaveAttribute("aria-current", "page");
-    fireEvent.change(selector, {target: {value: "venue_provider"}});
+    fireEvent.click(screen.getByRole("checkbox", {name: "Venue Provider"}));
     fireEvent.click(screen.getByRole("button", {name: "Close Event Finder"}));
     expect(screen.queryByRole("search", {name: "Event Finder"})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
-    expect(screen.getByRole("combobox", {name: "Type of Service"})).toHaveValue("venue_provider");
+    expect(screen.getByRole("checkbox", {name: "Venue Provider"})).toBeChecked();
   });
 
+  it("allows Select All to check and uncheck every category", () => {
+    render(
+      <CustomerMarketplaceHeader
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {name: "Open Event Finder"}),
+    );
+
+    const selectAll = screen.getByRole("checkbox", {
+      name: "Select All",
+    });
+
+    expect(selectAll).toBeChecked();
+
+    // Clicking Select All again must uncheck everything.
+    fireEvent.click(selectAll);
+
+    expect(selectAll).not.toBeChecked();
+
+    for (const option of TEST_SERVICE_CATEGORY_OPTIONS) {
+      expect(
+        screen.getByRole("checkbox", {name: option.name}),
+      ).not.toBeChecked();
+    }
+
+    expect(
+      screen.getByRole("button", {name: "Find Services"}),
+    ).toBeDisabled();
+
+    expect(
+      screen.getByText("Select at least one service before searching."),
+    ).toBeVisible();
+
+    // Choosing an individual category enables searching.
+    fireEvent.click(
+      screen.getByRole("checkbox", {name: "Photography"}),
+    );
+
+    expect(
+      screen.getByRole("checkbox", {name: "Photography"}),
+    ).toBeChecked();
+
+    expect(
+      screen.getByRole("button", {name: "Find Services"}),
+    ).toBeEnabled();
+
+    // Unchecking the last category leaves nothing selected.
+    fireEvent.click(
+      screen.getByRole("checkbox", {name: "Photography"}),
+    );
+
+    expect(
+      screen.getByRole("checkbox", {name: "Photography"}),
+    ).not.toBeChecked();
+
+    expect(
+      screen.getByRole("button", {name: "Find Services"}),
+    ).toBeDisabled();
+
+    // Select All restores every category.
+    fireEvent.click(selectAll);
+
+    expect(selectAll).toBeChecked();
+
+    for (const option of TEST_SERVICE_CATEGORY_OPTIONS) {
+      expect(
+        screen.getByRole("checkbox", {name: option.name}),
+      ).toBeChecked();
+    }
+
+    expect(
+      screen.getByRole("button", {name: "Find Services"}),
+    ).toBeEnabled();
+  });
+  it("Select All checks every service category", () => {
+    query = new URLSearchParams("category=photographer");
+
+    render(
+      <CustomerMarketplaceHeader
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {name: "Open Event Finder"}),
+    );
+
+    expect(
+      screen.getByRole("checkbox", {name: "Photography"}),
+    ).toBeChecked();
+
+    fireEvent.click(
+      screen.getByRole("checkbox", {name: "Select All"}),
+    );
+
+    expect(
+      screen.getByRole("checkbox", {name: "Select All"}),
+    ).toBeChecked();
+
+    for (const option of TEST_SERVICE_CATEGORY_OPTIONS) {
+      expect(
+        screen.getByRole("checkbox", {name: option.name}),
+      ).toBeChecked();
+    }
+
+    fireEvent.click(
+      screen.getByRole("button", {name: "Find Services"}),
+    );
+
+    expect(mocks.push).toHaveBeenLastCalledWith(
+      "/customer/providers",
+    );
+  });
   it("submits canonical category and date state, preserves existing filters, and resets pagination", () => {
     query = new URLSearchParams("q=flowers&service=addon&cursor=old_page&eventType=wedding&guestCount=50");
     render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
     fireEvent.change(screen.getByLabelText("Event Date"), {target: {value: "2099-09-10"}});
-    fireEvent.change(screen.getByRole("combobox", {name: "Type of Service"}), {target: {value: "photographer"}});
+    fireEvent.click(screen.getByRole("checkbox", {name: "Select All"}));
+    fireEvent.click(screen.getByRole("checkbox", {name: "Photography"}));
     fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
     const url = new URL(mocks.push.mock.calls[0][0], "https://feasta.test");
     expect(url.pathname).toBe("/customer/providers");
@@ -351,7 +482,8 @@ describe("customer marketplace header", () => {
     expect(screen.queryByText("More filters")).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", {name: "Provider Type"})).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("searchbox", {name: "Search providers or services"}), {target: {value: "garden venue"}});
-    fireEvent.change(screen.getByRole("combobox", {name: "Type of Service"}), {target: {value: "venue_provider"}});
+    fireEvent.click(screen.getByRole("checkbox", {name: "Select All"}));
+    fireEvent.click(screen.getByRole("checkbox", {name: "Venue Provider"}));
     fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
     expect(mocks.push).toHaveBeenCalledWith("/customer/providers?q=garden+venue&service=addon&category=venue_provider");
   });
@@ -402,7 +534,7 @@ describe("customer marketplace header", () => {
     view.rerender(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
     expect(screen.queryByRole("search", {name: "Event Finder"})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
-    expect(screen.getByRole("combobox", {name: "Type of Service"})).toHaveValue("venue_provider");
+    expect(screen.getByRole("checkbox", {name: "Venue Provider"})).toBeChecked();
     expect(screen.getByLabelText("Event Date")).toHaveValue("2099-09-12");
     pathname = "/customer/packages";
     query = new URLSearchParams();

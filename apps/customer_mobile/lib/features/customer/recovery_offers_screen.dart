@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../core/constants/status_constants.dart';
+import '../../core/domain/legacy_booking_payment_authority.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../../shared/widgets/loading_skeleton.dart';
@@ -9,58 +9,6 @@ class RecoveryOffersScreen extends StatelessWidget {
   final BookingModel booking;
 
   const RecoveryOffersScreen({super.key, required this.booking});
-
-  Future<void> _selectOffer(
-    BuildContext context,
-    RecoveryOfferModel offer,
-  ) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Confirm Recovery Caterer'),
-          content: Text(
-            'Selecting ${offer.offeringProviderBusinessName} will replace the original catering provider for this booking. After selecting, you must complete the required payment to confirm the booking.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Close'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Confirm Selection'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirm != true) return;
-
-    try {
-      await FeastaRepository().selectRecoveryOffer(
-        booking: booking,
-        offer: offer,
-      );
-
-      if (!context.mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Recovery caterer selected. Please complete the required payment.'),
-        ),
-      );
-
-      Navigator.pop(context);
-    } catch (e) {
-      if (!context.mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
-      );
-    }
-  }
 
   void _showOfferDetails(BuildContext context, RecoveryOfferModel offer) {
     showModalBottomSheet(
@@ -155,7 +103,7 @@ class RecoveryOffersScreen extends StatelessWidget {
                         ),
                       ),
                       child: const Text(
-                        'Important: If you select this caterer, they will become the new main catering provider for your booking. Your external marketplace add-ons will stay on hold until you complete the required catering payment.',
+                        legacyBookingPaymentAuthorityMessage,
                         style: TextStyle(
                           height: 1.4,
                           fontWeight: FontWeight.w700,
@@ -168,22 +116,13 @@ class RecoveryOffersScreen extends StatelessWidget {
                       width: double.infinity,
                       height: 54,
                       child: ElevatedButton(
-                        onPressed:
-                            booking.recoveryStatus ==
-                                    BookingRecoveryStatus.open ||
-                                booking.recoveryStatus ==
-                                    BookingRecoveryStatus.offerReceived
-                            ? () {
-                                Navigator.pop(context);
-                                _selectOffer(context, offer);
-                              }
-                            : null,
+                        onPressed: null,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: primary,
                           foregroundColor: Colors.white,
                         ),
                         child: const Text(
-                          'Select This Caterer',
+                          'Selection temporarily unavailable',
                           style: TextStyle(fontWeight: FontWeight.w900),
                         ),
                       ),
@@ -196,11 +135,6 @@ class RecoveryOffersScreen extends StatelessWidget {
         );
       },
     );
-  }
-
-  bool get canSelectOffer {
-    return booking.recoveryStatus == BookingRecoveryStatus.open ||
-        booking.recoveryStatus == BookingRecoveryStatus.offerReceived;
   }
 
   @override
@@ -255,7 +189,7 @@ class RecoveryOffersScreen extends StatelessWidget {
                   border: Border.all(color: primary.withOpacity(0.25)),
                 ),
                 child: const Text(
-                  'Compare the caterers who offered to handle your rejected booking request. Select only one caterer to continue, then complete the required payment to confirm.',
+                  legacyBookingPaymentAuthorityMessage,
                   style: TextStyle(height: 1.4, fontWeight: FontWeight.w700),
                 ),
               ),
@@ -323,15 +257,13 @@ class RecoveryOffersScreen extends StatelessWidget {
                           width: double.infinity,
                           height: 50,
                           child: ElevatedButton(
-                            onPressed: canSelectOffer
-                                ? () => _selectOffer(context, offer)
-                                : null,
+                            onPressed: null,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: primary,
                               foregroundColor: Colors.white,
                             ),
                             child: const Text(
-                              'Select This Caterer',
+                              'Selection temporarily unavailable',
                               style: TextStyle(fontWeight: FontWeight.w900),
                             ),
                           ),

@@ -1,3 +1,4 @@
+import {calculateInitialPaymentDeadlineV4, INITIAL_PAYMENT_DEADLINE_POLICY_VERSION} from "../payments/initial-payment-deadline.js";
 import {existingAcceptancePlan} from "./existing-acceptance-plan.js";
 import {requireInitialPaymentReservation} from "../payments/initial-payment-reservation.js";
 import {readTrustedProviderRequestPaymentSetInTransaction} from "../payments/provider-request-payment-reader.js";
@@ -74,7 +75,6 @@ import {
 import {
   AVAILABILITY_COUNTED_REQUEST_STATUSES,
   manilaDateRange,
-  PROVIDER_PAYMENT_HOLD_WINDOW_MS,
   validateProviderAvailability,
 } from "../provider-availability/validate-provider-availability.js";
 
@@ -601,12 +601,24 @@ export const acceptProviderRequest = onCall(
           // Reuse the existing payment expiry field, starting only when the
           // selected provider accepts, never extending beyond event start.
           const eventStart = scheduledEventStart(acceptanceSnapshot.eventDate.toDate(), acceptanceSnapshot.eventTime);
-          const legacyPaymentDeadline = Timestamp.fromMillis(Math.min(
-            acceptanceTime.getTime() + PROVIDER_PAYMENT_HOLD_WINDOW_MS,
-            eventStart.getTime(),
-          ));
-          const paymentDeadline = timingV3 ? Timestamp.fromMillis(Math.min(legacyPaymentDeadline.toMillis(),
-            timingV3.hardPaymentDeadlineAt.getTime())) : legacyPaymentDeadline;
+          if (authorized.requestData.hardPaymentDeadlineAt != null &&
+            !(authorized.requestData.hardPaymentDeadlineAt instanceof Timestamp)) {
+            throw new HttpsError("failed-precondition", "Invalid frozen payment deadline.");
+          }
+          const hardDeadlines = [
+            ...(timingV3 ? [timingV3.hardPaymentDeadlineAt] : []),
+            ...(canonicalTiming ? [canonicalTiming.dueAt] : []),
+            ...(authorized.requestData.hardPaymentDeadlineAt instanceof Timestamp
+              ? [authorized.requestData.hardPaymentDeadlineAt.toDate()] : []),
+          ];
+          let paymentDeadline: Timestamp;
+          try {
+            paymentDeadline = Timestamp.fromDate(calculateInitialPaymentDeadlineV4({
+              acceptedAt: acceptanceTime, eventStartAt: eventStart, hardDeadlines,
+            }));
+          } catch {
+            throw new HttpsError("failed-precondition", "This request has no valid initial payment window.");
+          }
 
           // Serialize reservation changes for this provider.
           // Concurrent acceptances and date-blocking updates must retry.
@@ -621,12 +633,14 @@ export const acceptProviderRequest = onCall(
               respondedAt:
                 serverTimestamp(),
               acceptedAt:
-                serverTimestamp(),
+                Timestamp.fromDate(acceptanceTime),
+              initialPaymentDeadlinePolicyVersion: INITIAL_PAYMENT_DEADLINE_POLICY_VERSION,
+              initialPaymentDeadlineAt: paymentDeadline,
 
               financialSnapshot,
 
               financialSnapshotCapturedAt:
-                serverTimestamp(),
+                Timestamp.fromDate(acceptanceTime),
 
               /*
                * Customer settlement timing is separate from
@@ -657,7 +671,7 @@ export const acceptProviderRequest = onCall(
 
               balanceDueHoursBeforeEvent: canonicalTiming ? BALANCE_DUE_HOURS_BEFORE_EVENT : null,
               remainingBalanceReminderAt: canonicalTiming ? Timestamp.fromDate(canonicalTiming.reminderAt) : null,
-              eventStartAt: canonicalTiming ? Timestamp.fromDate(canonicalTiming.eventStartAt) : null,
+              eventStartAt: Timestamp.fromDate(eventStart),
               balanceDueDaysBeforeEvent:
                 balanceDueDaysBeforeEvent,
 

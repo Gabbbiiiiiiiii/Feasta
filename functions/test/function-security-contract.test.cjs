@@ -15,6 +15,21 @@ test("v3 scheduler is bounded, server-owned and validates payment and provider a
 });
 
 const policies = [
+  ["listApprovedOccasions", "packages/list-approved-occasions-v2.ts", ["onCall",
+    "appCheckCallableOptions", "enforceCallableRateLimit", "loadOccasionCatalogReadPolicy",
+    "requireCatalogRevision", "secretKey", "consumeOccasionCatalogCandidates", "REVISION_CONFLICT"]],
+  ["submitProviderOccasionSuggestion", "packages/provider-occasion-suggestions-v2.ts", ["requireAuth(request)",
+    "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions",
+    "db.runTransaction", "authorizeProviderForPackageManagement"]],
+  ["listMyOccasionSuggestions", "packages/provider-occasion-suggestions-v2.ts", ["requireAuth(request)",
+    "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions",
+    "db.runTransaction", "authorizeProviderForPackageManagement"]],
+  ["listOccasionSuggestionsForReview", "packages/provider-occasion-suggestions-v2.ts", ["requireAuth(request)",
+    "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions",
+    "db.runTransaction", "adminInTransaction"]],
+  ["reviewOccasionSuggestion", "packages/provider-occasion-suggestions-v2.ts", ["requireAuth(request)",
+    "requireRole", "enforceCallableRateLimit", "appCheckCallableOptions",
+    "db.runTransaction", "adminInTransaction"]],
   ["verifyProviderSettlementTransport", "provider-finance/provider-transport-verification.ts", [
     "requireAuth(request)", 'requireRole(actor.uid, ["admin"])', "enforceCallableRateLimit",
     "...appCheckCallableOptions", "secrets: [providerDisbursementTestSecret]",
@@ -522,7 +537,15 @@ test("all deployed exports remain in the reviewed inventory", () => {
       );
     }
   }
+  // Inventory existing source exports; this does not authorize deployment or activation.
+  assert.equal(names.has("updateProviderOccasionCapabilities"), false);
   assert.deepEqual([...names].sort(), [
+  "listApprovedOccasions",
+  "reconcileInitialPaymentExpiration",
+  "submitProviderOccasionSuggestion",
+  "listMyOccasionSuggestions",
+  "listOccasionSuggestionsForReview",
+  "reviewOccasionSuggestion",
   "acceptCurrentProviderAgreement",
   "acceptProviderRequest",
   "advanceProviderRequestRefundEligibilityStage",

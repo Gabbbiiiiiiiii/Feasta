@@ -1,3 +1,4 @@
+import {originalInitialPaymentDeadline, HISTORICAL_INITIAL_PAYMENT_HOLD_MS} from "../payments/initial-payment-deadline.js";
 import {
   isApprovedProviderForOperations,
   parseProviderRequestStatus,
@@ -31,7 +32,7 @@ export const AVAILABILITY_COUNTED_REQUEST_STATUSES = [
  * becomes required. A lineup-incomplete accepted request has no
  * expiresAt yet, so its hold ends this long after acceptedAt.
  */
-export const PROVIDER_PAYMENT_HOLD_WINDOW_MS = 24 * 60 * 60 * 1_000;
+export const PROVIDER_PAYMENT_HOLD_WINDOW_MS = HISTORICAL_INITIAL_PAYMENT_HOLD_MS;
 
 const COMMITTED_REQUEST_STATUSES = [
   "confirmed",
@@ -81,6 +82,7 @@ export type ProviderAvailabilityRequest = {
 };
 
 type AvailabilityPaymentEvidence = {
+  [key: string]: unknown;
   paymentId?: unknown;
   initialPaymentId?: unknown;
   initialPaymentDispatchReservedAt?: unknown;
@@ -140,6 +142,12 @@ export function providerRequestAvailabilityState(input: AvailabilityPaymentEvide
     input.paymentStatus === "processing" || input.paymentStatus === "paid" ||
     input.reconciliationRequired === true || input.lifecycleReconciliationRequired === true) {
     return "payment_reconciliation";
+  }
+
+  if (input.initialPaymentDeadlinePolicyVersion != null) {
+    try {
+      return originalInitialPaymentDeadline(input).toMillis() > nowMs ? "temporary_hold" : "released";
+    } catch { return "payment_reconciliation"; }
   }
 
   const explicitDeadline = timestampMillis(input.expiresAt);

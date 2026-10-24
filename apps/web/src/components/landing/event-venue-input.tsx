@@ -16,11 +16,13 @@ export function EventVenueInput({
   label = "Location",
   placeholder = "Search event venue or address",
   enableMap = false,
+  compactMapAction = false,
 }: {
   initialVenue?: CustomerEventVenue | null;
   label?: string;
   placeholder?: string;
   enableMap?: boolean;
+  compactMapAction?: boolean;
 }) {
   const inputId = useId();
   const listboxId = `${inputId}-suggestions`;
@@ -308,7 +310,9 @@ export function EventVenueInput({
           type="button"
           onClick={toggleMap}
           aria-expanded={showMap}
-          className="mt-1.5 inline-flex min-h-8 items-center gap-1.5 rounded-lg px-1 text-xs font-bold text-primary-strong hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className={compactMapAction
+            ? "absolute right-0 top-0 inline-flex min-h-6 items-center gap-1 rounded-lg px-1 text-xs font-bold text-primary-strong hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            : "mt-1.5 inline-flex min-h-8 items-center gap-1.5 rounded-lg px-1 text-xs font-bold text-primary-strong hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"}
         >
           <MapPin aria-hidden="true" className="size-3.5" />
           {showMap ? "Close map" : selectedVenue ? "Adjust on map" : "Choose on map"}

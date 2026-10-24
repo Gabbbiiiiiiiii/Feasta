@@ -30,8 +30,12 @@ export function ProviderLogoCard({
   availability = null,
   availabilityLoading = false,
   serviceCategoryOptions = [],
+  fitExplanations,
+  preliminaryFit = false,
 }: {
   provider: PublicProvider;
+  fitExplanations?: readonly string[];
+  preliminaryFit?: boolean;
   marketplaceHref?: string;
   serviceCategoryOptions?: readonly ServiceCategoryOption[];
   favoriteState?: {
@@ -165,6 +169,14 @@ export function ProviderLogoCard({
             {provider.businessName}
           </h3>
           <ProviderRating summary={provider.reviewSummary} />
+          {fitExplanations?.length ? (
+            <div className="mt-3 rounded-xl bg-primary-tint p-2.5 text-left text-xs leading-5 text-primary-strong">
+              <ul aria-label="Why this provider matches" className="grid gap-1">
+                {fitExplanations.map((explanation) => <li key={explanation}>{explanation}</li>)}
+              </ul>
+              {preliminaryFit ? <p className="mt-1 font-semibold">Preliminary match; availability unconfirmed.</p> : null}
+            </div>
+          ) : null}
 
           {provider.location ? (
             <p className="mt-1.5 flex items-center justify-center gap-1 text-xs text-feasta-text-secondary">

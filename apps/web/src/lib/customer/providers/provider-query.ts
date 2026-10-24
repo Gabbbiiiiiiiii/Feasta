@@ -38,13 +38,19 @@ export function parseProviderDiscoveryFilters(
     serviceType,
   }, minimumDate);
   const planningContext = parseCustomerPlanningContext(parameters, minimumDate);
+  const selectedCategories = categoryListValue(first(parameters.categories));
   return {
     // Provider name tokens start at two characters. Shorter text is not a search.
     search: search.length >= 2 ? search : "",
     serviceType,
-    category: serviceCategoryValue(
-      first(parameters.category),
-    ),
+    category: selectedCategories.length === 1
+      ? selectedCategories[0]
+      : selectedCategories.length > 1
+        ? "all"
+        : serviceCategoryValue(first(parameters.category)),
+    ...(selectedCategories.length > 1
+      ? {categories: selectedCategories}
+      : {}),
     cursor: providerCursorValue(first(parameters.cursor)),
     ...(eventContext ? {eventContext} : {}),
     ...(planningContext ? {planningContext} : {}),
@@ -60,7 +66,12 @@ export function providerDiscoveryHref(
   if (filters.serviceType !== "all") {
     parameters.set("service", filters.serviceType);
   }
-  if (filters.category !== "all") {
+  const categories = categoryListValue(filters.categories?.join(",") ?? "");
+  if (categories.length > 1) {
+    parameters.set("categories", categories.join(","));
+  } else if (categories.length === 1) {
+    parameters.set("category", categories[0]);
+  } else if (filters.category !== "all") {
     parameters.set("category", filters.category);
   }
   if (cursor) parameters.set("cursor", cursor);
@@ -103,6 +114,9 @@ export function parseProviderDirectoryReturnHref(
     q: parameters.getAll("q"),
     service: parameters.getAll("service"),
     category: parameters.getAll("category"),
+    categories: parameters.getAll("categories"),
+    budgetMin: parameters.getAll("budgetMin"),
+    budgetMax: parameters.getAll("budgetMax"),
     cursor: parameters.getAll("cursor"),
     eventDate: parameters.getAll("eventDate"),
     eventTime: parameters.getAll("eventTime"),
@@ -190,4 +204,12 @@ function serviceCategoryValue(
 function providerCursorValue(value: string): string | null {
   const trimmed = value.trim();
   return /^[A-Za-z0-9_-]{1,512}$/u.test(trimmed) ? trimmed : null;
+}
+
+/** Bounded category list for server-side provider discovery. */
+function categoryListValue(raw: string): ServiceCategoryCode[] {
+  if (!raw || raw.length > 1024) return [];
+  const values = raw.split(",").filter(isServiceCategoryCode);
+  const unique = [...new Set(values)].sort();
+  return unique.length > 0 && unique.length <= 30 ? unique : [];
 }

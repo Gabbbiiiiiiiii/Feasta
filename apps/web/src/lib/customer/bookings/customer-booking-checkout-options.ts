@@ -77,6 +77,18 @@ export function customerBookingCheckoutOptions(
 }
 
 function initialEligible(request: StoredRecord, mainEventStatus: unknown): boolean {
+  if (request.initialPaymentDeadlinePolicyVersion != null) {
+    const millis = (value: unknown): number | null => {
+      try {
+        const date = value instanceof Date ? value :
+          (value as {toDate?: () => Date} | null)?.toDate?.();
+        return date instanceof Date && Number.isFinite(date.getTime()) ? date.getTime() : null;
+      } catch { return null; }
+    };
+    const deadline = millis(request.initialPaymentDeadlineAt);
+    if (request.initialPaymentDeadlinePolicyVersion !== 4 || deadline === null ||
+      millis(request.expiresAt) !== deadline || Date.now() >= deadline) return false;
+  }
   return request.status === "waiting_for_down_payment" &&
     ["pending_provider_approval", "needs_provider_replacement", "waiting_for_down_payment"]
       .includes(String(mainEventStatus)) && RETRY_STATUSES.has(String(request.paymentStatus));

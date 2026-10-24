@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   ProviderServiceType,
   ServiceCategoryCode,
 } from "@feasta/shared-types";
@@ -11,6 +11,7 @@ export type ProviderDiscoveryFilters = {
   search: string;
   serviceType: ProviderServiceType | "all";
   category: ServiceCategoryCode | "all";
+  categories?: readonly ServiceCategoryCode[];
   cursor: string | null;
   eventContext?: CustomerEventContext | null;
   planningContext?: CustomerPlanningContext | null;

@@ -1,4 +1,5 @@
 import "server-only";
+import { prepareProviderEligibilityAdvance } from "@/lib/admin/provider-eligibility-revision";
 
 import {
   FieldPath,
@@ -1395,6 +1396,12 @@ export async function approveProviderVerification({
 
     const now = FieldValue.serverTimestamp();
 
+    const writeAuthority = await prepareProviderEligibilityAdvance(
+      transaction, providerRef, providerSnapshot.data() ?? {},
+      {...providerSnapshot.data(), verificationStatus: "approved", isActive: true},
+    );
+    writeAuthority();
+
     transaction.update(verificationRef, {
       status: "approved",
       reviewedAt: now,
@@ -1406,7 +1413,7 @@ export async function approveProviderVerification({
     });
 
     transaction.update(providerRef, {
-      verificationStatus: "verified",
+      verificationStatus: "approved",
       isActive: true,
       updatedAt: now,
     });
@@ -1510,6 +1517,12 @@ export async function rejectProviderVerification({
     }
 
     const now = FieldValue.serverTimestamp();
+
+    const writeAuthority = await prepareProviderEligibilityAdvance(
+      transaction, providerRef, providerSnapshot.data() ?? {},
+      {...providerSnapshot.data(), verificationStatus: "rejected", isActive: false},
+    );
+    writeAuthority();
 
     transaction.update(verificationRef, {
       status: "rejected",

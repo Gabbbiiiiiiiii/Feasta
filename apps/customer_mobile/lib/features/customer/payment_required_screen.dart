@@ -8,6 +8,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/widgets.dart';
 import '../../shared/models/customer_payment_request.dart';
+import '../../shared/models/initial_payment_deadline.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import 'payment_status_screen.dart';
@@ -469,6 +470,10 @@ class _ProviderPaymentCard extends StatelessWidget {
 
           _DetailRow(label: 'Request status', value: _humanize(request.status)),
 
+          InitialPaymentDeadlineNotice(
+            deadline: request.initialPaymentDeadline,
+          ),
+
           const Divider(height: AppSpacing.lg, color: AppColors.border),
 
           _DetailRow(
@@ -624,6 +629,26 @@ class _SecureCheckoutNotice extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Displays stored evidence only; eligibility is checked by the payment callable.
+class InitialPaymentDeadlineNotice extends StatelessWidget {
+  const InitialPaymentDeadlineNotice({super.key, required this.deadline});
+
+  final InitialPaymentDeadline? deadline;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = deadline?.manilaLabel;
+    if (label == null) return const SizedBox.shrink();
+    return Column(
+      children: [
+        const SizedBox(height: AppSpacing.sm),
+        _DetailRow(label: 'Initial payment deadline', value: label),
+        const Text('FEASTA checks the payment window when you continue.'),
+      ],
     );
   }
 }

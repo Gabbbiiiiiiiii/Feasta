@@ -1100,3 +1100,10 @@ export {retryFailedProviderDisbursement} from "./provider-finance/provider-disbu
 export {verifyProviderSettlementTransport, invalidateProviderTransportOnProfileChange,
   invalidateProviderTransportOnOwnerChange} from "./provider-finance/provider-transport-verification.js";
 export {getCustomerProviderCalendarAvailability} from "./provider-availability/get-customer-provider-calendar-availability.js";
+export {listApprovedOccasions} from "./packages/list-approved-occasions-v2.js";
+export {
+  submitProviderOccasionSuggestion,
+  listMyOccasionSuggestions,
+  listOccasionSuggestionsForReview,
+  reviewOccasionSuggestion,
+} from "./packages/provider-occasion-suggestions-v2.js";

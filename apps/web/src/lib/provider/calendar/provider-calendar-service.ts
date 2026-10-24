@@ -171,6 +171,17 @@ function calendarRequestOccupies(
   if (status !== "accepted" && status !== "waiting_for_down_payment" &&
       status !== "payment_processing") return false;
 
+  if (status === "payment_processing" || data.paymentId != null || data.initialPaymentId != null ||
+      data.initialPaymentDispatchReservedAt != null || data.initialPaymentReview != null ||
+      data.paymentStatus === "processing" || data.paymentStatus === "paid" ||
+      data.reconciliationRequired === true || data.lifecycleReconciliationRequired === true) return true;
+  if (data.initialPaymentDeadlinePolicyVersion != null) {
+    const deadline = timestampMs(data.initialPaymentDeadlineAt);
+    const expiry = timestampMs(data.expiresAt);
+    if (data.initialPaymentDeadlinePolicyVersion !== 4 || deadline === null ||
+        (data.expiresAt != null && expiry !== deadline)) return true;
+    return deadline > nowMs;
+  }
   const expiresAt = timestampMs(data.expiresAt);
   if (expiresAt !== null) return expiresAt > nowMs;
   if (status !== "accepted") return false;

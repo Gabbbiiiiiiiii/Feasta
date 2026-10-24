@@ -1,3 +1,4 @@
+import {advanceProviderEligibilityInTransaction} from "../shared/provider-eligibility-revision.js";
 import {
   isServiceCategoryCode,
   type ServiceCategoryCode,
@@ -372,6 +373,12 @@ export const submitProviderVerification = onCall(
           await assertRequiredStorageObjectsPresent(
             providerId,
             requiredDocumentRecords,
+          );
+
+          await advanceProviderEligibilityInTransaction(
+            transaction, providerReference, providerData ?? {},
+            {...providerData, verificationStatus: "submitted",
+              isActive: false, isSuspended: false},
           );
 
           transaction.update(

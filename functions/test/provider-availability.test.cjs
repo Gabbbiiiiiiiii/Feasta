@@ -423,7 +423,7 @@ test("acceptance re-reads ownership and availability in one transaction", () => 
   assert.match(acceptance, /authorizeProviderRequest/u);
   assert.match(acceptance, /validateProviderAvailability/u);
   assert.match(acceptance, /AVAILABILITY_COUNTED_REQUEST_STATUSES/u);
-  assert.match(acceptance, /PROVIDER_PAYMENT_HOLD_WINDOW_MS/u);
+  assert.match(acceptance, /calculateInitialPaymentDeadlineV4/u);
   assert.match(acceptance, /expiresAt:/u);
   assert.match(acceptance, /acceptedAt:/u);
   assert.match(acceptance, /"eventDate",\s*">="/u);

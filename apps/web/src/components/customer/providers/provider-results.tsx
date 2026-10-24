@@ -14,6 +14,7 @@ import {
   providerServiceTypeLabel,
 } from "@/lib/customer/providers/provider-catalog";
 import {providerDiscoveryHref} from "@/lib/customer/providers/provider-query";
+import {rankProviderBestFits} from "@/lib/customer/providers/provider-best-fit";
 import {providerDiscoverySections} from "@/lib/customer/providers/provider-discovery-sections";
 import type {
   ProviderDiscoveryFilters,
@@ -46,8 +47,9 @@ export function ProviderResults({
     () => page.providers.map((provider) => provider.id),
     [page.providers],
   );
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const requestKey = filters.eventContext
-    ? JSON.stringify([providerIds, filters.eventContext])
+    ? JSON.stringify([providerIds, filters.eventContext, authenticatedCustomer, retryAttempt])
     : null;
   const generationRef = useRef(0);
   const [availabilityStatus, setAvailabilityStatus] = useState<
@@ -98,7 +100,7 @@ export function ProviderResults({
     };
   }, [authenticatedCustomer, filters.eventContext, providerIds, requestKey]);
 
-  const availabilityIsCurrent = availabilityStatus === "ready" &&
+  const availabilityIsCurrent = authenticatedCustomer && availabilityStatus === "ready" &&
     availabilityCheckedKey === requestKey;
   const currentAvailabilityStatus = availabilityRequestKey === requestKey
     ? availabilityStatus
@@ -109,9 +111,10 @@ export function ProviderResults({
   const filtered =
     filters.search.length > 0 ||
     filters.serviceType !== "all" ||
-    filters.category !== "all";
+    filters.category !== "all" || Boolean(filters.categories?.length);
 
   const activeFilterLabels = [
+    ...(filters.categories ?? []).map((code) => serviceCategoryName(code, serviceCategoryOptions)),
     filters.search
       ? `"${filters.search}"`
       : null,
@@ -136,6 +139,7 @@ export function ProviderResults({
       search: "",
       serviceType: "all",
       category: "all",
+      categories: undefined,
       cursor: null,
       eventContext: filters.eventContext
         ? {...filters.eventContext, serviceType: "all"}
@@ -229,11 +233,18 @@ export function ProviderResults({
     filters,
     filters.cursor,
   );
-  const {sections, remaining} = providerDiscoverySections(
-    page,
-    filters,
-    serviceCategoryOptions,
-  );
+  const bestFitContext = hasEventPlanningContext || filters.category !== "all" || Boolean(filters.categories?.length);
+  const fits = rankProviderBestFits(page.providers, filters,
+    availabilityIsCurrent ? availabilityByProvider : new Map());
+  const recommendations = bestFitContext ? fits.filter((fit) => fit.recommended).slice(0, 4) : [];
+  const recommendedIds = new Set(recommendations.map((fit) => fit.provider.id));
+  const {sections, remaining} = bestFitContext
+    ? {sections: [], remaining: page.providers.filter((provider) => !recommendedIds.has(provider.id))}
+    : providerDiscoverySections(
+      page,
+      filters,
+      serviceCategoryOptions,
+    );
 
   function providerGrid(providers: readonly PublicProvider[]) {
     return (
@@ -248,6 +259,10 @@ export function ProviderResults({
               authenticated: authenticatedCustomer,
               favorited: favoriteProviderIds.has(provider.id),
             }}
+            fitExplanations={recommendedIds.has(provider.id)
+              ? fits.find((fit) => fit.provider.id === provider.id)?.explanations
+              : undefined}
+            preliminaryFit={recommendedIds.has(provider.id) && fits.find((fit) => fit.provider.id === provider.id)?.availability === "unknown"}
             availability={availabilityIsCurrent
               ? availabilityByProvider.get(provider.id) ?? null
               : null}
@@ -308,7 +323,11 @@ export function ProviderResults({
               <p className="mt-2 text-sm text-feasta-text-secondary" aria-live="polite">
                 {currentAvailabilityStatus === "loading" ? "Checking provider availability…" : null}
                 {currentAvailabilityStatus === "ready" ? "Availability checked for the providers on this page." : null}
-                {currentAvailabilityStatus === "error" ? availabilityError : null}
+                {currentAvailabilityStatus === "error" ? <>
+                  {availabilityError} {authenticatedCustomer ? (
+                    <button type="button" onClick={() => setRetryAttempt((attempt) => attempt + 1)} className="min-h-10 rounded-lg px-2 font-bold text-primary-strong underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">Retry availability check</button>
+                  ) : null}
+                </> : null}
                 {currentAvailabilityStatus === "idle" && !authenticatedCustomer
                   ? "Sign in as a customer to check provider availability."
                   : null}
@@ -360,6 +379,22 @@ export function ProviderResults({
           PROVIDER GRID
          ================================================================ */}
 
+      {bestFitContext ? (
+        <section aria-labelledby="provider-best-fit-title" className="grid min-w-0 gap-3 rounded-[22px] border border-primary/15 bg-secondary/50 p-4 sm:p-5">
+          <header>
+            <h2 id="provider-best-fit-title" className="text-xl font-extrabold tracking-tight text-foreground">Best matches on this page</h2>
+            <p className="mt-1 text-sm text-feasta-text-secondary">Providers that match your selected services and event details.</p>
+            <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">Based on this page only. Confirmed availability comes first, then service, occasion, guest capacity, and documented service area. Missing details are not confirmed matches.</p>
+            <p className="mt-1 text-xs leading-5 text-feasta-text-secondary">{!authenticatedCustomer
+              ? "Preliminary matches only. Availability has not been checked. Sign in as a customer to check your schedule."
+              : !filters.eventContext ? "Availability has not been checked. Add a valid date, start and end time, and guest count."
+              : "Availability and booking lead time are validated by the existing schedule check."}</p>
+          </header>
+          {recommendations.length ? providerGrid(recommendations.map((fit) => fit.provider)) : (
+            <p className="text-sm text-feasta-text-secondary" role="status">No supported best-fit matches on this page. You can still browse the providers below or update your event details.</p>
+          )}
+        </section>
+      ) : null}
       {sections.map((section) => (
         <section key={section.id} aria-labelledby={`provider-discovery-${section.id}`} className="grid min-w-0 gap-4">
           <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
@@ -376,7 +411,7 @@ export function ProviderResults({
           {providerGrid(section.providers)}
         </section>
       ))}
-      {sections.length > 0 ? (
+      {remaining.length > 0 && (sections.length > 0 || recommendations.length > 0) ? (
         <section aria-labelledby="remaining-provider-results-title" className="grid min-w-0 gap-4">
           <h2 id="remaining-provider-results-title" className="text-xl font-extrabold tracking-tight text-foreground">More providers</h2>
           {providerGrid(remaining)}

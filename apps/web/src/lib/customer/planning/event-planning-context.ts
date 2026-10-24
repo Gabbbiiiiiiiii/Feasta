@@ -33,6 +33,8 @@ export type CustomerPlanningContext = {
   eventType?: CustomerPlanningEventType;
   eventDate?: string;
   guestCount?: number;
+  budgetMin?: number;
+  budgetMax?: number;
   eventVenue?: CustomerEventVenue;
 };
 
@@ -86,13 +88,21 @@ export function parseCustomerPlanningContext(
     ? guestCountNumber
     : undefined;
   const eventVenue = parseEventVenue(parameters);
+  const budgetMin = budgetValue(first(parameters.budgetMin));
+  const rawMax = budgetValue(first(parameters.budgetMax));
+  const budgetMax = rawMax !== undefined &&
+    (budgetMin === undefined || rawMax >= budgetMin)
+    ? rawMax
+    : undefined;
 
-  if (!eventType && !eventDate && !guestCount && !eventVenue) return null;
+  if (!eventType && !eventDate && !guestCount && !eventVenue && budgetMin === undefined && budgetMax === undefined) return null;
 
   return {
     ...(eventType ? {eventType} : {}),
     ...(eventDate ? {eventDate} : {}),
     ...(guestCount ? {guestCount} : {}),
+    ...(budgetMin !== undefined ? {budgetMin} : {}),
+    ...(budgetMax !== undefined ? {budgetMax} : {}),
     ...(eventVenue ? {eventVenue} : {}),
   };
 }
@@ -106,6 +116,12 @@ export function appendCustomerPlanningContext(
   if (context.eventDate) parameters.set("eventDate", context.eventDate);
   if (context.guestCount) {
     parameters.set("guestCount", String(context.guestCount));
+  }
+  if (context.budgetMin !== undefined) {
+    parameters.set("budgetMin", String(context.budgetMin));
+  }
+  if (context.budgetMax !== undefined) {
+    parameters.set("budgetMax", String(context.budgetMax));
   }
   if (context.eventVenue) {
     parameters.set("eventVenueLabel", context.eventVenue.label);
@@ -307,4 +323,16 @@ function providerServiceType(value: string): ProviderServiceType | "all" | null 
 
 function first(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+}
+
+function budgetValue(raw: string): number | undefined {
+  if (!/^\d{1,9}$/u.test(raw)) return undefined;
+
+  const amount = Number(raw);
+
+  return Number.isSafeInteger(amount) &&
+    amount >= 0 &&
+    amount <= 100_000_000
+    ? amount
+    : undefined;
 }

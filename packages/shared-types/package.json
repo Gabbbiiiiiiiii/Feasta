@@ -39,6 +39,11 @@
       "types": "./dist/documents/document-catalog-policy.d.cts",
       "import": "./dist/documents/document-catalog-policy.cjs",
       "require": "./dist/documents/document-catalog-policy.cjs"
+    },
+    "./provider-package-v2": {
+      "types": "./dist/provider-package-v2.d.cts",
+      "import": "./dist/provider-package-v2.cjs",
+      "require": "./dist/provider-package-v2.cjs"
     }
   },
   "scripts": {
@@ -56,6 +61,9 @@
       ],
       "documents/*": [
         "dist/documents/*.d.cts"
+      ],
+      "provider-package-v2": [
+        "dist/provider-package-v2.d.cts"
       ]
     }
   }

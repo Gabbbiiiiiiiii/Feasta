@@ -1,6 +1,35 @@
 {
   "indexes": [
     {
+      "collectionGroup": "providerOccasionSuggestions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "providerId", "order": "ASCENDING"},
+        {"fieldPath": "createdAt", "order": "DESCENDING"},
+        {"fieldPath": "__name__", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "providerOccasionSuggestions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "providerId", "order": "ASCENDING"},
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "createdAt", "order": "DESCENDING"},
+        {"fieldPath": "__name__", "order": "DESCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "providerOccasionSuggestions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "status", "order": "ASCENDING"},
+        {"fieldPath": "createdAt", "order": "ASCENDING"},
+        {"fieldPath": "__name__", "order": "ASCENDING"}
+      ]
+    },
+
+    {
       "collectionGroup": "mainEvents",
       "queryScope": "COLLECTION",
       "fields": [
@@ -2463,6 +2492,15 @@
       "fields": [
         {"fieldPath": "entryType", "order": "ASCENDING"},
         {"fieldPath": "feastaCancellationFeeEarnedInCentavos", "order": "ASCENDING"}
+      ]
+    },
+    {
+      "collectionGroup": "occasions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {"fieldPath": "active", "order": "ASCENDING"},
+        {"fieldPath": "sortOrder", "order": "ASCENDING"},
+        {"fieldPath": "__name__", "order": "ASCENDING"}
       ]
     }
   ],

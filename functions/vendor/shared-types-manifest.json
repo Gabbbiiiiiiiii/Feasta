@@ -1,7 +1,7 @@
 {
   "canonicalSource": "packages/shared-types",
   "archive": "feasta-shared-types-0.1.0.tgz",
-  "sha256": "a253db186141acf6ef8df4cebdaa70c4558ba0e5e364a72e95b6fff7a7e79404",
+  "sha256": "6ed274513a320488a61628f64533079130a3291a5d15d35d8cb59e9c78eba2f2",
   "files": [
     "dist/authentication.d.ts",
     "dist/authentication.js",
@@ -31,6 +31,8 @@
     "dist/index.js",
     "dist/payment.d.ts",
     "dist/payment.js",
+    "dist/provider-package-v2.cjs",
+    "dist/provider-package-v2.d.cts",
     "dist/provider-registration.d.ts",
     "dist/provider-registration.js",
     "dist/provider-service-area.d.ts",

@@ -203,9 +203,9 @@ describe(
             "if (!changed)",
           );
 
-        const batchCreation =
+        const transactionCreation =
           source.indexOf(
-            "const batch = adminDb.batch()",
+            "await adminDb.runTransaction(async (batch) => {",
           );
 
         expect(
@@ -213,7 +213,7 @@ describe(
         ).toBeGreaterThan(-1);
 
         expect(
-          batchCreation,
+          transactionCreation,
         ).toBeGreaterThan(
           unchangedReturn,
         );

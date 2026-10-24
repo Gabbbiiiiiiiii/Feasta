@@ -77,6 +77,57 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("setup gallery data contract", () => {
+  it.each([2, 3, null, "2", false])("never downgrades writer version %s to a legacy save", async (galleryWriteSchemaVersion) => {
+    const input = {revision: 1, setups: [], galleryWriteSchemaVersion};
+    await expect(saveProviderSetupGallery(input as Parameters<typeof saveProviderSetupGallery>[0])).rejects.toThrow(/disabled|writer version/i);
+    expect(state.set).not.toHaveBeenCalled();
+  });
+
+  it("preserves unversioned legacy writes and accepts explicit writer V1", async () => {
+    await saveProviderSetupGallery({revision: 1, setups: [], galleryWriteSchemaVersion: 1});
+    expect(state.set).toHaveBeenCalledOnce();
+    expect(state.set.mock.calls[0]?.[1]).toMatchObject({revision: 2, setups: []});
+  });
+
+  it.each(["occasionCatalogRevision", "providerEligibilityRevision", "occasionMatchIds", "occasionEligibilityState", "featureGates"])("rejects caller envelope metadata %s", async (field) => {
+    await expect(saveProviderSetupGallery({revision: 1, setups: [], [field]: true})).rejects.toThrow(/metadata/i);
+    expect(state.set).not.toHaveBeenCalled();
+  });
+
+  it("blocks an old editor changing only V1 in a mixed gallery before photo verification", async () => {
+    state.records.set(setupPath, {revision: 1, setups: [setup(), {
+      ...setup({id: "setup_v2", isPublished: false}), setupOccasionSchemaVersion: 2,
+      occasionScope: "specific", occasionIds: ["wedding"], eventType: null,
+    }]});
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    await expect(saveProviderSetupGallery({revision: 1, setups: [setup({imageUrls: [photo("new")]})]})).rejects.toThrow(/compatible|support/i);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(state.set).not.toHaveBeenCalled();
+  });
+
+  it.each([2, 3, null, "2", false])("rejects unsupported schema %s without legacy fallback", (version) => {
+    const record = {...setup(), setupOccasionSchemaVersion: version};
+    expect(() => parseProviderSetups([record], ownerId)).toThrow(/schema version/i);
+    expect(publicProviderSetups([record], ownerId)).toEqual([]);
+  });
+
+  it("preserves explicit V1 and rejects contradictory occasion metadata", () => {
+    const record = {...setup(), setupOccasionSchemaVersion: 1};
+    expect(parseProviderSetups([record], ownerId)).toEqual([record]);
+    for (const field of ["occasionIds", "occasionScope", "occasionMatchIds", "occasionCatalogRevision", "providerEligibilityRevision", "occasionEligibilityState"]) {
+      expect(() => parseProviderSetups([{...record, [field]: []}], ownerId)).toThrow(/metadata/i);
+    }
+  });
+
+  it("rejects nullable V1 and unsupported nullable V2 drafts and publication", () => {
+    expect(() => parseProviderSetups([{...setup(), eventType: null, isPublished: false}], ownerId)).toThrow(/event type/i);
+    for (const isPublished of [false, true]) {
+      const record = {...setup(), setupOccasionSchemaVersion: 2, eventType: null, isPublished, occasionIds: ["wedding"]};
+      expect(() => parseProviderSetups([record], ownerId)).toThrow(/disabled/i);
+      expect(publicProviderSetups([record], ownerId)).toEqual([]);
+    }
+  });
   it("accepts a valid setup and preserves its stable id", () => {
     const parsed = parseProviderSetups([setup({title: "  Garden   reception "})], ownerId);
     expect(parsed).toEqual([setup({title: "Garden reception"})]);
@@ -135,6 +186,73 @@ describe("setup gallery data contract", () => {
 });
 
 describe("setup gallery server authorization", () => {
+  it("does not expose unsupported nullable V2 drafts to either reader", async () => {
+    state.records.set(setupPath, {revision: 1, setups: [setup(), {
+      ...setup({id: "setup_private", isPublished: false}),
+      setupOccasionSchemaVersion: 2, eventType: null, occasionIds: ["wedding"],
+    }]});
+    await expect(loadProviderSetupGallery()).rejects.toThrow(/disabled/i);
+    expect(await readPublishedProviderSetups("provider-one")).toEqual([]);
+    expect(state.set).not.toHaveBeenCalled();
+  });
+
+  it("does not accept client-asserted mapping approval as publication authority", async () => {
+    await expect(saveProviderSetupGallery({revision: 1, setups: [{
+      ...setup(), setupOccasionSchemaVersion: 2, occasionIds: ["wedding"],
+      occasionCatalogRevision: 1, occasionEligibilityState: "valid", eventType: "wedding",
+    }]})).rejects.toThrow(/disabled/i);
+    expect(state.set).not.toHaveBeenCalled();
+  });
+  it.each([{setups: []}, {setups: [setup()]}, {setups: [{...setup(), isPublished: false}]}])("protects stored V2 from full replacement", async ({setups}) => {
+    state.records.set(setupPath, {revision: 1, setups: [{...setup(), setupOccasionSchemaVersion: 2}]});
+    await expect(saveProviderSetupGallery({revision: 1, setups})).rejects.toThrow(/disabled/i);
+    expect(state.set).not.toHaveBeenCalled();
+  });
+
+  it("rejects caller compatibility flags and V2 even when published with a legacy scalar", async () => {
+    await expect(saveProviderSetupGallery({revision: 1, setups: [{...setup(), setupOccasionSchemaVersion: 2, v2Compatible: true}]})).rejects.toThrow(/disabled/i);
+    expect(state.set).not.toHaveBeenCalled();
+  });
+
+  it("checks schema on the transaction snapshot after preflight", async () => {
+    state.auth.mockImplementationOnce(async () => {
+      // The first gallery read is legacy; the transaction observes V2.
+      let reads = 0;
+      const original = state.records.get.bind(state.records);
+      vi.spyOn(state.records, "get").mockImplementation((path) => {
+        if (path === setupPath && ++reads > 1) return {revision: 1, setups: [{...setup(), setupOccasionSchemaVersion: 2}]};
+        return original(path);
+      });
+      return account;
+    });
+    try {
+      await expect(saveProviderSetupGallery({revision: 1, setups: []})).rejects.toThrow(/disabled/i);
+      expect(state.set).not.toHaveBeenCalled();
+    } finally { vi.restoreAllMocks(); }
+  });
+
+  it("rejects malformed persisted revisions", async () => {
+    state.records.set(setupPath, {revision: "1", setups: [setup()]});
+    await expect(saveProviderSetupGallery({revision: 1, setups: []})).rejects.toThrow(/stored.*revision/i);
+    expect(state.set).not.toHaveBeenCalled();
+  });
+
+  it("rejects a revision changed between preflight and transaction", async () => {
+    const original = state.records.get.bind(state.records);
+    let reads = 0;
+    vi.spyOn(state.records, "get").mockImplementation((path) =>
+      path === setupPath && ++reads > 1 ? {revision: 2, setups: [setup()]} : original(path));
+    try {
+      await expect(saveProviderSetupGallery({revision: 1, setups: []})).rejects.toThrow(/another session/i);
+      expect(state.set).not.toHaveBeenCalled();
+    } finally { vi.restoreAllMocks(); }
+  });
+
+  it.each([{isSuspended: true}, {isDeleted: true}, {isActive: false}, {verificationStatus: "pending"}])("preserves provider status restrictions %s", async (status) => {
+    state.records.set("providers/provider-one", {...provider, ...status});
+    await expect(saveProviderSetupGallery({revision: 1, setups: []})).rejects.toThrow(/cannot manage/i);
+    expect(state.set).not.toHaveBeenCalled();
+  });
   it("loads an empty gallery when the provider has no setups", async () => {
     state.records.delete(setupPath);
     expect(await loadProviderSetupGallery()).toEqual({revision: 0, setups: []});

@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+import { prepareProviderEligibilityAdvance } from "@/lib/admin/provider-eligibility-revision";
 import "server-only";
 
 import {
@@ -48,7 +50,7 @@ const NOTIFICATIONS_COLLECTION =
 
 const WHERE_IN_LIMIT = 30;
 const MAX_BATCH_WRITES = 500;
-const MAX_PROVIDER_WRITES = MAX_BATCH_WRITES - 2;
+const MAX_PROVIDER_WRITES = Math.floor((MAX_BATCH_WRITES - 3) / 2);
 
 type CursorPayload = {
   createdAtMilliseconds: number;
@@ -1833,21 +1835,7 @@ export async function manageAdminUserAccountAccess(
     verificationStatus ===
       "verified";
 
-    await adminAuth.updateUser(
-      user.id,
-      {
-        disabled:
-          target.authenticationDisabled,
-      },
-    );
 
-    if (
-      target.authenticationDisabled
-    ) {
-      await adminAuth.revokeRefreshTokens(
-        user.id,
-      );
-    }
 
   const notification =
     accessNotificationContent(
@@ -1858,7 +1846,33 @@ export async function manageAdminUserAccountAccess(
   const timestamp =
     FieldValue.serverTimestamp();
 
-  const batch = adminDb.batch();
+  await adminDb.runTransaction(async (batch) => {
+    // Fence the preflight decisions without executing Auth side effects on retries.
+    const currentUser = await batch.get(user.reference);
+    if (!currentUser.exists || !isDeepStrictEqual(currentUser.data(), user.data)) {
+      throw new Error("Account changed concurrently. Reload before retrying.");
+    }
+    const currentProviders = user.role === "provider"
+      ? (await batch.get(adminDb.collection(PROVIDERS_COLLECTION)
+          .where("ownerId", "==", user.id))).docs
+      : [];
+    if (currentProviders.length !== providerDocuments.length || currentProviders.some((doc) =>
+      !providerDocuments.some((old) => old.id === doc.id &&
+        isDeepStrictEqual(old.data(), doc.data())))) {
+      throw new Error("Provider changed concurrently. Reload before retrying.");
+    }
+    if (user.role === "customer" && !(await batch.get(customerReference)).exists) {
+      throw new Error("The customer profile no longer exists.");
+    }
+    const authorityWriters: (() => void)[] = [];
+    for (const doc of currentProviders) {
+      authorityWriters.push(await prepareProviderEligibilityAdvance(
+        batch, doc.ref, doc.data(),
+        {...doc.data(), isActive: providerIsActive, isBlocked: target.isBlocked},
+        {before: user.data, after: {...user.data, ...target}},
+      ));
+    }
+    for (const write of authorityWriters) write();
 
   batch.update(
     user.reference,
@@ -1996,7 +2010,24 @@ export async function manageAdminUserAccountAccess(
     },
   );
 
-  await batch.commit();
+  });
+
+  // Synchronize Auth after Firestore commits.
+  // Auth and Firestore are not atomic.
+  try {
+    await adminAuth.updateUser(user.id, {
+      disabled: target.authenticationDisabled,
+    });
+
+    if (target.authenticationDisabled) {
+      await adminAuth.revokeRefreshTokens(user.id);
+    }
+  } catch {
+    invalidateUserStatisticsCache();
+    throw new Error(
+      "Firestore account access changed, but Firebase Authentication synchronization failed. Reopen the account and retry the same decision to reconcile the state.",
+    );
+  }
 
   invalidateUserStatisticsCache();
 

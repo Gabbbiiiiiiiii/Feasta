@@ -1,3 +1,4 @@
+import {advanceProviderEligibilityInTransaction} from "../shared/provider-eligibility-revision.js";
 import {getAuth} from "firebase-admin/auth";
 import type {Transaction} from "firebase-admin/firestore";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
@@ -956,6 +957,13 @@ async function saveLinkedProviderApplicationStep({
 
       verificationUpdates.businessRegistrationType =
         businessRegistrationType;
+    }
+
+    // Only step 3 changes eligibility; other steps may already have writes.
+    if (step === 3) {
+      await advanceProviderEligibilityInTransaction(
+        transaction, providerReference, provider, {...provider, ...providerUpdates},
+      );
     }
 
     transaction.update(

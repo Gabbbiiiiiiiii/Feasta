@@ -8,7 +8,8 @@ import {isPublicProviderId} from "@/lib/customer/providers/provider-route-policy
 import {providerContentCapabilities} from "./provider-content-capabilities";
 import {CATALOG_IMAGE_BYTES} from "./catalog-media";
 import {menuAssetPublicId} from "./provider-menu";
-import {parseProviderSetups, publicProviderSetups, type ProviderSetup, type ProviderSetupGallery} from "./provider-setup-gallery";
+import {parseProviderSetups, type ProviderSetup, type ProviderSetupGallery} from "./provider-setup-gallery";
+import {publicLegacyProviderSetupsFromMixed} from "./provider-setup-gallery-public-compat";
 
 async function setupGalleryAccount() {
   const account = await requireApprovedProvider();
@@ -24,19 +25,31 @@ export async function loadProviderSetupGallery(): Promise<ProviderSetupGallery> 
   const data = snapshot.data();
   return {
     revision: validRevision(data?.revision),
-    setups: data?.setups ? parseProviderSetups(data.setups, account.uid) : [],
+    setups: parseProviderSetups(data?.setups, account.uid),
   };
 }
 
-export async function saveProviderSetupGallery(input: {revision: number; setups: unknown}): Promise<ProviderSetupGallery> {
+export async function saveProviderSetupGallery(input: {revision: number; setups: unknown; galleryWriteSchemaVersion?: number}): Promise<ProviderSetupGallery> {
   const account = await setupGalleryAccount();
+  // Validate the envelope at runtime: server actions can receive fields absent
+  // from their TypeScript signature. Never downgrade a versioned request to V1.
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Invalid setup gallery request.");
+  if (input.galleryWriteSchemaVersion === 2) {
+    throw new Error("Private Setup Gallery V2 writes are disabled. A compatible gallery editor and approved V2 configuration are required.");
+  }
+  if (input.galleryWriteSchemaVersion !== undefined && input.galleryWriteSchemaVersion !== 1) {
+    throw new Error("Unsupported setup gallery writer version. Upgrade the gallery editor before saving.");
+  }
+  if (Object.keys(input).some((field) => !["revision", "setups", "galleryWriteSchemaVersion"].includes(field))) {
+    throw new Error("Unsupported setup gallery request metadata.");
+  }
   if (!Number.isSafeInteger(input.revision) || input.revision < 0) throw new Error("Invalid setup gallery revision.");
   if (!Array.isArray(input.setups)) throw new Error("Invalid setup gallery.");
   const setups = parseProviderSetups(input.setups, account.uid);
   const providerRef = adminDb.collection("providers").doc(account.providerId);
   const setupRef = providerRef.collection("catalog").doc("setups");
   const previous = (await setupRef.get()).data();
-  const previousSetups = previous?.setups ? parseProviderSetups(previous.setups, account.uid) : [];
+  const previousSetups = parseProviderSetups(previous?.setups, account.uid);
   const previousUrls = new Set(previousSetups.flatMap((setup) => setup.imageUrls));
   for (const url of setups.flatMap((setup) => setup.imageUrls)) {
     if (!previousUrls.has(url)) await verifySetupAsset(url, account.uid);
@@ -59,9 +72,20 @@ export async function saveProviderSetupGallery(input: {revision: number; setups:
       throw new Error("Only approved public providers can publish setups.");
     }
     const current = setupSnapshot.data();
-    if ((current?.revision ?? 0) !== input.revision) {
+    const currentRevision = validRevision(current?.revision);
+    if (currentRevision !== input.revision) {
       throw new Error("This setup gallery changed in another session. Reload the page before saving.");
     }
+    // Validate the exact transaction snapshot, including records removed by the
+    // incoming full replacement. A preflight read cannot protect against races.
+    const currentSetups = parseProviderSetups(current?.setups, account.uid);
+    parseProviderSetups(input.setups, account.uid);
+    const currentUrls = new Set(currentSetups.flatMap((setup) => setup.imageUrls));
+    const verifiedUrls = new Set(setups.flatMap((setup) => setup.imageUrls).filter((url) => !previousUrls.has(url)));
+    if (setups.some((setup) => setup.imageUrls.some((url) => !currentUrls.has(url) && !verifiedUrls.has(url)))) {
+      throw new Error("This setup gallery changed during photo verification. Reload the page before saving.");
+    }
+    if (currentRevision === Number.MAX_SAFE_INTEGER) throw new Error("Setup gallery revision limit reached. Contact FEASTA support.");
     transaction.set(setupRef, {
       providerId: account.providerId,
       setups,
@@ -85,7 +109,7 @@ export async function readPublishedProviderSetups(providerId: string): Promise<P
   const categories = Array.isArray(provider.serviceCategories) ? provider.serviceCategories : [];
   if (!providerContentCapabilities(provider.providerServiceType, categories).catering) return [];
   const snapshot = await providerSnapshot.ref.collection("catalog").doc("setups").get();
-  return publicProviderSetups(snapshot.data()?.setups, ownerId);
+  return publicLegacyProviderSetupsFromMixed(snapshot.data()?.setups, ownerId);
 }
 
 async function verifySetupAsset(url: string, ownerId: string): Promise<void> {
@@ -108,5 +132,9 @@ async function verifySetupAsset(url: string, ownerId: string): Promise<void> {
 }
 
 function validRevision(value: unknown): number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  if (value === undefined) return 0;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error("Invalid stored setup gallery revision. Contact FEASTA support.");
+  }
+  return value;
 }

@@ -28,11 +28,14 @@ try {
   ], {stdio: "inherit"});
   fs.mkdirSync(vendorRoot, {recursive: true});
   const packed = JSON.parse(execFileSync(process.execPath, [pnpmCli,
-    "pack", "--json", "--pack-destination", vendorRoot,
+    "pack", "--json", "--pack-destination", temporaryRoot,
   ], {cwd: stagingRoot, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"]}));
   const archiveFilename = path.basename(packed.filename);
   assert.equal(archiveFilename, "feasta-shared-types-0.1.0.tgz");
   const archive = path.join(vendorRoot, archiveFilename);
+  // Pack to a fresh temporary file before replacing the local dependency archive.
+  // In particular, pnpm must not open its currently installed file: source for output.
+  fs.copyFileSync(path.join(temporaryRoot, archiveFilename), archive);
   const manifest = {
     canonicalSource: "packages/shared-types",
     archive: archiveFilename,
@@ -42,10 +45,30 @@ try {
   fs.writeFileSync(path.join(vendorRoot, "shared-types-manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
   console.log(`Prepared vendor/${archiveFilename} (${manifest.sha256})`);
 
+  // This locally generated archive deliberately retains its package version.
+  // Refresh only its exact file: entries; registry dependency integrity stays pinned.
+  const integrity = "sha512-" + createHash("sha512").update(fs.readFileSync(archive)).digest("base64");
+  for (const [lockPath, relativeArchive] of [
+    [path.join(functionsRoot, "pnpm-lock.yaml"), `vendor/${archiveFilename}`],
+    [path.join(functionsRoot, "../pnpm-lock.yaml"), `functions/vendor/${archiveFilename}`],
+  ]) {
+    const lock = fs.readFileSync(lockPath, "utf8");
+    const escaped = relativeArchive.replace(/\./g, "\\.");
+    const pattern = new RegExp(
+      `(^  '@feasta/shared-types@file:${escaped}':\\r?\\n    resolution: \\{integrity: )` +
+      `sha512-[A-Za-z0-9+/=]+(, tarball: file:${escaped}\\})`, "gm",
+    );
+    assert.equal([...lock.matchAll(pattern)].length, 1, `Expected one local archive entry in ${lockPath}`);
+    const updated = lock.replace(pattern, (_, prefix, suffix) => prefix + integrity + suffix);
+    if (updated !== lock) fs.writeFileSync(lockPath, updated);
+  }
+
   // A file archive is installed by content, not a workspace link. Refresh it
   // before tsc so local builds/tests also use the generated runtime artifact.
   if (process.argv.includes("--install")) {
-    execFileSync(process.execPath, [pnpmCli, "install", "--offline",
+    // Functions ships its own file archive. Do not join the parent workspace:
+    // that can replace the standalone install layout and bypass this archive.
+    execFileSync(process.execPath, [pnpmCli, "install", "--offline", "--ignore-workspace", "--frozen-lockfile",
       "--ignore-scripts", "--config.verifyDepsBeforeRun=false", "--config.confirmModulesPurge=false",
     ], {cwd: functionsRoot, stdio: "inherit"});
   }

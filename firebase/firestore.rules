@@ -562,14 +562,6 @@ service cloud.firestore {
             'updatedAt'
           ]) &&
           validSafeUserProfile(request.resource.data)
-        ) || (
-          isAdmin() &&
-          changesOnly([
-            'accountStatus',
-            'isActive',
-            'isBlocked',
-            'updatedAt'
-          ])
         );
 
       allow delete: if false;
@@ -665,23 +657,17 @@ service cloud.firestore {
 
       allow create: if false;
 
+      // Provider account lifecycle updates must use trusted backend operations.
+      // Direct owner writes cannot advance protected eligibility revisions.
       allow update: if (
-          ownsProvider(providerId) &&
-          validSoftDelete() &&
-          request.resource.data.isActive == false &&
-          changesOnly([
-            'isDeleted',
-            'deletedAt',
-            'deletedBy',
-            'deletionReason',
-            'isActive',
-            'updatedAt'
-          ])
-        ) || (
           isAdmin() &&
           changesNone([
             'ownerId',
             'verificationStatus',
+            'providerServiceType',
+            'providerCategory',
+            'serviceCategories',
+            'eventTypesSupported',
             'providerAgreementCurrentAcceptanceId',
             'providerAgreementAccepted',
             'providerAgreementAcceptedAt',
@@ -692,6 +678,7 @@ service cloud.firestore {
             'providerAgreementTemplateCode',
             'providerAgreementSnapshot',
             'isActive',
+            'isBlocked',
             'isFeatured',
             'isSuspended',
             'publiclyVisible',

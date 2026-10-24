@@ -267,7 +267,7 @@ describe("customer marketplace search presentation", () => {
     );
 
     expect(screen.getByRole("searchbox", {name: "Search providers or services"})).toHaveValue("venue");
-    expect(screen.getByRole("combobox", {name: "Type of Service"})).toHaveValue("venue_provider");
+    expect(screen.getByRole("checkbox", {name: "Venue Provider"})).toBeChecked();
     expect(
       new FormData(screen.getByRole("search") as HTMLFormElement).has("cursor"),
     ).toBe(false);
@@ -286,9 +286,9 @@ describe("customer marketplace search presentation", () => {
     );
 
     expect(screen.getByRole("searchbox", {name: "Search providers or services"})).toHaveAttribute("maxlength", "80");
-    const serviceCategoryFilter = screen.getByRole("combobox", {name: "Type of Service"});
-    expect(serviceCategoryFilter).toHaveTextContent("Catering Service");
-    expect(serviceCategoryFilter).toHaveTextContent("Venue Provider");
+    expect(screen.getByRole("checkbox", {name: "Select All"})).toBeChecked();
+    expect(screen.getByRole("checkbox", {name: "Catering Service"})).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", {name: "Venue Provider"})).toBeInTheDocument();
     expect(screen.queryByText("More filters")).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", {name: "Provider Type"})).not.toBeInTheDocument();
     expect(screen.queryByRole("button", {name: "Clear filters"})).not.toBeInTheDocument();

@@ -1,5 +1,7 @@
+import {advanceProviderEligibilityInTransaction} from "../shared/provider-eligibility-revision.js";
 import {providerDocumentContext, resolveVerificationDocumentPolicy,
-  verificationDocumentsSatisfyPolicy, type BusinessDocumentCatalogRecord} from "@feasta/shared-types/documents";
+  verificationDocumentsSatisfyPolicy,
+  type BusinessDocumentCatalogRecord} from "@feasta/shared-types/documents";
 import {
   HttpsError,
   onCall,
@@ -353,6 +355,11 @@ export const reviewProviderVerification = onCall(
                   ownerSnapshot.data() ?? {},
                 ),
             });
+
+          await advanceProviderEligibilityInTransaction(
+            transaction, providerReference, providerData ?? {},
+            {...providerData, ...providerUpdate},
+          );
 
           transaction.update(
             verificationReference,

@@ -49,7 +49,7 @@ describe("representative application screens", () => {
     expect(screen.getByRole("searchbox", {name: "Search providers or services"})).toBeInTheDocument();
     expect(screen.queryByText("More filters")).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", {name: "Provider Type"})).not.toBeInTheDocument();
-    expect(screen.getByRole("combobox", {name: "Type of Service"})).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", {name: "Select All"})).toBeInTheDocument();
     expect(screen.getByText("No public providers yet.")).toBeInTheDocument();
   });
 

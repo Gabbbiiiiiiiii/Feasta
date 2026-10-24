@@ -101,3 +101,17 @@ describe("initial payment expiration presentation", () => {
     expect(providerPaymentPresentation(request({status: "confirmed", paymentStatus: "paid", lifecycle: lifecycleEvidence(data)})).status).toBe("paid");
   });
 });
+
+it('V4 checkout projection uses frozen server deadline before worker updates status', () => {
+  const deadline = new Date('2026-11-01T15:00:00+08:00');
+  vi.spyOn(Date, 'now').mockReturnValue(+deadline - 1);
+  const data = raw({initialPaymentDeadlinePolicyVersion: 4, initialPaymentDeadlineAt: deadline, expiresAt: deadline});
+  expect(customerBookingCheckoutOptions('request_test', data, 'needs_provider_replacement')).toHaveLength(2);
+  vi.spyOn(Date, 'now').mockReturnValue(+deadline);
+  expect(customerBookingCheckoutOptions('request_test', data, 'needs_provider_replacement')).toEqual([]);
+  for (const patch of [{initialPaymentDeadlinePolicyVersion: 5}, {initialPaymentDeadlineAt: null},
+    {expiresAt: new Date(+deadline + 1)}]) {
+    expect(customerBookingCheckoutOptions('request_test', {...data, ...patch}, 'needs_provider_replacement')).toEqual([]);
+  }
+  vi.restoreAllMocks();
+});

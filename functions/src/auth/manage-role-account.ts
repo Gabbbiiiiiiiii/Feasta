@@ -1,4 +1,5 @@
 import {getAuth} from "firebase-admin/auth";
+import {advanceProviderEligibilityInTransaction} from "../shared/provider-eligibility-revision.js";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 
 import {writeAuditLogInTransaction} from "../shared/audit.js";
@@ -408,6 +409,12 @@ export const deactivateProviderAccount = onCall(
           "Resolve active event obligations before deactivating this account.",
         );
       }
+      const provider = providerSnapshot.data() ?? {};
+      const owner = userSnapshot.data() ?? {};
+      await advanceProviderEligibilityInTransaction(
+        transaction, providerReference, provider, {...provider, isActive: false},
+        {before: owner, after: {...owner, accountStatus: "pending_deletion", isActive: false}},
+      );
       transaction.update(userReference, {
         accountStatus: "pending_deletion",
         isActive: false,

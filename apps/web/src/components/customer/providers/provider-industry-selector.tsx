@@ -109,14 +109,14 @@ export function ProviderIndustrySelector({
           >
             <IndustryLink
               href={buildCategoryHref(filters, "all")}
-              active={filters.category === "all"}
+              active={filters.category === "all" && !filters.categories?.length}
               label="All services"
             />
             {categories.map((category) => (
               <IndustryLink
                 key={category.code}
                 href={buildCategoryHref(filters, category.code)}
-                active={filters.category === category.code}
+                active={filters.category === category.code || !!filters.categories?.includes(category.code)}
                 label={category.name}
               />
             ))}
@@ -181,6 +181,7 @@ function buildCategoryHref(
   return providerDiscoveryHref({
     ...filters,
     category,
+    categories: undefined,
     cursor: null,
   });
 }

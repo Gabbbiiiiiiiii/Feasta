@@ -1,3 +1,4 @@
+import {advanceProviderEligibilityInTransaction} from "../shared/provider-eligibility-revision.js";
 import {
   HttpsError,
   onCall,
@@ -741,6 +742,10 @@ export const registerProvider = onCall(
 
           const ownerPhone = requirePhilippineMobile(
             identity.phoneNumber,
+          );
+
+          await advanceProviderEligibilityInTransaction(
+            transaction, newProviderReference, null, {},
           );
 
           transaction.create(

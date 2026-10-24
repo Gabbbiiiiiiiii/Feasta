@@ -36,7 +36,7 @@ export function providerDiscoverySections(
 
   // These filters are applied by getPublicProviderPage. A saved date or location
   // alone is planning context, not evidence that the providers match or are free.
-  if (filters.category !== "all" || filters.serviceType !== "all" || filters.search) {
+  if (filters.category !== "all" || filters.categories?.length || filters.serviceType !== "all" || filters.search) {
     addSection({
       id: "suggested",
       title: "Suggested for your event",
@@ -85,6 +85,7 @@ export function providerDiscoverySections(
       href: providerDiscoveryHref({
         ...filters,
         category: category.code,
+        categories: undefined,
         cursor: null,
       }),
     }, category.providers);

@@ -527,3 +527,66 @@ test("a failed candidate rotates behind later IDs and retries on the next cycle"
   assert.equal(request().status, "expired");
   assert.equal(notifications().length, 4);
 });
+
+function seedV4() {
+  seed();
+  const data = request();
+  data.acceptedAt = stamp(NOW.getTime() - 6 * 3600000);
+  data.financialSnapshotCapturedAt = data.acceptedAt;
+  data.initialPaymentEligibility.evaluatedAt = data.acceptedAt;
+  data.eventStartAt = data.initialPaymentEligibility.eventStartAt;
+  data.initialPaymentDeadlinePolicyVersion = 4;
+  // Calculate with the production V4 policy.
+  data.initialPaymentDeadlineAt = Timestamp.fromDate(require('../lib/payments/initial-payment-deadline.js')
+    .calculateInitialPaymentDeadlineV4({acceptedAt: data.acceptedAt.toDate(), eventStartAt: data.eventStartAt.toDate()}));
+  data.expiresAt = data.initialPaymentDeadlineAt;
+  return data.expiresAt.toDate();
+}
+
+test('V4 transactional worker waits then expires exactly at authoritative deadline', async () => {
+  const at = seedV4();
+  assert.equal(await expire(ids[0], new Date(+at - 1)), 'waiting');
+  assert.equal(await expire(ids[0], at), 'expired');
+});
+test('V4 acceptance replay preserves deadline and rejects elapsed window', () => {
+  const at = seedV4(), original = request().expiresAt;
+  const data = {...request(), status: 'accepted'};
+  assert.equal(existingAcceptancePlan(data, new Date(+at - 1)).expiresAt.toMillis(), +at);
+  assert.equal(existingAcceptancePlan(data, new Date(+at - 1000)).expiresAt.toMillis(), +at);
+  assert.throws(() => existingAcceptancePlan(data, at));
+  assert.equal(request().expiresAt, original);
+});
+test('V4 worker preserves ambiguous payment evidence and transactional late attempt', async () => {
+  let at = seedV4();
+  request().initialPaymentDispatchReservedAt = request().acceptedAt;
+  assert.equal(await expire(ids[0], at), 'review');
+  at = seedV4();
+  hook = () => {request().paymentId = 'concurrent_attempt';};
+  assert.equal(await expire(ids[0], at), 'review');
+  assert.ok(retries > 0);
+  assert.equal(request().status, 'waiting_for_down_payment');
+});
+test('V4 stale deadline goes to review and retains capacity', async () => {
+  const at = seedV4(); request().expiresAt = stamp(+at + 1);
+  assert.equal(await expire(ids[0], at), 'review');
+  assert.equal(occupies({...request(), now: at}), true);
+});
+
+test('V4 real checkout rejects elapsed frozen window before worker or gateway dispatch', async () => {
+  const data = seedCheckout();
+  const acceptedAt = stamp(Date.now() - 86400000);
+  Object.assign(data, {acceptedAt, financialSnapshotCapturedAt: acceptedAt,
+    createdAt: stamp(acceptedAt.toMillis() - 1000), initialPaymentDeadlinePolicyVersion: 4,
+    eventStartAt: data.initialPaymentEligibility.eventStartAt});
+  data.initialPaymentEligibility.evaluatedAt = acceptedAt;
+  data.initialPaymentDeadlineAt = Timestamp.fromDate(require('../lib/payments/initial-payment-deadline.js')
+    .calculateInitialPaymentDeadlineV4({acceptedAt: acceptedAt.toDate(), eventStartAt: data.eventStartAt.toDate()}));
+  data.expiresAt = data.initialPaymentDeadlineAt;
+  let dispatches = 0;
+  await assert.rejects(createPaymentSessionForCustomer({customerId: data.customerId, providerRequestId: ids[0],
+    paymentChoice: 'full', clientKey: 'offline_v4_test', secretKey: 'unused',
+    successUrl: 'https://example.test/success', cancelUrl: 'https://example.test/cancel',
+    createCheckout: async () => {dispatches++; throw new Error('Must not dispatch');}}), {code: 'failed-precondition'});
+  assert.equal(dispatches, 0);
+  assert.equal(request().status, 'waiting_for_down_payment');
+});

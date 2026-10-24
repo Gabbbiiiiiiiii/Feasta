@@ -254,7 +254,10 @@ async function authorizeAdmin(
   return actor;
 }
 
+// Only zero/nonzero is needed. Bounded query reads join the mutation's read set
+// so a concurrent assignment cannot pass a stale preflight usage check.
 async function categoryUsageCounts(
+  transaction: FirebaseFirestore.Transaction,
   code: string,
 ): Promise<{
   primaryProviders: number;
@@ -269,27 +272,18 @@ async function categoryUsageCounts(
     providerCount,
     serviceCount,
   ] = await Promise.all([
-    providers
-      .where("providerCategory", "==", code)
-      .count()
-      .get(),
-    providers
-      .where("serviceCategories", "array-contains", code)
-      .count()
-      .get(),
-    services
-      .where("category", "==", code)
-      .count()
-      .get(),
+    transaction.get(providers.where("providerCategory", "==", code).limit(1)),
+    transaction.get(providers.where("serviceCategories", "array-contains", code).limit(1)),
+    transaction.get(services.where("category", "==", code).limit(1)),
   ]);
 
   return {
     primaryProviders:
-      primaryProviderCount.data().count,
+      primaryProviderCount.size,
     providers:
-      providerCount.data().count,
+      providerCount.size,
     services:
-      serviceCount.data().count,
+      serviceCount.size,
   };
 }
 
@@ -394,11 +388,6 @@ export const updateServiceCategory = onCall(
     const reference =
       db.collection(COLLECTION).doc(code);
 
-    const usage =
-      requestedServiceType === null
-        ? null
-        : await categoryUsageCounts(code);
-
     await db.runTransaction(
       async (transaction) => {
         const snapshot =
@@ -425,6 +414,7 @@ export const updateServiceCategory = onCall(
           requestedServiceType !==
             before.serviceType
         ) {
+          const usage = await categoryUsageCounts(transaction, code);
           if (before.status !== "discontinued") {
             throw new HttpsError(
               "failed-precondition",
@@ -628,20 +618,6 @@ export const deleteServiceCategory = onCall(
       );
     }
 
-    const usage =
-      await categoryUsageCounts(code);
-
-    if (
-      usage.primaryProviders > 0 ||
-      usage.providers > 0 ||
-      usage.services > 0
-    ) {
-      throw new HttpsError(
-        "failed-precondition",
-        "This service category is currently in use and cannot be deleted.",
-      );
-    }
-
     await db.runTransaction(
       async (transaction) => {
         const currentSnapshot =
@@ -669,6 +645,13 @@ export const deleteServiceCategory = onCall(
           );
         }
 
+        const usage = await categoryUsageCounts(transaction, code);
+        if (usage.primaryProviders > 0 || usage.providers > 0 || usage.services > 0) {
+          throw new HttpsError(
+            "failed-precondition",
+            "This service category is currently in use and cannot be deleted.",
+          );
+        }
         transaction.delete(reference);
 
         writeAuditLogInTransaction(

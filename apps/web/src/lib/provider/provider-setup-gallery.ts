@@ -35,6 +35,7 @@ export const PROVIDER_SETUP_EVENT_TYPE_LABELS: Record<ProviderSetupEventType, st
 };
 
 export type ProviderSetup = {
+  setupOccasionSchemaVersion?: 1;
   id: string;
   title: string;
   description: string;
@@ -87,8 +88,21 @@ function parseSetup(entry: unknown, ownerId: string, index: number, ids: Set<str
     throw new Error(`Setup ${index + 1} is invalid.`);
   }
   const setup = entry as Record<string, unknown>;
+  // V2 gallery shape and its catalog-to-legacy mapping are not yet authorized.
+  // Never strip occasion metadata and reinterpret a newer record as legacy.
+  if (setup.setupOccasionSchemaVersion !== undefined && setup.setupOccasionSchemaVersion !== 1) {
+    throw new Error("Unsupported setup occasion schema version. V2 gallery changes are disabled; contact FEASTA support before editing this gallery.");
+  }
+  if (Object.keys(setup).some((field) => /occasion/iu.test(field) && field !== "setupOccasionSchemaVersion")) {
+    throw new Error("Unsupported setup occasion metadata. Reload with a compatible gallery editor; V2 changes are disabled.");
+  }
   if (DISALLOWED_SETUP_FIELDS.some((field) => field in setup)) {
     throw new Error("Setup records cannot include pricing or booking terms.");
+  }
+  if (Object.keys(setup).some((field) => ![
+    "id", "title", "description", "eventType", "themeTags", "imageUrls", "isPublished", "setupOccasionSchemaVersion",
+  ].includes(field))) {
+    throw new Error("Unsupported setup metadata. A compatible gallery editor is required before saving.");
   }
   const id = requiredId(setup.id, `Setup ${index + 1}`);
   if (ids.has(id)) throw new Error("Setup identifiers must be unique.");
@@ -104,7 +118,8 @@ function parseSetup(entry: unknown, ownerId: string, index: number, ids: Set<str
   if (setup.isPublished && imageUrls.length === 0) {
     throw new Error(`Setup ${index + 1} needs at least one photo before publishing.`);
   }
-  return {id, title, description, eventType, themeTags, imageUrls, isPublished: setup.isPublished};
+  return {id, title, description, eventType, themeTags, imageUrls, isPublished: setup.isPublished,
+    ...(setup.setupOccasionSchemaVersion === 1 ? {setupOccasionSchemaVersion: 1 as const} : {})};
 }
 
 function parseEventType(value: unknown, index: number): ProviderSetupEventType {

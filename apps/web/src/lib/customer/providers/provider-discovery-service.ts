@@ -8,6 +8,8 @@ import {
   type QueryDocumentSnapshot,
 } from "firebase-admin/firestore";
 
+import {getServiceCategoryOptions} from "@/lib/service-categories/service-category-service";
+
 import {adminDb} from "@/lib/firebase/admin";
 
 import {normalizePublicProvider} from "./provider-normalization";
@@ -27,46 +29,81 @@ export async function getPublicProviderPage(
 ): Promise<ProviderDiscoveryPage> {
   const safePageSize = Math.min(Math.max(Math.trunc(pageSize), 1), PROVIDER_PAGE_SIZE);
   const cursor = decodeProviderCursor(filters.cursor);
-  let query: Query<DocumentData> = adminDb
-    .collection(FIRESTORE_COLLECTIONS.providers)
-    .where("verificationStatus", "==", "approved")
-    .where("publiclyVisible", "==", true)
-    .where("isActive", "==", true)
-    .where("isSuspended", "==", false)
-    .where("isDeleted", "==", false);
-
-  if (filters.serviceType !== "all") {
-    query = query.where("providerServiceType", "==", filters.serviceType);
+  // Validate against the managed catalog, not just the category code syntax.
+  const requestedCategories = filters.categories?.length
+    ? [...new Set(filters.categories)]
+    : filters.category !== "all" ? [filters.category] : [];
+  const catalog = requestedCategories.length ? await getServiceCategoryOptions() : [];
+  const categories = requestedCategories.filter((code) =>
+    catalog.some((option) => option.code === code && option.status === "active"),
+  );
+  if (requestedCategories.length && (!categories.length || requestedCategories.length > 30)) {
+    return {providers: [], previousCursor: null, nextCursor: null, pageSize: safePageSize};
   }
-  if (filters.category !== "all") {
-    query = query.where("providerCategory", "==", filters.category);
+  // Ten categories keep even the full search + service query within Firestore's
+  // 100 DNF filter/order terms. At most three bounded reads use existing indexes.
+  const groups: string[][] = [];
+  for (let offset = 0; offset < categories.length; offset += 10) {
+    groups.push(categories.slice(offset, offset + 10));
   }
-  const searchToken = normalizedSearchToken(filters.search);
-  // Prefix tokens are stored from two characters upward. A one-character
-  // array-contains query cannot match "bagong", and a 200-document sample
-  // would drop later matches, so text search starts at two characters.
-  if (searchToken.length >= 2) {
-    query = query.where("searchTokens", "array-contains", searchToken);
-  }
+  if (!groups.length) groups.push([]);
+  const snapshots = await Promise.all(groups.map(async (categoryGroup) => {
+    let query: Query<DocumentData> = adminDb
+      .collection(FIRESTORE_COLLECTIONS.providers)
+      .where("verificationStatus", "==", "approved")
+      .where("publiclyVisible", "==", true)
+      .where("isActive", "==", true)
+      .where("isSuspended", "==", false)
+      .where("isDeleted", "==", false);
 
-  query = query
-    .orderBy("favoriteCount", "desc")
-    .orderBy(FieldPath.documentId(), "desc");
+    if (filters.serviceType !== "all") {
+      query = query.where("providerServiceType", "==", filters.serviceType);
+    }
+    if (categoryGroup.length > 1) {
+      query = query.where(
+        "providerCategory",
+        "in",
+        categoryGroup,
+      );
+    } else if (categoryGroup.length === 1) {
+      query = query.where("providerCategory", "==", categoryGroup[0]);
+    }
+    const searchToken = normalizedSearchToken(filters.search);
+    // Prefix tokens are stored from two characters upward. A one-character
+    // array-contains query cannot match "bagong", and a 200-document sample
+    // would drop later matches, so text search starts at two characters.
+    if (searchToken.length >= 2) {
+      query = query.where("searchTokens", "array-contains", searchToken);
+    }
 
-  if (cursor) {
-    query = cursor.direction === "previous"
-      ? query
-        .endBefore(cursor.favoriteCount, cursor.providerId)
-        .limitToLast(safePageSize + 1)
-      : query
-        .startAfter(cursor.favoriteCount, cursor.providerId)
-        .limit(safePageSize + 1);
-  } else {
-    query = query.limit(safePageSize + 1);
-  }
+    query = query
+      .orderBy("favoriteCount", "desc")
+      .orderBy(FieldPath.documentId(), "desc");
 
-  const snapshot = await query.get();
-  const rawDocuments = snapshot.docs;
+    if (cursor) {
+      query = cursor.direction === "previous"
+        ? query
+          .endBefore(cursor.favoriteCount, cursor.providerId)
+          .limitToLast(safePageSize + 1)
+        : query
+          .startAfter(cursor.favoriteCount, cursor.providerId)
+          .limit(safePageSize + 1);
+    } else {
+      query = query.limit(safePageSize + 1);
+    }
+
+
+    return query.get();
+  }));
+  const documents = [...new Map(snapshots.flatMap((snapshot) =>
+    snapshot.docs.map((document) => [document.id, document] as const),
+  )).values()].sort((left, right) =>
+    nonnegativeNumber(right.data().favoriteCount) - nonnegativeNumber(left.data().favoriteCount) ||
+    Buffer.compare(Buffer.from(right.id), Buffer.from(left.id)),
+  );
+  const rawDocuments = cursor?.direction === "previous"
+    ? documents.slice(-(safePageSize + 1))
+    : documents.slice(0, safePageSize + 1);
   const hasDirectionalExtra = rawDocuments.length > safePageSize;
   const pageDocuments = cursor?.direction === "previous"
     ? rawDocuments.slice(hasDirectionalExtra ? 1 : 0)

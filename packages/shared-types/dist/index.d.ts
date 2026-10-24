@@ -9,4 +9,5 @@ export * from "./provider-service-area.js";
 export * from "./provider-registration.js";
 export * from "./refund-policy.js";
 export * from "./service-category.js";
+export type * from "./provider-package-v2.cjs";
 //# sourceMappingURL=index.d.ts.map

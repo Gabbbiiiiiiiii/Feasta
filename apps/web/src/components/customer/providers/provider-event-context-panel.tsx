@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   CalendarDays,
   Clock3,
+  Wallet,
   MapPin,
   PartyPopper,
   UsersRound,
@@ -86,6 +87,18 @@ export function ProviderEventContextPanel({
                   {guestCount.toLocaleString("en-PH")} guests
                 </ContextItem>
               ) : null}
+              {(planning?.budgetMin !== undefined ||
+                planning?.budgetMax !== undefined) ? (
+                <ContextItem icon={Wallet} label="Planning budget">
+                  Planning budget: {planning?.budgetMin !== undefined
+                    ? `₱${planning.budgetMin.toLocaleString("en-PH")}`
+                    : "Up to"}
+                  {planning?.budgetMin !== undefined && planning?.budgetMax !== undefined ? " – " : " "}
+                  {planning?.budgetMax !== undefined
+                    ? `₱${planning.budgetMax.toLocaleString("en-PH")}`
+                    : "and above"}
+                </ContextItem>
+              ) : null}
               {eventVenue ? (
                 <ContextItem icon={MapPin} label="Event venue">
                   <span className="break-words">
@@ -118,7 +131,12 @@ export function ProviderEventContextPanel({
         >
           {filters.search ? <input type="hidden" name="q" value={filters.search} /> : null}
           {filters.serviceType !== "all" ? <input type="hidden" name="service" value={filters.serviceType} /> : null}
-          {filters.category !== "all" ? <input type="hidden" name="category" value={filters.category} /> : null}
+          {filters.category !== "all"
+            ? <input type="hidden" name="category" value={filters.category} />
+            : null}
+          {filters.categories && filters.categories.length > 1
+            ? <input type="hidden" name="categories" value={filters.categories.join(",")} />
+            : null}
 
           <EventControl label="Event type">
             <select name="eventType" defaultValue={eventType ?? ""} className={controlClass}>
@@ -160,6 +178,37 @@ export function ProviderEventContextPanel({
             initialVenue={eventVenue}
             label="Event venue"
           />
+          <div className="grid min-w-0 gap-2 sm:col-span-2 sm:grid-cols-2 xl:col-span-7">
+            <EventControl label="Starting budget (₱) — optional">
+              <input
+                name="budgetMin"
+                type="number"
+                min={0}
+                max={100000000}
+                step={1}
+                defaultValue={planning?.budgetMin ?? ""}
+                placeholder="Minimum amount"
+                className={controlClass}
+              />
+            </EventControl>
+            <EventControl label="Maximum budget (₱) — optional">
+              <input
+                name="budgetMax"
+                type="number"
+                min={0}
+                max={100000000}
+                step={1}
+                defaultValue={planning?.budgetMax ?? ""}
+                placeholder="No upper limit"
+                className={controlClass}
+              />
+            </EventControl>
+            <p className="text-xs text-feasta-text-secondary sm:col-span-2">
+              Total planning budget across all selected services.
+              Planning reference only. Provider prices are not filtered
+              by this budget.
+            </p>
+          </div>
           <button
             type="submit"
             className="inline-flex min-h-10 items-center justify-center self-end rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground shadow-brand-soft outline-none transition-colors hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 xl:mb-0.5"
@@ -192,7 +241,7 @@ function ContextItem({
 
 function EventControl({label, children}: {label: string; children: React.ReactNode}) {
   return (
-    <label className="grid gap-1 text-[11px] font-bold text-feasta-text-secondary">
+    <label className="grid min-w-0 gap-1 text-[11px] font-bold text-feasta-text-secondary">
       {label}
       {children}
     </label>

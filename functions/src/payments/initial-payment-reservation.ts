@@ -5,36 +5,10 @@ import {AVAILABILITY_COUNTED_REQUEST_STATUSES, manilaDateRange,
   providerRequestOccupiesAvailability, validateProviderAvailability}
   from "../provider-availability/validate-provider-availability.js";
 import {scheduledEventStart} from "./canonical-balance-timing.js";
-import {remainingBalanceHardDeadline} from "./canonical-balance-timing.js";
-import {PROVIDER_PAYMENT_HOLD_WINDOW_MS} from "../provider-availability/validate-provider-availability.js";
+import {originalInitialPaymentDeadline} from "./initial-payment-deadline.js";
+export {originalInitialPaymentDeadline} from "./initial-payment-deadline.js";
 import {parseProviderRequestType} from "../shared/constants.js";
 import {frozenBookingPolicyTimingV3} from "../bookings/booking-policy-v3.js";
-
-/** Original frozen boundaries only. No mutable package settings or renewal clock. */
-export function originalInitialPaymentDeadline(request: Readonly<Record<string, unknown>>): Timestamp {
-  if (!(request.acceptedAt instanceof Timestamp) || !(request.eventDate instanceof Timestamp)) {
-    throw new Error("Initial payment timing evidence is missing.");
-  }
-  const accepted = request.acceptedAt.toMillis();
-  if (request.remainingBalanceTimingSchemaVersion != null &&
-    ![1, 2, 3].includes(request.remainingBalanceTimingSchemaVersion as number)) {
-    throw new Error("Initial payment timing version is unsupported.");
-  }
-  const eventStart = scheduledEventStart(request.eventDate.toDate(), request.eventTime).getTime();
-  if (request.eventStartAt != null && (!(request.eventStartAt instanceof Timestamp) ||
-    request.eventStartAt.toMillis() !== eventStart)) throw new Error("Event timing evidence conflicts.");
-  const optional = (value: unknown): number => {
-    if (value == null) return Infinity;
-    if (!(value instanceof Timestamp)) throw new Error("Initial payment deadline is invalid.");
-    return value.toMillis();
-  };
-  const canonical = [2, 3].includes(Number(request.remainingBalanceTimingSchemaVersion))
-    ? remainingBalanceHardDeadline(request).getTime() : Infinity;
-  const deadline = Math.min(accepted + PROVIDER_PAYMENT_HOLD_WINDOW_MS, eventStart,
-    optional(request.expiresAt), optional(request.hardPaymentDeadlineAt), canonical);
-  if (!Number.isFinite(deadline) || deadline <= accepted) throw new Error("Initial payment timing contradicts acceptance.");
-  return Timestamp.fromMillis(deadline);
-}
 
 /** A status alone cannot authorize a new charge after capacity was released. */
 export function requireInitialPaymentHold(request: Readonly<Record<string, unknown>>, now: Date): void {
