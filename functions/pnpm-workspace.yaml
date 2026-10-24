@@ -2,6 +2,6 @@ packages:
   - "."
 
 allowBuilds:
-  "@firebase/util": true
-  protobufjs: true
+  "@firebase/util": false
+  protobufjs: false
   re2: false
