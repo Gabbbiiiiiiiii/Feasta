@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({list: vi.fn(), publish: vi.fn(), archive: vi.fn
 vi.mock("@/lib/provider/provider-package-client", () => ({listProviderPackages: mocks.list, publishProviderPackage: mocks.publish, archiveProviderPackage: mocks.archive, createProviderPackage: vi.fn(), updateProviderPackage: vi.fn()}));
 vi.mock("@/app/provider/packages/menu-actions", () => ({loadProviderMenuAction: mocks.load, saveProviderMenuAction: vi.fn()}));
 vi.mock("@/app/provider/packages/setup-gallery-actions", () => ({
+  loadPrivateProviderSetupGalleryV2Action: vi.fn().mockResolvedValue({
+    ok: false, code: "UNAVAILABLE", error: "Setup Gallery V2 is unavailable.",
+  }),
+  savePrivateProviderSetupGalleryV2Action: vi.fn(),
   loadProviderSetupGalleryAction: vi.fn().mockResolvedValue({revision: 0, setups: []}),
   saveProviderSetupGalleryAction: vi.fn(),
 }));

@@ -24,6 +24,7 @@ import {
   type ProviderSetupEventType,
   type ProviderSetupGallery,
 } from "@/lib/provider/provider-setup-gallery";
+import {ProviderSetupGalleryV2Manager} from "./provider-setup-gallery-v2-manager";
 import {loadProviderSetupGalleryAction, saveProviderSetupGalleryAction} from "./setup-gallery-actions";
 
 type SetupDraft = {
@@ -36,7 +37,21 @@ type SetupDraft = {
   isPublished: boolean;
 };
 
-export function ProviderSetupGalleryManager() {
+export function ProviderSetupGalleryManager({allowLegacy = true}: {allowLegacy?: boolean}) {
+  const [legacy, setLegacy] = useState(false);
+  return <div className="grid gap-3">
+    <div role="group" aria-label="Setup gallery editor" className="flex flex-wrap gap-3">
+      <Button variant={legacy ? "secondary" : "primary"} aria-pressed={!legacy} onClick={() => setLegacy(false)}>Occasion gallery</Button>
+      {allowLegacy ? <Button variant={legacy ? "primary" : "secondary"} aria-pressed={legacy} onClick={() => setLegacy(true)}>Classic gallery</Button> : null}
+    </div>
+    {legacy && allowLegacy ? <>
+      <p className="text-sm text-muted-foreground">The classic editor supports V1-only galleries. Use Occasion gallery for galleries containing occasion drafts.</p>
+      <LegacyProviderSetupGalleryManager />
+    </> : <ProviderSetupGalleryV2Manager />}
+  </div>;
+}
+
+export function LegacyProviderSetupGalleryManager() {
   const [gallery, setGallery] = useState<ProviderSetupGallery>({revision: 0, setups: []});
   const [draft, setDraft] = useState<SetupDraft | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<ProviderSetup | null>(null);
