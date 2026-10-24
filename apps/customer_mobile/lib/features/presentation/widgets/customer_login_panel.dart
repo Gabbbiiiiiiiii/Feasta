@@ -1,3 +1,4 @@
+import '../../../shared/widgets/feasta_brand.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -10,7 +11,9 @@ import '../../../core/widgets/widgets.dart';
 import '../../authentication/application/customer_login_controller.dart';
 import '../../authentication/data/repositories/auth_repository.dart';
 import '../../authentication/domain/customer_login.dart';
-import 'feasta_google_auth_button.dart';
+import '../../authentication/domain/google_consent.dart';
+import 'google_consent_button.dart';
+import '../../authentication/presentation/authentication_loading.dart';
 
 class CustomerLoginPanel extends StatefulWidget {
   const CustomerLoginPanel({
@@ -20,6 +23,8 @@ class CustomerLoginPanel extends StatefulWidget {
     this.onClose,
     this.contextMessage,
     this.loginGateway,
+    this.onSubmittingChanged,
+    this.onInteractionChanged,
     super.key,
   });
 
@@ -29,6 +34,8 @@ class CustomerLoginPanel extends StatefulWidget {
   final VoidCallback? onClose;
   final String? contextMessage;
   final CustomerLoginGateway? loginGateway;
+  final ValueChanged<bool>? onSubmittingChanged;
+  final ValueChanged<bool>? onInteractionChanged;
 
   @override
   State<CustomerLoginPanel> createState() => _CustomerLoginPanelState();
@@ -54,6 +61,8 @@ class _CustomerLoginPanelState extends State<CustomerLoginPanel> {
 
   void _handleControllerChanged() {
     if (mounted) {
+      widget.onInteractionChanged?.call(_controller.state.isSubmitting);
+      widget.onSubmittingChanged?.call(_controller.state.showsSignInLoading);
       setState(() {});
     }
   }
@@ -73,10 +82,10 @@ class _CustomerLoginPanelState extends State<CustomerLoginPanel> {
     await widget.onLoginComplete(result);
   }
 
-  Future<void> _googleLogin() async {
+  Future<void> _googleLogin(GoogleConsent? consent) async {
     FocusScope.of(context).unfocus();
 
-    final result = await _controller.signInWithGoogle();
+    final result = await _controller.signInWithGoogle(consent: consent);
 
     if (!mounted || result == null) {
       return;
@@ -102,6 +111,9 @@ class _CustomerLoginPanelState extends State<CustomerLoginPanel> {
   @override
   Widget build(BuildContext context) {
     final state = _controller.state;
+    if (state.showsSignInLoading && widget.onSubmittingChanged == null) {
+      return const Center(child: AuthenticationLoading());
+    }
 
     return AutofillGroup(
       child: Center(
@@ -131,17 +143,9 @@ class _CustomerLoginPanelState extends State<CustomerLoginPanel> {
 
                 const SizedBox(height: AppSpacing.sm),
 
-                Center(
-                  child: Image.asset(
-                    'assets/images/feasta_logo.png',
-                    width: 88,
-                    height: 88,
-                    fit: BoxFit.contain,
-                    semanticLabel: 'FEASTA logo',
-                  ),
-                ),
+                Center(child: const FeastaBrand(width: 140)),
 
-                const SizedBox(height: AppSpacing.xl),
+                const SizedBox(height: AppSpacing.lg),
 
                 Text(
                   'Log in or sign up',
@@ -278,9 +282,10 @@ class _CustomerLoginPanelState extends State<CustomerLoginPanel> {
 
                 const SizedBox(height: AppSpacing.xl),
 
-                FeastaGoogleAuthButton(
-                  key: const Key('google-login-button'),
-                  isLoading: state.isGoogleSubmitting,
+                GoogleConsentButton(
+                  buttonKey: const Key('google-login-button'),
+                  isLoading:
+                      state.isGoogleSubmitting && !state.selectingGoogleAccount,
                   onPressed: state.isSubmitting ? null : _googleLogin,
                 ),
 

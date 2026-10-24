@@ -11,18 +11,36 @@ import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../chat/chat_screen.dart';
 import 'booking_details_screen.dart';
+import 'customer_booking_presentation.dart';
+import 'customer_bookings_controller.dart';
 import 'full_payment_presentation.dart';
 import 'payment_required_screen.dart';
 
 class CustomerBookingsScreen extends StatefulWidget {
-  const CustomerBookingsScreen({super.key});
+  const CustomerBookingsScreen({super.key, this.source});
+
+  final CustomerBookingsSource? source;
 
   @override
   State<CustomerBookingsScreen> createState() => _CustomerBookingsScreenState();
 }
 
 class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
-  final FeastaRepository repository = FeastaRepository();
+  late final CustomerBookingsController controller;
+
+  @override
+  void initState() {
+    super.initState();
+    controller = CustomerBookingsController(
+      widget.source ?? FeastaRepository().customerBookingsSource(),
+    );
+  }
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,10 +50,10 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
         children: [
           const FeastaPageHeader(title: 'My Bookings'),
           Expanded(
-            child: StreamBuilder<List<BookingModel>>(
-              stream: repository.customerBookings(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
+            child: ListenableBuilder(
+              listenable: controller,
+              builder: (context, _) {
+                if (controller.loading && controller.bookings.isEmpty) {
                   return const FeastaListSkeleton(
                     itemCount: 5,
                     padding: EdgeInsets.fromLTRB(
@@ -47,34 +65,37 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
                   );
                 }
 
-                if (snapshot.hasError) {
+                if (controller.error != null && controller.bookings.isEmpty) {
                   return Center(
                     child: FeastaApplicationErrorState(
                       kind: FeastaErrorKind.load,
                       message:
                           'We could not load your bookings. Please try again.',
                       onRetry: () {
-                        setState(() {});
+                        controller.refresh();
                       },
                     ),
                   );
                 }
 
-                final bookings = snapshot.data ?? const <BookingModel>[];
+                final bookings = controller.bookings;
 
                 if (bookings.isEmpty) {
-                  return const _BookingsEmptyState();
+                  return RefreshIndicator(
+                    onRefresh: controller.refresh,
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: const [
+                        SizedBox(height: 100),
+                        _BookingsEmptyState(),
+                      ],
+                    ),
+                  );
                 }
 
                 return RefreshIndicator(
                   color: AppColors.primary,
-                  onRefresh: () async {
-                    setState(() {});
-
-                    await Future<void>.delayed(
-                      const Duration(milliseconds: 500),
-                    );
-                  },
+                  onRefresh: controller.refresh,
                   child: ListView.separated(
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(
@@ -83,7 +104,7 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
                       AppSpacing.screen,
                       AppSpacing.massive,
                     ),
-                    itemCount: bookings.length + 1,
+                    itemCount: bookings.length + 2,
                     separatorBuilder: (context, index) {
                       return const SizedBox(height: AppSpacing.md);
                     },
@@ -92,7 +113,53 @@ class _CustomerBookingsScreenState extends State<CustomerBookingsScreen> {
                         return _BookingsIntro(bookingCount: bookings.length);
                       }
 
-                      return BookingCard(booking: bookings[index - 1]);
+                      if (index == bookings.length + 1) {
+                        return Column(
+                          children: [
+                            if (controller.historyUpdated)
+                              Semantics(
+                                liveRegion: true,
+                                child: const Text(
+                                  'Bookings updated. Load older bookings again.',
+                                ),
+                              ),
+                            if (controller.error != null)
+                              Semantics(
+                                liveRegion: true,
+                                child: const Text(
+                                  'Could not load older bookings. Please retry.',
+                                ),
+                              ),
+                            if (controller.loading)
+                              Semantics(
+                                liveRegion: true,
+                                label: 'Loading more bookings.',
+                                child: const ExcludeSemantics(
+                                  child: Center(
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                ),
+                              )
+                            else if (controller.hasMore)
+                              OutlinedButton(
+                                onPressed: controller.loadMore,
+                                child: Text(
+                                  controller.error == null
+                                      ? 'Load More'
+                                      : 'Retry',
+                                ),
+                              )
+                            else
+                              const Text(
+                                'You have reached the end of available bookings.',
+                              ),
+                          ],
+                        );
+                      }
+                      return BookingCard(
+                        booking: bookings[index - 1],
+                        onReturn: controller.refresh,
+                      );
                     },
                   ),
                 );
@@ -126,8 +193,8 @@ class _BookingsIntro extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.xxs),
           Text(
-            '$bookingCount booking'
-            '${bookingCount == 1 ? '' : 's'} in your account',
+            'Showing $bookingCount booking'
+            '${bookingCount == 1 ? '' : 's'}',
             style: AppTypography.bodySmall.copyWith(
               color: AppColors.secondaryTextAccessible,
             ),
@@ -157,69 +224,16 @@ class _BookingsEmptyState extends StatelessWidget {
 }
 
 class BookingCard extends StatelessWidget {
-  const BookingCard({required this.booking, super.key});
+  const BookingCard({required this.booking, super.key, this.onReturn});
+
+  final Future<void> Function()? onReturn;
 
   final BookingModel booking;
 
-  String get statusLabel {
-    switch (booking.status) {
-      case 'pending':
-        return 'Pending Review';
-
-      case 'accepted':
-        return 'Accepted';
-
-      case 'waiting_payment':
-      case 'waiting_for_down_payment':
-        return 'Payment Required';
-
-      case 'payment_processing':
-        return 'Processing Payment';
-
-      case 'confirmed':
-        return 'Confirmed';
-
-      case 'completed':
-        return 'Completed';
-
-      case 'cancelled':
-        return 'Cancelled';
-
-      case 'rejected':
-        return 'Rejected';
-
-      case 'expired':
-        return 'Expired';
-
-      default:
-        return booking.status;
-    }
-  }
-
-  FeastaStatusTone get statusTone {
-    switch (booking.status) {
-      case 'pending':
-      case 'waiting_payment':
-      case 'waiting_for_down_payment':
-      case 'payment_processing':
-        return FeastaStatusTone.warning;
-
-      case 'accepted':
-      case 'confirmed':
-        return FeastaStatusTone.success;
-
-      case 'completed':
-        return FeastaStatusTone.info;
-
-      case 'cancelled':
-      case 'rejected':
-      case 'expired':
-        return FeastaStatusTone.error;
-
-      default:
-        return FeastaStatusTone.neutral;
-    }
-  }
+  CustomerBookingPresentation get presentation =>
+      CustomerBookingPresentation(booking);
+  String get statusLabel => presentation.label;
+  FeastaStatusTone get statusTone => presentation.tone;
 
   String get formattedDate {
     final date = booking.eventDate;
@@ -247,179 +261,46 @@ class BookingCard extends StatelessWidget {
         '${date.day}, ${date.year}';
   }
 
-  String get nextStepTitle {
-    switch (booking.status) {
-      case 'pending':
-        return 'Waiting for provider review';
-
-      case 'accepted':
-        return 'Provider accepted your request';
-
-      case 'waiting_payment':
-      case 'waiting_for_down_payment':
-        return isHistoricalDepositTerms(
-              amount: booking.totalAmount,
-              upfrontAmount: booking.downPaymentAmount,
-            )
-            ? 'Down payment required'
-            : 'Full payment required';
-
-      case 'payment_processing':
-        return 'Payment is processing';
-
-      case 'confirmed':
-        return 'Your booking is confirmed';
-
-      case 'completed':
-        return 'Event completed';
-
-      case 'cancelled':
-        return 'Booking cancelled';
-
-      case 'rejected':
-        return 'Provider declined the request';
-
-      case 'expired':
-        return 'Booking request expired';
-
-      default:
-        return 'Booking updated';
-    }
-  }
-
-  String get nextStepDescription {
-    switch (booking.status) {
-      case 'pending':
-        return 'You’ll be notified once the provider responds.';
-
-      case 'accepted':
-        return 'Open your booking to see the next required step.';
-
-      case 'waiting_payment':
-      case 'waiting_for_down_payment':
-        return isHistoricalDepositTerms(
-              amount: booking.totalAmount,
-              upfrontAmount: booking.downPaymentAmount,
-            )
-            ? 'Complete the required down payment to confirm your booking.'
-            : 'Complete the full payment to confirm your booking.';
-
-      case 'payment_processing':
-        return 'Your payment is being verified. No action is needed right now.';
-
-      case 'confirmed':
-        return 'Your booking is confirmed. You can coordinate with your provider through Chat.';
-
-      case 'completed':
-        return 'Your event is complete. You can review the provider from the booking details page.';
-
-      case 'cancelled':
-        return 'Open the booking to review the cancellation information.';
-
-      case 'rejected':
-        return 'Open the booking to review the provider response.';
-
-      case 'expired':
-        return 'This booking request can no longer be confirmed.';
-
-      default:
-        return 'Open the booking to see the latest details.';
-    }
-  }
-
-  IconData get nextStepIcon {
-    switch (booking.status) {
-      case 'pending':
-        return Icons.schedule_rounded;
-
-      case 'accepted':
-        return Icons.thumb_up_alt_outlined;
-
-      case 'waiting_payment':
-      case 'waiting_for_down_payment':
-        return Icons.account_balance_wallet_outlined;
-
-      case 'payment_processing':
-        return Icons.sync_rounded;
-
-      case 'confirmed':
-        return Icons.verified_rounded;
-
-      case 'completed':
-        return Icons.check_circle_outline_rounded;
-
-      case 'cancelled':
-      case 'rejected':
-      case 'expired':
-        return Icons.info_outline_rounded;
-
-      default:
-        return Icons.event_note_outlined;
-    }
-  }
-
-  Color get nextStepColor {
-    switch (booking.status) {
-      case 'confirmed':
-      case 'completed':
-        return AppColors.success;
-
-      case 'cancelled':
-      case 'rejected':
-      case 'expired':
-        return AppColors.error;
-
-      default:
-        return AppColors.primaryStrong;
-    }
-  }
-
-  Color get nextStepBackground {
-    switch (booking.status) {
-      case 'confirmed':
-      case 'completed':
-        return AppColors.successSubtle;
-
-      case 'cancelled':
-      case 'rejected':
-      case 'expired':
-        return AppColors.errorSubtle;
-
-      default:
-        return AppColors.primarySubtle;
-    }
-  }
+  String get nextStepTitle => presentation.title;
+  String get nextStepDescription => presentation.message;
+  IconData get nextStepIcon => presentation.icon;
+  Color get nextStepColor => presentation.foreground;
+  Color get nextStepBackground => presentation.background;
 
   void _openDetails(BuildContext context) {
-    Navigator.push(
+    Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (_) => BookingDetailsScreen(bookingId: booking.id),
       ),
-    );
+    ).then((_) => onReturn?.call());
   }
 
   void _openChat(BuildContext context) {
-    Navigator.push(
+    Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (_) =>
             ChatScreen(booking: booking, currentRole: UserRoles.customer),
       ),
-    );
+    ).then((_) => onReturn?.call());
   }
 
   void _openPayment(BuildContext context) {
-    Navigator.push(
+    Navigator.push<void>(
       context,
       MaterialPageRoute(
         builder: (_) => PaymentRequiredScreen(booking: booking),
       ),
-    );
+    ).then((_) => onReturn?.call());
   }
 
   @override
-  Widget build(BuildContext context) => BookingLifecycleBuilder(booking: booking, builder: (context, label, message) => _buildContent(context, label, message));
+  Widget build(BuildContext context) => BookingLifecycleBuilder(
+    booking: booking,
+    builder: (context, label, message) =>
+        _buildContent(context, label, message),
+  );
 
   Widget _buildContent(BuildContext context, String? label, String? message) {
     final statusLabel = label ?? this.statusLabel;
@@ -428,7 +309,10 @@ class BookingCard extends StatelessWidget {
 
     final textScaler = MediaQuery.textScalerOf(context);
 
-    final largeText = textScaler.scale(16) >= 22;
+    // Lifecycle holds have longer labels than ordinary statuses. Use the
+    // existing stacked layout so neither the badge nor provider details squeeze
+    // the other out while relationship evidence is loading.
+    final largeText = textScaler.scale(16) >= 22 || statusLabel.length > 18;
 
     return Semantics(
       container: true,

@@ -1,9 +1,46 @@
 import 'package:feasta/features/authentication/domain/customer_login.dart';
 import 'package:feasta/features/presentation/screens/login_screen.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:feasta/features/authentication/presentation/authentication_loading.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final google in [false, true]) {
+    testWidgets(
+      '${google ? "Google" : "Email"} uses one loading component and clears on failure',
+      (tester) async {
+        final gateway = PendingScreenGateway();
+        await tester.pumpWidget(
+          MaterialApp(
+            home: LoginScreen(loginGateway: gateway, onLoginComplete: (_) {}),
+          ),
+        );
+        if (!google) {
+          await tester.enterText(find.byType(TextFormField).at(0), 'a@b.com');
+          await tester.enterText(find.byType(TextFormField).at(1), 'secret1');
+        }
+        final button = find.byKey(
+          Key(google ? 'google-login-button' : 'email-login-button'),
+        );
+        await tester.ensureVisible(button);
+        await tester.pumpAndSettle();
+        await tester.tap(button);
+        await tester.pump();
+        expect(find.text('Signing in...'), findsOneWidget);
+        expect(find.byType(AuthenticationLoading), findsOneWidget);
+        await tester.pump(const Duration(seconds: 2));
+        expect(gateway.calls, 1);
+        gateway.pending.completeError(
+          const CustomerLoginException(CustomerLoginFailureKind.network),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(AuthenticationLoading), findsNothing);
+        expect(find.textContaining('internet connection'), findsOneWidget);
+      },
+    );
+  }
+
   testWidgets('login form exposes autofill fields and accessible errors', (
     tester,
   ) async {
@@ -46,7 +83,7 @@ void main() {
     expect(find.textContaining('internet connection'), findsOneWidget);
   });
 
-  testWidgets('Google cancellation is status, not an error', (tester) async {
+  testWidgets('Google cancellation silently restores the form', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: LoginScreen(
@@ -75,7 +112,7 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Google sign-in was cancelled.'), findsOneWidget);
+    expect(find.text('Google sign-in was cancelled.'), findsNothing);
 
     expect(find.byKey(const Key('login-error-summary')), findsNothing);
   });
@@ -109,5 +146,15 @@ class ScreenLoginGateway implements CustomerLoginGateway {
   @override
   Future<CustomerLoginResult> signInWithGoogle() {
     return _result();
+  }
+}
+
+class PendingScreenGateway extends ScreenLoginGateway {
+  final pending = Completer<CustomerLoginResult>();
+  int calls = 0;
+  @override
+  Future<CustomerLoginResult> _result() {
+    calls++;
+    return pending.future;
   }
 }

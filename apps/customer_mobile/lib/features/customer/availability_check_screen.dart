@@ -1,3 +1,4 @@
+import '../../core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 
 import '../../shared/models/event_customization_data.dart';
@@ -62,7 +63,7 @@ class _AvailabilityCheckScreenState extends State<AvailabilityCheckScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFB02F00);
+    const primary = AppColors.primary;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Availability Check')),
@@ -83,7 +84,7 @@ class _AvailabilityCheckScreenState extends State<AvailabilityCheckScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: const Color(0xFFE5E7EB)),
+                      border: Border.all(color: AppColors.border),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

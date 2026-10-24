@@ -1,12 +1,14 @@
 import 'package:flutter/foundation.dart';
 
 import '../domain/customer_login.dart';
+import '../domain/google_consent.dart';
 
 enum CustomerLoginMethod { email, google }
 
 class CustomerLoginState {
   const CustomerLoginState({
     this.isSubmitting = false,
+    this.selectingGoogleAccount = false,
     this.submittingMethod,
     this.emailError,
     this.passwordError,
@@ -15,6 +17,8 @@ class CustomerLoginState {
   });
 
   final bool isSubmitting;
+  final bool selectingGoogleAccount;
+  bool get showsSignInLoading => isSubmitting && !selectingGoogleAccount;
   final CustomerLoginMethod? submittingMethod;
   final String? emailError;
   final String? passwordError;
@@ -81,26 +85,47 @@ class CustomerLoginController extends ChangeNotifier {
     );
   }
 
-  Future<CustomerLoginResult?> signInWithGoogle() {
+  Future<CustomerLoginResult?> signInWithGoogle({GoogleConsent? consent}) {
     if (_disposed || _state.isSubmitting) {
       return Future<CustomerLoginResult?>.value(null);
     }
 
+    final target = gateway;
+    if (target is GoogleConsentGateway) {
+      (target as GoogleConsentGateway).stageGoogleConsent(consent);
+    }
     return _run(
       method: CustomerLoginMethod.google,
-      operation: gateway.signInWithGoogle,
+      selectingGoogleAccount: target is PhasedGoogleLoginGateway,
+      operation: () => target is PhasedGoogleLoginGateway
+          ? (target as PhasedGoogleLoginGateway).signInWithGooglePhased(
+              onAccountSelected: () => _setState(
+                const CustomerLoginState(
+                  isSubmitting: true,
+                  submittingMethod: CustomerLoginMethod.google,
+                ),
+              ),
+            )
+          : gateway.signInWithGoogle(),
     );
   }
 
   Future<CustomerLoginResult?> _run({
     required CustomerLoginMethod method,
     required Future<CustomerLoginResult> Function() operation,
+    bool selectingGoogleAccount = false,
   }) async {
     if (_disposed) {
       return null;
     }
 
-    _setState(CustomerLoginState(isSubmitting: true, submittingMethod: method));
+    _setState(
+      CustomerLoginState(
+        isSubmitting: true,
+        submittingMethod: method,
+        selectingGoogleAccount: selectingGoogleAccount,
+      ),
+    );
 
     try {
       final result = await operation();
@@ -119,9 +144,7 @@ class CustomerLoginController extends ChangeNotifier {
       }
 
       if (error.kind == CustomerLoginFailureKind.cancelled) {
-        _setState(
-          const CustomerLoginState(notice: 'Google sign-in was cancelled.'),
-        );
+        _setState(const CustomerLoginState());
       } else if (error.kind == CustomerLoginFailureKind.invalidCredentials) {
         _setState(
           const CustomerLoginState(

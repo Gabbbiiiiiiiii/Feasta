@@ -1,4 +1,14 @@
+import 'dart:async';
+import 'dart:convert';
+import '../../app/router/customer_auth_navigation.dart';
+import 'customization_session.dart';
+import 'event_draft_persistence.dart';
+import '../../shared/models/booking_contract.dart';
+import 'location_picker_screen.dart';
+import 'widgets/preparation_availability.dart';
+import 'widgets/package_option_cards.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
@@ -12,15 +22,50 @@ import '../../shared/models/feasta_models.dart';
 import '../../shared/widgets/loading_skeleton.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import 'addon_marketplace_screen.dart';
-import 'availability_check_screen.dart';
+import 'booking_summary_screen.dart';
+import 'widgets/booking_preparation_price.dart';
+import 'manual_address_screen.dart';
+import '../../shared/models/customer_address_model.dart';
+import '../../core/helpers/booking_preparation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+/// Both entry points use this route so imperative pop also awaits durable save.
+/// Route removal/replacement (for example a root authentication reset) is not
+/// an intentional customer Back operation and must not prolong authorization.
+class EventCustomizationRoute extends MaterialPageRoute<void> {
+  EventCustomizationRoute({required super.builder, this.origin});
+  final Route<dynamic>? origin;
+  bool Function()? permitPop;
+  VoidCallback? requestExit;
+
+  @override
+  bool didPop(void result) {
+    if (permitPop?.call() == false) {
+      scheduleMicrotask(() => requestExit?.call());
+      return false;
+    }
+    return super.didPop(result);
+  }
+}
 
 class EventCustomizationScreen extends StatefulWidget {
   const EventCustomizationScreen({
     required this.provider,
     required this.eventPackage,
+    this.repository,
+    this.draftPersistence,
+    this.session,
+    this.initialServiceTier,
+    this.onServiceChanged,
     super.key,
   });
 
+  final EventDraftPersistence? draftPersistence;
+  final CustomizationSession? session;
+
+  final ValueChanged<String>? onServiceChanged;
+  final String? initialServiceTier;
+  final FeastaRepository? repository;
   final ProviderModel provider;
   final PackageModel eventPackage;
 
@@ -29,11 +74,107 @@ class EventCustomizationScreen extends StatefulWidget {
       _EventCustomizationScreenState();
 }
 
-class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
-  final FeastaRepository repository = FeastaRepository();
+class _EventCustomizationScreenState extends State<EventCustomizationScreen>
+    with WidgetsBindingObserver {
+  EventDraftPersistence get _drafts =>
+      widget.draftPersistence ?? eventDraftPersistence;
+  Timer? _draftTimer;
+  StreamSubscription<User?>? _draftAuth;
+  bool _draftReady = false;
+  bool _draftDirty = false;
+  String? _savedSnapshot;
+  Future<bool>? _pendingSave;
+  String? _pendingSnapshot;
+  bool _exiting = false;
+  Future<bool>? _exitPreparation;
+  bool _singleExitPending = false;
+  CustomerNavigationExitGuard? _navigationGuard;
+  bool _draftSaveFailed = false;
+  bool _allowExit = false;
+  String get _snapshotIdentity =>
+      jsonEncode(EventDraftPersistence.encode(_formSnapshot));
+  bool _draftBlocked = false;
+  bool _deletingDraft = false;
+  bool _discardDialogOpen = false;
+  int _draftActionEpoch = 0;
 
+  late final CustomizationSession? _entrySession = widget.session;
+  bool _entryClosed = false;
+  bool get _entryAuthorized =>
+      !_entryClosed && (_entrySession?.authorized ?? true);
+  bool get _canPublish =>
+      mounted && _entryAuthorized && (_exitRoute?.isActive ?? true);
+  void _sessionChanged() {
+    if (!_entryAuthorized && mounted) {
+      _entryClosed = true;
+      _draftTimer?.cancel();
+      _draftActionEpoch++;
+      _navigationGuard?.authorizationChanged();
+      // Revocation above is synchronous. Parent-route disposal can notify while
+      // the framework tree is locked, so publish the closed UI after that work.
+      scheduleMicrotask(() {
+        if (mounted) super.setState(() {});
+      });
+    }
+  }
+
+  bool get _canEditDraft =>
+      _entryAuthorized &&
+      (_exitRoute?.isActive ?? true) &&
+      _draftReady &&
+      !_draftBlocked &&
+      !_deletingDraft &&
+      FirebaseAuth.instance.currentUser?.uid == _draftOwner;
+  bool _canFinishAction(int epoch) =>
+      mounted && _canEditDraft && epoch == _draftActionEpoch;
+  bool _applyingDraft = false;
+  String? _draftMessage;
+
+  @override
+  void setState(VoidCallback fn) {
+    if (!_canPublish || (_deletingDraft && !_applyingDraft)) return;
+    super.setState(fn);
+    if (_draftReady && !_applyingDraft) _scheduleDraft();
+  }
+
+  void _scheduleDraft() {
+    if (!_canEditDraft || _applyingDraft) return;
+    _allowExit = false;
+    _draftDirty = _snapshotIdentity != _savedSnapshot;
+    // Refresh PopScope immediately when text controllers change.
+    if (mounted) super.setState(() {});
+    _draftTimer?.cancel();
+    _draftTimer = Timer(const Duration(milliseconds: 350), _saveDraft);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) _saveDraft();
+  }
+
+  late final FeastaRepository repository;
+  late PackageModel _eventPackage;
+  String? _draftOwner;
+  String? selectedServiceTier;
+  String? selectedThemeId;
+  String? themeChoice;
+  final customThemeController = TextEditingController();
+  bool _checking = false;
+  int _step = 0;
+  final _scrollController = ScrollController();
+
+  void _goToStep(int step) {
+    if (!_canEditDraft) return;
+    FocusScope.of(context).unfocus();
+    _saveDraft();
+    setState(() => _step = step);
+    if (_scrollController.hasClients) _scrollController.jumpTo(0);
+  }
+
+  CustomerAddressModel? _eventAddress;
   final locationController = TextEditingController(text: 'Ormoc City');
   final addressController = TextEditingController();
+  final guestCountController = TextEditingController();
   final specialRequestController = TextEditingController();
   final customerArrangedAddOnsController = TextEditingController();
 
@@ -55,59 +196,479 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   late List<String> selectedDecorations;
   late List<String> selectedFurniture;
 
-  static const _eventTypes = <String>[
-    'Birthday',
-    'Wedding',
-    'Anniversary',
-    'Reunion',
-    'Corporate',
-    'Baptism',
-    'Graduation',
-    'Other',
-  ];
+  List<String> get _eventTypes {
+    final type = _eventPackage.eventType.trim();
+    if (type.isNotEmpty) return [type];
+    // The package contract currently publishes one scalar eventType. Provider
+    // categories do not establish this package's eligibility.
+    return const [];
+  }
+
+  EventCustomizationRoute? _exitRoute;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is EventCustomizationRoute) {
+      _exitRoute = route;
+      route.permitPop = () =>
+          _allowExit ||
+          !_entryAuthorized ||
+          (!_exiting &&
+              !_deletingDraft &&
+              !_draftDirty &&
+              _pendingSave == null);
+      route.requestExit = _requestExit;
+      _navigationGuard ??= CustomerNavigationExitGuard(
+        route: route,
+        authorized: () => _entryAuthorized,
+        canRemove: () => route.permitPop?.call() ?? false,
+        prepare: _prepareExit,
+        parentIsActive: () => route.origin?.isActive ?? true,
+      );
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    _eventPackage = widget.eventPackage;
 
-    guestCount = widget.eventPackage.guestCapacity;
+    repository = widget.repository ?? FeastaRepository();
+    _draftOwner = _entrySession?.uid ?? FirebaseAuth.instance.currentUser?.uid;
+    _entrySession?.addListener(_sessionChanged);
+    guestCount = _eventPackage.guestCapacity > 0
+        ? _eventPackage.guestCapacity
+        : preparationMinimumGuests(_eventPackage);
 
-    final packageEventType = widget.eventPackage.eventType.trim();
+    final packageEventType = _eventPackage.eventType.trim();
 
     selectedEventType = _eventTypes.contains(packageEventType)
         ? packageEventType
-        : 'Other';
+        : (_eventTypes.isEmpty ? '' : _eventTypes.first);
 
-    selectedFoods = List<String>.from(widget.eventPackage.foodInclusions);
+    selectedFoods = List<String>.from(_eventPackage.foodInclusions);
 
+    selectedDecorations = List<String>.from(_eventPackage.decorInclusions);
+
+    selectedFurniture = List<String>.from(_eventPackage.furnitureInclusions);
+    if (preparationServices(
+      _eventPackage,
+    ).containsKey(widget.initialServiceTier)) {
+      selectedServiceTier = widget.initialServiceTier;
+      if (selectedServiceTier == 'drop_off') {
+        selectedThemeId = null;
+        themeChoice = null;
+        customThemeController.clear();
+      }
+    }
+    _step = 0;
+    guestCountController.text = '$guestCount';
+    WidgetsBinding.instance.addObserver(this);
+    _draftAuth = FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user?.uid != _draftOwner && mounted && _entryAuthorized) {
+        _draftTimer?.cancel();
+        _draftActionEpoch++;
+        _applyingDraft = true;
+        setState(() {
+          _draftBlocked = true;
+          _draftReady = true;
+        });
+        _applyingDraft = false;
+      }
+    });
+    for (final controller in [
+      locationController,
+      addressController,
+      guestCountController,
+      specialRequestController,
+      customerArrangedAddOnsController,
+      customThemeController,
+    ]) {
+      controller.addListener(_scheduleDraft);
+    }
+    unawaited(_restoreDraft());
+  }
+
+  Map<String, dynamic> get _formSnapshot => {
+    'step': _step,
+    'date': selectedDate,
+    'start': selectedStartTime,
+    'end': selectedEndTime,
+    'type': selectedEventType,
+    'guests': guestCount,
+    'city': locationController.text,
+    'address': addressController.text,
+    'eventAddress': _eventAddress,
+    'notes': specialRequestController.text,
+    'ownNotes': customerArrangedAddOnsController.text,
+    'foods': List<String>.of(selectedFoods),
+    'decorations': List<String>.of(selectedDecorations),
+    'furniture': List<String>.of(selectedFurniture),
+    'addons': selectedAddOns
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(),
+    'own': willArrangeOwnAddOns,
+    'useCatering': useCateringProviderAddOns,
+    'useMarketplace': useMarketplaceAddOns,
+    'tier': selectedServiceTier,
+    'theme': selectedThemeId,
+    'themeChoice': themeChoice,
+    'customTheme': customThemeController.text,
+  };
+  void _chooseTheme(String? choice) {
+    if (choice != null && choice == themeChoice) return;
+    setState(() {
+      themeChoice = choice;
+      selectedThemeId = null;
+      customThemeController.clear();
+    });
+    _saveDraft();
+  }
+
+  void _saveDraft() {
+    unawaited(_persistDraft());
+  }
+
+  Future<bool> _persistDraft() async {
+    _draftTimer?.cancel();
+    final owner = _draftOwner;
+    if (!_entryAuthorized ||
+        _draftBlocked ||
+        _deletingDraft ||
+        !_draftReady ||
+        owner == null ||
+        FirebaseAuth.instance.currentUser?.uid != owner) {
+      return false;
+    }
+    final snapshot = _formSnapshot;
+    final identity = jsonEncode(EventDraftPersistence.encode(snapshot));
+    if (identity == _savedSnapshot) {
+      // An older queued snapshot must finish before deciding the latest is safe.
+      if (_pendingSave != null) {
+        await _pendingSave;
+        return _persistDraft();
+      }
+      _draftDirty = false;
+      return true;
+    }
+    if (_pendingSnapshot == identity) return _pendingSave!;
+    final operation = _drafts
+        .save(
+          owner,
+          widget.provider.id,
+          _eventPackage.id,
+          snapshot,
+          () => FirebaseAuth.instance.currentUser?.uid,
+          authorize: () => _entryAuthorized,
+        )
+        .then(
+          (saved) {
+            if (!saved) return false;
+            _savedSnapshot = identity;
+            if (_canPublish) {
+              super.setState(() {
+                _draftDirty = _snapshotIdentity != identity;
+                if (_draftSaveFailed) _draftMessage = null;
+                _draftSaveFailed = false;
+              });
+            }
+            return true;
+          },
+          onError: (Object error, StackTrace stack) {
+            if (_canPublish &&
+                FirebaseAuth.instance.currentUser?.uid == owner) {
+              super.setState(() {
+                _draftSaveFailed = true;
+                _draftMessage =
+                    'Draft could not be saved. Your details are still here. Retry saving before leaving.';
+              });
+            }
+            return false;
+          },
+        );
+    _pendingSnapshot = identity;
+    _pendingSave = operation;
+    final success = await operation;
+    if (identical(_pendingSave, operation)) {
+      _pendingSave = null;
+      _pendingSnapshot = null;
+    }
+    return success;
+  }
+
+  Future<bool> _prepareExit() => _exitPreparation ??= _prepareExitSnapshot()
+      .whenComplete(() => _exitPreparation = null);
+
+  Future<bool> _prepareExitSnapshot() async {
+    if (_deletingDraft || !_entryAuthorized) return false;
+    if (!_draftDirty && _pendingSave == null) return true;
+    _draftActionEpoch++;
+    super.setState(() {
+      _checking = false;
+      _exiting = true;
+    });
+    var saved = await _persistDraft();
+    // Edits can arrive while an earlier secure write is in flight.
+    while (saved && _canPublish && _draftDirty) {
+      saved = await _persistDraft();
+    }
+    if (!mounted) return false;
+    super.setState(() => _exiting = false);
+    if (!saved || !_entryAuthorized) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _scrollController.hasClients) {
+          _scrollController.jumpTo(0);
+        }
+      });
+      return false;
+    }
+    super.setState(() => _allowExit = true);
+    return true;
+  }
+
+  Future<void> _requestExit() async {
+    final retry = _navigationGuard?.retry;
+    if (retry != null) {
+      await retry();
+      return;
+    }
+    if (_singleExitPending || _deletingDraft || !mounted) return;
+    final route = ModalRoute.of(context);
+    if (!(route?.isCurrent ?? false)) return;
+    if (!_entryAuthorized) {
+      Navigator.of(context).pop();
+      return;
+    }
+    if (!_exiting && !_draftDirty && _pendingSave == null) {
+      Navigator.of(context).pop();
+      return;
+    }
+    _singleExitPending = true;
+    final saved = await _prepareExit();
+    if (!saved || !_canPublish) {
+      _singleExitPending = false;
+      return;
+    }
+    // Let PopScope observe the completed save before maybePop.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _singleExitPending = false;
+      if (_canPublish &&
+          (route?.isCurrent ?? false) &&
+          !_draftDirty &&
+          _pendingSave == null) {
+        Navigator.of(context).maybePop();
+      }
+    });
+  }
+
+  Future<void> _restoreDraft() async {
+    if (!_entryAuthorized) return;
+    final owner = _draftOwner;
+    if (owner == null) {
+      setState(() => _draftReady = true);
+      return;
+    }
+    try {
+      final saved = await _drafts.read(
+        owner,
+        widget.provider.id,
+        _eventPackage.id,
+      );
+      if (!_canPublish || FirebaseAuth.instance.currentUser?.uid != owner) {
+        return;
+      }
+      if (saved != null) {
+        final fresh = await repository.getEligiblePackageForPreparation(
+          widget.provider.id,
+          _eventPackage.id,
+        );
+        if (!_canPublish || FirebaseAuth.instance.currentUser?.uid != owner) {
+          return;
+        }
+        if (fresh == null ||
+            fresh.id != _eventPackage.id ||
+            !eligiblePreparationPackage(fresh, widget.provider.id)) {
+          throw StateError('Package unavailable');
+        }
+        _eventPackage = fresh;
+        final refreshed = <Map<String, dynamic>>[];
+        for (final item in saved['addons'] as List) {
+          final current = await repository.getEligiblePreparationAddon(
+            item['addonId'] as String,
+          );
+          if (!_canPublish || FirebaseAuth.instance.currentUser?.uid != owner) {
+            return;
+          }
+          if (current != null &&
+              current.id == item['addonId'] &&
+              current.providerId == item['providerId'] &&
+              (item['source'] != 'catering_provider' ||
+                  current.providerId == widget.provider.id)) {
+            refreshed.add(
+              current.toBookingMap(source: item['source'] as String),
+            );
+          }
+        }
+        saved['addons'] = refreshed;
+        _applyDraft(saved);
+        if (_stepValidation() != null) _step = 0;
+        guestCountController.text = '$guestCount';
+        _draftMessage =
+            'Unfinished draft recovered. Review the current package, add-ons and prices before continuing. Unavailable selections were removed. Nothing has been submitted.';
+      }
+    } catch (_) {
+      if (!_canPublish || FirebaseAuth.instance.currentUser?.uid != owner) {
+        return;
+      }
+      _draftBlocked = true;
+      _draftMessage =
+          'Saved draft could not be safely recovered. It has been kept unchanged. Reopen to retry, or discard it to start again.';
+    }
+    if (!_canPublish || FirebaseAuth.instance.currentUser?.uid != owner) {
+      return;
+    }
+    _savedSnapshot = _snapshotIdentity;
+    _draftDirty = false;
+    _applyingDraft = true;
+    setState(() => _draftReady = true);
+    _applyingDraft = false;
+  }
+
+  void _applyDraft(Map<String, dynamic> saved) {
+    _step = (saved['step'] as int? ?? 0).clamp(0, 2);
+    selectedEventType = _eventTypes.isEmpty ? '' : _eventTypes.first;
+    selectedDate = saved['date'] as DateTime?;
+    selectedStartTime = saved['start'] as TimeOfDay?;
+    selectedEndTime = saved['end'] as TimeOfDay?;
+    final type = saved['type'] as String?;
+    if (type != null && _eventTypes.contains(type)) selectedEventType = type;
+    guestCount = saved['guests'] as int;
+    locationController.text = saved['city'] as String;
+    addressController.text = saved['address'] as String;
+    _eventAddress = saved['eventAddress'] as CustomerAddressModel?;
+    specialRequestController.text = saved['notes'] as String;
+    customerArrangedAddOnsController.text = saved['ownNotes'] as String;
+    selectedFoods = List<String>.from(
+      saved['foods'] as List,
+    ).where(_eventPackage.foodInclusions.contains).toList();
     selectedDecorations = List<String>.from(
-      widget.eventPackage.decorInclusions,
-    );
-
+      saved['decorations'] as List,
+    ).where(_eventPackage.decorInclusions.contains).toList();
     selectedFurniture = List<String>.from(
-      widget.eventPackage.furnitureInclusions,
+      saved['furniture'] as List,
+    ).where(_eventPackage.furnitureInclusions.contains).toList();
+    selectedAddOns.addAll(
+      (saved['addons'] as List).map(
+        (item) => Map<String, dynamic>.from(item as Map),
+      ),
     );
+    willArrangeOwnAddOns = saved['own'] == true;
+    useCateringProviderAddOns = saved['useCatering'] != false;
+    selectedServiceTier = saved['tier'] as String?;
+    selectedThemeId = saved['theme'] as String?;
+    themeChoice = saved['themeChoice'] as String?;
+    customThemeController.text = saved['customTheme'] as String? ?? '';
+    if (!preparationServices(_eventPackage).containsKey(selectedServiceTier)) {
+      selectedServiceTier = null;
+    }
+    if (_eventPackage.themeOptions
+            .where((theme) => theme['id'] == selectedThemeId)
+            .length !=
+        1) {
+      selectedThemeId = null;
+    }
+    selectedMarketplaceAddOns.addAll(
+      selectedAddOns.where(
+        (addon) => addon['source'] == 'feasta_addon_provider',
+      ),
+    );
+    useMarketplaceAddOns =
+        saved['useMarketplace'] == true || selectedMarketplaceAddOns.isNotEmpty;
+    if (selectedThemeId == null && themeChoice == 'package') themeChoice = null;
+    if (!['buffet_setup', 'full_service'].contains(selectedServiceTier)) {
+      selectedThemeId = null;
+      themeChoice = null;
+    }
+    if (!_eventPackage.isCustomizable) {
+      selectedFoods = List.of(_eventPackage.foodInclusions);
+      selectedDecorations = List.of(_eventPackage.decorInclusions);
+      selectedFurniture = List.of(_eventPackage.furnitureInclusions);
+    }
+  }
+
+  void _invalidateMapAddress(String _) {
+    setState(() => _eventAddress = null);
+    _saveDraft();
+  }
+
+  Future<void> _chooseOnMap() async {
+    if (!_canEditDraft) return;
+    final epoch = _draftActionEpoch;
+    final result = await Navigator.push<CustomerAddressModel>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LocationPickerScreen(
+          session: _entrySession,
+          initialAddress: _eventAddress,
+          sessionOnly: true,
+        ),
+      ),
+    );
+    if (!_canFinishAction(epoch) || result == null) return;
+    setState(() {
+      _eventAddress = result;
+      locationController.text = result.city;
+      addressController.text = result.fullAddress;
+    });
+    _saveDraft();
+  }
+
+  Future<void> _manualAddress() async {
+    if (!_canEditDraft) return;
+    final epoch = _draftActionEpoch;
+    final result = await Navigator.push<CustomerAddressModel>(
+      context,
+      CustomizationSessionRoute<CustomerAddressModel>(
+        session: _entrySession,
+        builder: (_) => const ManualAddressScreen(),
+      ),
+    );
+    if (!_canFinishAction(epoch) || result == null) return;
+    setState(() {
+      _eventAddress = result;
+      locationController.text = result.city;
+      addressController.text = result.fullAddress;
+    });
+    _saveDraft();
   }
 
   @override
   void dispose() {
+    _navigationGuard?.dispose();
+    _exitRoute?.permitPop = null;
+    _exitRoute?.requestExit = null;
+    if (_entrySession == null) {
+      _saveDraft();
+    } else {
+      // Close before queued flushes and callbacks can dispatch after disposal.
+      _entryClosed = true;
+      _entrySession.removeListener(_sessionChanged);
+      _entrySession.close();
+    }
+    _draftTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _draftAuth?.cancel();
+    _scrollController.dispose();
+    customThemeController.dispose();
     locationController.dispose();
     addressController.dispose();
+    guestCountController.dispose();
     specialRequestController.dispose();
     customerArrangedAddOnsController.dispose();
 
     super.dispose();
   }
-
-  double get addOnsTotal {
-    return selectedAddOns.fold<double>(0, (sum, addon) {
-      final price = addon['price'];
-
-      return sum + (price is num ? price.toDouble() : 0);
-    });
-  }
-
-  double get estimatedTotal => widget.eventPackage.price + addOnsTotal;
 
   String _formatTime(TimeOfDay? time) {
     if (time == null) {
@@ -145,6 +706,8 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   }
 
   Future<void> _pickDate() async {
+    if (!_canEditDraft) return;
+    final epoch = _draftActionEpoch;
     final now = DateTime.now();
 
     final initialDate =
@@ -155,12 +718,16 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
 
     final picked = await showDatePicker(
       context: context,
+      builder: (context, child) => CustomizationSessionBoundary(
+        session: _entrySession,
+        builder: (_) => child!,
+      ),
       firstDate: DateTime(now.year, now.month, now.day),
       lastDate: DateTime(now.year + 2),
       initialDate: initialDate,
     );
 
-    if (!mounted || picked == null) {
+    if (!_canFinishAction(epoch) || picked == null) {
       return;
     }
 
@@ -170,12 +737,18 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   }
 
   Future<void> _pickStartTime() async {
+    if (!_canEditDraft) return;
+    final epoch = _draftActionEpoch;
     final picked = await showTimePicker(
       context: context,
+      builder: (context, child) => CustomizationSessionBoundary(
+        session: _entrySession,
+        builder: (_) => child!,
+      ),
       initialTime: selectedStartTime ?? const TimeOfDay(hour: 14, minute: 0),
     );
 
-    if (!mounted || picked == null) {
+    if (!_canFinishAction(epoch) || picked == null) {
       return;
     }
 
@@ -185,12 +758,18 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   }
 
   Future<void> _pickEndTime() async {
+    if (!_canEditDraft) return;
+    final epoch = _draftActionEpoch;
     final picked = await showTimePicker(
       context: context,
+      builder: (context, child) => CustomizationSessionBoundary(
+        session: _entrySession,
+        builder: (_) => child!,
+      ),
       initialTime: selectedEndTime ?? const TimeOfDay(hour: 18, minute: 0),
     );
 
-    if (!mounted || picked == null) {
+    if (!_canFinishAction(epoch) || picked == null) {
       return;
     }
 
@@ -200,22 +779,25 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   }
 
   void _decreaseGuests() {
-    if (guestCount <= widget.eventPackage.minimumGuests) {
+    if (guestCount <= preparationMinimumGuests(_eventPackage)) {
       return;
     }
 
     setState(() {
       guestCount--;
+      guestCountController.text = '$guestCount';
     });
   }
 
   void _increaseGuests() {
-    if (guestCount >= widget.eventPackage.maximumGuests) {
+    if (preparationMaximumGuests(_eventPackage) != null &&
+        guestCount >= preparationMaximumGuests(_eventPackage)!) {
       return;
     }
 
     setState(() {
       guestCount++;
+      guestCountController.text = '$guestCount';
     });
   }
 
@@ -224,6 +806,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
     required List<String> selectedList,
     required bool value,
   }) {
+    if (!_eventPackage.isCustomizable) return;
     setState(() {
       if (value) {
         if (!selectedList.contains(item)) {
@@ -236,16 +819,20 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   }
 
   Future<void> _openMarketplace() async {
+    if (!_canEditDraft) return;
+    final epoch = _draftActionEpoch;
     final result = await Navigator.push<List<Map<String, dynamic>>>(
       context,
-      MaterialPageRoute(
+      CustomizationSessionRoute<List<Map<String, dynamic>>>(
+        session: _entrySession,
         builder: (_) => AddonMarketplaceScreen(
+          repository: repository,
           selectedExternalAddOns: selectedMarketplaceAddOns,
         ),
       ),
     );
 
-    if (!mounted || result == null) {
+    if (!_canFinishAction(epoch) || result == null) {
       return;
     }
 
@@ -263,12 +850,46 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
   }
 
   void _showMessage(String message) {
+    if (!_canPublish) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _continueToAvailability() {
+  String? _stepValidation() => selectedEventType.isEmpty
+      ? 'Published event category unavailable. Please ask the provider to update the package.'
+      : validatePreparation(
+          package: _eventPackage,
+          providerId: widget.provider.id,
+          eventType: selectedEventType,
+          date: selectedDate,
+          startMinutes: selectedStartTime == null
+              ? null
+              : selectedStartTime!.hour * 60 + selectedStartTime!.minute,
+          endMinutes: selectedEndTime == null
+              ? null
+              : selectedEndTime!.hour * 60 + selectedEndTime!.minute,
+          guests: guestCount,
+          city: locationController.text,
+          address: addressController.text,
+          foods: selectedFoods,
+          decorations: selectedDecorations,
+          furniture: selectedFurniture,
+          serviceTier: selectedServiceTier,
+          themeId: selectedThemeId,
+          validatePackageOptions: _step > 0,
+        );
+
+  Future<void> _continueToAvailability() async {
+    if (_checking || !_canEditDraft || _exiting) return;
+    final epoch = _draftActionEpoch;
+    bool actionCurrent() =>
+        _canPublish && !_exiting && epoch == _draftActionEpoch;
+    if (_draftOwner == null ||
+        FirebaseAuth.instance.currentUser?.uid != _draftOwner) {
+      _showMessage('Please sign in again to continue preparing your event.');
+      return;
+    }
     if (selectedDate == null) {
       _showMessage('Please select an event date.');
       return;
@@ -303,43 +924,404 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
       return;
     }
 
-    final customization = EventCustomizationData(
-      eventType: selectedEventType,
-      eventDate: selectedDate!,
-      eventTime: _formatTime(selectedStartTime),
-      eventEndTime: _formatTime(selectedEndTime),
-      guestCount: guestCount,
-      eventLocation: locationController.text.trim(),
-      eventAddress: addressController.text.trim(),
-      selectedFoods: selectedFoods,
-      selectedDecorations: selectedDecorations,
-      selectedFurniture: selectedFurniture,
-      selectedAddOns: selectedAddOns,
-      willArrangeOwnAddOns: willArrangeOwnAddOns,
-      customerArrangedAddOnsNote: customerArrangedAddOnsController.text.trim(),
-      specialRequest: specialRequestController.text.trim(),
-    );
-
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AvailabilityCheckScreen(
-          provider: widget.provider,
-          eventPackage: widget.eventPackage,
-          customization: customization,
+    setState(() => _checking = true);
+    try {
+      final fresh = await repository.getEligiblePackageForPreparation(
+        widget.provider.id,
+        _eventPackage.id,
+      );
+      if (!actionCurrent()) return;
+      if (fresh == null) {
+        _showMessage(
+          'This package is no longer available. Please choose another package.',
+        );
+        return;
+      }
+      final changedOptions =
+          (fresh.eventType.trim().isNotEmpty &&
+              selectedEventType != fresh.eventType.trim()) ||
+          (!fresh.isCustomizable &&
+              (selectedFoods.length != fresh.foodInclusions.length ||
+                  selectedDecorations.length != fresh.decorInclusions.length ||
+                  selectedFurniture.length !=
+                      fresh.furnitureInclusions.length)) ||
+          !selectedFoods.every(fresh.foodInclusions.contains) ||
+          !selectedDecorations.every(fresh.decorInclusions.contains) ||
+          !selectedFurniture.every(fresh.furnitureInclusions.contains) ||
+          (selectedServiceTier != null &&
+              !preparationServices(fresh).containsKey(selectedServiceTier)) ||
+          (selectedThemeId != null &&
+              !preparationThemes(
+                fresh,
+              ).any((theme) => theme['id'] == selectedThemeId));
+      setState(() {
+        _eventPackage = fresh;
+        if (!_eventTypes.contains(selectedEventType)) {
+          selectedEventType = _eventTypes.isEmpty ? '' : _eventTypes.first;
+        }
+        if (!fresh.isCustomizable) {
+          selectedFoods = List.of(fresh.foodInclusions);
+          selectedDecorations = List.of(fresh.decorInclusions);
+          selectedFurniture = List.of(fresh.furnitureInclusions);
+        }
+        selectedFoods.removeWhere(
+          (item) => !fresh.foodInclusions.contains(item),
+        );
+        selectedDecorations.removeWhere(
+          (item) => !fresh.decorInclusions.contains(item),
+        );
+        selectedFurniture.removeWhere(
+          (item) => !fresh.furnitureInclusions.contains(item),
+        );
+        if (!preparationServices(fresh).containsKey(selectedServiceTier)) {
+          selectedServiceTier = null;
+          themeChoice = null;
+          customThemeController.clear();
+        }
+        if (!preparationThemes(
+          fresh,
+        ).any((theme) => theme['id'] == selectedThemeId)) {
+          selectedThemeId = null;
+        }
+      });
+      if (changedOptions) {
+        _showMessage(
+          'Package options changed. Please review the updated selections.',
+        );
+        return;
+      }
+      final error = validatePreparation(
+        package: fresh,
+        eventType: selectedEventType,
+        providerId: widget.provider.id,
+        date: selectedDate,
+        startMinutes: startMinutes,
+        endMinutes: endMinutes,
+        guests: guestCount,
+        city: locationController.text,
+        address: addressController.text,
+        foods: selectedFoods,
+        decorations: selectedDecorations,
+        furniture: selectedFurniture,
+        serviceTier: selectedServiceTier,
+        themeId: selectedThemeId,
+      );
+      if (error != null) {
+        _showMessage(error);
+        return;
+      }
+      final currentAddons = <Map<String, dynamic>>[];
+      final seenAddons = <String>{};
+      for (final addon in selectedAddOns) {
+        if (![
+          'catering_provider',
+          'feasta_addon_provider',
+        ].contains(addon['source'])) {
+          _showMessage(
+            'Please choose add-ons from the current provider or marketplace.',
+          );
+          return;
+        }
+        if (!seenAddons.add(addon['addonId']?.toString() ?? '')) continue;
+        final current = await repository.getEligiblePreparationAddon(
+          addon['addonId']?.toString() ?? '',
+        );
+        if (!actionCurrent()) return;
+        if (current == null ||
+            current.providerId != addon['providerId'] ||
+            (addon['source'] == 'catering_provider' &&
+                current.providerId != widget.provider.id)) {
+          _showMessage(
+            'A selected add-on is no longer available. Please remove it and choose again.',
+          );
+          return;
+        }
+        currentAddons.add(
+          current.toBookingMap(
+            source: addon['source']?.toString() ?? 'catering_provider',
+          ),
+        );
+      }
+      setState(() {
+        selectedAddOns
+          ..clear()
+          ..addAll(currentAddons);
+        selectedMarketplaceAddOns
+          ..clear()
+          ..addAll(
+            currentAddons.where(
+              (addon) => addon['source'] == 'feasta_addon_provider',
+            ),
+          );
+      });
+      final customization = snapshotCustomization(
+        EventCustomizationData(
+          serviceTier: selectedServiceTier,
+          packageThemeId: selectedThemeId,
+          eventType: selectedEventType,
+          eventDate: selectedDate!,
+          eventTime: _formatTime(selectedStartTime),
+          eventEndTime: _formatTime(selectedEndTime),
+          guestCount: guestCount,
+          eventLocation: locationController.text.trim(),
+          eventAddress: addressController.text.trim(),
+          selectedFoods: selectedFoods,
+          selectedDecorations: selectedDecorations,
+          selectedFurniture: selectedFurniture,
+          selectedAddOns: currentAddons,
+          willArrangeOwnAddOns: willArrangeOwnAddOns,
+          customerArrangedAddOnsNote: customerArrangedAddOnsController.text
+              .trim(),
+          specialRequest: [
+            specialRequestController.text.trim(),
+            if (themeChoice == 'custom')
+              'Custom theme request (requires provider confirmation): ${customThemeController.text.trim()}',
+            if (themeChoice == 'none') 'No theme needed.',
+          ].where((value) => value.isNotEmpty).join('\n'),
         ),
-      ),
-    );
+      );
+      // Validate the transport shape locally without invoking any callable.
+      BookingSelection(
+        providerId: widget.provider.id,
+        packageId: fresh.id,
+        customization: customization,
+      ).toJson(clientRequestId: 'preparation_only');
+      _saveDraft();
+      if (!actionCurrent()) return;
+      if (FirebaseAuth.instance.currentUser?.uid != _draftOwner) {
+        preparationDraftMemory.clear();
+        _showMessage('Please sign in again to continue preparing your event.');
+        return;
+      }
+      if (!mounted || !_entryAuthorized) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => BookingSummaryScreen(
+            session: _entrySession,
+            provider: widget.provider,
+            eventPackage: fresh,
+            customization: customization,
+            preparationOnly: true,
+          ),
+        ),
+      );
+    } on FormatException catch (error) {
+      if (actionCurrent()) _showMessage(error.message);
+    } catch (_) {
+      if (actionCurrent()) {
+        _showMessage(
+          'We could not recheck this package and its add-ons. Please try again.',
+        );
+      }
+    } finally {
+      if (actionCurrent()) setState(() => _checking = false);
+    }
   }
 
+  Future<void> _discardDraft() async {
+    if (_deletingDraft || _discardDialogOpen || _checking) return;
+    final owner = _draftOwner;
+    if (!_entryAuthorized ||
+        owner == null ||
+        FirebaseAuth.instance.currentUser?.uid != owner) {
+      return;
+    }
+    _discardDialogOpen = true;
+    final bool? confirmed;
+    try {
+      confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => CustomizationSessionBoundary(
+          session: _entrySession,
+          builder: (context) => AlertDialog(
+            title: const Text('Discard unfinished draft?'),
+            content: const Text(
+              'This deletes this event draft from this device. Existing request identities remain unchanged.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Keep draft'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Discard'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      _discardDialogOpen = false;
+    }
+    if (confirmed != true ||
+        !_canPublish ||
+        FirebaseAuth.instance.currentUser?.uid != owner) {
+      return;
+    }
+    _draftTimer?.cancel();
+    final wasBlocked = _draftBlocked;
+    _draftActionEpoch++;
+    _applyingDraft = true;
+    setState(() {
+      _deletingDraft = true;
+      _draftBlocked = true;
+    });
+    _applyingDraft = false;
+    try {
+      await _drafts.delete(
+        owner,
+        widget.provider.id,
+        _eventPackage.id,
+        () => FirebaseAuth.instance.currentUser?.uid,
+        authorize: _entrySession == null ? null : () => _entryAuthorized,
+      );
+      if (!_canPublish || FirebaseAuth.instance.currentUser?.uid != owner) {
+        return;
+      }
+      _applyingDraft = true;
+      setState(() {
+        _step = 0;
+        selectedDate = null;
+        selectedStartTime = null;
+        selectedEndTime = null;
+        selectedEventType = _eventTypes.isEmpty ? '' : _eventTypes.first;
+        guestCount = preparationMinimumGuests(_eventPackage);
+        guestCountController.text = '$guestCount';
+        locationController.text = 'Ormoc City';
+        addressController.clear();
+        specialRequestController.clear();
+        customerArrangedAddOnsController.clear();
+        customThemeController.clear();
+        _eventAddress = null;
+        selectedServiceTier = null;
+        selectedThemeId = null;
+        themeChoice = null;
+        selectedFoods = List.of(_eventPackage.foodInclusions);
+        selectedDecorations = List.of(_eventPackage.decorInclusions);
+        selectedFurniture = List.of(_eventPackage.furnitureInclusions);
+        selectedAddOns.clear();
+        selectedMarketplaceAddOns.clear();
+        willArrangeOwnAddOns = false;
+        useMarketplaceAddOns = false;
+        useCateringProviderAddOns = true;
+        _savedSnapshot = _snapshotIdentity;
+        _draftDirty = false;
+        _draftMessage = 'Unfinished draft discarded. You can start again.';
+      });
+      _draftBlocked = false;
+      _draftDirty = false;
+      _applyingDraft = false;
+    } catch (_) {
+      if (_canPublish && FirebaseAuth.instance.currentUser?.uid == owner) {
+        _applyingDraft = true;
+        setState(() => _draftBlocked = wasBlocked);
+        _applyingDraft = false;
+        _showMessage('Draft could not be deleted. Please try again.');
+      }
+    } finally {
+      if (_canPublish) {
+        _applyingDraft = true;
+        setState(() => _deletingDraft = false);
+        _applyingDraft = false;
+      }
+    }
+  }
+
+  Widget _draftStatusScreen(Widget body) => Scaffold(
+    appBar: AppBar(title: const Text('Customize Event')),
+    body: body,
+  );
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => PopScope<void>(
+    canPop:
+        !_entryAuthorized ||
+        _allowExit ||
+        (!_exiting && !_draftDirty && _pendingSave == null),
+    onPopInvokedWithResult: (didPop, result) {
+      if (!didPop) unawaited(_requestExit());
+    },
+    child: _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
+    if (_exiting && _entryAuthorized) {
+      return _draftStatusScreen(
+        Center(
+          child: Semantics(
+            liveRegion: true,
+            excludeSemantics: true,
+            label: 'Saving unfinished draft before leaving',
+            child: const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                Text('Saving unfinished draft before leaving'),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    if (!_entryAuthorized) {
+      return _draftStatusScreen(
+        const Center(
+          child: Text('Please sign in again to customize your event.'),
+        ),
+      );
+    }
+    if (!_draftReady) {
+      return _draftStatusScreen(
+        const Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (FirebaseAuth.instance.currentUser?.uid != _draftOwner) {
+      return _draftStatusScreen(
+        const Center(
+          child: Text('Please sign in again to customize your event.'),
+        ),
+      );
+    }
+    if (_deletingDraft) {
+      return PopScope(
+        canPop: false,
+        child: _draftStatusScreen(
+          const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Discarding unfinished draft?'),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    if (_draftBlocked) {
+      return _draftStatusScreen(
+        ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text(_draftMessage ?? 'Draft recovery is unavailable.'),
+            TextButton(
+              onPressed: _discardDraft,
+              child: const Text('Discard unfinished draft'),
+            ),
+          ],
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
         backgroundColor: AppColors.background,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
+        leading: BackButton(onPressed: _exiting ? null : _requestExit),
         title: Text(
           'Customize Event',
           style: AppTypography.sectionTitle.copyWith(
@@ -349,6 +1331,8 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
         ),
       ),
       body: ListView(
+        controller: _scrollController,
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.screen,
           AppSpacing.sm,
@@ -356,388 +1340,602 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen> {
           140,
         ),
         children: [
-          _PackageSummaryCard(
-            provider: widget.provider,
-            eventPackage: widget.eventPackage,
-          ),
-
-          const SizedBox(height: AppSpacing.xl),
-
-          const _SectionHeading(
-            title: 'Event details',
-            subtitle: 'Tell us when and where your event will happen.',
-          ),
-
-          const SizedBox(height: AppSpacing.md),
-
-          _SectionCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const _FieldLabel(
-                  icon: Icons.celebration_outlined,
-                  text: 'Event type',
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                DropdownButtonFormField<String>(
-                  initialValue: selectedEventType,
-                  isExpanded: true,
-                  decoration: _inputDecoration(hintText: 'Choose event type'),
-                  items: _eventTypes
-                      .map(
-                        (type) => DropdownMenuItem<String>(
-                          value: type,
-                          child: Text(type),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value == null) {
-                      return;
-                    }
-
-                    setState(() {
-                      selectedEventType = value;
-                    });
-                  },
-                ),
-
-                const SizedBox(height: AppSpacing.lg),
-
-                const _FieldLabel(
-                  icon: Icons.calendar_month_outlined,
-                  text: 'Event date',
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                _PickerField(
-                  text: _formatDate(selectedDate),
-                  placeholder: selectedDate == null,
-                  icon: Icons.calendar_today_outlined,
-                  onTap: _pickDate,
-                ),
-
-                const SizedBox(height: AppSpacing.lg),
-
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final shouldStack = constraints.maxWidth < 320;
-
-                    final startField = Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const _FieldLabel(
-                          icon: Icons.schedule_rounded,
-                          text: 'Start time',
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        _PickerField(
-                          text: selectedStartTime == null
-                              ? 'Select time'
-                              : _formatTime(selectedStartTime),
-                          placeholder: selectedStartTime == null,
-                          icon: Icons.access_time_rounded,
-                          onTap: _pickStartTime,
-                        ),
-                      ],
-                    );
-
-                    final endField = Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const _FieldLabel(
-                          icon: Icons.schedule_rounded,
-                          text: 'End time',
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        _PickerField(
-                          text: selectedEndTime == null
-                              ? 'Select time'
-                              : _formatTime(selectedEndTime),
-                          placeholder: selectedEndTime == null,
-                          icon: Icons.access_time_rounded,
-                          onTap: _pickEndTime,
-                        ),
-                      ],
-                    );
-
-                    if (shouldStack) {
-                      return Column(
-                        children: [
-                          startField,
-                          const SizedBox(height: AppSpacing.lg),
-                          endField,
-                        ],
-                      );
-                    }
-
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: startField),
-                        const SizedBox(width: AppSpacing.sm),
-                        Expanded(child: endField),
-                      ],
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: AppSpacing.md),
-
-          _GuestCountCard(
-            guestCount: guestCount,
-            minimumGuests: widget.eventPackage.minimumGuests,
-            maximumGuests: widget.eventPackage.maximumGuests,
-            onDecrease: _decreaseGuests,
-            onIncrease: _increaseGuests,
-          ),
-
-          const SizedBox(height: AppSpacing.md),
-
-          _SectionCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const _FieldLabel(
-                  icon: Icons.location_city_outlined,
-                  text: 'Event location',
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                TextField(
-                  controller: locationController,
-                  textInputAction: TextInputAction.next,
-                  decoration: _inputDecoration(hintText: 'Ormoc City'),
-                ),
-
-                const SizedBox(height: AppSpacing.lg),
-
-                const _FieldLabel(
-                  icon: Icons.location_on_outlined,
-                  text: 'Full event address',
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                TextField(
-                  controller: addressController,
-                  textInputAction: TextInputAction.done,
-                  decoration: _inputDecoration(
-                    hintText: 'Enter the complete event address',
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          if (widget.eventPackage.foodInclusions.isNotEmpty ||
-              widget.eventPackage.decorInclusions.isNotEmpty ||
-              widget.eventPackage.furnitureInclusions.isNotEmpty) ...[
-            const SizedBox(height: AppSpacing.xl),
-            const _SectionHeading(
-              title: 'Package selections',
-              subtitle: 'Adjust the included options for your event.',
-            ),
-            const SizedBox(height: AppSpacing.md),
-          ],
-
-          _ChecklistSection(
-            icon: Icons.restaurant_outlined,
-            title: 'Food choices',
-            items: widget.eventPackage.foodInclusions,
-            selectedItems: selectedFoods,
-            onChanged: (item, value) {
-              _toggleStringItem(
-                item: item,
-                selectedList: selectedFoods,
-                value: value,
-              );
-            },
-          ),
-
-          if (widget.eventPackage.foodInclusions.isNotEmpty &&
-              widget.eventPackage.decorInclusions.isNotEmpty)
-            const SizedBox(height: AppSpacing.md),
-
-          _ChecklistSection(
-            icon: Icons.auto_awesome_outlined,
-            title: 'Decoration options',
-            items: widget.eventPackage.decorInclusions,
-            selectedItems: selectedDecorations,
-            onChanged: (item, value) {
-              _toggleStringItem(
-                item: item,
-                selectedList: selectedDecorations,
-                value: value,
-              );
-            },
-          ),
-
-          if (widget.eventPackage.decorInclusions.isNotEmpty &&
-              widget.eventPackage.furnitureInclusions.isNotEmpty)
-            const SizedBox(height: AppSpacing.md),
-
-          _ChecklistSection(
-            icon: Icons.chair_outlined,
-            title: 'Tables & chairs',
-            items: widget.eventPackage.furnitureInclusions,
-            selectedItems: selectedFurniture,
-            onChanged: (item, value) {
-              _toggleStringItem(
-                item: item,
-                selectedList: selectedFurniture,
-                value: value,
-              );
-            },
-          ),
-
-          const SizedBox(height: AppSpacing.xl),
-
-          const _SectionHeading(
-            title: 'Add-ons',
-            subtitle: 'Add optional services to complete your event.',
-          ),
-
-          const SizedBox(height: AppSpacing.md),
-
-          _AddOnOptionCard(
-            icon: Icons.storefront_outlined,
-            title: 'Caterer add-ons',
-            description:
-                'Choose optional services offered directly by your caterer.',
-            value: useCateringProviderAddOns,
-            onChanged: (value) {
-              setState(() {
-                useCateringProviderAddOns = value;
-
-                if (!value) {
-                  selectedAddOns.removeWhere(
-                    (addon) => addon['source'] == 'catering_provider',
-                  );
-                }
-              });
-            },
-            child: useCateringProviderAddOns
-                ? _CateringAddOns(
-                    providerId: widget.provider.id,
-                    repository: repository,
-                    selectedAddOns: selectedAddOns,
-                    onChanged: (addon, selected) {
-                      setState(() {
-                        if (selected) {
-                          final alreadySelected = selectedAddOns.any(
-                            (item) => item['addonId'] == addon.id,
-                          );
-
-                          if (!alreadySelected) {
-                            selectedAddOns.add(
-                              addon.toBookingMap(source: 'catering_provider'),
-                            );
-                          }
-                        } else {
-                          selectedAddOns.removeWhere(
-                            (item) => item['addonId'] == addon.id,
-                          );
-                        }
-                      });
-                    },
-                  )
-                : null,
-          ),
-
-          const SizedBox(height: AppSpacing.md),
-
-          _AddOnOptionCard(
-            icon: Icons.grid_view_rounded,
-            title: 'FEASTA add-on marketplace',
-            description:
-                'Find photographers, hosts, photo booths, lights and sounds, and more.',
-            value: useMarketplaceAddOns,
-            onChanged: (value) async {
-              if (!value) {
-                setState(() {
-                  useMarketplaceAddOns = false;
-                  selectedMarketplaceAddOns.clear();
-
-                  selectedAddOns.removeWhere(
-                    (addon) => addon['source'] == 'feasta_addon_provider',
-                  );
-                });
-
-                return;
-              }
-
-              setState(() {
-                useMarketplaceAddOns = true;
-              });
-
-              await _openMarketplace();
-            },
-            child: useMarketplaceAddOns
-                ? _MarketplaceSelection(
-                    addOns: selectedMarketplaceAddOns,
-                    onOpenMarketplace: _openMarketplace,
-                  )
-                : null,
-          ),
-
-          const SizedBox(height: AppSpacing.md),
-
-          _AddOnOptionCard(
-            icon: Icons.person_outline_rounded,
-            title: 'I will arrange my own add-ons',
-            description:
-                'Use this if you already have your own photographer, host, decorations, or other services.',
-            value: willArrangeOwnAddOns,
-            onChanged: (value) {
-              setState(() {
-                willArrangeOwnAddOns = value;
-
-                if (!value) {
-                  customerArrangedAddOnsController.clear();
-                }
-              });
-            },
-            child: willArrangeOwnAddOns
-                ? TextField(
-                    controller: customerArrangedAddOnsController,
-                    maxLines: 4,
-                    decoration: _inputDecoration(
-                      hintText:
-                          'Example: I will provide my own photographer and sound system.',
-                    ),
-                  )
-                : null,
-          ),
-
-          const SizedBox(height: AppSpacing.xl),
-
-          const _SectionHeading(
-            title: 'Special request',
-            subtitle:
-                'Share anything else the caterer should know about your event.',
-          ),
-
-          const SizedBox(height: AppSpacing.md),
-
-          _SectionCard(
-            child: TextField(
-              controller: specialRequestController,
-              minLines: 4,
-              maxLines: 6,
-              decoration: _inputDecoration(
-                hintText:
-                    'Example: Please prepare a small vegetarian option for 5 guests.',
+          if (_draftMessage != null)
+            Semantics(
+              liveRegion: true,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(_draftMessage!),
               ),
             ),
+          if (_draftSaveFailed && _draftDirty)
+            TextButton(
+              onPressed: _exiting ? null : _requestExit,
+              child: const Text('Retry saving and leave'),
+            ),
+          TextButton(
+            onPressed: _discardDraft,
+            child: const Text('Discard unfinished draft'),
+          ),
+          Text(
+            'Customize your event',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 12),
+          _PackageSummaryCard(
+            provider: widget.provider,
+            eventPackage: _eventPackage,
+          ),
+          const SizedBox(height: 16),
+          CustomizationProgress(step: _step),
+          const SizedBox(height: 20),
+          if (_step == 0) ...[
+            const _SectionHeading(
+              title: 'Event details',
+              subtitle: 'Required: event schedule, guests and full address.',
+            ),
+
+            const SizedBox(height: AppSpacing.md),
+
+            _SectionCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const _FieldLabel(
+                    icon: Icons.celebration_outlined,
+                    text: 'Event type',
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  if (_eventTypes.length <= 1)
+                    InputDecorator(
+                      decoration: _inputDecoration(hintText: 'Event type'),
+                      child: Text(
+                        selectedEventType.isEmpty
+                            ? 'Published event category unavailable'
+                            : selectedEventType,
+                      ),
+                    )
+                  else
+                    DropdownButtonFormField<String>(
+                      key: ValueKey('event-type:$selectedEventType'),
+                      initialValue: selectedEventType,
+                      isExpanded: true,
+                      decoration: _inputDecoration(
+                        hintText: 'Choose event type',
+                      ),
+                      items: _eventTypes
+                          .map(
+                            (type) => DropdownMenuItem<String>(
+                              value: type,
+                              child: Text(type),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value == null) {
+                          return;
+                        }
+
+                        setState(() {
+                          selectedEventType = value;
+                        });
+                      },
+                    ),
+
+                  const SizedBox(height: AppSpacing.lg),
+
+                  const _FieldLabel(
+                    icon: Icons.calendar_month_outlined,
+                    text: 'Event date',
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  _PickerField(
+                    text: _formatDate(selectedDate),
+                    placeholder: selectedDate == null,
+                    icon: Icons.calendar_today_outlined,
+                    onTap: _pickDate,
+                  ),
+
+                  const SizedBox(height: AppSpacing.lg),
+
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final shouldStack = constraints.maxWidth < 320;
+
+                      final startField = Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel(
+                            icon: Icons.schedule_rounded,
+                            text: 'Start time',
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          _PickerField(
+                            text: selectedStartTime == null
+                                ? 'Select time'
+                                : _formatTime(selectedStartTime),
+                            placeholder: selectedStartTime == null,
+                            icon: Icons.access_time_rounded,
+                            onTap: _pickStartTime,
+                          ),
+                        ],
+                      );
+
+                      final endField = Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const _FieldLabel(
+                            icon: Icons.schedule_rounded,
+                            text: 'End time',
+                          ),
+                          const SizedBox(height: AppSpacing.sm),
+                          _PickerField(
+                            text: selectedEndTime == null
+                                ? 'Select time'
+                                : _formatTime(selectedEndTime),
+                            placeholder: selectedEndTime == null,
+                            icon: Icons.access_time_rounded,
+                            onTap: _pickEndTime,
+                          ),
+                        ],
+                      );
+
+                      if (shouldStack) {
+                        return Column(
+                          children: [
+                            startField,
+                            const SizedBox(height: AppSpacing.lg),
+                            endField,
+                          ],
+                        );
+                      }
+
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: startField),
+                          const SizedBox(width: AppSpacing.sm),
+                          Expanded(child: endField),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: AppSpacing.md),
+
+            PreparationAvailability(
+              packageId: _eventPackage.id,
+              providerId: widget.provider.id,
+              providerName: widget.provider.businessName,
+              date: selectedDate,
+              start: selectedStartTime,
+              end: selectedEndTime,
+              guests:
+                  guestCount >= preparationMinimumGuests(_eventPackage) &&
+                      guestCount <=
+                          (preparationMaximumGuests(_eventPackage) ?? 10000) &&
+                      guestCount <= 10000
+                  ? guestCount
+                  : 0,
+              addonIds: selectedAddOns
+                  .where(
+                    (item) => [
+                      'feasta_addon_provider',
+                      'catering_provider',
+                    ].contains(item['source']),
+                  )
+                  .map((item) => item['addonId'].toString())
+                  .toList(),
+            ),
+            _GuestCountCard(
+              controller: guestCountController,
+              onCountChanged: (text) =>
+                  setState(() => guestCount = int.tryParse(text) ?? 0),
+              guestCount: guestCount,
+              minimumGuests: preparationMinimumGuests(_eventPackage),
+              maximumGuests: preparationMaximumGuests(_eventPackage) ?? 0,
+              onDecrease: _decreaseGuests,
+              onIncrease: _increaseGuests,
+            ),
+
+            const SizedBox(height: AppSpacing.md),
+
+            _SectionCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const _FieldLabel(
+                    icon: Icons.location_city_outlined,
+                    text: 'Event location',
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextField(
+                    controller: locationController,
+                    onChanged: _invalidateMapAddress,
+                    textInputAction: TextInputAction.next,
+                    decoration: _inputDecoration(hintText: 'Ormoc City'),
+                  ),
+
+                  const SizedBox(height: AppSpacing.lg),
+
+                  const _FieldLabel(
+                    icon: Icons.location_on_outlined,
+                    text: 'Full event address',
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextButton.icon(
+                    onPressed: _manualAddress,
+                    icon: const Icon(Icons.edit_location_alt_outlined),
+                    label: const Text('Enter address manually'),
+                  ),
+                  TextField(
+                    controller: addressController,
+                    onChanged: _invalidateMapAddress,
+                    textInputAction: TextInputAction.done,
+                    decoration: _inputDecoration(
+                      hintText: 'Enter the complete event address',
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _chooseOnMap,
+                      icon: const Icon(Icons.location_on),
+                      label: Text(
+                        _eventAddress?.hasCoordinates == true
+                            ? 'View or Edit Map Location'
+                            : 'Choose on Map',
+                        textAlign: TextAlign.center,
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        backgroundColor: AppColors.surface,
+                        side: const BorderSide(color: AppColors.primary),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.md,
+                          vertical: AppSpacing.md,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(AppRadius.large),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (_step == 1) ...[
+            if (preparationServices(_eventPackage).isNotEmpty) ...[
+              const SizedBox(height: 12),
+              const _SectionHeading(
+                title: 'Choose your catering service',
+                subtitle: 'Select one available service level to continue.',
+              ),
+              ServiceOptionCards(
+                package: _eventPackage,
+                selected: selectedServiceTier,
+                onSelected: (tier) {
+                  setState(() {
+                    selectedServiceTier = tier;
+                    if (_canEditDraft) widget.onServiceChanged?.call(tier);
+                    if (tier == 'drop_off') {
+                      selectedThemeId = null;
+                      themeChoice = null;
+                      customThemeController.clear();
+                    }
+                  });
+                  _saveDraft();
+                },
+              ),
+            ],
+            if ([
+              'buffet_setup',
+              'full_service',
+            ].contains(selectedServiceTier)) ...[
+              Text(
+                'Theme Options',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              PackageThemeCards(
+                package: _eventPackage,
+                selected: selectedThemeId,
+                onSelected: (theme) {
+                  setState(() {
+                    selectedThemeId = selectedThemeId == theme ? null : theme;
+                    themeChoice = null;
+                    customThemeController.clear();
+                  });
+                  _saveDraft();
+                },
+              ),
+              ThemeChoiceCard(
+                selected: themeChoice == 'none',
+                title: 'No theme needed',
+                onTap: () => _chooseTheme('none'),
+              ),
+              ThemeChoiceCard(
+                selected: themeChoice == 'custom',
+                title: 'Request a custom theme',
+                subtitle:
+                    'Provider confirmation required. Price is not yet confirmed.',
+                onTap: () => _chooseTheme('custom'),
+              ),
+              if (themeChoice == 'custom') ...[
+                const Text('Describe your requested theme'),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: customThemeController,
+                  maxLines: 3,
+                  decoration: _inputDecoration(
+                    hintText: 'E.g., Rustic outdoor, fairytale, modern glam...',
+                  ),
+                  onChanged: (_) => _saveDraft(),
+                ),
+                TextButton(
+                  onPressed: () => _chooseTheme(null),
+                  child: const Text('Cancel request'),
+                ),
+              ],
+            ],
+            if (!_eventPackage.isCustomizable)
+              const Text('This package has fixed inclusions.'),
+            if (_eventPackage.foodInclusions.isNotEmpty ||
+                _eventPackage.decorInclusions.isNotEmpty ||
+                _eventPackage.furnitureInclusions.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.xl),
+              const _SectionHeading(
+                title: 'Package selections',
+                subtitle: 'Adjust the included options for your event.',
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
+
+            IgnorePointer(
+              ignoring: !_eventPackage.isCustomizable,
+              child: _ChecklistSection(
+                icon: Icons.restaurant_outlined,
+                title: 'Food choices',
+                items: _eventPackage.foodInclusions,
+                selectedItems: selectedFoods,
+                onChanged: (item, value) {
+                  _toggleStringItem(
+                    item: item,
+                    selectedList: selectedFoods,
+                    value: value,
+                  );
+                },
+              ),
+            ),
+
+            if (_eventPackage.foodInclusions.isNotEmpty &&
+                _eventPackage.decorInclusions.isNotEmpty)
+              const SizedBox(height: AppSpacing.md),
+
+            IgnorePointer(
+              ignoring: !_eventPackage.isCustomizable,
+              child: _ChecklistSection(
+                icon: Icons.auto_awesome_outlined,
+                title: 'Decoration options',
+                items: _eventPackage.decorInclusions,
+                selectedItems: selectedDecorations,
+                onChanged: (item, value) {
+                  _toggleStringItem(
+                    item: item,
+                    selectedList: selectedDecorations,
+                    value: value,
+                  );
+                },
+              ),
+            ),
+
+            if (_eventPackage.decorInclusions.isNotEmpty &&
+                _eventPackage.furnitureInclusions.isNotEmpty)
+              const SizedBox(height: AppSpacing.md),
+
+            IgnorePointer(
+              ignoring: !_eventPackage.isCustomizable,
+              child: _ChecklistSection(
+                icon: Icons.chair_outlined,
+                title: 'Tables & chairs',
+                items: _eventPackage.furnitureInclusions,
+                selectedItems: selectedFurniture,
+                onChanged: (item, value) {
+                  _toggleStringItem(
+                    item: item,
+                    selectedList: selectedFurniture,
+                    value: value,
+                  );
+                },
+              ),
+            ),
+
+            const SizedBox(height: AppSpacing.xl),
+          ],
+          if (_step == 2) ...[
+            const _SectionHeading(
+              title: 'Add-ons',
+              subtitle: 'Optional services and requests.',
+            ),
+
+            const SizedBox(height: AppSpacing.md),
+
+            _AddOnOptionCard(
+              icon: Icons.storefront_outlined,
+              title: 'Provider add-ons',
+              description:
+                  'Choose optional services offered directly by this provider.',
+              value: useCateringProviderAddOns,
+              onChanged: (value) {
+                setState(() {
+                  useCateringProviderAddOns = value;
+
+                  if (!value) {
+                    selectedAddOns.removeWhere(
+                      (addon) => addon['source'] == 'catering_provider',
+                    );
+                  }
+                });
+              },
+              child: useCateringProviderAddOns
+                  ? _CateringAddOns(
+                      authorized: () => _entryAuthorized,
+                      providerId: widget.provider.id,
+                      repository: repository,
+                      selectedAddOns: selectedAddOns,
+                      onChanged: (addon, selected) {
+                        setState(() {
+                          if (selected) {
+                            final alreadySelected = selectedAddOns.any(
+                              (item) => item['addonId'] == addon.id,
+                            );
+
+                            if (!alreadySelected) {
+                              selectedAddOns.add(
+                                addon.toBookingMap(source: 'catering_provider'),
+                              );
+                            }
+                          } else {
+                            selectedAddOns.removeWhere(
+                              (item) => item['addonId'] == addon.id,
+                            );
+                          }
+                        });
+                      },
+                    )
+                  : null,
+            ),
+
+            const SizedBox(height: AppSpacing.md),
+
+            _AddOnOptionCard(
+              icon: Icons.grid_view_rounded,
+              title: 'FEASTA add-on marketplace',
+              description:
+                  'Find photographers, hosts, photo booths, lights and sounds, and more.',
+              value: useMarketplaceAddOns,
+              onChanged: (value) async {
+                if (!value) {
+                  setState(() {
+                    useMarketplaceAddOns = false;
+                    selectedMarketplaceAddOns.clear();
+
+                    selectedAddOns.removeWhere(
+                      (addon) => addon['source'] == 'feasta_addon_provider',
+                    );
+                  });
+
+                  return;
+                }
+
+                setState(() {
+                  useMarketplaceAddOns = true;
+                });
+
+                await _openMarketplace();
+              },
+              child: useMarketplaceAddOns
+                  ? _MarketplaceSelection(
+                      addOns: selectedMarketplaceAddOns,
+                      onOpenMarketplace: _openMarketplace,
+                    )
+                  : null,
+            ),
+
+            const SizedBox(height: AppSpacing.md),
+
+            _AddOnOptionCard(
+              icon: Icons.person_outline_rounded,
+              title: 'I will arrange my own add-ons',
+              description:
+                  'Use this if you already have your own photographer, host, decorations, or other services.',
+              value: willArrangeOwnAddOns,
+              onChanged: (value) {
+                setState(() {
+                  willArrangeOwnAddOns = value;
+
+                  if (!value) {
+                    customerArrangedAddOnsController.clear();
+                  }
+                });
+              },
+              child: willArrangeOwnAddOns
+                  ? TextField(
+                      controller: customerArrangedAddOnsController,
+                      maxLines: 4,
+                      decoration: _inputDecoration(
+                        hintText:
+                            'Example: I will provide my own photographer and sound system.',
+                      ),
+                    )
+                  : null,
+            ),
+
+            const SizedBox(height: AppSpacing.xl),
+
+            const _SectionHeading(
+              title: 'Special request',
+              subtitle:
+                  'Share anything else the provider should know about your event.',
+            ),
+
+            const SizedBox(height: AppSpacing.md),
+
+            _SectionCard(
+              child: TextField(
+                controller: specialRequestController,
+                minLines: 4,
+                maxLines: 6,
+                decoration: _inputDecoration(
+                  hintText:
+                      'Example: Please prepare a small vegetarian option for 5 guests.',
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          BookingPreparationPrice(
+            package: _eventPackage,
+            addons: selectedAddOns,
+            serviceTier: selectedServiceTier,
+            hasUnconfirmedRequests:
+                willArrangeOwnAddOns ||
+                specialRequestController.text.trim().isNotEmpty,
           ),
         ],
       ),
-      bottomNavigationBar: _CustomizationBottomBar(
-        packagePrice: widget.eventPackage.price,
-        addOnsTotal: addOnsTotal,
-        estimatedTotal: estimatedTotal,
-        onContinue: _continueToAvailability,
-      ),
+      bottomNavigationBar: MediaQuery.viewInsetsOf(context).bottom > 0
+          ? null
+          : _CustomizationBottomBar(
+              package: _eventPackage,
+              addons: selectedAddOns,
+              serviceTier: selectedServiceTier,
+              onBack: _step > 0 ? () => _goToStep(_step - 1) : null,
+              continueLabel: _step < 2 ? 'Continue' : 'Review Event',
+              onContinue:
+                  (!_draftReady ||
+                      _draftBlocked ||
+                      FirebaseAuth.instance.currentUser?.uid != _draftOwner ||
+                      _checking)
+                  ? null
+                  : () {
+                      if (_step < 2) {
+                        final error = _stepValidation();
+                        if (error != null) {
+                          _showMessage(error);
+                          return;
+                        }
+                        _goToStep(_step + 1);
+                      } else {
+                        _continueToAvailability();
+                      }
+                    },
+            ),
     );
   }
 }
@@ -792,14 +1990,15 @@ class _PackageSummaryCard extends StatelessWidget {
           ClipRRect(
             borderRadius: BorderRadius.circular(AppRadius.large),
             child: SizedBox(
-              width: 84,
-              height: 84,
+              width: 56,
+              height: 56,
               child: FeastaImage.network(
                 imageUrl: eventPackage.imageUrl,
                 description: '${eventPackage.name} package image',
                 fallbackLabel: 'Package image unavailable',
-                width: 84,
-                height: 84,
+                compactFallback: true,
+                width: 56,
+                height: 56,
                 borderRadius: 0,
               ),
             ),
@@ -809,6 +2008,7 @@ class _PackageSummaryCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Text('Selected Package', style: AppTypography.caption),
                 Text(
                   eventPackage.name,
                   maxLines: 2,
@@ -818,6 +2018,10 @@ class _PackageSummaryCard extends StatelessWidget {
                     fontWeight: FontWeight.w900,
                   ),
                 ),
+                Text(
+                  'Published package price: ${knownPreparationPrice(eventPackage.price) ? FeastaPriceFormatter.format(eventPackage.price) : 'Unavailable'}',
+                  style: AppTypography.bodySmall,
+                ),
                 const SizedBox(height: AppSpacing.xxs),
                 Text(
                   provider.businessName,
@@ -825,15 +2029,6 @@ class _PackageSummaryCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: AppTypography.bodySmall.copyWith(
                     color: AppColors.secondaryTextAccessible,
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                FeastaPriceText(
-                  amount: eventPackage.price,
-                  decimalDigits: 0,
-                  style: AppTypography.label.copyWith(
-                    color: AppColors.primaryStrong,
-                    fontWeight: FontWeight.w900,
                   ),
                 ),
               ],
@@ -995,12 +2190,16 @@ class _PickerField extends StatelessWidget {
 class _GuestCountCard extends StatelessWidget {
   const _GuestCountCard({
     required this.guestCount,
+    required this.controller,
+    required this.onCountChanged,
     required this.minimumGuests,
     required this.maximumGuests,
     required this.onDecrease,
     required this.onIncrease,
   });
 
+  final TextEditingController controller;
+  final ValueChanged<String> onCountChanged;
   final int guestCount;
   final int minimumGuests;
   final int maximumGuests;
@@ -1010,7 +2209,7 @@ class _GuestCountCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final canDecrease = guestCount > minimumGuests;
-    final canIncrease = guestCount < maximumGuests;
+    final canIncrease = maximumGuests <= 0 || guestCount < maximumGuests;
 
     return _SectionCard(
       child: Column(
@@ -1029,11 +2228,17 @@ class _GuestCountCard extends StatelessWidget {
               Expanded(
                 child: Column(
                   children: [
-                    Text(
-                      '$guestCount',
-                      style: AppTypography.pageTitle.copyWith(
-                        color: AppColors.mainText,
-                        fontWeight: FontWeight.w900,
+                    SizedBox(
+                      width: 110,
+                      child: TextField(
+                        controller: controller,
+                        textAlign: TextAlign.center,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                        onChanged: onCountChanged,
+                        decoration: const InputDecoration(labelText: 'Guests'),
                       ),
                     ),
                     Text(
@@ -1065,7 +2270,7 @@ class _GuestCountCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(AppRadius.pill),
               ),
               child: Text(
-                '$minimumGuests–$maximumGuests guests allowed',
+                '$minimumGuests\u2013$maximumGuests guests allowed',
                 style: AppTypography.caption.copyWith(
                   color: AppColors.secondaryTextAccessible,
                   fontWeight: FontWeight.w700,
@@ -1316,12 +2521,14 @@ class _AddOnOptionCard extends StatelessWidget {
 
 class _CateringAddOns extends StatelessWidget {
   const _CateringAddOns({
+    required this.authorized,
     required this.providerId,
     required this.repository,
     required this.selectedAddOns,
     required this.onChanged,
   });
 
+  final bool Function() authorized;
   final String providerId;
   final FeastaRepository repository;
   final List<Map<String, dynamic>> selectedAddOns;
@@ -1332,6 +2539,7 @@ class _CateringAddOns extends StatelessWidget {
     return StreamBuilder<List<AddonModel>>(
       stream: repository.addonsByProvider(providerId),
       builder: (context, snapshot) {
+        if (!authorized()) return const SizedBox.shrink();
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const FeastaSkeletonPulse(
             child: Column(
@@ -1353,11 +2561,18 @@ class _CateringAddOns extends StatelessWidget {
           );
         }
 
-        final addons = snapshot.data ?? const <AddonModel>[];
+        final addons = (snapshot.data ?? const <AddonModel>[])
+            .where(
+              (addon) =>
+                  addon.providerId == providerId &&
+                  addon.isActive &&
+                  addon.isAvailable,
+            )
+            .toList();
 
         if (addons.isEmpty) {
           return Text(
-            'This caterer has no add-ons available.',
+            'This provider has no add-ons available.',
             style: AppTypography.bodySmall.copyWith(
               color: AppColors.secondaryTextAccessible,
             ),
@@ -1373,7 +2588,7 @@ class _CateringAddOns extends StatelessWidget {
                   (item) => item['addonId'] == addons[index].id,
                 ),
                 onChanged: (value) {
-                  onChanged(addons[index], value);
+                  if (authorized()) onChanged(addons[index], value);
                 },
               ),
               if (index != addons.length - 1)
@@ -1568,7 +2783,7 @@ class _MarketplaceAddOnRow extends StatelessWidget {
         ),
         const SizedBox(width: AppSpacing.sm),
         FeastaPriceText(
-          amount: price is num ? price.toDouble() : 0,
+          amount: price is num ? price.toDouble() : double.nan,
           decimalDigits: 0,
           style: AppTypography.label.copyWith(
             color: AppColors.primaryStrong,
@@ -1582,16 +2797,33 @@ class _MarketplaceAddOnRow extends StatelessWidget {
 
 class _CustomizationBottomBar extends StatelessWidget {
   const _CustomizationBottomBar({
-    required this.packagePrice,
-    required this.addOnsTotal,
-    required this.estimatedTotal,
+    required this.package,
+    required this.addons,
+    this.serviceTier,
     required this.onContinue,
+    required this.continueLabel,
+    this.onBack,
   });
 
-  final double packagePrice;
-  final double addOnsTotal;
-  final double estimatedTotal;
-  final VoidCallback onContinue;
+  final PackageModel package;
+  final List<Map<String, dynamic>> addons;
+  final String? serviceTier;
+  final String continueLabel;
+  final VoidCallback? onBack;
+  final VoidCallback? onContinue;
+
+  String _footerEstimate() {
+    if (preparationServices(package).isNotEmpty &&
+        !preparationServices(package).containsKey(serviceTier)) {
+      return 'Choose a service';
+    }
+    final total = preparationEstimate(
+      package,
+      addons,
+      serviceTier: serviceTier,
+    );
+    return total == null ? 'Unavailable' : FeastaPriceFormatter.format(total);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1614,53 +2846,60 @@ class _CustomizationBottomBar extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text(
-                  'Estimated total',
-                  style: AppTypography.bodySmall.copyWith(
-                    color: AppColors.secondaryTextAccessible,
+                Expanded(
+                  child: Text(
+                    'Known estimate',
+                    style: AppTypography.bodySmall.copyWith(
+                      color: AppColors.secondaryTextAccessible,
+                    ),
                   ),
                 ),
-                const Spacer(),
-                FeastaPriceText(
-                  amount: estimatedTotal,
-                  decimalDigits: 0,
-                  semanticLabel: 'Estimated booking total',
-                  style: AppTypography.sectionTitle.copyWith(
-                    color: AppColors.primaryStrong,
-                    fontWeight: FontWeight.w900,
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    _footerEstimate(),
+                    style: AppTypography.bodySmall,
+                    textAlign: TextAlign.end,
                   ),
                 ),
               ],
             ),
-            if (addOnsTotal > 0) ...[
-              const SizedBox(height: AppSpacing.xxs),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Package + selected add-ons',
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.secondaryTextAccessible,
-                      ),
-                    ),
-                  ),
-                  FeastaPriceText(
-                    amount: addOnsTotal,
-                    decimalDigits: 0,
-                    semanticLabel: 'Selected add-ons total',
-                    style: AppTypography.caption.copyWith(
-                      color: AppColors.secondaryTextAccessible,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ],
             const SizedBox(height: AppSpacing.sm),
-            FeastaPrimaryButton(
-              label: 'Check Availability',
-              icon: const Icon(Icons.calendar_month_rounded),
-              onPressed: onContinue,
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Estimated total',
+                    style: AppTypography.bodySmall,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    _footerEstimate(),
+                    style: AppTypography.bodySmall,
+                    textAlign: TextAlign.end,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: onBack,
+                    child: const Text('Back'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FeastaPrimaryButton(
+                    label: continueLabel,
+                    onPressed: onContinue,
+                  ),
+                ),
+              ],
             ),
           ],
         ),

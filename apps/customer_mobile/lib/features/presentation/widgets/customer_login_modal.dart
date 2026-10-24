@@ -1,18 +1,22 @@
+import '../../../core/security/auth_timing.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/router/customer_route_guard.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../authentication/application/customer_auth_scope.dart';
+import '../../authentication/application/customer_auth_controller.dart';
 import '../../authentication/domain/customer_login.dart';
 import '../../authentication/domain/auth_account_state.dart';
 import '../screens/forgot_password_screen.dart';
 import '../screens/role_selection_screen.dart';
 import 'customer_login_panel.dart';
+import '../../authentication/presentation/authentication_loading.dart';
 
 Future<bool> showCustomerLoginModal(
   BuildContext context, {
   String intendedLocation = CustomerAppLocations.login,
   String? contextMessage,
+  CustomerLoginGateway? loginGateway,
 }) async {
   final authenticationController = CustomerAuthenticationScope.maybeOf(context);
 
@@ -24,121 +28,125 @@ Future<bool> showCustomerLoginModal(
   // We stage this while the user is still unauthenticated so
   // AuthenticationGate does not immediately replace the public shell.
   //
-  authenticationController?.stageIntendedLocation(intendedLocation);
+  authenticationController?.stageIntendedLocation(
+    CustomerAppLocations.customer,
+  );
 
-  final result = await showModalBottomSheet<bool>(
-    context: context,
-    useRootNavigator: true,
-    isScrollControlled: true,
-    isDismissible: true,
-    enableDrag: true,
-    useSafeArea: false,
-    backgroundColor: Colors.transparent,
-    barrierColor: Colors.black.withValues(alpha: 0.46),
-    sheetAnimationStyle: const AnimationStyle(
-      duration: Duration(milliseconds: 380),
-      reverseDuration: Duration(milliseconds: 300),
-    ),
-    builder: (sheetContext) {
-      final mediaQuery = MediaQuery.of(sheetContext);
+  final submitting = ValueNotifier<bool>(false);
+  final interacting = ValueNotifier<bool>(false);
 
-      return Padding(
-        padding: EdgeInsets.only(top: mediaQuery.padding.top + 12),
-        child: FractionallySizedBox(
-          heightFactor: 0.94,
-          alignment: Alignment.bottomCenter,
-          child: Material(
-            color: AppColors.background,
-            elevation: 20,
-            clipBehavior: Clip.antiAlias,
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(28),
-                topRight: Radius.circular(28),
-              ),
-            ),
-            child: AnimatedPadding(
-              duration: const Duration(milliseconds: 180),
-              curve: Curves.easeOutCubic,
-              padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
-              child: SafeArea(
-                top: false,
-                child: SingleChildScrollView(
-                  physics: const ClampingScrollPhysics(),
-                  child: CustomerLoginPanel(
-                    contextMessage: contextMessage,
+  var modalOpen = true;
+  authenticationController?.modalSignInActive = true;
+  bool? result;
+  try {
+    result = await showModalBottomSheet<bool>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
+      useSafeArea: false,
+      backgroundColor: Colors.transparent,
+      barrierColor: AppColors.overlay,
+      sheetAnimationStyle: const AnimationStyle(
+        duration: Duration(milliseconds: 380),
+        reverseDuration: Duration(milliseconds: 300),
+      ),
+      builder: (sheetContext) {
+        final mediaQuery = MediaQuery.of(sheetContext);
+        final sheetRoute = ModalRoute.of(sheetContext);
+        bool closeSheet() {
+          if (!sheetContext.mounted || sheetRoute?.isCurrent != true) {
+            return false;
+          }
+          Navigator.of(sheetContext).pop(false);
+          return true;
+        }
 
-                    //
-                    // CLOSE
-                    //
-                    onClose: () {
-                      Navigator.of(sheetContext).pop(false);
-                    },
+        return _CoordinatedLoginSheet(
+          controller: authenticationController,
+          submitting: submitting,
+          interacting: interacting,
+          child: AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
+            child: SafeArea(
+              top: false,
+              child: SingleChildScrollView(
+                physics: const ClampingScrollPhysics(),
+                child: CustomerLoginPanel(
+                  contextMessage: contextMessage,
+                  loginGateway: loginGateway,
+                  onInteractionChanged: (value) {
+                    if (modalOpen) interacting.value = value;
+                  },
+                  onSubmittingChanged: (value) {
+                    if (modalOpen) submitting.value = value;
+                  },
 
-                    //
-                    // FORGOT PASSWORD
-                    //
-                    onForgotPassword: () {
-                      Navigator.of(sheetContext).pop(false);
+                  //
+                  // CLOSE
+                  //
+                  onClose: () {
+                    closeSheet();
+                  },
 
-                      rootNavigator.push(
-                        MaterialPageRoute(
-                          builder: (_) => const ForgotPasswordScreen(),
-                        ),
-                      );
-                    },
+                  //
+                  // FORGOT PASSWORD
+                  //
+                  onForgotPassword: () {
+                    if (!closeSheet() || !rootNavigator.mounted) return;
 
-                    //
-                    // CREATE ACCOUNT
-                    //
-                    onCreateAccount: () {
-                      Navigator.of(sheetContext).pop(false);
+                    rootNavigator.push(
+                      MaterialPageRoute(
+                        builder: (_) => const ForgotPasswordScreen(),
+                      ),
+                    );
+                  },
 
-                      rootNavigator.push(
-                        MaterialPageRoute(
-                          builder: (_) => const RoleSelectionScreen(),
-                        ),
-                      );
-                    },
+                  //
+                  // CREATE ACCOUNT
+                  //
+                  onCreateAccount: () {
+                    if (!closeSheet() || !rootNavigator.mounted) return;
 
-                    //
-                    // LOGIN COMPLETE
-                    //
-                    onLoginComplete: (CustomerLoginResult loginResult) async {
-                      if (authenticationController == null) {
-                        if (sheetContext.mounted) {
-                          Navigator.of(sheetContext).pop(false);
-                        }
-                        return;
-                      }
-                      authenticationController.stageIntendedLocation(
-                        intendedLocation,
-                      );
-                      await authenticationController.refresh(
-                        forceTokenRefresh: false,
-                      );
-                      final kind = authenticationController.state.gate.kind;
-                      final ready =
-                          authenticationController.currentIdentity?.uid ==
-                              loginResult.uid &&
-                          (kind == AuthenticationGateKind.customerReady ||
-                              kind ==
-                                  AuthenticationGateKind
-                                      .customerPhoneVerificationRequired);
-                      if (sheetContext.mounted) {
-                        Navigator.of(sheetContext).pop(ready);
-                      }
-                    },
-                  ),
+                    rootNavigator.push(
+                      MaterialPageRoute(
+                        builder: (_) => const RoleSelectionScreen(),
+                      ),
+                    );
+                  },
+
+                  //
+                  // LOGIN COMPLETE
+                  //
+                  onLoginComplete: (loginResult) async {
+                    // Auth streams normally start this load. Only fill the gap
+                    // when the credential result arrives before those streams.
+                    final controller = authenticationController;
+                    if (sheetContext.mounted &&
+                        controller != null &&
+                        controller.currentIdentity?.uid == loginResult.uid &&
+                        !controller.loadingAccount &&
+                        controller.state.gate.kind ==
+                            AuthenticationGateKind.unauthenticated) {
+                      await controller.refresh(forceTokenRefresh: false);
+                    }
+                  },
                 ),
               ),
             ),
           ),
-        ),
-      );
-    },
-  );
-
+        );
+      },
+    );
+  } finally {
+    modalOpen = false;
+    submitting.dispose();
+    interacting.dispose();
+    authenticationController?.endModalSignIn();
+  }
   //
   // X button, swipe down, barrier tap, or system back:
   // return to public browsing.
@@ -150,4 +158,200 @@ Future<bool> showCustomerLoginModal(
   }
 
   return result == true;
+}
+
+/// Owns only this sheet route; auth completion must never pop another route.
+class _CoordinatedLoginSheet extends StatefulWidget {
+  const _CoordinatedLoginSheet({
+    required this.controller,
+    required this.child,
+    required this.submitting,
+    required this.interacting,
+  });
+  final CustomerAuthenticationController? controller;
+  final Widget child;
+  final ValueNotifier<bool> submitting;
+  final ValueNotifier<bool> interacting;
+
+  @override
+  State<_CoordinatedLoginSheet> createState() => _CoordinatedLoginSheetState();
+}
+
+class _CoordinatedLoginSheetState extends State<_CoordinatedLoginSheet> {
+  bool _observedIdentity = false;
+  bool _closed = false;
+  bool _retrying = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller?.addListener(_changed);
+    widget.submitting.addListener(_changed);
+    widget.interacting.addListener(_changed);
+    _observedIdentity = widget.controller?.currentIdentity != null;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _complete());
+  }
+
+  void _changed() {
+    if (!mounted || _closed) return;
+    _observedIdentity |= widget.controller?.currentIdentity != null;
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) => _complete());
+  }
+
+  void _complete() {
+    if (!mounted || _closed || !_observedIdentity) return;
+    final controller = widget.controller!;
+    final state = controller.state;
+    if (controller.signingOut || state.failure != null) return;
+    if (controller.loadingAccount &&
+        state.gate.kind != AuthenticationGateKind.unauthenticated &&
+        state.gate.kind != AuthenticationGateKind.sessionExpired) {
+      return;
+    }
+    if (state.gate.kind == AuthenticationGateKind.loading &&
+        state.failure == null &&
+        !controller.consentRequired) {
+      return;
+    }
+    final route = ModalRoute.of(context);
+    if (route == null || !route.isActive) return;
+    _closed = true;
+    final ready =
+        state.failure == null &&
+        (state.gate.kind == AuthenticationGateKind.customerReady ||
+            state.gate.kind ==
+                AuthenticationGateKind.customerPhoneVerificationRequired);
+    final watch = AuthTiming.start();
+    if (ready) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        AuthTiming.finish('authorized_to_home_frame', watch);
+      });
+    }
+    if (route.isCurrent) {
+      Navigator.of(context).pop(ready);
+    } else {
+      Navigator.of(context).removeRoute(route, ready);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller?.removeListener(_changed);
+    widget.submitting.removeListener(_changed);
+    widget.interacting.removeListener(_changed);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    final failure = controller?.state.failure;
+    final recovering = _retrying || (controller?.loadingAccount ?? false);
+    final busy =
+        widget.submitting.value ||
+        (_observedIdentity && (failure == null || recovering));
+    return PopScope(
+      canPop: !busy && !widget.interacting.value,
+      child: Padding(
+        padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top + 12),
+        child: FractionallySizedBox(
+          heightFactor: 0.94,
+          alignment: Alignment.bottomCenter,
+          child: Material(
+            key: const Key('customer-login-sheet-surface'),
+            color: AppColors.background,
+            elevation: 20,
+            clipBehavior: Clip.antiAlias,
+            shape: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(28),
+                topRight: Radius.circular(28),
+              ),
+            ),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Offstage(
+                  offstage: busy || failure != null,
+                  child: widget.child,
+                ),
+                if (busy)
+                  Center(
+                    child: ConstrainedBox(
+                      key: const Key('finishing-sign-in-dialog'),
+                      constraints: const BoxConstraints(maxWidth: 320),
+                      child: AuthenticationLoading(
+                        signingOut: controller?.signingOut ?? false,
+                      ),
+                    ),
+                  )
+                else if (failure != null)
+                  Center(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(24),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 360),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              failure ==
+                                      CustomerAuthenticationFailureKind.network
+                                  ? 'Unable to connect'
+                                  : failure ==
+                                        CustomerAuthenticationFailureKind.server
+                                  ? 'Sign-in is temporarily unavailable'
+                                  : 'Account access could not be completed',
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              failure ==
+                                      CustomerAuthenticationFailureKind.network
+                                  ? 'Check your connection and try again. Your session has been kept safe.'
+                                  : 'Try again. If this continues, contact FEASTA support.',
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 16),
+                            FilledButton(
+                              onPressed: _retry,
+                              child: const Text('Retry sign-in'),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                final route = ModalRoute.of(context);
+                                if (route?.isCurrent == true && !_closed) {
+                                  _closed = true;
+                                  Navigator.of(context).pop(false);
+                                }
+                              },
+                              child: const Text('Back'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _retry() async {
+    final controller = widget.controller;
+    if (_retrying || controller == null || _closed) return;
+    setState(() => _retrying = true);
+    try {
+      await controller.refresh(forceTokenRefresh: false);
+    } finally {
+      if (mounted) {
+        setState(() => _retrying = false);
+        _complete();
+      }
+    }
+  }
 }

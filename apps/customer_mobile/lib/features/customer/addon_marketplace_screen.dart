@@ -1,3 +1,5 @@
+import '../../core/theme/app_colors.dart';
+import '../../core/widgets/badges/feasta_price_text.dart';
 import 'package:flutter/material.dart';
 
 import '../../shared/models/feasta_models.dart';
@@ -6,9 +8,11 @@ import '../../shared/widgets/loading_skeleton.dart';
 
 class AddonMarketplaceScreen extends StatefulWidget {
   final List<Map<String, dynamic>> selectedExternalAddOns;
+  final FeastaRepository? repository;
 
   const AddonMarketplaceScreen({
     super.key,
+    this.repository,
     required this.selectedExternalAddOns,
   });
 
@@ -17,13 +21,14 @@ class AddonMarketplaceScreen extends StatefulWidget {
 }
 
 class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
-  final FeastaRepository repository = FeastaRepository();
+  late final FeastaRepository repository;
 
   late List<Map<String, dynamic>> selectedAddOns;
 
   @override
   void initState() {
     super.initState();
+    repository = widget.repository ?? FeastaRepository();
     selectedAddOns = List<Map<String, dynamic>>.from(
       widget.selectedExternalAddOns,
     );
@@ -45,7 +50,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFB02F00);
+    const primary = AppColors.primary;
 
     return Scaffold(
       appBar: AppBar(
@@ -111,10 +116,12 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
               return Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: selected ? primary.withOpacity(0.07) : Colors.white,
+                  color: selected
+                      ? primary.withValues(alpha: 0.07)
+                      : Colors.white,
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
-                    color: selected ? primary : const Color(0xFFE5E7EB),
+                    color: selected ? primary : AppColors.border,
                   ),
                 ),
                 child: Row(
@@ -164,7 +171,10 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
                               ),
                               const Spacer(),
                               Text(
-                                'â‚±${addon.price.toStringAsFixed(0)}',
+                                FeastaPriceFormatter.format(
+                                  addon.price,
+                                  decimalDigits: 0,
+                                ),
                                 style: const TextStyle(
                                   color: primary,
                                   fontWeight: FontWeight.w900,
@@ -187,7 +197,7 @@ class _AddonMarketplaceScreenState extends State<AddonMarketplaceScreen> {
         padding: const EdgeInsets.all(18),
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+          border: Border(top: BorderSide(color: AppColors.border)),
         ),
         child: SafeArea(
           child: SizedBox(

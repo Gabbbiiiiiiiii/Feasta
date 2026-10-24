@@ -133,6 +133,70 @@ void main() {
     expect(signature(data), before);
   });
 
+  for (final nullVersion in [false, true]) {
+    final versionLabel = nullVersion ? 'null' : 'missing';
+    for (final evidence in <(String, dynamic)>[
+      ('malformed string', '2026-11-01T15:00:00+08:00'),
+      ('malformed number', 4),
+      ('malformed map', <String, dynamic>{}),
+      ('conflicting timestamp', stamp('2026-11-01T16:00:00+08:00')),
+      (
+        'matching but unversioned timestamp',
+        stamp('2026-11-01T15:00:00+08:00'),
+      ),
+    ]) {
+      test('$versionLabel version rejects ${evidence.$1}', () {
+        final data = stored()..remove('initialPaymentDeadlinePolicyVersion');
+        if (nullVersion) data['initialPaymentDeadlinePolicyVersion'] = null;
+        data['initialPaymentDeadlineAt'] = evidence.$2;
+        final before = signature(data);
+
+        final request = read(data);
+        expect(request.initialPaymentDeadline!.hasValidEvidence, isFalse);
+        expect(request.checkoutOptions, isEmpty);
+        expect(request.canStartCheckout, isFalse);
+        expect(
+          request.initialPaymentDeadline!.at,
+          data['expiresAt'].toDate().toUtc(),
+        );
+        expect(request.status, 'waiting_for_down_payment');
+        expect(signature(data), before);
+      });
+    }
+
+    for (final nullDeadline in [false, true]) {
+      final deadlineLabel = nullDeadline ? 'null' : 'missing';
+      test('historical $versionLabel version and $deadlineLabel V4 deadline '
+          'preserve stored deadline across refresh and restart', () {
+        final data = stored(deadline: '2026-11-02T09:00:00+08:00')
+          ..remove('initialPaymentDeadlinePolicyVersion')
+          ..remove('initialPaymentDeadlineAt')
+          // Historical records need not have the V4 event timestamp.
+          ..remove('eventStartAt');
+        if (nullVersion) data['initialPaymentDeadlinePolicyVersion'] = null;
+        if (nullDeadline) data['initialPaymentDeadlineAt'] = null;
+        final before = signature(data);
+        final original = data['expiresAt'] as Timestamp;
+
+        for (
+          var refreshOrRestart = 0;
+          refreshOrRestart < 3;
+          refreshOrRestart++
+        ) {
+          final request = read(Map<String, dynamic>.of(data));
+          expect(request.initialPaymentDeadline!.hasValidEvidence, isTrue);
+          expect(request.initialPaymentDeadline!.at, original.toDate().toUtc());
+          expect(
+            request.initialPaymentDeadline!.manilaLabel,
+            '2026-11-02 09:00 PHT',
+          );
+          expect(request.canStartCheckout, isTrue);
+          expect(signature(data), before);
+        }
+      });
+    }
+  }
+
   test('projection never uses device clock for payment authority', () {
     // Even these already elapsed timestamps are only display evidence; server
     // checks the actual time when the customer requests checkout.
@@ -223,7 +287,7 @@ void main() {
     }
     final repository = File(
       'lib/features/authentication/data/repositories/feasta_repository.dart',
-    ).readAsStringSync();
+    ).readAsStringSync().replaceAll('\r\n', '\n');
     for (final method in ['selectRecoveryOffer', 'acceptBooking']) {
       final start = repository.indexOf('Future<void> $method(');
       expect(start, greaterThanOrEqualTo(0));
@@ -263,7 +327,7 @@ void main() {
       expect(offer.status, 'selected');
       final repository = File(
         'lib/features/authentication/data/repositories/feasta_repository.dart',
-      ).readAsStringSync();
+      ).readAsStringSync().replaceAll('\r\n', '\n');
       for (final reader in [
         'recoveryOffersByBooking(',
         'bookingById(',

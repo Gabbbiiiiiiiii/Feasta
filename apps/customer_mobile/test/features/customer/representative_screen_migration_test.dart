@@ -1,3 +1,4 @@
+import '../../helpers/booking_lifecycle_source.dart';
 import 'package:feasta/core/theme/app_theme.dart';
 import 'package:feasta/features/customer/customer_bookings_screen.dart';
 import 'package:feasta/shared/models/feasta_models.dart';
@@ -72,7 +73,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(_fixture());
+    await pumpWithBookingLifecycle(tester, _fixture());
 
     expect(find.text('Confirmed'), findsOneWidget);
     expect(find.widgetWithText(OutlinedButton, 'View details'), findsOneWidget);
@@ -88,7 +89,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.pumpWidget(_fixture(textScale: 2));
+    await pumpWithBookingLifecycle(tester, _fixture(textScale: 2));
 
     expect(find.text('Confirmed'), findsOneWidget);
     expect(tester.takeException(), isNull);

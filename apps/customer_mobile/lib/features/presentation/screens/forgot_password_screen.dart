@@ -23,6 +23,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _emailController = TextEditingController();
   late final PasswordResetController _controller;
 
+  Future<void> _submit() async {
+    if (_controller.state.isSubmitting) return;
+    FocusScope.of(context).unfocus();
+    await _controller.submit(_emailController.text);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -60,87 +66,121 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   @override
   Widget build(BuildContext context) {
     final state = _controller.state;
+    final confirmed = state.success;
     return Scaffold(
-      appBar: AppBar(title: const Text('Reset password')),
+      backgroundColor: AppColors.background,
+      appBar: AppBar(title: const Text('Reset your password')),
       body: SafeArea(
         child: SingleChildScrollView(
           child: FeastaContentContainer(
-            maxWidth: 600,
+            maxWidth: 520,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Icon(
-                  Icons.lock_reset_rounded,
-                  size: 72,
-                  color: AppColors.primary,
-                  semanticLabel: 'Password reset',
-                ),
                 const SizedBox(height: AppSpacing.lg),
-                Text(
-                  'Can’t access your account?',
-                  style: AppTypography.headline,
+                Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    decoration: BoxDecoration(
+                      color: confirmed
+                          ? AppColors.successSubtle
+                          : AppColors.surfaceMuted,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      confirmed
+                          ? Icons.mark_email_read_rounded
+                          : Icons.lock_reset_rounded,
+                      size: 64,
+                      color: confirmed ? AppColors.success : AppColors.primary,
+                      semanticLabel: confirmed
+                          ? 'Reset request complete'
+                          : 'Password reset',
+                    ),
+                  ),
                 ),
-                const SizedBox(height: AppSpacing.sm),
+                const SizedBox(height: AppSpacing.xl),
+                Semantics(
+                  key: confirmed ? const Key('password-reset-success') : null,
+                  liveRegion: confirmed,
+                  header: true,
+                  child: Text(
+                    confirmed ? 'Check your email' : 'Reset your password',
+                    textAlign: TextAlign.center,
+                    style: AppTypography.headline,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
                 Text(
-                  'Enter your email. If it is eligible, we’ll send password reset instructions.',
+                  confirmed
+                      ? 'If a FEASTA account exists for this email, you will receive a link to reset your password. Check your inbox and spam folder.'
+                      : 'Enter your email address to request a password reset link.',
+                  textAlign: TextAlign.center,
                   style: AppTypography.body.copyWith(
                     color: AppColors.secondaryTextAccessible,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.xl),
-                FeastaTextField(
-                  label: 'Email address',
-                  controller: _emailController,
-                  errorText: state.emailError,
-                  isRequired: true,
-                  enabled: !state.isSubmitting,
-                  keyboardType: TextInputType.emailAddress,
-                  textInputAction: TextInputAction.done,
-                  autofillHints: const [AutofillHints.email],
-                  autocorrect: false,
-                  onSubmitted: (_) => _controller.submit(_emailController.text),
-                ),
-                if (state.error != null) ...[
-                  const SizedBox(height: AppSpacing.md),
-                  Semantics(
-                    liveRegion: true,
-                    child: Text(
-                      state.error!,
-                      key: const Key('password-reset-error'),
-                      style: AppTypography.error,
-                    ),
+                if (!confirmed) ...[
+                  FeastaTextField(
+                    label: 'Email address',
+                    controller: _emailController,
+                    errorText: state.emailError,
+                    isRequired: true,
+                    enabled: !state.isSubmitting,
+                    keyboardType: TextInputType.emailAddress,
+                    textInputAction: TextInputAction.done,
+                    autofillHints: const [AutofillHints.email],
+                    autocorrect: false,
+                    onSubmitted: (_) => _submit(),
                   ),
-                ],
-                if (state.success) ...[
                   const SizedBox(height: AppSpacing.md),
+                ],
+                if (state.error != null) ...[
                   Semantics(
                     liveRegion: true,
-                    child: Text(
-                      'If this email is eligible, password reset instructions will arrive shortly.',
-                      key: const Key('password-reset-success'),
-                      style: AppTypography.body.copyWith(
-                        color: AppColors.success,
+                    child: Container(
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        color: AppColors.errorSubtle,
+                        border: Border.all(color: AppColors.error),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        state.error!,
+                        key: const Key('password-reset-error'),
+                        style: AppTypography.error,
                       ),
                     ),
                   ),
+                  const SizedBox(height: AppSpacing.md),
                 ],
-                const SizedBox(height: AppSpacing.xl),
-                FeastaPrimaryButton(
-                  key: const Key('request-password-reset'),
-                  label: state.success
-                      ? 'Send again'
-                      : 'Send reset instructions',
-                  loadingLabel: 'Sending instructions',
-                  isLoading: state.isSubmitting,
-                  onPressed: state.isSubmitting
-                      ? null
-                      : () => _controller.submit(_emailController.text),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                FeastaTextButton(
-                  label: 'Return to login',
-                  onPressed: state.isSubmitting ? null : _returnToLogin,
-                ),
+                if (confirmed) ...[
+                  FeastaPrimaryButton(
+                    key: const Key('password-reset-back-to-sign-in'),
+                    label: 'Back to sign in',
+                    onPressed: _returnToLogin,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  FeastaTextButton(
+                    key: const Key('resend-password-reset'),
+                    label: 'Resend reset link',
+                    onPressed: _submit,
+                  ),
+                ] else ...[
+                  FeastaPrimaryButton(
+                    key: const Key('request-password-reset'),
+                    label: 'Send reset link',
+                    loadingLabel: 'Sending reset link…',
+                    isLoading: state.isSubmitting,
+                    onPressed: state.isSubmitting ? null : _submit,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  FeastaTextButton(
+                    label: 'Back to sign in',
+                    onPressed: state.isSubmitting ? null : _returnToLogin,
+                  ),
+                ],
               ],
             ),
           ),

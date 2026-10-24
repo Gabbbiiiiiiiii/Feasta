@@ -1,6 +1,10 @@
+import '../../core/theme/app_colors.dart';
 import 'dart:async';
+import 'customization_session.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../shared/models/customer_address_model.dart';
@@ -9,23 +13,69 @@ import '../authentication/data/services/location_service.dart';
 import '../authentication/data/services/maps_api_service.dart';
 import 'manual_address_screen.dart';
 
-const Color _primary = Color(0xFFB02F00);
-const Color _background = Color(0xFFF8F6F3);
-const Color _textPrimary = Color(0xFF2B211D);
-const Color _textSecondary = Color(0xFF8C817A);
-const Color _border = Color(0xFFE8E1DB);
+const Color _primary = AppColors.primary;
+const Color _background = AppColors.background;
+const Color _textPrimary = AppColors.mainText;
+const Color _textSecondary = AppColors.secondaryTextAccessible;
+const Color _border = AppColors.border;
 
 class LocationPickerScreen extends StatefulWidget {
-  const LocationPickerScreen({super.key});
+  const LocationPickerScreen({
+    super.key,
+    this.initialAddress,
+    this.sessionOnly = false,
+    this.mapsApiService,
+    this.locationService,
+    this.mapBuilder,
+    this.session,
+  });
+
+  final CustomerAddressModel? initialAddress;
+  final bool sessionOnly;
+  final MapsApiService? mapsApiService;
+  final LocationService? locationService;
+  final Widget Function(GoogleMap)? mapBuilder;
+  final CustomizationSession? session;
 
   @override
   State createState() => _LocationPickerScreenState();
 }
 
 class _LocationPickerScreenState extends State<LocationPickerScreen> {
+  late final _session = widget.session;
+  bool _sessionClosed = false;
+  ModalRoute<dynamic>? _route;
+  bool get _authorized =>
+      _session == null ||
+      (!_sessionClosed &&
+          _session.authorized &&
+          FirebaseAuth.instance.currentUser?.uid == _session.uid);
+  bool get _canPublish => mounted && _authorized && (_route?.isActive ?? true);
+
+  void _sessionChanged() {
+    if (!_authorized) {
+      _sessionClosed = true;
+      searchDebounce?.cancel();
+      reverseRequestId++;
+      // The removed GoogleMap subtree owns native-controller disposal.
+      mapController = null;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _route = ModalRoute.of(context);
+  }
+
+  @override
+  void setState(VoidCallback fn) {
+    if (_canPublish) super.setState(fn);
+  }
+
   final storageService = CustomerAddressStorageService();
-  final locationService = LocationService();
-  final mapsApiService = MapsApiService();
+  late final locationService = widget.locationService ?? LocationService();
+  late final mapsApiService = widget.mapsApiService ?? MapsApiService();
   final searchController = TextEditingController();
 
   GoogleMapController? mapController;
@@ -35,9 +85,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   MapType mapType = MapType.normal;
 
   Timer? searchDebounce;
-  Timer? reverseDebounce;
   int reverseRequestId = 0;
 
+  bool _mapsConfigured = false;
+  bool _hasResolvedPin = false;
   bool isLoading = true;
   bool isSearching = false;
   bool isLocating = false;
@@ -49,26 +100,49 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   @override
   void initState() {
     super.initState();
+    _session?.addListener(_sessionChanged);
     _loadInitialState();
   }
 
   @override
   void dispose() {
+    _session?.removeListener(_sessionChanged);
     searchDebounce?.cancel();
-    reverseDebounce?.cancel();
     searchController.dispose();
     mapController?.dispose();
     super.dispose();
   }
 
   Future<void> _loadInitialState() async {
-    final selectedAddress = await storageService.getSelectedOrDefault();
+    if (!_canPublish) return;
+    bool configured = false;
+    try {
+      configured =
+          await const MethodChannel(
+            'feasta/maps_configuration',
+          ).invokeMethod<bool>('isConfigured') ??
+          false;
+    } on PlatformException catch (_) {
+      // Keep manual entry available when native maps cannot initialize.
+    } on MissingPluginException catch (_) {
+      // Unsupported hosts keep the same manual fallback.
+    }
+    final selectedAddress =
+        widget.initialAddress ??
+        (widget.sessionOnly
+            ? CustomerAddressModel.defaultOrmoc
+            : await storageService.getSelectedOrDefault());
     final mapTypeKey = await storageService.getPreferredMapType();
 
-    if (!mounted) return;
+    if (!_canPublish) return;
 
     setState(() {
+      _mapsConfigured = configured;
       previewAddress = selectedAddress;
+      _hasResolvedPin =
+          selectedAddress.hasCoordinates &&
+          selectedAddress.id != CustomerAddressModel.defaultOrmoc.id &&
+          selectedAddress.fullAddress.trim().isNotEmpty;
       cameraTarget = locationService.latLngFromAddress(selectedAddress);
       mapType = _mapTypeFromKey(mapTypeKey);
       isLoading = false;
@@ -76,6 +150,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   void _onSearchChanged(String value) {
+    if (!_canPublish) return;
     searchDebounce?.cancel();
 
     final query = value.trim();
@@ -94,16 +169,17 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     });
 
     searchDebounce = Timer(const Duration(milliseconds: 420), () async {
+      if (!_canPublish) return;
       try {
         final results = await mapsApiService.searchPlaces(query);
-        if (!mounted || searchController.text.trim() != query) return;
+        if (!_canPublish || searchController.text.trim() != query) return;
 
         setState(() {
           suggestions = results;
           isSearching = false;
         });
       } on MapsApiException catch (e) {
-        if (!mounted) return;
+        if (!_canPublish || searchController.text.trim() != query) return;
 
         setState(() {
           suggestions = [];
@@ -115,6 +191,8 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _useCurrentLocation() async {
+    if (!_canPublish) return;
+    final requestId = ++reverseRequestId;
     setState(() {
       isLocating = true;
       errorMessage = null;
@@ -122,45 +200,30 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
 
     try {
       final position = await locationService.getCurrentPosition();
-      final resolvedAddress = await mapsApiService.reverseGeocode(
-        latitude: position.latitude,
-        longitude: position.longitude,
-        addressLabel: 'Pinned location',
-      );
-      final address = resolvedAddress.copyWith(
-        latitude: position.latitude,
-        longitude: position.longitude,
-      );
-
-      if (!mounted) return;
-
+      if (!_canPublish || requestId != reverseRequestId) return;
+      _selectPoint(LatLng(position.latitude, position.longitude));
       setState(() {
-        previewAddress = address;
-        cameraTarget = LatLng(address.latitude, address.longitude);
-        isLocating = false;
-        errorMessage = null;
         accuracyWarning = position.accuracy > 35
-            ? 'Location may not be exact. Please move the pin to the exact event venue.'
+            ? 'Location may not be exact. Please move the red pin to the event venue.'
             : null;
       });
-
-      await _moveMapToAddress(address);
+      await _moveMapToAddress(previewAddress);
     } on LocationServiceException catch (e) {
-      if (!mounted) return;
+      if (!_canPublish || requestId != reverseRequestId) return;
 
       setState(() {
         isLocating = false;
         errorMessage = e.message;
       });
     } on MapsApiException catch (e) {
-      if (!mounted) return;
+      if (!_canPublish || requestId != reverseRequestId) return;
 
       setState(() {
         isLocating = false;
         errorMessage = e.message;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!_canPublish || requestId != reverseRequestId) return;
 
       setState(() {
         isLocating = false;
@@ -171,20 +234,26 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _selectSuggestion(PlaceSearchResult suggestion) async {
+    if (!_canPublish) return;
+    final requestId = ++reverseRequestId;
     FocusScope.of(context).unfocus();
     searchController.text = suggestion.fullAddress;
 
     setState(() {
       suggestions = [];
+      isLocating = false;
+      _hasResolvedPin = false;
       isResolvingAddress = true;
       errorMessage = null;
     });
 
     try {
       final address = await mapsApiService.getPlaceDetails(suggestion.placeId);
-      if (!mounted) return;
+      if (!_canPublish || requestId != reverseRequestId) return;
 
       setState(() {
+        _hasResolvedPin =
+            address.hasCoordinates && address.fullAddress.trim().isNotEmpty;
         previewAddress = address;
         cameraTarget = LatLng(address.latitude, address.longitude);
         isResolvingAddress = false;
@@ -192,7 +261,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
 
       await _moveMapToAddress(address);
     } on MapsApiException catch (e) {
-      if (!mounted) return;
+      if (!_canPublish || requestId != reverseRequestId) return;
 
       setState(() {
         isResolvingAddress = false;
@@ -201,24 +270,36 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     }
   }
 
-  void _onCameraMove(CameraPosition position) {
-    cameraTarget = position.target;
-    if (accuracyWarning != null) {
-      setState(() {
-        accuracyWarning = null;
-      });
-    }
-  }
-
-  void _onCameraIdle() {
-    reverseDebounce?.cancel();
-    reverseDebounce = Timer(const Duration(milliseconds: 650), () {
-      _reverseGeocodeCameraTarget();
+  void _selectPoint(LatLng target) {
+    if (!_canPublish) return;
+    reverseRequestId++;
+    setState(() {
+      cameraTarget = target;
+      _hasResolvedPin = false;
+      isLocating = false;
+      isResolvingAddress = true;
+      accuracyWarning = null;
+      errorMessage = null;
+      previewAddress = CustomerAddressModel.defaultOrmoc.copyWith(
+        id: newCustomerAddressId(),
+        addressLabel: 'Selected pin',
+        fullAddress: 'Resolving address for selected coordinates...',
+        streetName: '',
+        barangay: '',
+        city: '',
+        province: '',
+        country: '',
+        latitude: target.latitude,
+        longitude: target.longitude,
+      );
     });
+    _reverseGeocodeCameraTarget();
   }
 
   Future<void> _reverseGeocodeCameraTarget() async {
+    if (!_canPublish) return;
     final requestId = ++reverseRequestId;
+    final target = cameraTarget;
 
     setState(() {
       isResolvingAddress = true;
@@ -227,31 +308,38 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
 
     try {
       final resolvedAddress = await mapsApiService.reverseGeocode(
-        latitude: cameraTarget.latitude,
-        longitude: cameraTarget.longitude,
+        latitude: target.latitude,
+        longitude: target.longitude,
       );
       final address = resolvedAddress.copyWith(
-        latitude: cameraTarget.latitude,
-        longitude: cameraTarget.longitude,
+        latitude: target.latitude,
+        longitude: target.longitude,
       );
 
-      if (!mounted || requestId != reverseRequestId) return;
+      if (!_canPublish || requestId != reverseRequestId) return;
 
       setState(() {
+        _hasResolvedPin =
+            address.hasCoordinates && address.fullAddress.trim().isNotEmpty;
         previewAddress = address;
         isResolvingAddress = false;
       });
-    } on MapsApiException catch (e) {
-      if (!mounted || requestId != reverseRequestId) return;
+    } catch (_) {
+      if (!_canPublish || requestId != reverseRequestId) return;
 
       setState(() {
         isResolvingAddress = false;
-        errorMessage = e.message;
+        errorMessage =
+            'Address unavailable. Enter the written address manually to confirm.';
+        previewAddress = previewAddress.copyWith(
+          fullAddress: 'Written address required for selected pin',
+        );
       });
     }
   }
 
   Future<void> _toggleMapType() async {
+    if (!_canPublish) return;
     final nextType = mapType == MapType.normal
         ? MapType.satellite
         : MapType.normal;
@@ -264,6 +352,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _moveMapToAddress(CustomerAddressModel address) async {
+    if (!_canPublish) return;
     final controller = mapController;
     if (controller == null) return;
 
@@ -274,6 +363,14 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _confirmPreviewAddress() async {
+    if (!_canPublish ||
+        !_mapsConfigured ||
+        !_hasResolvedPin ||
+        isResolvingAddress ||
+        isSaving ||
+        isLocating) {
+      return;
+    }
     await _saveAndReturnAddress(
       previewAddress.copyWith(
         latitude: cameraTarget.latitude,
@@ -283,6 +380,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _saveAndReturnAddress(CustomerAddressModel address) async {
+    if (!_canPublish || !(_route?.isCurrent ?? true)) return;
     setState(() {
       isSaving = true;
       errorMessage = null;
@@ -297,12 +395,16 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     );
 
     try {
-      await storageService.saveSelectedAddress(normalizedAddress);
-      if (!mounted) return;
+      if (!widget.sessionOnly) {
+        await storageService.saveSelectedAddress(normalizedAddress);
+      }
+      if (!mounted || !_canPublish) return;
 
-      Navigator.pop(context, normalizedAddress);
+      if (_route?.isCurrent ?? true) {
+        Navigator.pop(context, normalizedAddress);
+      }
     } catch (_) {
-      if (!mounted) return;
+      if (!_canPublish) return;
 
       setState(() {
         isSaving = false;
@@ -315,9 +417,16 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     CustomerAddressModel? address,
     bool editCurrent = false,
   }) async {
+    if (!_canPublish) return;
+    reverseRequestId++;
+    setState(() {
+      isResolvingAddress = false;
+      isLocating = false;
+    });
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(
+      CustomizationSessionRoute<CustomerAddressModel>(
+        session: _session,
         builder: (context) => ManualAddressScreen(
           initialAddress: editCurrent ? address ?? previewAddress : null,
           preserveAddressId: editCurrent,
@@ -325,15 +434,13 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       ),
     );
 
-    if (result == null) return;
+    if (result == null || !_canPublish) return;
 
     if (editCurrent) {
-      await storageService.updateAddress(result);
+      if (!widget.sessionOnly) await storageService.updateAddress(result);
 
-      if (!mounted) return;
-      setState(() {
-        previewAddress = result;
-      });
+      if (!_canPublish) return;
+      await _saveAndReturnAddress(result);
       return;
     }
 
@@ -341,29 +448,45 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      CustomizationSessionBoundary(session: _session, builder: _buildContent);
+
+  Widget _buildContent(BuildContext context) {
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return Scaffold(
-      resizeToAvoidBottomInset: false,
+      resizeToAvoidBottomInset: true,
       backgroundColor: _background,
       body: isLoading
           ? const _LocationLoading()
           : Stack(
               children: [
                 Positioned.fill(
-                  child: _MapPickerArea(
-                    address: previewAddress,
-                    mapType: mapType,
-                    onMapCreated: (controller) {
-                      mapController = controller;
-                    },
-                    onCameraMove: _onCameraMove,
-                    onCameraIdle: _onCameraIdle,
-                    onToggleMapType: _toggleMapType,
-                    onUseCurrentLocation: _useCurrentLocation,
-                    isLocating: isLocating,
-                  ),
+                  child: !_mapsConfigured
+                      ? const ColoredBox(
+                          color: _background,
+                          child: Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(32),
+                              child: Text(
+                                'Map unavailable. Enter your event address manually below.',
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ),
+                        )
+                      : _MapPickerArea(
+                          address: previewAddress,
+                          mapBuilder: widget.mapBuilder,
+                          mapType: mapType,
+                          onMapCreated: (controller) {
+                            if (_canPublish) mapController = controller;
+                          },
+                          onSelectPoint: _selectPoint,
+                          onToggleMapType: _toggleMapType,
+                          onUseCurrentLocation: _useCurrentLocation,
+                          isLocating: isLocating,
+                        ),
                 ),
                 SafeArea(
                   bottom: false,
@@ -400,9 +523,15 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                       child: AnimatedOpacity(
                         opacity: keyboardOpen ? 0 : 1,
                         duration: const Duration(milliseconds: 160),
-                        child: _LocationActionPanel(
+                        child: LocationActionPanel(
                           address: previewAddress,
-                          errorMessage: errorMessage,
+                          errorMessage:
+                              errorMessage ??
+                              (!_mapsConfigured
+                                  ? 'Map unavailable. Use manual address entry.'
+                                  : !_hasResolvedPin
+                                  ? 'Move the red pin or search to select your event location.'
+                                  : null),
                           accuracyWarning: accuracyWarning,
                           isResolvingAddress: isResolvingAddress,
                           isSaving: isSaving,
@@ -531,22 +660,25 @@ class _SearchPanel extends StatelessWidget {
                 separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (context, index) {
                   final suggestion = suggestions[index];
-                  return ListTile(
-                    leading: const Icon(Icons.location_on_outlined),
-                    title: Text(
-                      suggestion.mainText,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
+                  return Material(
+                    color: Colors.white,
+                    child: ListTile(
+                      leading: const Icon(Icons.location_on_outlined),
+                      title: Text(
+                        suggestion.mainText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      subtitle: Text(
+                        suggestion.secondaryText.isEmpty
+                            ? suggestion.fullAddress
+                            : suggestion.secondaryText,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: () => onSuggestionTap(suggestion),
                     ),
-                    subtitle: Text(
-                      suggestion.secondaryText.isEmpty
-                          ? suggestion.fullAddress
-                          : suggestion.secondaryText,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    onTap: () => onSuggestionTap(suggestion),
                   );
                 },
               ),
@@ -559,53 +691,63 @@ class _SearchPanel extends StatelessWidget {
 }
 
 class _MapPickerArea extends StatelessWidget {
+  final Widget Function(GoogleMap)? mapBuilder;
   final CustomerAddressModel address;
   final MapType mapType;
   final ValueChanged<GoogleMapController> onMapCreated;
-  final ValueChanged<CameraPosition> onCameraMove;
-  final VoidCallback onCameraIdle;
+  final ValueChanged<LatLng> onSelectPoint;
   final VoidCallback onToggleMapType;
   final VoidCallback onUseCurrentLocation;
   final bool isLocating;
 
   const _MapPickerArea({
+    this.mapBuilder,
     required this.address,
     required this.mapType,
     required this.onMapCreated,
-    required this.onCameraMove,
-    required this.onCameraIdle,
+    required this.onSelectPoint,
     required this.onToggleMapType,
     required this.onUseCurrentLocation,
     required this.isLocating,
   });
 
+  Widget _buildMap(GoogleMap map) => mapBuilder?.call(map) ?? map;
+
   @override
   Widget build(BuildContext context) {
-    final target = LatLng(address.latitude, address.longitude);
+    final target = LocationService().latLngFromAddress(address);
 
     return Stack(
       children: [
-        GoogleMap(
-          initialCameraPosition: CameraPosition(target: target, zoom: 18),
-          mapType: mapType,
-          myLocationButtonEnabled: false,
-          zoomControlsEnabled: false,
-          mapToolbarEnabled: false,
-          onMapCreated: onMapCreated,
-          onCameraMove: onCameraMove,
-          onCameraIdle: onCameraIdle,
-        ),
-        const IgnorePointer(
-          child: Center(
-            child: Padding(
-              padding: EdgeInsets.only(bottom: 42),
-              child: Icon(Icons.location_pin, color: _primary, size: 52),
+        _buildMap(
+          GoogleMap(
+            initialCameraPosition: CameraPosition(target: target, zoom: 18),
+            mapType: mapType,
+            myLocationButtonEnabled: false,
+            zoomControlsEnabled: false,
+            mapToolbarEnabled: false,
+            onMapCreated: onMapCreated,
+            padding: EdgeInsets.only(
+              top: 100,
+              bottom: MediaQuery.sizeOf(context).height * 0.55,
             ),
+            markers: {
+              Marker(
+                markerId: const MarkerId('event-location'),
+                position: target,
+                icon: BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueRed,
+                ),
+                draggable: true,
+                onDragEnd: onSelectPoint,
+              ),
+            },
+            onTap: onSelectPoint,
           ),
         ),
         Positioned(
           right: 18,
-          bottom: 360,
+          top: 120,
           child: Column(
             children: [
               _FloatingMapButton(
@@ -631,7 +773,7 @@ class _MapPickerArea extends StatelessWidget {
   }
 }
 
-class _LocationActionPanel extends StatefulWidget {
+class LocationActionPanel extends StatefulWidget {
   final CustomerAddressModel address;
   final String? errorMessage;
   final String? accuracyWarning;
@@ -644,7 +786,8 @@ class _LocationActionPanel extends StatefulWidget {
   final VoidCallback onManualEntry;
   final ValueChanged<CustomerAddressModel> onEditAddress;
 
-  const _LocationActionPanel({
+  const LocationActionPanel({
+    super.key,
     required this.address,
     required this.errorMessage,
     required this.accuracyWarning,
@@ -659,10 +802,10 @@ class _LocationActionPanel extends StatefulWidget {
   });
 
   @override
-  State<_LocationActionPanel> createState() => _LocationActionPanelState();
+  State<LocationActionPanel> createState() => _LocationActionPanelState();
 }
 
-class _LocationActionPanelState extends State<_LocationActionPanel> {
+class _LocationActionPanelState extends State<LocationActionPanel> {
   double dragDistance = 0;
 
   void _resetDrag() {
@@ -688,15 +831,15 @@ class _LocationActionPanelState extends State<_LocationActionPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final bottomPadding = MediaQuery.of(context).padding.bottom;
-
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onVerticalDragStart: (_) => _resetDrag(),
       onVerticalDragUpdate: _handleDragUpdate,
       onVerticalDragEnd: _handleDragEnd,
-      child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.40,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.55,
+        ),
         child: Container(
           decoration: const BoxDecoration(
             color: _background,
@@ -704,10 +847,10 @@ class _LocationActionPanelState extends State<_LocationActionPanel> {
           ),
           child: SafeArea(
             top: false,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(18, 12, 18, 14 + bottomPadding),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 14),
               child: Column(
-                mainAxisSize: MainAxisSize.max,
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Center(
                     child: Container(
@@ -726,7 +869,7 @@ class _LocationActionPanelState extends State<_LocationActionPanel> {
                       child: const LinearProgressIndicator(
                         minHeight: 3,
                         color: _primary,
-                        backgroundColor: Color(0xFFFFD9CC),
+                        backgroundColor: AppColors.primarySubtleStrong,
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -742,11 +885,16 @@ class _LocationActionPanelState extends State<_LocationActionPanel> {
                     address: widget.address,
                     onEdit: () => widget.onEditAddress(widget.address),
                   ),
+                  TextButton.icon(
+                    onPressed: widget.onManualEntry,
+                    icon: const Icon(Icons.edit_location_alt_outlined),
+                    label: const Text('Enter address manually'),
+                  ),
                   const SizedBox(height: 10),
                   _EventLocationInfo(message: widget.accuracyWarning),
                   const SizedBox(height: 10),
                   SizedBox(
-                    height: 48,
+                    width: double.infinity,
                     child: OutlinedButton.icon(
                       onPressed: widget.isLocating
                           ? null
@@ -777,13 +925,20 @@ class _LocationActionPanelState extends State<_LocationActionPanel> {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  Expanded(
+                  SizedBox(
+                    width: double.infinity,
                     child: Align(
                       alignment: Alignment.bottomCenter,
                       child: SizedBox(
-                        height: 52,
+                        width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: widget.isSaving ? null : widget.onConfirm,
+                          onPressed:
+                              widget.isSaving ||
+                                  widget.isLocating ||
+                                  widget.isResolvingAddress ||
+                                  widget.errorMessage != null
+                              ? null
+                              : widget.onConfirm,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _primary,
                             foregroundColor: Colors.white,
@@ -839,7 +994,7 @@ class _SelectedAddressCard extends StatelessWidget {
             height: 38,
             width: 38,
             decoration: const BoxDecoration(
-              color: Color(0xFFFFECE5),
+              color: AppColors.primarySubtle,
               shape: BoxShape.circle,
             ),
             child: const Icon(Icons.location_on_rounded, color: _primary),
@@ -870,7 +1025,9 @@ class _SelectedAddressCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  address.displaySubtitle,
+                  address.fullAddress.trim().isNotEmpty
+                      ? address.fullAddress
+                      : address.displaySubtitle,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -940,9 +1097,9 @@ class _EventLocationInfo extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF3ED),
+        color: AppColors.primarySubtle,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFFFD9CC)),
+        border: Border.all(color: AppColors.primarySubtleStrong),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -977,14 +1134,17 @@ class _ErrorNotice extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF7ED),
+        color: AppColors.warningSubtle,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: const Color(0xFFF59E0B)),
+        border: Border.all(color: AppColors.warningBorder),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.info_outline_rounded, color: Color(0xFFF59E0B)),
+          const Icon(
+            Icons.info_outline_rounded,
+            color: AppColors.warningBorder,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(

@@ -155,10 +155,12 @@ class _ComplaintDialogState extends State<_ComplaintDialog> {
                           'No reportable services are available.',
                     ),
                     TextButton(
-                    onPressed: () {
-                      final services = widget.loadServices();
-                      setState(() { _services = services; });
-                    },
+                      onPressed: () {
+                        final services = widget.loadServices();
+                        setState(() {
+                          _services = services;
+                        });
+                      },
                       child: const Text('Retry'),
                     ),
                   ],

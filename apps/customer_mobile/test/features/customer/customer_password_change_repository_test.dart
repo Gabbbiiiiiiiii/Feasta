@@ -6,6 +6,7 @@ import 'package:feasta/features/customer/account/data/firebase_customer_account_
 import 'package:feasta/features/customer/account/domain/customer_account_management.dart';
 import 'package:feasta/features/customer/account/data/password_recovery_store.dart';
 import 'package:feasta/core/security/auth_operation_coordinator.dart';
+import 'package:feasta/core/security/customer_session_coordinator.dart';
 import 'package:flutter_test/flutter_test.dart';
 import '../../helpers/password_recovery_preferences.dart';
 
@@ -41,6 +42,41 @@ void main() {
     currentPassword: 'old-test-password',
     newPassword: 'new-test-password',
   );
+  for (final resume in [false, true]) {
+    test(
+      'password ${resume ? 'recovery' : 'change'} invalidates before blocked queue without changing recovery epoch',
+      () async {
+        if (resume) {
+          recoveryStore.records['customer-a'] = const PasswordRecoveryState(
+            'customer-a',
+            PasswordRecoveryStage.updateConfirmed,
+          );
+        }
+        final blocked = Completer<void>();
+        final queue = AuthOperationCoordinator.shared;
+        final occupied = queue.run(() => blocked.future);
+        final before = CustomerSessionCoordinator.shared.readSnapshot();
+        final epoch = queue.epoch;
+        final pending = resume
+            ? repository.resumePasswordCleanup(
+                currentPassword: 'current-password',
+              )
+            : change();
+        expect(
+          CustomerSessionCoordinator.shared.readSnapshot().generation,
+          greaterThan(before.generation),
+        );
+        expect(queue.epoch, epoch);
+        expect(events, isEmpty);
+        blocked.complete();
+        await occupied;
+        await pending;
+        expect(queue.epoch, epoch);
+        expect(recoveryStore.records, isEmpty);
+        expect(original.passwordUpdates, resume ? 0 : 1);
+      },
+    );
+  }
   Matcher failure(CustomerAccountFailureKind kind) => throwsA(
     isA<CustomerAccountException>().having((e) => e.kind, 'kind', kind),
   );

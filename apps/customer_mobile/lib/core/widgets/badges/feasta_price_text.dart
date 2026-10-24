@@ -8,6 +8,7 @@ abstract final class FeastaPriceFormatter {
     String symbol = '\u20B1',
     int decimalDigits = 2,
   }) {
+    if (!amount.isFinite) return 'Price unavailable';
     final fixed = amount.abs().toStringAsFixed(decimalDigits);
     final parts = fixed.split('.');
     final digits = parts.first;

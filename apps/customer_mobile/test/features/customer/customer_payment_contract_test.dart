@@ -159,8 +159,9 @@ void main() {
         'lib/features/customer/booking_details_screen.dart',
       ).readAsStringSync();
 
-      expect(bookings, contains("'Down payment required'"));
-      expect(bookings, contains("'Full payment required'"));
+      // Status guidance now directs customers to per-request payment details.
+      // Existing historical-deposit action and amount labels remain unchanged.
+      expect(bookings, contains('isHistoricalDepositTerms('));
       expect(bookings, contains("'Pay down payment'"));
       expect(details, contains("label: 'Down payment'"));
       expect(details, contains("label: 'Full payment'"));

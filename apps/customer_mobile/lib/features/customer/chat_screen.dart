@@ -1,3 +1,4 @@
+import '../../core/theme/app_colors.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -93,7 +94,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFFF6333);
+    const primary = AppColors.primary;
 
     return Scaffold(
       appBar: AppBar(
@@ -110,10 +111,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
                   decoration: const BoxDecoration(
-                    color: Color(0xFFFFF3EE),
-                    border: Border(
-                      bottom: BorderSide(color: Color(0xFFE5E7EB)),
-                    ),
+                    color: AppColors.primarySubtle,
+                    border: Border(bottom: BorderSide(color: AppColors.border)),
                   ),
                   child: Text(
                     'Booking: ${widget.booking.packageName}',
@@ -177,7 +176,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
                     decoration: const BoxDecoration(
                       color: Colors.white,
-                      border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+                      border: Border(top: BorderSide(color: AppColors.border)),
                     ),
                     child: Row(
                       children: [
@@ -189,7 +188,7 @@ class _ChatScreenState extends State<ChatScreen> {
                             decoration: InputDecoration(
                               hintText: 'Type your message...',
                               filled: true,
-                              fillColor: const Color(0xFFF7F8FA),
+                              fillColor: AppColors.background,
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(18),
                                 borderSide: BorderSide.none,
@@ -257,7 +256,7 @@ class ChatBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFFF6333);
+    const primary = AppColors.primary;
 
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
@@ -275,7 +274,7 @@ class ChatBubble extends StatelessWidget {
             bottomLeft: Radius.circular(isMe ? 18 : 4),
             bottomRight: Radius.circular(isMe ? 4 : 18),
           ),
-          border: isMe ? null : Border.all(color: const Color(0xFFE5E7EB)),
+          border: isMe ? null : Border.all(color: AppColors.border),
         ),
         child: Column(
           crossAxisAlignment: isMe

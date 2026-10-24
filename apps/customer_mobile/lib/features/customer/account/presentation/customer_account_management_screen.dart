@@ -1,4 +1,5 @@
 import 'dart:io';
+import '../../../../app/router/customer_auth_navigation.dart';
 
 import 'package:flutter/material.dart';
 import 'package:image_cropper/image_cropper.dart';
@@ -620,7 +621,7 @@ class _CustomerAccountManagementScreenState
             );
         }
         if ((success || issue?.signedOut == true) && navigator.mounted) {
-          navigator.popUntil((route) => route.isFirst);
+          await returnToCustomerRoot(navigator);
         }
       } else {
         if (!mounted) return;
@@ -842,7 +843,7 @@ class _CustomerAccountManagementScreenState
       return;
     }
 
-    Navigator.of(context).popUntil((route) => route.isFirst);
+    await returnToCustomerRoot(Navigator.of(context));
   }
 
   void _showSaveSuccessMessage(String message) {

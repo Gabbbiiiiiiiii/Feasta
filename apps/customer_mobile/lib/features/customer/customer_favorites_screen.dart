@@ -532,7 +532,7 @@ class _FavoriteProviderCardState extends State<FavoriteProviderCard> {
                           const Icon(
                             Icons.star_rounded,
                             size: 18,
-                            color: Colors.amber,
+                            color: AppColors.rating,
                           ),
                           const SizedBox(width: 4),
                           Text(

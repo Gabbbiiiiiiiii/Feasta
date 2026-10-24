@@ -14,6 +14,11 @@ class InitialPaymentDeadline {
     }
 
     final version = data['initialPaymentDeadlinePolicyVersion'];
+    // Missing/null fields are historical placeholders. A populated V4 deadline
+    // without its version is incomplete V4 evidence, never a historical record.
+    final historical =
+        version == null && data['initialPaymentDeadlineAt'] == null;
+    final versioned = version == 4;
     final stored = timestamp(
       version == null ? 'expiresAt' : 'initialPaymentDeadlineAt',
     );
@@ -22,11 +27,11 @@ class InitialPaymentDeadline {
     final hard = timestamp('hardPaymentDeadlineAt');
     final expiry = timestamp('expiresAt');
     final valid =
-        (version == null || version == 4) &&
+        (historical || versioned) &&
         stored != null &&
         accepted != null &&
         stored.isAfter(accepted) &&
-        (version == null || (event != null && expiry == stored)) &&
+        (historical || (versioned && event != null && expiry == stored)) &&
         (data['eventStartAt'] == null ||
             (event != null && !stored.isAfter(event))) &&
         (data['hardPaymentDeadlineAt'] == null ||

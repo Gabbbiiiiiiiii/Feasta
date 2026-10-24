@@ -216,7 +216,7 @@ void main() {
       );
       await harness.mount(tester);
       await tapVisible(tester, find.text('Forgot password?'));
-      await tapVisible(tester, find.text('Return to login'));
+      await tapVisible(tester, find.text('Back to sign in'));
       expect(
         harness.controller.intendedLocation,
         CustomerAppLocations.bookings,
@@ -307,7 +307,7 @@ void main() {
           find.byKey(const Key('request-password-reset')),
         );
         expect(harness.gateway.resets, 1);
-        await tapVisible(tester, find.text('Return to login'));
+        await tapVisible(tester, find.text('Back to sign in'));
         expect(harness.navigatorKey.currentState!.canPop(), false);
         expect(find.byType(LoginScreen), findsOneWidget);
         await tapVisible(tester, find.byKey(const Key('google-login-button')));
@@ -343,7 +343,7 @@ void main() {
       expect(find.text('Validated customer account'), findsNothing);
       await tapVisible(tester, find.byType(CheckboxListTile).first);
       await tapVisible(tester, find.byType(CheckboxListTile).last);
-      await tapVisible(tester, find.text('Accept and continue'));
+      await tapVisible(tester, find.text('Agree and continue'));
       expect(harness.repository.acceptCalls, 1);
       expect(find.text('Validated customer account'), findsOneWidget);
       await harness.close(tester);
@@ -408,8 +408,8 @@ void main() {
     harness.repository.emitAuth(identity);
     await tester.pump();
     await tester.pump();
-    expect(find.text('Cancel sign-in'), findsOneWidget);
-    await tester.tap(find.text('Cancel sign-in'));
+    expect(find.text('Sign out and browse'), findsOneWidget);
+    await tester.tap(find.text('Sign out and browse'));
     await tester.pumpAndSettle();
     expect(find.text('Guest browsing'), findsOneWidget);
     pending.complete(
@@ -439,9 +439,9 @@ void main() {
     await tapVisible(tester, find.text('Sign out and browse as guest'));
     expect(find.text('Guest browsing'), findsNothing);
     expect(harness.controller.currentIdentity, isNotNull);
-    expect(find.text('Sign out and browse as guest'), findsOneWidget);
+    expect(find.text('Cancel sign-in and browse'), findsOneWidget);
     harness.repository.failSignOut = false;
-    await tapVisible(tester, find.text('Sign out and browse as guest'));
+    await tapVisible(tester, find.text('Cancel sign-in and browse'));
     expect(find.text('Guest browsing'), findsOneWidget);
     await harness.close(tester);
   });
@@ -466,7 +466,7 @@ void main() {
       final previousScreen = tester.widget<CustomerConsentScreen>(
         find.byType(CustomerConsentScreen),
       );
-      await tapVisible(tester, find.text('Accept and continue'));
+      await tapVisible(tester, find.text('Agree and continue'));
       await previousScreen.onDecline();
       await previousScreen.onAccept('1.1', '1.1');
       expect(harness.repository.submittedVersions, ['1.1', '1.1']);
@@ -494,7 +494,7 @@ void main() {
       harness.repository.acceptanceFailure = null;
       await tapVisible(tester, find.byType(CheckboxListTile).first);
       await tapVisible(tester, find.byType(CheckboxListTile).last);
-      await tapVisible(tester, find.text('Accept and continue'));
+      await tapVisible(tester, find.text('Agree and continue'));
       expect(harness.repository.submittedVersions, [' 1.2 ', 'privacy-2']);
       expect(find.text('Validated customer account'), findsOneWidget);
       await harness.close(tester);
@@ -516,7 +516,7 @@ void main() {
       await tapVisible(tester, find.byType(CheckboxListTile).last);
       harness.termsVersion = '';
       harness.repository.acceptanceFailure = reason;
-      await tapVisible(tester, find.text('Accept and continue'));
+      await tapVisible(tester, find.text('Agree and continue'));
       expect(find.byType(CheckboxListTile), findsNothing);
       expect(find.text('Validated customer account'), findsNothing);
       expect(
@@ -545,7 +545,7 @@ void main() {
       expect(harness.repository.acceptCalls, 1);
       await tapVisible(tester, find.byType(CheckboxListTile).first);
       await tapVisible(tester, find.byType(CheckboxListTile).last);
-      await tapVisible(tester, find.text('Accept and continue'));
+      await tapVisible(tester, find.text('Agree and continue'));
       expect(harness.repository.submittedVersions, [
         ' exact-terms ',
         'privacy-next',
@@ -569,7 +569,7 @@ void main() {
       await tapVisible(tester, find.byType(CheckboxListTile).first);
       await tapVisible(tester, find.byType(CheckboxListTile).last);
       harness.repository.acceptanceFailure = failure;
-      await tapVisible(tester, find.text('Accept and continue'));
+      await tapVisible(tester, find.text('Agree and continue'));
       expect(find.text('Validated customer account'), findsNothing);
       expect(harness.repository.acceptCalls, 1);
       expect(harness.repository.listenerCount, 0);

@@ -1,3 +1,4 @@
+import '../../core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/domain/legacy_booking_payment_authority.dart';
@@ -18,7 +19,7 @@ class RecoveryOffersScreen extends StatelessWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (context) {
-        const primary = Color(0xFFB02F00);
+        const primary = AppColors.primary;
 
         return DraggableScrollableSheet(
           expand: false,
@@ -96,11 +97,9 @@ class RecoveryOffersScreen extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.all(14),
                       decoration: BoxDecoration(
-                        color: Colors.orange.withOpacity(0.08),
+                        color: AppColors.warningSubtle,
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: Colors.orange.withOpacity(0.35),
-                        ),
+                        border: Border.all(color: AppColors.warningBorder),
                       ),
                       child: const Text(
                         legacyBookingPaymentAuthorityMessage,
@@ -140,7 +139,7 @@ class RecoveryOffersScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final repository = FeastaRepository();
-    const primary = Color(0xFFB02F00);
+    const primary = AppColors.primary;
 
     return Scaffold(
       appBar: AppBar(
@@ -202,7 +201,7 @@ class RecoveryOffersScreen extends StatelessWidget {
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
                       color: Colors.white,
-                      border: Border.all(color: const Color(0xFFE5E7EB)),
+                      border: Border.all(color: AppColors.border),
                       borderRadius: BorderRadius.circular(18),
                     ),
                     child: Column(
@@ -330,7 +329,7 @@ class _ProviderProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFB02F00);
+    const primary = AppColors.primary;
 
     final businessName = provider?.businessName ?? fallbackBusinessName;
     final description = provider?.description ?? '';
@@ -347,7 +346,7 @@ class _ProviderProfileCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+        border: Border.all(color: AppColors.border),
         borderRadius: BorderRadius.circular(18),
       ),
       child: Column(
@@ -425,7 +424,7 @@ class _ProviderProfileCard extends StatelessWidget {
 
           Row(
             children: [
-              const Icon(Icons.star, color: Colors.amber, size: 20),
+              const Icon(Icons.star, color: AppColors.rating, size: 20),
               const SizedBox(width: 5),
               Text(
                 '${ratingAverage.toStringAsFixed(1)} ($reviewCount reviews)',

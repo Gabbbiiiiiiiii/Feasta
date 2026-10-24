@@ -1,10 +1,12 @@
-import 'dart:async';
-
+import 'event_list/event_list_navigation.dart';
+import 'widgets/provider_brand_visual.dart';
+import '../../core/domain/service_category.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/helpers/auth_guard.dart';
 import '../../core/helpers/provider_category_helper.dart';
+import '../../core/widgets/badges/feasta_price_text.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
@@ -16,82 +18,64 @@ import '../authentication/data/repositories/feasta_repository.dart';
 import '../authentication/data/services/customer_address_storage_service.dart';
 import '../authentication/data/services/promotion_service.dart';
 import '../notifications/notifications_screen.dart';
+import 'home_text_colors.dart';
 import 'customer_provider_collection_screen.dart';
 import 'customer_search_screen.dart';
 import 'location_picker_screen.dart';
 import 'provider_profile_screen.dart';
 
 class CustomerHomeScreen extends StatefulWidget {
-  const CustomerHomeScreen({super.key});
+  const CustomerHomeScreen({
+    super.key,
+    this.repository,
+    this.addressStorage,
+    this.promotions,
+    this.onExploreProviders,
+    this.onCloseExplore,
+  });
+
+  final ValueChanged<Widget>? onExploreProviders;
+  final VoidCallback? onCloseExplore;
+  final FeastaRepository? repository;
+  final CustomerAddressStorageService? addressStorage;
+  final Stream<List<PromotionModel>>? promotions;
 
   @override
   State<CustomerHomeScreen> createState() => _CustomerHomeScreenState();
 }
 
 class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
-  final FeastaRepository _repository = FeastaRepository();
-  final CustomerAddressStorageService _addressStorage =
-      CustomerAddressStorageService();
+  late final FeastaRepository _repository;
+  late final CustomerAddressStorageService _addressStorage;
 
   late Future<CustomerAddressModel> _selectedAddressFuture;
   late final Future<Map<String, String>> _serviceCategoryNames;
 
-  static const List<_EventServiceItem> _eventServices = [
-    _EventServiceItem(
-      label: 'Catering',
-      searchQuery: 'Catering Service',
-      icon: Icons.restaurant_menu_rounded,
-    ),
-    _EventServiceItem(
-      label: 'Photography & Video',
-      searchQuery: '',
-      icon: Icons.photo_camera_rounded,
-    ),
-    _EventServiceItem(
-      label: 'Event Styling',
-      searchQuery: 'Event Styling',
-      icon: Icons.auto_awesome_rounded,
-    ),
-    _EventServiceItem(
-      label: 'Venues',
-      searchQuery: 'Venue Provider',
-      icon: Icons.location_city_rounded,
-    ),
-    _EventServiceItem(
-      label: 'Cakes',
-      searchQuery: 'Cake Provider',
-      icon: Icons.cake_rounded,
-    ),
-    _EventServiceItem(
-      label: 'Entertainment',
-      searchQuery: 'Singer / Band',
-      icon: Icons.music_note_rounded,
-    ),
-    _EventServiceItem(
-      label: 'Rentals',
-      searchQuery: 'Rental',
-      icon: Icons.chair_alt_outlined,
-    ),
-    _EventServiceItem(
-      label: 'Other Services',
-      searchQuery: '',
-      icon: Icons.grid_view_rounded,
-    ),
-  ];
+  late Future<List<ServiceCategory>> _eventServices;
 
   @override
   void initState() {
     super.initState();
+    _repository = widget.repository ?? FeastaRepository();
+    _addressStorage = widget.addressStorage ?? CustomerAddressStorageService();
     _selectedAddressFuture = _addressStorage.getSelectedOrDefault();
     _serviceCategoryNames = _repository.getServiceCategoryNameMap();
+    _eventServices = _repository.getActiveServiceCategories(forceRefresh: true);
   }
 
   Future<void> _refresh() async {
     setState(() {
+      _eventServices = _repository.getActiveServiceCategories(
+        forceRefresh: true,
+      );
       _selectedAddressFuture = _addressStorage.getSelectedOrDefault();
     });
 
-    await Future<void>.delayed(const Duration(milliseconds: 400));
+    try {
+      await _eventServices;
+    } catch (_) {
+      // The section renders the error and retry action.
+    }
   }
 
   Future<void> _changeLocation() async {
@@ -114,11 +98,19 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     });
   }
 
-  void _openSearch({String initialQuery = '', bool autofocus = false}) {
+  void _openSearch({
+    String initialQuery = '',
+    String? categoryCode,
+    bool autofocus = false,
+    bool showFilters = false,
+  }) {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => CustomerSearchScreen(
           initialQuery: initialQuery,
+          initialCategoryCode: categoryCode,
+          repository: _repository,
+          initialShowFilters: showFilters,
           autofocusSearch: autofocus,
         ),
       ),
@@ -129,36 +121,25 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
     _openSearch(autofocus: false);
   }
 
-  void _openRecommended() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => CustomerProviderCollectionScreen(
-          title: 'Recommended for You',
-          subtitle: 'Verified providers selected for your next celebration.',
-          stream: _repository.featuredProviders(),
-          serviceCategoryNames: _serviceCategoryNames,
-        ),
-      ),
-    );
-  }
-
   void _openPopular() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => CustomerProviderCollectionScreen(
-          title: 'Popular Providers',
-          subtitle: 'Providers customers are discovering across FEASTA.',
-          stream: _repository.searchAllVerifiedProviders(
-            keyword: '',
-            eventType: 'All',
-            location: '',
-            minBudget: null,
-            maxBudget: null,
-          ),
-          serviceCategoryNames: _serviceCategoryNames,
-        ),
+    final screen = CustomerProviderCollectionScreen(
+      title: 'Explore Providers',
+      subtitle: 'Browse public event services for your celebration.',
+      stream: _repository.searchAllVerifiedProviders(
+        keyword: '',
+        eventType: 'All',
+        location: '',
+        minBudget: null,
+        maxBudget: null,
       ),
+      serviceCategoryNames: _serviceCategoryNames,
+      onBack: widget.onCloseExplore,
     );
+    if (widget.onExploreProviders != null) {
+      widget.onExploreProviders!(screen);
+      return;
+    }
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
   @override
@@ -173,46 +154,57 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.screen,
+                  ),
+                  child: OutlinedButton.icon(
+                    onPressed: () => openCustomerEventList(context),
+                    icon: const Icon(
+                      Icons.checklist,
+                      color: AppColors.mainText,
+                    ),
+                    label: const Text('My Event List'),
+                  ),
+                ),
+              ),
+              SliverToBoxAdapter(
                 child: _HomeHeader(
                   repository: _repository,
                   selectedAddressFuture: _selectedAddressFuture,
                   onLocationTap: _changeLocation,
                   onSearchTap: () => _openSearch(autofocus: true),
+                  onFilterTap: () => _openSearch(showFilters: true),
                 ),
               ),
               const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.sm)),
-              const SliverToBoxAdapter(child: _PromotionSection()),
-              const SliverToBoxAdapter(
-                child: SizedBox(height: AppSpacing.section),
-              ),
               SliverToBoxAdapter(
-                child: _EventServicesSection(
-                  items: _eventServices,
-                  onSeeAll: _openAllServices,
-                  onItemTap: (item) {
-                    if (item.label == 'Photography & Video' ||
-                        item.label == 'Other Services') {
-                      _openSearch();
-                      return;
-                    }
-
-                    _openSearch(initialQuery: item.searchQuery);
+                child: _PromotionSection(stream: widget.promotions),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
+              SliverToBoxAdapter(
+                child: FutureBuilder<List<ServiceCategory>>(
+                  future: _eventServices,
+                  builder: (context, snapshot) {
+                    final loaded =
+                        snapshot.connectionState == ConnectionState.done &&
+                        !snapshot.hasError;
+                    return _EventServicesSection(
+                      items: loaded
+                          ? snapshot.data ?? const <ServiceCategory>[]
+                          : const [],
+                      loading: snapshot.connectionState != ConnectionState.done,
+                      failed:
+                          snapshot.hasError &&
+                          snapshot.connectionState == ConnectionState.done,
+                      onRetry: _refresh,
+                      onSeeAll: _openAllServices,
+                      onItemTap: (item) => _openSearch(categoryCode: item.code),
+                    );
                   },
                 ),
               ),
-              const SliverToBoxAdapter(
-                child: SizedBox(height: AppSpacing.section),
-              ),
-              SliverToBoxAdapter(
-                child: _RecommendedSection(
-                  repository: _repository,
-                  onSeeAll: _openRecommended,
-                  serviceCategoryNames: _serviceCategoryNames,
-                ),
-              ),
-              const SliverToBoxAdapter(
-                child: SizedBox(height: AppSpacing.section),
-              ),
+              const SliverToBoxAdapter(child: SizedBox(height: AppSpacing.md)),
               SliverToBoxAdapter(
                 child: _PopularSection(
                   repository: _repository,
@@ -235,12 +227,14 @@ class _HomeHeader extends StatelessWidget {
     required this.selectedAddressFuture,
     required this.onLocationTap,
     required this.onSearchTap,
+    required this.onFilterTap,
   });
 
   final FeastaRepository repository;
   final Future<CustomerAddressModel> selectedAddressFuture;
   final VoidCallback onLocationTap;
   final VoidCallback onSearchTap;
+  final VoidCallback onFilterTap;
 
   @override
   Widget build(BuildContext context) {
@@ -248,7 +242,7 @@ class _HomeHeader extends StatelessWidget {
       color: AppColors.background,
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.screen,
-        AppSpacing.lg,
+        AppSpacing.sm,
         AppSpacing.screen,
         AppSpacing.md,
       ),
@@ -267,7 +261,7 @@ class _HomeHeader extends StatelessWidget {
                           final firstName =
                               snapshot.data?.firstName.trim() ?? '';
 
-                          return _Greeting(
+                          return HomeGreeting(
                             firstName: firstName.isEmpty ? 'there' : firstName,
                           );
                         },
@@ -286,20 +280,20 @@ class _HomeHeader extends StatelessWidget {
               children: [
                 const Icon(
                   Icons.location_on_rounded,
-                  color: AppColors.primary,
+                  color: customerDecorativeIconColor,
                   size: 20,
                 ),
                 const SizedBox(width: AppSpacing.xs),
                 Text(
                   'Home',
                   style: AppTypography.label.copyWith(
-                    color: AppColors.mainText,
+                    color: HomeTextColors.primary,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
                 const Icon(
                   Icons.keyboard_arrow_down_rounded,
-                  color: AppColors.mainText,
+                  color: customerDecorativeIconColor,
                   size: 20,
                 ),
                 Container(
@@ -315,11 +309,11 @@ class _HomeHeader extends StatelessWidget {
                       final address = snapshot.data;
 
                       return Text(
-                        address?.displayTitle ?? 'Event location',
+                        address?.displayTitle ?? 'Ormoc City',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.caption.copyWith(
-                          color: AppColors.secondaryTextAccessible,
+                          color: HomeTextColors.secondary,
                         ),
                       );
                     },
@@ -328,7 +322,7 @@ class _HomeHeader extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: AppSpacing.sm),
           Semantics(
             button: true,
             label: 'Search caterers and event services',
@@ -339,7 +333,7 @@ class _HomeHeader extends StatelessWidget {
                 onTap: onSearchTap,
                 borderRadius: BorderRadius.circular(AppRadius.large),
                 child: Container(
-                  height: 58,
+                  height: 52,
                   padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.md,
                   ),
@@ -366,7 +360,7 @@ class _HomeHeader extends StatelessWidget {
                         ),
                         child: const Icon(
                           Icons.search_rounded,
-                          color: AppColors.primary,
+                          color: customerDecorativeIconColor,
                           size: 21,
                         ),
                       ),
@@ -374,16 +368,22 @@ class _HomeHeader extends StatelessWidget {
                       Expanded(
                         child: Text(
                           'Search caterers and services',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: AppTypography.body.copyWith(
-                            color: AppColors.secondaryTextAccessible,
+                            color: HomeTextColors.secondary,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
-                      const Icon(
-                        Icons.tune_rounded,
-                        color: AppColors.mainText,
-                        size: 21,
+                      IconButton(
+                        tooltip: 'Search filters',
+                        onPressed: onFilterTap,
+                        icon: const Icon(
+                          Icons.tune_rounded,
+                          color: customerDecorativeIconColor,
+                          size: 21,
+                        ),
                       ),
                     ],
                   ),
@@ -402,12 +402,12 @@ class _GuestGreeting extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const _Greeting(firstName: 'there');
+    return const HomeGreeting(firstName: 'there');
   }
 }
 
-class _Greeting extends StatelessWidget {
-  const _Greeting({required this.firstName});
+class HomeGreeting extends StatelessWidget {
+  const HomeGreeting({required this.firstName, super.key});
 
   final String firstName;
 
@@ -427,7 +427,7 @@ class _Greeting extends StatelessWidget {
         Text(
           period,
           style: AppTypography.bodySmall.copyWith(
-            color: AppColors.secondaryTextAccessible,
+            color: HomeTextColors.secondary,
           ),
         ),
         const SizedBox(height: 2),
@@ -435,8 +435,8 @@ class _Greeting extends StatelessWidget {
           'Hi, $firstName!',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: AppTypography.headline.copyWith(
-            color: AppColors.mainText,
+          style: AppTypography.sectionTitle.copyWith(
+            color: HomeTextColors.primary,
             fontWeight: FontWeight.w900,
           ),
         ),
@@ -509,7 +509,7 @@ class _BellButton extends StatelessWidget {
             onPressed: onPressed,
             icon: const Icon(
               Icons.notifications_none_rounded,
-              color: AppColors.mainText,
+              color: customerDecorativeIconColor,
             ),
           ),
         ),
@@ -541,14 +541,16 @@ class _BellButton extends StatelessWidget {
 }
 
 class _PromotionSection extends StatelessWidget {
-  const _PromotionSection();
+  const _PromotionSection({this.stream});
+
+  final Stream<List<PromotionModel>>? stream;
 
   @override
   Widget build(BuildContext context) {
     final service = PromotionService();
 
     return StreamBuilder<List<PromotionModel>>(
-      stream: service.watchActivePromotions(),
+      stream: stream ?? service.watchActivePromotions(),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Padding(
@@ -562,7 +564,7 @@ class _PromotionSection extends StatelessWidget {
         if (snapshot.hasError || promotions.isEmpty) {
           return const Padding(
             padding: EdgeInsets.symmetric(horizontal: AppSpacing.screen),
-            child: _PromotionEmptyCard(),
+            child: HomePromotionEmptyCard(),
           );
         }
 
@@ -593,8 +595,8 @@ class _PromotionLoadingCard extends StatelessWidget {
   }
 }
 
-class _PromotionEmptyCard extends StatelessWidget {
-  const _PromotionEmptyCard();
+class HomePromotionEmptyCard extends StatelessWidget {
+  const HomePromotionEmptyCard({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -617,16 +619,16 @@ class _PromotionEmptyCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(AppRadius.medium),
             ),
             child: const Icon(
-              Icons.local_offer_outlined,
-              color: AppColors.primary,
+              Icons.celebration_outlined,
+              color: customerDecorativeIconColor,
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Text(
-              'No promotions are available right now.',
+              'Find the right services for your celebration.',
               style: AppTypography.bodySmall.copyWith(
-                color: AppColors.secondaryTextAccessible,
+                color: HomeTextColors.secondary,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -711,7 +713,7 @@ class _PromotionCard extends StatelessWidget {
                 ),
                 child: const Icon(
                   Icons.local_offer_outlined,
-                  color: AppColors.primary,
+                  color: customerDecorativeIconColor,
                 ),
               ),
               const SizedBox(width: AppSpacing.sm),
@@ -725,7 +727,7 @@ class _PromotionCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppTypography.label.copyWith(
-                        color: AppColors.mainText,
+                        color: HomeTextColors.primary,
                         fontWeight: FontWeight.w900,
                       ),
                     ),
@@ -737,7 +739,7 @@ class _PromotionCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: AppTypography.caption.copyWith(
-                        color: AppColors.secondaryTextAccessible,
+                        color: HomeTextColors.secondary,
                       ),
                     ),
                   ],
@@ -756,118 +758,120 @@ class _EventServicesSection extends StatelessWidget {
     required this.items,
     required this.onSeeAll,
     required this.onItemTap,
+    required this.onRetry,
+    required this.loading,
+    required this.failed,
   });
 
-  final List<_EventServiceItem> items;
-  final VoidCallback onSeeAll;
-  final ValueChanged<_EventServiceItem> onItemTap;
+  final List<ServiceCategory> items;
+  final VoidCallback onSeeAll, onRetry;
+  final ValueChanged<ServiceCategory> onItemTap;
+  final bool loading, failed;
 
   @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _SectionHeader(
-          title: 'Event Services',
-          subtitle: 'Everything you need for your celebration',
-          onSeeAll: onSeeAll,
-        ),
-        const SizedBox(height: AppSpacing.md),
-        SizedBox(
-          height: 116,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screen),
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
-            itemBuilder: (context, index) {
-              final item = items[index];
-
-              return _EventServiceCard(
-                item: item,
-                onTap: () => onItemTap(item),
-              );
-            },
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screen),
+    child: Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        border: Border.all(color: AppColors.border),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'SERVICE CATEGORIES',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.primaryStrong,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.2,
+            ),
           ),
-        ),
-      ],
-    );
-  }
+          const SizedBox(height: 4),
+          Text(
+            'Choose a service',
+            style: AppTypography.caption.copyWith(
+              color: AppColors.secondaryTextAccessible,
+            ),
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _ServiceCategoryChip(
+                  label: 'All services',
+                  selected: true,
+                  onTap: onSeeAll,
+                ),
+                for (final item in items) ...[
+                  const SizedBox(width: 8),
+                  _ServiceCategoryChip(
+                    label: item.name,
+                    selected: false,
+                    onTap: () => onItemTap(item),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (loading) ...[
+            const SizedBox(height: 12),
+            const LinearProgressIndicator(minHeight: 2),
+          ] else if (failed) ...[
+            const SizedBox(height: 8),
+            const Text('Event Services could not be loaded.'),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+          ] else if (items.isEmpty) ...[
+            const SizedBox(height: 12),
+            const Text('No event services are currently available.'),
+          ],
+        ],
+      ),
+    ),
+  );
 }
 
-class _EventServiceCard extends StatelessWidget {
-  const _EventServiceCard({required this.item, required this.onTap});
-
-  final _EventServiceItem item;
+class _ServiceCategoryChip extends StatelessWidget {
+  const _ServiceCategoryChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+  final String label;
+  final bool selected;
   final VoidCallback onTap;
-
   @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: item.label == 'Photography & Video' ? 116 : 92,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        onTap: onTap,
-        child: Column(
-          children: [
-            Container(
-              height: 80,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: AppColors.surface,
-                borderRadius: BorderRadius.circular(AppRadius.card),
-                border: Border.all(color: AppColors.border),
-              ),
-              child: Container(
-                width: 44,
-                height: 44,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: AppColors.primarySubtle,
-                  borderRadius: BorderRadius.circular(AppRadius.medium),
-                ),
-                child: Icon(item.icon, color: AppColors.primary, size: 24),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              item.label,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: AppTypography.caption.copyWith(
-                color: AppColors.mainText,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
+  Widget build(BuildContext context) => Semantics(
+    selected: selected,
+    button: true,
+    child: Material(
+      color: selected ? AppColors.primaryStrong : AppColors.surface,
+      shape: StadiumBorder(
+        side: BorderSide(
+          color: selected ? AppColors.primaryStrong : AppColors.border,
         ),
       ),
-    );
-  }
-}
-
-class _RecommendedSection extends StatelessWidget {
-  const _RecommendedSection({
-    required this.repository,
-    required this.onSeeAll,
-    required this.serviceCategoryNames,
-  });
-
-  final FeastaRepository repository;
-  final VoidCallback onSeeAll;
-  final Future<Map<String, String>> serviceCategoryNames;
-
-  @override
-  Widget build(BuildContext context) {
-    return _ProviderHomeSection(
-      title: 'Recommended for You',
-      subtitle: 'Verified providers for your next celebration',
-      stream: repository.featuredProviders(),
-      onSeeAll: onSeeAll,
-      excludedIds: const <String>{},
-      serviceCategoryNames: serviceCategoryNames,
-    );
-  }
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          child: Text(
+            label,
+            style: AppTypography.bodySmall.copyWith(
+              color: selected
+                  ? AppColors.primaryForeground
+                  : AppColors.mainText,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _PopularSection extends StatefulWidget {
@@ -876,7 +880,6 @@ class _PopularSection extends StatefulWidget {
     required this.onSeeAll,
     required this.serviceCategoryNames,
   });
-
   final FeastaRepository repository;
   final VoidCallback onSeeAll;
   final Future<Map<String, String>> serviceCategoryNames;
@@ -886,49 +889,29 @@ class _PopularSection extends StatefulWidget {
 }
 
 class _PopularSectionState extends State<_PopularSection> {
-  Set<String> _recommendedIds = const <String>{};
-  StreamSubscription<List<ProviderModel>>? _recommendedSubscription;
+  late final Stream<List<ProviderModel>> _providers;
 
   @override
   void initState() {
     super.initState();
-
-    _recommendedSubscription = widget.repository.featuredProviders().listen((
-      providers,
-    ) {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _recommendedIds = providers.map((provider) => provider.id).toSet();
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _recommendedSubscription?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _ProviderHomeSection(
-      title: 'Popular Providers',
-      subtitle: 'Highly rated providers customers are discovering',
-      stream: widget.repository.searchAllVerifiedProviders(
-        keyword: '',
-        eventType: 'All',
-        location: '',
-        minBudget: null,
-        maxBudget: null,
-      ),
-      onSeeAll: widget.onSeeAll,
-      excludedIds: _recommendedIds,
-      serviceCategoryNames: widget.serviceCategoryNames,
+    _providers = widget.repository.searchAllVerifiedProviders(
+      keyword: '',
+      eventType: 'All',
+      location: '',
+      minBudget: null,
+      maxBudget: null,
     );
   }
+
+  @override
+  Widget build(BuildContext context) => _ProviderHomeSection(
+    title: 'Explore Providers',
+    subtitle: 'Public event services for your celebration',
+    stream: _providers,
+    onSeeAll: widget.onSeeAll,
+    excludedIds: const {},
+    serviceCategoryNames: widget.serviceCategoryNames,
+  );
 }
 
 class _ProviderHomeSection extends StatelessWidget {
@@ -952,10 +935,11 @@ class _ProviderHomeSection extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _SectionHeader(title: title, subtitle: subtitle, onSeeAll: onSeeAll),
+        HomeSectionHeader(title: title, subtitle: subtitle, onSeeAll: onSeeAll),
         const SizedBox(height: AppSpacing.md),
         SizedBox(
-          height: 245,
+          height:
+              280 * MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0),
           child: FutureBuilder<Map<String, String>>(
             future: serviceCategoryNames,
             builder: (context, categorySnapshot) {
@@ -991,9 +975,11 @@ class _ProviderHomeSection extends StatelessWidget {
                           border: Border.all(color: AppColors.border),
                         ),
                         child: Text(
-                          'No providers available yet.',
+                          snapshot.hasError
+                              ? 'Could not load providers. Please try again.'
+                              : 'No providers available yet.',
                           style: AppTypography.bodySmall.copyWith(
-                            color: AppColors.secondaryTextAccessible,
+                            color: HomeTextColors.secondary,
                           ),
                         ),
                       ),
@@ -1036,10 +1022,8 @@ class _HomeProviderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final imageUrl = provider.coverImageUrl?.trim() ?? '';
-
     return SizedBox(
-      width: 188,
+      width: (MediaQuery.sizeOf(context).width * 0.56).clamp(176.0, 240.0),
       child: Material(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(AppRadius.card),
@@ -1069,73 +1053,11 @@ class _HomeProviderCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                  height: 112,
-                  width: double.infinity,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (imageUrl.isEmpty)
-                        Container(
-                          color: AppColors.primarySubtle,
-                          alignment: Alignment.center,
-                          child: const Icon(
-                            Icons.storefront_outlined,
-                            color: AppColors.primary,
-                            size: 34,
-                          ),
-                        )
-                      else
-                        Image.network(
-                          imageUrl,
-                          fit: BoxFit.cover,
-                          errorBuilder: (_, _, _) => Container(
-                            color: AppColors.primarySubtle,
-                            alignment: Alignment.center,
-                            child: const Icon(
-                              Icons.storefront_outlined,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                        ),
-                      if (provider.isApproved)
-                        Positioned(
-                          left: AppSpacing.xs,
-                          bottom: AppSpacing.xs,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 7,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.surface.withValues(alpha: 0.95),
-                              borderRadius: BorderRadius.circular(
-                                AppRadius.pill,
-                              ),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.verified_rounded,
-                                  color: AppColors.success,
-                                  size: 14,
-                                ),
-                                SizedBox(width: 3),
-                                Text(
-                                  'Verified',
-                                  style: TextStyle(
-                                    color: AppColors.success,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
+                ProviderBrandVisual(
+                  provider: provider,
+                  height: 124,
+                  logoSize: 44,
+                  showVerification: true,
                 ),
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.sm),
@@ -1147,7 +1069,7 @@ class _HomeProviderCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.label.copyWith(
-                          color: AppColors.mainText,
+                          color: HomeTextColors.primary,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
@@ -1160,40 +1082,49 @@ class _HomeProviderCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.caption.copyWith(
-                          color: AppColors.secondaryTextAccessible,
+                          color: HomeTextColors.secondary,
                         ),
                       ),
                       const SizedBox(height: AppSpacing.xs),
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.star_rounded,
-                            size: 16,
-                            color: Colors.amber,
-                          ),
-                          const SizedBox(width: 3),
-                          Text(
-                            provider.ratingAverage.toStringAsFixed(1),
-                            style: AppTypography.caption.copyWith(
-                              color: AppColors.mainText,
-                              fontWeight: FontWeight.w700,
+                      if (provider.reviewCount > 0)
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.star_rounded,
+                              size: 16,
+                              color: AppColors.rating,
                             ),
-                          ),
-                          Text(
-                            ' (${provider.reviewCount})',
-                            style: AppTypography.caption.copyWith(
-                              color: AppColors.secondaryTextAccessible,
+                            const SizedBox(width: 3),
+                            Text(
+                              provider.ratingAverage.toStringAsFixed(1),
+                              style: AppTypography.caption.copyWith(
+                                color: HomeTextColors.primary,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
+                            Text(
+                              ' (${provider.reviewCount})',
+                              style: AppTypography.caption.copyWith(
+                                color: HomeTextColors.secondary,
+                              ),
+                            ),
+                          ],
+                        ),
                       const SizedBox(height: 4),
+                      if (provider.minPrice > 0 && provider.minPrice.isFinite)
+                        Text(
+                          'From ${FeastaPriceFormatter.format(provider.minPrice, decimalDigits: 0)}',
+                          style: AppTypography.caption.copyWith(
+                            color: AppColors.primaryStrong,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       Text(
                         provider.location,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppTypography.caption.copyWith(
-                          color: AppColors.secondaryTextAccessible,
+                          color: HomeTextColors.secondary,
                         ),
                       ),
                     ],
@@ -1208,8 +1139,9 @@ class _HomeProviderCard extends StatelessWidget {
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({
+class HomeSectionHeader extends StatelessWidget {
+  const HomeSectionHeader({
+    super.key,
     required this.title,
     required this.subtitle,
     required this.onSeeAll,
@@ -1233,7 +1165,7 @@ class _SectionHeader extends StatelessWidget {
                 Text(
                   title,
                   style: AppTypography.sectionTitle.copyWith(
-                    color: AppColors.mainText,
+                    color: HomeTextColors.primary,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
@@ -1241,7 +1173,7 @@ class _SectionHeader extends StatelessWidget {
                 Text(
                   subtitle,
                   style: AppTypography.caption.copyWith(
-                    color: AppColors.secondaryTextAccessible,
+                    color: HomeTextColors.secondary,
                   ),
                 ),
               ],
@@ -1263,16 +1195,4 @@ class _SectionHeader extends StatelessWidget {
       ),
     );
   }
-}
-
-class _EventServiceItem {
-  const _EventServiceItem({
-    required this.label,
-    required this.searchQuery,
-    required this.icon,
-  });
-
-  final String label;
-  final String searchQuery;
-  final IconData icon;
 }

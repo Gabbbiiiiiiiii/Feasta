@@ -1,3 +1,4 @@
+import '../../core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 
 import 'booking_details_screen.dart';
@@ -17,7 +18,7 @@ class PaymentSuccessScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFFB02F00);
+    const primary = AppColors.primary;
 
     return Scaffold(
       body: SafeArea(
@@ -49,7 +50,7 @@ class PaymentSuccessScreen extends StatelessWidget {
                 padding: const EdgeInsets.all(18),
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  border: Border.all(color: const Color(0xFFE5E7EB)),
+                  border: Border.all(color: AppColors.border),
                   borderRadius: BorderRadius.circular(18),
                 ),
                 child: Column(

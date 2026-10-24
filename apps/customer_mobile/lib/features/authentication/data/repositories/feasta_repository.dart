@@ -1,4 +1,9 @@
 import '../../../../core/domain/legacy_booking_payment_authority.dart';
+import 'customer_bookings_source.dart';
+import '../../../../shared/models/booking_refund_policy.dart';
+import '../../../../shared/models/booking_agreement.dart';
+import '../../../../shared/models/booking_contract.dart';
+import '../../../../shared/models/event_customization_data.dart';
 import '../../../../core/security/auth_operation_coordinator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -12,6 +17,7 @@ import '../../../../shared/models/booking_complaint.dart';
 import '../../../../shared/models/feasta_models.dart';
 import '../../../../core/domain/service_category.dart';
 import '../../../../core/helpers/provider_category_helper.dart';
+import '../../../../core/helpers/provider_discovery.dart';
 
 class FeastaRepository {
   List<ServiceCategory>? _serviceCategoryCache;
@@ -55,8 +61,10 @@ class FeastaRepository {
         data['isBlocked'] == true ||
         data['accountStatus'] != 'active';
     if (unavailable) {
-      AuthOperationCoordinator.shared.noteTransition();
-      await _auth.signOut();
+      await AuthOperationCoordinator.shared.protectSession(() async {
+        AuthOperationCoordinator.shared.noteTransition();
+        await _auth.signOut();
+      });
       throw Exception('Your account is currently unavailable.');
     }
     if (data['isPhoneVerified'] != true) {
@@ -141,7 +149,10 @@ class FeastaRepository {
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
         .map((snapshot) {
-          final providers = snapshot.docs.map(ProviderModel.fromDoc).toList();
+          final providers = snapshot.docs
+              .map(ProviderModel.fromDoc)
+              .where(isDiscoverableProvider)
+              .toList();
           return _sortProvidersByPopularity(providers);
         });
   }
@@ -170,7 +181,10 @@ class FeastaRepository {
           .snapshots(includeMetadataChanges: true)
           .where((snapshot) => !snapshot.metadata.isFromCache)
           .map((snapshot) {
-            var providers = snapshot.docs.map(ProviderModel.fromDoc).toList();
+            var providers = snapshot.docs
+                .map(ProviderModel.fromDoc)
+                .where(isDiscoverableProvider)
+                .toList();
 
             if (nearOrmoc) {
               providers = providers.where((provider) {
@@ -190,8 +204,7 @@ class FeastaRepository {
               providers = providers
                   .where(
                     (provider) =>
-                        provider.minPrice <= 15000 ||
-                        provider.maxPrice <= 15000,
+                        provider.minPrice > 0 && provider.minPrice <= 15000,
                   )
                   .toList();
             }
@@ -246,7 +259,7 @@ class FeastaRepository {
               continue;
             }
 
-            providers.add(provider);
+            if (isDiscoverableProvider(provider)) providers.add(provider);
           }
 
           var filteredProviders = providers;
@@ -269,7 +282,7 @@ class FeastaRepository {
             filteredProviders = filteredProviders
                 .where(
                   (provider) =>
-                      provider.minPrice <= 15000 || provider.maxPrice <= 15000,
+                      provider.minPrice > 0 && provider.minPrice <= 15000,
                 )
                 .toList();
           }
@@ -298,7 +311,10 @@ class FeastaRepository {
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
         .map((snapshot) {
-          final providers = snapshot.docs.map(ProviderModel.fromDoc).toList();
+          final providers = snapshot.docs
+              .map(ProviderModel.fromDoc)
+              .where(isDiscoverableProvider)
+              .toList();
 
           if (category == 'all') return providers;
 
@@ -327,7 +343,10 @@ class FeastaRepository {
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
         .map((snapshot) {
-          return snapshot.docs.map(ProviderModel.fromDoc).toList();
+          return snapshot.docs
+              .map(ProviderModel.fromDoc)
+              .where(isDiscoverableProvider)
+              .toList();
         });
   }
 
@@ -359,6 +378,68 @@ class FeastaRepository {
         .map((snapshot) {
           return snapshot.docs.map(PackageModel.fromDoc).toList();
         });
+  }
+
+  Future<AddonModel?> getEligiblePreparationAddon(String addonId) async {
+    if (addonId.isEmpty) return null;
+    final doc = await _db
+        .collection(FirestoreCollections.addons)
+        .doc(addonId)
+        .get(const GetOptions(source: Source.server));
+    if (!doc.exists) return null;
+    final data = doc.data()!;
+    if (data['isActive'] != true ||
+        data['isAvailable'] != true ||
+        data['isDeleted'] != false) {
+      return null;
+    }
+    final providerId = data['providerId']?.toString() ?? '';
+    if (providerId.isEmpty) return null;
+    final providerDoc = await _db
+        .collection(FirestoreCollections.providers)
+        .doc(providerId)
+        .get(const GetOptions(source: Source.server));
+    final provider = providerDoc.exists
+        ? ProviderModel.fromDoc(providerDoc)
+        : null;
+    if (provider == null ||
+        !provider.isApproved ||
+        !provider.publiclyVisible ||
+        !provider.isActive ||
+        provider.isDeleted ||
+        provider.isSuspended) {
+      return null;
+    }
+    return AddonModel.fromDoc(doc);
+  }
+
+  /// Read-only revalidation for booking preparation, never a reservation.
+  Future<PackageModel?> getEligiblePackageForPreparation(
+    String providerId,
+    String packageId,
+  ) async {
+    final doc = await _db
+        .collection(FirestoreCollections.packages)
+        .doc(packageId)
+        .get(const GetOptions(source: Source.server));
+    if (!doc.exists) return null;
+    final data = doc.data()!;
+    if (data['providerId'] != providerId ||
+        data['isActive'] != true ||
+        data['isPublished'] != true ||
+        data['providerPubliclyVisible'] != true ||
+        data['status'] != 'published' ||
+        data['isDeleted'] != false) {
+      return null;
+    }
+    final providerDoc = await _db
+        .collection(FirestoreCollections.providers)
+        .doc(providerId)
+        .get(const GetOptions(source: Source.server));
+    if (!providerDoc.exists) return null;
+    final provider = ProviderModel.fromDoc(providerDoc);
+    if (!isDiscoverableProvider(provider)) return null;
+    return PackageModel.fromDoc(doc);
   }
 
   Future<PackageModel?> getPackageById(String packageId) async {
@@ -674,7 +755,51 @@ class FeastaRepository {
     await batch.commit();
   }
 
-  Future<String> createBookingRequest({
+  /// Refresh ownership through existing server-only preparation reads.
+  Future<Set<String>> resolveBookingAgreementProviders(
+    BookingAgreementRequest request,
+  ) => request.expectedProviderIds(
+    lookupOwner: (id) async =>
+        (await getEligiblePreparationAddon(id))?.providerId,
+  );
+
+  /// Disclosure only. Uses the existing regional Functions/App Check setup.
+  Future<List<BookingAgreement>> getBookingPaymentAgreementDisclosures(
+    BookingAgreementRequest request,
+  ) async {
+    if (_auth.currentUser == null) {
+      throw const AgreementReviewFailure(
+        'Sign in again to review your booking agreements.',
+      );
+    }
+    final result = await _functions
+        .httpsCallable(
+          'getBookingPaymentAgreementDisclosures',
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
+        )
+        .call(request.toJson());
+    return parseAgreementDisclosures(result.data);
+  }
+
+  /// Refund disclosure only; never forwards the full booking payload.
+  Future<RefundDisclosures> getBookingRefundPolicyDisclosures(
+    BookingAgreementRequest request,
+  ) async {
+    if (_auth.currentUser == null) {
+      throw const RefundReviewFailure(
+        'Sign in again to review refund policies.',
+      );
+    }
+    final result = await _functions
+        .httpsCallable(
+          'getBookingRefundPolicyDisclosures',
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
+        )
+        .call(refundDisclosureRequest(request));
+    return RefundDisclosures.fromJson(result.data);
+  }
+
+  Future<BookingSubmissionResult> createBookingRequest({
     required CustomerModel customer,
     required ProviderModel provider,
     required PackageModel package,
@@ -692,38 +817,37 @@ class FeastaRepository {
     required bool willArrangeOwnAddOns,
     required String customerArrangedAddOnsNote,
     required String specialRequest,
+    String? serviceTier,
+    String? packageThemeId,
   }) async {
     await _requireVerifiedActiveCustomer();
     final requestId = '${currentUid}_${DateTime.now().microsecondsSinceEpoch}';
-    final result = await _functions.httpsCallable('submitBookingRequest').call({
-      'clientRequestId': requestId,
-      'providerId': provider.id,
-      'packageId': package.id,
-      'eventType': eventType,
-      'eventDate': eventDate.toUtc().toIso8601String(),
-      'eventTime': eventTime,
-      'eventEndTime': eventEndTime,
-      'guestCount': guestCount,
-      'eventLocation': eventLocation,
-      'eventAddress': eventAddress,
-      'selectedFoods': selectedFoods,
-      'selectedDecorations': selectedDecorations,
-      'selectedFurniture': selectedFurniture,
-      'addonIds': selectedAddOns
-          .map((addon) => addon['addonId']?.toString() ?? '')
-          .where((id) => id.isNotEmpty)
-          .toSet()
-          .toList(),
-      'willArrangeOwnAddOns': willArrangeOwnAddOns,
-      'customerArrangedAddOnsNote': customerArrangedAddOnsNote,
-      'specialRequest': specialRequest,
-    });
-    final data = Map<String, dynamic>.from(result.data as Map);
-    final bookingId = data['bookingId'];
-    if (bookingId is! String || bookingId.isEmpty) {
-      throw Exception('Booking submission did not return a valid reference.');
-    }
-    return bookingId;
+    final selection = BookingSelection(
+      providerId: provider.id,
+      packageId: package.id,
+      customization: EventCustomizationData(
+        eventType: eventType,
+        eventDate: eventDate,
+        eventTime: eventTime,
+        eventEndTime: eventEndTime,
+        guestCount: guestCount,
+        eventLocation: eventLocation,
+        eventAddress: eventAddress,
+        selectedFoods: selectedFoods,
+        selectedDecorations: selectedDecorations,
+        selectedFurniture: selectedFurniture,
+        selectedAddOns: selectedAddOns,
+        willArrangeOwnAddOns: willArrangeOwnAddOns,
+        customerArrangedAddOnsNote: customerArrangedAddOnsNote,
+        specialRequest: specialRequest,
+        serviceTier: serviceTier,
+        packageThemeId: packageThemeId,
+      ),
+    );
+    final result = await _functions
+        .httpsCallable('submitBookingRequest')
+        .call(selection.toJson(clientRequestId: requestId));
+    return BookingSubmissionResult.fromJson(result.data);
   }
 
   // Kept temporarily as a migration reference while downstream add-on request
@@ -1384,6 +1508,9 @@ class FeastaRepository {
     await batch.commit();
   }
 
+  FirestoreCustomerBookingsSource customerBookingsSource() =>
+      FirestoreCustomerBookingsSource(_db, _auth);
+
   Stream<List<BookingModel>> customerBookings() {
     return _db
         .collection(FirestoreCollections.mainEvents)
@@ -1545,7 +1672,9 @@ class FeastaRepository {
         .snapshots();
   }
 
-  @Deprecated('Use the trusted provider-request acceptance lifecycle.')
+  @Deprecated(
+    'Use canonical provider-request acceptance on the trusted backend.',
+  )
   Future<void> acceptBooking({required BookingModel booking}) async {
     requireTrustedLegacyBookingPaymentAuthority();
   }
@@ -2032,8 +2161,11 @@ class FeastaRepository {
       throw Exception('Only the booking owner can report an issue.');
     }
     final services = <BookingComplaintService>[];
-    if (booking.providerRequestIds.toSet().length != booking.providerRequestIds.length ||
-        booking.providerRequestIds.any((id) => !RegExp(r'^[A-Za-z0-9_-]{8,160}$').hasMatch(id))) {
+    if (booking.providerRequestIds.toSet().length !=
+            booking.providerRequestIds.length ||
+        booking.providerRequestIds.any(
+          (id) => !RegExp(r'^[A-Za-z0-9_-]{8,160}$').hasMatch(id),
+        )) {
       throw Exception('The booked service information is invalid.');
     }
     for (final id in booking.providerRequestIds) {
@@ -2086,7 +2218,9 @@ class FeastaRepository {
       final data = response.data;
       if (data['success'] != true ||
           data['complaintId'] is! String ||
-          !RegExp(r'^complaint_[a-f0-9]{32}$').hasMatch(data['complaintId'] as String) ||
+          !RegExp(
+            r'^complaint_[a-f0-9]{32}$',
+          ).hasMatch(data['complaintId'] as String) ||
           data['created'] is! bool ||
           data['idempotentReplay'] is! bool) {
         throw Exception(
@@ -2383,7 +2517,7 @@ class FeastaRepository {
             'userId': addonProviderOwnerId,
             'title': 'Event Request Under Recovery',
             'message':
-                'The main catering request connected to ${booking.customerFirstName} ${booking.customerLastName}ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢s event was rejected. Your add-on request is on hold while the customer reviews other caterers.',
+                'The main catering request connected to ${booking.customerFirstName} ${booking.customerLastName}Ã¢â‚¬â„¢s event was rejected. Your add-on request is on hold while the customer reviews other caterers.',
             'type': NotificationType.booking,
             'relatedId': doc.id,
             'relatedCollection': FirestoreCollections.addonRequests,
@@ -2686,84 +2820,25 @@ class FeastaRepository {
     required String location,
     required double? minBudget,
     required double? maxBudget,
-  }) {
-    final normalizedTerm = keyword.trim().isNotEmpty
-        ? keyword.trim().toLowerCase().split(RegExp(r'[^a-z0-9]+')).first
-        : location.trim().toLowerCase().split(RegExp(r'[^a-z0-9]+')).first;
-
-    Query<Map<String, dynamic>> providerQuery = _db
-        .collection(FirestoreCollections.providers)
-        .where(
-          'verificationStatus',
-          isEqualTo: ProviderVerificationStatus.approved,
-        )
-        .where('publiclyVisible', isEqualTo: true)
-        .where('isActive', isEqualTo: true)
-        .where('isSuspended', isEqualTo: false)
-        .where('providerServiceType', isEqualTo: 'catering')
-        .where('isDeleted', isEqualTo: false);
-
-    if (normalizedTerm.isNotEmpty) {
-      providerQuery = providerQuery.where(
-        'searchTokens',
-        arrayContains: normalizedTerm,
+  }) =>
+      searchAllVerifiedProviders(
+        keyword: keyword,
+        eventType: eventType,
+        location: location,
+        minBudget: minBudget,
+        maxBudget: maxBudget,
+      ).map(
+        (providers) => providers
+            .where(
+              (p) =>
+                  p.providerServiceType == 'catering' ||
+                  p.providerServiceType == 'both',
+            )
+            .toList(),
       );
-    }
 
-    return providerQuery
-        .orderBy('favoriteCount', descending: true)
-        .orderBy(FieldPath.documentId, descending: true)
-        .limit(50)
-        .snapshots(includeMetadataChanges: true)
-        .where((snapshot) => !snapshot.metadata.isFromCache)
-        .map((snapshot) {
-          final query = keyword.trim().toLowerCase();
-          final selectedEventType = eventType.trim().toLowerCase();
-          final selectedLocation = location.trim().toLowerCase();
-
-          final providers = snapshot.docs.map(ProviderModel.fromDoc).toList();
-
-          return providers.where((provider) {
-            final businessName = provider.businessName.toLowerCase();
-            final providerLocation = provider.location.toLowerCase();
-            final city = provider.city.toLowerCase();
-            final province = provider.province.toLowerCase();
-
-            final matchesKeyword =
-                query.isEmpty ||
-                businessName.contains(query) ||
-                providerLocation.contains(query) ||
-                city.contains(query) ||
-                province.contains(query);
-
-            final matchesEventType =
-                selectedEventType == 'all' ||
-                selectedEventType.isEmpty ||
-                provider.eventTypesSupported.any(
-                  (type) => type.toLowerCase() == selectedEventType,
-                );
-
-            final matchesLocation =
-                selectedLocation.isEmpty ||
-                providerLocation.contains(selectedLocation) ||
-                city.contains(selectedLocation) ||
-                province.contains(selectedLocation);
-
-            final matchesMinBudget =
-                minBudget == null || provider.maxPrice >= minBudget;
-
-            final matchesMaxBudget =
-                maxBudget == null || provider.minPrice <= maxBudget;
-
-            return matchesKeyword &&
-                matchesEventType &&
-                matchesLocation &&
-                matchesMinBudget &&
-                matchesMaxBudget;
-          }).toList();
-        });
-  }
-
+  /// Bounded public discovery. Filters apply locally to avoid relying on uneven
+  /// legacy searchTokens coverage. Pagination remains a backend handoff.
   Stream<List<ProviderModel>> searchAllVerifiedProviders({
     required String keyword,
     String? categoryCode,
@@ -2772,19 +2847,7 @@ class FeastaRepository {
     required double? minBudget,
     required double? maxBudget,
   }) {
-    final normalizedCategoryCode = categoryCode?.trim().toLowerCase() ?? '';
-
-    final normalizedTerm = normalizedCategoryCode.isEmpty
-        ? (keyword.trim().isNotEmpty
-              ? keyword.trim().toLowerCase().split(RegExp(r'[^a-z0-9]+')).first
-              : location
-                    .trim()
-                    .toLowerCase()
-                    .split(RegExp(r'[^a-z0-9]+'))
-                    .first)
-        : '';
-
-    Query<Map<String, dynamic>> providerQuery = _db
+    return _db
         .collection(FirestoreCollections.providers)
         .where(
           'verificationStatus',
@@ -2793,83 +2856,28 @@ class FeastaRepository {
         .where('publiclyVisible', isEqualTo: true)
         .where('isActive', isEqualTo: true)
         .where('isSuspended', isEqualTo: false)
-        .where('isDeleted', isEqualTo: false);
-
-    if (normalizedCategoryCode.isNotEmpty) {
-      providerQuery = providerQuery.where(
-        'providerCategory',
-        isEqualTo: normalizedCategoryCode,
-      );
-    } else if (normalizedTerm.isNotEmpty) {
-      providerQuery = providerQuery.where(
-        'searchTokens',
-        arrayContains: normalizedTerm,
-      );
-    }
-
-    return providerQuery
+        .where('isDeleted', isEqualTo: false)
         .orderBy('favoriteCount', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
         .limit(50)
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
-        .map((snapshot) {
-          final query = normalizedCategoryCode.isEmpty
-              ? keyword.trim().toLowerCase()
-              : '';
-          final selectedEventType = eventType.trim().toLowerCase();
-          final selectedLocation = location.trim().toLowerCase();
-
-          final providers = snapshot.docs.map(ProviderModel.fromDoc).toList();
-
-          return providers.where((provider) {
-            final businessName = provider.businessName.toLowerCase();
-            final providerLocation = provider.location.toLowerCase();
-            final city = provider.city.toLowerCase();
-            final province = provider.province.toLowerCase();
-            final category = provider.providerCategory.toLowerCase();
-            final serviceType = provider.providerServiceType.toLowerCase();
-
-            final categoryLabel = providerCategoryLabel(
-              provider.providerCategory,
-            ).toLowerCase();
-
-            final matchesKeyword =
-                query.isEmpty ||
-                businessName.contains(query) ||
-                providerLocation.contains(query) ||
-                city.contains(query) ||
-                province.contains(query) ||
-                category.contains(query) ||
-                categoryLabel.contains(query) ||
-                serviceType.contains(query);
-
-            final matchesEventType =
-                selectedEventType == 'all' ||
-                selectedEventType.isEmpty ||
-                provider.eventTypesSupported.any(
-                  (type) => type.toLowerCase() == selectedEventType,
-                );
-
-            final matchesLocation =
-                selectedLocation.isEmpty ||
-                providerLocation.contains(selectedLocation) ||
-                city.contains(selectedLocation) ||
-                province.contains(selectedLocation);
-
-            final matchesMinBudget =
-                minBudget == null || provider.maxPrice >= minBudget;
-
-            final matchesMaxBudget =
-                maxBudget == null || provider.minPrice <= maxBudget;
-
-            return matchesKeyword &&
-                matchesEventType &&
-                matchesLocation &&
-                matchesMinBudget &&
-                matchesMaxBudget;
-          }).toList();
-        });
+        .map(
+          (snapshot) => snapshot.docs
+              .map(ProviderModel.fromDoc)
+              .where(
+                (provider) => matchesProviderDiscovery(
+                  provider,
+                  keyword: keyword,
+                  categoryCode: categoryCode,
+                  eventType: eventType,
+                  location: location,
+                  minBudget: minBudget,
+                  maxBudget: maxBudget,
+                ),
+              )
+              .toList(),
+        );
   }
 
   Stream<QuerySnapshot<Map<String, dynamic>>> providerReviews(

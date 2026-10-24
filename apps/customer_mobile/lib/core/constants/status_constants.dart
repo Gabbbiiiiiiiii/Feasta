@@ -45,6 +45,9 @@ class ProviderVerificationStatus {
 class BookingStatus {
   BookingStatus._();
 
+  static const String draft = 'draft';
+  static const String pendingProviderApproval = 'pending_provider_approval';
+  static const String needsProviderReplacement = 'needs_provider_replacement';
   static const String pending = 'pending';
   static const String accepted = 'accepted';
   static const String rejected = 'rejected';
@@ -60,6 +63,9 @@ class BookingStatus {
   static const String expired = 'expired';
 
   static const List<String> values = [
+    draft,
+    pendingProviderApproval,
+    needsProviderReplacement,
     pending,
     accepted,
     rejected,

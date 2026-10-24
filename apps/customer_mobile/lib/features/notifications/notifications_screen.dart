@@ -1,3 +1,4 @@
+import '../../core/theme/app_colors.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -10,11 +11,11 @@ import '../chat/chat_screen.dart';
 import '../customer/addon_payment_required_screen.dart';
 import '../customer/booking_details_screen.dart';
 
-const Color _primary = Color(0xFFB02F00);
-const Color _textPrimary = Color(0xFF2B211D);
-const Color _textSecondary = Color(0xFF8C817A);
-const Color _border = Color(0xFFE8E1DB);
-const Color _softSurface = Color(0xFFFFFBF8);
+const Color _primary = AppColors.primary;
+const Color _textPrimary = AppColors.mainText;
+const Color _textSecondary = AppColors.secondaryTextAccessible;
+const Color _border = AppColors.border;
+const Color _softSurface = AppColors.surface;
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -297,7 +298,7 @@ class _FilterPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: selected ? _primary : const Color(0xFFF5F2EF),
+      color: selected ? _primary : AppColors.secondary,
       borderRadius: BorderRadius.circular(999),
       child: InkWell(
         borderRadius: BorderRadius.circular(999),
@@ -940,7 +941,7 @@ class _NotificationCardState extends State<NotificationCard> {
                                   style: TextStyle(
                                     color: isRead
                                         ? _textSecondary
-                                        : const Color(0xFF5E5651),
+                                        : AppColors.secondaryTextAccessible,
                                     fontSize: 13,
                                     height: 1.35,
                                     fontWeight: FontWeight.w600,
@@ -1137,13 +1138,13 @@ Color _notificationColor(String type) {
       return _primary;
 
     case NotificationType.payment:
-      return const Color(0xFF16A34A);
+      return AppColors.success;
 
     case NotificationType.chat:
-      return const Color(0xFF2563EB);
+      return AppColors.info;
 
     case NotificationType.review:
-      return const Color(0xFFF59E0B);
+      return AppColors.warningBorder;
 
     case NotificationType.verification:
       return const Color(0xFF7C3AED);

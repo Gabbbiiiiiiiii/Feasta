@@ -1,3 +1,11 @@
+import 'dart:async';
+import 'customization_session.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'booking_attempt_coordinator.dart';
+import 'booking_refund_policy_review_screen.dart';
+import '../../shared/models/booking_contract.dart';
+import 'booking_agreement_review_screen.dart';
+import 'widgets/package_option_cards.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/helpers/verification_guard.dart';
@@ -11,15 +19,24 @@ import '../../shared/models/event_customization_data.dart';
 import '../../shared/models/feasta_models.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import 'booking_submitted_screen.dart';
+import 'widgets/booking_preparation_price.dart';
+import 'widgets/provider_brand_visual.dart';
+import '../../core/helpers/booking_preparation.dart';
 
 class BookingSummaryScreen extends StatefulWidget {
   const BookingSummaryScreen({
     required this.provider,
     required this.eventPackage,
     required this.customization,
+    this.preparationOnly = true,
+    this.session,
+    this.attempts,
     super.key,
   });
 
+  final bool preparationOnly;
+  final CustomizationSession? session;
+  final BookingAttemptCoordinator? attempts;
   final ProviderModel provider;
   final PackageModel eventPackage;
   final EventCustomizationData customization;
@@ -30,6 +47,129 @@ class BookingSummaryScreen extends StatefulWidget {
 
 class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   final FeastaRepository repository = FeastaRepository();
+
+  static final _attempts = BookingAttemptCoordinator(
+    store: const SecureBookingAttemptStore(),
+    currentUid: () => FirebaseAuth.instance.currentUser?.uid,
+  );
+  bool _savingAttempt = false;
+  String? _attemptMessage;
+  StreamSubscription<User?>? _attemptAuth;
+  late final _session = widget.session;
+  bool _sessionClosed = false;
+  BookingAttemptCoordinator get _attemptCoordinator =>
+      widget.attempts ?? _attempts;
+  bool get _authorized =>
+      _session == null ||
+      (!_sessionClosed &&
+          _session.authorized &&
+          FirebaseAuth.instance.currentUser?.uid == _session.uid);
+  bool get _canAct =>
+      mounted && _authorized && (ModalRoute.of(context)?.isActive ?? true);
+
+  void _sessionChanged() {
+    if (!_sessionClosed && !_authorized) {
+      _sessionClosed = true;
+      // Reject already queued preparation without changing the M4.4 queue.
+      _attemptCoordinator.invalidateSession();
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _session?.addListener(_sessionChanged);
+    _attemptAuth = FirebaseAuth.instance.authStateChanges().listen((_) {
+      if (_session != null) {
+        _sessionChanged();
+        return;
+      }
+      _attemptCoordinator.invalidateSession();
+      if (mounted) setState(() => _attemptMessage = null);
+    });
+  }
+
+  @override
+  void dispose() {
+    if (_session != null && _savingAttempt && !_sessionClosed) {
+      _attemptCoordinator.invalidateSession();
+    }
+    _session?.removeListener(_sessionChanged);
+    _attemptAuth?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _prepareAttempt() async {
+    if (!_canAct || _savingAttempt) return;
+    setState(() => _savingAttempt = true);
+    try {
+      final attempt = await _attemptCoordinator.prepare(
+        BookingSelection(
+          providerId: widget.provider.id,
+          packageId: widget.eventPackage.id,
+          customization: snapshotCustomization(widget.customization),
+        ),
+      );
+      if (!_canAct) return;
+      setState(
+        () => _attemptMessage = attempt.result != null
+            ? 'This request already has a confirmed booking result. Review booking history.'
+            : attempt.status == BookingAttemptStatus.requiresReconciliation
+            ? 'Previous request outcome needs reconciliation. No new booking has been sent.'
+            : 'Request identity saved securely. No booking has been sent. Fresh agreement and refund-policy reviews are required before future submission.',
+      );
+    } catch (_) {
+      if (_canAct) {
+        setState(
+          () => _attemptMessage =
+              'Request identity could not be safely prepared. Submission remains blocked; existing attempts have been retained.',
+        );
+      }
+    } finally {
+      if (_canAct) setState(() => _savingAttempt = false);
+    }
+  }
+
+  void _openDisclosure({required bool refunds}) {
+    if (!_canAct) return;
+    final selection = BookingSelection(
+      providerId: widget.provider.id,
+      packageId: widget.eventPackage.id,
+      customization: snapshotCustomization(widget.customization),
+    );
+    Navigator.of(context).push<void>(
+      CustomizationSessionRoute<void>(
+        session: _session,
+        builder: (_) => refunds
+            ? BookingRefundPolicyReviewScreen(
+                selection: selection,
+                resolveProviders: (request) => _withSession(
+                  () => repository.resolveBookingAgreementProviders(request),
+                ),
+                loader: (request) => _withSession(
+                  () => repository.getBookingRefundPolicyDisclosures(request),
+                ),
+              )
+            : BookingAgreementReviewScreen(
+                selection: selection,
+                resolveProviders: (request) => _withSession(
+                  () => repository.resolveBookingAgreementProviders(request),
+                ),
+                loader: (request) => _withSession(
+                  () =>
+                      repository.getBookingPaymentAgreementDisclosures(request),
+                ),
+              ),
+      ),
+    );
+  }
+
+  Future<T> _withSession<T>(Future<T> Function() action) async {
+    if (!_canAct) throw StateError('Customization session closed.');
+    final result = await action();
+    if (!_canAct) throw StateError('Customization session closed.');
+    return result;
+  }
 
   bool isSubmitting = false;
 
@@ -88,7 +228,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   }
 
   Future<void> _submitBookingRequest() async {
-    if (isSubmitting) {
+    if (widget.preparationOnly || isSubmitting) {
       return;
     }
 
@@ -105,10 +245,12 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     try {
       final customer = await repository.getCurrentCustomer();
 
-      final bookingId = await repository.createBookingRequest(
+      final result = await repository.createBookingRequest(
         customer: customer,
         provider: widget.provider,
         package: widget.eventPackage,
+        serviceTier: widget.customization.serviceTier,
+        packageThemeId: widget.customization.packageThemeId,
         eventType: widget.customization.eventType,
         eventDate: widget.customization.eventDate,
         eventTime: widget.customization.eventTime,
@@ -134,7 +276,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         context,
         MaterialPageRoute(
           builder: (_) => BookingSubmittedScreen(
-            bookingId: bookingId,
+            bookingId: result.bookingId,
             providerName: widget.provider.businessName,
           ),
         ),
@@ -161,8 +303,187 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
     }
   }
 
+  Widget _preparationReview(BuildContext context) {
+    final data = widget.customization;
+    final service = preparationServices(widget.eventPackage)[data.serviceTier];
+    final inclusions = service?['includedServices'];
+    final theme = preparationThemes(widget.eventPackage)
+        .where((item) => item['id'] == data.packageThemeId)
+        .map((item) => item['name'].toString())
+        .join(', ');
+    Widget choices(String label, List<String> values) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 6,
+          runSpacing: 4,
+          children: [for (final value in values) Chip(label: Text(value))],
+        ),
+        const SizedBox(height: 10),
+      ],
+    );
+    return Scaffold(
+      appBar: AppBar(title: const Text('Review Event')),
+      backgroundColor: AppColors.background,
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const CustomizationProgress(step: 3),
+          OutlinedButton(
+            onPressed: _savingAttempt ? null : _prepareAttempt,
+            child: Text(
+              _savingAttempt
+                  ? 'Saving request identity...'
+                  : 'Prepare request identity',
+            ),
+          ),
+          if (_attemptMessage != null) Text(_attemptMessage!),
+          const SizedBox(height: 8),
+          const Text(
+            'Preparation only. Availability is unverified. No booking has been sent.',
+          ),
+          const SizedBox(height: 12),
+          _SummaryCard(
+            icon: Icons.storefront_outlined,
+            title: 'Provider and package',
+            children: [
+              Row(
+                children: [
+                  ProviderLogoBadge(provider: widget.provider, size: 40),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(widget.provider.businessName)),
+                ],
+              ),
+              _SummaryRow(label: 'Package', value: widget.eventPackage.name),
+              if (data.serviceTier != null)
+                _SummaryRow(
+                  label: 'Service',
+                  value: service == null
+                      ? data.serviceTier!
+                      : serviceOptionTitle(data.serviceTier!, service),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _SummaryCard(
+            icon: Icons.calendar_month_outlined,
+            title: 'Event details',
+            children: [
+              _SummaryRow(label: 'Event type', value: data.eventType),
+              _SummaryRow(label: 'Date', value: formattedDate),
+              _SummaryRow(
+                label: 'Time',
+                value: '${data.eventTime} - ${data.eventEndTime}',
+              ),
+              _SummaryRow(label: 'Guests', value: '${data.guestCount}'),
+              _SummaryRow(label: 'Location', value: data.eventLocation),
+              _SummaryRow(label: 'Full address', value: data.eventAddress),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _SummaryCard(
+            icon: Icons.tune_rounded,
+            title: 'Customization',
+            children: [
+              if (data.selectedFoods.isNotEmpty)
+                choices('Menu', data.selectedFoods),
+              if (data.selectedDecorations.isNotEmpty)
+                choices('Decorations', data.selectedDecorations),
+              if (data.selectedFurniture.isNotEmpty)
+                choices('Furniture and equipment', data.selectedFurniture),
+              if (theme.isNotEmpty) _SummaryRow(label: 'Theme', value: theme),
+              if (inclusions is List && inclusions.isNotEmpty)
+                choices(
+                  'Service inclusions',
+                  inclusions.map((item) => item.toString()).toList(),
+                ),
+              if (widget.eventPackage.serviceInclusions.isNotEmpty)
+                choices(
+                  'Package services',
+                  widget.eventPackage.serviceInclusions,
+                ),
+              if (data.selectedFoods.isEmpty &&
+                  data.selectedDecorations.isEmpty &&
+                  data.selectedFurniture.isEmpty &&
+                  theme.isEmpty &&
+                  (inclusions is! List || inclusions.isEmpty) &&
+                  widget.eventPackage.serviceInclusions.isEmpty)
+                const Text('No optional package choices selected.'),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _SummaryCard(
+            icon: Icons.add_circle_outline,
+            title: 'Additional services',
+            children: [
+              if (data.selectedAddOns.isEmpty && !data.willArrangeOwnAddOns)
+                const Text('No additional services selected'),
+              for (final addon in data.selectedAddOns)
+                _SummaryRow(
+                  label: addon['source'] == 'catering_provider'
+                      ? 'Provider add-on'
+                      : 'FEASTA marketplace',
+                  value: addon['name']?.toString() ?? 'Add-on',
+                ),
+              if (data.willArrangeOwnAddOns)
+                _SummaryRow(
+                  label: 'Customer-arranged',
+                  value: data.customerArrangedAddOnsNote.trim().isEmpty
+                      ? 'Arranging own services; costs unconfirmed'
+                      : data.customerArrangedAddOnsNote,
+                ),
+              if (data.specialRequest.trim().isNotEmpty)
+                _SummaryRow(
+                  label: 'Special request',
+                  value: data.specialRequest,
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.description_outlined),
+            label: const Text('Review Booking & Payment Agreements'),
+            onPressed: () => _openDisclosure(refunds: false),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.policy_outlined),
+            label: const Text('Review Refund Policies'),
+            onPressed: () => _openDisclosure(refunds: true),
+          ),
+          const SizedBox(height: 12),
+          BookingPreparationPrice(
+            package: widget.eventPackage,
+            addons: data.selectedAddOns,
+            serviceTier: data.serviceTier,
+            hasUnconfirmedRequests:
+                data.willArrangeOwnAddOns ||
+                data.specialRequest.trim().isNotEmpty,
+          ),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: FeastaPrimaryButton(
+            label: 'Edit event details and selections',
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      CustomizationSessionBoundary(session: _session, builder: _buildContent);
+
+  Widget _buildContent(BuildContext context) {
+    if (widget.preparationOnly) return _preparationReview(context);
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
@@ -192,8 +513,8 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
 
           const SizedBox(height: AppSpacing.xl),
 
-          const _SectionHeading(
-            title: 'Booking details',
+          _SectionHeading(
+            title: 'Event details',
             subtitle:
                 'Review your event information before sending the request.',
           ),
@@ -226,7 +547,9 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
               ),
               _SummaryRow(
                 label: 'Package capacity',
-                value: '${widget.eventPackage.guestCapacity} guests',
+                value: widget.eventPackage.guestCapacity > 0
+                    ? '${widget.eventPackage.guestCapacity} guests'
+                    : 'Capacity not published',
               ),
             ],
           ),
@@ -246,7 +569,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
                 icon: Icons.schedule_rounded,
                 label: 'Time',
                 value:
-                    '${widget.customization.eventTime} – '
+                    '${widget.customization.eventTime} \u2013 '
                     '${widget.customization.eventEndTime}',
               ),
               _IconSummaryRow(
@@ -312,8 +635,8 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
 
           _AddOnGroupCard(
             icon: Icons.storefront_outlined,
-            title: 'Caterer add-ons',
-            emptyText: 'No caterer add-ons selected.',
+            title: 'Provider add-ons',
+            emptyText: 'No provider add-ons selected.',
             addOns: cateringProviderAddOns,
           ),
 
@@ -354,24 +677,25 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
 
           const SizedBox(height: AppSpacing.xl),
 
-          const _SectionHeading(
-            title: 'Payment summary',
-            subtitle:
-                'Full Payment. You pay the full amount after the provider accepts the request.',
-          ),
+          ...[
+            const _SectionHeading(
+              title: 'Payment summary',
+              subtitle:
+                  'Full Payment. You pay the full amount after the provider accepts the request.',
+            ),
 
-          const SizedBox(height: AppSpacing.md),
+            const SizedBox(height: AppSpacing.md),
 
-          _PaymentSummaryCard(
-            packagePrice: widget.eventPackage.price,
-            addOnsTotal: addOnsTotal,
-            totalAmount: totalAmount,
-          ),
+            _PaymentSummaryCard(
+              packagePrice: widget.eventPackage.price,
+              addOnsTotal: addOnsTotal,
+              totalAmount: totalAmount,
+            ),
 
-          const SizedBox(height: AppSpacing.md),
+            const SizedBox(height: AppSpacing.md),
 
-          const _BookingProcessNotice(),
-
+            const _BookingProcessNotice(),
+          ],
           const SizedBox(height: 48),
         ],
       ),
@@ -409,6 +733,7 @@ class _BookingReviewHeader extends StatelessWidget {
                 imageUrl: eventPackage.imageUrl,
                 description: '${eventPackage.name} package image',
                 fallbackLabel: 'Package image unavailable',
+                compactFallback: true,
                 width: 88,
                 height: 88,
                 borderRadius: 0,
@@ -857,12 +1182,12 @@ class _AddOnSummaryRow extends StatelessWidget {
 
     final rawPrice = addOn['price'];
 
-    final price = rawPrice is num ? rawPrice.toDouble() : 0.0;
+    final price = rawPrice is num ? rawPrice.toDouble() : double.nan;
 
     final secondaryText = [
       providerBusinessName,
       category,
-    ].where((value) => value.isNotEmpty).join(' • ');
+    ].where((value) => value.isNotEmpty).join(' \u2022 ');
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1047,9 +1372,7 @@ class _PriceSummaryRow extends StatelessWidget {
             label,
             style: textStyle.copyWith(
               color: AppColors.mainText,
-              fontWeight: emphasized
-                  ? FontWeight.w900
-                  : FontWeight.w600,
+              fontWeight: emphasized ? FontWeight.w900 : FontWeight.w600,
             ),
           ),
         ),
@@ -1059,12 +1382,8 @@ class _PriceSummaryRow extends StatelessWidget {
           decimalDigits: 0,
           semanticLabel: label,
           style: textStyle.copyWith(
-            color: emphasized
-                ? AppColors.primaryStrong
-                : AppColors.mainText,
-            fontWeight: emphasized
-                ? FontWeight.w900
-                : FontWeight.w700,
+            color: emphasized ? AppColors.primaryStrong : AppColors.mainText,
+            fontWeight: emphasized ? FontWeight.w900 : FontWeight.w700,
           ),
         ),
       ],
@@ -1173,7 +1492,8 @@ class _BookingSubmitBar extends StatelessWidget {
                 FeastaPriceText(
                   amount: fullPaymentEstimate,
                   decimalDigits: 0,
-                  semanticLabel: 'Estimated full payment after provider acceptance',
+                  semanticLabel:
+                      'Estimated full payment after provider acceptance',
                   style: AppTypography.label.copyWith(
                     color: AppColors.primaryStrong,
                     fontWeight: FontWeight.w900,

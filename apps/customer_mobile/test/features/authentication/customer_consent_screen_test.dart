@@ -38,18 +38,18 @@ void main() {
       tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
       isNull,
     );
-    await tester.tap(find.text('Cancel sign-in'));
+    await tapVisible(tester, find.text('Cancel sign-in'));
     expect(declines, 1);
     expect(accepts, 0);
-    await tester.tap(find.byType(CheckboxListTile).first);
+    await tapVisible(tester, find.byType(CheckboxListTile).first);
     await tester.pump();
     expect(
       tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
       isNull,
     );
-    await tester.tap(find.byType(CheckboxListTile).last);
+    await tapVisible(tester, find.byType(CheckboxListTile).last);
     await tester.pump();
-    await tester.tap(find.text('Accept and continue'));
+    await tapVisible(tester, find.text('Agree and continue'));
     await tester.pumpAndSettle();
     expect(accepts, 1);
   });
@@ -103,11 +103,11 @@ void main() {
             .every((tile) => tile.value == false),
         isTrue,
       );
-      await tester.tap(find.byType(CheckboxListTile).first);
+      await tapVisible(tester, find.byType(CheckboxListTile).first);
       await tester.pump();
-      await tester.tap(find.byType(CheckboxListTile).last);
+      await tapVisible(tester, find.byType(CheckboxListTile).last);
       await tester.pump();
-      await tester.tap(find.text('Accept and continue'));
+      await tapVisible(tester, find.text('Agree and continue'));
       await tester.pumpAndSettle();
       expect(submitted, versions);
     });
@@ -201,7 +201,7 @@ void main() {
         expect(find.textContaining('authorized'), findsOneWidget);
       }
       failLoad = false;
-      await tester.tap(find.text('Retry policies'));
+      await tapVisible(tester, find.text('Retry policies'));
       await tester.pumpAndSettle();
       expect(find.byType(CheckboxListTile), findsNWidgets(2));
       expect(
@@ -255,7 +255,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.text('Cancel sign-in'));
+    await tapVisible(tester, find.text('Cancel sign-in'));
     expect(declined, isTrue);
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
     pending.complete(agreement('1.1'));
@@ -274,3 +274,9 @@ Map<String, dynamic> agreement(String version) => {
     },
   ],
 };
+
+Future<void> tapVisible(WidgetTester tester, Finder finder) async {
+  await tester.ensureVisible(finder);
+  await tester.pump();
+  await tester.tap(finder);
+}

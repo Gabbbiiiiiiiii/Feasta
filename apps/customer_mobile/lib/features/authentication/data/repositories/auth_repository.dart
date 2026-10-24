@@ -1,5 +1,7 @@
+import '../../../../core/security/auth_timing.dart';
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -10,6 +12,8 @@ import '../../../../core/constants/firestore_collections.dart';
 import '../../../../core/constants/status_constants.dart';
 import '../../domain/account_recovery.dart';
 import '../../domain/customer_login.dart';
+import '../../domain/google_consent.dart';
+import '../../../presentation/screens/legal_document_screen.dart';
 import '../../domain/customer_registration.dart';
 import '../services/registration_rollback.dart';
 import '../../../../core/security/secure_debug_log.dart';
@@ -18,6 +22,8 @@ class AuthRepository
     implements
         CustomerRegistrationGateway,
         CustomerLoginGateway,
+        PhasedGoogleLoginGateway,
+        GoogleConsentGateway,
         EmailVerificationGateway,
         PasswordResetGateway,
         FirebaseActionCodeGateway {
@@ -437,23 +443,50 @@ class AuthRepository
     await _auth.signOut();
   }
 
+  GoogleConsent? _googleConsent;
   @override
-  Future<CustomerLoginResult> signInWithGoogle() => AuthOperationCoordinator
-      .shared
-      .transition(() => _signInWithGoogleCoordinated());
+  void stageGoogleConsent(GoogleConsent? consent) {
+    _googleConsent = consent;
+  }
 
-  Future<CustomerLoginResult> _signInWithGoogleCoordinated() async {
+  @override
+  Future<CustomerLoginResult> signInWithGoogle() =>
+      signInWithGooglePhased(onAccountSelected: () {});
+
+  @override
+  Future<CustomerLoginResult> signInWithGooglePhased({
+    required void Function() onAccountSelected,
+  }) => AuthOperationCoordinator.shared.transition(
+    () => _signInWithGoogleCoordinated(onAccountSelected),
+  );
+
+  Future<CustomerLoginResult> _signInWithGoogleCoordinated(
+    void Function() onAccountSelected,
+  ) async {
+    final accepted = _googleConsent;
+    _googleConsent = null;
+    PendingGoogleConsent.clear();
     try {
-      await GoogleSignIn.instance.initialize();
+      await AuthTiming.measure(
+        'google_sdk_initialize',
+        () => GoogleSignIn.instance.initialize(),
+      );
 
-      final googleUser = await GoogleSignIn.instance.authenticate();
+      final googleUser = await AuthTiming.measure(
+        'google_account_selection',
+        () => GoogleSignIn.instance.authenticate(),
+      );
+      onAccountSelected();
       final googleAuth = googleUser.authentication;
 
       final credential = GoogleAuthProvider.credential(
         idToken: googleAuth.idToken,
       );
 
-      final userCredential = await _auth.signInWithCredential(credential);
+      final userCredential = await AuthTiming.measure(
+        'firebase_credential',
+        () => _auth.signInWithCredential(credential),
+      );
 
       final user = userCredential.user;
 
@@ -461,6 +494,16 @@ class AuthRepository
         throw StateError('Google sign-in failed.');
       }
 
+      if (accepted != null &&
+          await AuthTiming.measure(
+            'google_consent_version_verification',
+            () => accepted.isCurrent(loadCurrentLegalDocument),
+          ) &&
+          _auth.currentUser?.uid == user.uid) {
+        PendingGoogleConsent.epoch = AuthOperationCoordinator.shared.epoch;
+        PendingGoogleConsent.uid = user.uid;
+        PendingGoogleConsent.consent = accepted;
+      }
       return CustomerLoginResult(
         uid: user.uid,
         email: user.email,
@@ -515,8 +558,36 @@ class AuthRepository
     try {
       await _auth.sendPasswordResetEmail(email: normalizedEmail);
     } on FirebaseAuthException catch (error) {
+      // Never log the exception message, email, tokens, or request payload.
+      final code = RegExp(r'^[a-z][a-z0-9-]{0,79}$').hasMatch(error.code)
+          ? error.code
+          : 'unrecognized-code';
+      // The general logger redacts 'token' within canonical error codes.
+      // Emit only this validated SDK code, never exception contents or payloads.
+      if (kDebugMode) debugPrint('Recovery request FirebaseAuth code=$code');
+      // Match the ordinary response for an unknown account without revealing it.
       if (error.code == 'user-not-found') return;
-      throw AccountRecoveryException(_recoveryFailureKind(error));
+      final kind = switch (error.code) {
+        'invalid-api-key' ||
+        'api-key-not-valid' ||
+        'invalid-app-id' ||
+        'missing-app-id' ||
+        'configuration-not-found' ||
+        'invalid-continue-uri' ||
+        'unauthorized-continue-uri' ||
+        'missing-continue-uri' ||
+        'invalid-app-credential' ||
+        'missing-app-credential' ||
+        'app-not-verified' ||
+        'app-check-token-invalid' ||
+        'captcha-check-failed' ||
+        'invalid-recaptcha-token' ||
+        'missing-recaptcha-token' ||
+        'recaptcha-not-enabled' => AccountRecoveryFailureKind.configuration,
+        'quota-exceeded' => AccountRecoveryFailureKind.tooManyRequests,
+        _ => _recoveryFailureKind(error),
+      };
+      throw AccountRecoveryException(kind);
     }
   }
 

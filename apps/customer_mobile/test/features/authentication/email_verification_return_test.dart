@@ -23,12 +23,15 @@ const unverified = CustomerAuthIdentity(
 class ReturnRepository extends FakeCustomerAuthStateRepository {
   final refreshFlags = <bool>[];
   Completer<CustomerAccountLoadResult>? pending;
+  CustomerAuthLoadFailure? persistentFailure;
   @override
   Future<CustomerAccountLoadResult> loadAccount({
     required CustomerAuthIdentity identity,
     required bool forceTokenRefresh,
   }) {
     refreshFlags.add(forceTokenRefresh);
+    final failure = persistentFailure;
+    if (failure != null) return Future.error(failure);
     return pending?.future ??
         super.loadAccount(
           identity: identity,
@@ -261,13 +264,14 @@ void main() {
     tester,
   ) async {
     await mount(tester);
-    repository.nextFailure = const CustomerAuthLoadFailure(
+    repository.persistentFailure = const CustomerAuthLoadFailure(
       CustomerAuthLoadFailureKind.network,
     );
     await resume(tester);
     await tester.pumpAndSettle();
     expect(find.text('protected customer'), findsNothing);
     expect(find.text('You appear to be offline'), findsOneWidget);
+    repository.persistentFailure = null;
     repository.result = CustomerAccountLoadResult(
       identity: identity,
       userProfile: activeProfile(),

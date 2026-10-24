@@ -1,7 +1,9 @@
+import '../../core/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../app/router/customer_route_guard.dart';
+import '../../app/router/customer_auth_navigation.dart';
 import '../../core/helpers/auth_guard.dart';
 import '../../core/services/device_permission_service.dart';
 import '../../shared/models/feasta_models.dart';
@@ -16,11 +18,11 @@ import 'account/presentation/customer_account_management_screen.dart';
 import 'customer_main_screen.dart';
 import 'phone_verification_screen.dart';
 
-const Color _primary = Color(0xFFB02F00);
-const Color _textPrimary = Color(0xFF242126);
-const Color _textSecondary = Color(0xFF777177);
-const Color _surface = Color(0xFFF7F7F7);
-const Color _divider = Color(0xFFE8E8E8);
+const Color _primary = AppColors.primary;
+const Color _textPrimary = AppColors.mainText;
+const Color _textSecondary = AppColors.secondaryTextAccessible;
+const Color _surface = AppColors.secondary;
+const Color _divider = AppColors.border;
 const String _appVersion = '1.0.0';
 
 class CustomerAccountScreen extends StatefulWidget {
@@ -79,7 +81,7 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
 
     final signedIn = await showCustomerLoginModal(
       context,
-      intendedLocation: CustomerAppLocations.account,
+      intendedLocation: CustomerAppLocations.customer,
       contextMessage:
           'Log in or create a Feasta account to manage your profile.',
     );
@@ -88,12 +90,7 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
       return;
     }
 
-    await gateController.refresh(forceTokenRefresh: true);
-
-    if (!mounted) {
-      return;
-    }
-
+    _openTab(0);
     setState(() {
       customerFuture = _loadCustomer();
     });
@@ -110,7 +107,8 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
 
     if (!mounted) return;
 
-    Navigator.popUntil(context, (route) => route.isFirst);
+    final returned = await returnToCustomerRoot(Navigator.of(context));
+    if (!returned || !mounted) return;
 
     if (gateController == null) {
       Navigator.pushAndRemoveUntil(
@@ -423,7 +421,7 @@ class _AccountIdentityCard extends StatelessWidget {
         children: [
           CircleAvatar(
             radius: 31,
-            backgroundColor: const Color(0xFFFFE3DA),
+            backgroundColor: AppColors.primarySubtleStrong,
             backgroundImage: imageUrl == null ? null : NetworkImage(imageUrl),
             child: imageUrl == null
                 ? const Icon(Icons.person_rounded, color: _primary, size: 34)
@@ -487,7 +485,7 @@ class _AccountStatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = verified ? const Color(0xFF16A34A) : Colors.orange;
+    final color = verified ? AppColors.success : AppColors.warning;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),

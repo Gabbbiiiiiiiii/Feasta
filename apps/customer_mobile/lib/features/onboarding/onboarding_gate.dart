@@ -8,12 +8,14 @@ class OnboardingGate extends StatefulWidget {
   const OnboardingGate({
     required this.child,
     this.onFirstOnboardingCompleted,
+    this.onLoaded,
     super.key,
   });
 
   final Widget child;
 
   final VoidCallback? onFirstOnboardingCompleted;
+  final ValueChanged<bool>? onLoaded;
 
   @override
   State<OnboardingGate> createState() => _OnboardingGateState();
@@ -40,6 +42,7 @@ class _OnboardingGateState extends State<OnboardingGate> {
     setState(() {
       _hasCompletedOnboarding = hasCompletedOnboarding;
     });
+    widget.onLoaded?.call(hasCompletedOnboarding);
   }
 
   Future<void> _completeOnboarding() async {
