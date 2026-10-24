@@ -204,6 +204,9 @@ class ProviderModel {
   final String verificationStatus;
   final String providerServiceType;
   final String providerCategory;
+
+  /// Canonical assignments; null identifies older single-category records.
+  final List<String>? serviceCategories;
   final String? businessPermitUrl;
   final String? validIdUrl;
   final String? birDocumentUrl;
@@ -249,6 +252,7 @@ class ProviderModel {
     required this.verificationStatus,
     required this.providerServiceType,
     required this.providerCategory,
+    this.serviceCategories,
     this.businessPermitUrl,
     this.validIdUrl,
     this.birDocumentUrl,
@@ -323,6 +327,9 @@ class ProviderModel {
       providerCategory: data['providerCategory'] is String
           ? (data['providerCategory'] as String).trim()
           : '',
+      serviceCategories: data['serviceCategories'] is List
+          ? (data['serviceCategories'] as List).whereType<String>().toList()
+          : null,
       businessPermitUrl: data['businessPermitUrl'],
       validIdUrl: data['validIdUrl'],
       birDocumentUrl: data['birDocumentUrl'],

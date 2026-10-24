@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/helpers/auth_guard.dart';
 import '../../core/helpers/provider_category_helper.dart';
+import '../../core/helpers/provider_discovery.dart';
 import '../../core/widgets/badges/feasta_price_text.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
@@ -156,21 +157,6 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.screen,
-                  ),
-                  child: OutlinedButton.icon(
-                    onPressed: () => openCustomerEventList(context),
-                    icon: const Icon(
-                      Icons.checklist,
-                      color: AppColors.mainText,
-                    ),
-                    label: const Text('My Event List'),
-                  ),
-                ),
-              ),
-              SliverToBoxAdapter(
                 child: _HomeHeader(
                   repository: _repository,
                   selectedAddressFuture: _selectedAddressFuture,
@@ -211,7 +197,9 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                 child: _PopularSection(
                   repository: _repository,
                   onSeeAll: _openPopular,
-                  serviceCategoryNames: _serviceCategoryNames,
+                  onCategorySeeAll: (code) => _openSearch(categoryCode: code),
+                  categories: _eventServices,
+                  onRetry: _refresh,
                 ),
               ),
               const SliverToBoxAdapter(child: SizedBox(height: 132)),
@@ -270,6 +258,14 @@ class _HomeHeader extends StatelessWidget {
                       ),
               ),
               const SizedBox(width: AppSpacing.sm),
+              IconButton(
+                tooltip: 'My Event List',
+                onPressed: () => openCustomerEventList(context),
+                icon: const Icon(
+                  Icons.checklist_rounded,
+                  color: customerDecorativeIconColor,
+                ),
+              ),
               _NotificationButton(repository: repository),
             ],
           ),
@@ -882,22 +878,30 @@ class _PopularSection extends StatefulWidget {
   const _PopularSection({
     required this.repository,
     required this.onSeeAll,
-    required this.serviceCategoryNames,
+    required this.onCategorySeeAll,
+    required this.categories,
+    required this.onRetry,
   });
   final FeastaRepository repository;
+  final Future<List<ServiceCategory>> categories;
+  final ValueChanged<String> onCategorySeeAll;
   final VoidCallback onSeeAll;
-  final Future<Map<String, String>> serviceCategoryNames;
+  final VoidCallback onRetry;
 
   @override
   State<_PopularSection> createState() => _PopularSectionState();
 }
 
 class _PopularSectionState extends State<_PopularSection> {
-  late final Stream<List<ProviderModel>> _providers;
-
+  late Stream<List<ProviderModel>> _providers;
+  String? _selectedCategory;
   @override
   void initState() {
     super.initState();
+    _load();
+  }
+
+  void _load() {
     _providers = widget.repository.searchAllVerifiedProviders(
       keyword: '',
       eventType: 'All',
@@ -908,111 +912,129 @@ class _PopularSectionState extends State<_PopularSection> {
   }
 
   @override
-  Widget build(BuildContext context) => _ProviderHomeSection(
-    title: 'Explore Providers',
-    subtitle: 'Public event services for your celebration',
-    stream: _providers,
-    onSeeAll: widget.onSeeAll,
-    excludedIds: const {},
-    serviceCategoryNames: widget.serviceCategoryNames,
+  Widget build(BuildContext context) => FutureBuilder<List<ServiceCategory>>(
+    future: widget.categories,
+    builder: (context, categorySnapshot) {
+      final categories = categorySnapshot.data ?? const <ServiceCategory>[];
+      final names = serviceCategoryNameMap(categories);
+      final selected = categories.any((c) => c.code == _selectedCategory)
+          ? _selectedCategory
+          : null;
+      return StreamBuilder<List<ProviderModel>>(
+        stream: _providers,
+        builder: (context, snapshot) {
+          final groups = groupDiscoverableProviders(snapshot.data ?? const []);
+          final all = groups[''] ?? const <ProviderModel>[];
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              HomeSectionHeader(
+                title: 'Explore Providers',
+                subtitle: 'Featured public providers (up to 50 results)',
+                onSeeAll: widget.onSeeAll,
+              ),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.screen,
+                ),
+                child: Row(
+                  children: [
+                    ChoiceChip(
+                      label: const Text('All services'),
+                      selected: selected == null,
+                      onSelected: (_) =>
+                          setState(() => _selectedCategory = null),
+                    ),
+                    for (final category in categories)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: ChoiceChip(
+                          label: Text(category.name),
+                          selected: selected == category.code,
+                          onSelected: (_) =>
+                              setState(() => _selectedCategory = category.code),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              if (categorySnapshot.hasError || snapshot.hasError)
+                Center(
+                  child: TextButton(
+                    onPressed: () {
+                      setState(_load);
+                      widget.onRetry();
+                    },
+                    child: const Text('Could not load providers. Retry'),
+                  ),
+                )
+              else if (snapshot.connectionState == ConnectionState.waiting ||
+                  categorySnapshot.connectionState != ConnectionState.done)
+                const Center(child: CircularProgressIndicator())
+              else if (all.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text('No providers available yet.'),
+                )
+              else ...[
+                if (selected == null)
+                  _row(context, 'All Providers', all, names, widget.onSeeAll),
+                for (final category in categories.where(
+                  (c) => selected == null
+                      ? (groups[c.code]?.isNotEmpty ?? false)
+                      : c.code == selected,
+                ))
+                  _row(
+                    context,
+                    category.name,
+                    groups[category.code] ?? const [],
+                    names,
+                    () => widget.onCategorySeeAll(category.code),
+                  ),
+              ],
+            ],
+          );
+        },
+      );
+    },
   );
-}
-
-class _ProviderHomeSection extends StatelessWidget {
-  const _ProviderHomeSection({
-    required this.title,
-    required this.subtitle,
-    required this.stream,
-    required this.onSeeAll,
-    required this.excludedIds,
-    required this.serviceCategoryNames,
-  });
-
-  final String title;
-  final String subtitle;
-  final Stream<List<ProviderModel>> stream;
-  final VoidCallback onSeeAll;
-  final Set<String> excludedIds;
-  final Future<Map<String, String>> serviceCategoryNames;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        HomeSectionHeader(title: title, subtitle: subtitle, onSeeAll: onSeeAll),
-        const SizedBox(height: AppSpacing.md),
+  Widget _row(
+    BuildContext context,
+    String title,
+    List<ProviderModel> providers,
+    Map<String, String> names,
+    VoidCallback onSeeAll,
+  ) => Column(
+    children: [
+      HomeSectionHeader(
+        title: title,
+        subtitle: 'Featured providers',
+        onSeeAll: onSeeAll,
+      ),
+      if (providers.isEmpty)
+        const Padding(
+          padding: EdgeInsets.all(24),
+          child: Text('No providers available yet.'),
+        )
+      else
         SizedBox(
           height:
               280 * MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0),
-          child: FutureBuilder<Map<String, String>>(
-            future: serviceCategoryNames,
-            builder: (context, categorySnapshot) {
-              final categoryNames =
-                  categorySnapshot.data ?? const <String, String>{};
-
-              return StreamBuilder<List<ProviderModel>>(
-                stream: stream,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(
-                        color: AppColors.primary,
-                      ),
-                    );
-                  }
-
-                  final providers = (snapshot.data ?? const <ProviderModel>[])
-                      .where((provider) => !excludedIds.contains(provider.id))
-                      .take(8)
-                      .toList(growable: false);
-
-                  if (snapshot.hasError || providers.isEmpty) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.screen,
-                      ),
-                      child: Container(
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: AppColors.surface,
-                          borderRadius: BorderRadius.circular(AppRadius.large),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: Text(
-                          snapshot.hasError
-                              ? 'Could not load providers. Please try again.'
-                              : 'No providers available yet.',
-                          style: AppTypography.bodySmall.copyWith(
-                            color: HomeTextColors.secondary,
-                          ),
-                        ),
-                      ),
-                    );
-                  }
-
-                  return ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.screen,
-                    ),
-                    itemCount: providers.length,
-                    separatorBuilder: (_, _) =>
-                        const SizedBox(width: AppSpacing.sm),
-                    itemBuilder: (context, index) {
-                      return _HomeProviderCard(
-                        provider: providers[index],
-                        categoryNames: categoryNames,
-                      );
-                    },
-                  );
-                },
-              );
-            },
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.screen),
+            itemCount: providers.length.clamp(0, 8),
+            separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
+            itemBuilder: (context, index) => _HomeProviderCard(
+              provider: providers[index],
+              categoryNames: names,
+            ),
           ),
         ),
-      ],
-    );
-  }
+      const SizedBox(height: AppSpacing.md),
+    ],
+  );
 }
 
 class _HomeProviderCard extends StatelessWidget {

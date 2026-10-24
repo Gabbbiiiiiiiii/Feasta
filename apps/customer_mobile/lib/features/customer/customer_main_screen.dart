@@ -65,12 +65,23 @@ class _CustomerMainScreenState extends State<CustomerMainScreen>
     _destination = _destinationFromLegacyIndex(widget.initialIndex);
     _repository = FeastaRepository();
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) {
         return;
       }
 
-      DevicePermissionService.requestCorePermissionsIfNeeded(context);
+      final controller = CustomerAuthenticationScope.maybeOf(context);
+      final shouldOfferLogin = controller?.takeOpeningLoginOffer() ?? false;
+      await DevicePermissionService.requestCorePermissionsIfNeeded(context);
+      if (!mounted ||
+          !shouldOfferLogin ||
+          controller == null ||
+          controller.currentIdentity != null ||
+          controller.modalSignInActive ||
+          ModalRoute.of(context)?.isCurrent != true) {
+        return;
+      }
+      await showCustomerLoginModal(context);
     });
   }
 

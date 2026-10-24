@@ -177,12 +177,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('SERVICE CATEGORIES'), findsOneWidget);
     expect(find.text('Choose a service'), findsOneWidget);
-    expect(find.text('All services'), findsOneWidget);
-    expect(find.text('Catering'), findsOneWidget);
+    expect(find.text('All services'), findsNWidgets(2));
+    expect(find.text('Catering'), findsWidgets);
     expect(find.byIcon(Icons.restaurant_menu_rounded), findsNothing);
-    await tester.ensureVisible(find.byType(ProviderLogoBadge));
+    await tester.ensureVisible(find.byType(ProviderLogoBadge).first);
     await tester.pumpAndSettle();
-    expect(find.byType(ProviderBrandVisual), findsOneWidget);
+    expect(find.byType(ProviderBrandVisual), findsNWidgets(2));
     expect(tester.takeException(), isNull);
   });
 

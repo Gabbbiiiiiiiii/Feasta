@@ -56,8 +56,8 @@ void main() {
       pending.complete([category]);
       await tester.pumpAndSettle();
       expect(repo.refreshes, [true]);
-      await tester.ensureVisible(find.text(category.name));
-      await tester.tap(find.text(category.name));
+      await tester.ensureVisible(find.text(category.name).first);
+      await tester.tap(find.text(category.name).first);
       await tester.pumpAndSettle();
       expect(
         tester
@@ -115,9 +115,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('SERVICE CATEGORIES'), findsOneWidget);
       expect(find.text('Choose a service'), findsOneWidget);
-      await tester.ensureVisible(find.text('Videography'));
+      await tester.ensureVisible(find.text('Videography').first);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Videography'));
+      await tester.tap(find.text('Videography').first);
       await tester.pumpAndSettle();
       expect(
         tester
@@ -127,8 +127,8 @@ void main() {
       );
       tester.state<NavigatorState>(find.byType(Navigator).first).pop();
       await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('All services'));
-      await tester.tap(find.text('All services'));
+      await tester.ensureVisible(find.text('All services').first);
+      await tester.tap(find.text('All services').first);
       await tester.pumpAndSettle();
       expect(
         tester
@@ -150,13 +150,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Event Services could not be loaded.'), findsOneWidget);
     expect(find.text('Catering'), findsNothing);
-    expect(find.text('All services'), findsOneWidget);
+    expect(find.text('All services').first, findsOneWidget);
     expect(find.text('SERVICE CATEGORIES'), findsOneWidget);
     repo.next = Future.value([category]);
     await tester.ensureVisible(find.text('Retry'));
     await tester.tap(find.text('Retry'));
     await tester.pumpAndSettle();
-    expect(find.text(category.name), findsOneWidget);
+    expect(find.text(category.name).first, findsOneWidget);
     expect(repo.refreshes, [true, true]);
   });
 }

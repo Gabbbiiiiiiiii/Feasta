@@ -52,6 +52,21 @@ class CustomerAuthenticationController extends ChangeNotifier {
   CustomerAuthenticationState get state => _state;
   CustomerAuthIdentity? get currentIdentity => repository.currentIdentity;
   bool modalSignInActive = false;
+  bool _openingLoginHandled = false;
+
+  /// Consumed once after restoration, for the lifetime of this app controller.
+  bool takeOpeningLoginOffer() {
+    if (_openingLoginHandled ||
+        state.gate.kind == AuthenticationGateKind.loading) {
+      return false;
+    }
+    _openingLoginHandled = true;
+    return currentIdentity == null &&
+        state.gate.kind == AuthenticationGateKind.unauthenticated &&
+        intendedLocation == CustomerAppLocations.browse &&
+        !modalSignInActive;
+  }
+
   void endModalSignIn() {
     modalSignInActive = false;
     if (!_disposed) notifyListeners();

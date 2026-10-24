@@ -29,6 +29,7 @@ ProviderModel provider({
   String name = 'Ana Catering',
   String id = 'caterer-1',
   String category = 'catering_service',
+  List<String>? categories,
   String serviceType = 'catering',
   bool visible = true,
   bool suspended = false,
@@ -42,6 +43,7 @@ ProviderModel provider({
   int reviews = 0,
 }) => ProviderModel(
   id: id,
+  serviceCategories: categories,
   coverImageUrl: cover,
   logoUrl: logo,
   ownerId: 'owner',
@@ -136,6 +138,54 @@ class HomeAddressStorage extends CustomerAddressStorageService {
   @override
   Future<CustomerAddressModel> getSelectedOrDefault() async =>
       CustomerAddressModel.defaultOrmoc;
+}
+
+class GroupedDiscoveryRepository extends DiscoveryRepository {
+  GroupedDiscoveryRepository()
+    : super(
+        providers: [
+          provider(),
+          provider(),
+          provider(
+            id: 'photo',
+            name: 'Photo Studio',
+            category: 'photography',
+            serviceType: 'addon',
+          ),
+          provider(
+            id: 'video',
+            name: 'Video Studio',
+            category: 'videography',
+            serviceType: 'addon',
+          ),
+          provider(
+            id: 'flowers',
+            name: 'Flower Studio',
+            category: 'florist',
+            serviceType: 'addon',
+          ),
+          provider(id: 'hidden', visible: false),
+        ],
+      );
+
+  @override
+  Future<List<ServiceCategory>> getActiveServiceCategories({
+    bool forceRefresh = false,
+  }) async => [
+    for (final code in [
+      'catering_service',
+      'photography',
+      'videography',
+      'florist',
+      'empty',
+    ])
+      ServiceCategory(
+        code: code,
+        name: code,
+        serviceType: code == 'catering_service' ? 'catering' : 'addon',
+        status: 'active',
+      ),
+  ];
 }
 
 class HomeStateRepository extends DiscoveryRepository {
@@ -245,16 +295,18 @@ void main() {
         find.text('Find the right services for your celebration.'),
         findsOneWidget,
       );
-      await tester.ensureVisible(find.text('Ana Catering'));
+      await tester.ensureVisible(find.text('Ana Catering').first);
       await tester.pumpAndSettle();
-      expect(find.text('Ana Catering').hitTestable(), findsOneWidget);
+      expect(find.text('Ana Catering').hitTestable().first, findsOneWidget);
       expect(tester.takeException(), isNull);
-      await tester.ensureVisible(find.text('Catering'));
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, 1200));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Catering'));
+      await tester.ensureVisible(find.text('Catering').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Catering').first);
       await tester.pumpAndSettle();
       expect(find.byType(CustomerSearchScreen), findsOneWidget);
-      expect(find.text('Ana Catering').hitTestable(), findsOneWidget);
+      expect(find.text('Ana Catering').hitTestable().first, findsOneWidget);
       expect(
         tester
             .widget<CustomerSearchScreen>(find.byType(CustomerSearchScreen))
@@ -264,6 +316,82 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets(
+    'organized provider previews filter locally and See all uses category contracts',
+    (tester) async {
+      final repository = GroupedDiscoveryRepository();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CustomerHomeScreen(
+            repository: repository,
+            addressStorage: HomeAddressStorage(),
+            promotions: Stream.value(<PromotionModel>[]),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('My Event List'), findsOneWidget);
+      expect(
+        find.widgetWithText(OutlinedButton, 'My Event List'),
+        findsNothing,
+      );
+      await tester.ensureVisible(find.text('Explore Providers'));
+      await tester.pumpAndSettle();
+      expect(repository.searchCalls, 1);
+      Finder header(String title) => find.byWidgetPredicate(
+        (w) => w is HomeSectionHeader && w.title == title,
+      );
+      expect(header('All Providers'), findsOneWidget);
+      expect(header('empty'), findsNothing);
+      for (final code in [
+        'catering_service',
+        'photography',
+        'videography',
+        'florist',
+        'empty',
+      ]) {
+        final callsBeforeSelection = repository.searchCalls;
+        final chip = find.widgetWithText(ChoiceChip, code);
+        await tester.ensureVisible(chip);
+        await tester.tap(chip);
+        await tester.pumpAndSettle();
+        expect(tester.widget<ChoiceChip>(chip).selected, true);
+        expect(header('All Providers'), findsNothing);
+        expect(header(code), findsOneWidget);
+        expect(repository.searchCalls, callsBeforeSelection);
+        final seeAll = find.descendant(
+          of: header(code),
+          matching: find.text('See all'),
+        );
+        await tester.ensureVisible(seeAll);
+        await tester.tap(seeAll);
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<CustomerSearchScreen>(find.byType(CustomerSearchScreen))
+              .initialCategoryCode,
+          code,
+        );
+        tester.state<NavigatorState>(find.byType(Navigator).first).pop();
+        await tester.pumpAndSettle();
+      }
+      final allChip = find.widgetWithText(ChoiceChip, 'All services');
+      await tester.ensureVisible(allChip);
+      await tester.tap(allChip);
+      await tester.pumpAndSettle();
+      expect(header('All Providers'), findsOneWidget);
+      final seeAll = find.descendant(
+        of: header('All Providers'),
+        matching: find.text('See all'),
+      );
+      await tester.ensureVisible(seeAll);
+      await tester.tap(seeAll);
+      await tester.pumpAndSettle();
+      expect(find.byType(CustomerProviderCollectionScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('Home empty provider state and direct filter access', (
     tester,
@@ -345,14 +473,11 @@ void main() {
       updates.addError(StateError('offline'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
-        find.text('Could not load providers. Please try again.'),
+        find.text('Could not load providers. Retry'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      expect(
-        find.text('Could not load providers. Please try again.'),
-        findsOneWidget,
-      );
+      expect(find.text('Could not load providers. Retry'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     },

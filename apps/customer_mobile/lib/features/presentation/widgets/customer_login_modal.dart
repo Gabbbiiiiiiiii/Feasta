@@ -20,7 +20,10 @@ Future<bool> showCustomerLoginModal(
 }) async {
   final authenticationController = CustomerAuthenticationScope.maybeOf(context);
 
+  if (authenticationController?.modalSignInActive == true) return false;
+
   final rootNavigator = Navigator.of(context, rootNavigator: true);
+  final animation = BottomSheet.createAnimationController(rootNavigator);
 
   //
   // Remember where the customer was trying to go.
@@ -38,13 +41,16 @@ Future<bool> showCustomerLoginModal(
   var modalOpen = true;
   authenticationController?.modalSignInActive = true;
   bool? result;
+  ModalRoute<dynamic>? activeRoute;
   try {
     result = await showModalBottomSheet<bool>(
       context: context,
       useRootNavigator: true,
       isScrollControlled: true,
-      isDismissible: false,
+      isDismissible: true,
+      // The coordinated BottomSheet below enables drag only while idle.
       enableDrag: false,
+      transitionAnimationController: animation,
       useSafeArea: false,
       backgroundColor: Colors.transparent,
       barrierColor: AppColors.overlay,
@@ -55,6 +61,7 @@ Future<bool> showCustomerLoginModal(
       builder: (sheetContext) {
         final mediaQuery = MediaQuery.of(sheetContext);
         final sheetRoute = ModalRoute.of(sheetContext);
+        activeRoute = sheetRoute;
         bool closeSheet() {
           if (!sheetContext.mounted || sheetRoute?.isCurrent != true) {
             return false;
@@ -64,6 +71,7 @@ Future<bool> showCustomerLoginModal(
         }
 
         return _CoordinatedLoginSheet(
+          animation: animation,
           controller: authenticationController,
           submitting: submitting,
           interacting: interacting,
@@ -143,8 +151,11 @@ Future<bool> showCustomerLoginModal(
     );
   } finally {
     modalOpen = false;
+    // Keep the supplied controller alive through the route's reverse animation.
+    await activeRoute?.completed;
     submitting.dispose();
     interacting.dispose();
+    animation.dispose();
     authenticationController?.endModalSignIn();
   }
   //
@@ -163,12 +174,14 @@ Future<bool> showCustomerLoginModal(
 /// Owns only this sheet route; auth completion must never pop another route.
 class _CoordinatedLoginSheet extends StatefulWidget {
   const _CoordinatedLoginSheet({
+    required this.animation,
     required this.controller,
     required this.child,
     required this.submitting,
     required this.interacting,
   });
   final CustomerAuthenticationController? controller;
+  final AnimationController animation;
   final Widget child;
   final ValueNotifier<bool> submitting;
   final ValueNotifier<bool> interacting;
@@ -253,87 +266,120 @@ class _CoordinatedLoginSheetState extends State<_CoordinatedLoginSheet> {
         (_observedIdentity && (failure == null || recovering));
     return PopScope(
       canPop: !busy && !widget.interacting.value,
-      child: Padding(
-        padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top + 12),
-        child: FractionallySizedBox(
-          heightFactor: 0.94,
-          alignment: Alignment.bottomCenter,
-          child: Material(
-            key: const Key('customer-login-sheet-surface'),
-            color: AppColors.background,
-            elevation: 20,
-            clipBehavior: Clip.antiAlias,
-            shape: const RoundedRectangleBorder(
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(28),
-                topRight: Radius.circular(28),
-              ),
-            ),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Offstage(
-                  offstage: busy || failure != null,
-                  child: widget.child,
+      child: BottomSheet(
+        animationController: widget.animation,
+        enableDrag: !busy && !widget.interacting.value,
+        showDragHandle: false,
+        backgroundColor: Colors.transparent,
+        onClosing: () {
+          if (!busy && !widget.interacting.value) {
+            Navigator.of(context).maybePop();
+          }
+        },
+        builder: (context) => Padding(
+          padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top + 12),
+          child: FractionallySizedBox(
+            heightFactor: 0.94,
+            alignment: Alignment.bottomCenter,
+            child: Material(
+              key: const Key('customer-login-sheet-surface'),
+              color: AppColors.background,
+              elevation: 20,
+              clipBehavior: Clip.antiAlias,
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(28),
+                  topRight: Radius.circular(28),
                 ),
-                if (busy)
-                  Center(
-                    child: ConstrainedBox(
-                      key: const Key('finishing-sign-in-dialog'),
-                      constraints: const BoxConstraints(maxWidth: 320),
-                      child: AuthenticationLoading(
-                        signingOut: controller?.signingOut ?? false,
-                      ),
-                    ),
-                  )
-                else if (failure != null)
-                  Center(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(24),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 360),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              failure ==
-                                      CustomerAuthenticationFailureKind.network
-                                  ? 'Unable to connect'
-                                  : failure ==
-                                        CustomerAuthenticationFailureKind.server
-                                  ? 'Sign-in is temporarily unavailable'
-                                  : 'Account access could not be completed',
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              failure ==
-                                      CustomerAuthenticationFailureKind.network
-                                  ? 'Check your connection and try again. Your session has been kept safe.'
-                                  : 'Try again. If this continues, contact FEASTA support.',
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 16),
-                            FilledButton(
-                              onPressed: _retry,
-                              child: const Text('Retry sign-in'),
-                            ),
-                            TextButton(
-                              onPressed: () {
-                                final route = ModalRoute.of(context);
-                                if (route?.isCurrent == true && !_closed) {
-                                  _closed = true;
-                                  Navigator.of(context).pop(false);
-                                }
-                              },
-                              child: const Text('Back'),
-                            ),
-                          ],
+              ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Offstage(
+                    offstage: busy || failure != null,
+                    child: widget.child,
+                  ),
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: SizedBox(
+                      key: const Key('customer-login-drag-handle'),
+                      height: 24,
+                      child: Center(
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: AppColors.border,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
                         ),
                       ),
                     ),
                   ),
-              ],
+                  if (busy)
+                    Center(
+                      child: ConstrainedBox(
+                        key: const Key('finishing-sign-in-dialog'),
+                        constraints: const BoxConstraints(maxWidth: 320),
+                        child: AuthenticationLoading(
+                          signingOut: controller?.signingOut ?? false,
+                        ),
+                      ),
+                    )
+                  else if (failure != null)
+                    Center(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(24),
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 360),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                failure ==
+                                        CustomerAuthenticationFailureKind
+                                            .network
+                                    ? 'Unable to connect'
+                                    : failure ==
+                                          CustomerAuthenticationFailureKind
+                                              .server
+                                    ? 'Sign-in is temporarily unavailable'
+                                    : 'Account access could not be completed',
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                failure ==
+                                        CustomerAuthenticationFailureKind
+                                            .network
+                                    ? 'Check your connection and try again. Your session has been kept safe.'
+                                    : 'Try again. If this continues, contact FEASTA support.',
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 16),
+                              FilledButton(
+                                onPressed: _retry,
+                                child: const Text('Retry sign-in'),
+                              ),
+                              TextButton(
+                                onPressed: () {
+                                  final route = ModalRoute.of(context);
+                                  if (route?.isCurrent == true && !_closed) {
+                                    _closed = true;
+                                    Navigator.of(context).pop(false);
+                                  }
+                                },
+                                child: const Text('Back'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),

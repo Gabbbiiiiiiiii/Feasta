@@ -1,5 +1,12 @@
 import '../../shared/models/feasta_models.dart';
 import 'provider_category_helper.dart';
+import '../domain/service_category.dart';
+
+/// Matches the backend's canonical list with a legacy primary-category fallback.
+Set<String> providerDiscoveryCategories(ProviderModel provider) =>
+    (provider.serviceCategories ?? [provider.providerCategory])
+        .where(isServiceCategoryCode)
+        .toSet();
 
 /// Mirrors the public profile contract; the server owns the visibility flag.
 bool isDiscoverableProvider(ProviderModel provider) =>
@@ -31,7 +38,7 @@ bool matchesProviderDiscovery(
   if (!isDiscoverableProvider(provider)) return false;
   final category = categoryCode?.trim().toLowerCase() ?? '';
   if (category.isNotEmpty &&
-      provider.providerCategory.toLowerCase() != category) {
+      !providerDiscoveryCategories(provider).contains(category)) {
     return false;
   }
   final searchable =
@@ -101,4 +108,21 @@ int compareProviderSearchRelevance(
     b.businessName.trim().toLowerCase(),
   );
   return name != 0 ? name : a.id.compareTo(b.id);
+}
+
+/// Groups the authoritative public category assignment, deduplicating stable IDs.
+Map<String, List<ProviderModel>> groupDiscoverableProviders(
+  Iterable<ProviderModel> providers,
+) {
+  final unique = <String, ProviderModel>{};
+  for (final provider in providers.where(isDiscoverableProvider)) {
+    unique.putIfAbsent(provider.id, () => provider);
+  }
+  final groups = <String, List<ProviderModel>>{'': unique.values.toList()};
+  for (final provider in unique.values) {
+    for (final category in providerDiscoveryCategories(provider)) {
+      (groups[category] ??= []).add(provider);
+    }
+  }
+  return groups;
 }
