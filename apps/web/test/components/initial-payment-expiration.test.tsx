@@ -1,4 +1,4 @@
-import {cleanup, render, renderHook, screen} from "@testing-library/react";
+import {cleanup, fireEvent, render, renderHook, screen} from "@testing-library/react";
 import {createHash} from "node:crypto";
 import {afterEach, describe, expect, it, vi} from "vitest";
 vi.mock("server-only", () => ({}));
@@ -11,8 +11,62 @@ import {lifecycleEvidence, lifecycleLabel} from "@/lib/presentation/booking-life
 import {ProviderBookingStatus, useProviderBookingPresentation} from "@/components/provider/provider-booking-status";
 import type {CustomerBookingProviderRequest} from "@/lib/customer/bookings/customer-booking-types";
 import type {ProviderBooking} from "@/lib/provider/bookings/provider-booking-types";
+import {projectInitialPaymentDeadline} from "@/lib/customer/bookings/customer-booking-initial-payment-deadline";
+import {formatInitialPaymentDeadline} from "@/components/customer/bookings/booking-formatters";
 
 afterEach(cleanup);
+const frozenEvidence = {
+  version: 4, accepted: "2026-10-25T00:00:00.000Z", eventStart: "2026-11-25T02:00:00.000Z",
+  deadline: "2026-10-25T06:00:00.000Z", expires: "2026-10-25T06:00:00.000Z", hasExpires: true,
+};
+
+describe("frozen customer initial payment deadlines", () => {
+  it.each([false, true])("shows independent standard/rush deadlines in shared full/drawer cards (%s)", compact => {
+    const standard = projectInitialPaymentDeadline(frozenEvidence);
+    const rush = projectInitialPaymentDeadline({...frozenEvidence, eventStart: "2026-10-26T02:00:00.000Z",
+      deadline: "2026-10-25T02:00:00.000Z", expires: "2026-10-25T02:00:00.000Z"});
+    for (const deadline of [standard, rush]) {
+      render(<CustomerBookingProviderRequestCard compact={compact} request={request({
+        status: "waiting_for_down_payment", lifecycle: undefined, initialPaymentDeadlineAt: deadline,
+      })} />);
+    }
+    expect(screen.getByText("Oct 25, 2026 · 2:00 PM PHT")).toBeVisible();
+    expect(screen.getByText("Oct 25, 2026 · 10:00 AM PHT")).toBeVisible();
+    expect(screen.getAllByText("Initial payment deadline")).toHaveLength(2);
+  });
+  it("formats in Manila and never renews the frozen timestamp on reload", () => {
+    const original = process.env.TZ;
+    try {
+      for (const zone of ["UTC", "America/Los_Angeles", "Asia/Tokyo"]) {
+        process.env.TZ = zone;
+        expect(formatInitialPaymentDeadline(frozenEvidence.deadline)).toBe("Oct 25, 2026 · 2:00 PM PHT");
+      }
+      vi.spyOn(Date, "now").mockReturnValue(Date.parse("2027-01-01T00:00:00Z"));
+      expect(projectInitialPaymentDeadline({...frozenEvidence})).toBe(frozenEvidence.deadline);
+    } finally {
+      process.env.TZ = original;
+      vi.restoreAllMocks();
+    }
+  });
+  it.each([
+    {version: undefined}, {version: 5}, {deadline: null}, {deadline: "invalid"},
+    {accepted: null}, {eventStart: null}, {expires: null}, {expires: "2026-10-25T07:00:00Z"},
+    {accepted: "2026-10-25T07:00:00Z"}, {eventStart: "2026-10-25T01:00:00Z"},
+  ])("suppresses historical, missing and conflicting evidence: %j", patch => {
+    expect(projectInitialPaymentDeadline({...frozenEvidence, ...patch})).toBeNull();
+  });
+  it.each(["confirmed", "cancelled", "expired", "payment_processing"] as const)("hides reminders for %s", status => {
+    render(<CustomerBookingProviderRequestCard request={request({status, initialPaymentDeadlineAt: frozenEvidence.deadline})} />);
+    expect(screen.queryByText("Initial payment deadline")).not.toBeInTheDocument();
+  });
+  it("keeps historical compatibility and separate balance dates", () => {
+    render(<CustomerBookingProviderRequestCard request={request({status: "waiting_for_down_payment", lifecycle: undefined,
+      expiresAt: frozenEvidence.deadline, remainingBalanceDueAt: "2026-11-24T02:00:00Z"})} />);
+    expect(screen.queryByText("Initial payment deadline")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Original payment terms"));
+    expect(screen.getByText("Balance deadline")).toBeVisible();
+  });
+});
 const raw = (extra = {}) => ({status: "waiting_for_down_payment", paymentStatus: "unpaid",
   financialSnapshot: {schemaVersion: 1, currency: "PHP", grossAmountInCentavos: 100000,
     requiredUpfrontAmountInCentavos: 30000, remainingBalanceInCentavos: 70000}, ...extra});

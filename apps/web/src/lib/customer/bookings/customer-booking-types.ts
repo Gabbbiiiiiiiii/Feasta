@@ -87,6 +87,8 @@ export type CustomerBookingProviderRequest = {
   completedAt: string | null;
   cancelledAt: string | null;
   expiresAt: string | null;
+  /** Validated frozen V4 deadline; absent on historical or conflicting records. */
+  initialPaymentDeadlineAt?: string | null;
 
   reviewStatus: "not_submitted" | "submitted" | "unavailable";
 };

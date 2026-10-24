@@ -65,6 +65,13 @@ function formatBookingDateTime(value: string | null): string {
     dateTimeFormatter.format(date);
 }
 
+export function formatInitialPaymentDeadline(value: string): string {
+  const date = new Date(value);
+  return `${dateFormatter.format(date)} · ${new Intl.DateTimeFormat("en-US", {
+    hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila",
+  }).format(date)} PHT`;
+}
+
 function formatBookingTimeRange(start: string, end: string): string {
   const formattedStart = formatClockTime(start);
   const formattedEnd = formatClockTime(end);

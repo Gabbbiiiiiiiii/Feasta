@@ -1,5 +1,6 @@
 import {BookingLifecycleStatus, BookingLifecycleText} from "@/components/shared/booking-lifecycle-status";
-import {TriangleAlert} from "lucide-react";
+import {Clock3, TriangleAlert} from "lucide-react";
+import {initialPaymentReminderDeadline} from "@/lib/customer/bookings/customer-booking-initial-payment-deadline";
 import Link from "next/link";
 import {BookingPolicySummary} from "@/components/shared/booking-policy-summary";
 import type {ReactNode} from "react";
@@ -8,6 +9,7 @@ import {
   bookingStatusLabel,
   boundedText,
   formatBookingDateTime,
+  formatInitialPaymentDeadline,
   formatCurrency,
   formatPercentage,
   providerRequestOutcomeLabel,
@@ -29,6 +31,7 @@ import {cn} from "@/lib/utils";
 type CustomerBookingProviderRequestCardProps = {
   request: CustomerBookingProviderRequest;
   compact?: boolean;
+  hideInitialPaymentReminder?: boolean;
   durableConfirmation?: boolean;
   paymentAction?: ReactNode;
   messageAction?: ReactNode;
@@ -44,6 +47,7 @@ const MAX_SERVICES_PER_REQUEST = 30;
 function CustomerBookingProviderRequestCard({
   request,
   compact = false,
+  hideInitialPaymentReminder = false,
   durableConfirmation = false,
   paymentAction,
   messageAction,
@@ -54,6 +58,7 @@ function CustomerBookingProviderRequestCard({
   complaintAction,
 }: CustomerBookingProviderRequestCardProps) {
   const services = request.services.slice(0, MAX_SERVICES_PER_REQUEST);
+  const initialDeadline = hideInitialPaymentReminder ? null : initialPaymentReminderDeadline(request);
   const initialPaymentReview = request.lifecycle?.initialPaymentReview &&
     ["accepted", "waiting_for_down_payment", "payment_processing"].includes(request.status);
   const showBookingPolicy = ["confirmed", "in_progress", "completed", "cancelled"].includes(request.status);
@@ -119,6 +124,17 @@ function CustomerBookingProviderRequestCard({
           </p>
         ) : null}
       </div>
+
+      {initialDeadline ? (
+        <div className="flex min-w-0 items-start gap-2 rounded-xl border border-warning/25 bg-warning-subtle p-3 text-warning">
+          <Clock3 aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+          <div className="min-w-0 text-sm">
+            <p className="font-bold">Initial payment deadline</p>
+            <p className="mt-1 break-words font-semibold"><time dateTime={initialDeadline}>{formatInitialPaymentDeadline(initialDeadline)}</time></p>
+            <p className="mt-1 text-xs leading-5">Complete your initial payment before this deadline to keep your reservation.</p>
+          </div>
+        </div>
+      ) : null}
 
       <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
         <FinancialMetric label="Total service price" value={formatCurrency(request.amount)} />

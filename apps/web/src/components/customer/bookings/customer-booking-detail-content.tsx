@@ -196,6 +196,7 @@ function CustomerBookingDetailContent({
                 key={request.id}
                 request={request}
                 durableConfirmation
+                hideInitialPaymentReminder={["cancelled", "expired"].includes(booking.status)}
                 complaintAction={SAFE_DOCUMENT_ID.test(request.providerRequestId) && request.id === request.providerRequestId && request.mainEventId === booking.id ?
                   <CustomerBookingComplaintAction key={request.providerRequestId} providerRequestId={request.providerRequestId} providerName={boundedText(request.providerName, "provider", 80)} /> : undefined}
                 paymentAction={<CustomerBookingPaymentAction

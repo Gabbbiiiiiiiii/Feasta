@@ -18,6 +18,8 @@ import {PageHeading} from "@/components/layout/page-heading";
 import {Button} from "@/components/ui/button";
 import type {CustomerBookingDetailPageResult} from "@/lib/customer/bookings/customer-booking-types";
 import {cn} from "@/lib/utils";
+import {initialPaymentReminderDeadline} from "@/lib/customer/bookings/customer-booking-initial-payment-deadline";
+import {formatInitialPaymentDeadline} from "./booking-formatters";
 
 type CustomerBookingDetailPageProps = {
   result: CustomerBookingDetailPageResult;
@@ -29,6 +31,10 @@ function CustomerBookingDetailPage({result}: CustomerBookingDetailPageProps) {
     booking,
     providerRequests,
   );
+  const unpaidRequests = providerRequests.filter((request) =>
+    request.status === "waiting_for_down_payment" && ["unpaid", "pending", "failed", "expired"].includes(request.paymentStatus),
+  );
+  const deadline = unpaidRequests.length === 1 ? initialPaymentReminderDeadline(unpaidRequests[0]) : null;
 
   return (
     <div className="mx-auto grid w-full max-w-[90rem] min-w-0 gap-5">
@@ -75,6 +81,15 @@ function CustomerBookingDetailPage({result}: CustomerBookingDetailPageProps) {
               <p className="mt-1.5 max-w-2xl text-sm leading-6 text-foreground">
                 <BookingLifecycleText status={booking.status} evidence={booking.lifecycle} description>{confirmation.description}</BookingLifecycleText>
               </p>
+              {confirmation.eyebrow === "Payment needed" && deadline ? (
+                <div className="mt-3 text-sm">
+                  <p className="font-bold">Initial payment deadline</p>
+                  <p className="mt-1 font-semibold"><time dateTime={deadline}>{formatInitialPaymentDeadline(deadline)}</time></p>
+                  <p className="mt-1">Complete your initial payment before this deadline to keep your reservation.</p>
+                </div>
+              ) : confirmation.eyebrow === "Payment needed" && unpaidRequests.length > 1 ? (
+                <p className="mt-3 text-sm">Each booked service has its own payment deadline. Review the deadlines below.</p>
+              ) : null}
               <p className="mt-2 text-sm font-semibold text-muted-foreground">
                 Event schedule: {formatBookingDate(booking.eventDate)}, {formatBookingTimeRange(
                   booking.eventTime,

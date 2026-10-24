@@ -86,6 +86,25 @@ import {
 } from "@/lib/customer/bookings/customer-booking-review";
 
 describe("customer booking dedicated detail page", () => {
+  it.each([1, 2])("shows frozen deadlines for %s unpaid services without an aggregate deadline", count => {
+    const result = detailResult();
+    result.details.booking.status = "waiting_for_down_payment";
+    result.details.providerRequests = Array.from({length: count}, (_, index) => providerRequestFixture({
+      id: `deadline-${index}`, providerRequestId: `deadline-${index}`,
+      status: "waiting_for_down_payment", paymentStatus: "unpaid", lifecycle: undefined,
+      paidAt: null, grossSettledAmountInCentavos: null,
+      initialPaymentDeadlineAt: index === 0 ? "2026-10-25T02:00:00Z" : "2026-10-25T06:00:00Z",
+    }));
+    render(<CustomerBookingDetailPage result={result} />);
+    const banner = screen.getByRole("region", {name: "Payment is required to continue with your booking."});
+    if (count === 1) {
+      expect(within(banner).getByText("Oct 25, 2026 · 10:00 AM PHT")).toBeVisible();
+    } else {
+      expect(within(banner).getByText("Each booked service has its own payment deadline. Review the deadlines below.")).toBeVisible();
+      expect(within(banner).queryByText("Initial payment deadline")).not.toBeInTheDocument();
+    }
+    expect(screen.getAllByText("Initial payment deadline")).toHaveLength(2);
+  });
   it("keeps Report an Issue accessible when new cancellation is closed", async () => {
     mocks.getCancellationOptions.mockImplementation(async (providerRequestId: string) => ({providerRequestId,
       cancellationAllowed: false, reasonCode: "EVENT_ENDED", eligibilityExpiresInMs: 0, activeCancellation: null, policy: null, refundPreview: null}));

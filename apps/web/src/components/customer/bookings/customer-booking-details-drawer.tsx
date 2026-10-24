@@ -277,6 +277,7 @@ function BookingDetailsContent({
                 key={request.id}
                 request={request}
                 compact
+                hideInitialPaymentReminder={["cancelled", "expired"].includes(booking.status)}
                 paymentAction={<CustomerBookingPaymentAction request={request} bookingId={booking.id} paymentRequestId={paymentRequestId} paymentRequestChoice={paymentRequestChoice} onPay={onPay} />}
               />
             ))}

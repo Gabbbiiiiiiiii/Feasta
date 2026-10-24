@@ -1,3 +1,4 @@
+import {projectInitialPaymentDeadline} from "./customer-booking-initial-payment-deadline";
 import {lifecycleEvidence, linkedLifecycleEvidence} from "@/lib/presentation/booking-lifecycle";
 import "server-only";
 import {bookingPolicyV3Presentation} from "@/lib/payments/booking-policy-v3-presentation";
@@ -673,6 +674,14 @@ function mapProviderRequestDocument(
     completedAt: isoDateValue(data.completedAt),
     cancelledAt: isoDateValue(data.cancelledAt),
     expiresAt: isoDateValue(data.expiresAt),
+    initialPaymentDeadlineAt: projectInitialPaymentDeadline({
+      version: data.initialPaymentDeadlinePolicyVersion,
+      deadline: isoDateValue(data.initialPaymentDeadlineAt),
+      accepted: isoDateValue(data.acceptedAt),
+      eventStart: isoDateValue(data.eventStartAt),
+      expires: isoDateValue(data.expiresAt),
+      hasExpires: data.expiresAt != null,
+    }),
     reviewStatus: "unavailable",
   };
 }
