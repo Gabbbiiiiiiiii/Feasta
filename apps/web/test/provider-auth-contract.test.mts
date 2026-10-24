@@ -1,0 +1,95 @@
+import assert from "node:assert/strict";
+import {readFile} from "node:fs/promises";
+import test from "node:test";
+
+const sourceRoot = new URL("../src/", import.meta.url);
+const source = (path: string) => readFile(new URL(path, sourceRoot), "utf8");
+
+test("provider routes split identity access from onboarding and operation gates", async () => {
+  const [layout, dashboard, dashboardService, packages] = await Promise.all([
+    source("app/provider/layout.tsx"),
+    source("app/provider/page.tsx"),
+    source("lib/provider/dashboard/provider-dashboard-service.ts"),
+    source("app/provider/packages/layout.tsx"),
+  ]);
+  assert.match(layout, /requireProvider\(\)/u);
+  assert.match(layout, /requireProviderIdentityAccess/u);
+  assert.match(layout, /identity-limited/u);
+  const session = await source("lib/auth/session.ts");
+  assert.match(session, /requireVerifiedEmail\(account, "\/provider-verify-email"\)/u);
+  assert.match(session, /redirect\("\/provider-verify-phone"\)/u);
+  assert.match(
+    session,
+    /requireApprovedProvider[\s\S]*?requireOnboardingReadyProvider\(\)/u,
+  );
+  assert.match(dashboard, /getProviderDashboardData\(\)/u);
+  assert.doesNotMatch(dashboard, /firebase-admin|adminDb/u);
+  assert.match(dashboardService, /^import "server-only";/u);
+  assert.match(
+    dashboardService,
+    /getProviderDashboardData[\s\S]*?await requireApprovedProvider\(\)/u,
+  );
+  assert.doesNotMatch(
+    dashboardService,
+    /getProviderDashboardData\s*\([^)]*providerId/u,
+  );
+  assert.match(packages, /requireProviderCatalogAccess\(\)/u);
+  assert.doesNotMatch(packages, /requireApprovedProvider\(\)/u);
+});
+
+test("draft catalog access requires a trusted linked provider profile", async () => {
+  const session = await source("lib/auth/session.ts");
+  assert.match(session, /requireProviderCatalogAccess/u);
+  assert.match(
+    session,
+    /!account\.provider \|\| account\.provider\.id !== account\.providerId/u,
+  );
+  assert.match(session, /redirect\("\/provider\/onboarding"\)/u);
+  assert.match(session, /requireApprovedProvider/u);
+  assert.match(session, /verificationStatus !== "approved"/u);
+});
+
+test("provider identity and business registration use only trusted callables", async () => {
+  const client = await source("lib/auth/provider-client.ts");
+  assert.match(client, /ensureProviderIdentity/u);
+  assert.match(client, /registerProvider/u);
+  assert.match(client, /validateProviderOwnerIdentityInput/u);
+  assert.match(client, /exchangeCurrentUserForSession\("provider"/u);
+  assert.match(client, /sendEmailVerification\(user\)/u);
+  assert.match(client, /linkWithCredential\(user, emailCredential\)/u);
+  assert.doesNotMatch(
+    client.slice(
+      client.indexOf("export async function registerProviderIdentity"),
+      client.indexOf("export async function signInProvider"),
+    ),
+    /createUserWithEmailAndPassword/u,
+  );
+  assert.doesNotMatch(client, /isPhoneVerified\s*:/u);
+  assert.doesNotMatch(client, /phoneVerified\s*:/u);
+  assert.doesNotMatch(client, /verificationStatus\s*:/u);
+  assert.doesNotMatch(client, /isActive\s*:/u);
+  assert.doesNotMatch(client, /isFeatured\s*:/u);
+});
+
+test("verification uploads use the exact private path and no public URL", async () => {
+  const client = await source("lib/auth/provider-client.ts");
+  assert.match(
+    client,
+    /providers\/\$\{input\.providerId\}\/verification\/\$\{input\.documentType\}/u,
+  );
+  assert.match(client, /10 \* 1024 \* 1024/u);
+  assert.match(client, /registerVerificationDocument/u);
+  assert.doesNotMatch(client, /getDownloadURL/u);
+});
+
+test("provider submission refreshes trusted server context and never assigns status", async () => {
+  const [client, actions] = await Promise.all([
+    source("lib/auth/provider-client.ts"),
+    source("app/provider/verification/provider-verification-actions.tsx"),
+  ]);
+  assert.match(client, /submitProviderVerification/u);
+  assert.match(actions, /router\.replace\("\/provider\/status"\)/u);
+  assert.match(actions, /router\.refresh\(\)/u);
+  assert.doesNotMatch(actions, /verificationStatus\s*:/u);
+  assert.doesNotMatch(actions, /status\s*:\s*["']submitted["']/u);
+});

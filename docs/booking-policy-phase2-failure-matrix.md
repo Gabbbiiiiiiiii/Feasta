@@ -1,0 +1,14 @@
+# Phase 2: initial six-failure investigation
+
+All six tests were run individually before changing production code or tests. Each failed. Captured logs: `.tmp/phase2-failure-1.log` through `phase2-failure-6.log`.
+
+| File | Test | Actual failure | Classification / understood contract |
+| --- | --- | --- | --- |
+| `admin-payment-finance-attention-ui-wiring.test.cjs` | P11 Finance Attention exposes failed payouts and reconciliation cases | Expected `Payment issues`; current heading is `Provider payout issues`. | C: unrelated existing dirty UI wording change. Provider payout issues remain separately visible; not v3. |
+| Same | P11 Finance Attention allows only guarded payout setup recovery | Expected `Refresh Payment issues`; current instruction is `Refresh Provider payout issues`. | C: stale wording assertion. Auth, record validity, freshness and prohibited payout operations must remain asserted. |
+| `admin-payment-finance-health-ui-wiring.test.cjs` | P11 Payment Monitoring clearly separates failed Customer payments and Provider payouts | Expected `Currently paid amount`; current main statistic is `Paid amount`. Provider payout statistics moved into the dedicated attention component. | C: stale UI placement/wording assertion. Both customer and Provider failure statistics must still be checked at their current locations. |
+| Same | P11 Payment Monitoring exposes the existing issue filter | Expected `Record review`; current label is `Review status`. | C: stale label assertion; issue values and filter wiring remain intact. |
+| `customer-remaining-balance-ui-wiring.test.cjs` | web customer booking card displays server-owned balance lifecycle | Expected `An overdue balance may still be payable`; current card says `Payment options will appear when they are available.` | C: stale unconditional payable wording. Server-authorized checkout controls govern availability; overdue is not blanket authority to collect money. |
+| `remaining-balance-enforcement.test.cjs` | existing pre-deadline checkout resumes without creating a second attempt | `Payment attempt requires reconciliation` at durable-attempt fingerprint validation. | C: stale fixture from existing payment-return changes. Production sends `FEASTA Remaining Balance` and payment-correlated return URLs; fixture fingerprints old description and uncorrelated URLs. Keep strict fingerprint and no-new-attempt assertions; correct fixture to actual server-owned checkout input. |
+
+No failure is explained by an intentional v3 policy change, and none establishes a production regression. Corrections changed only stale source assertions/fixtures, retaining the financial and security guarantees. The four affected suites subsequently passed 30/30; the final full Functions suite passed 1,209/1,209. See [the final Phase 2 report](booking-policy-phase2-report.md).
