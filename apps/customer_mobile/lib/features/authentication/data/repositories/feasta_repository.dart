@@ -2324,10 +2324,72 @@ class FeastaRepository {
     }
   }
 
+  // Public catalog data is isolated from the protected signed-in cache.
+  static Future<List<ServiceCategory>>? _guestCategoryFuture;
+
+  Future<List<ServiceCategory>> _loadGuestServiceCategories() async {
+    final callable = FirebaseFunctions.instanceFor(
+      region: 'asia-southeast1',
+    ).httpsCallable('listPublicServiceCategories');
+
+    final response = await callable.call(<String, dynamic>{});
+    final data = response.data;
+
+    if (data is! Map || data['items'] is! List) {
+      throw const FormatException('Invalid public service category response.');
+    }
+
+    final categories = <ServiceCategory>[];
+
+    for (final rawItem in data['items'] as List) {
+      if (rawItem is! Map || rawItem['code'] is! String) {
+        throw const FormatException('Invalid public service category.');
+      }
+
+      final category = ServiceCategory.fromMap(
+        rawItem['code'] as String,
+        Map<String, dynamic>.from(rawItem),
+      );
+
+      if (!category.isActive) {
+        throw const FormatException('Inactive public service category.');
+      }
+
+      categories.add(category);
+    }
+
+    categories.sort(
+      (a, b) =>
+          a.name.toLowerCase().compareTo(b.name.toLowerCase()) != 0
+              ? a.name.toLowerCase().compareTo(b.name.toLowerCase())
+              : a.code.compareTo(b.code),
+    );
+
+    return List<ServiceCategory>.unmodifiable(categories);
+  }
   Future<List<ServiceCategory>> getServiceCategories({
     bool activeOnly = false,
     bool forceRefresh = false,
   }) async {
+    // Guests receive a server-filtered public catalog; do not query
+    // the protected serviceCategories collection anonymously.
+    if (FirebaseAuth.instance.currentUser == null) {
+      if (forceRefresh) {
+        _guestCategoryFuture = null;
+      }
+
+      final pending =
+          _guestCategoryFuture ??= _loadGuestServiceCategories();
+
+      try {
+        return await pending;
+      } catch (_) {
+        if (identical(_guestCategoryFuture, pending)) {
+          _guestCategoryFuture = null;
+        }
+        rethrow;
+      }
+    }
     List<ServiceCategory> categories;
 
     if (!forceRefresh && _serviceCategoryCache != null) {

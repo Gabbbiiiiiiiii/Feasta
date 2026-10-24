@@ -4,6 +4,7 @@ import '../../core/domain/service_category.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/helpers/auth_guard.dart';
 import '../../core/helpers/provider_category_helper.dart';
 import '../../core/widgets/badges/feasta_price_text.dart';
@@ -17,6 +18,7 @@ import '../../shared/models/promotion_model.dart';
 import '../authentication/data/repositories/feasta_repository.dart';
 import '../authentication/data/services/customer_address_storage_service.dart';
 import '../authentication/data/services/promotion_service.dart';
+
 import '../notifications/notifications_screen.dart';
 import 'home_text_colors.dart';
 import 'customer_provider_collection_screen.dart';
@@ -547,10 +549,12 @@ class _PromotionSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final service = PromotionService();
-
     return StreamBuilder<List<PromotionModel>>(
-      stream: stream ?? service.watchActivePromotions(),
+      stream:
+          stream ??
+          (FirebaseAuth.instance.currentUser == null
+              ? Stream<List<PromotionModel>>.value(const <PromotionModel>[])
+              : PromotionService().watchActivePromotions()),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Padding(

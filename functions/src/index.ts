@@ -319,6 +319,7 @@ const callableOptions = {
   timeoutSeconds: 20,
   memory: "256MiB" as const,
 };
+const guestMapsCallableOptions = callableOptions;
 
 export const searchPlaces = onCall(callableOptions, async (request) => {
   try {
@@ -397,6 +398,69 @@ export const reverseGeocode = onCall(callableOptions, async (request) => {
     await enforceCallableRateLimit(request, {
       scope: "maps.reverseGeocode",
       limit: 30,
+      windowSeconds: 60,
+    });
+    const data = asRecord(request.data);
+    const latitude = requireCoordinate(data, "latitude", -90, 90);
+    const longitude = requireCoordinate(data, "longitude", -180, 180);
+    requirePhilippinesLocation(latitude, longitude);
+    const apiKey = getGoogleMapsApiKey();
+    const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+    url.searchParams.set("latlng", `${latitude},${longitude}`);
+    url.searchParams.set("key", apiKey);
+    url.searchParams.set("region", "ph");
+
+    const response = await fetchCachedGoogleJson<GeocodingResponse>(
+      url.toString(),
+      {},
+      24 * 60 * 60,
+    );
+
+    if (response.status === "ZERO_RESULTS") {
+      throw new HttpsError(
+        "not-found",
+        "No address was found for this map position.",
+      );
+    }
+
+    if (response.status !== "OK") {
+      logger.warn("Geocoding API rejected the request", {
+        status: response.status,
+        errorMessage: response.error_message,
+      });
+      throw new HttpsError(
+        "unavailable",
+        "Unable to load address. Please try again or enter manually.",
+      );
+    }
+
+    const result = response.results?.[0];
+    if (!result) {
+      throw new HttpsError(
+        "not-found",
+        "No address was found for this map position.",
+      );
+    }
+
+    const resultLat = result.geometry?.location?.lat ?? latitude;
+    const resultLng = result.geometry?.location?.lng ?? longitude;
+
+    return buildStructuredAddress({
+      fullAddress: result.formatted_address ?? "",
+      components: result.address_components ?? [],
+      latitude: resultLat,
+      longitude: resultLng,
+    });
+  } catch (error) {
+    throw toHttpsError(error, "Unable to reverse geocode this location.");
+  }
+});
+
+export const reverseGeocodePublic = onCall(guestMapsCallableOptions, async (request) => {
+  try {
+    await enforceCallableRateLimit(request, {
+      scope: "maps.reverseGeocodePublic",
+      limit: 12,
       windowSeconds: 60,
     });
     const data = asRecord(request.data);
@@ -1107,3 +1171,4 @@ export {
   listOccasionSuggestionsForReview,
   reviewOccasionSuggestion,
 } from "./packages/provider-occasion-suggestions-v2.js";
+export {listPublicServiceCategories} from "./catalog/list-public-service-categories.js";

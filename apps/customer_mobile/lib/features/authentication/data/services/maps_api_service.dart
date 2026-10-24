@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
@@ -98,7 +99,11 @@ class MapsApiService {
     required double longitude,
     String? addressLabel,
   }) async {
-    final response = await _callMap('reverseGeocode', <String, dynamic>{
+    final functionName = FirebaseAuth.instance.currentUser == null
+        ? 'reverseGeocodePublic'
+        : 'reverseGeocode';
+
+    final response = await _callMap(functionName, <String, dynamic>{
       'latitude': latitude,
       'longitude': longitude,
     });
@@ -173,9 +178,7 @@ class MapsApiService {
         'details=${error.details}',
       );
 
-      throw MapsApiException(
-        'Firebase ${error.code}: ${error.message ?? 'No message'}',
-      );
+      throw MapsApiException(_friendlyFunctionMessage(error));
     } on TimeoutException {
       throw const MapsApiException(
         'The location request timed out. Check your connection and try again.',
