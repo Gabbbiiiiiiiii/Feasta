@@ -1172,3 +1172,5 @@ export {
   reviewOccasionSuggestion,
 } from "./packages/provider-occasion-suggestions-v2.js";
 export {listPublicServiceCategories} from "./catalog/list-public-service-categories.js";
+export {listAdminOccasions, createAdminOccasion, updateAdminOccasion,
+  previewAdminOccasionImpact} from "./admin/occasion-management.js";

@@ -144,11 +144,11 @@ const serviceCategories: AdminServiceCategory[] = [
 describe("File Maintenance document catalog", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("shows only the three operational sections", async () => {
+  it("preserves the three existing sections and adds occasion maintenance", async () => {
     const user = userEvent.setup();
     render(<FileMaintenanceClient initialCategories={[]} initialAgreements={[]} initialBusinessDocuments={[]} />);
     expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
-      "Service categories", "Agreements", "Business documents",
+      "Service categories", "Agreements", "Business documents", "Event Types / Occasions",
     ]);
     expect(screen.queryByText(/document categories/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole("tab", {name: "Agreements"}));

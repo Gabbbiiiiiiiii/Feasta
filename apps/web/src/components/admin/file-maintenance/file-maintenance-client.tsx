@@ -7,6 +7,7 @@ import {
   BusinessDocumentManagement,
 } from "@/components/admin/file-maintenance/document-catalog-management-client";
 import {ServiceCategoryManagementClient} from "@/components/admin/file-maintenance/service-category-management-client";
+import {OccasionManagementClient} from "@/components/admin/file-maintenance/occasion-management-client";
 import {PageHeading} from "@/components/layout/page-heading";
 import {Button} from "@/components/ui/button";
 import type {
@@ -20,6 +21,7 @@ const SECTIONS = [
   {id: "service-categories", label: "Service categories"},
   {id: "agreements", label: "Agreements"},
   {id: "business-documents", label: "Business documents"},
+  {id: "occasions", label: "Event Types / Occasions"},
 ] as const;
 
 type SectionId = (typeof SECTIONS)[number]["id"];
@@ -40,13 +42,14 @@ export function FileMaintenanceClient({
 
   const [categories, setCategories] =
     useState(initialCategories);
+  const [occasionDirty, setOccasionDirty] = useState(false);
 
   return (
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Administration"
         title="Platform setup"
-        description="Manage service categories, agreements, and required business documents."
+        description="Manage service categories, occasions, agreements, and required business documents."
       />
       <div
         className="flex min-w-0 gap-2 overflow-x-auto pb-1"
@@ -66,7 +69,11 @@ export function FileMaintenanceClient({
               variant={selected ? "primary" : "secondary"}
               size="compact"
               className="shrink-0"
-              onClick={() => setSection(item.id)}
+              onClick={() => {
+                if (item.id === section || !occasionDirty || window.confirm("Discard unsaved occasion changes?")) {
+                  setSection(item.id);
+                }
+              }}
             >
               {item.label}
             </Button>
@@ -97,6 +104,7 @@ export function FileMaintenanceClient({
             serviceCategories={categories}
           />
         ) : null}
+        {section === "occasions" ? <OccasionManagementClient categories={categories} onDirtyChange={setOccasionDirty} /> : null}
       </div>
     </div>
   );
