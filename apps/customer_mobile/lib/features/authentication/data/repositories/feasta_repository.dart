@@ -1,3 +1,4 @@
+import '../../../../core/domain/legacy_booking_payment_authority.dart';
 import 'customer_bookings_source.dart';
 import '../../../../shared/models/booking_refund_policy.dart';
 import '../../../../shared/models/booking_agreement.dart';
@@ -626,142 +627,7 @@ class FeastaRepository {
     required BookingModel booking,
     required RecoveryOfferModel offer,
   }) async {
-    if (booking.customerId != currentUid) {
-      throw Exception('You are not allowed to select this recovery offer.');
-    }
-
-    if (booking.recoveryStatus != BookingRecoveryStatus.open &&
-        booking.recoveryStatus != BookingRecoveryStatus.offerReceived) {
-      throw Exception('This booking is not available for recovery selection.');
-    }
-
-    if (offer.status != RecoveryOfferStatus.offered) {
-      throw Exception('This recovery offer is no longer available.');
-    }
-
-    final providerDoc = await _db
-        .collection(FirestoreCollections.providers)
-        .doc(offer.offeringProviderId)
-        .get();
-
-    if (!providerDoc.exists) {
-      throw Exception('Selected provider no longer exists.');
-    }
-
-    final providerData = providerDoc.data() ?? {};
-    final providerBusinessName =
-        providerData['businessName'] ?? offer.offeringProviderBusinessName;
-
-    final providerOwnerId = providerData['ownerId'];
-
-    final deadline = DateTime.now().add(const Duration(hours: 24));
-    final now = FieldValue.serverTimestamp();
-
-    final batch = _db.batch();
-
-    final bookingRef = _db
-        .collection(FirestoreCollections.mainEvents)
-        .doc(booking.id);
-
-    final selectedOfferRef = _db
-        .collection(FirestoreCollections.bookingRecoveryOffers)
-        .doc(offer.id);
-
-    final timelineRef = _db
-        .collection(FirestoreCollections.bookingTimelines)
-        .doc();
-
-    final providerNotificationRef = _db
-        .collection(FirestoreCollections.notifications)
-        .doc();
-
-    batch.update(bookingRef, {
-      'providerId': offer.offeringProviderId,
-      'currentProviderId': offer.offeringProviderId,
-      'providerBusinessName': providerBusinessName,
-
-      'status': BookingStatus.waitingPayment,
-      'paymentStatus': PaymentStatus.unpaid,
-
-      'recoveryStatus': BookingRecoveryStatus.completed,
-      'selectedRecoveryOfferId': offer.id,
-      'recoveryCompletedAt': now,
-
-      'paymentDeadline': Timestamp.fromDate(deadline),
-      'acceptedAt': now,
-      'updatedAt': now,
-    });
-
-    batch.update(selectedOfferRef, {
-      'status': RecoveryOfferStatus.selected,
-      'selectedAt': now,
-    });
-
-    final otherOffersSnapshot = await _db
-        .collection(FirestoreCollections.bookingRecoveryOffers)
-        .where('bookingId', isEqualTo: booking.id)
-        .where('status', isEqualTo: RecoveryOfferStatus.offered)
-        .get();
-
-    for (final doc in otherOffersSnapshot.docs) {
-      if (doc.id == offer.id) continue;
-
-      batch.update(doc.reference, {
-        'status': RecoveryOfferStatus.declined,
-        'declinedAt': now,
-      });
-    }
-
-    final addonRequestsSnapshot = await _db
-        .collection(FirestoreCollections.addonRequests)
-        .where('bookingId', isEqualTo: booking.id)
-        .get();
-
-    for (final doc in addonRequestsSnapshot.docs) {
-      final data = doc.data();
-      final currentStatus = data['status'];
-
-      if (currentStatus == AddonRequestStatus.cancelled ||
-          currentStatus == AddonRequestStatus.rejected ||
-          currentStatus == AddonRequestStatus.completed) {
-        continue;
-      }
-
-      batch.update(doc.reference, {
-        'linkStatus': AddonLinkStatus.relinked,
-        'mainBookingStatus': BookingStatus.waitingPayment,
-        'currentCateringProviderId': offer.offeringProviderId,
-        'updatedAt': now,
-      });
-    }
-
-    batch.set(timelineRef, {
-      'bookingId': booking.id,
-      'status': BookingStatus.waitingPayment,
-      'title': 'Recovery Caterer Selected',
-      'description':
-          'Customer selected $providerBusinessName as the new catering provider. Customer must complete the required payment.',
-      'createdBy': currentUid,
-      'createdByRole': UserRoles.customer,
-      'createdAt': now,
-    });
-
-    if (providerOwnerId != null) {
-      batch.set(providerNotificationRef, {
-        'userId': providerOwnerId,
-        'title': 'Recovery Offer Selected',
-        'message':
-            '${booking.customerFirstName} ${booking.customerLastName} selected your recovery offer. Waiting for payment.',
-        'type': NotificationType.booking,
-        'relatedId': booking.id,
-        'relatedCollection': FirestoreCollections.mainEvents,
-        'isRead': false,
-        'readAt': null,
-        'createdAt': now,
-      });
-    }
-
-    await batch.commit();
+    requireTrustedLegacyBookingPaymentAuthority();
   }
 
   Future<void> cancelRecoveryRequest({
@@ -1803,64 +1669,11 @@ class FeastaRepository {
         .snapshots();
   }
 
+  @Deprecated(
+    'Use canonical provider-request acceptance on the trusted backend.',
+  )
   Future<void> acceptBooking({required BookingModel booking}) async {
-    final deadline = DateTime.now().add(const Duration(hours: 24));
-    final now = FieldValue.serverTimestamp();
-
-    final batch = _db.batch();
-
-    final bookingRef = _db
-        .collection(FirestoreCollections.mainEvents)
-        .doc(booking.id);
-
-    final timelineRef = _db
-        .collection(FirestoreCollections.bookingTimelines)
-        .doc();
-
-    final notificationRef = _db
-        .collection(FirestoreCollections.notifications)
-        .doc();
-
-    batch.update(bookingRef, {
-      'status': BookingStatus.waitingPayment,
-      'paymentDeadline': Timestamp.fromDate(deadline),
-      'acceptedAt': now,
-      'updatedAt': now,
-    });
-
-    batch.set(timelineRef, {
-      'bookingId': booking.id,
-      'status': BookingStatus.waitingPayment,
-      'title': 'Booking Request Accepted',
-      'description':
-          booking.remainingBalance > 0 &&
-              booking.downPaymentAmount > 0 &&
-              booking.downPaymentAmount < booking.totalAmount
-          ? 'Provider accepted the booking request. Customer must complete the down payment.'
-          : 'Provider accepted the booking request. Customer must complete the full payment.',
-      'createdBy': currentUid,
-      'createdByRole': UserRoles.provider,
-      'createdAt': now,
-    });
-
-    batch.set(notificationRef, {
-      'userId': booking.customerId,
-      'title': 'Booking Accepted',
-      'message':
-          booking.remainingBalance > 0 &&
-              booking.downPaymentAmount > 0 &&
-              booking.downPaymentAmount < booking.totalAmount
-          ? '${booking.providerBusinessName} accepted your booking request. Please complete your down payment.'
-          : '${booking.providerBusinessName} accepted your booking request. Please complete your full payment.',
-      'type': NotificationType.booking,
-      'relatedId': booking.id,
-      'relatedCollection': FirestoreCollections.mainEvents,
-      'isRead': false,
-      'readAt': null,
-      'createdAt': now,
-    });
-
-    await batch.commit();
+    requireTrustedLegacyBookingPaymentAuthority();
   }
 
   Future<

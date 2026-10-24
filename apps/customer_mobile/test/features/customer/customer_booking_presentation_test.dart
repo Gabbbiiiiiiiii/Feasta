@@ -143,6 +143,9 @@ void main() {
   }
   test('malformed parent status cannot enable canonical provider checkout', () {
     final request = _BookingDocument({
+      // Preserve the historical positive control with frozen server evidence.
+      'acceptedAt': Timestamp.fromDate(DateTime.utc(2026, 11, 1, 1)),
+      'expiresAt': Timestamp.fromDate(DateTime.utc(2026, 11, 2, 1)),
       'status': 'waiting_for_down_payment',
       'paymentStatus': 'unpaid',
       'financialSnapshot': {

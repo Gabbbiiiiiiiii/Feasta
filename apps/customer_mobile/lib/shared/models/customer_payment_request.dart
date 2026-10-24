@@ -1,3 +1,4 @@
+import 'initial_payment_deadline.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum CustomerPaymentChoice {
@@ -49,6 +50,7 @@ class CustomerProviderPaymentRequest {
     this.remainingBalanceDueAt,
     this.remainingBalanceGraceEndsAt,
     required this.checkoutOptions,
+    this.initialPaymentDeadline,
   });
 
   final String id;
@@ -65,6 +67,7 @@ class CustomerProviderPaymentRequest {
   final DateTime? remainingBalanceDueAt;
   final DateTime? remainingBalanceGraceEndsAt;
   final List<CustomerPaymentOption> checkoutOptions;
+  final InitialPaymentDeadline? initialPaymentDeadline;
 
   bool get canStartCheckout => checkoutOptions.isNotEmpty;
 
@@ -97,6 +100,7 @@ class CustomerProviderPaymentRequest {
       remainingBalanceGraceEndsAt: _timestampDate(
         data['remainingBalanceGraceEndsAt'],
       ),
+      initialPaymentDeadline: InitialPaymentDeadline.fromRecord(data),
       checkoutOptions: _checkoutOptions(data, mainEventStatus: mainEventStatus),
     );
   }
@@ -172,7 +176,9 @@ List<CustomerPaymentOption> _checkoutOptions(
     return const [];
   }
 
-  if (request['activeCancellationRequestId'] != null ||
+  if (request['initialPaymentReview'] != null ||
+      request['lifecycleReconciliationRequired'] == true ||
+      request['activeCancellationRequestId'] != null ||
       request['reconciliationRequired'] == true) {
     return const [];
   }
@@ -305,7 +311,10 @@ List<CustomerPaymentOption> _checkoutOptions(
 bool _initialEligible(Map<String, dynamic> request, String mainEventStatus) {
   final paymentStatus = _string(request['paymentStatus']) ?? 'unpaid';
 
-  return request['status'] == 'waiting_for_down_payment' &&
+  // Device time is never payment authority. The callable checks expiration
+  // transactionally on every checkout, including retries and stale app screens.
+  return InitialPaymentDeadline.fromRecord(request).hasValidEvidence &&
+      request['status'] == 'waiting_for_down_payment' &&
       const {
         'pending_provider_approval',
         'needs_provider_replacement',
