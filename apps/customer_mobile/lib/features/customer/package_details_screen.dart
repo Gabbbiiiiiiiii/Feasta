@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'event_list/save_package_to_event_list.dart';
+import '../../core/security/customer_session_coordinator.dart';
+import 'customization_session.dart';
 import 'widgets/package_option_cards.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -22,10 +25,12 @@ class PackageDetailsScreen extends StatefulWidget {
     required this.provider,
     required this.eventPackage,
     this.repository,
+    this.sessions,
     super.key,
   });
 
   final FeastaRepository? repository;
+  final CustomerSessionCoordinator? sessions;
   final ProviderModel provider;
   final PackageModel eventPackage;
 
@@ -123,6 +128,23 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
       return;
     }
 
+    final sessions = widget.sessions ?? CustomerSessionCoordinator.shared;
+    final captured = sessions.readSnapshot();
+    if (captured.customerUid == null) {
+      FeastaSnackbars.show(
+        context,
+        message: 'Please sign in again to customize your event.',
+        tone: FeastaSnackbarTone.error,
+      );
+      return;
+    }
+    final binding = CustomizationSession(
+      uid: captured.customerUid!,
+      generation: captured.generation,
+      changes: sessions,
+      isCurrent: () => sessions.isCurrent(captured),
+    );
+    final origin = ModalRoute.of(context);
     setState(() {
       _checkingPackage = true;
       _selectionError = null;
@@ -132,7 +154,9 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
         provider.id,
         eventPackage.id,
       );
-      if (!mounted) return;
+      if (!mounted || !binding.authorized || !(origin?.isCurrent ?? false)) {
+        return;
+      }
       if (fresh == null || !eligiblePreparationPackage(fresh, provider.id)) {
         setState(
           () => _selectionError =
@@ -146,22 +170,26 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
         return;
       }
       setState(() => _currentPackage = fresh);
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => EventCustomizationScreen(
-            provider: provider,
-            eventPackage: fresh,
-            repository: _repository,
-            initialServiceTier: _selectedServiceTier,
-            onServiceChanged: (tier) {
-              if (mounted) setState(() => _selectedServiceTier = tier);
-            },
-          ),
+      late final EventCustomizationRoute route;
+      route = EventCustomizationRoute(
+        origin: origin,
+        builder: (_) => EventCustomizationScreen(
+          provider: provider,
+          eventPackage: fresh,
+          repository: _repository,
+          session: binding,
+          initialServiceTier: _selectedServiceTier,
+          onServiceChanged: (tier) {
+            if (mounted && binding.authorized && route.isActive) {
+              setState(() => _selectedServiceTier = tier);
+            }
+          },
         ),
       );
+      unawaited(Navigator.push<void>(context, route));
+      await route.completed;
     } catch (_) {
-      if (mounted) {
+      if (mounted && binding.authorized) {
         setState(
           () => _selectionError =
               'We could not verify this package. It may be unavailable. Please retry or choose another package.',
@@ -173,6 +201,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
         );
       }
     } finally {
+      binding.dispose();
       if (mounted) setState(() => _checkingPackage = false);
     }
   }

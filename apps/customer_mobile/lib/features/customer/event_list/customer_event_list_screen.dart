@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../../app/router/customer_auth_navigation.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/widgets/widgets.dart';
 import '../../../shared/models/customer_event_list.dart';
@@ -7,10 +9,14 @@ import 'event_list_scope.dart';
 import 'event_list_catalog.dart';
 import 'event_list_review_controller.dart';
 import 'event_list_review_models.dart';
+import 'event_list_customization_controller.dart';
+import '../event_customization_screen.dart';
+import '../../authentication/data/repositories/feasta_repository.dart';
 
 class CustomerEventListScreen extends StatefulWidget {
-  const CustomerEventListScreen({this.catalog, super.key});
+  const CustomerEventListScreen({this.catalog, this.repository, super.key});
   final EventListCatalog? catalog;
+  final FeastaRepository? repository;
   @override
   State<CustomerEventListScreen> createState() =>
       _CustomerEventListScreenState();
@@ -19,14 +25,33 @@ class CustomerEventListScreen extends StatefulWidget {
 class _CustomerEventListScreenState extends State<CustomerEventListScreen>
     with WidgetsBindingObserver {
   bool _busy = false;
+  bool _clearDialogOpen = false;
+  EventListCustomizationController? _customization;
+  late final FeastaRepository _repository =
+      widget.repository ?? FeastaRepository();
   EventListReviewController? _review;
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // Observe route transitions even if the same list controller is retained.
+    // A temporary Clear confirmation is not a mutation or a new entry route.
+    if (!_clearDialogOpen &&
+        !(ModalRoute.of(context)?.isCurrent ?? false) &&
+        (_customization?.verifying ?? false)) {
+      _customization?.invalidate();
+    }
     final controller = EventListScope.of(context);
     if (_review?.controller == controller) return;
     _review?.removeListener(_reviewChanged);
     _review?.dispose();
+    _customization?.removeListener(_reviewChanged);
+    _customization?.dispose();
+    _customization = EventListCustomizationController(
+      controller: controller,
+      lookupPackage: (provider, package) =>
+          _repository.getEligiblePackageForPreparation(provider, package),
+      lookupProvider: (provider) => _repository.getProviderById(provider),
+    )..addListener(_reviewChanged);
     _review = EventListReviewController(
       controller: controller,
       catalog: widget.catalog,
@@ -51,6 +76,8 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
     WidgetsBinding.instance.removeObserver(this);
     _review?.removeListener(_reviewChanged);
     _review?.dispose();
+    _customization?.removeListener(_reviewChanged);
+    _customization?.dispose();
     super.dispose();
   }
 
@@ -94,32 +121,43 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
     EventListController controller,
     EventListAuthSession session,
   ) async {
-    if (session != controller.authentication.session) return;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Clear Event List?'),
-        content: const Text(
-          'Remove all saved package selections from this customer’s Event List? Your event drafts and bookings will be kept.',
+    if (_clearDialogOpen || session != controller.authentication.session) {
+      return;
+    }
+    _clearDialogOpen = true;
+    final bool? confirmed;
+    try {
+      confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Clear Event List?'),
+          content: const Text(
+            'Remove all saved package selections from this customer’s Event List? Your event drafts and bookings will be kept.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Confirm Clear List'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Confirm Clear List'),
-          ),
-        ],
-      ),
-    );
+      );
+    } finally {
+      _clearDialogOpen = false;
+    }
     if (!mounted ||
         confirmed != true ||
         session != controller.authentication.session) {
       return;
     }
-    await _run(controller.clear);
+    await _run(() {
+      _customization?.invalidate();
+      return controller.clear();
+    });
   }
 
   @override
@@ -224,8 +262,7 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
             ],
             const SizedBox(height: 16),
             FilledButton(
-              onPressed: () =>
-                  Navigator.of(context).popUntil((route) => route.isFirst),
+              onPressed: () => returnToCustomerRoot(Navigator.of(context)),
               child: const Text('Continue Browsing'),
             ),
           ],
@@ -291,13 +328,63 @@ class _CustomerEventListScreenState extends State<CustomerEventListScreen>
               },
               child: Text('Retry verification for ${entry.packageName}'),
             ),
+          FilledButton(
+            onPressed: _busy || (_customization?.busy ?? true)
+                ? null
+                : () {
+                    if (session != controller.authentication.session) return;
+                    _customization?.customize(
+                      entry,
+                      originIsCurrent: () =>
+                          mounted &&
+                          (ModalRoute.of(context)?.isCurrent ?? false),
+                      navigate: (provider, package, binding) async {
+                        final route = EventCustomizationRoute(
+                          origin: ModalRoute.of(context),
+                          builder: (_) => EventCustomizationScreen(
+                            provider: provider,
+                            eventPackage: package,
+                            repository: _repository,
+                            session: binding,
+                          ),
+                        );
+                        unawaited(Navigator.of(context).push<void>(route));
+                        await route.completed;
+                      },
+                    );
+                  },
+            child: Text(
+              'Customize Package',
+              semanticsLabel: 'Customize Package: ${entry.packageName}',
+            ),
+          ),
+          if (_customization?.selectedKey == entry.identity.key) ...[
+            if (_customization!.verifying)
+              Semantics(
+                liveRegion: true,
+                excludeSemantics: true,
+                label: 'Checking current package: ${entry.packageName}',
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    LinearProgressIndicator(),
+                    Text('Checking current package\u2026'),
+                  ],
+                ),
+              ),
+            if (_customization!.message != null)
+              Semantics(
+                liveRegion: true,
+                child: Text(_customization!.message!),
+              ),
+          ],
           TextButton.icon(
             onPressed: _busy
                 ? null
-                : () => _run(
-                    () => controller.removePackage(entry.identity),
-                    expectedSession: session,
-                  ),
+                : () => _run(() {
+                    _customization?.invalidate(identity: entry.identity);
+                    return controller.removePackage(entry.identity);
+                  }, expectedSession: session),
             icon: const Icon(
               Icons.remove_circle_outline,
               color: AppColors.mainText,

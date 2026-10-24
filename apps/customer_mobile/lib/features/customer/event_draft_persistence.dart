@@ -87,13 +87,14 @@ class EventDraftPersistence {
     }
     return decode(Map<String, dynamic>.from(record['form'] as Map));
   });
-  Future<void> save(
+  Future<bool> save(
     String uid,
     String provider,
     String package,
     Map<String, dynamic> form,
-    String? Function() currentUid,
-  ) {
+    String? Function() currentUid, {
+    bool Function()? authorize,
+  }) {
     final String raw;
     try {
       final encoded = encode(form);
@@ -108,8 +109,9 @@ class EventDraftPersistence {
       return Future.error(error, stack);
     }
     return _serial(() async {
-      if (currentUid() != uid) return;
+      if (currentUid() != uid || !(authorize?.call() ?? true)) return false;
       await store.write(key(uid, provider, package), raw);
+      return true;
     });
   }
 
@@ -117,9 +119,12 @@ class EventDraftPersistence {
     String uid,
     String provider,
     String package,
-    String? Function() currentUid,
-  ) => _serial(() async {
-    if (currentUid() != uid) throw StateError('Account changed.');
+    String? Function() currentUid, {
+    bool Function()? authorize,
+  }) => _serial(() async {
+    if (currentUid() != uid || !(authorize?.call() ?? true)) {
+      throw StateError('Account changed.');
+    }
     await store.delete(key(uid, provider, package));
   });
 

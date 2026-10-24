@@ -1,5 +1,7 @@
 import '../../core/theme/app_colors.dart';
 import 'dart:async';
+import 'customization_session.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -25,6 +27,7 @@ class LocationPickerScreen extends StatefulWidget {
     this.mapsApiService,
     this.locationService,
     this.mapBuilder,
+    this.session,
   });
 
   final CustomerAddressModel? initialAddress;
@@ -32,12 +35,44 @@ class LocationPickerScreen extends StatefulWidget {
   final MapsApiService? mapsApiService;
   final LocationService? locationService;
   final Widget Function(GoogleMap)? mapBuilder;
+  final CustomizationSession? session;
 
   @override
   State createState() => _LocationPickerScreenState();
 }
 
 class _LocationPickerScreenState extends State<LocationPickerScreen> {
+  late final _session = widget.session;
+  bool _sessionClosed = false;
+  ModalRoute<dynamic>? _route;
+  bool get _authorized =>
+      _session == null ||
+      (!_sessionClosed &&
+          _session.authorized &&
+          FirebaseAuth.instance.currentUser?.uid == _session.uid);
+  bool get _canPublish => mounted && _authorized && (_route?.isActive ?? true);
+
+  void _sessionChanged() {
+    if (!_authorized) {
+      _sessionClosed = true;
+      searchDebounce?.cancel();
+      reverseRequestId++;
+      // The removed GoogleMap subtree owns native-controller disposal.
+      mapController = null;
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _route = ModalRoute.of(context);
+  }
+
+  @override
+  void setState(VoidCallback fn) {
+    if (_canPublish) super.setState(fn);
+  }
+
   final storageService = CustomerAddressStorageService();
   late final locationService = widget.locationService ?? LocationService();
   late final mapsApiService = widget.mapsApiService ?? MapsApiService();
@@ -65,11 +100,13 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   @override
   void initState() {
     super.initState();
+    _session?.addListener(_sessionChanged);
     _loadInitialState();
   }
 
   @override
   void dispose() {
+    _session?.removeListener(_sessionChanged);
     searchDebounce?.cancel();
     searchController.dispose();
     mapController?.dispose();
@@ -77,6 +114,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _loadInitialState() async {
+    if (!_canPublish) return;
     bool configured = false;
     try {
       configured =
@@ -96,7 +134,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
             : await storageService.getSelectedOrDefault());
     final mapTypeKey = await storageService.getPreferredMapType();
 
-    if (!mounted) return;
+    if (!_canPublish) return;
 
     setState(() {
       _mapsConfigured = configured;
@@ -112,6 +150,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   void _onSearchChanged(String value) {
+    if (!_canPublish) return;
     searchDebounce?.cancel();
 
     final query = value.trim();
@@ -130,16 +169,17 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     });
 
     searchDebounce = Timer(const Duration(milliseconds: 420), () async {
+      if (!_canPublish) return;
       try {
         final results = await mapsApiService.searchPlaces(query);
-        if (!mounted || searchController.text.trim() != query) return;
+        if (!_canPublish || searchController.text.trim() != query) return;
 
         setState(() {
           suggestions = results;
           isSearching = false;
         });
       } on MapsApiException catch (e) {
-        if (!mounted || searchController.text.trim() != query) return;
+        if (!_canPublish || searchController.text.trim() != query) return;
 
         setState(() {
           suggestions = [];
@@ -151,6 +191,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _useCurrentLocation() async {
+    if (!_canPublish) return;
     final requestId = ++reverseRequestId;
     setState(() {
       isLocating = true;
@@ -159,7 +200,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
 
     try {
       final position = await locationService.getCurrentPosition();
-      if (!mounted || requestId != reverseRequestId) return;
+      if (!_canPublish || requestId != reverseRequestId) return;
       _selectPoint(LatLng(position.latitude, position.longitude));
       setState(() {
         accuracyWarning = position.accuracy > 35
@@ -168,21 +209,21 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       });
       await _moveMapToAddress(previewAddress);
     } on LocationServiceException catch (e) {
-      if (!mounted || requestId != reverseRequestId) return;
+      if (!_canPublish || requestId != reverseRequestId) return;
 
       setState(() {
         isLocating = false;
         errorMessage = e.message;
       });
     } on MapsApiException catch (e) {
-      if (!mounted || requestId != reverseRequestId) return;
+      if (!_canPublish || requestId != reverseRequestId) return;
 
       setState(() {
         isLocating = false;
         errorMessage = e.message;
       });
     } catch (_) {
-      if (!mounted || requestId != reverseRequestId) return;
+      if (!_canPublish || requestId != reverseRequestId) return;
 
       setState(() {
         isLocating = false;
@@ -193,6 +234,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _selectSuggestion(PlaceSearchResult suggestion) async {
+    if (!_canPublish) return;
     final requestId = ++reverseRequestId;
     FocusScope.of(context).unfocus();
     searchController.text = suggestion.fullAddress;
@@ -207,7 +249,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
 
     try {
       final address = await mapsApiService.getPlaceDetails(suggestion.placeId);
-      if (!mounted || requestId != reverseRequestId) return;
+      if (!_canPublish || requestId != reverseRequestId) return;
 
       setState(() {
         _hasResolvedPin =
@@ -219,7 +261,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
 
       await _moveMapToAddress(address);
     } on MapsApiException catch (e) {
-      if (!mounted || requestId != reverseRequestId) return;
+      if (!_canPublish || requestId != reverseRequestId) return;
 
       setState(() {
         isResolvingAddress = false;
@@ -229,6 +271,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   void _selectPoint(LatLng target) {
+    if (!_canPublish) return;
     reverseRequestId++;
     setState(() {
       cameraTarget = target;
@@ -254,6 +297,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _reverseGeocodeCameraTarget() async {
+    if (!_canPublish) return;
     final requestId = ++reverseRequestId;
     final target = cameraTarget;
 
@@ -272,7 +316,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
         longitude: target.longitude,
       );
 
-      if (!mounted || requestId != reverseRequestId) return;
+      if (!_canPublish || requestId != reverseRequestId) return;
 
       setState(() {
         _hasResolvedPin =
@@ -281,7 +325,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
         isResolvingAddress = false;
       });
     } catch (_) {
-      if (!mounted || requestId != reverseRequestId) return;
+      if (!_canPublish || requestId != reverseRequestId) return;
 
       setState(() {
         isResolvingAddress = false;
@@ -295,6 +339,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _toggleMapType() async {
+    if (!_canPublish) return;
     final nextType = mapType == MapType.normal
         ? MapType.satellite
         : MapType.normal;
@@ -307,6 +352,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _moveMapToAddress(CustomerAddressModel address) async {
+    if (!_canPublish) return;
     final controller = mapController;
     if (controller == null) return;
 
@@ -317,7 +363,8 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _confirmPreviewAddress() async {
-    if (!_mapsConfigured ||
+    if (!_canPublish ||
+        !_mapsConfigured ||
         !_hasResolvedPin ||
         isResolvingAddress ||
         isSaving ||
@@ -333,6 +380,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   Future<void> _saveAndReturnAddress(CustomerAddressModel address) async {
+    if (!_canPublish || !(_route?.isCurrent ?? true)) return;
     setState(() {
       isSaving = true;
       errorMessage = null;
@@ -350,11 +398,13 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       if (!widget.sessionOnly) {
         await storageService.saveSelectedAddress(normalizedAddress);
       }
-      if (!mounted) return;
+      if (!mounted || !_canPublish) return;
 
-      Navigator.pop(context, normalizedAddress);
+      if (_route?.isCurrent ?? true) {
+        Navigator.pop(context, normalizedAddress);
+      }
     } catch (_) {
-      if (!mounted) return;
+      if (!_canPublish) return;
 
       setState(() {
         isSaving = false;
@@ -367,6 +417,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     CustomerAddressModel? address,
     bool editCurrent = false,
   }) async {
+    if (!_canPublish) return;
     reverseRequestId++;
     setState(() {
       isResolvingAddress = false;
@@ -374,7 +425,8 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
     });
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(
+      CustomizationSessionRoute<CustomerAddressModel>(
+        session: _session,
         builder: (context) => ManualAddressScreen(
           initialAddress: editCurrent ? address ?? previewAddress : null,
           preserveAddressId: editCurrent,
@@ -382,12 +434,12 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
       ),
     );
 
-    if (result == null) return;
+    if (result == null || !_canPublish) return;
 
     if (editCurrent) {
       if (!widget.sessionOnly) await storageService.updateAddress(result);
 
-      if (!mounted) return;
+      if (!_canPublish) return;
       await _saveAndReturnAddress(result);
       return;
     }
@@ -396,7 +448,10 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      CustomizationSessionBoundary(session: _session, builder: _buildContent);
+
+  Widget _buildContent(BuildContext context) {
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return Scaffold(
@@ -425,7 +480,7 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
                           mapBuilder: widget.mapBuilder,
                           mapType: mapType,
                           onMapCreated: (controller) {
-                            mapController = controller;
+                            if (_canPublish) mapController = controller;
                           },
                           onSelectPoint: _selectPoint,
                           onToggleMapType: _toggleMapType,

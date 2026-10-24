@@ -183,6 +183,8 @@ void main() {
       await controller.addPackage(entry());
       await show(tester);
       await tester.scrollUntilVisible(find.text('Clear List'), 150);
+      await tester.ensureVisible(find.text('Clear List'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Clear List'));
       await tester.pumpAndSettle();
       memory.failWrite = fail;
@@ -197,6 +199,8 @@ void main() {
     await show(tester);
     final writes = memory.writes;
     await tester.scrollUntilVisible(find.text('Clear List'), 150);
+    await tester.ensureVisible(find.text('Clear List'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Clear List'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Cancel'));
@@ -210,6 +214,8 @@ void main() {
     await controller.addPackage(entry());
     await show(tester);
     await tester.scrollUntilVisible(find.text('Clear List'), 150);
+    await tester.ensureVisible(find.text('Clear List'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Clear List'));
     await tester.pumpAndSettle();
     auth.switchTo('customer_B');
@@ -463,6 +469,8 @@ void main() {
       );
       await tester.scrollUntilVisible(find.text('Clear List'), 100);
       expect(find.bySemanticsLabel('Clear List'), findsOneWidget);
+      await tester.ensureVisible(find.text('Clear List'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Clear List'));
       await tester.pumpAndSettle();
       for (final label in ['Cancel', 'Confirm Clear List']) {
@@ -753,6 +761,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(gates.length, before + 1);
       await tester.scrollUntilVisible(find.text('Clear List'), 150);
+      await tester.ensureVisible(find.text('Clear List'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Clear List'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Confirm Clear List'));

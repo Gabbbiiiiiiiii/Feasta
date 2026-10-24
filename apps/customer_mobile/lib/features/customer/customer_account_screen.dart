@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../app/router/customer_route_guard.dart';
+import '../../app/router/customer_auth_navigation.dart';
 import '../../core/helpers/auth_guard.dart';
 import '../../core/services/device_permission_service.dart';
 import '../../shared/models/feasta_models.dart';
@@ -106,7 +107,8 @@ class _CustomerAccountScreenState extends State<CustomerAccountScreen> {
 
     if (!mounted) return;
 
-    Navigator.popUntil(context, (route) => route.isFirst);
+    final returned = await returnToCustomerRoot(Navigator.of(context));
+    if (!returned || !mounted) return;
 
     if (gateController == null) {
       Navigator.pushAndRemoveUntil(

@@ -1,3 +1,4 @@
+import 'booking_preparation_flow_test.dart' show readyPreparationSessions;
 import 'event_draft_persistence_test.dart' show DraftStore;
 import 'package:feasta/features/customer/event_draft_persistence.dart';
 import 'package:feasta/features/customer/location_picker_screen.dart';
@@ -203,6 +204,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: PackageDetailsScreen(
+            sessions: readyPreparationSessions(),
             provider: provider(),
             eventPackage: package,
             repository: repo,

@@ -1,3 +1,4 @@
+import 'package:feasta/core/security/customer_session_coordinator.dart';
 import 'package:feasta/core/widgets/widgets.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -59,6 +60,20 @@ class PreparationAuth extends GuestAuth {
       GuestAuth.signedIn ? PreparationUser() : null;
   @override
   Stream<UserPlatform?> authStateChanges() => Stream.value(currentUser);
+}
+
+CustomerSessionCoordinator readyPreparationSessions() {
+  final sessions = CustomerSessionCoordinator(
+    currentUid: () => GuestAuth.signedIn ? PreparationAuth.owner : null,
+  );
+  sessions.observeIdentity(PreparationAuth.owner);
+  sessions.completeValidation(
+    sessions.beginValidation(),
+    validatedUid: PreparationAuth.owner,
+    authorizedCustomer: true,
+  );
+  addTearDown(sessions.dispose);
+  return sessions;
 }
 
 class PreparationRepository implements FeastaRepository {
@@ -768,6 +783,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: PackageDetailsScreen(
+            sessions: readyPreparationSessions(),
             provider: provider(),
             eventPackage: package,
             repository: PreparationRepository(),
@@ -847,6 +863,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: PackageDetailsScreen(
+            sessions: readyPreparationSessions(),
             provider: provider(),
             eventPackage: preparationPackage(),
             repository: repo,
@@ -903,6 +920,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: PackageDetailsScreen(
+            sessions: readyPreparationSessions(),
             provider: provider(),
             eventPackage: preparationPackage(),
             repository: repo,
@@ -953,6 +971,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: PackageDetailsScreen(
+            sessions: readyPreparationSessions(),
             provider: provider(),
             eventPackage: preparationPackage(),
             repository: repo,

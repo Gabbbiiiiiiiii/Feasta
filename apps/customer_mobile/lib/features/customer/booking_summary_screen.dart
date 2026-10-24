@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'customization_session.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'booking_attempt_coordinator.dart';
 import 'booking_refund_policy_review_screen.dart';
@@ -28,10 +29,14 @@ class BookingSummaryScreen extends StatefulWidget {
     required this.eventPackage,
     required this.customization,
     this.preparationOnly = true,
+    this.session,
+    this.attempts,
     super.key,
   });
 
   final bool preparationOnly;
+  final CustomizationSession? session;
+  final BookingAttemptCoordinator? attempts;
   final ProviderModel provider;
   final PackageModel eventPackage;
   final EventCustomizationData customization;
@@ -50,34 +55,62 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   bool _savingAttempt = false;
   String? _attemptMessage;
   StreamSubscription<User?>? _attemptAuth;
+  late final _session = widget.session;
+  bool _sessionClosed = false;
+  BookingAttemptCoordinator get _attemptCoordinator =>
+      widget.attempts ?? _attempts;
+  bool get _authorized =>
+      _session == null ||
+      (!_sessionClosed &&
+          _session.authorized &&
+          FirebaseAuth.instance.currentUser?.uid == _session.uid);
+  bool get _canAct =>
+      mounted && _authorized && (ModalRoute.of(context)?.isActive ?? true);
+
+  void _sessionChanged() {
+    if (!_sessionClosed && !_authorized) {
+      _sessionClosed = true;
+      // Reject already queued preparation without changing the M4.4 queue.
+      _attemptCoordinator.invalidateSession();
+    }
+  }
 
   @override
   void initState() {
     super.initState();
+    _session?.addListener(_sessionChanged);
     _attemptAuth = FirebaseAuth.instance.authStateChanges().listen((_) {
-      _attempts.invalidateSession();
+      if (_session != null) {
+        _sessionChanged();
+        return;
+      }
+      _attemptCoordinator.invalidateSession();
       if (mounted) setState(() => _attemptMessage = null);
     });
   }
 
   @override
   void dispose() {
+    if (_session != null && _savingAttempt && !_sessionClosed) {
+      _attemptCoordinator.invalidateSession();
+    }
+    _session?.removeListener(_sessionChanged);
     _attemptAuth?.cancel();
     super.dispose();
   }
 
   Future<void> _prepareAttempt() async {
-    if (_savingAttempt) return;
+    if (!_canAct || _savingAttempt) return;
     setState(() => _savingAttempt = true);
     try {
-      final attempt = await _attempts.prepare(
+      final attempt = await _attemptCoordinator.prepare(
         BookingSelection(
           providerId: widget.provider.id,
           packageId: widget.eventPackage.id,
           customization: snapshotCustomization(widget.customization),
         ),
       );
-      if (!mounted) return;
+      if (!_canAct) return;
       setState(
         () => _attemptMessage = attempt.result != null
             ? 'This request already has a confirmed booking result. Review booking history.'
@@ -86,15 +119,56 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
             : 'Request identity saved securely. No booking has been sent. Fresh agreement and refund-policy reviews are required before future submission.',
       );
     } catch (_) {
-      if (mounted) {
+      if (_canAct) {
         setState(
           () => _attemptMessage =
               'Request identity could not be safely prepared. Submission remains blocked; existing attempts have been retained.',
         );
       }
     } finally {
-      if (mounted) setState(() => _savingAttempt = false);
+      if (_canAct) setState(() => _savingAttempt = false);
     }
+  }
+
+  void _openDisclosure({required bool refunds}) {
+    if (!_canAct) return;
+    final selection = BookingSelection(
+      providerId: widget.provider.id,
+      packageId: widget.eventPackage.id,
+      customization: snapshotCustomization(widget.customization),
+    );
+    Navigator.of(context).push<void>(
+      CustomizationSessionRoute<void>(
+        session: _session,
+        builder: (_) => refunds
+            ? BookingRefundPolicyReviewScreen(
+                selection: selection,
+                resolveProviders: (request) => _withSession(
+                  () => repository.resolveBookingAgreementProviders(request),
+                ),
+                loader: (request) => _withSession(
+                  () => repository.getBookingRefundPolicyDisclosures(request),
+                ),
+              )
+            : BookingAgreementReviewScreen(
+                selection: selection,
+                resolveProviders: (request) => _withSession(
+                  () => repository.resolveBookingAgreementProviders(request),
+                ),
+                loader: (request) => _withSession(
+                  () =>
+                      repository.getBookingPaymentAgreementDisclosures(request),
+                ),
+              ),
+      ),
+    );
+  }
+
+  Future<T> _withSession<T>(Future<T> Function() action) async {
+    if (!_canAct) throw StateError('Customization session closed.');
+    final result = await action();
+    if (!_canAct) throw StateError('Customization session closed.');
+    return result;
   }
 
   bool isSubmitting = false;
@@ -371,35 +445,13 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
           OutlinedButton.icon(
             icon: const Icon(Icons.description_outlined),
             label: const Text('Review Booking & Payment Agreements'),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => BookingAgreementReviewScreen(
-                  selection: BookingSelection(
-                    providerId: widget.provider.id,
-                    packageId: widget.eventPackage.id,
-                    customization: snapshotCustomization(widget.customization),
-                  ),
-                ),
-              ),
-            ),
+            onPressed: () => _openDisclosure(refunds: false),
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
             icon: const Icon(Icons.policy_outlined),
             label: const Text('Review Refund Policies'),
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => BookingRefundPolicyReviewScreen(
-                  selection: BookingSelection(
-                    providerId: widget.provider.id,
-                    packageId: widget.eventPackage.id,
-                    customization: snapshotCustomization(widget.customization),
-                  ),
-                ),
-              ),
-            ),
+            onPressed: () => _openDisclosure(refunds: true),
           ),
           const SizedBox(height: 12),
           BookingPreparationPrice(
@@ -427,7 +479,10 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      CustomizationSessionBoundary(session: _session, builder: _buildContent);
+
+  Widget _buildContent(BuildContext context) {
     if (widget.preparationOnly) return _preparationReview(context);
     return Scaffold(
       backgroundColor: AppColors.background,
