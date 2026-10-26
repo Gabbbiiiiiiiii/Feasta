@@ -1,6 +1,7 @@
 "use client";
 
 import {useEffect, useState} from "react";
+import {OccasionRequestDialog} from "@/components/provider/occasion-request-dialog";
 import {Edit3, Images, Plus, Trash2} from "lucide-react";
 import {Button} from "@/components/ui/button";
 import {Input} from "@/components/ui/input";
@@ -164,11 +165,12 @@ export function ProviderSetupGalleryV2Manager() {
     </details> : null}
     <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,15.5rem),1fr))] items-start gap-4">
       {gallery?.setups.map((setup) => <article key={setup.id} aria-label={setup.title} className="min-w-0 self-start overflow-hidden rounded-card border border-border bg-card shadow-card">
-        <div className="relative h-32 overflow-hidden bg-muted">
+        <div className="relative aspect-[4/3] overflow-hidden bg-muted">
           {setup.imageUrls[0] ? <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={setup.imageUrls[0]} alt={`${setup.title} photo`} className="absolute inset-0 size-full object-contain" loading="lazy" />
+            <img src={setup.imageUrls[0]} alt={`${setup.title} photo`} className="absolute inset-0 size-full object-cover" loading="lazy" />
           </> : <div className="grid h-full place-items-center px-4 text-center text-sm text-muted-foreground">No photo yet</div>}
+          <span className="absolute bottom-2 left-2 rounded-full bg-background/90 px-2 py-1 text-xs">{setup.imageUrls.length} photos</span>
           <div className="absolute right-2 top-2"><StatusBadge status={setup.isPublished ? "published" : "draft"} /></div>
         </div>
         <div className="grid gap-1 p-3">
@@ -212,32 +214,37 @@ export function ProviderSetupGalleryV2Manager() {
                 {PROVIDER_SETUP_EVENT_TYPES.map((type) => <option key={type} value={type}>{PROVIDER_SETUP_EVENT_TYPE_LABELS[type]}</option>)}
               </Select>
             </label> : <>
-              <label className="grid gap-1 text-sm font-semibold">Occasion scope
-                <Select value={draft.occasionScope} disabled={busy} onChange={(event) => setDraft({...draft,
-                  occasionScope: event.target.value as "specific" | "all", occasionIds: []})}>
-                  <option value="specific">Specific occasions</option>
-                  <option value="all" disabled={!!selectionError("all", [], gallery.authority)}>Fits All</option>
-                </Select>
-              </label>
-              {draft.occasionScope === "specific" ? <fieldset className="grid gap-2" disabled={busy}>
+              <fieldset className="grid gap-3" disabled={busy}>
                 <legend className="text-sm font-semibold">Occasions (up to {gallery.authority.maxSpecificOccasions})</legend>
-                <p className="text-xs text-muted-foreground">Occasion identifiers are shown until catalog display names are available.</p>
-                {choices.map((occasion) => {
-                  const selected = draft.occasionIds.includes(occasion.id);
-                  const allowed = occasionAllowed(occasion, gallery.authority);
-                  return <label key={occasion.id} className="flex min-h-11 items-center gap-2 text-sm">
-                    <input type="checkbox" className="size-4 accent-primary" checked={selected}
-                      disabled={!selected && (!allowed || draft.occasionIds.length >= gallery.authority.maxSpecificOccasions)}
-                      onChange={(event) => setDraft({...draft, occasionIds: event.target.checked
-                        ? [...draft.occasionIds, occasion.id] : draft.occasionIds.filter((id) => id !== occasion.id)})} />
-                    {occasionLabel(occasion.id)}{allowed ? "" : " (not approved or applicable)"}
-                  </label>;
-                })}
-                {draft.occasionIds.filter((id) => !choices.some((occasion) => occasion.id === id)).map((id) => <label key={id} className="flex min-h-11 items-center gap-2 text-sm">
-                  <input type="checkbox" checked onChange={() => setDraft({...draft, occasionIds: draft.occasionIds.filter((value) => value !== id)})} />
-                  {occasionLabel(id)} (no longer available; remove selection)
-                </label>)}
-              </fieldset> : <p className="text-sm text-muted-foreground">Fits All requires approval for every active applicable occasion.</p>}
+                <p className="text-xs text-muted-foreground">Select suitable occasions. Identifiers are shown until catalog display names are available.</p>
+                <button type="button" aria-pressed={draft.occasionScope === "all"}
+                  disabled={draft.occasionScope !== "all" && !!selectionError("all", [], gallery.authority)}
+                  className="min-h-11 rounded-full border border-primary px-4 py-2 text-sm font-semibold aria-pressed:bg-primary aria-pressed:text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => setDraft({...draft, occasionScope: draft.occasionScope === "all" ? "specific" : "all", occasionIds: []})}>
+                  Fits All Occasions
+                </button>
+                <p className="text-xs text-muted-foreground">Fits All requires approval for every active applicable occasion.</p>
+                <div className="flex flex-wrap gap-2">
+                  {choices.map((occasion) => {
+                    const selected = draft.occasionIds.includes(occasion.id);
+                    const allowed = occasionAllowed(occasion, gallery.authority);
+                    return <button key={occasion.id} type="button" aria-pressed={selected}
+                      disabled={!selected && (!allowed || (draft.occasionScope === "specific" && draft.occasionIds.length >= gallery.authority.maxSpecificOccasions))}
+                      className="min-h-11 max-w-full break-words rounded-full border border-border px-4 py-2 text-sm aria-pressed:border-primary aria-pressed:bg-primary aria-pressed:text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => setDraft({...draft, occasionScope: "specific", occasionIds: selected
+                        ? draft.occasionIds.filter((id) => id !== occasion.id) : [...draft.occasionIds, occasion.id]})}>
+                      {occasionLabel(occasion.id)}{allowed ? "" : " (not approved or applicable)"}
+                    </button>;
+                  })}
+                  {draft.occasionIds.filter((id) => !choices.some((occasion) => occasion.id === id)).map((id) => <button key={id} type="button" aria-pressed="true"
+                    className="min-h-11 rounded-full border border-destructive px-4 py-2 text-sm text-destructive"
+                    onClick={() => setDraft({...draft, occasionIds: draft.occasionIds.filter((value) => value !== id)})}>
+                    {occasionLabel(id)} (no longer available; remove selection)
+                  </button>)}
+                </div>
+                <p role="status" className="text-xs text-muted-foreground">{draft.occasionScope === "all" ? "Fits All selected" : `${draft.occasionIds.length} of ${gallery.authority.maxSpecificOccasions} selected`}</p>
+                <OccasionRequestDialog />
+              </fieldset>
               {selectionError(draft.occasionScope, draft.occasionIds, gallery.authority) ? <p className="text-sm text-muted-foreground">
                 {selectionError(draft.occasionScope, draft.occasionIds, gallery.authority)}
               </p> : null}

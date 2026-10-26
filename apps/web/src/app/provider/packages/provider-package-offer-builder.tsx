@@ -300,7 +300,7 @@ export function ProviderPackageOfferBuilder({
             return (
               <article
                 key={tier}
-                className="rounded-2xl border border-border bg-background p-4"
+                className={`min-w-0 rounded-xl border p-4 ${option.enabled ? "border-primary/40 bg-background" : "border-dashed border-border bg-muted/30"}`}
               >
                 <label className="flex cursor-pointer items-start gap-3">
                   <input
@@ -322,6 +322,8 @@ export function ProviderPackageOfferBuilder({
                   </span>
                 </label>
 
+                <p id={`tier-inclusions-${tier}`} className="mt-3 text-xs text-muted-foreground">Included services apply only to this tier. Shared package inclusions are configured in Step 4.</p>
+                <p className="mt-3 text-xs font-semibold text-muted-foreground">{option.enabled ? "Enabled" : "Not offered in this package"}</p>
                 {option.enabled ? (
                   <div className="mt-4 grid gap-4">
                     <label className="grid gap-2 text-sm font-medium">
@@ -332,12 +334,14 @@ export function ProviderPackageOfferBuilder({
                       />
                     </label>
                     <label className="grid gap-2 text-sm font-medium">
-                      Included services
+                      Included services for {label}
                       <Textarea
                         rows={4}
                         value={option.includedServicesText}
                         disabled={disabled}
                         placeholder="Enter one included service per line"
+                        aria-label={`Included services for ${label}`}
+                        aria-describedby={`tier-inclusions-${tier}`}
                         onChange={(event) =>
                           updateService(tier, {
                             includedServicesText:
@@ -447,7 +451,7 @@ function PackageThemeEditor({value, onChange, disabled, supportsThemes}: {
             <CatalogImageUploader retainPreviewsOnUnmount images={draft.images} onChange={(images) => {
               for (const image of images) if (image.file && image.url.startsWith("blob:")) previewUrls.current.add(image.url);
               setDraft({...draft, images});
-            }} maximumImages={4} heading="Add theme images" helperText="Optional reference images for this theme." inputLabel="Theme images" />
+            }} maximumImages={4} heading="Add theme images" helperText="Add up to four reference photos for this theme. Reorder photos to choose the cover." inputLabel="Theme images" />
           </div> : null}
           {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
           <DialogFooter className="flex-wrap">

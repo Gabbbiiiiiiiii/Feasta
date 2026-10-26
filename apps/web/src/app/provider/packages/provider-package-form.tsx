@@ -31,10 +31,9 @@ import {DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS, depositRateBpsToPercenta
 
 import {foodInclusionsError, parsePackageDishes} from "@/lib/provider/package-food-inclusions";
 import {providerPackageSaveError} from "@/lib/provider/provider-package-save-error";
-import {packagePreviewGuestCount} from "@/lib/provider/package-pricing-preview";
-import {ProviderPackagePricePreview} from "./provider-package-price-preview";
 import {ProviderPackageReview} from "./provider-package-review";
 import {ProviderPackageFoodMenu} from "./provider-package-food-menu";
+import {X} from "lucide-react";
 import {Textarea} from "@/components/ui/textarea";
 import {Select} from "@/components/ui/select";
 import {
@@ -94,8 +93,6 @@ export function ProviderPackageForm({
   onSubmittingChange,
 }: ProviderPackageFormProps) {
   const [step, setStep] = useState(0);
-  const [previewGuestCount, setPreviewGuestCount] = useState("");
-  const [previewTier, setPreviewTier] = useState("");
   const scrollContainer = useRef<HTMLDivElement>(null);
   const stepHeading = useRef<HTMLHeadingElement>(null);
   const [pricingModel, setPricingModel] = useState<"per_pax" | "per_bundle" | "legacy">(initialPackage ? initialPackage.pricingModel ?? "legacy" : "per_pax");
@@ -118,7 +115,7 @@ export function ProviderPackageForm({
     setServiceCategoryCode,
   ] = useState(
     initialPackage?.serviceCategoryCode ??
-      "",
+      (packageCategoryOptions.length === 1 ? packageCategoryOptions[0].code : ""),
   );
   const availableEventTypes =
     useMemo(
@@ -143,12 +140,28 @@ export function ProviderPackageForm({
     initialPackage?.description ?? "",
   );
 
-  const [eventType, setEventType] =
-    useState<string>(
-      initialPackage?.eventType ??
-        availableEventTypes[0] ??
-        "",
-    );
+  const [selectedOccasions, setSelectedOccasions] = useState<string[]>(() => {
+    const initial = initialPackage?.eventType ?? availableEventTypes[0];
+    return initial ? [initial] : [];
+  });
+  const [occasionToAdd, setOccasionToAdd] = useState("");
+  const occasionSelector = useRef<HTMLSelectElement>(null);
+  // The legacy writer accepts exactly one supported eventType. Never pick a
+  // primary occasion from a multi-selection or discard the other chips on save.
+  const eventType = selectedOccasions.length === 1 ? selectedOccasions[0] : "";
+  const occasionError = selectedOccasions.length > 1
+    ? "Multiple occasions cannot be saved yet. Keep one to continue."
+    : !availableEventTypes.some((value) => value === eventType)
+      ? "Add one occasion supported by your business before continuing."
+      : undefined;
+
+  function addOccasion() {
+    if (!availableEventTypes.some((value) => value === occasionToAdd)) return;
+    setSelectedOccasions((current) => current.includes(occasionToAdd) ? current : [...current, occasionToAdd]);
+    setOccasionToAdd("");
+    setError(null);
+    occasionSelector.current?.focus();
+  }
 
   const [
     minimumGuests,
@@ -245,9 +258,6 @@ export function ProviderPackageForm({
 
   const foodError = foodInclusionsError(foodInclusions);
 
-  const validatedPreviewGuests = packagePreviewGuestCount({guestCount: previewGuestCount, minimumGuests, maximumGuests,
-    providerMinimumGuests: minGuestsPerEvent, providerMaximumGuests: maxGuestsPerEvent});
-
   const parsedMinimumGuests =
     Number(minimumGuests);
   const parsedMaximumGuests =
@@ -269,14 +279,9 @@ export function ProviderPackageForm({
         return {field: "description", message: "Description must be between 10 and 2000 characters."};
       }
 
-      if (
-        !availableEventTypes.includes(
-            eventType as
-            typeof EVENT_TYPES[number],
-        )
-        ) {
-        return {field: "eventType", message: "Choose an event type supported by your business."};
-        }
+      if (occasionError) {
+        return {field: "eventType", message: occasionError};
+      }
 
       if (
         !packageCategoryOptions.some(
@@ -337,12 +342,11 @@ export function ProviderPackageForm({
     }, [
       name,
       description,
-      eventType,
+      occasionError,
       offerConfiguration.error,
       parsedPrice,
       parsedMinimumGuests,
       parsedMaximumGuests,
-      availableEventTypes,
       packageCategoryOptions,
       serviceCategoryCode,
       minGuestsPerEvent,
@@ -354,7 +358,7 @@ export function ProviderPackageForm({
   ) {
     event.preventDefault();
 
-    if (step !== 4 || submitting || validationError || depositError || foodError) {
+    if (step !== 4 || submitting || occasionError || validationError || depositError || foodError) {
       return;
     }
 
@@ -513,29 +517,19 @@ export function ProviderPackageForm({
             : "grid min-w-0 gap-5"
         }
       >
-      <div ref={scrollContainer} role={dialogLayout ? "region" : undefined} aria-label={dialogLayout ? "Package details" : undefined} tabIndex={dialogLayout ? 0 : undefined}
-        className={
-        dialogLayout
-          ? "mx-2 grid min-h-0 flex-1 content-start gap-5 overflow-y-auto overscroll-contain px-3 py-5 [scrollbar-gutter:stable] [scrollbar-width:thin] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:mx-3"
-          : "grid min-w-0 gap-5"
-      }>
-      <nav aria-label="Package creation progress">
+      <nav aria-label="Package creation progress" className={dialogLayout ? "shrink-0 border-b border-border px-5 py-3 sm:px-6" : undefined}>
       <ol className="grid grid-cols-5 gap-2">{steps.map((label, index) => <li key={label} aria-current={step === index ? "step" : undefined} className={step === index ? "rounded-lg bg-primary/10 p-2 text-xs font-bold text-primary-strong" : "rounded-lg bg-muted p-2 text-xs text-muted-foreground"}>{index + 1}<span className="hidden sm:block">{label}</span>
       </li>)}</ol>
       </nav>
+      <div ref={scrollContainer} role={dialogLayout ? "region" : undefined} aria-label={dialogLayout ? "Package details" : undefined} tabIndex={dialogLayout ? 0 : undefined}
+        className={
+        dialogLayout
+          ? "mx-2 grid min-h-0 flex-1 content-start gap-4 overflow-y-auto overscroll-contain px-3 py-4 [scrollbar-gutter:stable] [scrollbar-width:thin] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:mx-3"
+          : "grid min-w-0 gap-5"
+      }>
       <h3 ref={stepHeading} tabIndex={-1} className="text-lg font-bold focus:outline-none">Step {step + 1}: {steps[step]}</h3>
-      <ProviderPackagePricePreview name={name} pricingModel={pricingModel} minimumGuests={minimumGuests}
-        maximumGuests={maximumGuests} guestCount={previewGuestCount} onGuestCountChange={setPreviewGuestCount}
-        validatedGuestCount={validatedPreviewGuests} selectedTier={previewTier} onTierChange={setPreviewTier} offerDraft={offerDraft} />
       <section hidden={step !== 0} className="space-y-4">
-      <FormField label="Pricing model" required>
-      <Select value={pricingModel} onChange={(event) => setPricingModel(event.target.value as typeof pricingModel)}>{editing && !initialPackage.pricingModel ? <option value="legacy">Legacy fixed price</option> : null}<option value="per_pax">Per Pax - price per person</option>
-      <option value="per_bundle">Per Bundle - fixed price for a guest range</option>
-      </Select>
-      <p className="text-sm text-muted-foreground">Prices are charged per person for Per Pax. One fixed price covers the package&apos;s guest range for Per Bundle.</p>
-      <p className="text-xs text-muted-foreground">Per Pax and Per Bundle drafts cannot be published until customer pricing compatibility is verified.</p>
-      </FormField>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid min-w-0 gap-4 sm:grid-cols-2">
         <FormField
           label="Package name"
           error={validationError?.field === "name" ? validationError.message : undefined}
@@ -551,37 +545,41 @@ export function ProviderPackageForm({
           />
         </FormField>
 
-        <FormField
-          label="Event type"
-          error={validationError?.field === "eventType" ? validationError.message : undefined}
-          required
-        >
-          <Select
-            value={eventType}
-            onChange={(event) =>
-              setEventType(
-                event.target.value,
-              )
-            }
-            className="min-h-10 w-full rounded-md border bg-background px-3 text-sm"
-          >
-            {availableEventTypes.map(
-            (value) => (
-                <option
-                  key={value}
-                  value={value}
-                >
-                  {formatEventType(
-                    value,
-                  )}
-                </option>
-              ),
-            )}
-          </Select>
+        <FormField label="Suitable occasions" required error={occasionError} className="min-w-0">
+          <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+            <Select ref={occasionSelector} value={occasionToAdd} required={false}
+              onChange={(event) => setOccasionToAdd(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") { event.preventDefault(); addOccasion(); }
+              }}>
+              <option value="">Choose an approved occasion</option>
+              {availableEventTypes.map((value) => (
+                <option key={value} value={value} disabled={selectedOccasions.includes(value)}>{formatEventType(value)}{selectedOccasions.includes(value) ? " (selected)" : ""}</option>
+              ))}
+            </Select>
+            <Button type="button" variant="secondary" aria-label="Add selected occasion"
+              disabled={!availableEventTypes.some((value) => value === occasionToAdd) || selectedOccasions.includes(occasionToAdd)}
+              onClick={addOccasion}>Add</Button>
+          </div>
+          {selectedOccasions.length > 0 ? (
+            <ul aria-label="Selected occasions" className="flex flex-wrap gap-2">
+              {selectedOccasions.map((value) => (
+                <li key={value} className="inline-flex min-h-8 max-w-full items-center gap-1 rounded-full border border-primary/30 bg-primary/10 pl-2.5 text-xs font-semibold text-primary-strong">
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{formatEventType(value)}{availableEventTypes.some((allowed) => allowed === value) ? "" : " (no longer supported)"}</span>
+                  <Button type="button" variant="ghost" className="h-[30px] min-h-[30px] w-8 min-w-8 shrink-0 self-start rounded-full p-0" aria-label={`Remove ${formatEventType(value)} occasion`}
+                    onClick={() => {
+                      setSelectedOccasions((current) => current.filter((item) => item !== value));
+                      setError(null);
+                      occasionSelector.current?.focus();
+                    }}><X aria-hidden="true" className="size-3.5" /></Button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </FormField>
-      </div>
 
       <FormField
+        className="min-w-0 sm:col-start-1"
         label="Service category"
         error={
           validationError?.field ===
@@ -591,7 +589,9 @@ export function ProviderPackageForm({
         }
         required
       >
-        <Select
+        {packageCategoryOptions.length === 1 && serviceCategoryCode === packageCategoryOptions[0].code ? (
+          <Input readOnly value={packageCategoryOptions[0].name} />
+        ) : <Select
           value={serviceCategoryCode}
           onChange={(event) =>
             setServiceCategoryCode(
@@ -614,8 +614,9 @@ export function ProviderPackageForm({
               </option>
             ),
           )}
-        </Select>
+        </Select>}
 
+        {packageCategoryOptions.length === 1 && serviceCategoryCode === packageCategoryOptions[0].code ? <p className="text-xs text-muted-foreground">This is your authorized service category.</p> : null}
         {editing &&
         initialPackage?.serviceCategoryCode ===
           null ? (
@@ -624,6 +625,8 @@ export function ProviderPackageForm({
           </p>
         ) : null}
       </FormField>
+
+      </div>
 
       <FormField
         label="Description"
@@ -645,6 +648,13 @@ export function ProviderPackageForm({
 
       </section>
       <section hidden={step !== 1} className="space-y-4">
+      <FormField label="Pricing model" required>
+      <Select value={pricingModel} onChange={(event) => setPricingModel(event.target.value as typeof pricingModel)}>{editing && !initialPackage.pricingModel ? <option value="legacy">Legacy fixed price</option> : null}<option value="per_pax">Per Pax - price per person</option>
+      <option value="per_bundle">Per Bundle - fixed price for a guest range</option>
+      </Select>
+      <p className="text-sm text-muted-foreground">Prices are charged per person for Per Pax. One fixed price covers the package&apos;s guest range for Per Bundle.</p>
+      <p className="text-xs text-muted-foreground">Per Pax and Per Bundle drafts cannot be published until customer pricing compatibility is verified.</p>
+      </FormField>
       <ProviderPackageOfferBuilder
         section="pricing"
         priceUnit={pricingModel === "per_pax" ? "per person" : "fixed package price"}
@@ -670,7 +680,8 @@ export function ProviderPackageForm({
             : undefined
         }
       />
-      <h3 className="text-sm font-bold uppercase text-primary-strong">Pricing &amp; capacity</h3>
+      <section aria-label="Payment and starting price" className="space-y-4 rounded-2xl border border-border bg-muted/20 p-4 sm:p-5">
+      <h4 className="text-sm font-bold uppercase text-primary-strong">Payment terms</h4>
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField
           label="Starting price"
@@ -727,6 +738,9 @@ export function ProviderPackageForm({
         </div>
       </div>
 
+      </section>
+      <section aria-label="Guest capacity" className="space-y-4 rounded-2xl border border-border bg-muted/20 p-4 sm:p-5">
+      <h4 className="text-sm font-bold uppercase text-primary-strong">Guest capacity</h4>
       <div className="grid gap-4 sm:grid-cols-2">
         <FormField
           label="Minimum guests"
@@ -780,20 +794,21 @@ export function ProviderPackageForm({
         </span>{" "}
         per event.
         </p>
+      </section>
 
       </section>
       <section hidden={step !== 2} className="space-y-4"><ProviderPackageFoodMenu value={foodInclusions} onChange={setFoodInclusions} /><p className="text-sm text-muted-foreground">All listed dishes are package inclusions. Customer-configurable category counts and substitutions are unavailable until booking support is verified.</p></section>
       <section hidden={step !== 3} className="space-y-4">
       <ProviderPackageOfferBuilder section="themes" value={offerDraft} onChange={setOfferDraft} disabled={submitting} />
-      <section aria-label="Images" className="grid gap-3"><h3 className="text-sm font-bold uppercase text-primary-strong">Images</h3>
+      <section aria-label="Images" className="grid gap-3 rounded-2xl border border-border bg-muted/20 p-4 sm:p-5"><h3 className="text-sm font-bold uppercase text-primary-strong">Package images</h3>
         <CatalogImageUploader images={images} onChange={setImages} disabled={submitting} />
       </section>
 
 
 
-      <section aria-label="Optional inclusions" className="grid gap-4 sm:grid-cols-2">
+      <section aria-label="Optional inclusions" className="grid gap-4 rounded-2xl border border-border bg-muted/20 p-4 sm:grid-cols-2 sm:p-5">
       <div className="sm:col-span-2"><h3 className="text-sm font-bold uppercase text-primary-strong">Optional inclusions</h3>
-      <p className="mt-1 text-sm text-muted-foreground">Optional — add inclusions to help customers understand what this package covers. Every inclusion field is optional.</p></div>
+      <p className="mt-1 text-sm text-muted-foreground">Optional — add inclusions to help customers understand what this package covers. Every inclusion field is optional. These shared inclusions apply across enabled tiers; separate tier decorations, furniture, and equipment are unavailable in this editor.</p></div>
 
       {capabilities.decorations ? <InclusionTextarea
         label="Decoration inclusions"
@@ -830,12 +845,12 @@ export function ProviderPackageForm({
           serviceOptions={offerConfiguration.serviceOptions} food={foodInclusions} decor={decorInclusionsText}
           furniture={furnitureInclusionsText} services={serviceInclusionsText} offerDraft={offerDraft}
           images={images} paymentPolicy={paymentPolicy} depositPercentage={depositPercentage}
-          previewGuestCount={validatedPreviewGuests} />
+          />
       </div>
       </div>
       <div className={dialogLayout ? "grid shrink-0 gap-3 border-t border-border bg-card px-5 py-4 sm:px-6" : "grid gap-3"}>
       {step === 4 && (validationError || depositError || foodError) ? <p role="alert" className="text-sm text-destructive">{validationError?.message || depositError || foodError}</p> : null}
-      {error ? (
+      {error && !(step === 0 && error === occasionError) ? (
         <p
           role="alert"
           className="text-sm text-destructive"
@@ -903,7 +918,7 @@ function InclusionTextarea({
     parseInclusions(value).length;
 
   return (
-    <div className="grid gap-2">
+    <div className="grid content-start gap-2 rounded-xl border border-border bg-background p-3">
         <FormField label={label}>
         <Textarea
             value={value}

@@ -152,7 +152,7 @@ describe("private occasion editor", () => {
     const user = userEvent.setup(); render(<ProviderSetupGalleryV2Manager />);
     await user.click(await screen.findByRole("button", {name: "Add setup"}));
     await user.type(screen.getByLabelText("Setup title"), "Fits every occasion");
-    await user.selectOptions(screen.getByLabelText("Occasion scope"), "all");
+    await user.click(screen.getByRole("button", {name: "Fits All Occasions"}));
     await user.click(screen.getByRole("button", {name: "Save setup"}));
     expect(await screen.findByRole("article", {name: "Fits every occasion"})).toBeVisible();
     expect(actions.save.mock.calls[0][0].setups).toEqual([setupProposal(legacy), setupProposal(v2),
@@ -162,12 +162,12 @@ describe("private occasion editor", () => {
     const loaded = gallery(true, [{...v2, occasionIds: ["occasion_missing"], occasionEligibilityState: "review_required" as const}]);
     actions.load.mockResolvedValue({ok: true, gallery: loaded}); successfulSave(loaded);
     const user = userEvent.setup(); render(<ProviderSetupGalleryV2Manager />); await edit(user);
-    expect(screen.getByRole("option", {name: "Fits All"})).toBeDisabled();
-    expect(screen.getByRole("checkbox", {name: /occasion_corporate/})).toBeDisabled();
+    expect(screen.getByRole("button", {name: "Fits All Occasions"})).toBeDisabled();
+    expect(screen.getByRole("button", {name: /occasion_corporate/})).toBeDisabled();
     await user.click(screen.getByRole("button", {name: "Save setup"}));
     expect(screen.getByRole("alert")).toHaveTextContent("approval"); expect(actions.save).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("checkbox", {name: /occasion_missing/}));
-    await user.click(screen.getByRole("checkbox", {name: "occasion_wedding"}));
+    await user.click(screen.getByRole("button", {name: /occasion_missing/}));
+    await user.click(screen.getByRole("button", {name: "occasion_wedding"}));
     await user.click(screen.getByRole("button", {name: "Save setup"}));
     await waitFor(() => expect(actions.save).toHaveBeenCalledOnce());
     expect(actions.save.mock.calls[0][0].setups[0].occasionIds).toEqual(["occasion_wedding"]);
@@ -317,7 +317,7 @@ describe("editor recovery boundaries", () => {
     const user = userEvent.setup(); render(<ProviderSetupGalleryV2Manager />);
     await user.click(await screen.findByRole("button", {name: "Add setup"}));
     await user.type(screen.getByLabelText("Setup title"), "New occasion setup");
-    await user.click(screen.getByRole("checkbox", {name: "occasion_wedding"}));
+    await user.click(screen.getByRole("button", {name: "occasion_wedding"}));
     await user.upload(screen.getByLabelText("Setup photos"), new File(["photo"], "setup.png", {type: "image/png"}));
     expect(actions.upload).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", {name: "Save setup"}));
@@ -326,5 +326,41 @@ describe("editor recovery boundaries", () => {
     expect(actions.save.mock.calls[0][0].setups[2]).toMatchObject({
       setupOccasionSchemaVersion: 2, occasionScope: "specific", occasionIds: ["occasion_wedding"], imageUrls: [photo], isPublished: false,
     });
+  });
+});
+
+
+describe("occasion chips", () => {
+  it("supports keyboard selection, multiple choices, limits and Fits All exclusivity", async () => {
+    const loaded = gallery();
+    loaded.authority.approvedOccasionIds = [...loaded.authority.approvedOccasionIds, "occasion_corporate"];
+    loaded.authority.maxSpecificOccasions = 1;
+    actions.load.mockResolvedValue({ok: true, gallery: loaded});
+    const user = userEvent.setup(); render(<ProviderSetupGalleryV2Manager />); await edit(user);
+    const wedding = screen.getByRole("button", {name: "occasion_wedding"});
+    expect(wedding).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", {name: "occasion_corporate"})).toBeDisabled();
+    wedding.focus(); await user.keyboard(" ");
+    expect(wedding).toHaveAttribute("aria-pressed", "false");
+    await user.click(screen.getByRole("button", {name: "Fits All Occasions"}));
+    expect(screen.getByRole("button", {name: "Fits All Occasions"})).toHaveAttribute("aria-pressed", "true");
+    await user.click(wedding);
+    expect(screen.getByRole("button", {name: "Fits All Occasions"})).toHaveAttribute("aria-pressed", "false");
+    expect(wedding).toHaveAttribute("aria-pressed", "true");
+  });
+  it("allows multiple approved choices without submitting an occasion request", async () => {
+    const loaded = gallery(); loaded.authority.approvedOccasionIds = [...loaded.authority.approvedOccasionIds, "occasion_corporate"];
+    actions.load.mockResolvedValue({ok: true, gallery: loaded});
+    const user = userEvent.setup(); render(<ProviderSetupGalleryV2Manager />); await edit(user);
+    await user.click(screen.getByRole("button", {name: "occasion_corporate"}));
+    expect(screen.getByRole("button", {name: "occasion_wedding"})).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", {name: "occasion_corporate"})).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByText("+ Add Occasion"));
+    expect(screen.getByRole("dialog", {name: "Request an occasion"})).toBeVisible();
+    await user.click(screen.getByRole("button", {name: "Cancel"}));
+    expect(actions.save).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", {name: "Preview image 1"}));
+    expect(screen.getByRole("heading", {name: "Image preview"})).toBeVisible();
+    expect(actions.upload).not.toHaveBeenCalled();
   });
 });

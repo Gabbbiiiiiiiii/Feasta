@@ -3,6 +3,7 @@
 import {useEffect, useId, useRef, useState} from "react";
 import {ChevronLeft, ChevronRight, ImagePlus, Trash2} from "lucide-react";
 import {Button} from "@/components/ui/button";
+import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription} from "@/components/ui/dialog";
 import {Badge} from "@/components/ui/badge";
 import {Input} from "@/components/ui/input";
 import {CATALOG_IMAGE_TYPES, CATALOG_IMAGE_LIMIT, validateCatalogFiles, type CatalogImageDraft} from "@/lib/provider/catalog-media";
@@ -46,9 +47,12 @@ export function CatalogImageUploader({
   /** When true, the parent editing session owns preview URL cleanup. */
   retainPreviewsOnUnmount?: boolean;
 }) {
+  const [preview, setPreview] = useState<CatalogImageDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inputId = useId();
   const fileInput = useRef<HTMLInputElement>(null);
+  const previewInvoker = useRef<HTMLButtonElement>(null);
+  const uploader = useRef<HTMLDivElement>(null);
   const previews = useRef(new Set<string>());
   useEffect(() => {
     const urls = previews.current;
@@ -60,7 +64,7 @@ export function CatalogImageUploader({
       if (!current.has(url)) { URL.revokeObjectURL(url); previews.current.delete(url); }
     }
   }, [images]);
-  return <div className="grid min-w-0 content-start gap-3">
+  return <div ref={uploader} tabIndex={-1} className="grid min-w-0 content-start gap-3">
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-dashed border-input bg-muted/30 p-3">
       <ImagePlus aria-hidden="true" className="size-7 text-primary-strong" />
       <div className="min-w-0 flex-1 basis-48">
@@ -93,8 +97,10 @@ export function CatalogImageUploader({
     {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
     <div className="grid min-w-0 grid-cols-[repeat(auto-fill,minmax(min(100%,11rem),1fr))] content-start items-start gap-3">
       {images.map((image, index) => <div key={image.id} role="group" aria-label={`Selected image ${index + 1}`} className="min-w-0 self-start overflow-hidden rounded-xl border border-border bg-card">
+        <button type="button" className="block w-full focus-visible:outline-2 focus-visible:outline-primary" aria-label={`Preview image ${index + 1}`} onClick={(event) => { previewInvoker.current = event.currentTarget; setPreview(image); }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={image.url} alt={image.title || `Selected image ${index + 1}`} className="h-36 w-full bg-muted object-contain" />
+        </button>
         <div className="grid gap-1 border-t border-border p-2">
         {titles ? <label className="grid gap-1 text-xs">Title / category {index + 1}<Input maxLength={80} value={image.title} disabled={disabled}
           onChange={(event) => onChange(images.map((entry) => entry.id === image.id ? {...entry, title: event.target.value} : entry))} /></label>
@@ -120,5 +126,25 @@ export function CatalogImageUploader({
         </div>
       </div>)}
     </div>
+    <Dialog open={preview !== null} onOpenChange={(open) => { if (!open) setPreview(null); }}>
+      <DialogContent className="max-w-4xl" onCloseAutoFocus={(event) => {
+        // This controlled dialog has multiple invokers rather than a Radix trigger.
+        // Restore within Radix's focus lifecycle, including inside an editor dialog.
+        event.preventDefault();
+        const invoker = previewInvoker.current;
+        previewInvoker.current = null;
+        if (invoker?.isConnected && !invoker.disabled) {
+          invoker.focus();
+        } else if (uploader.current?.isConnected) {
+          // The image may have been removed while its preview was open. Keep focus
+          // in the uploader (and its enclosing editor), even at the image limit.
+          uploader.current.focus();
+        }
+      }}>
+        <DialogHeader><DialogTitle>Image preview</DialogTitle><DialogDescription>{preview?.title || "Review the full photo before saving."}</DialogDescription></DialogHeader>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        {preview ? <img src={preview.url} alt={preview.title || "Selected photo preview"} className="max-h-[70dvh] w-full object-contain" /> : null}
+      </DialogContent>
+    </Dialog>
   </div>;
 }

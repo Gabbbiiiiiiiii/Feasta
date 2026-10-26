@@ -1,6 +1,8 @@
+import {render, screen} from "@testing-library/react";
 import {describe, expect, it} from "vitest";
 
 import {
+  ProviderPackageOfferBuilder,
   createProviderPackageOfferDraft,
   serializeProviderPackageOfferDraft,
 } from "@/app/provider/packages/provider-package-offer-builder";
@@ -131,4 +133,36 @@ describe("provider package offer configuration", () => {
       imageUrls: ["https://images.example.test/garden.webp"],
     }]);
   });
+});
+
+
+it("labels tier prices, units and inclusions without changing stored prices", () => {
+  const value = createProviderPackageOfferDraft({serviceOptions: {buffet_setup: {price: 125.5, includedServices: ["Servers"]}}});
+  render(<ProviderPackageOfferBuilder value={value} onChange={() => {}} priceUnit="per guest" section="pricing" />);
+  expect(screen.getByText("Enabled")).toBeVisible();
+  expect(screen.getByLabelText(/Buffet Setup price \(PHP per guest\)/)).toHaveValue("125.5");
+  expect(screen.getByLabelText("Included services for Buffet Setup")).toHaveValue("Servers");
+  expect(screen.getAllByText("Not offered in this package")).toHaveLength(2);
+  expect(serializeProviderPackageOfferDraft(value).serviceOptions.buffet_setup?.price).toBe(125.5);
+});
+
+
+it("round-trips independent tier services and strips unsupported draft fields", () => {
+  const original = {
+    drop_off: {price: 100, includedServices: ["Delivery", "Containers"]},
+    buffet_setup: {price: 250.5, includedServices: ["Warmers"]},
+    full_service: {price: 500, includedServices: ["Staff", "Cleanup"]},
+  };
+  const draft = createProviderPackageOfferDraft({serviceOptions: original});
+  Object.assign(draft.serviceOptions.drop_off, {decorInclusions: ["Unsupported"], equipmentInclusions: ["Unsupported"]});
+  const saved = serializeProviderPackageOfferDraft(draft);
+  expect(saved.error).toBeNull();
+  expect(saved.serviceOptions).toEqual(original);
+  const reloaded = createProviderPackageOfferDraft({serviceOptions: normalizePackageServiceOptions(saved.serviceOptions)});
+  reloaded.serviceOptions.buffet_setup.includedServicesText = "Tables\nChafing dishes";
+  const edited = serializeProviderPackageOfferDraft(reloaded);
+  expect(edited.serviceOptions.drop_off).toEqual(original.drop_off);
+  expect(edited.serviceOptions.full_service).toEqual(original.full_service);
+  expect(edited.serviceOptions.buffet_setup).toEqual({price: 250.5, includedServices: ["Tables", "Chafing dishes"]});
+  expect(edited.startingPrice).toBe(100);
 });

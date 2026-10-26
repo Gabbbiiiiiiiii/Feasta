@@ -128,8 +128,6 @@ it("guides edits through five steps and preserves categorized dishes", async () 
   expect(screen.getByRole("heading", {name: "Step 1: Basic details"})).toBeVisible();
   fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "Retained package draft"}});
   fireEvent.change(screen.getByLabelText(/Pricing model/), {target: {value: "per_pax"}});
-  fireEvent.change(screen.getByLabelText("Preview service tier"), {target: {value: "drop_off"}});
-  fireEvent.change(screen.getByLabelText("Preview guest count"), {target: {value: "25"}});
   const scroller = screen.getByRole("region", {name: "Package details"});
   scroller.scrollTop = 400;
   fireEvent.click(screen.getByRole("button", {name: "Next"}));
@@ -168,7 +166,7 @@ it("guides edits through five steps and preserves categorized dishes", async () 
   expect(screen.getByRole("region", {name: "Package review"})).toHaveTextContent("Provider chicken dish");
   expect(screen.getByRole("region", {name: "Package review"})).toHaveTextContent("Retained package draft");
   expect(screen.getByRole("region", {name: "Package review"})).toHaveTextContent("Custom Garden");
-  expect(screen.getByLabelText("Preview guest count")).toHaveValue("25");
+  expect(screen.queryByLabelText("Preview guest count")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
   await waitFor(() => expect(updateProviderPackage).toHaveBeenCalledWith(base.id, expect.objectContaining({
     pricingModel: "per_pax",
@@ -284,15 +282,14 @@ it("retains a new draft and its pricing model when an old callable rejects prici
   const form = within(screen.getByRole("dialog", {name: "Create package"}));
   fireEvent.change(form.getByLabelText(/Package name/), {target: {value: "New catering draft"}});
   fireEvent.change(form.getByLabelText(/Description/), {target: {value: "A complete catering package for an event."}});
-  fireEvent.change(form.getByLabelText(/Service category/), {target: {value: "catering_service"}});
+  expect(form.getByLabelText(/Service category/)).toHaveAttribute("readonly");
   fireEvent.click(form.getByRole("button", {name: "Next"}));
   fireEvent.click(form.getByRole("checkbox", {name: /Drop-Off Catering/}));
   fireEvent.change(form.getByLabelText(/Drop-Off Catering price/), {target: {value: "500.25"}});
   fireEvent.change(form.getByLabelText(/Minimum guests/), {target: {value: "20"}});
   fireEvent.change(form.getByLabelText(/Maximum guests/), {target: {value: "80"}});
   for (let index = 0; index < 3; index++) fireEvent.click(form.getByRole("button", {name: "Next"}));
-  const summary = form.getByRole("complementary", {name: "Live package summary"});
-  expect(summary.className).not.toMatch(/sticky|absolute|z-/);
+  expect(form.queryByRole("complementary", {name: "Live package summary"})).not.toBeInTheDocument();
   const review = within(form.getByRole("region", {name: "Package review"}));
   for (const name of ["Package details", "Pricing model & capacity", "Service tiers & pricing", "Food inclusions", "Themes", "Images", "Payment terms"]) {
     expect(review.getByRole("heading", {name})).toBeVisible();
