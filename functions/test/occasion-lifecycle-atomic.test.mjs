@@ -187,3 +187,38 @@ test('tampered operation audit does not allow a false successful replay',async()
 });
 
 test.after(()=>rmSync(stage,{recursive:true,force:true}));
+
+test('Birthday activation withdraws both legacy offers and preserves financial history', async () => {
+  const f = fixture({action: 'activate', packages: [
+    ['birthday_one', published()], ['birthday_two', published()],
+    ['unrelated', published({eventType: 'wedding'})],
+  ], galleries: []});
+  const historical = [
+    ['mainEvents/historical', {customerId: 'customer_1', packageSnapshot: {id: 'birthday_one', price: 5000}}],
+    ['providerRequests/historical', {packageId: 'birthday_two', status: 'confirmed'}],
+    ['paymentAgreements/historical', {amount: 5000, termsVersion: 'frozen'}],
+    ['paymentSessions/historical', {status: 'pending', amount: 5000}],
+  ];
+  for (const [path, value] of historical) f.docs.set(path, structuredClone(value));
+  const tx = f.transaction();
+  const result = await commitLifecycle(tx, f.input);
+  assert.deepEqual(result.withdrawnPackageIds, ['birthday_one', 'birthday_two']);
+  assert.equal(f.docs.get('occasions/birthday').active, false);
+  tx.commit();
+  assert.equal(f.docs.get('occasions/birthday').active, true);
+  for (const id of ['birthday_one', 'birthday_two']) {
+    const pkg = f.docs.get(`packages/${id}`);
+    assert.equal(pkg.status, 'draft');
+    assert.equal(pkg.isPublished, false);
+    assert.equal(pkg.isActive, false);
+    assert.equal(pkg.providerPubliclyVisible, false);
+    assert.equal(pkg.publishedAt, null);
+    assert.equal(pkg.eventType, 'birthday');
+  }
+  assert.equal(f.docs.get('packages/unrelated').isPublished, true);
+  for (const [path, value] of historical) assert.deepEqual(f.docs.get(path), value);
+  const retry = f.transaction();
+  assert.equal((await commitLifecycle(retry, f.input)).idempotentReplay, true);
+  assert.equal(retry.writes.length, 0);
+  assert.equal(f.docs.get('packages/birthday_one').isPublished, false);
+});
