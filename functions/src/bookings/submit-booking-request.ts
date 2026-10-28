@@ -1,3 +1,4 @@
+import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {readInitialPaymentRollout, initialPaymentEnrollment} from "../payments/initial-payment-rollout.js";
 import {loadBookingPaymentPolicySnapshot} from "./load-booking-payment-policy.js";
 import {evaluateSubmissionPaymentEligibility} from "../payments/initial-payment-eligibility.js";
@@ -519,6 +520,8 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
               created: false,
             };
           }
+
+          await requireMaintenanceOpen(transaction, db, "intake");
 
           // A catalog transition must conflict with every NEW booking transaction.
           // Existing idempotent booking replays remain accessible above this gate.
@@ -1235,6 +1238,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
               refundPolicy: refundPolicyEvidence.get(providerId)?.refundPolicySnapshot ?? null})),
           ];
           if (disclosureOnly) {
+            recordMaintenanceAdmission(transaction, db);
             return {
               bookingId,
               mainEventId:
@@ -1423,6 +1427,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
           // have crossed the deadline while validating the booking.
           assertBeforeSubmissionPaymentDeadline(submissionEligibility.eventStartAt);
 
+          recordMaintenanceAdmission(transaction, db);
           transaction.create(
             bookingReference,
             {

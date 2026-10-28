@@ -7,9 +7,10 @@ const vm = require('node:vm');
 const {PROVIDER_EVENT_TYPES} = require('../lib/shared/constants.js');
 
 // Execute the actual callable and local dependencies, with no external I/O.
-function harness({active = true, packagePatch = {}, existing, catalog = {activationState: 'stable', revision: 1}} = {}) {
+function harness({maintenance = {schemaVersion: 1, revision: 1, intake: false, publication: false}, active = true, packagePatch = {}, existing, catalog = {activationState: 'stable', revision: 1}} = {}) {
   const reads = [];
   const records = {
+    'maintenanceControls/intake': maintenance,
     'occasionCatalog/current': catalog,
     'users/customer_1': {role: 'customer', accountStatus: 'active', isActive: true,
       isPhoneVerified: true, phoneNumber: '+639171234567'},
@@ -24,7 +25,7 @@ function harness({active = true, packagePatch = {}, existing, catalog = {activat
   };
   const reference = (name) => ({path: name, doc: (id) => reference(`${name}/${id}`),
     collection: (id) => reference(`${name}/${id}`)});
-  const db = {collection: reference, runTransaction: async (work) => work({
+  const db = {doc: reference, collection: reference, runTransaction: async (work) => work({
     get: async (ref) => {
       reads.push(ref.path);
       const data = ref.path.startsWith('mainEvents/') ? existing : records[ref.path];
@@ -107,4 +108,22 @@ test('idempotent replay still enforces ownership and fingerprint', async () => {
     [{customerId: 'customer_1', submissionFingerprint: 'different'}, 'already-exists']]) {
     await assert.rejects(harness({active: false, existing}).call(), {code});
   }
+});
+
+test('maintenance rejects old Web/mobile callable payloads and agreement preparation before occasion checks', async () => {
+  for (const maintenance of [undefined, null, {},
+    {schemaVersion: 1, revision: 2, intake: true, publication: true}]) {
+    for (const disclosure of [false, true]) {
+      const h = harness({maintenance: maintenance ?? null});
+      await assert.rejects(h.call({}, disclosure), error => error.code === 'unavailable' &&
+        error.details?.reason === 'MAINTENANCE_PAUSED');
+      assert.ok(h.reads.includes('maintenanceControls/intake'));
+      assert.equal(h.reads.includes('occasionCatalog/current'), false);
+    }
+  }
+});
+test('maintenance preserves owned existing booking replay', async () => {
+  const h = harness({maintenance: null, existing: {customerId: 'customer_1', providerRequestIds: ['old']}});
+  assert.equal((await h.call()).created, false);
+  assert.equal(h.reads.includes('maintenanceControls/intake'), false);
 });

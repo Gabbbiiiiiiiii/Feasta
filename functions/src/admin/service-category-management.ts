@@ -1,4 +1,5 @@
-﻿import {
+﻿import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
+import {
   HttpsError,
   onCall,
 } from "firebase-functions/v2/https";
@@ -329,6 +330,8 @@ export const createServiceCategory = onCall(
           );
         }
 
+        await requireMaintenanceOpen(transaction, db, "publication");
+        recordMaintenanceAdmission(transaction, db);
         transaction.create(
           reference,
           {
@@ -525,11 +528,13 @@ async function changeCategoryStatus(
         return;
       }
 
+      if (nextStatus === "active") await requireMaintenanceOpen(transaction, db, "publication");
       const after: CategoryData = {
         ...before,
         status: nextStatus,
       };
 
+      if (nextStatus === "active") recordMaintenanceAdmission(transaction, db);
       transaction.update(
         reference,
         {

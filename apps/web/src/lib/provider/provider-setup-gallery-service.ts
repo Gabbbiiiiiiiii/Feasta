@@ -1,4 +1,5 @@
 import "server-only";
+import {requirePublicationOpen, recordPublicationAdmission} from "@/lib/firebase/maintenance";
 
 import {FieldValue} from "firebase-admin/firestore";
 import {adminDb} from "@/lib/firebase/admin";
@@ -89,6 +90,7 @@ export async function saveProviderSetupGallery(input: {revision: number; setups:
     // Only public writes require the generation fence: private drafts may be saved.
     // Read inside the same transaction so a concurrent catalog transition retries.
     if (setups.some((setup) => setup.isPublished)) {
+      await requirePublicationOpen(transaction);
       const occasionCatalog = await transaction.get(
         adminDb.collection("occasionCatalog").doc("current"),
       );
@@ -127,6 +129,7 @@ export async function saveProviderSetupGallery(input: {revision: number; setups:
       }
     }
 
+    if (setups.some((setup) => setup.isPublished)) recordPublicationAdmission(transaction);
     transaction.set(setupRef, {
       providerId: account.providerId,
       setups,

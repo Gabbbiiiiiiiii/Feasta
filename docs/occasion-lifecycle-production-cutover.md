@@ -1,5 +1,26 @@
 # Occasion Lifecycle production cutover decision
 
+## 2026-10-28 enforcement update — NO-GO
+
+The maintenance mechanism is now implemented and locally tested, but production
+readiness remains blocked. Follow [production-maintenance-enforcement.md](production-maintenance-enforcement.md)
+for the complete writer inventory, control protocol, source-parity evidence and
+mandatory Stage A / Stage B deployment design. That update supersedes the older
+external-mechanism assumption and single coordinated-deployment sequence below.
+The integration branch is NOT a maintenance-only deployment source. Seven of eight
+inspected production writer modules differ from expected integration HEAD; Web,
+rules and full dependency parity remain unproved. No pre-cutover deployment is
+recommended until a separate production-baseline maintenance artifact is verified.
+
+Stage A: independently build baseline-compatible maintenance control, protected
+rules, all intake/publication/restoration writers and Web actions; verify old
+revision drain/IAM isolation, then close both scopes with the audited admin callable.
+Stage B: keep that gate closed while deploying the separately authorized lifecycle
+release and performing approved occasion operations. Reopen publication for normal
+revalidation, then reopen intake after acceptance. Preserve existing financial and
+recovery operations throughout. No automatic activation, deployment or production
+write has been performed by this task. Frozen manifest remains unchanged.
+
 Reviewed 2026-10-28 against branch `integration/pia-package-occasion-20261028`,
 HEAD `e1c5ab5831eaaeebe46095009bb441742445ec8b` (matched; worktree initially clean).
 This is a local engineering decision and runbook, not release authorization.
@@ -22,7 +43,8 @@ clients, callable entry points, background writers and privileged scripts. A UI
 banner is insufficient. Drain in-flight old revisions before lifecycle mutation.
 Do not disable the whole project, Auth, customer history, existing agreement
 payments, payment callbacks, reconciliation, cancellation, refunds or recovery.
-The repository does not itself establish this external maintenance mechanism.
+The new maintenance implementation is specified in the enforcement update above.
+Its production rollout, baseline parity and privileged-writer isolation are not yet verified.
 Do not use an ad hoc catalog state change as a substitute for an approved plan.
 
 If uninterrupted NEW booking intake is a requirement, or this pause cannot be
@@ -78,8 +100,9 @@ The V2 revalidation planner is advisory and cannot authorize republication.
 
 ## Remaining release blockers and production prerequisites
 
-1. Approved maintenance scope, enforcement/drain procedure and occasion-by-occasion
-   authorization are absent from this local evidence. Activating only Birthday
+1. Maintenance enforcement now has a local implementation and staged runbook;
+   production baseline parity, deployed coverage/drain/IAM proof and occasion-by-occasion
+   authorization remain absent from release evidence. Activating only Birthday
    leaves the other eight event types unavailable for new bookings. Every occasion
    intended to remain bookable needs independent approval and activation before
    intake is reopened; inactivity must never be treated as permission.
@@ -121,7 +144,7 @@ The V2 revalidation planner is advisory and cannot authorize republication.
    existing-agreement payment and recovery checks remain unverified locally.
    Local unit/source tests cannot satisfy those production attestations alone.
 
-## Recommended production sequence (operator actions; not executed)
+## Historical lifecycle sequence (Stage B only; use the new Stage A prerequisite)
 
 1. Approve the final reviewed source/artifact and maintenance/recovery plan. Take
    protected inventories and recoverable backups of affected configuration/public

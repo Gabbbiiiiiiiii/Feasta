@@ -1,4 +1,5 @@
 import "server-only";
+import {requirePublicationOpen, recordPublicationAdmission} from "@/lib/firebase/maintenance";
 
 import {FieldPath, FieldValue} from "firebase-admin/firestore";
 import {adminDb} from "@/lib/firebase/admin";
@@ -420,7 +421,9 @@ async function executePrivateGallery(rawInput: unknown, loading: boolean): Promi
         }
       }
     }
+    if (setups.some((setup) => setup.isPublished)) await requirePublicationOpen(tx);
     // ALL reads, including category and complete catalog scans, precede write.
+    if (setups.some((setup) => setup.isPublished)) recordPublicationAdmission(tx);
     tx.set(galleryRef, {
       providerId,
       setups,

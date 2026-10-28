@@ -1,3 +1,4 @@
+import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 
 import {writeAuditLogInTransaction} from "../shared/audit.js";
@@ -179,12 +180,16 @@ export const updateProviderBusinessProfile = onCall(
       );
       changes.updatedAt = serverTimestamp();
 
+      if (changes.publiclyVisible === true) {
+        await requireMaintenanceOpen(transaction, db, "publication");
+      }
       await advanceProviderEligibilityInTransaction(
         transaction,
         providerReference,
         provider,
         {...provider, ...changes},
       );
+      if (changes.publiclyVisible === true) recordMaintenanceAdmission(transaction, db);
       transaction.update(providerReference, changes);
       writeAuditLogInTransaction(transaction, {
         actorId: actor.uid,

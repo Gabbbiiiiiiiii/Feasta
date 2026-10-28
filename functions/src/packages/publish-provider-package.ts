@@ -1,3 +1,4 @@
+import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {
   HttpsError,
   onCall,
@@ -209,6 +210,8 @@ export const publishProviderPackage = onCall(
           );
         }
 
+        await requireMaintenanceOpen(transaction, db, "publication");
+
         // Read the protected generation in this SAME Firestore transaction.
         // Concurrent activation-state updates invalidate/retry this publication.
         const catalogSnapshot = await transaction.get(
@@ -231,6 +234,7 @@ export const publishProviderPackage = onCall(
             {reason: "OCCASION_UNAVAILABLE"});
         }
 
+        recordMaintenanceAdmission(transaction, db);
         transaction.update(
           packageReference,
           {

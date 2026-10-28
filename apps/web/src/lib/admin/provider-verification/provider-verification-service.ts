@@ -1,3 +1,4 @@
+import {requirePublicationOpen, recordPublicationAdmission} from "@/lib/firebase/maintenance";
 import "server-only";
 import { prepareProviderEligibilityAdvance } from "@/lib/admin/provider-eligibility-revision";
 
@@ -1396,10 +1397,12 @@ export async function approveProviderVerification({
 
     const now = FieldValue.serverTimestamp();
 
+    await requirePublicationOpen(transaction);
     const writeAuthority = await prepareProviderEligibilityAdvance(
       transaction, providerRef, providerSnapshot.data() ?? {},
       {...providerSnapshot.data(), verificationStatus: "approved", isActive: true},
     );
+    recordPublicationAdmission(transaction);
     writeAuthority();
 
     transaction.update(verificationRef, {

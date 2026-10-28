@@ -1,3 +1,4 @@
+import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {advanceProviderEligibilityInTransaction} from "../shared/provider-eligibility-revision.js";
 import {providerDocumentContext, resolveVerificationDocumentPolicy,
   verificationDocumentsSatisfyPolicy,
@@ -356,11 +357,15 @@ export const reviewProviderVerification = onCall(
                 ),
             });
 
+          if (providerUpdate.publiclyVisible === true) {
+            await requireMaintenanceOpen(transaction, db, "publication");
+          }
           await advanceProviderEligibilityInTransaction(
             transaction, providerReference, providerData ?? {},
             {...providerData, ...providerUpdate},
           );
 
+          if (providerUpdate.publiclyVisible === true) recordMaintenanceAdmission(transaction, db);
           transaction.update(
             verificationReference,
             verificationUpdate,

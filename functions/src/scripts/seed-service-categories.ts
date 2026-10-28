@@ -1,3 +1,4 @@
+import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {initializeApp} from "firebase-admin/app";
 import {
   FieldValue,
@@ -188,27 +189,28 @@ async function main(): Promise<void> {
     return;
   }
 
-  const batch = firestore.batch();
+  await firestore.runTransaction(async (batch) => {
+    await requireMaintenanceOpen(batch, firestore, "publication");
+    recordMaintenanceAdmission(batch, firestore);
 
-  for (const category of missing) {
-    const reference = firestore
-      .collection(SERVICE_CATEGORIES_COLLECTION)
-      .doc(category.code);
+    for (const category of missing) {
+      const reference = firestore
+        .collection(SERVICE_CATEGORIES_COLLECTION)
+        .doc(category.code);
 
-    batch.create(reference, {
-      code: category.code,
-      name: category.name,
-      serviceType: category.serviceType,
-      status: "active",
-      sortName: sortName(category.name),
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-      createdBy: "system_seed",
-      updatedBy: "system_seed",
-    });
-  }
-
-  await batch.commit();
+      batch.create(reference, {
+        code: category.code,
+        name: category.name,
+        serviceType: category.serviceType,
+        status: "active",
+        sortName: sortName(category.name),
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        createdBy: "system_seed",
+        updatedBy: "system_seed",
+      });
+    }
+  });
 
   console.log(
     `Created ${missing.length} service categor${

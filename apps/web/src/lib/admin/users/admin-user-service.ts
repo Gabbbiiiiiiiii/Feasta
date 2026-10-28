@@ -1,3 +1,4 @@
+import {requirePublicationOpen, recordPublicationAdmission} from "@/lib/firebase/maintenance";
 import { isDeepStrictEqual } from "node:util";
 import { prepareProviderEligibilityAdvance } from "@/lib/admin/provider-eligibility-revision";
 import "server-only";
@@ -1864,6 +1865,9 @@ export async function manageAdminUserAccountAccess(
     if (user.role === "customer" && !(await batch.get(customerReference)).exists) {
       throw new Error("The customer profile no longer exists.");
     }
+    if (user.role === "provider" && input.decision === "restore") {
+      await requirePublicationOpen(batch);
+    }
     const authorityWriters: (() => void)[] = [];
     for (const doc of currentProviders) {
       authorityWriters.push(await prepareProviderEligibilityAdvance(
@@ -1872,6 +1876,7 @@ export async function manageAdminUserAccountAccess(
         {before: user.data, after: {...user.data, ...target}},
       ));
     }
+    if (user.role === "provider" && input.decision === "restore") recordPublicationAdmission(batch);
     for (const write of authorityWriters) write();
 
   batch.update(

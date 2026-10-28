@@ -1514,6 +1514,13 @@ service cloud.firestore {
     // appSettings
     // ============================================================
 
+    match /maintenanceControls/{id} {
+      allow read, write: if false;
+    }
+    match /maintenanceAudits/{id} {
+      allow read, write: if false;
+    }
+
     match /appSettings/{settingId} {
       allow read: if (
           resource.data.isPublic is bool &&

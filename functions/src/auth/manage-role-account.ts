@@ -1,3 +1,4 @@
+import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {getAuth} from "firebase-admin/auth";
 import {advanceProviderEligibilityInTransaction} from "../shared/provider-eligibility-revision.js";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
@@ -187,6 +188,8 @@ export const updateRoleAccountProfile = onCall(
       const verificationSnapshot = legalIdentityChanged
         ? await transaction.get(verificationQuery)
         : null;
+      await requireMaintenanceOpen(transaction, db, "publication");
+      recordMaintenanceAdmission(transaction, db);
       transaction.update(userReference, {
         firstName: ownerFirstName,
         lastName: ownerLastName,

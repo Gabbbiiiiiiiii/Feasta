@@ -1,3 +1,4 @@
+import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {
   HttpsError,
   onCall,
@@ -640,6 +641,8 @@ export const publishProviderService = onCall(
           current,
         );
 
+        await requireMaintenanceOpen(transaction, db, "publication");
+
         // Catalog generation must be in this transaction's read set.
         // This does not grant occasion eligibility or authorize transitions.
         const occasionCatalog = await transaction.get(
@@ -652,6 +655,7 @@ export const publishProviderService = onCall(
           );
         }
 
+        recordMaintenanceAdmission(transaction, db);
         transaction.update(
           reference,
           {

@@ -1,3 +1,4 @@
+import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {onDocumentUpdatedWithAuthContext} from "firebase-functions/v2/firestore";
 
 import {db} from "../shared/firestore.js";
@@ -51,6 +52,11 @@ export const onUserSecurityStateChanged = onDocumentUpdatedWithAuthContext(
               .limit(100),
           )
         : null;
+      if (providerSnapshot?.exists && shouldPublishProvider(
+        {...providerSnapshot.data(), id: providerReference!.id}, after)) {
+        await requireMaintenanceOpen(transaction, db, "publication");
+        recordMaintenanceAdmission(transaction, db);
+      }
       transaction.create(reference, {
         actorId: actorUid,
         actorRole: event.authType,

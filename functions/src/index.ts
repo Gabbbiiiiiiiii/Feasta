@@ -1,3 +1,4 @@
+export {setIntakeMaintenance, inspectIntakeMaintenance} from "./admin/intake-maintenance.js";
 import {createHash} from "node:crypto";
 import "./shared/firebase-admin.js";
 import {Timestamp} from "firebase-admin/firestore";
