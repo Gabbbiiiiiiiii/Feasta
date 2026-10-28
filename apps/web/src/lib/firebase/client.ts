@@ -57,6 +57,30 @@ export const storage = getStorage(firebaseApp);
 const useEmulators =
   process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATORS === "true";
 
+const emulatorPorts = {
+  auth: Number(process.env.NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_PORT ?? "9099"),
+  firestore: Number(process.env.NEXT_PUBLIC_FIRESTORE_EMULATOR_PORT ?? "8080"),
+  functions: Number(process.env.NEXT_PUBLIC_FUNCTIONS_EMULATOR_PORT ?? "5001"),
+  storage: Number(process.env.NEXT_PUBLIC_STORAGE_EMULATOR_PORT ?? "9199"),
+};
+
+if (useEmulators) {
+  if (
+    process.env.NODE_ENV === "production" ||
+    !firebaseConfig.projectId?.startsWith("demo-")
+  ) {
+    throw new Error(
+      "Firebase emulator mode requires a demo project and non-production environment.",
+    );
+  }
+
+  for (const port of Object.values(emulatorPorts)) {
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      throw new Error("Invalid Firebase emulator port.");
+    }
+  }
+}
+
 export function shouldDisablePhoneAppVerificationForTesting(
   input: {
     useEmulators?: string;
@@ -147,7 +171,7 @@ export function initializeBrowserFirebase(): void {
 
     connectAuthEmulator(
       auth,
-      "http://127.0.0.1:9099",
+      `http://127.0.0.1:${emulatorPorts.auth}`,
       {
         disableWarnings: true,
       },
@@ -163,19 +187,19 @@ export function initializeBrowserFirebase(): void {
     connectFirestoreEmulator(
       db,
       "127.0.0.1",
-      8080,
+      emulatorPorts.firestore,
     );
 
     connectFunctionsEmulator(
       functions,
       "127.0.0.1",
-      5001,
+      emulatorPorts.functions,
     );
 
     connectStorageEmulator(
       storage,
       "127.0.0.1",
-      9199,
+      emulatorPorts.storage,
     );
 
     emulatorGlobal.__feastaFirebaseEmulatorsConnected =
