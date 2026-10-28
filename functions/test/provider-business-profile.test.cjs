@@ -311,7 +311,8 @@ test("Firestore rules prevent provider clients from bypassing callables", () => 
     rules.indexOf("match /providers/{providerId}"),
     rules.indexOf("match /providerVerifications/{verificationId}"),
   );
-  assert.match(providerBlock, /changesOnly\(\[\s*'isDeleted'/u);
+  assert.match(providerBlock, /isAdmin\(\)\s*&&\s*changesNone\(\[/u);
+  assert.match(providerBlock, /'ownerId'[\s\S]*?'eventTypesSupported'[\s\S]*?'isActive'[\s\S]*?'isDeleted'/u);
   assert.doesNotMatch(
     providerBlock,
     /ownsProvider\(providerId\)\s*&&\s*request\.resource\.data\.ownerId/u,

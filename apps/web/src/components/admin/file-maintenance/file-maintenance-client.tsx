@@ -48,13 +48,13 @@ export function FileMaintenanceClient({
     <div className="grid min-w-0 gap-6">
       <PageHeading
         eyebrow="Administration"
-        title="Platform setup"
+        title="File Maintenance"
         description="Manage service categories, occasions, agreements, and required business documents."
       />
       <div
         className="flex min-w-0 gap-2 overflow-x-auto pb-1"
         role="tablist"
-        aria-label="Platform setup sections"
+        aria-label="File Maintenance sections"
       >
         {SECTIONS.map((item) => {
           const selected = section === item.id;

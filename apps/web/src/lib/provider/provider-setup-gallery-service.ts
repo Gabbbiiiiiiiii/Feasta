@@ -86,6 +86,47 @@ export async function saveProviderSetupGallery(input: {revision: number; setups:
       throw new Error("This setup gallery changed during photo verification. Reload the page before saving.");
     }
     if (currentRevision === Number.MAX_SAFE_INTEGER) throw new Error("Setup gallery revision limit reached. Contact FEASTA support.");
+    // Only public writes require the generation fence: private drafts may be saved.
+    // Read inside the same transaction so a concurrent catalog transition retries.
+    if (setups.some((setup) => setup.isPublished)) {
+      const occasionCatalog = await transaction.get(
+        adminDb.collection("occasionCatalog").doc("current"),
+      );
+      const catalogData = occasionCatalog.data();
+      const revision = catalogData?.revision;
+      if (catalogData?.activationState !== "stable" ||
+          typeof revision !== "number" ||
+          !Number.isSafeInteger(revision) || revision < 1) {
+        throw new Error("Setup publication is unavailable during occasion maintenance.");
+      }
+      const category = (await transaction.get(
+        adminDb.collection("serviceCategories").doc("catering_service"),
+      )).data();
+
+      if (
+        category?.code !== "catering_service" ||
+        category.status !== "active" ||
+        category.serviceType !== "catering"
+      ) {
+        throw new Error(
+          "Catering publication is unavailable for this service category.",
+        );
+      }
+      for (const eventType of new Set(setups.filter((setup) => setup.isPublished)
+        .map((setup) => setup.eventType))) {
+        const occasion = (await transaction.get(
+          adminDb.collection("occasions").doc(eventType),
+        )).data();
+        if (occasion?.id !== eventType || occasion.moderationState !== "approved" ||
+          occasion.active !== true || !Number.isSafeInteger(occasion.revision) ||
+          occasion.revision < 1 ||
+          !Array.isArray(occasion.applicableServiceCategoryCodes) ||
+          !occasion.applicableServiceCategoryCodes.includes("catering_service")) {
+          throw new Error("This setup occasion is inactive or unavailable. Save it as a draft.");
+        }
+      }
+    }
+
     transaction.set(setupRef, {
       providerId: account.providerId,
       setups,

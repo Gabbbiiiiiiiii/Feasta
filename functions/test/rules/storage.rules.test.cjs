@@ -28,6 +28,7 @@ beforeEach(async () => {
   await testEnv.clearFirestore();
   await testEnv.clearStorage();
   await seedDocuments(testEnv, {
+    "businessDocumentTypes/valid_id": {status: "active"},
     "users/customer-owner": userData("customer-owner", "customer"),
     "users/customer-other": userData("customer-other", "customer"),
     "users/provider-owner": userData("provider-owner", "provider", {

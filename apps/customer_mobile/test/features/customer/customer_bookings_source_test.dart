@@ -150,6 +150,25 @@ class Database implements FirebaseFirestore {
 }
 
 void main() {
+  test('historical bookings do not re-read withdrawn packages or occasion authority', () async {
+    final db = Database([
+      Doc('history', {
+        'customerId': 'customer-a',
+        'createdAt': Timestamp(100, 0),
+        'packageId': 'withdrawn-package',
+        'packageName': 'Historical package snapshot',
+        'eventType': 'birthday',
+        'status': 'confirmed',
+      }),
+    ]);
+    // Database rejects every collection except mainEvents. Missing package and
+    // occasion documents must not turn an existing booking into an empty page.
+    final page = await FirestoreCustomerBookingsSource(db, Auth())
+        .watch('customer-a', null).first;
+    expect(page.bookings.single.id, 'history');
+    expect(page.bookings.single.packageName, 'Historical package snapshot');
+    expect(db.queries.length, 1);
+  });
   for (final count in [0, 7, 20, 21, 45]) {
     test(
       'production query pages $count equal timestamps with document ID tie-break',

@@ -37,6 +37,7 @@ import {
 import {
   serverTimestamp,
 } from "../shared/timestamps.js";
+import {stableOccasionPublicationGeneration} from "../packages/occasion-publication-generation.js";
 
 const COLLECTIONS = {
   providers: "providers",
@@ -638,6 +639,18 @@ export const publishProviderService = onCall(
         validatePublishableService(
           current,
         );
+
+        // Catalog generation must be in this transaction's read set.
+        // This does not grant occasion eligibility or authorize transitions.
+        const occasionCatalog = await transaction.get(
+          db.collection("occasionCatalog").doc("current"),
+        );
+        if (stableOccasionPublicationGeneration(occasionCatalog.data()) === null) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Event-service publication is unavailable during occasion maintenance.",
+          );
+        }
 
         transaction.update(
           reference,

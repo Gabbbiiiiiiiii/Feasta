@@ -73,10 +73,42 @@ beforeEach(() => {
   state.records.set("providers/provider-one", {...provider});
   state.records.set("users/owner", {role: "provider", providerId: "provider-one", accountStatus: "active", isActive: true});
   state.records.set(setupPath, {revision: 1, setups: [setup()]});
+  state.records.set("serviceCategories/catering_service", {code: "catering_service", status: "active", serviceType: "catering"});
+  state.records.set("occasionCatalog/current", {revision: 1, activationState: "stable"});
+  state.records.set("occasions/wedding", {id: "wedding", active: true,
+    moderationState: "approved", revision: 1, applicableServiceCategoryCodes: ["catering_service"]});
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
 describe("setup gallery data contract", () => {
+  it.each([undefined, {id: "wedding", active: false, moderationState: "approved", revision: 1},
+    {id: "wedding", active: true, moderationState: "pending", revision: 1}])(
+    "refuses publication with unavailable occasion authority %j", async (occasion) => {
+      if (occasion) state.records.set("occasions/wedding", occasion);
+      else state.records.delete("occasions/wedding");
+      await expect(saveProviderSetupGallery({revision: 1, setups: [setup()]}))
+        .rejects.toThrow(/occasion is inactive or unavailable/);
+      expect(state.set).not.toHaveBeenCalled();
+      await saveProviderSetupGallery({revision: 1, setups: [setup({isPublished: false})]});
+      expect(state.set).toHaveBeenCalledOnce();
+    });
+  it("requires an active catering category for public setups, not private drafts", async () => {
+    state.records.set("serviceCategories/catering_service", {code: "catering_service", status: "inactive", serviceType: "catering"});
+    await expect(saveProviderSetupGallery({revision: 1, setups: [setup()]}))
+      .rejects.toThrow(/Catering publication is unavailable/);
+    expect(state.set).not.toHaveBeenCalled();
+    await saveProviderSetupGallery({revision: 1, setups: [setup({isPublished: false})]});
+    expect(state.set).toHaveBeenCalledOnce();
+  });
+
+  it("requires the published occasion to permit catering", async () => {
+    state.records.set("occasions/wedding", {id: "wedding", active: true,
+      moderationState: "approved", revision: 1, applicableServiceCategoryCodes: []});
+    await expect(saveProviderSetupGallery({revision: 1, setups: [setup()]}))
+      .rejects.toThrow(/occasion is inactive or unavailable/);
+    expect(state.set).not.toHaveBeenCalled();
+  });
+
   it.each([2, 3, null, "2", false])("never downgrades writer version %s to a legacy save", async (galleryWriteSchemaVersion) => {
     const input = {revision: 1, setups: [], galleryWriteSchemaVersion};
     await expect(saveProviderSetupGallery(input as Parameters<typeof saveProviderSetupGallery>[0])).rejects.toThrow(/disabled|writer version/i);

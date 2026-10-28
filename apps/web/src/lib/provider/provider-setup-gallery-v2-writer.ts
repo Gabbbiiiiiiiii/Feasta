@@ -373,6 +373,10 @@ async function executePrivateGallery(rawInput: unknown, loading: boolean): Promi
       provider.verificationStatus === "approved";
     const availability = {canSave, canPublishV2: false as const,
       reason: canSave ? null : "Private Setup Gallery V2 saving is disabled."};
+    // Availability must also be enforced on every server write.
+    if (input && !canSave) {
+      return deny("Private Setup Gallery V2 saving is disabled.");
+    }
     if (!input) return {galleryWriteSchemaVersion: 2 as const, revision,
       setups: previous, authority, availability};
     const incoming = input.setups as Record<string, unknown>[];
@@ -400,7 +404,8 @@ async function executePrivateGallery(rawInput: unknown, loading: boolean): Promi
     // Never mark V2 as published before the V2 public projection is verified.
     const publishedV2 = setups.filter((setup) =>
       setup.setupOccasionSchemaVersion === 2 && setup.isPublished);
-    if (publishedV2.length && (!PRIVATE_V2_PUBLICATION_VERIFIED || !policy.publicReads ||
+    if (publishedV2.length && (!availability.canPublishV2 ||
+      !PRIVATE_V2_PUBLICATION_VERIFIED || !policy.publicReads ||
       publishedV2.some((setup) => setup.eventType === null))) {
       return deny("V2 publication requires public reader approval and a legacy mapping.");
     }

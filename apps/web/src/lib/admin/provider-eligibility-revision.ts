@@ -12,7 +12,8 @@ export async function prepareProviderEligibilityAdvance(
   ownerChange?: { before: Record<string, unknown>; after: Record<string, unknown> },
 ): Promise<() => void> {
   const fields = ["ownerId", "providerServiceType", "providerCategory", "serviceCategories",
-    "eventTypesSupported", "verificationStatus", "isActive", "isBlocked", "isSuspended", "isDeleted"];
+    "eventTypesSupported", "verificationStatus", "isActive", "isBlocked", "isSuspended", "isDeleted",
+    "publiclyVisible"];
   const ownerFields = ["role", "providerId", "accountStatus", "isActive", "isBlocked"];
   if (fields.every((key) => isDeepStrictEqual(before[key], after[key])) &&
     (!ownerChange || ownerFields.every((key) =>

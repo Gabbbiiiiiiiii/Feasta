@@ -10,6 +10,7 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../../core/constants/firestore_collections.dart';
+import '../../../../core/helpers/legacy_occasion_visibility.dart';
 import '../../../../core/constants/status_constants.dart';
 import '../../../../core/firestore/query_builder.dart';
 import '../../../../shared/models/customer_payment_request.dart';
@@ -228,6 +229,7 @@ class FeastaRepository {
         .where((snapshot) => !snapshot.metadata.isFromCache)
         .asyncMap((snapshot) async {
           final providerIds = snapshot.docs
+              .where((doc) => isLegacyOccasionPublicPackage(doc.data()))
               .map((doc) => doc.data()['providerId'])
               .where((id) => id != null && id.toString().isNotEmpty)
               .map((id) => id.toString())
@@ -376,7 +378,10 @@ class FeastaRepository {
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
         .map((snapshot) {
-          return snapshot.docs.map(PackageModel.fromDoc).toList();
+          return snapshot.docs
+              .where((doc) => isLegacyOccasionPublicPackage(doc.data()))
+              .map(PackageModel.fromDoc)
+              .toList();
         });
   }
 
@@ -424,6 +429,7 @@ class FeastaRepository {
         .get(const GetOptions(source: Source.server));
     if (!doc.exists) return null;
     final data = doc.data()!;
+    if (!isLegacyOccasionPublicPackage(data)) return null;
     if (data['providerId'] != providerId ||
         data['isActive'] != true ||
         data['isPublished'] != true ||

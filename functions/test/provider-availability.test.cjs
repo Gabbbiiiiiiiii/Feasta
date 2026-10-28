@@ -431,10 +431,12 @@ test("acceptance re-reads ownership and availability in one transaction", () => 
   assert.match(acceptance, /"failed-precondition",\s*"The provider is not available/u);
   const validationPosition =
     acceptance.lastIndexOf("validateProviderAvailability({");
-  const updatePosition =
-    acceptance.indexOf("transaction.update(\n            providerRequestReference", validationPosition);
   assert.ok(validationPosition >= 0);
-  assert.ok(updatePosition > validationPosition);
+  const updatePosition = acceptance.slice(validationPosition).search(
+    /transaction\.update\(\s*providerRequestReference\b/u,
+  );
+  assert.ok(updatePosition > 0,
+    "request update must occur after availability validation");
 });
 
 test("booking submission validates availability and remains a review flow", () => {

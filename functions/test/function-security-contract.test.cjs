@@ -15,6 +15,19 @@ test("v3 scheduler is bounded, server-owned and validates payment and provider a
 });
 
 const policies = [
+  ...["activateAdminOccasion", "deactivateAdminOccasion", "inspectAdminOccasionAtomicReadiness"]
+    .map((name) => [name, "admin/occasion-lifecycle-actions.ts", [
+      "onCall(appCheckCallableOptions", "requireOccasionLifecycleActor", "db.runTransaction"]]),
+  ["checkAdminOccasionDeactivationReadiness", "admin/occasion-activation-readiness.ts", [
+    "requireOccasionLifecycleActor", "request.app", "appCheckCallableOptions",
+    "requireOccasionLifecycleAdmin", "db.runTransaction"]],
+  ["checkAdminOccasionActivationReadiness", "admin/occasion-activation-readiness.ts", [
+    "requireAuth(request)", "requireRole", "request.app", "enforceCallableRateLimit",
+    "appCheckCallableOptions", "requireOccasionLifecycleAdmin", "db.runTransaction",
+    "RELEASE_AUTHORIZATION_UNVERIFIED", "PUBLICATION_WITHDRAWAL_UNAVAILABLE"]],
+  ...["listAdminOccasions", "createAdminOccasion", "updateAdminOccasion", "previewAdminOccasionImpact"]
+    .map((name) => [name, "admin/occasion-management.ts", ["requireAuth(request)", "requireRole",
+      "enforceCallableRateLimit", "appCheckCallableOptions", "db.runTransaction", "await admin(tx, uid)"]]),
   ["listApprovedOccasions", "packages/list-approved-occasions-v2.ts", ["onCall",
     "appCheckCallableOptions", "enforceCallableRateLimit", "loadOccasionCatalogReadPolicy",
     "requireCatalogRevision", "secretKey", "consumeOccasionCatalogCandidates", "REVISION_CONFLICT"]],
@@ -539,12 +552,26 @@ test("all deployed exports remain in the reviewed inventory", () => {
   }
   // Inventory existing source exports; this does not authorize deployment or activation.
   assert.equal(names.has("updateProviderOccasionCapabilities"), false);
+  assert.equal(names.has("activateGlobalOccasion"), false);
+  assert.equal(names.has("deactivateGlobalOccasion"), false);
+  assert.equal(names.has("getOccasionTransition"), false);
+  assert.equal(names.has("prepareBlockedOccasionTransition"), false);
   assert.deepEqual([...names].sort(), [
+  "checkAdminOccasionActivationReadiness",
+  "checkAdminOccasionDeactivationReadiness",
+  "activateAdminOccasion",
+  "deactivateAdminOccasion",
+  "inspectAdminOccasionAtomicReadiness",
+  "listAdminOccasions",
+  "createAdminOccasion",
+  "updateAdminOccasion",
+  "previewAdminOccasionImpact",
   "listApprovedOccasions",
   "reconcileInitialPaymentExpiration",
   "submitProviderOccasionSuggestion",
   "listMyOccasionSuggestions",
   "listOccasionSuggestionsForReview",
+  "listPublicServiceCategories",
   "reviewOccasionSuggestion",
   "acceptCurrentProviderAgreement",
   "acceptProviderRequest",
@@ -623,6 +650,7 @@ test("all deployed exports remain in the reviewed inventory", () => {
   "repairAmbiguousProviderPayoutAccount",
   "requestPaymentRefund",
   "reverseGeocode",
+  "reverseGeocodePublic",
   "reviewProviderTaxProfile",
   "reviewProviderVerification",
   "retryFailedProviderDisbursement",

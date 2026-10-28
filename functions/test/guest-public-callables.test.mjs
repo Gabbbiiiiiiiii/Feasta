@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 import vm from 'node:vm';
 
-const functionsRoot = path.resolve(process.cwd());
+const functionsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const requireFromFunctions = createRequire(path.join(functionsRoot, 'package.json'));
 const ts = requireFromFunctions('typescript');
 const source = (p) => readFileSync(path.join(functionsRoot, p), 'utf8');

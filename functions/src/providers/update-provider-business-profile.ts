@@ -17,6 +17,7 @@ import {
 import {db} from "../shared/firestore.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {enforceCallableRateLimit} from "../shared/rate-limit.js";
+import {advanceProviderEligibilityInTransaction} from "../shared/provider-eligibility-revision.js";
 import {serverTimestamp} from "../shared/timestamps.js";
 import {
   resolveLegacyBusinessRegistrationBackfill,
@@ -178,6 +179,12 @@ export const updateProviderBusinessProfile = onCall(
       );
       changes.updatedAt = serverTimestamp();
 
+      await advanceProviderEligibilityInTransaction(
+        transaction,
+        providerReference,
+        provider,
+        {...provider, ...changes},
+      );
       transaction.update(providerReference, changes);
       writeAuditLogInTransaction(transaction, {
         actorId: actor.uid,

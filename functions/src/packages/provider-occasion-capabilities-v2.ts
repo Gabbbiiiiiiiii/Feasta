@@ -9,6 +9,8 @@ import {db} from "../shared/firestore.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {requireActiveServiceCategoriesInTransaction} from "../shared/service-category-policy.js";
 import {isServiceCategoryCode} from "../shared/service-category-code.js";
+import {enforceCallableRateLimit} from "../shared/rate-limit.js";
+import {correlationIdFromCallable} from "../shared/security-events.js";
 import {
   parseCapabilityChange,
   occasionIds,
@@ -24,7 +26,11 @@ import {digest, fail} from "./occasion-suggestion-v2-core.js";
 export const updateProviderOccasionCapabilities = onCall(
   appCheckCallableOptions, async (request) => {
   const {uid} = requireAuth(request);
+  if (!request.app) fail("APP_CHECK_REQUIRED", "unauthenticated");
   await requireRole(uid, ["admin"]);
+  await enforceCallableRateLimit(request, {
+    scope: "providerOccasionCapabilities.update", limit: 30, windowSeconds: 3600,
+  });
   const input = parseCapabilityChange(request.data);
   const hash = digest(input);
   const op = db.collection("providerOccasionCapabilityOperations")
@@ -125,6 +131,7 @@ export const updateProviderOccasionCapabilities = onCall(
     tx.create(op, {hash, result, actorUid: uid, createdAt: now});
     tx.create(db.collection("providerOccasionCapabilityAudits").doc(op.id), {
       actorUid: uid, providerId: ref.id, reason: input.reason,
+      correlationId: correlationIdFromCallable(request),
       before: held, after: full, beforeRevision: revision, afterRevision: next,
       catalogRevision, approvedCategoryCodes: categories, createdAt: now});
     tx.create(db.collection("providerOccasionCapabilityRevalidations").doc(op.id), {

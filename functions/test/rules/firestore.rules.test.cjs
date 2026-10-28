@@ -387,7 +387,7 @@ test("users bootstrap only their claimed customer or provider role", async () =>
   ));
 });
 
-test("users cannot change trusted fields and admin has bounded controls", async () => {
+test("users and browser admins cannot change backend-owned account controls", async () => {
   await seedDocuments(testEnv, {
     "users/customer-one": userData("customer-one", "customer"),
     "users/admin-one": userData("admin-one", "admin"),
@@ -413,7 +413,7 @@ test("users cannot change trusted fields and admin has bounded controls", async 
     firstName: "Updated",
     updatedAt: new Date(),
   }));
-  await assertSucceeds(updateDoc(
+  await assertFails(updateDoc(
     doc(admin, "users/customer-one"),
     {isBlocked: true, accountStatus: "blocked", updatedAt: new Date()},
   ));
@@ -976,7 +976,7 @@ test("soft-deleted providers are retained but hidden from public access", async 
     isDeleted: true,
     isActive: false,
   }));
-  await assertSucceeds(updateDoc(providerRef, {
+  await assertFails(updateDoc(providerRef, {
     isDeleted: true,
     isActive: false,
     deletedAt: serverTimestamp(),
@@ -984,6 +984,14 @@ test("soft-deleted providers are retained but hidden from public access", async 
     deletionReason: "Business closed",
     updatedAt: serverTimestamp(),
   }));
+  // Model the trusted deletion callable result after rejecting direct writes.
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), "providers/provider-approved"), {
+      isDeleted: true, isActive: false, publiclyVisible: false,
+      deletedAt: serverTimestamp(), deletedBy: "provider-owner",
+      deletionReason: "Business closed",
+    });
+  });
   await assertFails(getDoc(doc(publicDb, "providers/provider-approved")));
   await assertSucceeds(getDoc(providerRef));
   await assertFails(deleteDoc(providerRef));

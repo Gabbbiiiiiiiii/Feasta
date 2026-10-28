@@ -36,6 +36,10 @@ import {
   parsePackageInput,
 } from "./package-domain.js";
 
+import {isLegacyOccasionPackage} from "./legacy-occasion-publication-guard.js";
+import {stableOccasionPublicationGeneration} from "./occasion-publication-generation.js";
+import {activeOccasionAuthority} from "./occasion-publication-generation.js";
+
 export const publishProviderPackage = onCall(
   {
     ...appCheckCallableOptions,
@@ -150,6 +154,13 @@ export const publishProviderPackage = onCall(
           packageRecord,
         );
 
+        if (!isLegacyOccasionPackage(packageRecord.packageData)) {
+          throw new HttpsError(
+            "failed-precondition",
+            "V2 occasion packages require verified customer compatibility before publishing.",
+          );
+        }
+
         const validated =
           parsePackageInput(
             packageRecord.packageData,
@@ -196,6 +207,28 @@ export const publishProviderPackage = onCall(
             "failed-precondition",
             "Complete your approved public provider profile before publishing packages.",
           );
+        }
+
+        // Read the protected generation in this SAME Firestore transaction.
+        // Concurrent activation-state updates invalidate/retry this publication.
+        const catalogSnapshot = await transaction.get(
+          db.collection("occasionCatalog").doc("current"),
+        );
+        if (stableOccasionPublicationGeneration(catalogSnapshot.data()) === null) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Package publication is temporarily unavailable during occasion maintenance.",
+          );
+        }
+
+        const occasionSnapshot = await transaction.get(
+          db.collection("occasions").doc(validated.eventType),
+        );
+        if (!activeOccasionAuthority(occasionSnapshot.data(), validated.eventType,
+          validated.serviceCategoryCode)) {
+          throw new HttpsError("failed-precondition",
+            "This occasion is inactive or unavailable for this service.",
+            {reason: "OCCASION_UNAVAILABLE"});
         }
 
         transaction.update(

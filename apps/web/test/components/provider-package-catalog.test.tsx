@@ -44,6 +44,15 @@ beforeEach(() => {
   mocks.list.mockReset().mockResolvedValue([record]);
 });
 
+function advancePackageWizardSteps(count: number) {
+  for (let step = 0; step < count; step++) {
+    const heading = screen.getByRole("heading", {name: /^Step [1-5]:/});
+    const currentStep = Number(heading.textContent?.match(/^Step (\d):/)?.[1]);
+    if (!Number.isInteger(currentStep)) throw Error("Wizard step heading missing");
+    fireEvent.click(screen.getByRole("button", {name: "Next"}));
+    expect(screen.getByRole("heading", {name: new RegExp(`^Step ${currentStep + 1}:`)})).toBeVisible();
+  }
+}
 describe("provider package modal and media", () => {
   it.each(["deposit_then_balance", "full_payment"] as const)("renders compact canonical %s terms", (paymentPolicy) => {
     render(<ProviderPackageCard item={{...record, paymentPolicy, depositPercentage: paymentPolicy === "full_payment" ? 100 : 50, balanceDueDaysBeforeEvent: null}} onEdit={vi.fn()} onPublish={vi.fn()} onArchive={vi.fn()} />);
@@ -59,30 +68,38 @@ describe("provider package modal and media", () => {
   it("retains all saved inclusion groups when editing an unrelated field", async () => {
     const inclusions = {foodInclusions: ["Rice"], decorInclusions: ["Backdrop"], furnitureInclusions: ["Chairs"], serviceInclusions: ["Setup"]};
     render(<ProviderPackageForm {...props} initialPackage={{...record, ...inclusions}} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    fireEvent.change(screen.getByRole("textbox", {name: /Package name/}), {target: {value: "Updated package"}});
+    advancePackageWizardSteps(2);
+    expect(screen.getByRole("button", {name: "Edit dish Rice"})).toBeVisible();
+    advancePackageWizardSteps(1);
     expect(screen.getByText(/Optional — add inclusions/)).toBeVisible();
-    for (const label of ["Food inclusions", "Decoration inclusions", "Furniture inclusions", "Service inclusions"]) {
+    for (const label of ["Decoration inclusions", "Furniture inclusions", "Service inclusions"]) {
       expect(screen.getByLabelText(label)).not.toBeRequired();
       expect(screen.getByLabelText(label)).toBeEnabled();
     }
-    fireEvent.change(screen.getByRole("textbox", {name: /Package name/}), {target: {value: "Updated package"}});
+    advancePackageWizardSteps(1);
     fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({name: "Updated package", ...inclusions})));
   });
   it("preserves saved deposit terms when editing", async () => {
     render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    advancePackageWizardSteps(1);
     expect(screen.getByLabelText(/Payment terms/)).toHaveValue("deposit_then_balance");
     expect(screen.getByLabelText(/Deposit required/)).toHaveValue(20);
     expect(screen.queryByLabelText(/Remaining balance due/)).not.toBeInTheDocument();
+    advancePackageWizardSteps(3);
     fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({paymentPolicy: "deposit_then_balance", depositPercentage: 20})));
   });
 
   it("switches back to Full Payment and submits canonical terms even with invalid deposit fields", async () => {
     render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    advancePackageWizardSteps(1);
     fireEvent.change(screen.getByLabelText(/Deposit required/), {target: {value: "0"}});
     fireEvent.change(screen.getByLabelText(/Payment terms/), {target: {value: "full_payment"}});
     expect(screen.queryByLabelText(/Deposit required/)).not.toBeInTheDocument();
     expect(screen.getByText("Customers pay the full amount after you accept their booking request.")).toBeVisible();
+    advancePackageWizardSteps(3);
     fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({paymentPolicy: "full_payment", depositPercentage: 100})));
     const payload = mocks.update.mock.calls.at(-1)?.[1];
@@ -100,12 +117,14 @@ describe("provider package modal and media", () => {
   const paymentPolicyBounds = {minimumDepositRateBps: 1250, maximumDepositRateBps: 9250, minimumBalanceDueDaysBeforeEvent: 4, maximumBalanceDueDaysBeforeEvent: 60};
   it("uses supplied deposit bounds without exposing a Provider-editable balance deadline", async () => {
     render(<ProviderPackageForm {...props} paymentPolicyBounds={paymentPolicyBounds} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    advancePackageWizardSteps(1);
     const deposit = screen.getByLabelText(/Deposit required/);
     expect(deposit).toHaveAttribute("min", "12.5");
     expect(deposit).toHaveAttribute("max", "92.5");
     expect(screen.queryByLabelText(/Remaining balance due/)).not.toBeInTheDocument();
     expect(screen.getByText("Current FEASTA policy allows 12.5%–92.5%.")).toBeVisible();
     fireEvent.change(deposit, {target: {value: "90.25"}});
+    advancePackageWizardSteps(3);
     fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({
       paymentPolicy: "deposit_then_balance",
@@ -135,15 +154,22 @@ describe("provider package modal and media", () => {
     const dialog = screen.getByRole("dialog", {name: "Edit package"});
     expect(within(dialog).getByRole("textbox", {name: /Package name/})).toHaveValue(record.name);
     expect(within(dialog).getByRole("textbox", {name: /Description/})).toHaveValue(record.description);
+    advancePackageWizardSteps(1);
     expect(within(dialog).getByRole("spinbutton", {name: /Starting price/})).toHaveValue(record.price);
-    expect(within(dialog).getByRole("textbox", {name: "Food inclusions"})).toHaveValue("Rice");
+    advancePackageWizardSteps(1);
+    expect(within(dialog).getByRole("button", {name: "Edit dish Rice"})).toBeVisible();
+    advancePackageWizardSteps(1);
     expect(within(dialog).getAllByRole("img").map((img) => img.getAttribute("src"))).toEqual([image, image.replace("asset", "second")]);
     expect(document.querySelector('section[aria-label="Provider package results"]')).toBeInTheDocument();
     expect(screen.getAllByRole("heading", {name: "Edit package", hidden: true})).toHaveLength(1);
     await user.click(within(dialog).getByRole("button", {name: "Cancel"}));
+    expect(screen.getByRole("dialog", {name: "Discard package changes?"})).toBeVisible();
+    await user.click(screen.getByRole("button", {name: "Discard changes"}));
     await waitFor(() => expect(edit).toHaveFocus());
     await user.click(edit);
     await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", {name: "Discard package changes?"})).toBeVisible();
+    await user.click(screen.getByRole("button", {name: "Discard changes"}));
     await waitFor(() => expect(edit).toHaveFocus());
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
@@ -156,9 +182,11 @@ describe("provider package modal and media", () => {
     mocks.upload.mockImplementation(() => new Promise((resolve) => { finishUpload = resolve; }));
     render(<ProviderPackagesClient {...props} providerId="provider-one" />);
     await user.click(await screen.findByRole("button", {name: "Edit Party package"}));
+    advancePackageWizardSteps(3);
     fireEvent.change(screen.getByLabelText("Package images"), {target: {files: [new File(["new"], "new.png", {type: "image/png"})]}});
     expect(mocks.upload).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", {name: "Move image 2 earlier"}));
+    advancePackageWizardSteps(1);
     await user.click(screen.getByRole("button", {name: "Save changes"}));
     expect(screen.getByRole("button", {name: "Cancel"})).toBeDisabled();
     expect(screen.queryByRole("button", {name: "Close dialog"})).not.toBeInTheDocument();
@@ -181,6 +209,8 @@ describe("provider package modal and media", () => {
     expect(screen.getByRole("dialog", {name: "Create package"})).toBeVisible();
     expect(document.querySelector('section[aria-label="Provider package results"]')).toBeInTheDocument();
     await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", {name: "Discard package changes?"})).toBeVisible();
+    await user.click(screen.getByRole("button", {name: "Discard changes"}));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(trigger).toHaveFocus();
     await user.click(trigger);
@@ -188,6 +218,8 @@ describe("provider package modal and media", () => {
     expect(within(body).queryByRole("button", {name: "Cancel"})).not.toBeInTheDocument();
     expect(within(body).queryByRole("heading", {name: "Create package"})).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", {name: "Cancel"}));
+    expect(screen.getByRole("dialog", {name: "Discard package changes?"})).toBeVisible();
+    await user.click(screen.getByRole("button", {name: "Discard changes"}));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(trigger).toHaveFocus();
     expect(screen.getByRole("region", {name: "Provider package results"})).toBeInTheDocument();
@@ -196,6 +228,7 @@ describe("provider package modal and media", () => {
   it("preserves a legacy image and permits saving with every inclusion empty", async () => {
     const saved = vi.fn();
     render(<ProviderPackageForm {...props} initialPackage={record} onSaved={saved} onCancel={vi.fn()} />);
+    advancePackageWizardSteps(4);
     fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({
       imageUrl: image, imageUrls: [image], foodInclusions: [], decorInclusions: [], furnitureInclusions: [], serviceInclusions: [],
@@ -210,6 +243,7 @@ describe("provider package modal and media", () => {
     Object.defineProperty(URL, "revokeObjectURL", {configurable: true, value: vi.fn()});
     mocks.upload.mockResolvedValueOnce({url: image}).mockResolvedValueOnce({url: image.replace("asset", "second")});
     render(<ProviderPackageForm {...props} initialPackage={{...record, imageUrl: ""}} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    advancePackageWizardSteps(3);
     const first = new File(["one"], "one.png", {type: "image/png"});
     const second = new File(["two"], "two.png", {type: "image/png"});
     fireEvent.change(screen.getByLabelText("Package images"), {target: {files: [first, second]}});
@@ -221,6 +255,7 @@ describe("provider package modal and media", () => {
     expect(screen.getAllByRole("img")[0]).toHaveAttribute("src", "blob:second");
     expect(screen.getByText("Cover").closest("div.border-t")?.parentElement).toContainElement(screen.getAllByRole("img")[0]!);
     expect(mocks.upload).not.toHaveBeenCalled();
+    advancePackageWizardSteps(1);
     fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({imageUrl: image, imageUrls: [image, image.replace("asset", "second")]})));
     expect(mocks.upload).toHaveBeenCalledTimes(2);
@@ -233,13 +268,20 @@ describe("provider package modal and media", () => {
     Object.defineProperty(URL, "createObjectURL", {configurable: true, value: vi.fn(() => "blob:added")});
     Object.defineProperty(URL, "revokeObjectURL", {configurable: true, value: vi.fn()});
     render(<ProviderPackageForm {...props} initialPackage={{...record, imageUrls: Array.from({length: 7}, (_, i) => image.replace("asset", `asset-${i}`))}} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    advancePackageWizardSteps(3);
     const input = screen.getByLabelText("Package images");
     expect(input).toHaveAttribute("type", "file");
     expect(input).toHaveAttribute("multiple");
     const click = vi.spyOn(input, "click");
-    screen.getByRole("button", {name: "Add more images"}).focus();
+    const addButton = screen.getByRole("button", {name: "Add more images"});
+    await waitFor(() => expect(
+      screen.getByRole("heading", {name: "Step 4: Services & media"}),
+    ).toHaveFocus());
+    expect(addButton).toBeEnabled();
+    addButton.focus();
+    expect(addButton).toHaveFocus();
     await user.keyboard("{Enter}");
-    expect(click).toHaveBeenCalledOnce();
+    await waitFor(() => expect(click).toHaveBeenCalledOnce());
     const file = new File(["image"], "menu.png", {type: "image/png"});
     fireEvent.change(input, {target: {files: [file, file]}});
     expect(screen.getByRole("alert")).toHaveTextContent("Choose at most 8 images.");
@@ -261,7 +303,10 @@ describe("provider package modal and media", () => {
     expect(name).toHaveAttribute("aria-invalid", "true");
     expect(name).toHaveAccessibleDescription("Package name must be between 2 and 120 characters.");
     expect(screen.getByRole("region", {name: "Package details"})).toContainElement(screen.getByRole("alert"));
-    expect(screen.getByRole("button", {name: "Create draft package"})).toBeDisabled();
+    expect(screen.queryByRole("button", {name: "Create draft package"})).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", {name: "Next"}));
+    expect(screen.getByRole("heading", {name: "Step 1: Basic details"})).toBeVisible();
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 
   it("allows removing and reordering selected images without uploading", () => {
@@ -284,11 +329,13 @@ describe("provider package modal and media", () => {
 
   it("derives the starting price from enabled service tiers and preserves deposit terms", async () => {
     render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    advancePackageWizardSteps(1);
     expect(screen.getByRole("checkbox", {name: /Drop-Off Catering/})).toBeChecked();
-    expect(screen.getByRole("spinbutton", {name: /Drop-Off Catering price/})).toHaveValue(10000);
+    expect(screen.getByRole("textbox", {name: /Drop-Off Catering price/})).toHaveValue("10000");
     fireEvent.click(screen.getByRole("checkbox", {name: /Buffet Setup/}));
-    fireEvent.change(screen.getByRole("spinbutton", {name: /Buffet Setup price/}), {target: {value: "8500.5"}});
+    fireEvent.change(screen.getByRole("textbox", {name: /Buffet Setup price/}), {target: {value: "8500.5"}});
     expect(screen.getByRole("spinbutton", {name: /Starting price/})).toHaveValue(8500.5);
+    advancePackageWizardSteps(3);
     fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({
       price: 8500.5,
@@ -304,11 +351,15 @@ describe("provider package modal and media", () => {
 
   it("blocks themes on drop-off-only offers and requires a setup tier first", () => {
     render(<ProviderPackageForm {...props} initialPackage={record} onSaved={vi.fn()} onCancel={vi.fn()} />);
-    expect(screen.queryByRole("button", {name: "Add theme"})).not.toBeInTheDocument();
+    advancePackageWizardSteps(3);
+    expect(screen.queryByRole("button", {name: "Add Theme"})).not.toBeInTheDocument();
     expect(screen.getByText("Enable Buffet Setup or Full-Service Catering to add themes.")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {name: "Back"}));
+    fireEvent.click(screen.getByRole("button", {name: "Back"}));
     fireEvent.click(screen.getByRole("checkbox", {name: /Full-Service Catering/}));
-    fireEvent.change(screen.getByRole("spinbutton", {name: /Full-Service Catering price/}), {target: {value: "15000"}});
-    fireEvent.click(screen.getByRole("button", {name: "Add theme"}));
+    fireEvent.change(screen.getByRole("textbox", {name: /Full-Service Catering price/}), {target: {value: "15000"}});
+    advancePackageWizardSteps(2);
+    fireEvent.click(screen.getByRole("button", {name: "Add Theme"}));
     expect(screen.getByLabelText("Theme name")).toBeVisible();
   });
 
@@ -321,10 +372,14 @@ describe("provider package modal and media", () => {
         onCancel={vi.fn()}
       />,
     );
+    advancePackageWizardSteps(1);
     expect(screen.getByText(/This legacy package remains readable/)).toBeVisible();
-    expect(screen.getByRole("button", {name: "Save changes"})).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", {name: "Next"}));
+    expect(screen.getByRole("heading", {name: "Step 2: Pricing & capacity"})).toBeVisible();
+    expect(mocks.update).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("checkbox", {name: /Drop-Off Catering/}));
-    fireEvent.change(screen.getByRole("spinbutton", {name: /Drop-Off Catering price/}), {target: {value: "10000"}});
+    fireEvent.change(screen.getByRole("textbox", {name: /Drop-Off Catering price/}), {target: {value: "10000"}});
+    advancePackageWizardSteps(3);
     expect(screen.getByRole("button", {name: "Save changes"})).toBeEnabled();
     fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
     await waitFor(() => expect(mocks.update).toHaveBeenCalledWith(record.id, expect.objectContaining({

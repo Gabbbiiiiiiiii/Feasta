@@ -27,7 +27,7 @@ function fixture(options = {}) {
       where: () => ref(path), limit: () => ref(path), get: async () => {
         if (records.has(path)) return snapshot(path);
         const docs = [...records.keys()].filter((key) => key.startsWith(path + "/") && !key.slice(path.length + 1).includes("/")).map(snapshot);
-        return {exists: false, docs, size: docs.length};
+        return {exists: false, docs, size: docs.length, data: () => undefined};
       }};
   }
   const audit = [], history = [], notifications = [], completed = new Map();
@@ -51,6 +51,17 @@ function fixture(options = {}) {
     "../shared/function-options.js": {appCheckCallableOptions: {}},
     "../shared/rate-limit.js": {enforceCallableRateLimit: async () => {}},
     "../shared/provider-identity-prerequisites.js": {requireTrustedProviderIdentity: async (auth) => {if (auth.disabled) throw new HttpsError("failed-precondition", "disabled");}},
+    "../shared/provider-eligibility-revision.js": {
+      advanceProviderEligibilityInTransaction: async (tx, providerRef, before, after) => {
+        assert.equal(providerRef.path, "providers/p");
+        assert.equal(before.ownerId, after.ownerId);
+        const authorityRef = ref("providerEligibilityAuthorities/p");
+        const previous = await tx.get(authorityRef);
+        const revision = previous.data()?.revision ?? 0;
+        assert.ok(Number.isSafeInteger(revision) && revision >= 0);
+        tx.update(authorityRef, {revision: revision + 1});
+      },
+    },
     "../shared/timestamps.js": {serverTimestamp: () => "now"},
     "../shared/audit.js": {writeAuditLogInTransaction: (_, data) => {audit.push(data); return {id: "audit"};}},
     "../shared/verification-history.js": {writeVerificationHistoryInTransaction: (_, data) => history.push(data)},

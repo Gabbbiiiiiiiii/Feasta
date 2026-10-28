@@ -224,7 +224,7 @@ test("preparation is blocked on hold and at unpaid deadline before scheduler", a
   assert.doesNotThrow(() => assertBalanceEnforcementAllowsProgress(request()));
 });
 
-test("existing refund executor processes the system reservation; successful refund replay is idempotent", async () => {
+test("existing refund executor processes the system reservation; successful refund replay is idempotent", async () => withClock(now, async () => {
   seed(); const cancellationRequestId = await evaluate();
   const prepared = await prepareRefundExecution({cancellationRequestId, actorId: "feasta"});
   assert.equal(prepared.amountInCentavos, 30000);
@@ -245,7 +245,7 @@ test("existing refund executor processes the system reservation; successful refu
   assert.equal(records.get(`payments/${initialId}`).refundedAmountInCentavos, 30000);
   assert.equal(writes.filter((write) => write.path.startsWith("notifications/")).length, firstProcessingNotifications + 1);
   assert.ok(writes.length >= count);
-});
+}));
 
 async function withClock(date, callback) {
   const actualNow = Date.now;

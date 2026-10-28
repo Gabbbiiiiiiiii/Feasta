@@ -28,10 +28,8 @@ test("the provider directory and one safe detail segment are public while custom
   assert.doesNotMatch(marketplacePage, /requireRole|requireCustomer/u);
 
   assert.match(layout, /requireCustomer\(\)/u);
-  assert.match(
-    layout,
-    /requireVerifiedEmail\(\s*await requireCustomer\(\),?\s*\)/u,
-  );
+  assert.match(layout, /requireVerifiedEmail\(\s*await\s*\(isCustomerPaymentReturnPath\(paymentReturnTo\)/u);
+  assert.match(layout, /\?\s*requireCustomer\(\{returnTo:\s*paymentReturnTo\}\)\s*:\s*requireCustomer\(\)\)\s*,?\s*\)/u);
   assert.match(proxy, /PROTECTED_PREFIXES/u);
 });
 

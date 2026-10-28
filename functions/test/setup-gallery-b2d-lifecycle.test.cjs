@@ -96,6 +96,7 @@ function fixture(overrides = {}) {
   }});
   mock("shared/function-options.ts", {appCheckCallableOptions: {enforceAppCheck: true}});
   mock("shared/rate-limit.ts", {enforceCallableRateLimit: async () => {}});
+  mock("shared/security-events.ts", {correlationIdFromCallable: () => "test-correlation-id"});
   mock("shared/timestamps.ts", {serverTimestamp: () => "SERVER_TIMESTAMP"});
   mock("shared/audit.ts", {writeAuditLogInTransaction: () => {}});
   const cache = new Map();
@@ -129,7 +130,15 @@ function fixture(overrides = {}) {
 const input = (changes = {}) => ({providerId: "provider", approveOccasionIds: ["occasion_one"],
   revokeOccasionIds: [], expectedProviderEligibilityRevision: 3, expectedCatalogRevision: 4,
   reason: "Approved after manual verification", idempotencyKey: "capability-request-0001", ...changes});
-const request = (data, uid = "admin") => ({auth: uid ? {uid} : undefined, data});
+const request = (data, uid = "admin") => ({auth: uid ? {uid} : undefined,
+  app: {appId: "test-app"}, data});
+
+test("capability mutation rejects missing App Check before any grant or audit", async () => {
+  const {capability, state} = fixture();
+  await assert.rejects(capability({...request(input()), app: undefined}), /APP_CHECK_REQUIRED/);
+  assert.equal(state.commits.length, 0);
+  assert.deepEqual(state.docs.get("providerEligibilityAuthorities/provider").approvedOccasionIds, []);
+});
 
 test("real capability handler grants only catering authority and preserves V1", async () => {
   const {capability, state} = fixture();
@@ -138,6 +147,8 @@ test("real capability handler grants only catering authority and preserves V1", 
   assert.deepEqual(Array.from(state.docs.get("providerEligibilityAuthorities/provider").approvedCategoryCodes), ["catering"]);
   assert.deepEqual(state.docs.get("providers/provider").eventTypesSupported, ["wedding"]);
   assert.equal(state.commits.length, 4);
+  const audit = state.commits.find(([, key]) => key.startsWith("providerOccasionCapabilityAudits/"));
+  assert.equal(audit[2].correlationId, "test-correlation-id");
 });
 
 test("same idempotency key replays without another revision; changed payload rejects", async () => {
@@ -213,6 +224,18 @@ test("existing V2 gallery or package fails closed pending coordinated withdrawal
     const {capability, state} = fixture(extra);
     await assert.rejects(capability(request(input())), /GALLERY_REVALIDATION_REQUIRED/);
     assert.equal(state.commits.length, 0);
+  }
+});
+
+test("concurrent package or V2 gallery creation fences capability changes on retry", async () => {
+  for (const [key, value] of [["packages/concurrent", {providerId: "provider"}],
+    ["providers/provider/catalog/setups", {setups: [{setupOccasionSchemaVersion: 2}]}]]) {
+    const {capability, state} = fixture();
+    state.beforeCommit = (attempt) => {if (!attempt) state.docs.set(key, value);};
+    await assert.rejects(capability(request(input())), /GALLERY_REVALIDATION_REQUIRED/);
+    assert.equal(state.attempts, 2);
+    assert.equal(state.commits.length, 0);
+    assert.equal(state.docs.get("providerEligibilityAuthorities/provider").revision, 3);
   }
 });
 

@@ -11,7 +11,7 @@ import {
 const eligibilityFields = [
   "ownerId", "providerServiceType", "providerCategory", "serviceCategories",
   "eventTypesSupported", "verificationStatus", "isActive", "isBlocked",
-  "isSuspended", "isDeleted",
+  "isSuspended", "isDeleted", "publiclyVisible",
 ] as const;
 
 /** Call after authorization/validation and all other reads, before any writes.

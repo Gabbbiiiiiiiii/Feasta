@@ -8,6 +8,9 @@ import {
   assertBookingPaymentAgreementAcknowledgements,
 } from "./booking-payment-agreement.js";
 import {createHash} from "node:crypto";
+import {isLegacyOccasionPackage} from "../packages/legacy-occasion-publication-guard.js";
+import {stableOccasionPublicationGeneration} from "../packages/occasion-publication-generation.js";
+import {activeOccasionAuthority} from "../packages/occasion-publication-generation.js";
 
 import {getAuth} from "firebase-admin/auth";
 import {
@@ -517,6 +520,25 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
             };
           }
 
+          // A catalog transition must conflict with every NEW booking transaction.
+          // Existing idempotent booking replays remain accessible above this gate.
+          const occasionCatalogSnapshot = await transaction.get(
+            db.collection("occasionCatalog").doc("current"),
+          );
+          if (stableOccasionPublicationGeneration(occasionCatalogSnapshot.data()) === null) {
+            throw new HttpsError(
+              "failed-precondition",
+              "New booking submissions are unavailable during occasion maintenance.",
+            );
+          }
+
+          const occasionSnapshot = await transaction.get(db.collection("occasions").doc(eventType));
+          if (!activeOccasionAuthority(occasionSnapshot.data(), eventType)) {
+            throw new HttpsError("failed-precondition",
+              "This occasion is no longer available for new bookings.",
+              {reason: "OCCASION_UNAVAILABLE"});
+          }
+
           const initialPaymentRollout = await readInitialPaymentRollout(transaction);
 
           if (!userSnapshot.exists) {
@@ -627,6 +649,13 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
 
             packageData =
               packageSnapshot.data() ?? {};
+
+            if (!isLegacyOccasionPackage(packageData)) {
+              throw new HttpsError(
+                "failed-precondition",
+                "This package needs verified occasion compatibility before booking.",
+              );
+            }
 
             assertBookingPackageValid(
               validateBookingPackage({

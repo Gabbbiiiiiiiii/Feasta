@@ -37,6 +37,20 @@ export function normalizePublicPackageCustomization(
   };
 }
 
+const V2_OCCASION_FIELDS = [
+  "occasionScope", "occasionIds", "occasionMatchIds", "occasionCatalogRevision",
+  "providerEligibilityRevision", "occasionEligibilityState",
+] as const;
+
+/** Legacy public readers cannot verify V2 eligibility generations. */
+function isLegacyOccasionReadable(value: UnknownRecord): boolean {
+  for (const field of ["occasionSchemaVersion", "offerSchemaVersion"]) {
+    if (Object.prototype.hasOwnProperty.call(value, field) && value[field] !== 1) return false;
+  }
+  return V2_OCCASION_FIELDS.every((field) =>
+    !Object.prototype.hasOwnProperty.call(value, field));
+}
+
 export function normalizePublicPackage(
   id: string,
   value: UnknownRecord,
@@ -45,7 +59,8 @@ export function normalizePublicPackage(
   const providerId = safeText(value.providerId, 128);
   const name = safeText(value.name, 160);
   if (
-    value.pricingModel !== undefined ||
+    !isLegacyOccasionReadable(value) ||
+    Object.prototype.hasOwnProperty.call(value, "pricingModel") ||
     !providerId ||
     !name ||
     !providerNames.has(providerId) ||
