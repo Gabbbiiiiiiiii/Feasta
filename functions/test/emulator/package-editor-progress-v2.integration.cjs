@@ -62,7 +62,10 @@ const loadCallable = vm.runInThisContext(
 loadCallable(callables, testRequire, {exports: callables}, filename, path.dirname(filename));
 const save = callables.saveProviderPackageEditorDraft;
 const read = callables.getProviderPackageEditorDraft;
-if (typeof save !== 'function' || typeof read !== 'function') {
+const list = callables.listProviderPackageEditorDrafts;
+const discard = callables.discardProviderPackageEditorDraft;
+if (typeof save !== 'function' || typeof read !== 'function' ||
+    typeof list !== 'function' || typeof discard !== 'function') {
   throw new Error('Expected Stage A callable handlers not found.');
 }
 
@@ -222,4 +225,55 @@ test('forged server authority and unverified assets do not create drafts', async
   }})), 'INVALID_EDITOR_PROGRESS');
   await rejectsReason(invokeSave(actorA, saveInput({marketingAssetIds: ['unverified_asset']})),
     'CLIENT_UPGRADE_REQUIRED');
+});
+
+
+test('owner-only listing never leaks another provider drafts', async () => {
+  const mine = (await invokeSave(actorA, saveInput({name: 'owner_only'}))).draft;
+  const theirs = (await invokeSave(actorB, saveInput({name: 'other_owner'}))).draft;
+  const a = (await list(makeRequest(actorA, {}))).drafts;
+  assert.ok(a.some((item) => item.editorDraftId === mine.editorDraftId));
+  assert.ok(!a.some((item) => item.editorDraftId === theirs.editorDraftId));
+  const b = (await list(makeRequest(actorB, {}))).drafts;
+  assert.ok(b.some((item) => item.editorDraftId === theirs.editorDraftId));
+  assert.ok(!b.some((item) => item.editorDraftId === mine.editorDraftId));
+});
+
+test('discard is revision-checked, private, idempotent, and frees quota', async () => {
+  const mine = (await invokeSave(actorA, saveInput({name: 'discard_me'}))).draft;
+  const quotaRef = db.collection('providerPackageEditorQuotas').doc(providerA);
+  const before = (await quotaRef.get()).data().count;
+  const input = {editorDraftId: mine.editorDraftId, expectedRevision: mine.revision,
+    idempotencyKey: key()};
+  await rejectsReason(discard(makeRequest(actorB, input)), 'RESOURCE_NOT_FOUND');
+  await rejectsReason(discard(makeRequest(actorA, {...input, expectedRevision: mine.revision + 1})),
+    'REVISION_CONFLICT');
+  const result = await discard(makeRequest(actorA, input));
+  assert.deepEqual(JSON.parse(JSON.stringify(result)),
+    {discarded: true, editorDraftId: mine.editorDraftId});
+  const replay = await discard(makeRequest(actorA, input));
+  assert.deepEqual(replay, result);
+  await rejectsReason(discard(makeRequest(actorA, {...input, expectedRevision: mine.revision + 1})),
+    'IDEMPOTENCY_CONFLICT');
+  await rejectsReason(invokeRead(actorA, mine.editorDraftId), 'RESOURCE_NOT_FOUND');
+  assert.equal((await quotaRef.get()).data().count, before - 1);
+});
+
+test('maintenance pause permits private listing and discard, never save', async () => {
+  const mine = (await invokeSave(actorA, saveInput({name: 'maintenance_cleanup'}))).draft;
+  await db.doc('maintenanceControls/intake').update({revision: 8, intake: true, publication: true});
+  try {
+    await rejectsReason(invokeSave(actorA, saveInput({name: 'forbidden'})),
+      'MAINTENANCE_PAUSED');
+    assert.ok((await list(makeRequest(actorA, {}))).drafts.some((d) =>
+      d.editorDraftId === mine.editorDraftId));
+    await discard(makeRequest(actorA, {
+      editorDraftId: mine.editorDraftId, expectedRevision: mine.revision,
+      idempotencyKey: key(),
+    }));
+    await rejectsReason(invokeRead(actorA, mine.editorDraftId), 'RESOURCE_NOT_FOUND');
+  } finally {
+    await db.doc('maintenanceControls/intake').update({revision: 9, intake: false,
+      publication: false});
+  }
 });

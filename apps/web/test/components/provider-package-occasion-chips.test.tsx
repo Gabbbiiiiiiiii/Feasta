@@ -42,7 +42,7 @@ describe("package occasion chips", () => {
     render(<ProviderPackageForm {...props} initialPackage={existing} />);
     add("birthday");
     expect(within(screen.getByRole("list", {name: "Selected occasions"})).getAllByRole("listitem")).toHaveLength(2);
-    expect(screen.getByRole("status")).toHaveTextContent("Multiple occasions and Fits All cannot be saved");
+    expect(screen.getByRole("status")).toHaveTextContent("Multiple occasions and Fits All cannot create a real package until the V2 writer is verified");
     expect(selector()).not.toHaveAttribute("aria-invalid", "true");
     add("birthday");
     expect(screen.getAllByRole("button", {name: "Remove Birthday occasion"})).toHaveLength(1);

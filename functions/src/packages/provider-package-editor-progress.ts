@@ -18,6 +18,7 @@ import {
 import {authorizeProviderForPackageManagement} from "./package-domain.js";
 import {
   EditorProgressError, assertNoUnverifiedEditorAssets, parseGetEditorProgress, parseSaveEditorProgress,
+  parseDiscardEditorProgress, parseListEditorProgress,
   type SaveEditorProgressInput, type EditorProgressLimits,
 } from "./package-editor-progress-v2.js";
 
@@ -211,6 +212,82 @@ export const getProviderPackageEditorDraft = onCall(
       const current = (await tx.get(db.collection(DRAFTS).doc(id))).data();
       requireOwnPrivateDraft(current, actor.uid, providerId);
       return {draft: apiDraft(id, current)};
+    });
+  },
+);
+
+
+/** Read only the signed-in provider's unbound private drafts; never list other owners. */
+export const listProviderPackageEditorDrafts = onCall(
+  {...appCheckCallableOptions, timeoutSeconds: 60}, async (request) => {
+    const actor = requireAuth(request);
+    enforceAppCheck(request.app);
+    await requireRole(actor.uid, [USER_ROLES.provider]);
+    await enforceCallableRateLimit(request, {
+      scope: "packages.listProviderPackageEditorDrafts", limit: 60, windowSeconds: 3600,
+    });
+    try { parseListEditorProgress(request.data); } catch (error) {
+      return mapInputFailure(error);
+    }
+    return db.runTransaction(async (tx) => {
+      const providerId = await authorizedProvider(tx, actor.uid);
+      const snapshots = await tx.get(db.collection(DRAFTS)
+        .where("ownerUid", "==", actor.uid).limit(MAX_PRIVATE_DRAFTS + 1));
+      if (snapshots.size > MAX_PRIVATE_DRAFTS) fail("DRAFT_QUOTA_RECONCILIATION_REQUIRED");
+      const drafts = snapshots.docs.filter((doc) =>
+        doc.data().providerId === providerId &&
+        doc.data().editorSchemaVersion === 2 &&
+        doc.data().packageId === null &&
+        doc.data().basePackageRevision === null &&
+        doc.data().state === "incomplete")
+        .map((doc) => apiDraft(doc.id, doc.data()));
+      drafts.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      return {drafts};
+    });
+  },
+);
+
+/** Permanent owner-requested cleanup; allowed during maintenance to recover quota. */
+export const discardProviderPackageEditorDraft = onCall(
+  {...appCheckCallableOptions, timeoutSeconds: 60}, async (request) => {
+    const actor = requireAuth(request);
+    enforceAppCheck(request.app);
+    await requireRole(actor.uid, [USER_ROLES.provider]);
+    await enforceCallableRateLimit(request, {
+      scope: "packages.discardProviderPackageEditorDraft", limit: 60, windowSeconds: 3600,
+    });
+    let input: ReturnType<typeof parseDiscardEditorProgress>;
+    try { input = parseDiscardEditorProgress(request.data); } catch (error) {
+      return mapInputFailure(error);
+    }
+    return db.runTransaction(async (tx) => {
+      const providerId = await authorizedProvider(tx, actor.uid);
+      const requestHash = digest(input);
+      const opId = digest([actor.uid, "discardProviderPackageEditorDraft", input.idempotencyKey]);
+      const opRef = db.collection(OPERATIONS).doc(opId);
+      const prior = (await tx.get(opRef)).data();
+      if (prior) {
+        if (prior.actorUid !== actor.uid || prior.providerId !== providerId ||
+            prior.requestHash !== requestHash) fail("IDEMPOTENCY_CONFLICT", "already-exists");
+        return {discarded: true, editorDraftId: input.editorDraftId};
+      }
+      const draftRef = db.collection(DRAFTS).doc(input.editorDraftId);
+      const quotaRef = db.collection(QUOTAS).doc(providerId);
+      const draft = (await tx.get(draftRef)).data();
+      requireOwnPrivateDraft(draft, actor.uid, providerId);
+      if (draft.revision !== input.expectedRevision) fail("REVISION_CONFLICT", "aborted");
+      const quota = (await tx.get(quotaRef)).data();
+      if (!quota || !Number.isSafeInteger(quota.count) ||
+          quota.count < 1 || quota.count > MAX_PRIVATE_DRAFTS) {
+        fail("DRAFT_QUOTA_RECONCILIATION_REQUIRED");
+      }
+      const now = Timestamp.now();
+      tx.delete(draftRef);
+      tx.update(quotaRef, {count: quota.count - 1, updatedAt: now});
+      tx.create(opRef, {actorUid: actor.uid, providerId, requestHash,
+        result: {discarded: true, editorDraftId: input.editorDraftId},
+        editorDraftId: input.editorDraftId, createdAt: now});
+      return {discarded: true, editorDraftId: input.editorDraftId};
     });
   },
 );

@@ -232,3 +232,22 @@ export function assertNoUnverifiedEditorAssets(progress: ProgressRecord): void {
     throw new EditorProgressError("CLIENT_UPGRADE_REQUIRED");
   }
 }
+
+
+/** A deletion is a revision-checked private recovery action, not publication. */
+export function parseDiscardEditorProgress(value: unknown): {
+  editorDraftId: string; expectedRevision: number; idempotencyKey: string;
+} {
+  const data = object(value, ["editorDraftId", "expectedRevision", "idempotencyKey"]);
+  if (Object.keys(data).length !== 3 ||
+      !Number.isSafeInteger(data.expectedRevision) ||
+      (data.expectedRevision as number) < 1 ||
+      typeof data.idempotencyKey !== "string" || !KEY.test(data.idempotencyKey)) return invalid();
+  return {editorDraftId: id(data.editorDraftId),
+    expectedRevision: data.expectedRevision as number,
+    idempotencyKey: data.idempotencyKey};
+}
+
+export function parseListEditorProgress(value: unknown): void {
+  object(value, []);
+}

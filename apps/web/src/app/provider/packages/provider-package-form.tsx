@@ -36,6 +36,10 @@ import {ProviderPackageFoodMenu} from "./provider-package-food-menu";
 import {OccasionRequestDialog} from "@/components/provider/occasion-request-dialog";
 import {packageOccasionChoices, type PackageOccasionOptions} from "@/lib/provider/package-occasion-options";
 import {X} from "lucide-react";
+import {
+  savePackageProgress, packageProgressError, packageEditorProgressEnabled,
+  type SavedEditorDraft, type EditorProgress,
+} from "@/lib/provider/provider-package-progress";
 import {Textarea} from "@/components/ui/textarea";
 import {Select} from "@/components/ui/select";
 import {
@@ -63,6 +67,8 @@ type ProviderPackageFormProps = {
     ProviderPackagePaymentPolicyBounds;
 
   initialPackage?: ProviderPackage;
+  initialEditorProgress?: SavedEditorDraft | null;
+  onProgressSaved?: (draft: SavedEditorDraft) => void;
 
   onSaved: () => void | Promise<void>;
   onCancel: () => void;
@@ -81,17 +87,26 @@ export function ProviderPackageForm({
 
   paymentPolicyBounds = DEFAULT_PROVIDER_PACKAGE_PAYMENT_POLICY_BOUNDS,
   initialPackage,
+  initialEditorProgress,
+  onProgressSaved,
   onSaved,
   onCancel,
   onSubmittingChange,
 }: ProviderPackageFormProps) {
-  const [step, setStep] = useState(0);
+  const [step, setStep] = useState(initialEditorProgress?.currentStep ?? 0);
+  const [savedProgress, setSavedProgress] = useState<SavedEditorDraft | null>(initialEditorProgress ?? null);
+  const [progressSaving, setProgressSaving] = useState(false);
+  const [progressError, setProgressError] = useState<string | null>(null);
+  // Preserve the same request ID on an ambiguous network failure, so retries
+  // cannot create a second private draft for an identical payload.
+  const pendingProgress = useRef<{signature: string; key: string} | null>(null);
   const scrollContainer = useRef<HTMLDivElement>(null);
   const stepHeading = useRef<HTMLHeadingElement>(null);
-  const [pricingModel, setPricingModel] = useState<"per_pax" | "per_bundle" | "legacy">(initialPackage ? initialPackage.pricingModel ?? "legacy" : "per_pax");
+  const [pricingModel, setPricingModel] = useState<"per_pax" | "per_bundle" | "legacy">(initialEditorProgress?.progress.pricingModel ?? (initialPackage ? initialPackage.pricingModel ?? "legacy" : "per_pax"));
   const steps = ["Basic details", "Pricing & capacity", "Food menu", "Services & media", "Review & save"];
   function goToStep(next: number) {
-    setStep(next);
+    if (!Number.isInteger(next) || next < 0 || next > 4) return;
+    setStep(next as 0 | 1 | 2 | 3 | 4);
     setError(null);
     requestAnimationFrame(() => {
       stepHeading.current?.focus({preventScroll: true});
@@ -107,7 +122,7 @@ export function ProviderPackageForm({
     serviceCategoryCode,
     setServiceCategoryCode,
   ] = useState(
-    initialPackage?.serviceCategoryCode ??
+    initialEditorProgress?.progress.serviceCategoryCode ?? initialPackage?.serviceCategoryCode ??
       (packageCategoryOptions.length === 1 ? packageCategoryOptions[0].code : ""),
   );
   const occasionOptions = packageOccasionChoices(occasionCatalog, serviceCategoryCode);
@@ -115,21 +130,24 @@ export function ProviderPackageForm({
   const occasionLabel = (id: string) => occasionCatalog?.options.find((option) => option.id === id)?.label ?? formatEventType(id);
   const [name, setName] =
     useState(
-      initialPackage?.name ?? "",
+      initialEditorProgress?.progress.name ?? initialPackage?.name ?? "",
     );
 
   const [
     description,
     setDescription,
   ] = useState(
-    initialPackage?.description ?? "",
+    initialEditorProgress?.progress.description ?? initialPackage?.description ?? "",
   );
 
   const [selectedOccasions, setSelectedOccasions] = useState<string[]>(() => {
+    if (initialEditorProgress?.progress.occasion) {
+      return initialEditorProgress.progress.occasion.occasionIds ?? [];
+    }
     const initial = initialPackage?.eventType ?? availableEventTypes[0];
     return initial ? [initial] : [];
   });
-  const [occasionScope, setOccasionScope] = useState<"specific" | "all">("specific");
+  const [occasionScope, setOccasionScope] = useState<"specific" | "all">(initialEditorProgress?.progress.occasion?.occasionScope ?? "specific");
   const [occasionToAdd, setOccasionToAdd] = useState("");
   const occasionSelector = useRef<HTMLSelectElement>(null);
   // The legacy writer accepts exactly one supported eventType. Never pick a
@@ -150,7 +168,7 @@ export function ProviderPackageForm({
       : selectedOccasions.length > occasionCatalog.maxSpecificOccasions
         ? `Choose at most ${occasionCatalog.maxSpecificOccasions} approved occasions.` : undefined;
   const occasionSaveGate = occasionScope === "all" || selectedOccasions.length > 1
-    ? "Multiple occasions and Fits All cannot be saved until the V2 package writer is verified. These selections stay in this open wizard only."
+    ? "Multiple occasions and Fits All cannot create a real package until the V2 writer is verified. Use Save progress to keep unfinished selections where enabled."
     : eventType && !eventTypesSupported.includes(eventType)
       ? "This approved occasion requires the V2 package writer before it can be saved." : undefined;
 
@@ -167,36 +185,36 @@ export function ProviderPackageForm({
     minimumGuests,
     setMinimumGuests,
   ] = useState(
-    initialPackage
+    initialEditorProgress?.progress.minimumGuestsText ?? (initialPackage
       ? String(
           initialPackage.minimumGuests,
         )
-      : "",
+      : ""),
   );
 
   const [
     maximumGuests,
     setMaximumGuests,
   ] = useState(
-    initialPackage
+    initialEditorProgress?.progress.maximumGuestsText ?? (initialPackage
       ? String(
           initialPackage.maximumGuests,
         )
-      : "",
+      : ""),
   );
 
   const [
     foodInclusions,
     setFoodInclusions,
   ] = useState(
-    initialPackage?.foodInclusions ?? [],
+    initialEditorProgress?.progress.foodInclusions ?? initialPackage?.foodInclusions ?? [],
   );
 
   const [
     decorInclusionsText,
     setDecorInclusionsText,
   ] = useState(
-    initialPackage?.decorInclusions.join(
+    initialEditorProgress?.progress.decorInclusions?.join("\n") ?? initialPackage?.decorInclusions.join(
       "\n",
     ) ?? "",
   );
@@ -205,7 +223,7 @@ export function ProviderPackageForm({
     furnitureInclusionsText,
     setFurnitureInclusionsText,
   ] = useState(
-    initialPackage?.furnitureInclusions.join(
+    initialEditorProgress?.progress.furnitureInclusions?.join("\n") ?? initialPackage?.furnitureInclusions.join(
       "\n",
     ) ?? "",
   );
@@ -214,16 +232,16 @@ export function ProviderPackageForm({
     serviceInclusionsText,
     setServiceInclusionsText,
   ] = useState(
-    initialPackage?.serviceInclusions.join(
+    initialEditorProgress?.progress.serviceInclusions?.join("\n") ?? initialPackage?.serviceInclusions.join(
       "\n",
     ) ?? "",
   );
 
   const minimumDepositPercentageAllowed = depositRateBpsToPercentage(paymentPolicyBounds.minimumDepositRateBps);
   const maximumDepositPercentageAllowed = depositRateBpsToPercentage(paymentPolicyBounds.maximumDepositRateBps);
-  const [paymentPolicy, setPaymentPolicy] = useState<ProviderPackagePaymentPolicy>(initialPackage?.paymentPolicy ?? "full_payment");
+  const [paymentPolicy, setPaymentPolicy] = useState<ProviderPackagePaymentPolicy>(initialEditorProgress?.progress.paymentPolicy ?? initialPackage?.paymentPolicy ?? "full_payment");
   const [depositPercentage, setDepositPercentage] = useState(
-    initialPackage?.paymentPolicy === "deposit_then_balance" ? String(initialPackage.depositPercentage) : "",
+    initialEditorProgress?.progress.depositPercentageText ?? (initialPackage?.paymentPolicy === "deposit_then_balance" ? String(initialPackage.depositPercentage) : ""),
   );
   const parsedDepositPercentage = depositPercentage.trim() === "" ? Number.NaN : Number(depositPercentage);
   const depositError = paymentPolicy === "deposit_then_balance" && (
@@ -234,10 +252,28 @@ export function ProviderPackageForm({
   const [images, setImages] = useState(() => packageImageDrafts(initialPackage?.imageUrls, initialPackage?.imageUrl));
   const [offerDraft, setOfferDraft] =
     useState<ProviderPackageOfferDraft>(
-      () =>
-        createProviderPackageOfferDraft(
-          initialPackage,
-        ),
+      () => {
+        const draft = createProviderPackageOfferDraft(initialPackage);
+        const progress = initialEditorProgress?.progress;
+        if (progress?.tiers) {
+          for (const tier of ["drop_off", "buffet_setup", "full_service"] as const) {
+            const saved = progress.tiers[tier];
+            if (saved) {
+              draft.serviceOptions[tier] = {
+                enabled: saved.enabled,
+                price: saved.priceText,
+                includedServicesText: saved.includedServices.join("\n"),
+              };
+            }
+          }
+        }
+        if (progress?.themes) {
+          draft.themeOptions = progress.themes.map((theme) => ({
+            id: theme.editorThemeId, name: theme.name, description: theme.description, images: [],
+          }));
+        }
+        return draft;
+      },
     );
   const [offerInteracted, setOfferInteracted] =
     useState(false);
@@ -352,6 +388,69 @@ export function ProviderPackageForm({
       minGuestsPerEvent,
       maxGuestsPerEvent,
     ]);
+
+
+  async function handleSaveProgress(): Promise<void> {
+    if (editing || submitting || progressSaving) return;
+    // The current server deliberately rejects unverified or unattached media.
+    // Do not create a misleading "saved" acknowledgement for media not recoverable.
+    if (images.length > 0 || offerDraft.themeOptions.some((theme) => theme.images.length > 0)) {
+      setProgressError("Remove or finish saving package/theme images first. Image uploads are not part of private progress yet.");
+      return;
+    }
+    setProgressSaving(true);
+    onSubmittingChange?.(true);
+    setProgressError(null);
+    try {
+      const tiers: NonNullable<EditorProgress["tiers"]> = {};
+      for (const tier of ["drop_off", "buffet_setup", "full_service"] as const) {
+        const value = offerDraft.serviceOptions[tier];
+        tiers[tier] = {
+          enabled: value.enabled,
+          priceText: value.price,
+          includedServices: parseInclusions(value.includedServicesText),
+          decorInclusions: [], furnitureInclusions: [], equipmentInclusions: [],
+        };
+      }
+      const progress: EditorProgress = {
+        name, description, serviceCategoryCode,
+        occasion: {occasionSchemaVersion: 2, occasionScope,
+          occasionIds: occasionScope === "all" ? [] : selectedOccasions},
+        pricingModel, minimumGuestsText: minimumGuests, maximumGuestsText: maximumGuests,
+        tiers, foodInclusions, serviceInclusions: parseInclusions(serviceInclusionsText),
+        decorInclusions: parseInclusions(decorInclusionsText),
+        furnitureInclusions: parseInclusions(furnitureInclusionsText),
+        equipmentInclusions: [],
+        themes: offerDraft.themeOptions.map((theme) => ({
+          editorThemeId: theme.id, name: theme.name,
+          description: theme.description, assetIds: [],
+        })),
+        marketingAssetIds: [], paymentPolicy,
+        depositPercentageText: depositPercentage,
+      };
+      const input = {
+        editorDraftId: savedProgress?.editorDraftId ?? null,
+        expectedRevision: savedProgress?.revision ?? 0,
+        currentStep: step as 0 | 1 | 2 | 3 | 4,
+        progress,
+      };
+      const signature = JSON.stringify(input);
+      if (pendingProgress.current?.signature !== signature) {
+        pendingProgress.current = {signature, key: crypto.randomUUID()};
+      }
+      const saved = await savePackageProgress({
+        ...input, idempotencyKey: pendingProgress.current.key,
+      });
+      pendingProgress.current = null;
+      setSavedProgress(saved);
+      onProgressSaved?.(saved);
+    } catch (caught) {
+      setProgressError(packageProgressError(caught));
+    } finally {
+      setProgressSaving(false);
+      onSubmittingChange?.(false);
+    }
+  }
 
   async function handleSubmit(
     event: React.FormEvent<HTMLFormElement>,
@@ -481,7 +580,7 @@ export function ProviderPackageForm({
       className={dialogLayout ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" : "min-w-0"}
     >
       <fieldset
-        disabled={submitting}
+        disabled={submitting || progressSaving}
         className={
           dialogLayout
             ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
@@ -829,6 +928,8 @@ export function ProviderPackageForm({
       </div>
       <div className={dialogLayout ? "grid shrink-0 gap-3 border-t border-border bg-card px-5 py-4 sm:px-6" : "grid gap-3"}>
       {step === 4 && (validationError || depositError || foodError) ? <p role="alert" className="text-sm text-destructive">{validationError?.message || depositError || foodError}</p> : null}
+      {savedProgress ? <p role="status" className="text-xs text-muted-foreground">Private progress saved (revision {savedProgress.revision}). This is not a package draft or publication.</p> : null}
+      {progressError ? <p role="alert" className="text-sm text-destructive">{progressError}</p> : null}
       {error && !(step === 0 && error === occasionError) ? (
         <p
           role="alert"
@@ -848,6 +949,10 @@ export function ProviderPackageForm({
           Cancel
         </Button>
 
+        {!editing && packageEditorProgressEnabled ? <Button type="button" variant="secondary"
+          disabled={submitting || progressSaving} onClick={() => void handleSaveProgress()}>
+          {progressSaving ? "Saving progress..." : savedProgress ? "Update saved progress" : "Save progress"}
+        </Button> : null}
         {step > 0 ? <Button type="button" variant="secondary" onClick={() => goToStep(step - 1)}>Back</Button> : null}
         {step < 4 ? <Button type="button" onClick={() => {
           const fields = step === 0 ? ["name", "description", "eventType", "serviceCategoryCode"] : step === 1 ? ["price", "minimumGuests", "maximumGuests", "serviceOptions"] : step === 3 ? ["serviceOptions"] : [];
@@ -859,7 +964,7 @@ export function ProviderPackageForm({
         }}>Next</Button> : <Button
           type="submit"
           disabled={
-            submitting || Boolean(occasionSaveGate) ||
+            submitting || progressSaving || Boolean(occasionSaveGate) ||
             Boolean(
               validationError,
             ) || Boolean(depositError) || Boolean(foodError)

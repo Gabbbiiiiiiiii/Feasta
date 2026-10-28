@@ -1,4 +1,10 @@
 "use client";
+import {onAuthStateChanged} from "firebase/auth";
+import {auth, initializeBrowserFirebase} from "@/lib/firebase/client";
+import {
+  listSavedPackageProgress, getSavedPackageProgress, discardSavedPackageProgress,
+  packageProgressError, packageEditorProgressEnabled, type SavedEditorDraft,
+} from "@/lib/provider/provider-package-progress";
 import type {PackageOccasionOptions} from "@/lib/provider/package-occasion-options";
 
 import {
@@ -119,6 +125,61 @@ export function ProviderPackagesClient({
   );
 
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [savedProgressList, setSavedProgressList] = useState<SavedEditorDraft[]>([]);
+  const [savedProgressError, setSavedProgressError] = useState<string | null>(null);
+  const [progressListBusy, setProgressListBusy] = useState(false);
+  const [resumeProgress, setResumeProgress] = useState<SavedEditorDraft | null>(null);
+
+  const refreshSavedProgress = useCallback(async () => {
+    setProgressListBusy(true);
+    try {
+      const result = await listSavedPackageProgress();
+      setSavedProgressList(result);
+      setSavedProgressError(null);
+    } catch (caught) {
+      setSavedProgressError(packageProgressError(caught));
+    } finally {
+      setProgressListBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!packageEditorProgressEnabled) return;
+    initializeBrowserFirebase();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) void refreshSavedProgress();
+    });
+    return () => unsubscribe();
+  }, [refreshSavedProgress]);
+
+  async function resumeSavedProgress(draft: SavedEditorDraft) {
+    setSavedProgressError(null);
+    setProgressListBusy(true);
+    try {
+      const fresh = await getSavedPackageProgress(draft.editorDraftId);
+      setEditingPackage(null);
+      setResumeProgress(fresh);
+      setCreateOpen(true);
+    } catch (caught) {
+      setSavedProgressError(packageProgressError(caught));
+    } finally {
+      setProgressListBusy(false);
+    }
+  }
+
+  async function discardProgress(draft: SavedEditorDraft) {
+    if (!window.confirm("Permanently discard this saved package progress?")) return;
+    setSavedProgressError(null);
+    setProgressListBusy(true);
+    try {
+      await discardSavedPackageProgress(draft);
+      await refreshSavedProgress();
+    } catch (caught) {
+      setSavedProgressError(packageProgressError(caught));
+    } finally {
+      setProgressListBusy(false);
+    }
+  }
   const saveBusy = useRef(false);
   const discardOpener = useRef<HTMLElement | null>(null);
 
@@ -305,6 +366,7 @@ export function ProviderPackagesClient({
             onClick={(event) => {
               packageOpener.current = event.currentTarget;
               setEditingPackage(null);
+              setResumeProgress(null);
               setCreateOpen(true);
             }}
             >
@@ -329,8 +391,10 @@ export function ProviderPackagesClient({
           <DialogDescription>{editingPackage ? "Update your draft package. Changes take effect when you save." : "Save a draft to review before publishing. Closing asks you to confirm discarding unsaved changes."}</DialogDescription>
         </DialogHeader>
         <ProviderPackageForm
-          key={editingPackage?.id ?? "create"}
+          key={editingPackage?.id ?? resumeProgress?.editorDraftId ?? "create"}
           initialPackage={editingPackage ?? undefined}
+          initialEditorProgress={resumeProgress}
+          onProgressSaved={() => { void refreshSavedProgress(); }}
           dialogLayout
           providerServiceType={providerServiceType}
           serviceCategories={serviceCategories}
@@ -342,7 +406,7 @@ export function ProviderPackagesClient({
           paymentPolicyBounds={paymentPolicyBounds}
           onSubmittingChange={(busy) => { saveBusy.current = busy; setFormBusy(busy); }}
           onCancel={requestEditorClose}
-          onSaved={async () => { await loadPackages(); setDiscardOpen(false); setCreateOpen(false); }}
+          onSaved={async () => { await loadPackages(); setDiscardOpen(false); setCreateOpen(false); setResumeProgress(null); }}
         />
         <ConfirmationDialog open={discardOpen} onOpenChange={(open) => {
           if (!saveBusy.current) setDiscardOpen(open);
@@ -359,8 +423,34 @@ export function ProviderPackagesClient({
             if (saveBusy.current) return;
             setDiscardOpen(false);
             setCreateOpen(false);
+            setResumeProgress(null);
           }} />
       </DialogContent>
+
+      {packageEditorProgressEnabled ? <section aria-label="Saved package progress" className="grid gap-3 rounded-xl border border-border bg-card p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="font-semibold">Saved progress</h2>
+            <p className="text-xs text-muted-foreground">Private, unfinished package editor progress. Not available to customers.</p>
+          </div>
+          <Button type="button" variant="secondary" disabled={progressListBusy}
+            onClick={() => void refreshSavedProgress()}>Refresh saved progress</Button>
+        </div>
+        {savedProgressError ? <p role="alert" className="text-sm text-destructive">{savedProgressError}</p> : null}
+        {savedProgressList.length === 0 ? <p className="text-sm text-muted-foreground">No saved progress to resume.</p> : null}
+        {savedProgressList.map((draft) => <div key={draft.editorDraftId}
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border p-3">
+          <div className="min-w-0">
+            <p className="break-words text-sm font-medium">{draft.progress.name?.trim() || "Untitled catering package"}</p>
+            <p className="text-xs text-muted-foreground">Step {draft.currentStep + 1} · Saved {new Date(draft.updatedAt).toLocaleString()}</p>
+          </div>
+          <div className="flex gap-2">
+            <Button type="button" variant="secondary" disabled={progressListBusy}
+              onClick={() => void resumeSavedProgress(draft)}>Resume</Button>
+            <Button type="button" variant="destructive" disabled={progressListBusy}
+              onClick={() => void discardProgress(draft)}>Discard</Button>
+          </div>
+        </div>)}
+      </section> : null}
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Package overview">
         {[
@@ -496,7 +586,7 @@ export function ProviderPackagesClient({
           {filteredPackages.length ? <div className="grid grid-cols-1 items-start gap-3 xl:grid-cols-2">
             {visiblePackages.map((item) => <ProviderPackageCard key={item.id} item={item}
               serviceCategoryLabel={packageCategoryOptions.find((category) => category.code === item.serviceCategoryCode)?.name}
-              onEdit={(event) => { packageOpener.current = event.currentTarget; setEditingPackage(item); setCreateOpen(true); }}
+              onEdit={(event) => { packageOpener.current = event.currentTarget; setResumeProgress(null); setEditingPackage(item); setCreateOpen(true); }}
               onPublish={() => { setActionError(null); setPublishPackage(item); }}
               onArchive={() => { setActionError(null); setArchivePackage(item); }} />)}
           </div> : <div className="grid justify-items-center gap-3 rounded-card border border-dashed border-border bg-card px-5 py-10 text-center">
@@ -504,7 +594,7 @@ export function ProviderPackagesClient({
             <h2 className="text-lg font-bold">{packages.length ? "No packages match your filters." : "No packages yet"}</h2>
             {packages.length ? <Button variant="secondary" onClick={clearFilters}>Clear filters</Button> : <>
               <p className="max-w-md text-sm text-muted-foreground">Create your first package so customers can discover and book your services.</p>
-              <Button onClick={(event) => { packageOpener.current = event.currentTarget; setEditingPackage(null); setCreateOpen(true); }}>Create package</Button>
+              <Button onClick={(event) => { packageOpener.current = event.currentTarget; setEditingPackage(null); setResumeProgress(null); setCreateOpen(true); }}>Create package</Button>
             </>}
           </div>}
           {totalPackagePages > 1 ? (

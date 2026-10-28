@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   parseSaveEditorProgress, parseGetEditorProgress,
+  parseListEditorProgress, parseDiscardEditorProgress,
   validatePackageEditorProgress, assertNoUnverifiedEditorAssets, EditorProgressError,
 } = require('../lib/packages/package-editor-progress-v2.js');
 
@@ -104,4 +105,21 @@ test('unverified uploaded media cannot be attached as draft references', () => {
   fails(() => assertNoUnverifiedEditorAssets({themes:[{
     editorThemeId:'theme_1',name:'Example',description:'',assetIds:['asset_a'],
   }]}), 'CLIENT_UPGRADE_REQUIRED');
+});
+
+
+test('list and discard endpoints accept only minimal revision-bound inputs', () => {
+  assert.equal(parseListEditorProgress({}), undefined);
+  fails(() => parseListEditorProgress({providerId: 'someone_else'}), 'INVALID_EDITOR_PROGRESS');
+  assert.deepEqual(parseDiscardEditorProgress({editorDraftId: 'draft_one',
+    expectedRevision: 2, idempotencyKey: key}), {
+    editorDraftId: 'draft_one', expectedRevision: 2, idempotencyKey: key,
+  });
+  for (const input of [
+    {editorDraftId: 'draft_one', expectedRevision: 0, idempotencyKey: key},
+    {editorDraftId: '../draft_one', expectedRevision: 2, idempotencyKey: key},
+    {editorDraftId: 'draft_one', expectedRevision: 2, idempotencyKey: 'weak'},
+    {editorDraftId: 'draft_one', expectedRevision: 2, idempotencyKey: key,
+      providerId: 'other'},
+  ]) fails(() => parseDiscardEditorProgress(input), 'INVALID_EDITOR_PROGRESS');
 });
