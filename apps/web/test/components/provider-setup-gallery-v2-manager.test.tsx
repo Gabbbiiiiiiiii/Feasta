@@ -304,6 +304,20 @@ describe("editor recovery boundaries", () => {
     expect(actions.save).toHaveBeenCalledOnce();
   });
 
+  it("allows an existing V2 publication to be removed without allowing republication", async () => {
+    const loaded = gallery(true, [legacy, {...v2, isPublished: true}]);
+    actions.load.mockResolvedValue({ok: true, gallery: loaded}); successfulSave(loaded);
+    const user = userEvent.setup(); render(<ProviderSetupGalleryV2Manager />); await edit(user);
+    const publication = screen.getByRole("checkbox", {name: "Publish this setup"});
+    expect(publication).toBeChecked(); expect(publication).toBeEnabled();
+    await user.click(publication);
+    expect(publication).not.toBeChecked(); expect(publication).toBeDisabled();
+    await user.click(screen.getByRole("button", {name: "Save setup"}));
+    await waitFor(() => expect(actions.save).toHaveBeenCalledOnce());
+    expect(actions.save.mock.calls[0][0]).toEqual(replacementRequest(loaded, [legacy, {...v2, isPublished: false}]));
+    expect(actions.upload).not.toHaveBeenCalled();
+  });
+
   it("does not submit retained V2 publication or upload photos while publication is blocked", async () => {
     actions.load.mockResolvedValue({ok: true, gallery: gallery(true, [legacy, {...v2, isPublished: true}])});
     const user = userEvent.setup(); render(<ProviderSetupGalleryV2Manager />); await edit(user, "Classic reception");

@@ -261,7 +261,7 @@ export function ProviderSetupGalleryV2Manager() {
               heading="Setup photos" helperText="Upload photos of the finished setup. These are inspiration only."
               inputLabel="Setup photos" onChange={(images) => setDraft({...draft, images})} />
             <label className="flex min-h-11 items-center gap-2 text-sm font-semibold">
-              <input type="checkbox" className="size-4 accent-primary" disabled={busy || (draft.version === 2 && publicationBlocked)}
+              <input type="checkbox" className="size-4 accent-primary" disabled={busy || (draft.version === 2 && publicationBlocked && !draft.isPublished)}
                 checked={draft.isPublished} onChange={(event) => setDraft({...draft, isPublished: event.target.checked})} />
               Publish this setup
             </label>
