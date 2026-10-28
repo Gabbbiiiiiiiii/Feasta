@@ -67,3 +67,31 @@ test("legacy publish and booking boundaries invoke the guard", () => {
     booking.indexOf("isLegacyOccasionPackage(packageData)"),
   "historical idempotent booking replay must stay ahead of new booking rejection");
 });
+
+const {isLegacyPackageDraft: editable} = require("../lib/packages/legacy-occasion-publication-guard.js");
+test("legacy draft edits preserve supported pricing while publication stays fenced", () => {
+  for (const pricingModel of ["per_pax", "per_bundle"]) {
+    const row = {eventType: "wedding", pricingModel};
+    assert.equal(editable(row), true);
+    assert.equal(readable(row), false);
+  }
+  assert.equal(editable({eventType: "wedding"}), true);
+  for (const key of fields) {
+    assert.equal(editable({eventType: "wedding", [key]: undefined}), false);
+  }
+  for (const key of ["occasionSchemaVersion", "offerSchemaVersion"]) {
+    for (const marker of [undefined, null, 2, 3, "1", false]) {
+      assert.equal(editable({eventType: "wedding", [key]: marker}), false);
+    }
+    assert.equal(editable({eventType: "wedding", [key]: 1}), true);
+  }
+});
+
+test("legacy update checks the stored envelope before image verification or writes", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/packages/update-provider-package.ts"), "utf8");
+  const guard = source.indexOf("if (!isLegacyPackageDraft(packageRecord.packageData))");
+  assert.ok(guard > source.indexOf("authorizeOwnedPackage({"));
+  assert.ok(guard < source.indexOf("await verifyPackageImages("));
+  assert.ok(guard < source.indexOf("transaction.update("));
+  assert.match(source, /reason: "CLIENT_UPGRADE_REQUIRED"/);
+});

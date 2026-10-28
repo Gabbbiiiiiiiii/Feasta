@@ -1,3 +1,4 @@
+import {isLegacyPackageDraft} from "./legacy-occasion-publication-guard.js";
 import {BALANCE_DUE_HOURS_BEFORE_EVENT} from "../payments/canonical-balance-timing.js";
 import {cloudinarySecrets} from "../shared/cloudinary.js";
 import {
@@ -246,6 +247,15 @@ export const updateProviderPackage = onCall(
           packageRecord,
         );
 
+        // Check stored data after ownership/draft authorization. A scalar caller
+        // must never edit a V2 or partially migrated package, even when it sends
+        // no V2 fields itself. Publication's stricter pricing fence is separate.
+        if (!isLegacyPackageDraft(packageRecord.packageData)) {
+          throw new HttpsError("failed-precondition",
+            "This package requires a compatible V2 writer.",
+            {reason: "CLIENT_UPGRADE_REQUIRED"});
+        }
+
         assertPackageMatchesProviderCapabilities(
           provider.providerData,
           validated,
@@ -296,7 +306,8 @@ export const updateProviderPackage = onCall(
               validated.themeOptions,
 
             paymentTermsSchemaVersion: 2,
-            balanceDueHoursBeforeEvent: validated.paymentPolicy === "deposit_then_balance" ? BALANCE_DUE_HOURS_BEFORE_EVENT : null,
+            balanceDueHoursBeforeEvent: validated.paymentPolicy === "deposit_then_balance" ?
+              BALANCE_DUE_HOURS_BEFORE_EVENT : null,
             paymentPolicy:
               validated.paymentPolicy,
 

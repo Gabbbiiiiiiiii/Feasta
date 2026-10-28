@@ -180,13 +180,57 @@ it("makes Fits All exclusive, preserves it across steps, and blocks upload and s
   expect(screen.getByRole("button", {name: "Remove Birthday occasion"})).toBeVisible();
 });
 
-it("fails closed when canonical options are unavailable without dropping a legacy occasion", () => {
-  render(<ProviderPackageForm {...props} occasionCatalog={null} initialPackage={existing} />);
-  expect(screen.getByText("Wedding (no longer supported)")).toBeVisible();
-  expect(screen.getByRole("alert")).toHaveTextContent("Approved occasion choices are unavailable");
+it("saves an unchanged legacy scope without canonical V2 configuration and retains it on reload", async () => {
+  const {unmount} = render(<ProviderPackageForm {...props} occasionCatalog={null} initialPackage={existing} />);
+  expect(screen.getByText("Wedding (retained legacy occasion)")).toBeVisible();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  expect(within(selector()).getAllByRole("option")).toHaveLength(1);
+  expect(screen.getByRole("button", {name: "Fits All Occasions"})).toBeDisabled();
+  fireEvent.change(screen.getByLabelText(/Package name/), {target: {value: "Updated legacy draft"}});
+  for (let i = 0; i < 4; i++) next();
+  fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+  await waitFor(() => expect(updateProviderPackage).toHaveBeenCalledOnce());
+  const payload = vi.mocked(updateProviderPackage).mock.calls[0][1];
+  expect(payload).toMatchObject({eventType: "wedding", serviceCategoryCode: "food_catering", name: "Updated legacy draft"});
+  expect(payload).not.toHaveProperty("occasionSchemaVersion");
+  unmount();
+  render(<ProviderPackageForm {...props} occasionCatalog={null} initialPackage={{...existing, ...payload}} />);
+  expect(screen.getByText("Wedding (retained legacy occasion)")).toBeVisible();
+});
+
+it("requires canonical configuration for creation and does not invent fallback choices", () => {
+  render(<ProviderPackageForm {...props} occasionCatalog={null} />);
+  expect(screen.getByText("Approved occasion choices are unavailable. Reload before saving.")).toBeVisible();
   expect(within(selector()).getAllByRole("option")).toHaveLength(1);
   next();
   expect(screen.getByRole("heading", {name: "Step 1: Basic details"})).toBeVisible();
+  expect(createProviderPackage).not.toHaveBeenCalled();
+});
+
+it("blocks a retained legacy occasion when the current provider no longer supports it", () => {
+  render(<ProviderPackageForm {...props} eventTypesSupported={["birthday"]} occasionCatalog={null} initialPackage={existing} />);
+  expect(screen.getByRole("alert")).toHaveTextContent("Approved occasion choices are unavailable");
+  next();
+  expect(screen.getByRole("heading", {name: "Step 1: Basic details"})).toBeVisible();
+  expect(updateProviderPackage).not.toHaveBeenCalled();
+});
+
+it("requires canonical configuration after removing the retained occasion or changing its category", () => {
+  const {rerender} = render(<ProviderPackageForm {...props} occasionCatalog={null} initialPackage={existing} />);
+  const other = {code: "catering_service", name: "Other catering"};
+  rerender(<ProviderPackageForm {...props} packageCategoryOptions={[...props.packageCategoryOptions, other]} occasionCatalog={null} initialPackage={existing} />);
+  fireEvent.change(screen.getByLabelText(/Service category/), {target: {value: other.code}});
+  next();
+  expect(screen.getByRole("heading", {name: "Step 1: Basic details"})).toBeVisible();
+  expect(screen.getByRole("alert")).toHaveTextContent("Approved occasion choices are unavailable");
+  fireEvent.change(screen.getByLabelText(/Service category/), {target: {value: "food_catering"}});
+  expect(selector()).not.toHaveAttribute("aria-invalid", "true");
+  next();
+  expect(screen.getByRole("heading", {name: "Step 2: Pricing & capacity"})).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name: "Back"}));
+  fireEvent.click(screen.getByRole("button", {name: "Remove Wedding occasion"}));
+  expect(screen.getByRole("alert")).toHaveTextContent("Approved occasion choices are unavailable");
+  expect(updateProviderPackage).not.toHaveBeenCalled();
 });
 
 it("does not submit a request through the unverified integration", async () => {

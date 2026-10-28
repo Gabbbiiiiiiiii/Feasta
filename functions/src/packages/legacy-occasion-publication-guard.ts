@@ -17,6 +17,13 @@ export function isLegacyOccasionPackage(
 ): boolean {
   // V2 pricing cannot be interpreted by legacy booking or publication.
   if (Object.prototype.hasOwnProperty.call(record, "pricingModel")) return false;
+  return isLegacyPackageDraft(record);
+}
+
+/** Draft edits support current pricing models, but never rewrite V2 envelopes. */
+export function isLegacyPackageDraft(
+  record: Readonly<Record<string, unknown>>,
+): boolean {
   // An unknown offer envelope must not be interpreted as a legacy scalar offer.
   for (const field of ["occasionSchemaVersion", "offerSchemaVersion"]) {
     if (Object.prototype.hasOwnProperty.call(record, field) && record[field] !== 1) return false;

@@ -135,7 +135,14 @@ export function ProviderPackageForm({
   // The legacy writer accepts exactly one supported eventType. Never pick a
   // primary occasion from a multi-selection or discard the other chips on save.
   const eventType = selectedOccasions.length === 1 ? selectedOccasions[0] : "";
-  const occasionError = !occasionCatalog
+  // Retain only the existing scalar scope when the V2 read configuration is
+  // unavailable. This does not add choices or authorize a new scope; the legacy
+  // callable still checks current ownership, capabilities and draft status.
+  const retainingLegacyScope = !occasionCatalog && initialPackage?.status === "draft" &&
+    occasionScope === "specific" && selectedOccasions.length === 1 &&
+    eventType === initialPackage.eventType && serviceCategoryCode === initialPackage.serviceCategoryCode &&
+    eventTypesSupported.includes(eventType);
+  const occasionError = retainingLegacyScope ? undefined : !occasionCatalog
     ? "Approved occasion choices are unavailable. Reload before saving."
     : occasionScope === "all" ? undefined
     : !selectedOccasions.length || selectedOccasions.some((id) => !availableEventTypes.includes(id))
@@ -531,12 +538,13 @@ export function ProviderPackageForm({
           {occasionScope === "all" ? <ul aria-label="Selected occasions"><li>Fits All Occasions <Button type="button" variant="ghost" aria-label="Remove Fits All Occasions" onClick={() => setOccasionScope("specific")}>Remove</Button></li></ul> : null}
           <OccasionRequestDialog />
           <p className="text-xs text-muted-foreground">Fits All requires approval for every active occasion applicable to this category. Future catalog changes require server revalidation.</p>
+          {retainingLegacyScope ? <p className="text-sm text-muted-foreground">Approved occasion choices are unavailable. You can save this draft with its existing occasion and category; changing either requires reloading the approved choices.</p> : null}
           {occasionSaveGate ? <p role="status" className="text-sm text-muted-foreground">{occasionSaveGate}</p> : null}
           {selectedOccasions.length > 0 ? (
             <ul aria-label="Selected occasions" className="flex flex-wrap gap-2">
               {selectedOccasions.map((value) => (
                 <li key={value} className="inline-flex min-h-8 max-w-full items-center gap-1 rounded-full border border-primary/30 bg-primary/10 pl-2.5 text-xs font-semibold text-primary-strong">
-                  <span className="min-w-0 [overflow-wrap:anywhere]">{occasionLabel(value)}{availableEventTypes.some((allowed) => allowed === value) ? "" : " (no longer supported)"}</span>
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{occasionLabel(value)}{retainingLegacyScope ? " (retained legacy occasion)" : availableEventTypes.some((allowed) => allowed === value) ? "" : " (no longer supported)"}</span>
                   <Button type="button" variant="ghost" className="h-[30px] min-h-[30px] w-8 min-w-8 shrink-0 self-start rounded-full p-0" aria-label={`Remove ${occasionLabel(value)} occasion`}
                     onClick={() => {
                       setSelectedOccasions((current) => current.filter((item) => item !== value));
