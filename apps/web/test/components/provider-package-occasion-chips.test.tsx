@@ -7,7 +7,8 @@ import {uploadProviderServiceImage} from "@/lib/provider/provider-media-client";
 
 vi.mock("@/lib/provider/provider-package-client", () => ({createProviderPackage: vi.fn(), updateProviderPackage: vi.fn()}));
 vi.mock("@/lib/provider/provider-media-client", () => ({uploadProviderServiceImage: vi.fn()}));
-const props = {packageCategoryOptions: [{code: "food_catering", name: "Catering"}], eventTypesSupported: ["birthday", "wedding"], minGuestsPerEvent: 10, maxGuestsPerEvent: 100, onSaved: vi.fn(), onCancel: vi.fn()};
+const occasionCatalog = {options: [{id: "birthday", label: "Birthday", categoryCodes: ["food_catering", "catering_service"]}, {id: "wedding", label: "Wedding", categoryCodes: ["food_catering", "catering_service"]}], catalogRevision: 4, providerEligibilityRevision: 2, maxSpecificOccasions: 5};
+const props = {occasionCatalog, packageCategoryOptions: [{code: "food_catering", name: "Catering"}], eventTypesSupported: ["birthday", "wedding"], minGuestsPerEvent: 10, maxGuestsPerEvent: 100, onSaved: vi.fn(), onCancel: vi.fn()};
 const existing: ProviderPackage = {
   id: "existing", providerId: "provider", name: "Wedding catering", description: "A complete catering package",
   eventType: "wedding", serviceCategoryCode: "food_catering", price: 100,
@@ -37,18 +38,18 @@ describe("package occasion chips", () => {
     expect(within(selector()).getByRole("option", {name: "Wedding (selected)"})).toBeDisabled();
   });
 
-  it("adds an approved occasion once, removes chips, and requires a single occasion to continue", () => {
+  it("adds approved occasions once and preserves multiple selections across wizard navigation", () => {
     render(<ProviderPackageForm {...props} initialPackage={existing} />);
     add("birthday");
     expect(within(screen.getByRole("list", {name: "Selected occasions"})).getAllByRole("listitem")).toHaveLength(2);
-    expect(screen.getByRole("alert")).toHaveTextContent("Multiple occasions cannot be saved yet. Keep one to continue.");
-    expect(selector()).toHaveAccessibleDescription("Multiple occasions cannot be saved yet. Keep one to continue.");
-    expect(selector()).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("status")).toHaveTextContent("Multiple occasions and Fits All cannot be saved");
+    expect(selector()).not.toHaveAttribute("aria-invalid", "true");
     add("birthday");
     expect(screen.getAllByRole("button", {name: "Remove Birthday occasion"})).toHaveLength(1);
     next();
-    expect(screen.getAllByRole("alert")).toHaveLength(1);
-    expect(screen.getByRole("heading", {name: "Step 1: Basic details"})).toBeVisible();
+    expect(screen.getByRole("heading", {name: "Step 2: Pricing & capacity"})).toBeVisible();
+    fireEvent.click(screen.getByRole("button", {name: "Back"}));
+    expect(screen.getByRole("button", {name: "Remove Wedding occasion"})).toBeVisible();
     fireEvent.click(screen.getByRole("button", {name: "Remove Wedding occasion"}));
     fireEvent.click(screen.getByRole("button", {name: "Remove Birthday occasion"}));
     expect(screen.queryByRole("list", {name: "Selected occasions"})).not.toBeInTheDocument();
@@ -79,13 +80,15 @@ describe("package occasion chips", () => {
     expect(createProviderPackage).not.toHaveBeenCalled();
   });
 
-  it("uses only supported legacy options and keeps requests and Fits All out of the selector", () => {
-    render(<ProviderPackageForm {...props} eventTypesSupported={["birthday", "birthday", "unknown"]} />);
-    expect(within(selector()).getAllByRole("option").map((option) => (option as HTMLOptionElement).value)).toEqual(["", "birthday"]);
+  it("uses canonical options rather than legacy capabilities and exposes the gated request dialog", () => {
+    render(<ProviderPackageForm {...props} eventTypesSupported={["birthday", "birthday", "unknown"]} occasionCatalog={{...occasionCatalog, options: occasionCatalog.options.map((option) => ({...option, label: option.id === "birthday" ? "Birthday celebration" : option.label}))}} />);
+    expect(within(selector()).getAllByRole("option").map((option) => (option as HTMLOptionElement).value)).toEqual(["", "birthday", "wedding"]);
+    expect(within(screen.getByRole("list", {name: "Selected occasions"})).getByText("Birthday celebration")).toBeVisible();
     fireEvent.change(selector(), {target: {value: "unknown"}});
     fireEvent.keyDown(selector(), {key: "Enter"});
     expect(screen.queryByRole("button", {name: "Remove Unknown occasion"})).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", {name: /Add Occasion$/})).not.toBeInTheDocument();
+    expect(screen.getByRole("button", {name: "+ Add Occasion"})).toBeVisible();
+    expect(screen.getByRole("button", {name: "Fits All Occasions"})).toBeVisible();
     expect(screen.queryByRole("dialog", {name: "Request an occasion"})).not.toBeInTheDocument();
     expect(within(selector()).queryByRole("option", {name: /Fits All/})).not.toBeInTheDocument();
   });
@@ -128,7 +131,7 @@ describe("package occasion chips", () => {
   it("blocks stale eligibility before saving", () => {
     const {container, rerender} = render(<ProviderPackageForm {...props} initialPackage={existing} />);
     for (let i = 0; i < 4; i++) next();
-    rerender(<ProviderPackageForm {...props} eventTypesSupported={["birthday"]} initialPackage={existing} />);
+    rerender(<ProviderPackageForm {...props} occasionCatalog={{...occasionCatalog, options: occasionCatalog.options.filter((option) => option.id === "birthday")}} initialPackage={existing} />);
     expect(screen.getByRole("button", {name: "Save changes"})).toBeDisabled();
     fireEvent.submit(container.querySelector("form")!);
     expect(updateProviderPackage).not.toHaveBeenCalled();
@@ -156,4 +159,42 @@ it.each(["per_pax", "per_bundle"] as const)("reopens and edits a %s draft withou
   const payload = vi.mocked(updateProviderPackage).mock.calls[0][1];
   expect(payload).not.toHaveProperty("occasionIds");
   expect(payload).not.toHaveProperty("occasionScope");
+});
+
+it("makes Fits All exclusive, preserves it across steps, and blocks upload and save", () => {
+  const {container} = render(<ProviderPackageForm {...props} initialPackage={existing} />);
+  add("birthday");
+  fireEvent.click(screen.getByRole("button", {name: "Fits All Occasions"}));
+  expect(screen.queryByRole("button", {name: "Remove Wedding occasion"})).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", {name: "Remove Birthday occasion"})).not.toBeInTheDocument();
+  for (let i = 0; i < 4; i++) next();
+  expect(screen.getByRole("button", {name: "Save changes"})).toBeDisabled();
+  fireEvent.submit(container.querySelector("form")!);
+  expect(updateProviderPackage).not.toHaveBeenCalled();
+  expect(uploadProviderServiceImage).not.toHaveBeenCalled();
+  for (let i = 0; i < 4; i++) fireEvent.click(screen.getByRole("button", {name: "Back"}));
+  expect(screen.getByRole("button", {name: "Fits All Occasions"})).toHaveAttribute("aria-pressed", "true");
+  add("birthday");
+  expect(screen.getByRole("button", {name: "Fits All Occasions"})).toHaveAttribute("aria-pressed", "false");
+  expect(screen.queryByRole("button", {name: "Remove Fits All Occasions"})).not.toBeInTheDocument();
+  expect(screen.getByRole("button", {name: "Remove Birthday occasion"})).toBeVisible();
+});
+
+it("fails closed when canonical options are unavailable without dropping a legacy occasion", () => {
+  render(<ProviderPackageForm {...props} occasionCatalog={null} initialPackage={existing} />);
+  expect(screen.getByText("Wedding (no longer supported)")).toBeVisible();
+  expect(screen.getByRole("alert")).toHaveTextContent("Approved occasion choices are unavailable");
+  expect(within(selector()).getAllByRole("option")).toHaveLength(1);
+  next();
+  expect(screen.getByRole("heading", {name: "Step 1: Basic details"})).toBeVisible();
+});
+
+it("does not submit a request through the unverified integration", async () => {
+  const user = userEvent.setup();
+  render(<ProviderPackageForm {...props} initialPackage={existing} />);
+  await user.click(screen.getByRole("button", {name: "+ Add Occasion"}));
+  expect(screen.getByRole("dialog", {name: "Request an occasion"})).toHaveTextContent("unavailable until backend integration is verified");
+  expect(screen.queryByRole("button", {name: "Submit Request"})).not.toBeInTheDocument();
+  await user.keyboard("{Escape}");
+  expect(screen.getByRole("button", {name: "Remove Wedding occasion"})).toBeVisible();
 });

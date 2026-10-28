@@ -1,4 +1,5 @@
 "use client";
+import type {PackageOccasionOptions} from "@/lib/provider/package-occasion-options";
 
 import {
   AlertCircle,
@@ -46,6 +47,7 @@ import {
 import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger} from "@/components/ui/dialog";
 
 type ProviderPackagesClientProps = {
+  occasionCatalog?: PackageOccasionOptions | null;
   providerServiceType?: string;
   serviceCategories?: readonly string[];
   packageCategoryOptions: readonly {
@@ -62,6 +64,7 @@ type ProviderPackagesClientProps = {
 };
 
 export function ProviderPackagesClient({
+  occasionCatalog,
   providerServiceType = "catering",
   serviceCategories = [],
   packageCategoryOptions,
@@ -331,6 +334,7 @@ export function ProviderPackagesClient({
           dialogLayout
           providerServiceType={providerServiceType}
           serviceCategories={serviceCategories}
+          occasionCatalog={occasionCatalog}
           packageCategoryOptions={packageCategoryOptions}
           eventTypesSupported={eventTypesSupported}
           minGuestsPerEvent={minGuestsPerEvent}

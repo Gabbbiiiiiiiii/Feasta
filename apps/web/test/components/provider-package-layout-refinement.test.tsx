@@ -10,7 +10,7 @@ vi.mock("@/lib/provider/provider-media-client", () => ({uploadProviderServiceIma
 
 describe("package layout refinement", () => {
   it("keeps progress and actions outside scrolling content with a labeled read-only category", () => {
-    render(<ProviderPackageForm dialogLayout packageCategoryOptions={[{code: "food_catering", name: "Catering"}]} eventTypesSupported={["birthday"]} minGuestsPerEvent={10} maxGuestsPerEvent={100} onSaved={vi.fn()} onCancel={vi.fn()} />);
+    render(<ProviderPackageForm occasionCatalog={{options: [{id: "birthday", label: "Birthday", categoryCodes: ["food_catering"]}], catalogRevision: 1, providerEligibilityRevision: 1, maxSpecificOccasions: 5}} dialogLayout packageCategoryOptions={[{code: "food_catering", name: "Catering"}]} eventTypesSupported={["birthday"]} minGuestsPerEvent={10} maxGuestsPerEvent={100} onSaved={vi.fn()} onCancel={vi.fn()} />);
     const content = screen.getByRole("region", {name: "Package details"});
     expect(content).not.toContainElement(screen.getByRole("navigation", {name: "Package creation progress"}));
     expect(content).not.toContainElement(screen.getByRole("button", {name: "Next"}));

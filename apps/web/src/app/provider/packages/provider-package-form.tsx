@@ -33,6 +33,8 @@ import {foodInclusionsError, parsePackageDishes} from "@/lib/provider/package-fo
 import {providerPackageSaveError} from "@/lib/provider/provider-package-save-error";
 import {ProviderPackageReview} from "./provider-package-review";
 import {ProviderPackageFoodMenu} from "./provider-package-food-menu";
+import {OccasionRequestDialog} from "@/components/provider/occasion-request-dialog";
+import {packageOccasionChoices, type PackageOccasionOptions} from "@/lib/provider/package-occasion-options";
 import {X} from "lucide-react";
 import {Textarea} from "@/components/ui/textarea";
 import {Select} from "@/components/ui/select";
@@ -44,18 +46,8 @@ import {
   type ProviderPackageOfferDraft,
 } from "./provider-package-offer-builder";
 
-const EVENT_TYPES = [
-  "birthday",
-  "wedding",
-  "anniversary",
-  "reunion",
-  "corporate",
-  "baptism",
-  "graduation",
-  "other",
-] as const;
-
 type ProviderPackageFormProps = {
+  occasionCatalog?: PackageOccasionOptions | null;
   dialogLayout?: boolean;
   providerServiceType?: string;
   serviceCategories?: readonly string[];
@@ -83,6 +75,7 @@ export function ProviderPackageForm({
   serviceCategories = [],
   packageCategoryOptions,
   eventTypesSupported,
+  occasionCatalog,
   minGuestsPerEvent,
   maxGuestsPerEvent,
 
@@ -117,17 +110,9 @@ export function ProviderPackageForm({
     initialPackage?.serviceCategoryCode ??
       (packageCategoryOptions.length === 1 ? packageCategoryOptions[0].code : ""),
   );
-  const availableEventTypes =
-    useMemo(
-        () =>
-        EVENT_TYPES.filter(
-            (eventType) =>
-            eventTypesSupported.includes(
-                eventType,
-            ),
-        ),
-        [eventTypesSupported],
-    );
+  const occasionOptions = packageOccasionChoices(occasionCatalog, serviceCategoryCode);
+  const availableEventTypes = occasionOptions.map((option) => option.id);
+  const occasionLabel = (id: string) => occasionCatalog?.options.find((option) => option.id === id)?.label ?? formatEventType(id);
   const [name, setName] =
     useState(
       initialPackage?.name ?? "",
@@ -144,20 +129,28 @@ export function ProviderPackageForm({
     const initial = initialPackage?.eventType ?? availableEventTypes[0];
     return initial ? [initial] : [];
   });
+  const [occasionScope, setOccasionScope] = useState<"specific" | "all">("specific");
   const [occasionToAdd, setOccasionToAdd] = useState("");
   const occasionSelector = useRef<HTMLSelectElement>(null);
   // The legacy writer accepts exactly one supported eventType. Never pick a
   // primary occasion from a multi-selection or discard the other chips on save.
   const eventType = selectedOccasions.length === 1 ? selectedOccasions[0] : "";
-  const occasionError = selectedOccasions.length > 1
-    ? "Multiple occasions cannot be saved yet. Keep one to continue."
-    : !availableEventTypes.some((value) => value === eventType)
+  const occasionError = !occasionCatalog
+    ? "Approved occasion choices are unavailable. Reload before saving."
+    : occasionScope === "all" ? undefined
+    : !selectedOccasions.length || selectedOccasions.some((id) => !availableEventTypes.includes(id))
       ? "Add one occasion supported by your business before continuing."
-      : undefined;
+      : selectedOccasions.length > occasionCatalog.maxSpecificOccasions
+        ? `Choose at most ${occasionCatalog.maxSpecificOccasions} approved occasions.` : undefined;
+  const occasionSaveGate = occasionScope === "all" || selectedOccasions.length > 1
+    ? "Multiple occasions and Fits All cannot be saved until the V2 package writer is verified. These selections stay in this open wizard only."
+    : eventType && !eventTypesSupported.includes(eventType)
+      ? "This approved occasion requires the V2 package writer before it can be saved." : undefined;
 
   function addOccasion() {
     if (!availableEventTypes.some((value) => value === occasionToAdd)) return;
-    setSelectedOccasions((current) => current.includes(occasionToAdd) ? current : [...current, occasionToAdd]);
+    setOccasionScope("specific");
+    setSelectedOccasions((current) => occasionScope === "all" ? [occasionToAdd] : current.includes(occasionToAdd) ? current : [...current, occasionToAdd]);
     setOccasionToAdd("");
     setError(null);
     occasionSelector.current?.focus();
@@ -358,7 +351,7 @@ export function ProviderPackageForm({
   ) {
     event.preventDefault();
 
-    if (step !== 4 || submitting || occasionError || validationError || depositError || foodError) {
+    if (step !== 4 || submitting || occasionSaveGate || occasionError || validationError || depositError || foodError) {
       return;
     }
 
@@ -474,35 +467,6 @@ export function ProviderPackageForm({
     );
   }
 
-  if (
-  availableEventTypes.length === 0
-) {
-  return (
-    <div
-      role="alert"
-      className="rounded-lg border border-destructive/30 bg-destructive/5 p-4"
-    >
-      <p className="font-medium text-foreground">
-        Package creation is unavailable
-      </p>
-
-      <p className="mt-1 text-sm text-muted-foreground">
-        Your business does not have any supported event types configured. Update your provider profile before creating a package.
-      </p>
-
-      <div className="mt-4">
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={onCancel}
-        >
-          Close
-        </Button>
-      </div>
-    </div>
-  );
-}
-
   return (
     <form
       noValidate
@@ -554,19 +518,26 @@ export function ProviderPackageForm({
               }}>
               <option value="">Choose an approved occasion</option>
               {availableEventTypes.map((value) => (
-                <option key={value} value={value} disabled={selectedOccasions.includes(value)}>{formatEventType(value)}{selectedOccasions.includes(value) ? " (selected)" : ""}</option>
+                <option key={value} value={value} disabled={occasionScope === "specific" && selectedOccasions.includes(value)}>{occasionLabel(value)}{occasionScope === "specific" && selectedOccasions.includes(value) ? " (selected)" : ""}</option>
               ))}
             </Select>
             <Button type="button" variant="secondary" aria-label="Add selected occasion"
-              disabled={!availableEventTypes.some((value) => value === occasionToAdd) || selectedOccasions.includes(occasionToAdd)}
+              disabled={!availableEventTypes.some((value) => value === occasionToAdd) || (occasionScope === "specific" && selectedOccasions.includes(occasionToAdd))}
               onClick={addOccasion}>Add</Button>
           </div>
+          <Button type="button" variant="secondary" aria-pressed={occasionScope === "all"}
+            disabled={!occasionCatalog || !availableEventTypes.length}
+            onClick={() => { setOccasionScope("all"); setSelectedOccasions([]); setOccasionToAdd(""); setError(null); }}>Fits All Occasions</Button>
+          {occasionScope === "all" ? <ul aria-label="Selected occasions"><li>Fits All Occasions <Button type="button" variant="ghost" aria-label="Remove Fits All Occasions" onClick={() => setOccasionScope("specific")}>Remove</Button></li></ul> : null}
+          <OccasionRequestDialog />
+          <p className="text-xs text-muted-foreground">Fits All requires approval for every active occasion applicable to this category. Future catalog changes require server revalidation.</p>
+          {occasionSaveGate ? <p role="status" className="text-sm text-muted-foreground">{occasionSaveGate}</p> : null}
           {selectedOccasions.length > 0 ? (
             <ul aria-label="Selected occasions" className="flex flex-wrap gap-2">
               {selectedOccasions.map((value) => (
                 <li key={value} className="inline-flex min-h-8 max-w-full items-center gap-1 rounded-full border border-primary/30 bg-primary/10 pl-2.5 text-xs font-semibold text-primary-strong">
-                  <span className="min-w-0 [overflow-wrap:anywhere]">{formatEventType(value)}{availableEventTypes.some((allowed) => allowed === value) ? "" : " (no longer supported)"}</span>
-                  <Button type="button" variant="ghost" className="h-[30px] min-h-[30px] w-8 min-w-8 shrink-0 self-start rounded-full p-0" aria-label={`Remove ${formatEventType(value)} occasion`}
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{occasionLabel(value)}{availableEventTypes.some((allowed) => allowed === value) ? "" : " (no longer supported)"}</span>
+                  <Button type="button" variant="ghost" className="h-[30px] min-h-[30px] w-8 min-w-8 shrink-0 self-start rounded-full p-0" aria-label={`Remove ${occasionLabel(value)} occasion`}
                     onClick={() => {
                       setSelectedOccasions((current) => current.filter((item) => item !== value));
                       setError(null);
@@ -839,7 +810,7 @@ export function ProviderPackageForm({
 
       </section>
       <div hidden={step !== 4}>
-        <ProviderPackageReview name={name} description={description} eventType={eventType}
+        <ProviderPackageReview name={name} description={description} eventType={occasionScope === "all" ? "Fits All Occasions" : selectedOccasions.map(occasionLabel).join(", ")}
           serviceCategory={packageCategoryOptions.find((category) => category.code === serviceCategoryCode)?.name ?? ""}
           pricingModel={pricingModel} minimumGuests={minimumGuests} maximumGuests={maximumGuests}
           serviceOptions={offerConfiguration.serviceOptions} food={foodInclusions} decor={decorInclusionsText}
@@ -880,7 +851,7 @@ export function ProviderPackageForm({
         }}>Next</Button> : <Button
           type="submit"
           disabled={
-            submitting ||
+            submitting || Boolean(occasionSaveGate) ||
             Boolean(
               validationError,
             ) || Boolean(depositError) || Boolean(foodError)

@@ -1,8 +1,9 @@
 /** Only known public callable messages are classified; arbitrary server text is never rendered. */
 export function providerPackageSaveError(error: unknown): string {
-  const record = error && typeof error === "object" ? error as {code?: unknown; message?: unknown} : {};
+  const record = error && typeof error === "object" ? error as {code?: unknown; message?: unknown; details?: {reason?: unknown}} : {};
   const code = typeof record.code === "string" ? record.code.replace(/^functions\//u, "") : "";
   const message = typeof record.message === "string" ? record.message : "";
+  if (code === "aborted" || record.details?.reason === "REVISION_CONFLICT") return "The package or occasion eligibility changed. Your entries are still here. Reload current package and occasion choices before retrying.";
   if (code === "invalid-argument" && /^Unsupported package fields:\s*pricingModel\.?$/iu.test(message)) {
     return "The connected package service does not support this pricing model yet. Your entries are still here. Backend compatibility must be updated before you can save; changing or removing the pricing model is not a workaround.";
   }

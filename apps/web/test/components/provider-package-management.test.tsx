@@ -52,7 +52,9 @@ vi.mock(
   }),
 );
 
-const props = {providerId: "provider-one", eventTypesSupported: ["birthday", "wedding"], minGuestsPerEvent: 10, maxGuestsPerEvent: 200, packageCategoryOptions: [{code: "catering_service", name: "Catering Service"}]};
+vi.mock("@/lib/provider/package-occasion-options-service", () => ({getPackageOccasionOptions: vi.fn(async () => occasionCatalog)}));
+const occasionCatalog = {options: [{id: "birthday", label: "Birthday", categoryCodes: ["food_catering", "catering_service"]}, {id: "wedding", label: "Wedding", categoryCodes: ["food_catering", "catering_service"]}], catalogRevision: 4, providerEligibilityRevision: 2, maxSpecificOccasions: 5};
+const props = {occasionCatalog, providerId: "provider-one", eventTypesSupported: ["birthday", "wedding"], minGuestsPerEvent: 10, maxGuestsPerEvent: 200, packageCategoryOptions: [{code: "catering_service", name: "Catering Service"}]};
 const base: ProviderPackage = {
   id: "newest", providerId: props.providerId, name: "Zeta celebration", description: "Family gathering",
   eventType: "birthday", serviceCategoryCode: "catering_service", price: 12000,

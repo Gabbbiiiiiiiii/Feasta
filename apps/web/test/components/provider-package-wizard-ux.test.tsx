@@ -5,7 +5,8 @@ import {createProviderPackage, updateProviderPackage} from "@/lib/provider/provi
 import {uploadProviderServiceImage} from "@/lib/provider/provider-media-client";
 vi.mock("@/lib/provider/provider-package-client", () => ({createProviderPackage: vi.fn(), updateProviderPackage: vi.fn()}));
 vi.mock("@/lib/provider/provider-media-client", () => ({uploadProviderServiceImage: vi.fn()}));
-const props = {packageCategoryOptions: [{code: "food_catering", name: "Catering"}], eventTypesSupported: ["birthday"], minGuestsPerEvent: 10, maxGuestsPerEvent: 100, onSaved: vi.fn(), onCancel: vi.fn()};
+const occasionCatalog = {options: [{id: "birthday", label: "Birthday", categoryCodes: ["food_catering", "catering_service"]}, {id: "wedding", label: "Wedding", categoryCodes: ["food_catering", "catering_service"]}], catalogRevision: 4, providerEligibilityRevision: 2, maxSpecificOccasions: 5};
+const props = {occasionCatalog, packageCategoryOptions: [{code: "food_catering", name: "Catering"}], eventTypesSupported: ["birthday"], minGuestsPerEvent: 10, maxGuestsPerEvent: 100, onSaved: vi.fn(), onCancel: vi.fn()};
 const next = () => fireEvent.click(screen.getByRole("button", {name: "Next"}));
 beforeEach(() => vi.clearAllMocks());
 

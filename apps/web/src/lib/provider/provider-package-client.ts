@@ -231,6 +231,9 @@ export async function archiveProviderPackage(
 function normalizePackageInput(
   input: ProviderPackageInput,
 ): Record<string, unknown> {
+  if (["occasionSchemaVersion", "occasionScope", "occasionIds", "occasionMatchIds", "occasionCatalogRevision", "providerEligibilityRevision", "occasionEligibilityState", "selectedOccasions"].some((field) => Object.hasOwn(input, field))) {
+    throw new WebAuthenticationError("This selection requires the V2 package writer.", "configuration");
+  }
   return {
     ...(input.pricingModel !== undefined ? {pricingModel: input.pricingModel} : {}),
     name: input.name.trim(),
@@ -297,6 +300,11 @@ function parseProviderPackage(
 ): ProviderPackage {
   const data =
     recordValue(value);
+
+  // The legacy editor must never erase or downgrade a V2 record.
+  if (["occasionSchemaVersion", "occasionScope", "occasionIds", "occasionMatchIds", "occasionCatalogRevision", "providerEligibilityRevision", "occasionEligibilityState"].some((field) => Object.hasOwn(data, field))) {
+    throw new WebAuthenticationError("This package requires the V2 occasion editor.", "configuration");
+  }
 
   if (data.pricingModel !== undefined &&
     data.pricingModel !== "per_pax" && data.pricingModel !== "per_bundle") {

@@ -1,3 +1,4 @@
+import {getPackageOccasionOptions} from "@/lib/provider/package-occasion-options-service";
 import {ProviderMenuManager} from "./provider-menu-manager";
 import {ProviderSetupGalleryManager} from "./provider-setup-gallery-manager";
 import {providerContentCapabilities} from "@/lib/provider/provider-content-capabilities";
@@ -35,6 +36,8 @@ export default async function ProviderPackagesPage() {
 
   const capabilities = providerContentCapabilities(account.provider.providerServiceType, account.provider.serviceCategories);
 
+  const occasionCatalog = capabilities.packages ? await getPackageOccasionOptions() : null;
+
   const paymentPolicyBounds =
     await getProviderPackagePaymentPolicyBounds();
 
@@ -60,6 +63,7 @@ export default async function ProviderPackagesPage() {
     <div className="grid gap-6">
     {account.provider.providerServiceType === "both" ? <nav aria-label="Packages and services" className="flex flex-wrap gap-4"><Link href="/provider/packages" aria-current="page" className="font-semibold underline">Packages</Link><Link href="/provider/services" className="font-semibold underline">Event Services</Link></nav> : null}
     {capabilities.packages ? <ProviderPackagesClient
+      occasionCatalog={occasionCatalog}
       packageCategoryOptions={packageCategoryOptions}
       providerServiceType={account.provider.providerServiceType}
       serviceCategories={account.provider.serviceCategories}
