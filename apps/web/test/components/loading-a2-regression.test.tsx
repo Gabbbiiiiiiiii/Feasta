@@ -29,7 +29,7 @@ vi.mock("@/components/data", async (importOriginal) => {
 import {ProviderPaymentsClient} from "@/app/provider/payments/provider-payments-client";
 import {ProviderReviewsClient} from "@/app/provider/reviews/provider-reviews-client";
 import {ProviderServicesClient} from "@/app/provider/services/provider-services-client";
-import {ProviderSetupGalleryManager} from "@/app/provider/packages/provider-setup-gallery-manager";
+import {LegacyProviderSetupGalleryManager as ProviderSetupGalleryManager} from "@/app/provider/packages/provider-setup-gallery-manager";
 import {NotificationMenu} from "@/components/layout/notification-menu";
 
 function deferred<T>() {let resolve!: (value: T) => void; let reject!: (reason: Error) => void; const promise = new Promise<T>((yes, no) => {resolve = yes; reject = no;}); return {promise, resolve, reject};}

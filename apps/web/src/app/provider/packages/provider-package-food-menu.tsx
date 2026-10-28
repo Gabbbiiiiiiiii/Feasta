@@ -103,10 +103,10 @@ export function ProviderPackageFoodMenu({value, onChange}: {
       </div>
       <p className="text-xs text-muted-foreground">Categories belong to this package. A category needs at least one saved dish to persist when the package is saved. Empty categories are available only during this editing session.</p>
       {foodInclusionsError(value) ? <p role="alert" className="text-sm text-destructive">{foodInclusionsError(value)}</p> : null}
-      {rows.length === 0 ? <p className="rounded-xl border border-dashed p-4 text-sm">No dishes added. Add the food your package includes.</p> : null}
+      {rows.length === 0 ? <div className="space-y-2 rounded-xl border border-dashed bg-muted/20 p-5"><h5 className="text-sm font-bold">No dishes added</h5><p className="text-sm text-muted-foreground">Use Add Dish to list the food included in this package. Use Add Category to organize dishes into courses or food types.</p></div> : null}
       {groups.map((category) => (
         <section key={category} className="overflow-hidden rounded-xl border" aria-label={category || "Uncategorized"}>
-          <h5 className="bg-muted/40 px-4 py-2 text-sm font-bold">{category || "Uncategorized"}</h5>
+          <div className="flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-3"><h5 className="text-sm font-bold">{category || "Uncategorized"}</h5><span className="shrink-0 text-xs text-muted-foreground">{rows.filter((row) => row.category === category).length} dishes</span></div>
           <ul className="divide-y">{rows.filter((row) => row.category === category).map((row) => (
             <li key={row.id} className="flex items-center justify-between gap-3 px-4 py-2">
               <span className="min-w-0 break-words text-sm">{row.name || "Empty legacy inclusion"}</span>

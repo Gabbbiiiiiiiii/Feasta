@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {BookingOfferSelection} from "@/components/customer/bookings/booking-offer-selection";
 import {ProviderSetupGallery} from "@/components/customer/providers/provider-setup-gallery";
-import {ProviderSetupGalleryManager} from "@/app/provider/packages/provider-setup-gallery-manager";
+import {LegacyProviderSetupGalleryManager as ProviderSetupGalleryManager} from "@/app/provider/packages/provider-setup-gallery-manager";
 import {clearStaleSetupReference} from "@/lib/customer/bookings/booking-customization-selection";
 import {loadProviderSetupGallery, readPublishedProviderSetups, saveProviderSetupGallery} from "@/lib/provider/provider-setup-gallery-service";
 import {parseProviderSetups, publicProviderSetups, type ProviderSetup} from "@/lib/provider/provider-setup-gallery";
