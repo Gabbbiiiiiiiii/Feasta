@@ -1,0 +1,3361 @@
+import '../../../../core/config/firebase_emulator_config.dart';
+import '../../../../core/domain/legacy_booking_payment_authority.dart';
+import 'customer_bookings_source.dart';
+import '../../../../shared/models/booking_refund_policy.dart';
+import '../../../../shared/models/booking_agreement.dart';
+import '../../../../shared/models/booking_contract.dart';
+import '../../../../shared/models/event_customization_data.dart';
+import '../../../../core/security/auth_operation_coordinator.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+import '../../../../core/constants/firestore_collections.dart';
+import '../../../../core/helpers/legacy_occasion_visibility.dart';
+import '../../../../core/constants/status_constants.dart';
+import '../../../../core/firestore/query_builder.dart';
+import '../../../../shared/models/customer_payment_request.dart';
+import '../../../../shared/models/booking_complaint.dart';
+import '../../../../shared/models/feasta_models.dart';
+import '../../../../core/domain/service_category.dart';
+import '../../../../core/helpers/provider_category_helper.dart';
+import '../../../../core/helpers/provider_discovery.dart';
+
+class FeastaRepository {
+  List<ServiceCategory>? _serviceCategoryCache;
+  final FirebaseFirestore _db = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
+    region: 'asia-southeast1',
+  );
+
+  String get currentUid {
+    final user = _auth.currentUser;
+
+    if (user == null) {
+      throw Exception('User is not logged in.');
+    }
+
+    return user.uid;
+  }
+
+  Future<void> _requireVerifiedActiveCustomer() => AuthOperationCoordinator
+      .shared
+      .run(() => _requireVerifiedActiveCustomerCoordinated());
+
+  Future<void> _requireVerifiedActiveCustomerCoordinated() async {
+    final user = _auth.currentUser;
+    if (user == null) throw Exception('Please log in to continue.');
+    await user.reload();
+    final refreshedUser = _auth.currentUser;
+    if (refreshedUser == null || !refreshedUser.emailVerified) {
+      throw Exception('Verify your email before creating a booking.');
+    }
+    final snapshot = await _db
+        .collection(FirestoreCollections.users)
+        .doc(refreshedUser.uid)
+        .get();
+    final data = snapshot.data();
+    final unavailable =
+        data == null ||
+        data['role'] != UserRoles.customer ||
+        data['isActive'] != true ||
+        data['isBlocked'] == true ||
+        data['accountStatus'] != 'active';
+    if (unavailable) {
+      await AuthOperationCoordinator.shared.protectSession(() async {
+        AuthOperationCoordinator.shared.noteTransition();
+        await _auth.signOut();
+      });
+      throw Exception('Your account is currently unavailable.');
+    }
+    if (data['isPhoneVerified'] != true) {
+      throw Exception('Verify your phone number before creating a booking.');
+    }
+  }
+
+  Future<CustomerModel> getCurrentCustomer() async {
+    final doc = await _db
+        .collection(FirestoreCollections.customers)
+        .doc(currentUid)
+        .get();
+
+    if (!doc.exists) {
+      throw Exception('Customer profile not found.');
+    }
+
+    return CustomerModel.fromDoc(doc);
+  }
+
+  Stream<UserModel?> currentUserData() {
+    return _db
+        .collection(FirestoreCollections.users)
+        .doc(currentUid)
+        .snapshots()
+        .map((doc) {
+          if (!doc.exists) return null;
+          return UserModel.fromDoc(doc);
+        });
+  }
+
+  Future<void> incrementProviderViewCount(String providerId) async {
+    await _db.collection(FirestoreCollections.providers).doc(providerId).update(
+      {'totalViews': FieldValue.increment(1)},
+    );
+  }
+
+  List<ProviderModel> _sortProvidersByPopularity(
+    List<ProviderModel> providers,
+  ) {
+    providers.sort((a, b) {
+      final completedBookingsCompare = b.totalCompletedBookings.compareTo(
+        a.totalCompletedBookings,
+      );
+      if (completedBookingsCompare != 0) return completedBookingsCompare;
+
+      final favoriteCompare = b.favoriteCount.compareTo(a.favoriteCount);
+      if (favoriteCompare != 0) return favoriteCompare;
+
+      final viewsCompare = b.totalViews.compareTo(a.totalViews);
+      if (viewsCompare != 0) return viewsCompare;
+
+      final ratingCompare = b.ratingAverage.compareTo(a.ratingAverage);
+      if (ratingCompare != 0) return ratingCompare;
+
+      final reviewCompare = b.reviewCount.compareTo(a.reviewCount);
+      if (reviewCompare != 0) return reviewCompare;
+
+      return a.businessName.toLowerCase().compareTo(
+        b.businessName.toLowerCase(),
+      );
+    });
+
+    return providers;
+  }
+
+  Stream<List<ProviderModel>> verifiedProviders() {
+    return _db
+        .collection(FirestoreCollections.providers)
+        .where(
+          'verificationStatus',
+          isEqualTo: ProviderVerificationStatus.approved,
+        )
+        .where('publiclyVisible', isEqualTo: true)
+        .where('isActive', isEqualTo: true)
+        .where('isSuspended', isEqualTo: false)
+        .where('providerServiceType', isEqualTo: 'catering')
+        .where('isDeleted', isEqualTo: false)
+        .orderBy('favoriteCount', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots(includeMetadataChanges: true)
+        .where((snapshot) => !snapshot.metadata.isFromCache)
+        .map((snapshot) {
+          final providers = snapshot.docs
+              .map(ProviderModel.fromDoc)
+              .where(isDiscoverableProvider)
+              .toList();
+          return _sortProvidersByPopularity(providers);
+        });
+  }
+
+  Stream<List<ProviderModel>> homeCateringProviders({
+    String eventType = 'All',
+    bool nearOrmoc = false,
+    bool rating4Plus = false,
+    bool budgetFriendly = false,
+  }) {
+    if (eventType == 'All') {
+      return _db
+          .collection(FirestoreCollections.providers)
+          .where(
+            'verificationStatus',
+            isEqualTo: ProviderVerificationStatus.approved,
+          )
+          .where('publiclyVisible', isEqualTo: true)
+          .where('isActive', isEqualTo: true)
+          .where('isSuspended', isEqualTo: false)
+          .where('providerServiceType', isEqualTo: 'catering')
+          .where('isDeleted', isEqualTo: false)
+          .orderBy('favoriteCount', descending: true)
+          .orderBy(FieldPath.documentId, descending: true)
+          .limit(20)
+          .snapshots(includeMetadataChanges: true)
+          .where((snapshot) => !snapshot.metadata.isFromCache)
+          .map((snapshot) {
+            var providers = snapshot.docs
+                .map(ProviderModel.fromDoc)
+                .where(isDiscoverableProvider)
+                .toList();
+
+            if (nearOrmoc) {
+              providers = providers.where((provider) {
+                final location = provider.location.toLowerCase();
+                final city = provider.city.toLowerCase();
+                return location.contains('ormoc') || city.contains('ormoc');
+              }).toList();
+            }
+
+            if (rating4Plus) {
+              providers = providers
+                  .where((provider) => provider.ratingAverage >= 4.0)
+                  .toList();
+            }
+
+            if (budgetFriendly) {
+              providers = providers
+                  .where(
+                    (provider) =>
+                        provider.minPrice > 0 && provider.minPrice <= 15000,
+                  )
+                  .toList();
+            }
+
+            return _sortProvidersByPopularity(providers);
+          });
+    }
+
+    return _db
+        .collection(FirestoreCollections.packages)
+        .where('isActive', isEqualTo: true)
+        .where('isPublished', isEqualTo: true)
+        .where('providerPubliclyVisible', isEqualTo: true)
+        .where('status', isEqualTo: 'published')
+        .where(FirebaseEmulatorConfig.v2DiscoveryEnabled
+          ? Filter.or(Filter('eventType', isEqualTo: eventType), Filter('occasionMatchIds', arrayContains: eventType))
+          : Filter('eventType', isEqualTo: eventType))
+        .where('isDeleted', isEqualTo: false)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots(includeMetadataChanges: true)
+        .where((snapshot) => !snapshot.metadata.isFromCache)
+        .asyncMap((snapshot) async {
+          final verified = await Future.wait(snapshot.docs.map((doc) => _verifiedPublicPackage(doc.id, doc.data())));
+          final providerIds = verified.whereType<Map<String, dynamic>>()
+              .where((data) => data['occasionSchemaVersion'] == 2
+                ? (data['occasionMatchIds'] as List).contains(eventType) : data['eventType'] == eventType)
+              .map((data) => data['providerId'])
+              .where((id) => id != null && id.toString().isNotEmpty)
+              .map((id) => id.toString())
+              .toSet()
+              .toList();
+
+          final providers = <ProviderModel>[];
+
+          for (final providerId in providerIds) {
+            final providerDoc = await _db
+                .collection(FirestoreCollections.providers)
+                .doc(providerId)
+                .get(const GetOptions(source: Source.server));
+
+            if (!providerDoc.exists) continue;
+
+            final provider = ProviderModel.fromDoc(providerDoc);
+
+            if (provider.verificationStatus !=
+                ProviderVerificationStatus.approved) {
+              continue;
+            }
+
+            if (!provider.isActive) {
+              continue;
+            }
+
+            if (provider.providerServiceType != 'catering') {
+              continue;
+            }
+
+            if (isDiscoverableProvider(provider)) providers.add(provider);
+          }
+
+          var filteredProviders = providers;
+
+          if (nearOrmoc) {
+            filteredProviders = filteredProviders.where((provider) {
+              final location = provider.location.toLowerCase();
+              final city = provider.city.toLowerCase();
+              return location.contains('ormoc') || city.contains('ormoc');
+            }).toList();
+          }
+
+          if (rating4Plus) {
+            filteredProviders = filteredProviders
+                .where((provider) => provider.ratingAverage >= 4.0)
+                .toList();
+          }
+
+          if (budgetFriendly) {
+            filteredProviders = filteredProviders
+                .where(
+                  (provider) =>
+                      provider.minPrice > 0 && provider.minPrice <= 15000,
+                )
+                .toList();
+          }
+
+          return _sortProvidersByPopularity(filteredProviders);
+        });
+  }
+
+  Stream<List<ProviderModel>> verifiedAddonProviders({
+    String category = 'all',
+  }) {
+    return _db
+        .collection(FirestoreCollections.providers)
+        .where(
+          'verificationStatus',
+          isEqualTo: ProviderVerificationStatus.approved,
+        )
+        .where('publiclyVisible', isEqualTo: true)
+        .where('isActive', isEqualTo: true)
+        .where('isSuspended', isEqualTo: false)
+        .where('providerServiceType', isEqualTo: 'addon')
+        .where('isDeleted', isEqualTo: false)
+        .orderBy('favoriteCount', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots(includeMetadataChanges: true)
+        .where((snapshot) => !snapshot.metadata.isFromCache)
+        .map((snapshot) {
+          final providers = snapshot.docs
+              .map(ProviderModel.fromDoc)
+              .where(isDiscoverableProvider)
+              .toList();
+
+          if (category == 'all') return providers;
+
+          return providers
+              .where((provider) => provider.providerCategory == category)
+              .toList();
+        });
+  }
+
+  Stream<List<ProviderModel>> featuredProviders() {
+    return _db
+        .collection(FirestoreCollections.providers)
+        .where(
+          'verificationStatus',
+          isEqualTo: ProviderVerificationStatus.approved,
+        )
+        .where('publiclyVisible', isEqualTo: true)
+        .where('isActive', isEqualTo: true)
+        .where('isSuspended', isEqualTo: false)
+        .where('isFeatured', isEqualTo: true)
+        .where('providerServiceType', isEqualTo: 'catering')
+        .where('isDeleted', isEqualTo: false)
+        .orderBy('favoriteCount', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots(includeMetadataChanges: true)
+        .where((snapshot) => !snapshot.metadata.isFromCache)
+        .map((snapshot) {
+          return snapshot.docs
+              .map(ProviderModel.fromDoc)
+              .where(isDiscoverableProvider)
+              .toList();
+        });
+  }
+
+  Future<ProviderModel?> getProviderById(String providerId) async {
+    final doc = await _db
+        .collection(FirestoreCollections.providers)
+        .doc(providerId)
+        .get(const GetOptions(source: Source.server));
+
+    if (!doc.exists) return null;
+
+    return ProviderModel.fromDoc(doc);
+  }
+
+  Future<Map<String, dynamic>?> _verifiedPublicPackage(String id, Map<String, dynamic> data) async {
+    if (isLegacyOccasionPublicPackage(data)) return data;
+    if (data['occasionSchemaVersion'] != 2) return null;
+    try {
+      final result = await _functions.httpsCallable('getCustomerPackageV2').call({'packageId': id});
+      final response = Map<String, dynamic>.from(result.data as Map);
+      if (response['packageId'] != id || response['package'] is! Map) return null;
+      return Map<String, dynamic>.from(response['package'] as Map);
+    } on FirebaseFunctionsException { return null; }
+  }
+
+  Stream<List<PackageModel>> packagesByProvider(String providerId) {
+    return _db
+        .collection(FirestoreCollections.packages)
+        .where('providerId', isEqualTo: providerId)
+        .where('isActive', isEqualTo: true)
+        .where('isPublished', isEqualTo: true)
+        .where('providerPubliclyVisible', isEqualTo: true)
+        .where('status', isEqualTo: 'published')
+        .where('isDeleted', isEqualTo: false)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots(includeMetadataChanges: true)
+        .where((snapshot) => !snapshot.metadata.isFromCache)
+        .asyncMap((snapshot) async {
+          final packages = await Future.wait(snapshot.docs.map((doc) async {
+            final data = await _verifiedPublicPackage(doc.id, doc.data());
+            return data == null ? null : PackageModel.fromMap(doc.id, data);
+          }));
+          return packages.whereType<PackageModel>().toList();
+        });
+  }
+
+  Future<AddonModel?> getEligiblePreparationAddon(String addonId) async {
+    if (addonId.isEmpty) return null;
+    final doc = await _db
+        .collection(FirestoreCollections.addons)
+        .doc(addonId)
+        .get(const GetOptions(source: Source.server));
+    if (!doc.exists) return null;
+    final data = doc.data()!;
+    if (data['isActive'] != true ||
+        data['isAvailable'] != true ||
+        data['isDeleted'] != false) {
+      return null;
+    }
+    final providerId = data['providerId']?.toString() ?? '';
+    if (providerId.isEmpty) return null;
+    final providerDoc = await _db
+        .collection(FirestoreCollections.providers)
+        .doc(providerId)
+        .get(const GetOptions(source: Source.server));
+    final provider = providerDoc.exists
+        ? ProviderModel.fromDoc(providerDoc)
+        : null;
+    if (provider == null ||
+        !provider.isApproved ||
+        !provider.publiclyVisible ||
+        !provider.isActive ||
+        provider.isDeleted ||
+        provider.isSuspended) {
+      return null;
+    }
+    return AddonModel.fromDoc(doc);
+  }
+
+  /// Read-only revalidation for booking preparation, never a reservation.
+  Future<PackageModel?> getEligiblePackageForPreparation(
+    String providerId,
+    String packageId,
+  ) async {
+    final doc = await _db
+        .collection(FirestoreCollections.packages)
+        .doc(packageId)
+        .get(const GetOptions(source: Source.server));
+    if (!doc.exists) return null;
+    final data = await _verifiedPublicPackage(doc.id, doc.data()!);
+    if (data == null) return null;
+    if (data['providerId'] != providerId ||
+        data['isActive'] != true ||
+        data['isPublished'] != true ||
+        data['providerPubliclyVisible'] != true ||
+        data['status'] != 'published' ||
+        data['isDeleted'] != false) {
+      return null;
+    }
+    final providerDoc = await _db
+        .collection(FirestoreCollections.providers)
+        .doc(providerId)
+        .get(const GetOptions(source: Source.server));
+    if (!providerDoc.exists) return null;
+    final provider = ProviderModel.fromDoc(providerDoc);
+    if (!isDiscoverableProvider(provider)) return null;
+    return PackageModel.fromMap(doc.id, data);
+  }
+
+  Future<PackageModel?> getPackageById(String packageId) async {
+    final doc = await _db
+        .collection(FirestoreCollections.packages)
+        .doc(packageId)
+        .get();
+
+    if (!doc.exists) return null;
+
+    final data = await _verifiedPublicPackage(doc.id, Map<String, dynamic>.from(doc.data()!));
+    return data == null ? null : PackageModel.fromMap(doc.id, data);
+  }
+
+  Stream<List<AddonRequestModel>> addonRequestsByBooking(String bookingId) {
+    return _db
+        .collection(FirestoreCollections.addonRequests)
+        .where('bookingId', isEqualTo: bookingId)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map(AddonRequestModel.fromDoc).toList();
+        });
+  }
+
+  Stream<List<AddonModel>> addonsByProvider(String providerId) {
+    return _db
+        .collection(FirestoreCollections.addons)
+        .where('providerId', isEqualTo: providerId)
+        .where('isActive', isEqualTo: true)
+        .where('isAvailable', isEqualTo: true)
+        .where('isDeleted', isEqualTo: false)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map(AddonModel.fromDoc).toList();
+        });
+  }
+
+  Future<bool> checkProviderAvailability({
+    required String providerId,
+    required DateTime eventDate,
+    required int maxEventsPerDay,
+  }) async {
+    final start = DateTime(eventDate.year, eventDate.month, eventDate.day);
+    final end = start.add(const Duration(days: 1));
+    final boundedMaximum = maxEventsPerDay.clamp(
+      1,
+      QueryBuilder.maximumPageSize,
+    );
+
+    final snapshot = await _db
+        .collection(FirestoreCollections.mainEvents)
+        .where('providerId', isEqualTo: providerId)
+        .where('eventDate', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('eventDate', isLessThan: Timestamp.fromDate(end))
+        .where(
+          'status',
+          whereIn: [
+            BookingStatus.pending,
+            BookingStatus.accepted,
+            BookingStatus.waitingPayment,
+            BookingStatus.paymentProcessing,
+            BookingStatus.confirmed,
+          ],
+        )
+        .limit(boundedMaximum)
+        .get();
+
+    return snapshot.docs.length < boundedMaximum;
+  }
+
+  Stream<List<AddonRequestModel>> addonRequestsByProviderOwner() async* {
+    final provider = await getMyProviderProfile();
+
+    if (provider == null) {
+      yield [];
+      return;
+    }
+
+    yield* _db
+        .collection(FirestoreCollections.addonRequests)
+        .where('addonProviderId', isEqualTo: provider.id)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map(AddonRequestModel.fromDoc).toList();
+        });
+  }
+
+  Future<void> acceptAddonRequest(AddonRequestModel request) async {
+    final now = FieldValue.serverTimestamp();
+
+    final requestRef = _db
+        .collection(FirestoreCollections.addonRequests)
+        .doc(request.id);
+
+    final notificationRef = _db
+        .collection(FirestoreCollections.notifications)
+        .doc();
+
+    final batch = _db.batch();
+
+    batch.update(requestRef, {
+      'status': AddonRequestStatus.accepted,
+      'paymentStatus': 'waiting_payment',
+      'acceptedAt': now,
+      'updatedAt': now,
+    });
+
+    batch.set(notificationRef, {
+      'userId': request.customerId,
+      'title': 'Add-on Request Accepted',
+      'message':
+          '${request.addonProviderBusinessName} accepted your ${request.addonName} request.',
+      'type': NotificationType.booking,
+      'relatedId': request.id,
+      'relatedCollection': FirestoreCollections.addonRequests,
+      'isRead': false,
+      'readAt': null,
+      'createdAt': now,
+    });
+
+    await batch.commit();
+  }
+
+  Future<void> rejectAddonRequest({
+    required AddonRequestModel request,
+    required String reason,
+  }) async {
+    final now = FieldValue.serverTimestamp();
+
+    final requestRef = _db
+        .collection(FirestoreCollections.addonRequests)
+        .doc(request.id);
+
+    final notificationRef = _db
+        .collection(FirestoreCollections.notifications)
+        .doc();
+
+    final batch = _db.batch();
+
+    batch.update(requestRef, {
+      'status': AddonRequestStatus.rejected,
+      'rejectedAt': now,
+      'rejectedReason': reason.trim(),
+      'updatedAt': now,
+    });
+
+    batch.set(notificationRef, {
+      'userId': request.customerId,
+      'title': 'Add-on Request Rejected',
+      'message':
+          '${request.addonProviderBusinessName} rejected your ${request.addonName} request.',
+      'type': NotificationType.booking,
+      'relatedId': request.id,
+      'relatedCollection': FirestoreCollections.addonRequests,
+      'isRead': false,
+      'readAt': null,
+      'createdAt': now,
+    });
+
+    await batch.commit();
+  }
+
+  Stream<List<RecoveryOfferModel>> recoveryOffersByBooking(String bookingId) {
+    return _db
+        .collection(FirestoreCollections.bookingRecoveryOffers)
+        .where('bookingId', isEqualTo: bookingId)
+        .where('status', isEqualTo: RecoveryOfferStatus.offered)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map(RecoveryOfferModel.fromDoc).toList();
+        });
+  }
+
+  // Legacy replacement has no trusted financial/reservation acceptance contract.
+  // Keep offer/history reads available; never mutate a booking to authorize payment.
+  Future<void> selectRecoveryOffer({
+    required BookingModel booking,
+    required RecoveryOfferModel offer,
+  }) async {
+    requireTrustedLegacyBookingPaymentAuthority();
+  }
+
+  Future<void> cancelRecoveryRequest({
+    required BookingModel booking,
+    required String reason,
+  }) async {
+    if (booking.customerId != currentUid) {
+      throw Exception('You are not allowed to cancel this recovery request.');
+    }
+
+    if (booking.recoveryStatus != BookingRecoveryStatus.open &&
+        booking.recoveryStatus != BookingRecoveryStatus.offerReceived) {
+      throw Exception('This booking is not currently under recovery.');
+    }
+
+    final now = FieldValue.serverTimestamp();
+
+    final batch = _db.batch();
+
+    final bookingRef = _db
+        .collection(FirestoreCollections.mainEvents)
+        .doc(booking.id);
+
+    final timelineRef = _db
+        .collection(FirestoreCollections.bookingTimelines)
+        .doc();
+
+    batch.update(bookingRef, {
+      'status': BookingStatus.cancelled,
+      'recoveryStatus': BookingRecoveryStatus.cancelled,
+      'cancellationStatus': 'approved',
+      'cancellationReason': reason.trim(),
+      'cancelledAt': now,
+      'updatedAt': now,
+    });
+
+    batch.set(timelineRef, {
+      'bookingId': booking.id,
+      'status': BookingStatus.cancelled,
+      'title': 'Recovery Request Cancelled',
+      'description': reason.trim().isEmpty
+          ? 'Customer cancelled the booking recovery request.'
+          : reason.trim(),
+      'createdBy': currentUid,
+      'createdByRole': UserRoles.customer,
+      'createdAt': now,
+    });
+
+    final offersSnapshot = await _db
+        .collection(FirestoreCollections.bookingRecoveryOffers)
+        .where('bookingId', isEqualTo: booking.id)
+        .where('status', isEqualTo: RecoveryOfferStatus.offered)
+        .get();
+
+    for (final doc in offersSnapshot.docs) {
+      batch.update(doc.reference, {
+        'status': RecoveryOfferStatus.declined,
+        'declinedAt': now,
+      });
+    }
+
+    final addonRequestsSnapshot = await _db
+        .collection(FirestoreCollections.addonRequests)
+        .where('bookingId', isEqualTo: booking.id)
+        .get();
+
+    for (final doc in addonRequestsSnapshot.docs) {
+      final data = doc.data();
+
+      final currentStatus = data['status'];
+
+      if (currentStatus == AddonRequestStatus.cancelled ||
+          currentStatus == AddonRequestStatus.rejected ||
+          currentStatus == AddonRequestStatus.completed) {
+        continue;
+      }
+
+      final paymentStatus = data['paymentStatus'];
+
+      batch.update(doc.reference, {
+        'status': AddonRequestStatus.cancelled,
+        'paymentStatus': paymentStatus == 'paid'
+            ? 'refund_review'
+            : 'cancelled',
+        'linkStatus': AddonLinkStatus.cancelledDueToMainBookingFailed,
+        'mainBookingStatus': BookingStatus.cancelled,
+        'currentCateringProviderId': null,
+        'updatedAt': now,
+      });
+
+      final addonProviderId = data['addonProviderId'];
+
+      if (addonProviderId != null && addonProviderId.toString().isNotEmpty) {
+        final addonProviderDoc = await _db
+            .collection(FirestoreCollections.providers)
+            .doc(addonProviderId)
+            .get();
+
+        final addonProviderOwnerId = addonProviderDoc.data()?['ownerId'];
+
+        if (addonProviderOwnerId != null) {
+          final addonNotificationRef = _db
+              .collection(FirestoreCollections.notifications)
+              .doc();
+
+          batch.set(addonNotificationRef, {
+            'userId': addonProviderOwnerId,
+            'title': 'Recovery Request Cancelled',
+            'message':
+                '${booking.customerFirstName} ${booking.customerLastName} cancelled the recovery request. The related add-on service request was cancelled.',
+            'type': NotificationType.booking,
+            'relatedId': doc.id,
+            'relatedCollection': FirestoreCollections.addonRequests,
+            'isRead': false,
+            'readAt': null,
+            'createdAt': now,
+          });
+        }
+      }
+    }
+
+    await batch.commit();
+  }
+
+  /// Refresh ownership through existing server-only preparation reads.
+  Future<Set<String>> resolveBookingAgreementProviders(
+    BookingAgreementRequest request,
+  ) => request.expectedProviderIds(
+    lookupOwner: (id) async =>
+        (await getEligiblePreparationAddon(id))?.providerId,
+  );
+
+  /// Disclosure only. Uses the existing regional Functions/App Check setup.
+  Future<List<BookingAgreement>> getBookingPaymentAgreementDisclosures(
+    BookingAgreementRequest request,
+  ) async {
+    if (_auth.currentUser == null) {
+      throw const AgreementReviewFailure(
+        'Sign in again to review your booking agreements.',
+      );
+    }
+    final result = await _functions
+        .httpsCallable(
+          'getBookingPaymentAgreementDisclosures',
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
+        )
+        .call(request.toJson());
+    return parseAgreementDisclosures(result.data);
+  }
+
+  /// Refund disclosure only; never forwards the full booking payload.
+  Future<RefundDisclosures> getBookingRefundPolicyDisclosures(
+    BookingAgreementRequest request,
+  ) async {
+    if (_auth.currentUser == null) {
+      throw const RefundReviewFailure(
+        'Sign in again to review refund policies.',
+      );
+    }
+    final result = await _functions
+        .httpsCallable(
+          'getBookingRefundPolicyDisclosures',
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
+        )
+        .call(refundDisclosureRequest(request));
+    return RefundDisclosures.fromJson(result.data);
+  }
+
+  Future<BookingSubmissionResult> createBookingRequest({
+    required CustomerModel customer,
+    required ProviderModel provider,
+    required PackageModel package,
+    required String eventType,
+    required DateTime eventDate,
+    required String eventTime,
+    required String eventEndTime,
+    required int guestCount,
+    required String eventLocation,
+    required String eventAddress,
+    List<Map<String, dynamic>> foodChoiceSelections = const [],
+    required List<String> selectedFoods,
+    required List<String> selectedDecorations,
+    required List<String> selectedFurniture,
+    required List<Map<String, dynamic>> selectedAddOns,
+    required bool willArrangeOwnAddOns,
+    required String customerArrangedAddOnsNote,
+    required String specialRequest,
+    String? serviceTier,
+    String? packageThemeId,
+  }) async {
+    await _requireVerifiedActiveCustomer();
+    final requestId = '${currentUid}_${DateTime.now().microsecondsSinceEpoch}';
+    final selection = BookingSelection(
+      providerId: provider.id,
+      packageId: package.id,
+      customization: EventCustomizationData(
+        sharedContractVersion: package.sharedContractVersion, expectedPackageRevision: package.revision,
+        eventType: eventType,
+        eventDate: eventDate,
+        eventTime: eventTime,
+        eventEndTime: eventEndTime,
+        guestCount: guestCount,
+        eventLocation: eventLocation,
+        eventAddress: eventAddress,
+        foodChoiceSelections: foodChoiceSelections,
+        selectedFoods: selectedFoods,
+        selectedDecorations: selectedDecorations,
+        selectedFurniture: selectedFurniture,
+        selectedAddOns: selectedAddOns,
+        willArrangeOwnAddOns: willArrangeOwnAddOns,
+        customerArrangedAddOnsNote: customerArrangedAddOnsNote,
+        specialRequest: specialRequest,
+        serviceTier: serviceTier,
+        packageThemeId: packageThemeId,
+      ),
+    );
+    final result = await _functions
+        .httpsCallable('submitBookingRequest')
+        .call(selection.toJson(clientRequestId: requestId));
+    return BookingSubmissionResult.fromJson(result.data);
+  }
+
+  // Kept temporarily as a migration reference while downstream add-on request
+  // consumers move to the canonical server submission result.
+  // ignore: unused_element
+  Future<String> _createBookingRequestLegacy({
+    required CustomerModel customer,
+    required ProviderModel provider,
+    required PackageModel package,
+    required String eventType,
+    required DateTime eventDate,
+    required String eventTime,
+    required String eventEndTime,
+    required int guestCount,
+    required String eventLocation,
+    required String eventAddress,
+    required List<String> selectedFoods,
+    required List<String> selectedDecorations,
+    required List<String> selectedFurniture,
+    required List<Map<String, dynamic>> selectedAddOns,
+    required bool willArrangeOwnAddOns,
+    required String customerArrangedAddOnsNote,
+    required String specialRequest,
+  }) async {
+    await _requireVerifiedActiveCustomer();
+    final cateringAddOns = selectedAddOns
+        .where((addon) => addon['source'] == 'catering_provider')
+        .toList();
+
+    final marketplaceAddOns = selectedAddOns
+        .where((addon) => addon['source'] == 'feasta_addon_provider')
+        .toList();
+
+    final cateringAddOnsTotal = cateringAddOns.fold<double>(
+      0,
+      (total, addon) => total + ((addon['price'] ?? 0) as num).toDouble(),
+    );
+
+    final marketplaceAddOnsTotal = marketplaceAddOns.fold<double>(
+      0,
+      (total, addon) => total + ((addon['price'] ?? 0) as num).toDouble(),
+    );
+
+    final cateringSubtotal = package.price + cateringAddOnsTotal;
+    final estimatedEventTotal = cateringSubtotal + marketplaceAddOnsTotal;
+
+    const downPaymentPercentage = 100.0;
+    final downPaymentAmount = cateringSubtotal;
+    const remainingBalance = 0.0;
+
+    final bookingRef = _db.collection(FirestoreCollections.mainEvents).doc();
+    final timelineRef = _db
+        .collection(FirestoreCollections.bookingTimelines)
+        .doc();
+    final notificationRef = _db
+        .collection(FirestoreCollections.notifications)
+        .doc();
+
+    final bookingCode = 'BK${DateTime.now().millisecondsSinceEpoch}';
+    final now = FieldValue.serverTimestamp();
+
+    final batch = _db.batch();
+
+    batch.set(bookingRef, {
+      'bookingCode': bookingCode,
+      'customerId': customer.userId,
+      'providerId': provider.id,
+      'packageId': package.id,
+      'customerFirstName': customer.firstName,
+      'customerLastName': customer.lastName,
+      'customerEmail': customer.email,
+      'customerPhoneNumber': customer.phoneNumber,
+      'providerBusinessName': provider.businessName,
+      'packageName': package.name,
+      'eventType': eventType,
+      'eventDate': Timestamp.fromDate(eventDate),
+      'eventTime': eventTime,
+      'eventEndTime': eventEndTime,
+      'guestCount': guestCount,
+      'eventLocation': eventLocation,
+      'eventAddress': eventAddress,
+      'selectedFoods': selectedFoods,
+      'selectedDecorations': selectedDecorations,
+      'selectedFurniture': selectedFurniture,
+      'selectedAddOns': selectedAddOns,
+      'willArrangeOwnAddOns': willArrangeOwnAddOns,
+      'customerArrangedAddOnsNote': customerArrangedAddOnsNote,
+      'specialRequest': specialRequest,
+      'packagePrice': package.price,
+      // Keep old fields for compatibility.
+      // These now represent catering charges only.
+      'addOnsTotal': cateringAddOnsTotal,
+      'totalAmount': cateringSubtotal,
+      'cateringAddOnsTotal': cateringAddOnsTotal,
+      'marketplaceAddOnsTotal': marketplaceAddOnsTotal,
+      'cateringSubtotal': cateringSubtotal,
+      'estimatedEventTotal': estimatedEventTotal,
+      'downPaymentPercentage': downPaymentPercentage,
+      'downPaymentAmount': downPaymentAmount,
+      'remainingBalance': remainingBalance,
+      'status': BookingStatus.pending,
+      'paymentStatus': PaymentStatus.unpaid,
+      'recoveryStatus': BookingRecoveryStatus.none,
+      'originalProviderId': provider.id,
+      'currentProviderId': provider.id,
+      'rejectedByProviderIds': [],
+      'selectedRecoveryOfferId': null,
+      'recoveryOpenedAt': null,
+      'recoveryCompletedAt': null,
+      'cancellationReason': null,
+      'rejectedReason': null,
+      'cancellationStatus': 'none',
+      'refundStatus': 'none',
+      'refundAmount': 0,
+      'refundPolicyType': null,
+      'refundPercentage': 0,
+      'cancellationRequestedAt': null,
+      'cancellationReviewedAt': null,
+      'cancellationReviewedBy': null,
+      'paymentDeadline': null,
+      'acceptedAt': null,
+      'confirmedAt': null,
+      'completedAt': null,
+      'cancelledAt': null,
+      'createdAt': now,
+      'updatedAt': now,
+    });
+
+    batch.set(timelineRef, {
+      'bookingId': bookingRef.id,
+      'status': BookingStatus.pending,
+      'title': 'Booking Request Submitted',
+      'description': 'Customer submitted a booking request.',
+      'createdBy': customer.userId,
+      'createdByRole': UserRoles.customer,
+      'createdAt': now,
+    });
+
+    batch.set(notificationRef, {
+      'userId': provider.ownerId,
+      'title': 'New Booking Request',
+      'message':
+          '${customer.firstName} ${customer.lastName} sent a booking request.',
+      'type': NotificationType.booking,
+      'relatedId': bookingRef.id,
+      'relatedCollection': FirestoreCollections.mainEvents,
+      'isRead': false,
+      'readAt': null,
+      'createdAt': now,
+    });
+
+    final validMarketplaceAddOns = marketplaceAddOns.where((addon) {
+      return addon['providerId'] != null &&
+          addon['providerId'].toString().isNotEmpty;
+    }).toList();
+
+    for (final addon in validMarketplaceAddOns) {
+      final addonProviderId = addon['providerId'].toString();
+
+      final addonProviderDoc = await _db
+          .collection(FirestoreCollections.providers)
+          .doc(addonProviderId)
+          .get();
+
+      final addonProviderData = addonProviderDoc.data();
+
+      if (addonProviderData == null) {
+        continue;
+      }
+
+      final addonProviderOwnerId = addonProviderData['ownerId'];
+
+      if (addonProviderOwnerId == null ||
+          addonProviderOwnerId.toString().isEmpty) {
+        continue;
+      }
+
+      final addonRequestRef = _db
+          .collection(FirestoreCollections.addonRequests)
+          .doc();
+
+      final addonNotificationRef = _db
+          .collection(FirestoreCollections.notifications)
+          .doc();
+
+      batch.set(addonRequestRef, {
+        'bookingId': bookingRef.id,
+        'currentMainBookingId': bookingRef.id,
+        'originalCateringProviderId': provider.id,
+        'currentCateringProviderId': provider.id,
+        'linkStatus': AddonLinkStatus.active,
+        'mainBookingStatus': BookingStatus.pending,
+        'addonId': addon['addonId'] ?? '',
+        'addonProviderId': addonProviderId,
+        'addonProviderBusinessName':
+            addon['providerBusinessName'] ?? 'Add-on Provider',
+
+        'customerId': customer.userId,
+        'customerFirstName': customer.firstName,
+        'customerLastName': customer.lastName,
+
+        'eventDate': Timestamp.fromDate(eventDate),
+        'eventTime': eventTime,
+        'eventEndTime': eventEndTime,
+        'eventAddress': eventAddress,
+
+        'addonName': addon['name'] ?? '',
+        'category': addon['category'] ?? '',
+        'price': ((addon['price'] ?? 0) as num).toDouble(),
+
+        'status': AddonRequestStatus.pending,
+
+        'paymentStatus': 'unpaid',
+        'paymentRequired': true,
+        'paymentType': 'full_payment',
+        'paidAt': null,
+        'paymentId': null,
+
+        'acceptedAt': null,
+        'rejectedAt': null,
+        'rejectedReason': null,
+
+        'createdAt': now,
+        'updatedAt': now,
+      });
+
+      batch.set(addonNotificationRef, {
+        'userId': addonProviderOwnerId,
+        'title': 'New Add-on Service Request',
+        'message':
+            '${customer.firstName} ${customer.lastName} requested ${addon['name'] ?? 'your service'} for an event.',
+        'type': NotificationType.booking,
+        'relatedId': addonRequestRef.id,
+        'relatedCollection': FirestoreCollections.addonRequests,
+        'isRead': false,
+        'readAt': null,
+        'createdAt': now,
+      });
+    }
+
+    await batch.commit();
+
+    return bookingRef.id;
+  }
+
+  Future<void> _cancelRelatedAddonRequests({
+    required WriteBatch batch,
+    required String bookingId,
+    required BookingModel booking,
+    required FieldValue now,
+    required String notificationMessage,
+  }) async {
+    final addonRequestsSnapshot = await _db
+        .collection(FirestoreCollections.addonRequests)
+        .where('bookingId', isEqualTo: bookingId)
+        .get();
+
+    for (final doc in addonRequestsSnapshot.docs) {
+      final data = doc.data();
+
+      final currentStatus = data['status'];
+
+      if (currentStatus == AddonRequestStatus.rejected ||
+          currentStatus == AddonRequestStatus.cancelled ||
+          currentStatus == AddonRequestStatus.completed) {
+        continue;
+      }
+
+      batch.update(doc.reference, {
+        'status': AddonRequestStatus.cancelled,
+        'paymentStatus': data['paymentStatus'] == 'paid'
+            ? 'refund_review'
+            : 'cancelled',
+        'updatedAt': now,
+      });
+
+      final addonProviderId = data['addonProviderId'];
+
+      if (addonProviderId != null) {
+        final addonProviderDoc = await _db
+            .collection(FirestoreCollections.providers)
+            .doc(addonProviderId)
+            .get();
+
+        final addonProviderOwnerId = addonProviderDoc.data()?['ownerId'];
+
+        if (addonProviderOwnerId != null) {
+          final addonNotificationRef = _db
+              .collection(FirestoreCollections.notifications)
+              .doc();
+
+          batch.set(addonNotificationRef, {
+            'userId': addonProviderOwnerId,
+            'title': 'Add-on Request Cancelled',
+            'message': notificationMessage,
+            'type': NotificationType.booking,
+            'relatedId': doc.id,
+            'relatedCollection': FirestoreCollections.addonRequests,
+            'isRead': false,
+            'readAt': null,
+            'createdAt': now,
+          });
+        }
+      }
+    }
+  }
+
+  Future<void> cancelOrRequestBookingCancellation({
+    required BookingModel booking,
+    required String reason,
+  }) async {
+    final now = FieldValue.serverTimestamp();
+
+    final bookingRef = _db
+        .collection(FirestoreCollections.mainEvents)
+        .doc(booking.id);
+
+    final timelineRef = _db
+        .collection(FirestoreCollections.bookingTimelines)
+        .doc();
+
+    final notificationRef = _db
+        .collection(FirestoreCollections.notifications)
+        .doc();
+
+    final providerDoc = await _db
+        .collection(FirestoreCollections.providers)
+        .doc(booking.providerId)
+        .get();
+
+    if (!providerDoc.exists) {
+      throw Exception('Provider not found.');
+    }
+
+    final providerData = providerDoc.data() ?? {};
+    final providerOwnerId = providerData['ownerId'];
+
+    final cancellationPolicy =
+        providerData['cancellationPolicy'] as Map<String, dynamic>? ?? {};
+
+    final allowBeforePayment =
+        cancellationPolicy['allowCancellationBeforePayment'] ?? true;
+
+    final allowAfterPayment =
+        cancellationPolicy['allowCancellationAfterPayment'] ?? true;
+
+    final preparationDays =
+        ((cancellationPolicy['preparationDaysBeforeEvent'] ?? 3) as num)
+            .toInt();
+
+    final refundPolicyType =
+        cancellationPolicy['refundPolicyType'] ?? 'provider_discretion';
+
+    final refundPercentage =
+        ((cancellationPolicy['refundPercentage'] ?? 0) as num).toDouble();
+
+    final eventDate = booking.eventDate;
+
+    if (eventDate == null) {
+      throw Exception('Event date not found.');
+    }
+
+    final today = DateTime.now();
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    final eventOnly = DateTime(eventDate.year, eventDate.month, eventDate.day);
+
+    final daysBeforeEvent = eventOnly.difference(todayOnly).inDays;
+
+    final isInsidePreparationPeriod = daysBeforeEvent <= preparationDays;
+
+    final isUnpaidBooking =
+        booking.status == BookingStatus.pending ||
+        booking.status == BookingStatus.waitingPayment;
+
+    final isPaidBooking =
+        booking.status == BookingStatus.confirmed ||
+        booking.paymentStatus == PaymentStatus.partiallyPaid ||
+        booking.paymentStatus == PaymentStatus.paid;
+
+    if (booking.status == BookingStatus.cancelled ||
+        booking.status == BookingStatus.completed ||
+        booking.status == BookingStatus.rejected ||
+        booking.status == BookingStatus.expired) {
+      throw Exception('This booking can no longer be cancelled.');
+    }
+
+    final batch = _db.batch();
+
+    // CASE 1: No down payment yet, cancel directly.
+    if (isUnpaidBooking) {
+      if (allowBeforePayment != true) {
+        throw Exception(
+          'This provider does not allow cancellation before payment.',
+        );
+      }
+
+      batch.update(bookingRef, {
+        'status': BookingStatus.cancelled,
+        'cancellationReason': reason.trim(),
+        'cancellationStatus': 'approved',
+        'refundStatus': 'none',
+        'refundAmount': 0,
+        'cancelledAt': now,
+        'updatedAt': now,
+      });
+
+      batch.set(timelineRef, {
+        'bookingId': booking.id,
+        'status': BookingStatus.cancelled,
+        'title': 'Booking Cancelled',
+        'description': reason.trim().isEmpty
+            ? 'Customer cancelled the unpaid booking.'
+            : reason.trim(),
+        'createdBy': booking.customerId,
+        'createdByRole': UserRoles.customer,
+        'createdAt': now,
+      });
+
+      if (providerOwnerId != null) {
+        batch.set(notificationRef, {
+          'userId': providerOwnerId,
+          'title': 'Booking Cancelled',
+          'message':
+              '${booking.customerFirstName} ${booking.customerLastName} cancelled an unpaid booking request.',
+          'type': NotificationType.booking,
+          'relatedId': booking.id,
+          'relatedCollection': FirestoreCollections.mainEvents,
+          'isRead': false,
+          'readAt': null,
+          'createdAt': now,
+        });
+      }
+
+      await _cancelRelatedAddonRequests(
+        batch: batch,
+        bookingId: booking.id,
+        booking: booking,
+        now: now,
+        notificationMessage:
+            '${booking.customerFirstName} ${booking.customerLastName} cancelled the booking. The related add-on service request was cancelled.',
+      );
+
+      await batch.commit();
+      return;
+    }
+
+    // CASE 2: Already paid, check provider policy.
+    if (isPaidBooking) {
+      if (allowAfterPayment != true) {
+        throw Exception(
+          'This provider does not allow cancellation after payment.',
+        );
+      }
+
+      if (isInsidePreparationPeriod) {
+        throw Exception(
+          'This booking can no longer be cancelled because it is already within the provider preparation period.',
+        );
+      }
+
+      double estimatedRefundAmount = 0;
+
+      if (refundPolicyType == 'full_refund') {
+        estimatedRefundAmount = booking.downPaymentAmount;
+      } else if (refundPolicyType == 'partial_refund') {
+        estimatedRefundAmount =
+            booking.downPaymentAmount * (refundPercentage / 100);
+      } else if (refundPolicyType == 'no_refund') {
+        estimatedRefundAmount = 0;
+      } else {
+        estimatedRefundAmount =
+            booking.downPaymentAmount * (refundPercentage / 100);
+      }
+
+      batch.update(bookingRef, {
+        'cancellationStatus': 'requested',
+        'refundStatus': refundPolicyType == 'no_refund' ? 'none' : 'pending',
+        'refundAmount': estimatedRefundAmount,
+        'refundPolicyType': refundPolicyType,
+        'refundPercentage': refundPercentage,
+        'cancellationReason': reason.trim(),
+        'cancellationRequestedAt': now,
+        'updatedAt': now,
+      });
+
+      batch.set(timelineRef, {
+        'bookingId': booking.id,
+        'status': booking.status,
+        'title': 'Cancellation Requested',
+        'description': reason.trim().isEmpty
+            ? 'Customer requested cancellation for a paid booking.'
+            : reason.trim(),
+        'createdBy': booking.customerId,
+        'createdByRole': UserRoles.customer,
+        'createdAt': now,
+      });
+
+      if (providerOwnerId != null) {
+        batch.set(notificationRef, {
+          'userId': providerOwnerId,
+          'title': 'Cancellation Request',
+          'message':
+              '${booking.customerFirstName} ${booking.customerLastName} requested cancellation for a paid booking.',
+          'type': NotificationType.booking,
+          'relatedId': booking.id,
+          'relatedCollection': FirestoreCollections.mainEvents,
+          'isRead': false,
+          'readAt': null,
+          'createdAt': now,
+        });
+      }
+
+      await batch.commit();
+      return;
+    }
+
+    throw Exception('This booking cannot be cancelled.');
+  }
+
+  Future<void> approveCancellationRequest({
+    required BookingModel booking,
+  }) async {
+    if (booking.status != BookingStatus.confirmed) {
+      throw Exception(
+        'Only confirmed bookings can be reviewed for cancellation.',
+      );
+    }
+
+    final now = FieldValue.serverTimestamp();
+
+    final bookingRef = _db
+        .collection(FirestoreCollections.mainEvents)
+        .doc(booking.id);
+
+    final timelineRef = _db
+        .collection(FirestoreCollections.bookingTimelines)
+        .doc();
+
+    final notificationRef = _db
+        .collection(FirestoreCollections.notifications)
+        .doc();
+
+    String refundStatus = 'none';
+
+    if (booking.refundAmount > 0) {
+      refundStatus = 'approved';
+    }
+
+    final batch = _db.batch();
+
+    batch.update(bookingRef, {
+      'status': BookingStatus.cancelled,
+      'cancellationStatus': 'approved',
+      'refundStatus': refundStatus,
+      'cancellationReviewedAt': now,
+      'cancellationReviewedBy': currentUid,
+      'cancelledAt': now,
+      'updatedAt': now,
+    });
+
+    await _cancelRelatedAddonRequests(
+      batch: batch,
+      bookingId: booking.id,
+      booking: booking,
+      now: now,
+      notificationMessage:
+          '${booking.providerBusinessName} approved the cancellation request. The related add-on service request was cancelled.',
+    );
+
+    batch.set(timelineRef, {
+      'bookingId': booking.id,
+      'status': BookingStatus.cancelled,
+      'title': 'Cancellation Approved',
+      'description': refundStatus == 'approved'
+          ? 'Provider approved the cancellation request. Refund is subject to provider processing.'
+          : 'Provider approved the cancellation request.',
+      'createdBy': currentUid,
+      'createdByRole': UserRoles.provider,
+      'createdAt': now,
+    });
+
+    batch.set(notificationRef, {
+      'userId': booking.customerId,
+      'title': 'Cancellation Approved',
+      'message': refundStatus == 'approved'
+          ? '${booking.providerBusinessName} approved your cancellation request. Refund is subject to provider processing.'
+          : '${booking.providerBusinessName} approved your cancellation request.',
+      'type': NotificationType.booking,
+      'relatedId': booking.id,
+      'relatedCollection': FirestoreCollections.mainEvents,
+      'isRead': false,
+      'readAt': null,
+      'createdAt': now,
+    });
+
+    await batch.commit();
+  }
+
+  Future<void> rejectCancellationRequest({
+    required BookingModel booking,
+    required String reason,
+  }) async {
+    if (booking.status != BookingStatus.confirmed) {
+      throw Exception(
+        'Only confirmed bookings can be reviewed for cancellation.',
+      );
+    }
+
+    final now = FieldValue.serverTimestamp();
+
+    final bookingRef = _db
+        .collection(FirestoreCollections.mainEvents)
+        .doc(booking.id);
+
+    final timelineRef = _db
+        .collection(FirestoreCollections.bookingTimelines)
+        .doc();
+
+    final notificationRef = _db
+        .collection(FirestoreCollections.notifications)
+        .doc();
+
+    final batch = _db.batch();
+
+    batch.update(bookingRef, {
+      'cancellationStatus': 'rejected',
+      'refundStatus': 'rejected',
+      'cancellationReviewedAt': now,
+      'cancellationReviewedBy': currentUid,
+      'updatedAt': now,
+    });
+
+    batch.set(timelineRef, {
+      'bookingId': booking.id,
+      'status': booking.status,
+      'title': 'Cancellation Rejected',
+      'description': reason.trim().isEmpty
+          ? 'Provider rejected the cancellation request.'
+          : reason.trim(),
+      'createdBy': currentUid,
+      'createdByRole': UserRoles.provider,
+      'createdAt': now,
+    });
+
+    batch.set(notificationRef, {
+      'userId': booking.customerId,
+      'title': 'Cancellation Rejected',
+      'message':
+          '${booking.providerBusinessName} rejected your cancellation request.',
+      'type': NotificationType.booking,
+      'relatedId': booking.id,
+      'relatedCollection': FirestoreCollections.mainEvents,
+      'isRead': false,
+      'readAt': null,
+      'createdAt': now,
+    });
+
+    await batch.commit();
+  }
+
+  FirestoreCustomerBookingsSource customerBookingsSource() =>
+      FirestoreCustomerBookingsSource(_db, _auth);
+
+  Stream<List<BookingModel>> customerBookings() {
+    return _db
+        .collection(FirestoreCollections.mainEvents)
+        .where('customerId', isEqualTo: currentUid)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map(BookingModel.fromDoc).toList();
+        });
+  }
+
+  Stream<List<BookingModel>> customerCompletedBookings() {
+    return _db
+        .collection(FirestoreCollections.mainEvents)
+        .where('customerId', isEqualTo: currentUid)
+        .where('status', isEqualTo: BookingStatus.completed)
+        .orderBy('eventDate', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          final bookings = snapshot.docs.map(BookingModel.fromDoc).toList();
+
+          bookings.sort((a, b) {
+            final aDate = a.completedAt ?? a.createdAt ?? DateTime(2000);
+            final bDate = b.completedAt ?? b.createdAt ?? DateTime(2000);
+            return bDate.compareTo(aDate);
+          });
+
+          return bookings;
+        });
+  }
+
+  Stream<List<BookingModel>> providerBookings(String providerId) {
+    return _db
+        .collection(FirestoreCollections.mainEvents)
+        .where('providerId', isEqualTo: providerId)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map(BookingModel.fromDoc).toList();
+        });
+  }
+
+  Stream<CustomerProviderPaymentRequest?> customerPaymentRequestById({
+    required String bookingId,
+    required String mainEventStatus,
+    required String providerRequestId,
+  }) {
+    final normalizedBookingId = bookingId.trim();
+    final normalizedProviderRequestId = providerRequestId.trim();
+
+    if (normalizedBookingId.isEmpty ||
+        !RegExp(
+          r'^[A-Za-z0-9_-]{8,160}$',
+        ).hasMatch(normalizedProviderRequestId)) {
+      return Stream<CustomerProviderPaymentRequest?>.error(
+        Exception('The selected payment request is invalid.'),
+      );
+    }
+
+    return _db
+        .collection(FirestoreCollections.providerRequests)
+        .doc(normalizedProviderRequestId)
+        .snapshots()
+        .map((snapshot) {
+          final data = snapshot.data();
+
+          if (!snapshot.exists) {
+            return null;
+          }
+
+          if (data == null ||
+              data['customerId'] != currentUid ||
+              (data['mainEventId'] ?? data['bookingId']) !=
+                  normalizedBookingId) {
+            throw Exception('The booking payment information is unavailable.');
+          }
+
+          return CustomerProviderPaymentRequest.fromDoc(
+            snapshot,
+            mainEventStatus: mainEventStatus,
+          );
+        });
+  }
+
+  Future<List<CustomerProviderPaymentRequest>> customerPaymentRequests({
+    required BookingModel booking,
+  }) async {
+    final providerRequestIds = booking.providerRequestIds
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+
+    if (providerRequestIds.isEmpty) {
+      return const [];
+    }
+
+    if (providerRequestIds.toSet().length != providerRequestIds.length) {
+      throw Exception('The booking payment information is invalid.');
+    }
+
+    final snapshots = await Future.wait(
+      providerRequestIds.map(
+        (providerRequestId) => _db
+            .collection(FirestoreCollections.providerRequests)
+            .doc(providerRequestId)
+            .get(),
+      ),
+    );
+
+    final requests = <CustomerProviderPaymentRequest>[];
+
+    for (final snapshot in snapshots) {
+      final data = snapshot.data();
+
+      if (!snapshot.exists ||
+          data == null ||
+          data['customerId'] != currentUid ||
+          (data['mainEventId'] ?? data['bookingId']) != booking.id) {
+        throw Exception('The booking payment information is unavailable.');
+      }
+
+      requests.add(
+        CustomerProviderPaymentRequest.fromDoc(
+          snapshot,
+          mainEventStatus: booking.status,
+        ),
+      );
+    }
+
+    return requests;
+  }
+
+  Stream<BookingModel?> bookingById(String bookingId) {
+    return _db
+        .collection(FirestoreCollections.mainEvents)
+        .doc(bookingId)
+        .snapshots()
+        .map((doc) {
+          if (!doc.exists) return null;
+          return BookingModel.fromDoc(doc);
+        });
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> bookingTimelines(
+    String bookingId,
+  ) {
+    return _db
+        .collection(FirestoreCollections.bookingTimelines)
+        .where('bookingId', isEqualTo: bookingId)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots();
+  }
+
+  @Deprecated(
+    'Use canonical provider-request acceptance on the trusted backend.',
+  )
+  Future<void> acceptBooking({required BookingModel booking}) async {
+    requireTrustedLegacyBookingPaymentAuthority();
+  }
+
+  Future<
+    ({
+      String paymentId,
+      String checkoutUrl,
+      String providerRequestId,
+      String bookingId,
+    })
+  >
+  createProviderPaymentSession({
+    required String providerRequestId,
+    required CustomerPaymentChoice paymentChoice,
+  }) async {
+    final normalizedProviderRequestId = providerRequestId.trim();
+
+    if (!RegExp(
+      r'^[A-Za-z0-9_-]{8,160}$',
+    ).hasMatch(normalizedProviderRequestId)) {
+      throw Exception('The selected payment request is invalid.');
+    }
+
+    final random = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+
+    final response = await _functions
+        .httpsCallable(
+          'createPaymentSession',
+          options: HttpsCallableOptions(timeout: const Duration(seconds: 30)),
+        )
+        .call({
+          'providerRequestId': normalizedProviderRequestId,
+          'paymentChoice': paymentChoice.apiValue,
+          'idempotencyKey':
+              'customer-mobile-checkout:'
+              '$normalizedProviderRequestId:'
+              '${paymentChoice.apiValue}:'
+              '$random',
+        });
+
+    final data = Map<String, dynamic>.from(response.data as Map);
+
+    final paymentId = data['paymentId'];
+    final checkoutUrl = data['checkoutUrl'];
+    final returnedProviderRequestId = data['providerRequestId'];
+    final bookingId = data['bookingId'];
+
+    if (paymentId is! String ||
+        paymentId.trim().isEmpty ||
+        checkoutUrl is! String ||
+        checkoutUrl.trim().isEmpty ||
+        returnedProviderRequestId != normalizedProviderRequestId ||
+        bookingId is! String ||
+        bookingId.trim().isEmpty) {
+      throw Exception('The secure payment session response was invalid.');
+    }
+
+    return (
+      paymentId: paymentId,
+      checkoutUrl: checkoutUrl,
+      providerRequestId: returnedProviderRequestId as String,
+      bookingId: bookingId,
+    );
+  }
+
+  @Deprecated(
+    'Canonical payment records are created only by createProviderPaymentSession.',
+  )
+  Future<String> createPaymentRecord({
+    required BookingModel booking,
+    required String paymentMethod,
+  }) async {
+    throw UnsupportedError(
+      'Direct client payment creation is disabled. Use createProviderPaymentSession.',
+    );
+    /* Legacy implementation retained temporarily for migration reference.
+    final now = FieldValue.serverTimestamp();
+
+    final paymentRef = _db.collection(FirestoreCollections.payments).doc();
+
+    await paymentRef.set({
+      'bookingId': booking.id,
+      'customerId': booking.customerId,
+      'providerId': booking.providerId,
+      'amount': booking.downPaymentAmount,
+      'paymentType': 'down_payment',
+      'paymentMethod': paymentMethod,
+      'paymongoCheckoutId': null,
+      'paymongoPaymentIntentId': null,
+      'paymongoReferenceNumber': null,
+      'paymongoStatus': null,
+      'status': PaymentRecordStatus.pending,
+      'paidAt': null,
+      'failedAt': null,
+      'receiptUrl': null,
+      'createdAt': now,
+      'updatedAt': now,
+    });
+
+    return paymentRef.id; */
+  }
+
+  Future<void> markDownPaymentPaid({
+    required BookingModel booking,
+    required String paymentId,
+    String? paymongoCheckoutId,
+    String? paymongoPaymentIntentId,
+    String? paymongoReferenceNumber,
+  }) async {
+    throw UnsupportedError(
+      'Payment status is confirmed only by the signed PayMongo webhook.',
+    );
+    /* Legacy implementation retained temporarily for migration reference.
+    final now = FieldValue.serverTimestamp();
+
+    final batch = _db.batch();
+
+    final bookingRef = _db
+        .collection(FirestoreCollections.mainEvents)
+        .doc(booking.id);
+
+    final paymentRef = _db
+        .collection(FirestoreCollections.payments)
+        .doc(paymentId);
+
+    final timelineRef = _db
+        .collection(FirestoreCollections.bookingTimelines)
+        .doc();
+
+    final notificationRef = _db
+        .collection(FirestoreCollections.notifications)
+        .doc();
+
+    batch.update(bookingRef, {
+      'status': BookingStatus.confirmed,
+      'paymentStatus': PaymentStatus.partiallyPaid,
+      'confirmedAt': now,
+      'updatedAt': now,
+    });
+
+    batch.update(paymentRef, {
+      'paymongoCheckoutId': paymongoCheckoutId,
+      'paymongoPaymentIntentId': paymongoPaymentIntentId,
+      'paymongoReferenceNumber': paymongoReferenceNumber,
+      'paymongoStatus': 'paid',
+      'status': PaymentRecordStatus.paid,
+      'paidAt': now,
+      'failedAt': null,
+      'updatedAt': now,
+    });
+
+    batch.set(timelineRef, {
+      'bookingId': booking.id,
+      'status': BookingStatus.confirmed,
+      'title': 'Booking Confirmed',
+      'description':
+          booking.remainingBalance > 0 &&
+                  booking.downPaymentAmount > 0 &&
+                  booking.downPaymentAmount < booking.totalAmount
+              ? 'Customer completed the down payment. Booking is now confirmed.'
+              : 'Customer completed the full payment. Booking is now confirmed.',
+      'createdBy': booking.customerId,
+      'createdByRole': UserRoles.customer,
+      'createdAt': now,
+    });
+
+    final providerDoc = await _db
+        .collection(FirestoreCollections.providers)
+        .doc(booking.providerId)
+        .get();
+
+    final providerOwnerId = providerDoc.data()?['ownerId'];
+
+    if (providerOwnerId != null) {
+      batch.set(notificationRef, {
+        'userId': providerOwnerId,
+        'title': booking.remainingBalance > 0 &&
+                booking.downPaymentAmount > 0 &&
+                booking.downPaymentAmount < booking.totalAmount
+            ? 'Down Payment Completed'
+            : 'Full Payment Completed',
+        'message': booking.remainingBalance > 0 &&
+                booking.downPaymentAmount > 0 &&
+                booking.downPaymentAmount < booking.totalAmount
+            ? '${booking.customerFirstName} ${booking.customerLastName} completed the down payment.'
+            : '${booking.customerFirstName} ${booking.customerLastName} completed the full payment.',
+        'type': NotificationType.payment,
+        'relatedId': booking.id,
+        'relatedCollection': FirestoreCollections.mainEvents,
+        'isRead': false,
+        'readAt': null,
+        'createdAt': now,
+      });
+    }
+
+    final addonRequestsSnapshot = await _db
+        .collection(FirestoreCollections.addonRequests)
+        .where('bookingId', isEqualTo: booking.id)
+        .get();
+
+    for (final doc in addonRequestsSnapshot.docs) {
+      final data = doc.data();
+
+      final currentStatus = data['status'];
+
+      if (currentStatus == AddonRequestStatus.cancelled ||
+          currentStatus == AddonRequestStatus.rejected ||
+          currentStatus == AddonRequestStatus.completed) {
+        continue;
+      }
+
+      batch.update(doc.reference, {
+        'mainBookingStatus': BookingStatus.confirmed,
+        'linkStatus': AddonLinkStatus.active,
+        'currentCateringProviderId': booking.providerId,
+        'updatedAt': now,
+      });
+
+      final addonProviderId = data['addonProviderId'];
+
+      if (addonProviderId != null && addonProviderId.toString().isNotEmpty) {
+        final addonProviderDoc = await _db
+            .collection(FirestoreCollections.providers)
+            .doc(addonProviderId)
+            .get();
+
+        final addonProviderOwnerId = addonProviderDoc.data()?['ownerId'];
+
+        if (addonProviderOwnerId != null) {
+          final addonNotificationRef = _db
+              .collection(FirestoreCollections.notifications)
+              .doc();
+
+          batch.set(addonNotificationRef, {
+            'userId': addonProviderOwnerId,
+            'title': 'Main Booking Confirmed',
+            'message':
+                '${booking.customerFirstName} ${booking.customerLastName} confirmed the main catering booking. Your add-on service request is now active.',
+            'type': NotificationType.booking,
+            'relatedId': doc.id,
+            'relatedCollection': FirestoreCollections.addonRequests,
+            'isRead': false,
+            'readAt': null,
+            'createdAt': now,
+          });
+        }
+      }
+    }
+
+    await batch.commit(); */
+  }
+
+  Future<String> createAddonPaymentRecord({
+    required BookingModel booking,
+    required AddonRequestModel addonRequest,
+    required String paymentMethod,
+  }) async {
+    throw UnsupportedError(
+      'Direct add-on payment creation is disabled until its backend flow is available.',
+    );
+    /* Legacy implementation retained temporarily for migration reference.
+    if (booking.status != BookingStatus.confirmed) {
+      throw Exception(
+        'Main catering booking must be confirmed before paying external add-ons.',
+      );
+    }
+
+    if (addonRequest.status != AddonRequestStatus.accepted) {
+      throw Exception(
+        'Add-on provider must accept the request before payment.',
+      );
+    }
+
+    if (addonRequest.paymentStatus != 'waiting_payment') {
+      throw Exception('This add-on request is not waiting for payment.');
+    }
+
+    final now = FieldValue.serverTimestamp();
+
+    final paymentRef = _db.collection(FirestoreCollections.payments).doc();
+
+    await paymentRef.set({
+      'bookingId': booking.id,
+      'addonRequestId': addonRequest.id,
+
+      'customerId': booking.customerId,
+      'providerId': addonRequest.addonProviderId,
+      'recipientProviderId': addonRequest.addonProviderId,
+
+      'paymentCategory': 'addon_payment',
+      'paymentType': addonRequest.paymentType,
+      'paymentMethod': paymentMethod,
+
+      'amount': addonRequest.price,
+
+      'paymongoCheckoutId': null,
+      'paymongoPaymentIntentId': null,
+      'paymongoReferenceNumber': null,
+      'paymongoStatus': null,
+
+      'status': PaymentRecordStatus.pending,
+      'paidAt': null,
+      'failedAt': null,
+      'receiptUrl': null,
+
+      'createdAt': now,
+      'updatedAt': now,
+    });
+
+    return paymentRef.id; */
+  }
+
+  Future<void> markAddonPaymentPaid({
+    required BookingModel booking,
+    required AddonRequestModel addonRequest,
+    required String paymentId,
+    String? paymongoCheckoutId,
+    String? paymongoPaymentIntentId,
+    String? paymongoReferenceNumber,
+  }) async {
+    throw UnsupportedError(
+      'Add-on payment status is confirmed only by a signed backend webhook.',
+    );
+    /* Legacy implementation retained temporarily for migration reference.
+    if (booking.status != BookingStatus.confirmed) {
+      throw Exception(
+        'Main catering booking must be confirmed before paying external add-ons.',
+      );
+    }
+
+    if (addonRequest.status != AddonRequestStatus.accepted) {
+      throw Exception(
+        'Add-on provider must accept the request before payment.',
+      );
+    }
+
+    if (addonRequest.paymentStatus != 'waiting_payment') {
+      throw Exception('This add-on request is not waiting for payment.');
+    }
+
+    final now = FieldValue.serverTimestamp();
+
+    final batch = _db.batch();
+
+    final addonRequestRef = _db
+        .collection(FirestoreCollections.addonRequests)
+        .doc(addonRequest.id);
+
+    final paymentRef = _db
+        .collection(FirestoreCollections.payments)
+        .doc(paymentId);
+
+    final notificationRef = _db
+        .collection(FirestoreCollections.notifications)
+        .doc();
+
+    batch.update(addonRequestRef, {
+      'paymentStatus': 'paid',
+      'paymentId': paymentId,
+      'paidAt': now,
+      'updatedAt': now,
+    });
+
+    batch.update(paymentRef, {
+      'paymongoCheckoutId': paymongoCheckoutId,
+      'paymongoPaymentIntentId': paymongoPaymentIntentId,
+      'paymongoReferenceNumber': paymongoReferenceNumber,
+      'paymongoStatus': 'paid',
+      'status': PaymentRecordStatus.paid,
+      'paidAt': now,
+      'failedAt': null,
+      'updatedAt': now,
+    });
+
+    final addonProviderDoc = await _db
+        .collection(FirestoreCollections.providers)
+        .doc(addonRequest.addonProviderId)
+        .get();
+
+    final addonProviderOwnerId = addonProviderDoc.data()?['ownerId'];
+
+    if (addonProviderOwnerId != null) {
+      batch.set(notificationRef, {
+        'userId': addonProviderOwnerId,
+        'title': 'Add-on Payment Completed',
+        'message':
+            '${booking.customerFirstName} ${booking.customerLastName} paid for ${addonRequest.addonName}.',
+        'type': NotificationType.payment,
+        'relatedId': addonRequest.id,
+        'relatedCollection': FirestoreCollections.addonRequests,
+        'isRead': false,
+        'readAt': null,
+        'createdAt': now,
+      });
+    }
+
+    await batch.commit(); */
+  }
+
+  Future<void> addToFavorites({required ProviderModel provider}) async {
+    final favoriteId = '${currentUid}_${provider.id}';
+
+    await _db.collection(FirestoreCollections.favorites).doc(favoriteId).set({
+      'customerId': currentUid,
+      'providerId': provider.id,
+      'providerBusinessName': provider.businessName,
+      'providerImageUrl': provider.coverImageUrl,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    await _db
+        .collection(FirestoreCollections.providers)
+        .doc(provider.id)
+        .update({'favoriteCount': FieldValue.increment(1)});
+  }
+
+  Future<void> removeFromFavorites(String providerId) async {
+    final favoriteId = '${currentUid}_$providerId';
+
+    await _db
+        .collection(FirestoreCollections.favorites)
+        .doc(favoriteId)
+        .delete();
+
+    await _db.collection(FirestoreCollections.providers).doc(providerId).update(
+      {'favoriteCount': FieldValue.increment(-1)},
+    );
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> myFavorites() {
+    return _db
+        .collection(FirestoreCollections.favorites)
+        .where('customerId', isEqualTo: currentUid)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots();
+  }
+
+  Future<String> createChatRoom({
+    required BookingModel booking,
+    String? providerLogoUrl,
+  }) async {
+    try {
+      final providerRequestId = await _providerRequestIdForChat(booking);
+      final response = await _functions
+          .httpsCallable('openProviderRequestChat')
+          .call<Map<String, dynamic>>({'providerRequestId': providerRequestId});
+      final chatRoomId = response.data['chatRoomId'];
+
+      if (chatRoomId is! String || chatRoomId.trim().isEmpty) {
+        throw Exception('The conversation could not be opened.');
+      }
+
+      return chatRoomId.trim();
+    } on FirebaseFunctionsException catch (error) {
+      throw Exception(
+        _chatErrorMessage(error, 'The conversation could not be opened.'),
+      );
+    }
+  }
+
+  Future<void> sendMessage({
+    required String chatRoomId,
+    required String message,
+  }) async {
+    try {
+      await _functions.httpsCallable('sendChatMessage').call<void>({
+        'chatRoomId': chatRoomId,
+        'message': message,
+      });
+    } on FirebaseFunctionsException catch (error) {
+      throw Exception(
+        _chatErrorMessage(error, 'The message could not be sent.'),
+      );
+    }
+  }
+
+  Future<List<BookingComplaintService>> bookingComplaintServices(
+    BookingModel booking,
+  ) async {
+    if (booking.customerId != currentUid) {
+      throw Exception('Only the booking owner can report an issue.');
+    }
+    final services = <BookingComplaintService>[];
+    if (booking.providerRequestIds.toSet().length !=
+            booking.providerRequestIds.length ||
+        booking.providerRequestIds.any(
+          (id) => !RegExp(r'^[A-Za-z0-9_-]{8,160}$').hasMatch(id),
+        )) {
+      throw Exception('The booked service information is invalid.');
+    }
+    for (final id in booking.providerRequestIds) {
+      final snapshot = await _db
+          .collection(FirestoreCollections.providerRequests)
+          .doc(id)
+          .get();
+      final data = snapshot.data();
+      if (data == null ||
+          data['customerId'] != currentUid ||
+          data['mainEventId'] != booking.id ||
+          data['bookingId'] != booking.id ||
+          data['providerRequestId'] != id) {
+        throw Exception('The booked service information is unavailable.');
+      }
+      final providerName =
+          data['providerBusinessName'] as String? ?? 'Provider';
+      final packageName = data['packageName'] as String?;
+      services.add(
+        BookingComplaintService(
+          id: id,
+          name: packageName == null || packageName.isEmpty
+              ? providerName
+              : '$providerName - $packageName',
+        ),
+      );
+    }
+    if (services.isEmpty) {
+      throw Exception('No reportable services are attached to this booking.');
+    }
+    return services;
+  }
+
+  Future<void> submitBookingComplaint({
+    required String providerRequestId,
+    required String category,
+    required String description,
+  }) async {
+    currentUid; // Require authentication before invoking the callable.
+    final validation = validateBookingComplaint(category, description);
+    if (validation != null) throw Exception(validation);
+    try {
+      final response = await _functions
+          .httpsCallable('createComplaint')
+          .call<Map<String, dynamic>>({
+            'providerRequestId': providerRequestId,
+            'category': category,
+            'description': description.trim(),
+          });
+      final data = response.data;
+      if (data['success'] != true ||
+          data['complaintId'] is! String ||
+          !RegExp(
+            r'^complaint_[a-f0-9]{32}$',
+          ).hasMatch(data['complaintId'] as String) ||
+          data['created'] is! bool ||
+          data['idempotentReplay'] is! bool) {
+        throw Exception(
+          'The report could not be confirmed. Please retry with the same details.',
+        );
+      }
+    } on FirebaseFunctionsException catch (error) {
+      switch (error.code) {
+        case 'unauthenticated':
+          throw Exception('Please sign in again before reporting an issue.');
+        case 'permission-denied':
+        case 'not-found':
+        case 'failed-precondition':
+          throw Exception(
+            'This booked service is unavailable for reporting. Refresh the booking and try again.',
+          );
+        case 'resource-exhausted':
+          throw Exception(
+            'Too many reports were attempted. Please wait before trying again.',
+          );
+        default:
+          throw Exception(
+            'Your report could not be submitted. Please retry with the same details.',
+          );
+      }
+    }
+  }
+
+  Future<void> submitReview({
+    required BookingModel booking,
+    required int rating,
+    required String comment,
+  }) async {
+    try {
+      final providerRequestId = await _providerRequestIdForReview(booking);
+      await _functions.httpsCallable('submitReview').call({
+        'providerRequestId': providerRequestId,
+        'rating': rating,
+        'comment': comment.trim(),
+        'idempotencyKey': '${providerRequestId}_$currentUid',
+      });
+    } on FirebaseFunctionsException catch (error) {
+      throw Exception(error.message ?? 'The review could not be submitted.');
+    }
+  }
+
+  Future<void> deleteReview({
+    required String reviewId,
+    String reason = 'Deleted by customer',
+  }) async {
+    try {
+      await _functions.httpsCallable('deleteReview').call({
+        'reviewId': reviewId,
+        'reason': reason.trim(),
+        'idempotencyKey': '${reviewId}_delete_$currentUid',
+      });
+    } on FirebaseFunctionsException catch (error) {
+      throw Exception(error.message ?? 'The review could not be deleted.');
+    }
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> myNotifications() {
+    return _db
+        .collection(FirestoreCollections.notifications)
+        .where('userId', isEqualTo: currentUid)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots();
+  }
+
+  Future<void> markNotificationAsRead(String notificationId) async {
+    await _db
+        .collection(FirestoreCollections.notifications)
+        .doc(notificationId)
+        .update({'isRead': true, 'readAt': FieldValue.serverTimestamp()});
+  }
+
+  Future<void> markAllNotificationsAsRead() async {
+    while (true) {
+      final snapshot = await _db
+          .collection(FirestoreCollections.notifications)
+          .where('userId', isEqualTo: currentUid)
+          .where('isRead', isEqualTo: false)
+          .orderBy(FieldPath.documentId)
+          .limit(QueryBuilder.maximumPageSize)
+          .get();
+
+      if (snapshot.docs.isEmpty) return;
+
+      final batch = _db.batch();
+      for (final doc in snapshot.docs) {
+        batch.update(doc.reference, {
+          'isRead': true,
+          'readAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+
+      if (snapshot.docs.length < QueryBuilder.maximumPageSize) return;
+    }
+  }
+
+  // Public catalog data is isolated from the protected signed-in cache.
+  static Future<List<ServiceCategory>>? _guestCategoryFuture;
+
+  Future<List<ServiceCategory>> _loadGuestServiceCategories() async {
+    final callable = FirebaseFunctions.instanceFor(
+      region: 'asia-southeast1',
+    ).httpsCallable('listPublicServiceCategories');
+
+    final response = await callable.call(<String, dynamic>{});
+    final data = response.data;
+
+    if (data is! Map || data['items'] is! List) {
+      throw const FormatException('Invalid public service category response.');
+    }
+
+    final categories = <ServiceCategory>[];
+
+    for (final rawItem in data['items'] as List) {
+      if (rawItem is! Map || rawItem['code'] is! String) {
+        throw const FormatException('Invalid public service category.');
+      }
+
+      final category = ServiceCategory.fromMap(
+        rawItem['code'] as String,
+        Map<String, dynamic>.from(rawItem),
+      );
+
+      if (!category.isActive) {
+        throw const FormatException('Inactive public service category.');
+      }
+
+      categories.add(category);
+    }
+
+    categories.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()) != 0
+          ? a.name.toLowerCase().compareTo(b.name.toLowerCase())
+          : a.code.compareTo(b.code),
+    );
+
+    return List<ServiceCategory>.unmodifiable(categories);
+  }
+
+  Future<List<ServiceCategory>> getServiceCategories({
+    bool activeOnly = false,
+    bool forceRefresh = false,
+  }) async {
+    // Guests receive a server-filtered public catalog; do not query
+    // the protected serviceCategories collection anonymously.
+    if (FirebaseAuth.instance.currentUser == null) {
+      if (forceRefresh) {
+        _guestCategoryFuture = null;
+      }
+
+      final pending = _guestCategoryFuture ??= _loadGuestServiceCategories();
+
+      try {
+        return await pending;
+      } catch (_) {
+        if (identical(_guestCategoryFuture, pending)) {
+          _guestCategoryFuture = null;
+        }
+        rethrow;
+      }
+    }
+    List<ServiceCategory> categories;
+
+    if (!forceRefresh && _serviceCategoryCache != null) {
+      categories = _serviceCategoryCache!;
+    } else {
+      final snapshot = await _db
+          .collection(FirestoreCollections.serviceCategories)
+          .get();
+
+      final loadedCategories = <ServiceCategory>[];
+
+      for (final document in snapshot.docs) {
+        try {
+          loadedCategories.add(
+            ServiceCategory.fromMap(document.id, document.data()),
+          );
+        } on FormatException {
+          // Ignore malformed master-data documents rather than breaking
+          // customer-facing screens because of one invalid record.
+        }
+      }
+
+      loadedCategories.sort(
+        (left, right) =>
+            left.name.toLowerCase().compareTo(right.name.toLowerCase()),
+      );
+
+      _serviceCategoryCache = List<ServiceCategory>.unmodifiable(
+        loadedCategories,
+      );
+
+      categories = _serviceCategoryCache!;
+    }
+
+    if (!activeOnly) {
+      return categories;
+    }
+
+    return List<ServiceCategory>.unmodifiable(
+      categories.where((category) => category.isActive),
+    );
+  }
+
+  Future<List<ServiceCategory>> getActiveServiceCategories({
+    bool forceRefresh = false,
+  }) {
+    return getServiceCategories(activeOnly: true, forceRefresh: forceRefresh);
+  }
+
+  Future<Map<String, String>> getServiceCategoryNameMap({
+    bool forceRefresh = false,
+  }) async {
+    final categories = await getServiceCategories(forceRefresh: forceRefresh);
+
+    return Map<String, String>.unmodifiable(serviceCategoryNameMap(categories));
+  }
+
+  Future<ProviderModel?> getMyProviderProfile() async {
+    final snapshot = await _db
+        .collection(FirestoreCollections.providers)
+        .where('ownerId', isEqualTo: currentUid)
+        .where('isDeleted', isEqualTo: false)
+        .limit(1)
+        .get();
+
+    if (snapshot.docs.isEmpty) return null;
+
+    return ProviderModel.fromDoc(snapshot.docs.first);
+  }
+
+  Stream<List<BookingModel>> providerBookingsByOwner() async* {
+    final provider = await getMyProviderProfile();
+
+    if (provider == null) {
+      yield [];
+      return;
+    }
+
+    yield* _db
+        .collection(FirestoreCollections.mainEvents)
+        .where('providerId', isEqualTo: provider.id)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map(BookingModel.fromDoc).toList();
+        });
+  }
+
+  Future<void> rejectBooking({
+    required BookingModel booking,
+    required String reason,
+  }) async {
+    final now = FieldValue.serverTimestamp();
+
+    final batch = _db.batch();
+
+    final bookingRef = _db
+        .collection(FirestoreCollections.mainEvents)
+        .doc(booking.id);
+
+    final timelineRef = _db
+        .collection(FirestoreCollections.bookingTimelines)
+        .doc();
+
+    final customerNotificationRef = _db
+        .collection(FirestoreCollections.notifications)
+        .doc();
+
+    batch.update(bookingRef, {
+      'status': BookingStatus.rejected,
+      'rejectedReason': reason.trim(),
+
+      // Recovery opens after original caterer rejects.
+      'recoveryStatus': BookingRecoveryStatus.open,
+      'recoveryOpenedAt': now,
+      'rejectedByProviderIds': FieldValue.arrayUnion([booking.providerId]),
+
+      'updatedAt': now,
+    });
+
+    batch.set(timelineRef, {
+      'bookingId': booking.id,
+      'status': BookingStatus.rejected,
+      'title': 'Booking Request Rejected',
+      'description': reason.trim().isEmpty
+          ? 'Provider rejected the booking request. Booking recovery is now open.'
+          : '${reason.trim()} Booking recovery is now open.',
+      'createdBy': currentUid,
+      'createdByRole': UserRoles.provider,
+      'createdAt': now,
+    });
+
+    batch.set(customerNotificationRef, {
+      'userId': booking.customerId,
+      'title': 'Booking Recovery Started',
+      'message':
+          '${booking.providerBusinessName} rejected your booking request. Your event request is now available for qualified caterers to offer service.',
+      'type': NotificationType.booking,
+      'relatedId': booking.id,
+      'relatedCollection': FirestoreCollections.mainEvents,
+      'isRead': false,
+      'readAt': null,
+      'createdAt': now,
+    });
+
+    final addonRequestsSnapshot = await _db
+        .collection(FirestoreCollections.addonRequests)
+        .where('bookingId', isEqualTo: booking.id)
+        .get();
+
+    for (final doc in addonRequestsSnapshot.docs) {
+      final data = doc.data();
+
+      final currentStatus = data['status'];
+
+      if (currentStatus == AddonRequestStatus.cancelled ||
+          currentStatus == AddonRequestStatus.rejected ||
+          currentStatus == AddonRequestStatus.completed) {
+        continue;
+      }
+
+      batch.update(doc.reference, {
+        'linkStatus': AddonLinkStatus.awaitingCustomerRecoverySelection,
+        'mainBookingStatus': 'recovery',
+        'currentCateringProviderId': null,
+        'updatedAt': now,
+      });
+
+      final addonProviderId = data['addonProviderId'];
+
+      if (addonProviderId != null && addonProviderId.toString().isNotEmpty) {
+        final addonProviderDoc = await _db
+            .collection(FirestoreCollections.providers)
+            .doc(addonProviderId)
+            .get();
+
+        final addonProviderOwnerId = addonProviderDoc.data()?['ownerId'];
+
+        if (addonProviderOwnerId != null) {
+          final addonNotificationRef = _db
+              .collection(FirestoreCollections.notifications)
+              .doc();
+
+          batch.set(addonNotificationRef, {
+            'userId': addonProviderOwnerId,
+            'title': 'Event Request Under Recovery',
+            'message':
+                'The main catering request connected to ${booking.customerFirstName} ${booking.customerLastName}Ã¢â‚¬â„¢s event was rejected. Your add-on request is on hold while the customer reviews other caterers.',
+            'type': NotificationType.booking,
+            'relatedId': doc.id,
+            'relatedCollection': FirestoreCollections.addonRequests,
+            'isRead': false,
+            'readAt': null,
+            'createdAt': now,
+          });
+        }
+      }
+    }
+
+    await batch.commit();
+  }
+
+  Future<void> sendRecoveryOffer({
+    required BookingModel booking,
+    required ProviderModel offeringProvider,
+    required String message,
+    required double estimatedPrice,
+  }) async {
+    if (booking.recoveryStatus != BookingRecoveryStatus.open &&
+        booking.recoveryStatus != BookingRecoveryStatus.offerReceived) {
+      throw Exception('This booking is not open for recovery offers.');
+    }
+
+    if (booking.rejectedByProviderIds.contains(offeringProvider.id)) {
+      throw Exception('This provider already rejected this booking.');
+    }
+
+    if (booking.providerId == offeringProvider.id) {
+      throw Exception('Original rejected provider cannot offer again.');
+    }
+
+    final existingOffer = await _db
+        .collection(FirestoreCollections.bookingRecoveryOffers)
+        .where('bookingId', isEqualTo: booking.id)
+        .where('offeringProviderId', isEqualTo: offeringProvider.id)
+        .limit(1)
+        .get();
+
+    if (existingOffer.docs.isNotEmpty) {
+      throw Exception('You already sent an offer for this recovery booking.');
+    }
+
+    final now = FieldValue.serverTimestamp();
+
+    final offerRef = _db
+        .collection(FirestoreCollections.bookingRecoveryOffers)
+        .doc();
+
+    final bookingRef = _db
+        .collection(FirestoreCollections.mainEvents)
+        .doc(booking.id);
+
+    final notificationRef = _db
+        .collection(FirestoreCollections.notifications)
+        .doc();
+
+    final batch = _db.batch();
+
+    batch.set(offerRef, {
+      'bookingId': booking.id,
+      'customerId': booking.customerId,
+
+      'originalProviderId': booking.providerId,
+      'offeringProviderId': offeringProvider.id,
+      'offeringProviderBusinessName': offeringProvider.businessName,
+
+      'message': message.trim(),
+      'estimatedPrice': estimatedPrice,
+
+      'status': RecoveryOfferStatus.offered,
+
+      'createdAt': now,
+      'selectedAt': null,
+      'declinedAt': null,
+      'expiredAt': null,
+    });
+
+    batch.update(bookingRef, {
+      'recoveryStatus': BookingRecoveryStatus.offerReceived,
+      'updatedAt': now,
+    });
+
+    batch.set(notificationRef, {
+      'userId': booking.customerId,
+      'title': 'New Recovery Offer',
+      'message':
+          '${offeringProvider.businessName} offered to handle your rejected event request.',
+      'type': NotificationType.booking,
+      'relatedId': booking.id,
+      'relatedCollection': FirestoreCollections.mainEvents,
+      'isRead': false,
+      'readAt': null,
+      'createdAt': now,
+    });
+
+    await batch.commit();
+  }
+
+  Stream<List<BookingModel>> recoveryOpportunitiesForProvider(
+    String providerId,
+  ) {
+    return _db
+        .collection(FirestoreCollections.mainEvents)
+        .where(
+          'recoveryStatus',
+          whereIn: [
+            BookingRecoveryStatus.open,
+            BookingRecoveryStatus.offerReceived,
+          ],
+        )
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          final bookings = snapshot.docs.map(BookingModel.fromDoc).toList();
+
+          return bookings.where((booking) {
+            final isNotOriginalProvider =
+                booking.originalProviderId != providerId;
+            final isNotCurrentProvider =
+                booking.currentProviderId != providerId;
+            final hasNotRejectedBefore = !booking.rejectedByProviderIds
+                .contains(providerId);
+
+            return isNotOriginalProvider &&
+                isNotCurrentProvider &&
+                hasNotRejectedBefore;
+          }).toList();
+        });
+  }
+
+  Stream<List<RecoveryOfferModel>> recoveryOffersByProvider(String providerId) {
+    return _db
+        .collection(FirestoreCollections.bookingRecoveryOffers)
+        .where('offeringProviderId', isEqualTo: providerId)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          final offers = snapshot.docs.map(RecoveryOfferModel.fromDoc).toList();
+
+          offers.sort((a, b) {
+            final aDate = a.createdAt ?? DateTime(2000);
+            final bDate = b.createdAt ?? DateTime(2000);
+            return bDate.compareTo(aDate);
+          });
+
+          return offers;
+        });
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> myChatRooms() {
+    return _db
+        .collection(FirestoreCollections.chatRooms)
+        .where('customerId', isEqualTo: currentUid)
+        .where('isActive', isEqualTo: true)
+        .orderBy('lastMessageAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(50)
+        .snapshots();
+  }
+
+  Stream<DocumentSnapshot<Map<String, dynamic>>> chatRoomStream(
+    String chatRoomId,
+  ) {
+    return _db
+        .collection(FirestoreCollections.chatRooms)
+        .doc(chatRoomId)
+        .snapshots();
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> chatMessages(String chatRoomId) {
+    return _db
+        .collection(FirestoreCollections.chatRooms)
+        .doc(chatRoomId)
+        .collection(FirestoreCollections.messages)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots();
+  }
+
+  Future<void> markChatAsRead({required String chatRoomId}) async {
+    try {
+      await _functions.httpsCallable('markChatRoomRead').call<void>({
+        'chatRoomId': chatRoomId,
+      });
+    } on FirebaseFunctionsException catch (error) {
+      throw Exception(
+        _chatErrorMessage(
+          error,
+          'The conversation could not be marked as read.',
+        ),
+      );
+    }
+  }
+
+  Future<String> _providerRequestIdForChat(BookingModel booking) async {
+    for (final providerRequestId in booking.providerRequestIds) {
+      final snapshot = await _db
+          .collection(FirestoreCollections.providerRequests)
+          .doc(providerRequestId)
+          .get();
+      final data = snapshot.data();
+
+      if (snapshot.exists &&
+          data?['providerId'] == booking.providerId &&
+          data?['customerId'] == booking.customerId &&
+          (data?['mainEventId'] ?? data?['bookingId']) == booking.id) {
+        return providerRequestId;
+      }
+    }
+
+    // Existing pre-providerRequest rooms used the main-event/booking ID.
+    // The backend accepts this value only when it resolves an already-existing,
+    // relationship-valid legacy room; it never creates a new legacy room.
+    return booking.id;
+  }
+
+  Future<String> _providerRequestIdForReview(BookingModel booking) async {
+    for (final providerRequestId in booking.providerRequestIds) {
+      final snapshot = await _db
+          .collection(FirestoreCollections.providerRequests)
+          .doc(providerRequestId)
+          .get();
+      final data = snapshot.data();
+
+      if (snapshot.exists &&
+          data?['providerId'] == booking.providerId &&
+          data?['customerId'] == booking.customerId &&
+          (data?['mainEventId'] ?? data?['bookingId']) == booking.id) {
+        return providerRequestId;
+      }
+    }
+
+    throw Exception(
+      'This booking does not have a reviewable provider request.',
+    );
+  }
+
+  String _chatErrorMessage(FirebaseFunctionsException error, String fallback) {
+    switch (error.code) {
+      case 'unauthenticated':
+        return 'Please log in to use messaging.';
+      case 'permission-denied':
+        return 'You cannot access this conversation.';
+      case 'not-found':
+        return 'The conversation could not be found.';
+      case 'failed-precondition':
+        return 'Messaging is unavailable for this booking.';
+      case 'invalid-argument':
+        return 'Check the message and try again.';
+      case 'resource-exhausted':
+        return 'Too many messaging requests. Please wait and try again.';
+      default:
+        return fallback;
+    }
+  }
+
+  Stream<List<ProviderModel>> favoriteProviders() {
+    return _db
+        .collection(FirestoreCollections.favorites)
+        .where('customerId', isEqualTo: currentUid)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .asyncMap((snapshot) async {
+          final providers = <ProviderModel>[];
+
+          for (final doc in snapshot.docs) {
+            final data = doc.data();
+            final providerId = data['providerId'];
+
+            if (providerId == null || providerId.toString().isEmpty) {
+              continue;
+            }
+
+            final providerDoc = await _db
+                .collection(FirestoreCollections.providers)
+                .doc(providerId)
+                .get();
+
+            if (providerDoc.exists) {
+              providers.add(ProviderModel.fromDoc(providerDoc));
+            }
+          }
+
+          return providers;
+        });
+  }
+
+  Stream<List<ProviderModel>> searchVerifiedProviders({
+    required String keyword,
+    required String eventType,
+    required String location,
+    required double? minBudget,
+    required double? maxBudget,
+  }) =>
+      searchAllVerifiedProviders(
+        keyword: keyword,
+        eventType: eventType,
+        location: location,
+        minBudget: minBudget,
+        maxBudget: maxBudget,
+      ).map(
+        (providers) => providers
+            .where(
+              (p) =>
+                  p.providerServiceType == 'catering' ||
+                  p.providerServiceType == 'both',
+            )
+            .toList(),
+      );
+
+  /// Bounded public discovery. Filters apply locally to avoid relying on uneven
+  /// legacy searchTokens coverage. Pagination remains a backend handoff.
+  Stream<List<ProviderModel>> searchAllVerifiedProviders({
+    required String keyword,
+    String? categoryCode,
+    required String eventType,
+    required String location,
+    required double? minBudget,
+    required double? maxBudget,
+  }) {
+    return _db
+        .collection(FirestoreCollections.providers)
+        .where(
+          'verificationStatus',
+          isEqualTo: ProviderVerificationStatus.approved,
+        )
+        .where('publiclyVisible', isEqualTo: true)
+        .where('isActive', isEqualTo: true)
+        .where('isSuspended', isEqualTo: false)
+        .where('isDeleted', isEqualTo: false)
+        .orderBy('favoriteCount', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(50)
+        .snapshots(includeMetadataChanges: true)
+        .where((snapshot) => !snapshot.metadata.isFromCache)
+        .map(
+          (snapshot) => snapshot.docs
+              .map(ProviderModel.fromDoc)
+              .where(
+                (provider) => matchesProviderDiscovery(
+                  provider,
+                  keyword: keyword,
+                  categoryCode: categoryCode,
+                  eventType: eventType,
+                  location: location,
+                  minBudget: minBudget,
+                  maxBudget: maxBudget,
+                ),
+              )
+              .toList(),
+        );
+  }
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> providerReviews(
+    String providerId,
+  ) {
+    return _db
+        .collection(FirestoreCollections.reviews)
+        .where('providerId', isEqualTo: providerId)
+        .where('isVisible', isEqualTo: true)
+        .where('isDeleted', isEqualTo: false)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots();
+  }
+
+  Future<void> markBookingCompleted({required BookingModel booking}) async {
+    if (booking.status != BookingStatus.confirmed) {
+      throw Exception('Only confirmed bookings can be marked as completed.');
+    }
+
+    final now = FieldValue.serverTimestamp();
+
+    final batch = _db.batch();
+
+    final bookingRef = _db
+        .collection(FirestoreCollections.mainEvents)
+        .doc(booking.id);
+
+    final providerRef = _db
+        .collection(FirestoreCollections.providers)
+        .doc(booking.providerId);
+
+    final timelineRef = _db
+        .collection(FirestoreCollections.bookingTimelines)
+        .doc();
+
+    final notificationRef = _db
+        .collection(FirestoreCollections.notifications)
+        .doc();
+
+    batch.update(bookingRef, {
+      'status': BookingStatus.completed,
+      'completedAt': now,
+      'updatedAt': now,
+    });
+
+    batch.update(providerRef, {
+      'totalCompletedBookings': FieldValue.increment(1),
+      'updatedAt': now,
+    });
+
+    batch.set(timelineRef, {
+      'bookingId': booking.id,
+      'status': BookingStatus.completed,
+      'title': 'Booking Completed',
+      'description':
+          'Provider marked the booking as completed. Customer can now leave a review.',
+      'createdBy': currentUid,
+      'createdByRole': UserRoles.provider,
+      'createdAt': now,
+    });
+
+    batch.set(notificationRef, {
+      'userId': booking.customerId,
+      'title': 'Booking Completed',
+      'message':
+          '${booking.providerBusinessName} marked your booking as completed. You can now leave a review.',
+      'type': NotificationType.booking,
+      'relatedId': booking.id,
+      'relatedCollection': FirestoreCollections.mainEvents,
+      'isRead': false,
+      'readAt': null,
+      'createdAt': now,
+    });
+
+    await batch.commit();
+  }
+
+  Stream<List<PackageModel>> myProviderPackages(String providerId) {
+    return _db
+        .collection(FirestoreCollections.packages)
+        .where('providerId', isEqualTo: providerId)
+        .where('isDeleted', isEqualTo: false)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map(PackageModel.fromDoc).toList();
+        });
+  }
+
+  Future<void> createPackage({
+    required String providerId,
+    required String name,
+    required String description,
+    required String eventType,
+    required double price,
+    required double downPaymentPercentage,
+    required int guestCapacity,
+    required int minimumGuests,
+    required int maximumGuests,
+    required String imageUrl,
+    required List<String> foodInclusions,
+    required List<String> decorInclusions,
+    required List<String> furnitureInclusions,
+    required List<String> serviceInclusions,
+    required bool isCustomizable,
+  }) async {
+    final downPaymentAmount = price * (downPaymentPercentage / 100);
+    final now = FieldValue.serverTimestamp();
+
+    await _db.collection(FirestoreCollections.packages).add({
+      'providerId': providerId,
+      'name': name.trim(),
+      'description': description.trim(),
+      'eventType': eventType.trim(),
+      'price': price,
+      'downPaymentPercentage': downPaymentPercentage,
+      'downPaymentAmount': downPaymentAmount,
+      'guestCapacity': guestCapacity,
+      'minimumGuests': minimumGuests,
+      'maximumGuests': maximumGuests,
+      'imageUrl': imageUrl.trim().isEmpty ? null : imageUrl.trim(),
+      'foodInclusions': foodInclusions,
+      'decorInclusions': decorInclusions,
+      'furnitureInclusions': furnitureInclusions,
+      'serviceInclusions': serviceInclusions,
+      'isCustomizable': isCustomizable,
+      'status': 'draft',
+      'isActive': false,
+      'isPublished': false,
+      'providerPubliclyVisible': false,
+      'publishedAt': null,
+      'isDeleted': false,
+      'deletedAt': null,
+      'deletedBy': null,
+      'deletionReason': null,
+      'createdAt': now,
+      'updatedAt': now,
+    });
+  }
+
+  Future<void> updatePackage({
+    required String packageId,
+    required String name,
+    required String description,
+    required String eventType,
+    required double price,
+    required double downPaymentPercentage,
+    required int guestCapacity,
+    required int minimumGuests,
+    required int maximumGuests,
+    required String imageUrl,
+    required List<String> foodInclusions,
+    required List<String> decorInclusions,
+    required List<String> furnitureInclusions,
+    required List<String> serviceInclusions,
+    required bool isCustomizable,
+  }) async {
+    final downPaymentAmount = price * (downPaymentPercentage / 100);
+
+    await _db.collection(FirestoreCollections.packages).doc(packageId).update({
+      'name': name.trim(),
+      'description': description.trim(),
+      'eventType': eventType.trim(),
+      'price': price,
+      'downPaymentPercentage': downPaymentPercentage,
+      'downPaymentAmount': downPaymentAmount,
+      'guestCapacity': guestCapacity,
+      'minimumGuests': minimumGuests,
+      'maximumGuests': maximumGuests,
+      'imageUrl': imageUrl.trim().isEmpty ? null : imageUrl.trim(),
+      'foodInclusions': foodInclusions,
+      'decorInclusions': decorInclusions,
+      'furnitureInclusions': furnitureInclusions,
+      'serviceInclusions': serviceInclusions,
+      'isCustomizable': isCustomizable,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> deactivatePackage(
+    String packageId, {
+    String reason = 'Removed by provider',
+  }) async {
+    await _db.collection(FirestoreCollections.packages).doc(packageId).update({
+      'isActive': false,
+      'isDeleted': true,
+      'deletedAt': FieldValue.serverTimestamp(),
+      'deletedBy': currentUid,
+      'deletionReason': reason.trim(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> createAddon({
+    required String providerId,
+    required String name,
+    required String description,
+    required String category,
+    required double price,
+    required String imageUrl,
+    required bool isAvailable,
+  }) async {
+    final now = FieldValue.serverTimestamp();
+
+    final providerDoc = await _db
+        .collection(FirestoreCollections.providers)
+        .doc(providerId)
+        .get();
+
+    final providerData = providerDoc.data();
+
+    final providerBusinessName =
+        providerData?['businessName'] ?? 'Unknown Provider';
+
+    final providerServiceType =
+        providerData?['providerServiceType'] ?? 'catering';
+
+    final providerType = providerServiceType == 'addon'
+        ? 'addon_provider'
+        : 'catering_provider';
+
+    await _db.collection(FirestoreCollections.addons).add({
+      'providerId': providerId,
+      'providerBusinessName': providerBusinessName,
+      'providerType': providerType,
+      'name': name.trim(),
+      'description': description.trim(),
+      'category': category.trim(),
+      'price': price,
+      'imageUrl': imageUrl.trim().isEmpty ? null : imageUrl.trim(),
+      'isAvailable': isAvailable,
+      'isActive': true,
+      'isDeleted': false,
+      'deletedAt': null,
+      'deletedBy': null,
+      'deletionReason': null,
+      'createdAt': now,
+      'updatedAt': now,
+    });
+  }
+
+  Stream<List<AddonModel>> myProviderAddons(String providerId) {
+    return _db
+        .collection(FirestoreCollections.addons)
+        .where('providerId', isEqualTo: providerId)
+        .where('isActive', isEqualTo: true)
+        .where('isDeleted', isEqualTo: false)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map(AddonModel.fromDoc).toList();
+        });
+  }
+
+  Future<void> updateAddon({
+    required String addonId,
+    required String name,
+    required String description,
+    required String category,
+    required double price,
+    required String imageUrl,
+    required bool isAvailable,
+  }) async {
+    await _db.collection(FirestoreCollections.addons).doc(addonId).update({
+      'name': name.trim(),
+      'description': description.trim(),
+      'category': category.trim(),
+      'price': price,
+      'imageUrl': imageUrl.trim().isEmpty ? null : imageUrl.trim(),
+      'isAvailable': isAvailable,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> deactivateAddon(
+    String addonId, {
+    String reason = 'Removed by provider',
+  }) async {
+    await _db.collection(FirestoreCollections.addons).doc(addonId).update({
+      'isActive': false,
+      'isDeleted': true,
+      'deletedAt': FieldValue.serverTimestamp(),
+      'deletedBy': currentUid,
+      'deletionReason': reason.trim(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Stream<List<MenuItemModel>> myProviderMenuItems(String providerId) {
+    return _db
+        .collection(FirestoreCollections.menuItems)
+        .where('providerId', isEqualTo: providerId)
+        .where('isActive', isEqualTo: true)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map(MenuItemModel.fromDoc).toList();
+        });
+  }
+
+  Stream<List<MenuItemModel>> menuItemsByProvider(String providerId) {
+    return _db
+        .collection(FirestoreCollections.menuItems)
+        .where('providerId', isEqualTo: providerId)
+        .where('isActive', isEqualTo: true)
+        .where('isAvailable', isEqualTo: true)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map(MenuItemModel.fromDoc).toList();
+        });
+  }
+
+  Future<void> createMenuItem({
+    required String providerId,
+    required String name,
+    required String description,
+    required String category,
+    required double pricePerServing,
+    required String imageUrl,
+    required bool isAvailable,
+  }) async {
+    final now = FieldValue.serverTimestamp();
+
+    await _db.collection(FirestoreCollections.menuItems).add({
+      'providerId': providerId,
+      'name': name.trim(),
+      'description': description.trim(),
+      'category': category.trim(),
+      'pricePerServing': pricePerServing,
+      'imageUrl': imageUrl.trim().isEmpty ? null : imageUrl.trim(),
+      'isAvailable': isAvailable,
+      'isActive': true,
+      'createdAt': now,
+      'updatedAt': now,
+    });
+  }
+
+  Future<void> updateMenuItem({
+    required String menuItemId,
+    required String name,
+    required String description,
+    required String category,
+    required double pricePerServing,
+    required String imageUrl,
+    required bool isAvailable,
+  }) async {
+    await _db
+        .collection(FirestoreCollections.menuItems)
+        .doc(menuItemId)
+        .update({
+          'name': name.trim(),
+          'description': description.trim(),
+          'category': category.trim(),
+          'pricePerServing': pricePerServing,
+          'imageUrl': imageUrl.trim().isEmpty ? null : imageUrl.trim(),
+          'isAvailable': isAvailable,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+  }
+
+  Future<void> deactivateMenuItem(String menuItemId) async {
+    await _db.collection(FirestoreCollections.menuItems).doc(menuItemId).update(
+      {'isActive': false, 'updatedAt': FieldValue.serverTimestamp()},
+    );
+  }
+
+  Stream<List<AddonModel>> marketplaceAddons() {
+    return _db
+        .collection(FirestoreCollections.addons)
+        .where('providerType', isEqualTo: 'addon_provider')
+        .where('isActive', isEqualTo: true)
+        .where('isAvailable', isEqualTo: true)
+        .where('isDeleted', isEqualTo: false)
+        .orderBy('createdAt', descending: true)
+        .orderBy(FieldPath.documentId, descending: true)
+        .limit(20)
+        .snapshots()
+        .map((snapshot) {
+          return snapshot.docs.map(AddonModel.fromDoc).toList();
+        });
+  }
+}

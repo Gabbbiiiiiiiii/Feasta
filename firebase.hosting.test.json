@@ -1,0 +1,30 @@
+{
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": ["node_modules", ".git", "firebase-debug.log", "*.local"]
+    }
+  ],
+  "hosting": {
+    "public": "firebase/hosting",
+    "cleanUrls": true,
+    "rewrites": [
+      {
+        "source": "/api/health",
+        "function": {
+          "functionId": "healthCheck",
+          "region": "asia-southeast1"
+        }
+      }
+    ]
+  },
+  "emulators": {
+    "functions": {"host": "127.0.0.1", "port": 62001},
+    "hosting": {"host": "127.0.0.1", "port": 62000},
+    "hub": {"host": "127.0.0.1", "port": 62401},
+    "logging": {"host": "127.0.0.1", "port": 62501},
+    "ui": {"enabled": false},
+    "singleProjectMode": true
+  }
+}

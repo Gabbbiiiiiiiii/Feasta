@@ -1,0 +1,260 @@
+import {automaticCompletionAt} from "./booking-completion-policy.js";
+import {executeProviderBookingLifecycle} from "../provider-requests/update-provider-booking-lifecycle.js";
+import {Timestamp} from "firebase-admin/firestore";
+import {onSchedule} from "firebase-functions/v2/scheduler";
+import {defineSecret} from "firebase-functions/params";
+import * as logger from "firebase-functions/logger";
+import {db} from "../shared/firestore.js";
+import {serverTimestamp} from "../shared/timestamps.js";
+import {writeAuditLogInTransaction} from "../shared/audit.js";
+import {createNotificationWithIdInTransaction} from "../shared/notifications.js";
+import {parseMainEventStatus, isMainEventStatusTransitionAllowed, isApprovedProviderForOperations} from "../shared/constants.js";
+import {requireActiveProviderRequest, requireProviderRequestDocuments} from "../provider-requests/provider-request-relationship-integrity.js";
+import {calculateMainEventRequestSummary} from "../provider-requests/recalculate-main-event-status.js";
+import {readTrustedProviderRequestPaymentSetInTransaction} from "../payments/provider-request-payment-reader.js";
+import {enforceRemainingBalanceDeadline} from "../payments/remaining-balance-enforcement.js";
+import {remainingBalanceLifecyclePlan} from "../payments/remaining-balance-lifecycle-domain.js";
+import {reconcileCheckoutAttempts} from "../payments/checkout-attempt-reconciliation.js";
+import {paymentIdForProviderRequestChoice} from "../payments/payment-obligation.js";
+import {classifyProviderRequestRefundPolicyEvidence, requireRefundEligibilityState} from "./booking-refund-policy.js";
+import {effectiveBookingStageV3, frozenBookingPolicyTimingV3} from "./booking-policy-v3.js";
+import {isMissingEnrollmentLifecycleHold, LIFECYCLE_RECONCILIATION_REASONS, lifecycleReconciliationReasonFor,
+  type LifecycleReconciliationReason} from "./historical-completion-domain.js";
+
+const secret = defineSecret("PAYMONGO_SECRET_KEY");
+export const V3_SWEEP_LIMIT = 100;
+const POLL_MS = 60_000;
+
+/** Frozen event time defines truth; this transaction only materializes it. */
+export async function materializeBookingLifecycleV3(providerRequestId: string, now: Date) {
+  if (!Number.isFinite(now.getTime())) throw new Error("Lifecycle time is invalid.");
+  const reference = db.collection("providerRequests").doc(providerRequestId);
+  const result = await db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    const request = snapshot.data();
+    if (!request || request.remainingBalanceTimingSchemaVersion !== 3) return false;
+    const timing = frozenBookingPolicyTimingV3(request);
+    const retryAt = Timestamp.fromMillis(now.getTime() + POLL_MS);
+    if (["cancelled", "completed"].includes(String(request.status))) {
+      if (request.lifecycleNextTransitionAt != null) transaction.update(reference, {lifecycleNextTransitionAt: null});
+      return false;
+    }
+    try {
+      if (["confirmed", "in_progress"].includes(String(request.status)) && now >= automaticCompletionAt(request)) return "complete" as const;
+    } catch { /* Missing end evidence blocks completion without preventing preparation/start. */ }
+    if (request.status === "in_progress") {
+      const next = Timestamp.fromDate(automaticCompletionAt(request));
+      if (request.lifecycleNextTransitionAt?.toMillis?.() !== next.toMillis()) transaction.update(reference, {lifecycleNextTransitionAt: next});
+      return false;
+    }
+    const classification = classifyProviderRequestRefundPolicyEvidence(request);
+    if (classification.status === "invalid") throw new Error("Refund policy evidence is invalid.");
+    const stage = effectiveBookingStageV3({request, now});
+    if (stage === "blocked") {
+      transaction.update(reference, {lifecycleNextTransitionAt: retryAt});
+      return false;
+    }
+    if (stage === "upcoming") {
+      transaction.update(reference, {lifecycleNextTransitionAt: Timestamp.fromDate(timing.preparationStartsAt)});
+      return false;
+    }
+    const parentRef = db.collection("mainEvents").doc(String(request.mainEventId));
+    const [parent, requests, provider] = await Promise.all([
+      transaction.get(parentRef),
+      transaction.get(db.collection("providerRequests").where("mainEventId", "==", request.mainEventId)),
+      transaction.get(db.collection("providers").doc(String(request.providerId))),
+    ]);
+    if (!parent.exists || !provider.exists || provider.data()?.ownerId !== request.providerOwnerId) {
+      throw new Error("Lifecycle ownership is invalid.");
+    }
+    if (!isApprovedProviderForOperations(provider.data()!)) {
+      throw new Error("Lifecycle provider is not operationally eligible.");
+    }
+    const mainEvent = parent.data()!;
+    const relations = requireProviderRequestDocuments({mainEventId: String(request.mainEventId), mainEvent, requests: requests.docs});
+    requireActiveProviderRequest(relations, providerRequestId);
+    const paymentSet = await readTrustedProviderRequestPaymentSetInTransaction({transaction, providerRequestId,
+      providerRequest: request, mainEventId: String(request.mainEventId), customerId: String(request.customerId),
+      providerId: String(request.providerId), mainEvent, invalid: () => {throw new Error("Lifecycle payment authority is invalid.");}});
+    if (paymentSet.mode !== "p5" || !paymentSet.settlement.fullySettled || paymentSet.settlement.outstandingAmountInCentavos !== 0) {
+      throw new Error("Lifecycle settlement requires reconciliation.");
+    }
+    const parentStatus = parseMainEventStatus(mainEvent.status);
+    if (!parentStatus || !["pending_provider_approval", "needs_provider_replacement", "waiting_for_down_payment", "confirmed", "in_progress"].includes(parentStatus)) {
+      transaction.update(reference, {lifecycleNextTransitionAt: retryAt});
+      return false;
+    }
+    const state = classification.status === "policy_backed" ? requireRefundEligibilityState(request, now) : null;
+    const timestamp = serverTimestamp();
+    if (stage === "preparation_started") {
+      const oldStage = (request.refundEligibilityState as {currentStage?: unknown} | null)?.currentStage;
+      transaction.update(reference, {preparationPeriodStartedAt: request.preparationPeriodStartedAt ?? Timestamp.fromDate(now),
+        lifecycleReconciliationRequired: false,
+        ...(state ? {refundEligibilityState: state} : {}), lifecycleNextTransitionAt: Timestamp.fromDate(timing.eventStartAt),
+        updatedAt: timestamp});
+      if (oldStage !== "preparation_started" && request.preparationPeriodStartedAt == null) {
+        transaction.create(parentRef.collection("timeline").doc(`v3_preparation_${providerRequestId}`), {
+          type: "preparation_started", title: "Preparation Period", description: "Your booking entered its Preparation Period.",
+          createdAt: timestamp, createdByRole: "system", providerRequestId, providerId: request.providerId, status: "confirmed",
+        });
+        for (const userId of [String(request.customerId), String(request.providerOwnerId)]) {
+          createNotificationWithIdInTransaction(transaction, `v3_preparation_${providerRequestId}_${userId}`,
+            {userId, title: "Preparation Period started", message: "Your booking has entered its Preparation Period.",
+              type: "booking", relatedId: providerRequestId, relatedCollection: "providerRequests"});
+        }
+        writeAuditLogInTransaction(transaction, {actorId: "feasta", actorRole: "system", action: "booking.preparation_automatic",
+          targetCollection: "providerRequests", targetId: providerRequestId,
+          after: {stage}, metadata: {scheduledBoundary: timing.preparationStartsAt.toISOString()}});
+      }
+      return true;
+    }
+    const summary = calculateMainEventRequestSummary(relations.activeRequests, parentStatus,
+      [{providerRequestId, status: "in_progress"}]);
+    if (summary.status !== parentStatus && !isMainEventStatusTransitionAllowed(parentStatus, summary.status)) {
+      throw new Error("Automatic lifecycle transition is invalid.");
+    }
+    let completionCheckAt = retryAt;
+    try { completionCheckAt = Timestamp.fromDate(automaticCompletionAt(request)); } catch { /* retry completion evidence without preventing start */ }
+    transaction.update(reference, {status: "in_progress", startedAt: Timestamp.fromDate(timing.eventStartAt),
+      lifecycleReconciliationRequired: false,
+      lifecycleMaterializedAt: timestamp, lifecycleNextTransitionAt: completionCheckAt, statusUpdatedAt: timestamp,
+      ...(state ? {refundEligibilityState: state} : {}), updatedAt: timestamp});
+    transaction.update(parentRef, {...summary, updatedAt: timestamp,
+      ...(summary.status !== parentStatus ? {statusUpdatedAt: timestamp} : {}),
+      ...(summary.status === "in_progress" && parentStatus !== "in_progress" ? {startedAt: Timestamp.fromDate(timing.eventStartAt)} : {})});
+    for (const userId of [String(request.customerId), String(request.providerOwnerId)]) {
+      createNotificationWithIdInTransaction(transaction, `v3_event_start_${providerRequestId}_${userId}`,
+        {userId, title: "Event is now In Progress", message: "Your event is now In Progress.",
+          type: "booking", relatedId: providerRequestId, relatedCollection: "providerRequests"});
+    }
+    transaction.create(parentRef.collection("timeline").doc(`v3_event_start_${providerRequestId}`), {
+      type: "in_progress", title: "Event In Progress", description: "The scheduled event start was reached with the booking clear.",
+      createdAt: timestamp, createdByRole: "system", providerRequestId, providerId: request.providerId, status: "in_progress",
+    });
+    writeAuditLogInTransaction(transaction, {actorId: "feasta", actorRole: "system", action: "booking.service_start_automatic",
+      targetCollection: "providerRequests", targetId: providerRequestId, before: {status: request.status},
+      after: {status: "in_progress"}, metadata: {eventStartAt: timing.eventStartAt.toISOString()}});
+    return true;
+  });
+  if (result === "complete") return (await executeProviderBookingLifecycle(providerRequestId, "completed", {kind: "system", uid: "feasta"}, now)).changed;
+  return result;
+}
+
+export async function materializeBalanceLifecycleV3(providerRequestId: string, now: Date) {
+  const reference = db.collection("providerRequests").doc(providerRequestId);
+  return db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    const request = snapshot.data();
+    if (!request || request.remainingBalanceTimingSchemaVersion !== 3) return;
+    const timing = frozenBookingPolicyTimingV3(request);
+    const classification = classifyProviderRequestRefundPolicyEvidence(request);
+    const locked = classification.status === "invalid" || request.activeCancellationRequestId != null ||
+      request.approvedCancellationRequestId != null || (request.refundEligibilityState as {activeCancellationRequestId?: unknown} | null)?.activeCancellationRequestId != null;
+    const finished = request.remainingBalanceEnforcement?.status === "refunded" || request.remainingBalanceStatus === "paid" ||
+      request.initialPaymentChoice === "full" || request.remainingBalanceStatus === "not_applicable";
+    const plan = !locked && request.status === "confirmed" ? remainingBalanceLifecyclePlan({providerRequestId, providerRequest: request, now}) : null;
+    const next = finished ? null : now < timing.remainingBalanceDueAt ? timing.remainingBalanceDueAt :
+      now < timing.hardPaymentDeadlineAt ? timing.hardPaymentDeadlineAt : new Date(now.getTime() + POLL_MS);
+    const notifyDue = !locked && request.status === "confirmed" && request.initialPaymentChoice === "minimum" &&
+      Number(request.outstandingAmountInCentavos) > 0 && now >= timing.remainingBalanceDueAt &&
+      now < timing.hardPaymentDeadlineAt && request.remainingBalanceDueNotifiedAt == null;
+    transaction.update(reference, {remainingBalanceNextCheckAt: next ? Timestamp.fromDate(next) : null,
+      ...(notifyDue ? {remainingBalanceDueNotifiedAt: serverTimestamp()} : {}),
+      ...(plan ? {remainingBalanceStatus: plan.nextStatus} : {})});
+    if (notifyDue) transaction.create(db.collection("mainEvents").doc(String(request.mainEventId)).collection("timeline").doc(`v3_balance_due_${providerRequestId}`), {
+      type: "remaining_balance_due", title: "Remaining balance due", description: "Your remaining balance is due. The final payment deadline is 24 hours before the event.",
+      createdAt: serverTimestamp(), createdByRole: "system", providerRequestId, providerId: request.providerId, status: "confirmed",
+    });
+    if (notifyDue) createNotificationWithIdInTransaction(transaction, `v3_balance_due_${providerRequestId}`,
+      {userId: String(request.customerId), title: "Remaining balance due",
+        message: `Your remaining balance of ${new Intl.NumberFormat("en-PH", {style: "currency", currency: "PHP"}).format(Number(request.outstandingAmountInCentavos) / 100)} is now due. Pay by ${timing.hardPaymentDeadlineAt.toLocaleString("en-PH", {timeZone: "Asia/Manila", year: "numeric", month: "long", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true})} to keep your booking confirmed.`, type: "payment",
+        relatedId: providerRequestId, relatedCollection: "providerRequests", metadata: {hardPaymentDeadlineAt: timing.hardPaymentDeadlineAt.toISOString()}});
+  });
+}
+
+/** Bounded cursor sweep also discovers older in-progress v3 bookings whose next-transition was cleared.
+ * Cursor is operational metadata; booking dates and historical financial records are untouched.
+ */
+export async function reconcileAutomaticBookingCompletionsV3(now: Date): Promise<void> {
+  const cursorRef = db.collection("bookingLifecycleCursors").doc("completion_v3");
+  const cursor = (await cursorRef.get()).data()?.lastRequestId;
+  let query = db.collection("providerRequests").where("status", "==", "in_progress")
+    .orderBy("__name__").limit(V3_SWEEP_LIMIT);
+  if (typeof cursor === "string" && cursor) query = query.startAfter(cursor);
+  const candidates = await query.get();
+  for (const candidate of candidates.docs) {
+    try {
+      const request = candidate.data();
+      // Parked holds stay visible on the booking and wait for an authorized decision.
+      if (isMissingEnrollmentLifecycleHold(request)) continue;
+      if (request.remainingBalanceTimingSchemaVersion === 3 && now >= automaticCompletionAt(request)) {
+        await executeProviderBookingLifecycle(candidate.id, "completed", {kind: "system", uid: "feasta"}, now);
+      }
+    } catch (error) {
+      const reason = lifecycleReconciliationReasonFor(error);
+      logger.error("Automatic completion blocked.", {providerRequestId: candidate.id, reason, error: String(error)});
+      if (reason === LIFECYCLE_RECONCILIATION_REASONS.providerDisbursementEnrollmentMissing) {
+        await holdFailedLifecycle(candidate.ref, "lifecycleNextTransitionAt", reason, now).catch((holdError) =>
+          logger.error("Automatic completion hold could not be recorded.", {providerRequestId: candidate.id, error: String(holdError)}));
+      }
+    }
+  }
+  await cursorRef.set({lastRequestId: candidates.size === V3_SWEEP_LIMIT ? candidates.docs.at(-1)!.id : null,
+    updatedAt: serverTimestamp()});
+}
+
+/** Two single-field range queries, each bounded; no full-collection scan. */
+export const reconcileBookingPolicyV3 = onSchedule({schedule: "every 1 minutes", timeZone: "Asia/Manila",
+  region: "asia-southeast1", maxInstances: 20, memory: "256MiB", concurrency: 80,
+  timeoutSeconds: 60, retryCount: 2, secrets: [secret]}, async () => {
+  const now = new Date(Date.now());
+  await reconcileAutomaticBookingCompletionsV3(now);
+  for (const field of ["remainingBalanceNextCheckAt", "lifecycleNextTransitionAt"] as const) {
+    const candidates = await db.collection("providerRequests").where(field, "<=", Timestamp.fromDate(now))
+      .orderBy(field).limit(V3_SWEEP_LIMIT).get();
+    for (const candidate of candidates.docs) {
+      try {
+        if (candidate.data().remainingBalanceTimingSchemaVersion !== 3) continue;
+        if (field === "remainingBalanceNextCheckAt") {
+          if (["on_hold", "reconciliation_required"].includes(String(candidate.data().remainingBalanceEnforcement?.status))) {
+            await reconcileCheckoutAttempts({paymentId: paymentIdForProviderRequestChoice(candidate.id, "remaining_balance"), secretKey: secret.value()});
+          }
+          await enforceRemainingBalanceDeadline(candidate.id, now);
+          await materializeBalanceLifecycleV3(candidate.id, now);
+        } else await materializeBookingLifecycleV3(candidate.id, now);
+      } catch (error) {
+        const reason = lifecycleReconciliationReasonFor(error);
+        if (!(await holdFailedLifecycle(candidate.ref, field, reason, now))) {
+          logger.error("V3 lifecycle reconciliation failed.", {providerRequestId: candidate.id, reason, error: String(error)});
+        }
+      }
+    }
+  }
+});
+
+/*
+ * Rotates failed records behind other due candidates without authorizing any
+ * financial transition. A classified missing-enrollment completion failure is
+ * parked instead: automatic retries cannot resolve it, so polling stops while
+ * the hold and its reason stay on the booking until an authorized decision.
+ * Returns whether the record was parked.
+ */
+async function holdFailedLifecycle(reference: FirebaseFirestore.DocumentReference,
+  field: "remainingBalanceNextCheckAt" | "lifecycleNextTransitionAt", reason: LifecycleReconciliationReason,
+  now: Date): Promise<boolean> {
+  const park = field === "lifecycleNextTransitionAt" &&
+    reason === LIFECYCLE_RECONCILIATION_REASONS.providerDisbursementEnrollmentMissing;
+  const held = await db.runTransaction(async (transaction) => {
+    const latest = (await transaction.get(reference)).data();
+    if (latest?.remainingBalanceTimingSchemaVersion !== 3 || ["completed", "cancelled"].includes(String(latest.status))) return false;
+    transaction.update(reference, {[field]: park ? null : Timestamp.fromMillis(now.getTime() + POLL_MS),
+      lifecycleReconciliationRequired: true, lifecycleReconciliationReason: reason});
+    return true;
+  });
+  if (park && held) {
+    logger.warn("Automatic completion held: the original financial snapshot has no provider disbursement enrollment. " +
+      "Automatic retries are paused until an authorized historical completion reconciliation is decided.",
+    {providerRequestId: reference.id, reason});
+  }
+  return park;
+}
