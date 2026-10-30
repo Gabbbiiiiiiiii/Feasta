@@ -2,6 +2,7 @@
  * Phase 1C, stage A: private, incomplete, unbound editor progress.
  * Intentionally NOT exported from functions/src/index.ts. Publication and
  * canonical package creation/completion remain separate, gated operations.
+ * Stage D completion preserves completed records for owner recovery reads.
  */
 import {createHash} from "node:crypto";
 import {Timestamp} from "firebase-admin/firestore";
@@ -17,7 +18,8 @@ import {
 } from "../shared/maintenance.js";
 import {authorizeProviderForPackageManagement} from "./package-domain.js";
 import {
-  EditorProgressError, assertNoUnverifiedEditorAssets, parseGetEditorProgress, parseSaveEditorProgress,
+  EditorProgressError, assertNoUnverifiedEditorAssets, parseGetEditorProgress,
+  parseSaveEditorProgress,
   parseDiscardEditorProgress, parseListEditorProgress,
   type SaveEditorProgressInput, type EditorProgressLimits,
 } from "./package-editor-progress-v2.js";
@@ -85,11 +87,11 @@ function apiDraft(id: string, raw: FirebaseFirestore.DocumentData) {
     providerId: raw.providerId as string,
     packageId: null,
     basePackageRevision: null,
-    state: "incomplete" as const,
+    state: raw.state as "incomplete" | "completed",
     progress: raw.progress,
     currentStep: raw.currentStep,
-    completedPackageId: null,
-    completedPackageRevision: null,
+    completedPackageId: raw.completedPackageId,
+    completedPackageRevision: raw.completedPackageRevision,
     revision: raw.revision as number,
     createdAt: timestampIso(raw.createdAt),
     updatedAt: timestampIso(raw.updatedAt),
@@ -110,12 +112,15 @@ async function authorizedProvider(tx: FirebaseFirestore.Transaction, uid: string
 }
 
 function requireOwnPrivateDraft(raw: FirebaseFirestore.DocumentData | undefined,
-  actorUid: string, providerId: string): asserts raw is FirebaseFirestore.DocumentData {
+  actorUid: string, providerId: string, allowCompleted = false,
+): asserts raw is FirebaseFirestore.DocumentData {
   // No information about another provider's private draft is disclosed.
   if (!raw || raw.ownerUid !== actorUid || raw.providerId !== providerId ||
       raw.editorSchemaVersion !== 2 || raw.packageId !== null ||
       raw.basePackageRevision !== null) fail("RESOURCE_NOT_FOUND", "not-found");
-  if (raw.state !== "incomplete") fail("EDITOR_DRAFT_COMPLETED");
+  if (raw.state !== "incomplete" && !(allowCompleted && raw.state === "completed")) {
+    fail("EDITOR_DRAFT_COMPLETED");
+  }
 }
 
 /**
@@ -145,7 +150,8 @@ export const saveProviderPackageEditorDraft = onCall(
       } catch (error) { return mapInputFailure(error); }
       await requireMaintenanceOpen(tx, db, "publication");
 
-      const operationId = digest([actor.uid, "saveProviderPackageEditorDraft", input.idempotencyKey]);
+      const operationId = digest([actor.uid, "saveProviderPackageEditorDraft",
+        input.idempotencyKey]);
       const opReference = db.collection(OPERATIONS).doc(operationId);
       const prior = (await tx.get(opReference)).data();
       const requestHash = digest(input);
@@ -210,7 +216,7 @@ export const getProviderPackageEditorDraft = onCall(
     return db.runTransaction(async (tx) => {
       const providerId = await authorizedProvider(tx, actor.uid);
       const current = (await tx.get(db.collection(DRAFTS).doc(id))).data();
-      requireOwnPrivateDraft(current, actor.uid, providerId);
+      requireOwnPrivateDraft(current, actor.uid, providerId, true);
       return {draft: apiDraft(id, current)};
     });
   },
@@ -232,7 +238,8 @@ export const listProviderPackageEditorDrafts = onCall(
     return db.runTransaction(async (tx) => {
       const providerId = await authorizedProvider(tx, actor.uid);
       const snapshots = await tx.get(db.collection(DRAFTS)
-        .where("ownerUid", "==", actor.uid).limit(MAX_PRIVATE_DRAFTS + 1));
+        .where("ownerUid", "==", actor.uid).where("state", "==", "incomplete")
+        .limit(MAX_PRIVATE_DRAFTS + 1));
       if (snapshots.size > MAX_PRIVATE_DRAFTS) fail("DRAFT_QUOTA_RECONCILIATION_REQUIRED");
       const drafts = snapshots.docs.filter((doc) =>
         doc.data().providerId === providerId &&

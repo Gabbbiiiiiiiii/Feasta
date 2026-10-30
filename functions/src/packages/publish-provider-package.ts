@@ -1,3 +1,5 @@
+import {cloudinarySecrets} from "../shared/cloudinary.js";
+import {publishProviderPackageV2Internal} from "./provider-package-drafts-v2.js";
 import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {
   HttpsError,
@@ -44,9 +46,13 @@ import {activeOccasionAuthority} from "./occasion-publication-generation.js";
 export const publishProviderPackage = onCall(
   {
     ...appCheckCallableOptions,
-    timeoutSeconds: 30,
+    timeoutSeconds: 60,
+    secrets: cloudinarySecrets,
   },
   async (request) => {
+    if (request.data?.sharedContractVersion === 2) {
+      return publishProviderPackageV2Internal.run(request);
+    }
     const actor = requireAuth(request);
 
     await requireRole(

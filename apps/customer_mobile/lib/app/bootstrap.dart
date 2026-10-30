@@ -12,6 +12,7 @@ import '../core/utils/startup_timings.dart';
 import '../core/security/runtime_security.dart';
 import '../core/security/secure_debug_log.dart';
 import '../firebase_options.dart';
+import '../core/config/firebase_emulator_config.dart';
 
 Future<void> bootstrap() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,12 +26,21 @@ Future<void> bootstrap() async {
     isDebugMode: kDebugMode,
   );
 
+  final demoOptions = FirebaseEmulatorConfig.debugDemoOptions(
+    projectId: FirebaseEmulatorConfig.demoProjectId,
+    useEmulators: useFirebaseEmulators,
+    isDebugMode: kDebugMode,
+  );
+  if (useFirebaseEmulators) {
+    FirebaseEmulatorConfig.validatePorts();
+  }
+
   final firebaseApp = await runStartupStep<FirebaseApp?>(
     stepName: 'Firebase initialization',
     operation: StartupTimings.measure(
       'firebase_initialize',
       () => Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform,
+        options: demoOptions ?? DefaultFirebaseOptions.currentPlatform,
       ),
     ),
     timeout: const Duration(seconds: 15),
@@ -46,9 +56,16 @@ Future<void> bootstrap() async {
   RuntimeSecurity.validateFirebaseProject(
     projectId: firebaseApp.options.projectId,
     isReleaseMode: kReleaseMode,
+    expectedDemoProjectId: demoOptions?.projectId,
   );
 
-  await StartupTimings.measure('app_check_activate', _activateAppCheck);
+  if (demoOptions == null) {
+    await StartupTimings.measure('app_check_activate', _activateAppCheck);
+  } else {
+    secureDebugLog(
+      'Demo emulator mode: no live App Check registration is used.',
+    );
+  }
 
   if (!useFirebaseEmulators) {
     secureDebugLog(
@@ -79,15 +96,24 @@ Future<bool> _connectFirebaseEmulators() async {
 
   secureDebugLog('Connecting to Firebase emulators at $host...');
 
-  await FirebaseAuth.instance.useAuthEmulator(host, 9099);
+  await FirebaseAuth.instance.useAuthEmulator(
+    host,
+    FirebaseEmulatorConfig.authPort,
+  );
 
-  FirebaseFirestore.instance.useFirestoreEmulator(host, 8080);
+  FirebaseFirestore.instance.useFirestoreEmulator(
+    host,
+    FirebaseEmulatorConfig.firestorePort,
+  );
 
   FirebaseFunctions.instanceFor(
     region: 'asia-southeast1',
-  ).useFunctionsEmulator(host, 5001);
+  ).useFunctionsEmulator(host, FirebaseEmulatorConfig.functionsPort);
 
-  FirebaseStorage.instance.useStorageEmulator(host, 9199);
+  FirebaseStorage.instance.useStorageEmulator(
+    host,
+    FirebaseEmulatorConfig.storagePort,
+  );
 
   secureDebugLog('Connected to Firebase emulators at $host');
 

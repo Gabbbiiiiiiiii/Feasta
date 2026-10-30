@@ -1,3 +1,4 @@
+import type {FoodChoiceGroupV2} from "@feasta/shared-types/provider-package-v2";
 import type {ProviderEventType} from "@feasta/shared-types";
 
 import type {
@@ -8,6 +9,13 @@ import type {PublicProvider} from "@/lib/customer/providers/provider-types";
 
 
 export type PublicPackage = {
+  revision?: number;
+  sharedContractVersion?: 2;
+  pricingModel?: "per_pax" | "per_bundle";
+  occasionScope?: "specific" | "all";
+  occasionMatchIds?: readonly string[];
+  equipmentInclusions?: readonly string[];
+  foodChoiceGroups?: FoodChoiceGroupV2[];
   id: string;
   providerId: string;
   providerName: string;

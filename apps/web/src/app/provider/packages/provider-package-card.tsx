@@ -1,3 +1,4 @@
+import {packageV2PublicationEnabled} from "@/lib/provider/provider-package-v2-client";
 import {ProviderPackageDetailPreview} from "./provider-package-detail-preview";
 import {PackagePaymentTerms} from "@/components/shared/package-payment-terms";
 import {Archive, Edit3, Eye, Send, Users} from "lucide-react";
@@ -35,7 +36,7 @@ export function ProviderPackageCard({item, serviceCategoryLabel, onEdit, onPubli
         <StatusBadge status={item.status} />
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <p className="text-[11px] font-semibold uppercase text-primary-strong">{humanize(item.eventType)}</p>
+        <p className="text-[11px] font-semibold uppercase text-primary-strong">{item.v2?.occasionScope === "all" ? "Fits All Occasions" : item.v2 ? item.v2.occasionIds.map(humanize).join(", ") : humanize(item.eventType)}</p>
         <p className="flex items-center gap-1 text-xs text-muted-foreground"><Users aria-hidden="true" className="size-3.5 shrink-0" />{item.minimumGuests}–{item.maximumGuests} guests</p>
       </div>
       <PriceDisplay amount={item.price} />
@@ -45,7 +46,7 @@ export function ProviderPackageCard({item, serviceCategoryLabel, onEdit, onPubli
     {item.status !== "archived" ? <div className="mt-auto flex flex-wrap items-center gap-1 border-t border-border p-1.5">
       {item.status === "draft" ? <>
         <Button id={`provider-package-edit-${item.id}`} variant="secondary" size="compact" className="mr-auto" aria-label={`Edit ${item.name}`} onClick={onEdit}><Edit3 aria-hidden="true" className="size-4" />Edit</Button>
-        <Button variant="ghost" size="icon" aria-label={`Publish ${item.name}`} title={item.pricingModel ? "Customer pricing compatibility verification required" : "Publish package"} disabled={Boolean(item.pricingModel)} onClick={onPublish}><Send aria-hidden="true" className="size-4" /></Button>
+        <Button variant="ghost" size="icon" aria-label={`Publish ${item.name}`} title={item.pricingModel ? "Customer pricing compatibility verification required" : "Publish package"} disabled={item.v2 ? !packageV2PublicationEnabled : Boolean(item.pricingModel)} onClick={onPublish}><Send aria-hidden="true" className="size-4" /></Button>
       </> : null}
       {item.status === "published" ? (
         <Dialog>

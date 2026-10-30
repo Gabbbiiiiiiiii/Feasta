@@ -1,3 +1,4 @@
+import 'food_choice_v2.dart';
 import 'event_customization_data.dart';
 
 /// Package selection only; no prices, coordinates, or policy consent authority.
@@ -38,7 +39,11 @@ class BookingSelection {
     }
 
     final type = d.eventType.trim().toLowerCase();
-    if (!const [
+    final v2 = d.sharedContractVersion == 2;
+    if (v2 && (d.expectedPackageRevision == null || d.expectedPackageRevision! < 1)) {
+      throw const FormatException('Invalid package revision.');
+    }
+    if (!(v2 && RegExp(r'^[a-z][a-z0-9_]{1,63}$').hasMatch(type)) && !const [
           'birthday',
           'wedding',
           'debut',
@@ -84,6 +89,8 @@ class BookingSelection {
       'clientRequestId': id(clientRequestId),
       'providerId': id(providerId), 'packageId': id(packageId),
       'cateringSelectionType': 'package',
+      if (v2) 'sharedContractVersion': 2,
+      if (v2) 'expectedPackageRevision': d.expectedPackageRevision,
       if (d.serviceTier != null) 'serviceTier': d.serviceTier,
       if (d.packageThemeId != null) 'packageThemeId': d.packageThemeId,
       'eventType': type,
@@ -94,6 +101,10 @@ class BookingSelection {
       'guestCount': d.guestCount,
       'eventLocation': text(d.eventLocation, 180, required: true),
       'eventAddress': text(d.eventAddress, 500, required: true),
+      if (d.foodChoiceSelections.isNotEmpty)
+        'foodChoiceSelections': parseFoodChoiceSelections(
+          d.foodChoiceSelections,
+        ),
       'selectedFoods': choices(d.selectedFoods, 50, 120),
       'selectedDecorations': choices(d.selectedDecorations, 50, 120),
       'selectedFurniture': choices(d.selectedFurniture, 50, 120),

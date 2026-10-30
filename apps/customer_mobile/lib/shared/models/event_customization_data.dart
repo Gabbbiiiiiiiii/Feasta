@@ -1,4 +1,7 @@
 class EventCustomizationData {
+  final int? sharedContractVersion;
+  final int? expectedPackageRevision;
+  final List<Map<String, dynamic>> foodChoiceSelections;
   final String? serviceTier;
   final String? packageThemeId;
   final String eventType;
@@ -21,6 +24,9 @@ class EventCustomizationData {
   final String specialRequest;
 
   EventCustomizationData({
+    this.sharedContractVersion,
+    this.expectedPackageRevision,
+    this.foodChoiceSelections = const [],
     this.serviceTier,
     this.packageThemeId,
     required this.eventType,

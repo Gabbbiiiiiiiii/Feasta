@@ -49,9 +49,14 @@ class ServiceOptionCards extends StatelessWidget {
                       : 'Published price unavailable',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
-                if (entry.value['includedServices'] is List)
-                  for (final item in entry.value['includedServices'] as List)
-                    if (item is String && item.trim().isNotEmpty)
+                if (package.pricingModel != null) Text(package.pricingModel == 'per_pax' ? 'Per guest' : 'Fixed bundle'),
+                for (final item in {
+                  ...preparationInclusions(package, 'serviceInclusions', entry.key),
+                  ...preparationInclusions(package, 'decorInclusions', entry.key),
+                  ...preparationInclusions(package, 'furnitureInclusions', entry.key),
+                  ...preparationInclusions(package, 'equipmentInclusions', entry.key),
+                })
+                    if (item.trim().isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: Row(

@@ -31,6 +31,12 @@ import {
   functions,
 } from "@/lib/firebase/client";
 
+import type {OfferV2} from "@feasta/shared-types/provider-package-v2";
+import {packageV2Enabled, packageV2PublicationEnabled} from "./provider-package-v2-client";
+import {parseFoodChoiceGroupsV2} from "./food-choice-groups-v2";
+export type ProviderPackageV2 = {revision:number; occasionScope:"specific"|"all";
+  occasionIds:string[]; serviceOptions:OfferV2["serviceOptions"]; equipmentInclusions:string[];
+  foodChoiceGroups?:NonNullable<OfferV2["foodChoiceGroups"]>};
 export type ProviderPackageStatus =
   | "draft"
   | "published"
@@ -72,6 +78,7 @@ export type ProviderPackageInput = {
 };
 
 export type ProviderPackage = {
+  v2?: ProviderPackageV2;
   pricingModel?: "per_pax" | "per_bundle";
   id: string;
   providerId: string;
@@ -194,14 +201,20 @@ export async function updateProviderPackage(
   );
 }
 
+const publicationKeys = new Map<string, string>();
 export async function publishProviderPackage(
   packageId: string,
+  v2?: ProviderPackageV2,
 ): Promise<PackageMutationResponse> {
   await requireProviderAuthUser();
 
+  if (v2 && !packageV2PublicationEnabled) throw new Error("FEATURE_DISABLED");
+  const key = `${auth.currentUser?.uid}:${packageId}:${v2?.revision}`;
+  if (v2 && !publicationKeys.has(key)) publicationKeys.set(key, `v2_publish_${crypto.randomUUID()}`);
   return callPackageMutation(
     "publishProviderPackage",
     {
+      ...(v2 ? {sharedContractVersion: 2, expectedRevision: v2.revision, idempotencyKey: publicationKeys.get(key)} : {}),
       packageId:
         requireDocumentId(
           packageId,
@@ -301,14 +314,46 @@ function parseProviderPackage(
   const data =
     recordValue(value);
 
-  // The legacy editor must never erase or downgrade a V2 record.
-  if (["occasionSchemaVersion", "occasionScope", "occasionIds", "occasionMatchIds", "occasionCatalogRevision", "providerEligibilityRevision", "occasionEligibilityState"].some((field) => Object.hasOwn(data, field))) {
-    throw new WebAuthenticationError("This package requires the V2 occasion editor.", "configuration");
-  }
-
-  if (data.pricingModel !== undefined &&
-    data.pricingModel !== "per_pax" && data.pricingModel !== "per_bundle") {
-    throw invalidPackageRecord();
+  const v2Fields = ["occasionSchemaVersion", "offerSchemaVersion", "occasionScope", "occasionIds",
+    "occasionMatchIds", "occasionCatalogRevision", "providerEligibilityRevision", "occasionEligibilityState"];
+  let v2: ProviderPackageV2 | undefined;
+  if (v2Fields.some((field) => Object.hasOwn(data, field) && !(field === "offerSchemaVersion" && data[field] === 1))) {
+    if (!packageV2Enabled || data.sharedContractVersion !== 2 || data.occasionSchemaVersion !== 2 ||
+      data.offerSchemaVersion !== 2 || !Number.isSafeInteger(data.revision) || Number(data.revision) < 1 ||
+      !["specific", "all"].includes(String(data.occasionScope)) || !Array.isArray(data.occasionIds) ||
+      !data.occasionIds.every((id: unknown) => typeof id === "string") ||
+      !["draft", "published", "archived"].includes(String(data.status)) ||
+      (data.status === "published" ? data.isPublished !== true || data.isActive !== true || data.providerPubliclyVisible !== true :
+        data.isPublished !== false || data.isActive !== false || data.providerPubliclyVisible !== false)) {
+      throw new WebAuthenticationError("This package requires a compatible private V2 editor.", "configuration");
+    }
+    if (data.pricingModel !== undefined && data.pricingModel !== "per_pax" && data.pricingModel !== "per_bundle") throw invalidPackageRecord();
+    if (new Set(data.occasionIds).size !== data.occasionIds.length ||
+      (data.occasionScope === "all" ? data.occasionIds.length !== 0 : data.occasionIds.length === 0)) throw invalidPackageRecord();
+    if (Object.hasOwn(data,"equipmentInclusions") && (!Array.isArray(data.equipmentInclusions) ||
+      !data.equipmentInclusions.every((item: unknown) => typeof item === "string"))) throw invalidPackageRecord();
+    const options = recordValue(data.serviceOptions);
+    const serviceOptions: OfferV2["serviceOptions"] = {};
+    for (const [tier, raw] of Object.entries(options)) {
+      if (!["drop_off", "buffet_setup", "full_service"].includes(tier)) throw invalidPackageRecord();
+      const row = recordValue(raw);
+      if (Object.keys(row).some((key) => !["price", "includedServices", "decorInclusions", "furnitureInclusions", "equipmentInclusions"].includes(key))) throw invalidPackageRecord();
+      if (!Array.isArray(row.includedServices) || !row.includedServices.every((item: unknown) => typeof item === "string")) throw invalidPackageRecord();
+      const parsed = {price: requiredNonNegativeNumber(row.price, "tier price"), includedServices:stringArray(row.includedServices)};
+      const extra: Record<string,string[]> = {};
+      for (const field of ["decorInclusions", "furnitureInclusions", "equipmentInclusions"]) {
+        if (Object.hasOwn(row,field)) {
+          if (!Array.isArray(row[field]) || !(row[field] as unknown[]).every((item) => typeof item === "string")) throw invalidPackageRecord();
+          extra[field] = [...row[field] as string[]];
+        }
+      }
+      serviceOptions[tier as keyof typeof serviceOptions] = {...parsed,...extra};
+    }
+    v2 = {revision:Number(data.revision), occasionScope:data.occasionScope as "specific"|"all",
+      occasionIds:[...data.occasionIds] as string[], serviceOptions,
+      equipmentInclusions:stringArray(data.equipmentInclusions),
+      foodChoiceGroups:Object.hasOwn(data,"foodChoiceGroups") ?
+        parseFoodChoiceGroupsV2(data.foodChoiceGroups) : []};
   }
 
   const status =
@@ -383,6 +428,7 @@ function parseProviderPackage(
   }
 
   return {
+    ...(v2 ? {v2} : {}),
     id,
     ...(data.pricingModel === "per_pax" || data.pricingModel === "per_bundle" ? {pricingModel: data.pricingModel} : {}),
 

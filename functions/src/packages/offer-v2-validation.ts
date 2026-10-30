@@ -1,5 +1,6 @@
 import type {OfferV2, ServiceOptionV2, Tier} from "@feasta/shared-types/provider-package-v2";
 import {exact, invalid, normalizedText, plainText, record} from "./v2-validation.js";
+import {parseFoodChoiceGroupsV2, FoodChoiceValidationError} from "./food-choice-groups-v2.js";
 
 const tiers: readonly Tier[] = ["drop_off", "buffet_setup", "full_service"];
 
@@ -47,7 +48,7 @@ export function parseServiceOptionV2(value: unknown): ServiceOptionV2 {
 export function parseOfferV2(value: unknown, allowHistoricalStandalone = false): OfferV2 {
   const v = exact(value, ["offerSchemaVersion", "serviceOptions", "serviceInclusions",
     "decorInclusions", "furnitureInclusions", "foodInclusions", "price"],
-  ["equipmentInclusions", "pricingModel"], "INVALID_INCLUSION");
+  ["equipmentInclusions", "pricingModel", "foodChoiceGroups"], "INVALID_INCLUSION");
   if (v.offerSchemaVersion !== 2 || Object.hasOwn(v, "pricingModel") &&
       v.pricingModel !== "per_pax" && v.pricingModel !== "per_bundle") {
     return invalid("INVALID_INCLUSION");
@@ -72,10 +73,20 @@ export function parseOfferV2(value: unknown, allowHistoricalStandalone = false):
     decorInclusions: inclusionList(v.decorInclusions),
     furnitureInclusions: inclusionList(v.furnitureInclusions),
     foodInclusions: inclusionList(v.foodInclusions),
+    ...(Object.hasOwn(v, "foodChoiceGroups") ?
+      {foodChoiceGroups: parseMealGroups(v.foodChoiceGroups)} : {}),
     ...optionalInclusions(v, "equipmentInclusions"),
     ...(Object.hasOwn(v, "pricingModel") ?
       {pricingModel: v.pricingModel as "per_pax" | "per_bundle"} : {}),
   };
+}
+
+function parseMealGroups(value: unknown) {
+  try {return parseFoodChoiceGroupsV2(value);}
+  catch (error) {
+    if (error instanceof FoodChoiceValidationError) return invalid("INVALID_FOOD_CHOICE_GROUP");
+    throw error;
+  }
 }
 
 function sharedFirst(shared: string[], selected: string[] = []): string[] {

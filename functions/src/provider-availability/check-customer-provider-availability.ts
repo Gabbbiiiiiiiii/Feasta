@@ -1,3 +1,4 @@
+import {requireCustomerPackageV2} from "../packages/customer-package-v2.js";
 import {Timestamp} from "firebase-admin/firestore";
 import {
   HttpsError,
@@ -120,7 +121,15 @@ export async function checkCustomerProviderAvailabilityForInput(
     throw bookingConditionsChanged();
   }
 
-  const packageData = packageSnapshot.data() ?? {};
+  let packageData = packageSnapshot.data() ?? {};
+  const verifiedV2 = packageData.occasionSchemaVersion === 2;
+  if (verifiedV2) {
+    packageData = await db.runTransaction(async tx => {
+      const current = await tx.get(packageReference);
+      if (!current.exists) throw bookingConditionsChanged();
+      return requireCustomerPackageV2(tx, current.data()!, "booking");
+    });
+  }
   const cateringProviderId = storedDocumentId(packageData.providerId);
 
   if (!cateringProviderId) {
@@ -128,6 +137,7 @@ export async function checkCustomerProviderAvailabilityForInput(
   }
 
   const packageValidation = validateBookingPackage({
+    verifiedV2,
     packageData,
     expectedProviderId: cateringProviderId,
     submittedEventType: stringValue(packageData.eventType),

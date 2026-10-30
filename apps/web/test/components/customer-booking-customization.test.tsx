@@ -631,6 +631,62 @@ describe("customer booking customization flow", () => {
     expect(screen.getByRole("heading", {name: "Add event services"})).toBeVisible();
   });
 
+  it("requires food choices, reviews dish names, and submits only IDs", async () => {
+    const user=userEvent.setup();
+    const detail=detailFixture();
+    detail.packageRecord.foodChoiceGroups=[{id:"main",title:"Main dish",selectionCount:1,
+      options:[{id:"chicken",name:"Chicken Afritada"},{id:"pork",name:"Pork Menudo"}]}];
+    render(<EventCustomizationExperience detail={detail} eventServices={[]}/>);
+    await fillEventDetails();
+    expect(await screen.findByText("Maria's Catering is available")).toBeVisible();
+    await user.click(screen.getByRole("button",{name:"Continue"}));
+    await user.click(screen.getByRole("button",{name:"Continue"}));
+    expect(screen.getByRole("alert")).toHaveTextContent(/required number/);
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("checkbox",{name:"Chicken Afritada"}));
+    expect(screen.getByRole("checkbox",{name:"Pork Menudo"})).toBeDisabled();
+    await user.click(screen.getByRole("button",{name:"Continue"}));
+    await user.click(screen.getByRole("button",{name:"Review booking"}));
+    expect(await screen.findByRole("heading",{name:"Review your booking request"})).toBeVisible();
+    expect(screen.getByText("Chicken Afritada")).toBeVisible();
+    for(const checkbox of await screen.findAllByRole("checkbox",{name:/I have reviewed/})) await user.click(checkbox);
+    await user.click(screen.getByRole("button",{name:"Submit booking request"}));
+    await waitFor(()=>expect(mocks.submitBooking).toHaveBeenCalledTimes(1));
+    expect(mocks.submitBooking.mock.calls[0][0].foodChoiceSelections).toEqual([{groupId:"main",optionIds:["chicken"]}]);
+    expect(JSON.stringify(mocks.submitBooking.mock.calls[0][0])).not.toContain("Chicken Afritada");
+  });
+
+  it("V2 selects a second occasion and tier, estimates per guest, and submits IDs with its revision", async () => {
+    const user=userEvent.setup();
+    const detail=detailFixture({serviceOptions:{drop_off:{price:100.25,includedServices:['Delivery'],decorInclusions:['Tier flowers']}}});
+    Object.assign(detail.packageRecord,{sharedContractVersion:2,revision:7,pricingModel:'per_pax',price:100.25,
+      eventType:'birthday',occasionScope:'all',occasionMatchIds:['birthday','wedding']});
+    detail.packageRecord.foodChoiceGroups=[{id:"main",title:"Main dish",selectionCount:1,
+      options:[{id:"chicken",name:"Chicken Afritada"},{id:"pork",name:"Pork Menudo"}]}];
+    render(<EventCustomizationExperience detail={detail} eventServices={[]}/>);
+    fireEvent.change(screen.getByRole("combobox",{name:"Event type"}),{target:{value:"wedding"}});
+    await fillEventDetails();
+    expect(await screen.findByText("Maria's Catering is available")).toBeVisible();
+    await user.click(screen.getByRole("button",{name:"Continue"}));
+    await user.click(screen.getByRole("radio",{name:/Drop-Off Catering/}));
+    await user.click(screen.getByRole("button",{name:"Continue"}));
+    expect(screen.getByRole("alert")).toHaveTextContent(/required number/);
+    expect(mocks.submitBooking).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("checkbox",{name:"Chicken Afritada"}));
+    expect(screen.getByRole("checkbox",{name:"Pork Menudo"})).toBeDisabled();
+    await user.click(screen.getByRole("button",{name:"Continue"}));
+    await user.click(screen.getByRole("button",{name:"Review booking"}));
+    expect(await screen.findByRole("heading",{name:"Review your booking request"})).toBeVisible();
+    expect(screen.getByText("Chicken Afritada")).toBeVisible();
+    for(const checkbox of await screen.findAllByRole("checkbox",{name:/I have reviewed/})) await user.click(checkbox);
+    await user.click(screen.getByRole("button",{name:"Submit booking request"}));
+    await waitFor(()=>expect(mocks.submitBooking).toHaveBeenCalledTimes(1));
+    expect(mocks.submitBooking.mock.calls[0][0].foodChoiceSelections).toEqual([{groupId:"main",optionIds:["chicken"]}]);
+    expect(JSON.stringify(mocks.submitBooking.mock.calls[0][0])).not.toContain("Chicken Afritada");
+    expect(mocks.submitBooking.mock.calls[0][0]).toMatchObject({sharedContractVersion:2,expectedPackageRevision:7,eventType:'wedding',serviceTier:'drop_off'});
+    expect(mocks.submitBooking.mock.calls[0][0]).not.toHaveProperty('price');
+  });
+
   it("requires a published tier, clears an incompatible theme, and does not submit client prices", async () => {
     const user = userEvent.setup();
     render(

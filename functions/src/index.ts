@@ -1180,11 +1180,16 @@ export {checkAdminOccasionDeactivationReadiness} from "./admin/occasion-activati
 export {activateAdminOccasion, deactivateAdminOccasion,
   inspectAdminOccasionAtomicReadiness} from "./admin/occasion-lifecycle-actions.js";
 
-// Private, incomplete editor progress ONLY. Actual V2 package persistence
-// and publication remain separately gated and are not exported here.
+// Private editor progress and canonical draft persistence have separate gates.
+// V2 publication remains unsupported; the draft handlers below are demo-only.
 export {
   saveProviderPackageEditorDraft,
   getProviderPackageEditorDraft,
   listProviderPackageEditorDrafts,
   discardProviderPackageEditorDraft,
 } from "./packages/provider-package-editor-progress.js";
+
+export {createProviderPackageV2, updateProviderPackageV2,
+  completeProviderPackageEditorDraft} from "./packages/provider-package-drafts-v2.js";
+
+export {getCustomerPackageV2} from "./packages/customer-package-v2.js";

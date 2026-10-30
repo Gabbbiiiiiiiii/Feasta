@@ -1,3 +1,4 @@
+import {resolveOfferV2} from "../packages/offer-v2-validation.js";
 import {
   HttpsError,
 } from "firebase-functions/v2/https";
@@ -89,6 +90,7 @@ export type BookingPackageOfferSelection = {
   packageThemeName: string | null;
   packageThemeDescription: string | null;
   packageThemeImageUrls: string[];
+  packageOfferSnapshotV2?: Record<string, unknown>;
 };
 
 export type ResolvedBookingPackageOffer = {
@@ -182,6 +184,12 @@ export function resolveBookingPackageOffer(
     packageThemeId: string | null;
   },
 ): ResolvedBookingPackageOffer {
+  const v2 = input.packageData.offerSchemaVersion === 2 ? resolveOfferV2(Object.fromEntries(
+    ["offerSchemaVersion", "price", "serviceOptions", "serviceInclusions",
+      "decorInclusions",
+      "furnitureInclusions", "foodInclusions", "equipmentInclusions", "pricingModel", "foodChoiceGroups"]
+      .filter(k => Object.hasOwn(input.packageData, k)).map(k => [k, input.packageData[k]])),
+  input.serviceTier) : null;
   const enabledOptions =
     readEnabledServiceOptions(
       input.packageData.serviceOptions,
@@ -231,15 +239,16 @@ export function resolveBookingPackageOffer(
 
   return {
     basePrice: calculatePackageSubtotal(input.packageData, selectedOption.price, input.guestCount),
-    selection: selectionSnapshot(
+    selection: {...selectionSnapshot(
       input.serviceTier,
-      selectedOption.includedServices,
+      v2?.serviceInclusions ?? selectedOption.includedServices,
       resolveTheme(
         input.packageData.themeOptions,
         input.serviceTier,
         input.packageThemeId,
       ),
-    ),
+    ), ...(v2 ? {packageOfferSnapshotV2: {...v2, revision: input.packageData.revision,
+      pricingModel: input.packageData.pricingModel ?? "legacy"}} : {})},
   };
 }
 

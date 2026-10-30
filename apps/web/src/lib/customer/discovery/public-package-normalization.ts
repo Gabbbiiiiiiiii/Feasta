@@ -1,3 +1,4 @@
+import {parseFoodChoiceGroupsV2} from "@/lib/provider/food-choice-groups-v2";
 import type {
   PublicPackage,
   PublicPackageCustomization,
@@ -39,7 +40,7 @@ export function normalizePublicPackageCustomization(
 
 const V2_OCCASION_FIELDS = [
   "occasionScope", "occasionIds", "occasionMatchIds", "occasionCatalogRevision",
-  "providerEligibilityRevision", "occasionEligibilityState",
+  "providerEligibilityRevision", "occasionEligibilityState", "foodChoiceGroups",
 ] as const;
 
 /** Legacy public readers cannot verify V2 eligibility generations. */
@@ -55,12 +56,13 @@ export function normalizePublicPackage(
   id: string,
   value: UnknownRecord,
   providerNames: ReadonlyMap<string, string>,
+  verifiedV2 = false,
 ): PublicPackage | null {
   const providerId = safeText(value.providerId, 128);
   const name = safeText(value.name, 160);
   if (
-    !isLegacyOccasionReadable(value) ||
-    Object.prototype.hasOwnProperty.call(value, "pricingModel") ||
+    (!verifiedV2 && (!isLegacyOccasionReadable(value) ||
+      Object.prototype.hasOwnProperty.call(value, "pricingModel"))) ||
     !providerId ||
     !name ||
     !providerNames.has(providerId) ||
@@ -71,6 +73,11 @@ export function normalizePublicPackage(
     value.isDeleted === true
   ) return null;
 
+  let foodChoiceGroups;
+  if (verifiedV2 && Object.hasOwn(value, "foodChoiceGroups")) {
+    try { foodChoiceGroups = parseFoodChoiceGroupsV2(value.foodChoiceGroups); }
+    catch { return null; }
+  }
   const minimumGuests = safeInteger(value.minimumGuests, 1, 1_000_000);
   const maximumGuests = safeInteger(value.maximumGuests, 1, 1_000_000);
   const validGuestRange = minimumGuests === null || maximumGuests === null ||
@@ -101,6 +108,11 @@ export function normalizePublicPackage(
 
   return {
     id,
+    ...(verifiedV2 ? {sharedContractVersion: 2 as const, revision: Number(value.revision),
+      pricingModel: value.pricingModel as "per_pax" | "per_bundle" | undefined,
+      occasionScope: value.occasionScope as "specific" | "all",
+      occasionMatchIds: value.occasionMatchIds as string[], foodChoiceGroups,
+      equipmentInclusions: safeTextList([value.equipmentInclusions], 50, 160)} : {}),
     providerId,
     providerName: providerNames.get(providerId)!,
     name,

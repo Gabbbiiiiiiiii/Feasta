@@ -1,3 +1,4 @@
+import 'food_choice_v2.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../core/constants/status_constants.dart';
 import '../../core/enums/domain_enum_serializers.dart' as domain;
@@ -384,6 +385,17 @@ ProviderLocationCoordinates? _providerCoordinates(dynamic value) {
 }
 
 class PackageModel {
+  String get priceUnitLabel => pricingModel == 'per_pax' ? 'Per guest' : pricingModel == 'per_bundle' ? 'Fixed bundle' : 'Package price';
+  String get occasionDisplayLabel => occasionScope == 'all' ? 'Fits All' :
+    sharedContractVersion == 2 ? occasionMatchIds.join(', ') : eventType;
+
+  final int? sharedContractVersion;
+  final int? revision;
+  final String? pricingModel;
+  final String? occasionScope;
+  final List<String> occasionMatchIds;
+  final List<String> equipmentInclusions;
+  final List<FoodChoiceGroupV2> foodChoiceGroups;
   final String id;
   final String providerId;
   final String name;
@@ -412,6 +424,13 @@ class PackageModel {
   final DateTime? updatedAt;
 
   PackageModel({
+    this.sharedContractVersion,
+    this.revision,
+    this.pricingModel,
+    this.occasionScope,
+    this.occasionMatchIds = const [],
+    this.equipmentInclusions = const [],
+    this.foodChoiceGroups = const [],
     required this.id,
     required this.providerId,
     required this.name,
@@ -448,6 +467,11 @@ class PackageModel {
     final imageUrls = stringListFromValue(data['imageUrls']);
     final image = data['imageUrl']?.toString().trim() ?? '';
     return PackageModel(
+      sharedContractVersion: data['sharedContractVersion'] == 2 ? 2 : null,
+      revision: data['revision'] is int ? data['revision'] as int : null,
+      pricingModel: data['pricingModel'] as String?, occasionScope: data['occasionScope'] as String?,
+      occasionMatchIds: stringListFromValue(data['occasionMatchIds']),
+      equipmentInclusions: stringListFromValue(data['equipmentInclusions']),
       id: id,
       providerId: data['providerId'] ?? '',
       name: data['name'] ?? '',
@@ -464,6 +488,7 @@ class PackageModel {
       imageUrl: imageUrls.isNotEmpty
           ? imageUrls.first
           : (image.isEmpty ? null : image),
+      foodChoiceGroups: FoodChoiceGroupV2.parse(data['foodChoiceGroups']),
       foodInclusions: stringListFromValue(data['foodInclusions']),
       decorInclusions: stringListFromValue(data['decorInclusions']),
       furnitureInclusions: stringListFromValue(data['furnitureInclusions']),

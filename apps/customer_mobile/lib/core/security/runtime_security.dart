@@ -17,7 +17,16 @@ class RuntimeSecurity {
   static void validateFirebaseProject({
     required String projectId,
     required bool isReleaseMode,
+    String? expectedDemoProjectId,
   }) {
+    if (expectedDemoProjectId != null &&
+        (isReleaseMode ||
+            !RegExp(r'^demo-[a-z0-9-]+$').hasMatch(expectedDemoProjectId) ||
+            projectId != expectedDemoProjectId)) {
+      throw StateError(
+        'The initialized Firebase app does not match the isolated demo project.',
+      );
+    }
     if (isReleaseMode && projectId != productionProjectId) {
       throw StateError('Release Firebase project configuration is invalid.');
     }

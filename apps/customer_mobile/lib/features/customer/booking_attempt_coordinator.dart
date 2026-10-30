@@ -1,3 +1,4 @@
+import '../../shared/models/food_choice_v2.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -186,6 +187,8 @@ class BookingAttemptCoordinator {
         providerId: selection['providerId'] as String,
         packageId: selection['packageId'] as String,
         customization: EventCustomizationData(
+          sharedContractVersion: selection['sharedContractVersion'] as int?,
+          expectedPackageRevision: selection['expectedPackageRevision'] as int?,
           eventType: selection['eventType'] as String,
           eventDate: DateTime.parse(selection['eventDate'] as String),
           eventTime: selection['eventTime'] as String,
@@ -193,6 +196,9 @@ class BookingAttemptCoordinator {
           guestCount: selection['guestCount'] as int,
           eventLocation: selection['eventLocation'] as String,
           eventAddress: selection['eventAddress'] as String,
+          foodChoiceSelections: parseFoodChoiceSelections(
+            selection['foodChoiceSelections'],
+          ),
           selectedFoods: List<String>.from(selection['selectedFoods'] as List),
           selectedDecorations: List<String>.from(
             selection['selectedDecorations'] as List,

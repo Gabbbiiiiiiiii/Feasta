@@ -1,3 +1,5 @@
+import type {FoodChoiceSelectionV2} from "@feasta/shared-types/provider-package-v2";
+import {parseStoredFoodChoices} from "./food-choice-selection";
 import type {CateringPackageServiceTier} from "@/lib/catering/catering-service-tier";
 import {
   emptyBookingThemeInspiration,
@@ -6,9 +8,9 @@ import {
 } from "@/lib/customer/bookings/booking-customization-selection";
 
 export type CustomizationDraft = {
-  event: {eventDate: string; eventTime: string; eventEndTime: string; guestCount: string;
+  event: {eventType?: string; eventDate: string; eventTime: string; eventEndTime: string; guestCount: string;
     eventLocation: string; eventAddress: string; specialRequest: string};
-  customization: {selectedFoods: string[]; selectedDecorations: string[]; selectedFurniture: string[]};
+  customization: {foodChoiceSelections?: FoodChoiceSelectionV2[]; selectedFoods: string[]; selectedDecorations: string[]; selectedFurniture: string[]};
   addonIds: string[];
   serviceTier?: CateringPackageServiceTier | null;
   packageThemeId?: string | null;
@@ -63,9 +65,12 @@ export function parseCustomizationDraft(value: unknown): CustomizationDraft | nu
     input.every((item) => typeof item === "string" && item.length <= 160);
   if (!list(record.addonIds, 20) || !list(customization.selectedFoods, 50) ||
     !list(customization.selectedDecorations, 50) || !list(customization.selectedFurniture, 50)) return null;
+  const foodChoiceSelections = parseStoredFoodChoices(customization.foodChoiceSelections);
+  if (!foodChoiceSelections) return null;
   return {
-    event: Object.fromEntries(Object.keys(limits).map((key) => [key, event[key as keyof typeof event]])) as typeof event,
-    customization: {selectedFoods: [...customization.selectedFoods], selectedDecorations: [...customization.selectedDecorations], selectedFurniture: [...customization.selectedFurniture]},
+    event: {...Object.fromEntries(Object.keys(limits).map((key) => [key, event[key as keyof typeof event]])),
+      ...(typeof event.eventType === "string" && /^[a-z][a-z0-9_]{1,63}$/.test(event.eventType) ? {eventType: event.eventType} : {})} as typeof event,
+    customization: {...(foodChoiceSelections.length ? {foodChoiceSelections} : {}), selectedFoods: [...customization.selectedFoods], selectedDecorations: [...customization.selectedDecorations], selectedFurniture: [...customization.selectedFurniture]},
     addonIds: [...new Set(record.addonIds)],
     serviceTier: storedOffer.serviceTier,
     packageThemeId: storedOffer.packageThemeId,

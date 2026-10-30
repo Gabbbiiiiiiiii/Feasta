@@ -5,6 +5,9 @@
  * Match packages/shared-types/src/provider-package-v2.cts.
  */
 
+import {parseFoodChoiceGroupsV2} from "./food-choice-groups-v2.js";
+import {FoodChoiceValidationError} from "./food-choice-groups-v2.js";
+
 export type ProgressRecord = Record<string, unknown>;
 
 export class EditorProgressError extends Error {
@@ -79,7 +82,7 @@ export function validatePackageEditorProgress(
 
   const input = object(value, [
     "name", "description", "serviceCategoryCode", "occasion", "pricingModel", "priceText",
-    "minimumGuestsText", "maximumGuestsText", "tiers", "foodInclusions", "serviceInclusions",
+    "minimumGuestsText", "maximumGuestsText", "tiers", "foodInclusions", "foodChoiceGroups", "serviceInclusions",
     "decorInclusions", "furnitureInclusions", "equipmentInclusions", "themes",
     "marketingAssetIds", "paymentPolicy", "depositPercentageText",
   ]);
@@ -143,6 +146,10 @@ export function validatePackageEditorProgress(
     "furnitureInclusions", "equipmentInclusions"]) {
     optional(input, field, lines, output);
   }
+  optional(input, "foodChoiceGroups", (v) => {
+    try { return parseFoodChoiceGroupsV2(v, true); }
+    catch (error) {if (error instanceof FoodChoiceValidationError) return invalid(); throw error;}
+  }, output);
   optional(input, "marketingAssetIds", (v) => list(v, 8, id), output);
   optional(input, "themes", (v) => {
     if (!Array.isArray(v) || v.length > 12 || Object.keys(v).length !== v.length) return invalid();

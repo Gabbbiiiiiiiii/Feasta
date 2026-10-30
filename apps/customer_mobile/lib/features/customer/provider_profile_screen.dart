@@ -928,6 +928,7 @@ class PackageCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: AppSpacing.md),
+                Text(eventPackage.priceUnitLabel),
                 FeastaPriceText(
                   amount: eventPackage.price,
                   decimalDigits: 0,

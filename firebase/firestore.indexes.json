@@ -1,6 +1,44 @@
 {
   "indexes": [
     {
+      "collectionGroup": "packages",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "occasionMatchIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "isActive",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isPublished",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "providerPubliclyVisible",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "isDeleted",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "providerOccasionSuggestions",
       "queryScope": "COLLECTION",
       "fields": [

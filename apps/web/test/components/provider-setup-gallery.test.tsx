@@ -29,8 +29,9 @@ const state = vi.hoisted(() => {
   }
   return {records, set, auth, db: {
     collection: (name: string) => reference(name),
+    doc: (path: string) => reference(path),
     runTransaction: async (callback: (transaction: unknown) => Promise<void>) => callback({
-      get: async (ref: ReturnType<typeof reference>) => ref.get(), set,
+      get: async (ref: ReturnType<typeof reference>) => ref.get(), set, update: vi.fn(),
     }),
   }};
 });
@@ -72,6 +73,12 @@ beforeEach(() => {
   state.records.clear(); state.set.mockReset(); state.auth.mockReset().mockResolvedValue(account); actions.load.mockReset(); actions.save.mockReset();
   state.records.set("providers/provider-one", {...provider});
   state.records.set("users/owner", {role: "provider", providerId: "provider-one", accountStatus: "active", isActive: true});
+  state.records.set("maintenanceControls/intake", {
+    schemaVersion: 1,
+    revision: 1,
+    intake: false,
+    publication: false,
+  });
   state.records.set(setupPath, {revision: 1, setups: [setup()]});
   state.records.set("serviceCategories/catering_service", {code: "catering_service", status: "active", serviceType: "catering"});
   state.records.set("occasionCatalog/current", {revision: 1, activationState: "stable"});

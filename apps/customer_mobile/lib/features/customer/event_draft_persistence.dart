@@ -1,3 +1,4 @@
+import '../../shared/models/food_choice_v2.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
@@ -176,6 +177,11 @@ class EventDraftPersistence {
         form['guests'] > 10000 ||
         form['own'] is! bool) {
       invalid();
+    }
+    if (form.containsKey('foodChoiceSelections')) {
+      form['foodChoiceSelections'] = parseFoodChoiceSelections(
+        form['foodChoiceSelections'],
+      );
     }
     for (final key in ['foods', 'decorations', 'furniture']) {
       final list = form[key];

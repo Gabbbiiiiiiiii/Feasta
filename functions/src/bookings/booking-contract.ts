@@ -27,6 +27,7 @@ type ValidateBookingPackageInput = {
   expectedProviderId: string;
   submittedEventType: string;
   guestCount: number;
+  verifiedV2?: boolean;
 };
 
 /**
@@ -45,7 +46,7 @@ export function validateBookingPackage(
 
   if (
     // Canonical pricing is draft-only until every public client is compatible.
-    packageData.pricingModel !== undefined ||
+    packageData.pricingModel !== undefined && !input.verifiedV2 ||
     packageData.providerId !==
       expectedProviderId ||
     packageData.isActive !== true ||
@@ -97,6 +98,12 @@ export function validateBookingPackage(
     };
   }
 
+  if (input.verifiedV2) {
+    return Array.isArray(packageData.occasionMatchIds) &&
+      packageData.occasionMatchIds.includes(submittedEventType) ?
+      {valid: true, eventType: submittedEventType, minimumGuests, maximumGuests} :
+      {valid: false, code: "EVENT_TYPE_NOT_SUPPORTED"};
+  }
   const packageEventType =
     canonicalEventType(
       packageData.eventType,

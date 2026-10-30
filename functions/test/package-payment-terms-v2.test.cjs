@@ -115,7 +115,7 @@ for (const paymentPolicy of ["full_payment", "deposit_then_balance"]) {
       const source = fs.readFileSync(path.join(__dirname, `../src/packages/${file}.ts`), "utf8");
       assert.match(source, /parseCanonicalPackageWrite\(/u);
       assert.match(source, /paymentTermsSchemaVersion: 2/u);
-      assert.match(source, /balanceDueHoursBeforeEvent: validated.paymentPolicy === "deposit_then_balance" \? BALANCE_DUE_HOURS_BEFORE_EVENT : null/u);
+      assert.match(source, /balanceDueHoursBeforeEvent: validated.paymentPolicy === "deposit_then_balance" \?\s+BALANCE_DUE_HOURS_BEFORE_EVENT : null/u);
       assert.match(source, /balanceDueDaysBeforeEvent:\s*validated\s*\.balanceDueDaysBeforeEvent/u);
     }
   });

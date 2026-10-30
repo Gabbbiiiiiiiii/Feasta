@@ -22,7 +22,7 @@ void main() {
     for (final key in [
       'occasionScope', 'occasionIds', 'occasionMatchIds',
       'occasionCatalogRevision', 'providerEligibilityRevision',
-      'occasionEligibilityState',
+      'occasionEligibilityState', 'foodChoiceGroups',
     ]) {
       expect(isLegacyOccasionPublicPackage({
         'occasionSchemaVersion': 1, 'eventType': 'birthday', key: null,

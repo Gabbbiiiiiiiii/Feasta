@@ -8,10 +8,20 @@
     "sourceMap": true,
     "strict": true,
     "target": "es2022",
-    "lib": ["es2022", "dom"],
+    "lib": [
+      "es2022",
+      "dom"
+    ],
     "skipLibCheck": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "paths": {
+      "@feasta/shared-types/provider-package-v2": [
+        "../packages/shared-types/dist/provider-package-v2.d.cts"
+      ]
+    }
   },
   "compileOnSave": true,
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }

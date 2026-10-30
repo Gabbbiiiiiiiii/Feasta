@@ -72,7 +72,8 @@ describe("customer provider availability planning", () => {
   });
   beforeEach(() => {
     localStorage.clear();
-    vi.clearAllMocks();
+    vi.resetAllMocks();
+    mocks.loadCalendar.mockImplementation(async (_providerId: string, month: string) => ({month, dates: []}));
     vi.useRealTimers();
     vi.setSystemTime(new Date("2026-08-27T04:00:00.000Z"));
     mocks.checkAvailability.mockResolvedValue(availableResults());
@@ -287,7 +288,7 @@ describe("customer provider availability planning", () => {
   });
   it("hides Browse More Services when only one service is loaded", async () => {
     renderExperience();
-    fillAvailabilityFields("2026-09-10");
+    await fillAvailabilityFields("2026-09-10");
     await screen.findByText("Maria's Catering is available");
     goToEventServices();
 
@@ -312,7 +313,7 @@ describe("customer provider availability planning", () => {
       />,
     );
 
-    fillAvailabilityFields("2026-09-10");
+    await fillAvailabilityFields("2026-09-10");
     await screen.findByText("Maria's Catering is available");
     goToEventServices();
 
@@ -418,6 +419,9 @@ async function fillAvailabilityFields(eventDate: string) {
   fireEvent.change(screen.getByLabelText("Start time"), {target: {value: "18:00"}});
   fireEvent.change(screen.getByLabelText("End time"), {target: {value: "22:00"}});
   fireEvent.change(screen.getByLabelText(/^Number of guests/iu), {target: {value: "100"}});
+  // Wait for the debounced request phase before asserting its rendered result.
+  // Deferred-response tests still control resolution independently.
+  await waitFor(() => expect(mocks.checkAvailability).toHaveBeenCalled());
 }
 
 async function chooseEventDate(value: string) {

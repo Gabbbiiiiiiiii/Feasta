@@ -55,6 +55,17 @@ export interface ServiceOptionV2 {
     furnitureInclusions?: string[];
     equipmentInclusions?: string[];
 }
+/** Provider-defined meal choices; private draft metadata, not yet bookable. */
+export interface FoodChoiceOptionV2 {
+    id: string;
+    name: string;
+}
+export interface FoodChoiceGroupV2 {
+    id: string;
+    title: string;
+    selectionCount: number;
+    options: FoodChoiceOptionV2[];
+}
 export interface OfferV2 {
     offerSchemaVersion: 2;
     serviceOptions: Partial<Record<Tier, ServiceOptionV2>>;
@@ -63,6 +74,7 @@ export interface OfferV2 {
     furnitureInclusions: string[];
     equipmentInclusions?: string[];
     foodInclusions: string[];
+    foodChoiceGroups?: FoodChoiceGroupV2[];
     pricingModel?: 'per_pax' | 'per_bundle';
     price: number;
 }
@@ -241,6 +253,7 @@ export interface PackageEditorProgressV2 {
         equipmentInclusions: string[];
     }>>;
     foodInclusions?: string[];
+    foodChoiceGroups?: FoodChoiceGroupV2[];
     serviceInclusions?: string[];
     decorInclusions?: string[];
     furnitureInclusions?: string[];
@@ -377,5 +390,16 @@ export interface CompletePackageEditorDraftResponse {
     packageId: string;
     packageRevision: number;
     status: 'draft';
+}
+/** Stable customer selections; rules and display names remain server-owned. */
+export interface FoodChoiceSelectionV2 {
+    groupId: string;
+    optionIds: string[];
+}
+export interface FoodChoiceSnapshotV2 {
+    groupId: string;
+    title: string;
+    selectionCount: number;
+    options: FoodChoiceOptionV2[];
 }
 //# sourceMappingURL=provider-package-v2.d.cts.map

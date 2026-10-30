@@ -1,4 +1,5 @@
 "use client";
+import type {FoodChoiceSelectionV2} from "@feasta/shared-types/provider-package-v2";
 
 import {FirebaseError} from "firebase/app";
 import {httpsCallable} from "firebase/functions";
@@ -49,12 +50,15 @@ export type SubmitPackageBookingRequestInput =
   SubmitBookingRequestBase & {
     cateringSelectionType?: "package";
     packageId: string;
+    sharedContractVersion?: 2;
+    expectedPackageRevision?: number;
     serviceTier?: CateringPackageServiceTier;
     packageThemeId?: string;
 
     eventEndTime: string;
     guestCount: number;
 
+    foodChoiceSelections?: FoodChoiceSelectionV2[];
     selectedFoods: readonly string[];
     selectedDecorations: readonly string[];
     selectedFurniture: readonly string[];

@@ -23,6 +23,11 @@ import {
   type ProviderPackagePaymentPolicy,
 } from "@/lib/provider/provider-package-client";
 
+import {packageV2Enabled, createV2PackageDraft, updateV2PackageDraft,
+  completeV2PackageProgress, hasPendingV2Draft, retryPendingV2Draft} from "@/lib/provider/provider-package-v2-client";
+import type {CreateProviderPackageV2Request, FoodChoiceGroupV2} from "@feasta/shared-types/provider-package-v2";
+import {parseFoodChoiceGroupsV2} from "@/lib/provider/food-choice-groups-v2";
+import {ProviderPackageFoodChoices} from "./provider-package-food-choices";
 import {CatalogImageUploader, uploadCatalogImages} from "@/components/provider/catalog-image-uploader";
 import {packageImageDrafts} from "@/lib/provider/catalog-media";
 
@@ -46,6 +51,7 @@ import {
   ProviderPackageOfferBuilder,
   createProviderPackageOfferDraft,
   serializeProviderPackageOfferDraft,
+  tierExtraInclusions,
   uploadProviderPackageThemeImages,
   type ProviderPackageOfferDraft,
 } from "./provider-package-offer-builder";
@@ -69,6 +75,7 @@ type ProviderPackageFormProps = {
   initialPackage?: ProviderPackage;
   initialEditorProgress?: SavedEditorDraft | null;
   onProgressSaved?: (draft: SavedEditorDraft) => void;
+  onProgressExit?: () => void;
 
   onSaved: () => void | Promise<void>;
   onCancel: () => void;
@@ -89,10 +96,14 @@ export function ProviderPackageForm({
   initialPackage,
   initialEditorProgress,
   onProgressSaved,
+  onProgressExit,
   onSaved,
   onCancel,
   onSubmittingChange,
 }: ProviderPackageFormProps) {
+  const usesV2 = initialPackage ? Boolean(initialPackage.v2) : packageV2Enabled;
+  const [pendingV2, setPendingV2] = useState(() => packageV2Enabled && hasPendingV2Draft());
+  const [draftSaved, setDraftSaved] = useState(false);
   const [step, setStep] = useState(initialEditorProgress?.currentStep ?? 0);
   const [savedProgress, setSavedProgress] = useState<SavedEditorDraft | null>(initialEditorProgress ?? null);
   const [progressSaving, setProgressSaving] = useState(false);
@@ -144,10 +155,11 @@ export function ProviderPackageForm({
     if (initialEditorProgress?.progress.occasion) {
       return initialEditorProgress.progress.occasion.occasionIds ?? [];
     }
+    if (initialPackage?.v2) return initialPackage.v2.occasionIds;
     const initial = initialPackage?.eventType ?? availableEventTypes[0];
     return initial ? [initial] : [];
   });
-  const [occasionScope, setOccasionScope] = useState<"specific" | "all">(initialEditorProgress?.progress.occasion?.occasionScope ?? "specific");
+  const [occasionScope, setOccasionScope] = useState<"specific" | "all">(initialEditorProgress?.progress.occasion?.occasionScope ?? initialPackage?.v2?.occasionScope ?? "specific");
   const [occasionToAdd, setOccasionToAdd] = useState("");
   const occasionSelector = useRef<HTMLSelectElement>(null);
   // The legacy writer accepts exactly one supported eventType. Never pick a
@@ -156,7 +168,7 @@ export function ProviderPackageForm({
   // Retain only the existing scalar scope when the V2 read configuration is
   // unavailable. This does not add choices or authorize a new scope; the legacy
   // callable still checks current ownership, capabilities and draft status.
-  const retainingLegacyScope = !occasionCatalog && initialPackage?.status === "draft" &&
+  const retainingLegacyScope = !usesV2 && !occasionCatalog && initialPackage?.status === "draft" &&
     occasionScope === "specific" && selectedOccasions.length === 1 &&
     eventType === initialPackage.eventType && serviceCategoryCode === initialPackage.serviceCategoryCode &&
     eventTypesSupported.includes(eventType);
@@ -167,7 +179,7 @@ export function ProviderPackageForm({
       ? "Add one occasion supported by your business before continuing."
       : selectedOccasions.length > occasionCatalog.maxSpecificOccasions
         ? `Choose at most ${occasionCatalog.maxSpecificOccasions} approved occasions.` : undefined;
-  const occasionSaveGate = occasionScope === "all" || selectedOccasions.length > 1
+  const occasionSaveGate = usesV2 ? undefined : occasionScope === "all" || selectedOccasions.length > 1
     ? "Multiple occasions and Fits All cannot create a real package until the V2 writer is verified. Use Save progress to keep unfinished selections where enabled."
     : eventType && !eventTypesSupported.includes(eventType)
       ? "This approved occasion requires the V2 package writer before it can be saved." : undefined;
@@ -208,6 +220,10 @@ export function ProviderPackageForm({
     setFoodInclusions,
   ] = useState(
     initialEditorProgress?.progress.foodInclusions ?? initialPackage?.foodInclusions ?? [],
+  );
+
+  const [foodChoiceGroups, setFoodChoiceGroups] = useState<FoodChoiceGroupV2[]>(
+    initialEditorProgress?.progress.foodChoiceGroups ?? initialPackage?.v2?.foodChoiceGroups ?? [],
   );
 
   const [
@@ -253,7 +269,8 @@ export function ProviderPackageForm({
   const [offerDraft, setOfferDraft] =
     useState<ProviderPackageOfferDraft>(
       () => {
-        const draft = createProviderPackageOfferDraft(initialPackage);
+        const draft = createProviderPackageOfferDraft(initialPackage?.v2 ?
+          {...initialPackage, serviceOptions: initialPackage.v2.serviceOptions} : initialPackage);
         const progress = initialEditorProgress?.progress;
         if (progress?.tiers) {
           for (const tier of ["drop_off", "buffet_setup", "full_service"] as const) {
@@ -263,6 +280,9 @@ export function ProviderPackageForm({
                 enabled: saved.enabled,
                 price: saved.priceText,
                 includedServicesText: saved.includedServices.join("\n"),
+                decorInclusionsText: saved.decorInclusions.join("\n"),
+                furnitureInclusionsText: saved.furnitureInclusions.join("\n"),
+                equipmentInclusionsText: saved.equipmentInclusions.join("\n"),
               };
             }
           }
@@ -292,7 +312,10 @@ export function ProviderPackageForm({
     offerConfiguration.startingPrice ??
     Number.NaN;
 
-  const foodError = foodInclusionsError(foodInclusions);
+  const foodError = foodInclusionsError(foodInclusions) || (usesV2 ? (() => {
+    try {parseFoodChoiceGroupsV2(foodChoiceGroups); return null;}
+    catch {return "Complete each food-choice group with a title, valid options, and a possible selection count.";}
+  })() : null);
 
   const parsedMinimumGuests =
     Number(minimumGuests);
@@ -303,9 +326,9 @@ export function ProviderPackageForm({
     useMemo(() => {
       if (
         name.trim().length < 2 ||
-        name.trim().length > 120
+        name.trim().length > (usesV2 ? 80 : 120)
       ) {
-        return {field: "name", message: "Package name must be between 2 and 120 characters."};
+        return {field: "name", message: `Package name must be between 2 and ${usesV2 ? 80 : 120} characters.`};
       }
 
       if (
@@ -344,7 +367,7 @@ export function ProviderPackageForm({
 
       if (
         !Number.isFinite(parsedPrice) ||
-        parsedPrice < 0 ||
+        (usesV2 ? parsedPrice <= 0 : parsedPrice < 0) ||
         parsedPrice > 10_000_000
       ) {
         return {field: "price", message: "Enter a valid package price."};
@@ -376,6 +399,7 @@ export function ProviderPackageForm({
 
       return null;
     }, [
+      usesV2,
       name,
       description,
       occasionError,
@@ -390,18 +414,7 @@ export function ProviderPackageForm({
     ]);
 
 
-  async function handleSaveProgress(): Promise<void> {
-    if (editing || submitting || progressSaving) return;
-    // The current server deliberately rejects unverified or unattached media.
-    // Do not create a misleading "saved" acknowledgement for media not recoverable.
-    if (images.length > 0 || offerDraft.themeOptions.some((theme) => theme.images.length > 0)) {
-      setProgressError("Remove or finish saving package/theme images first. Image uploads are not part of private progress yet.");
-      return;
-    }
-    setProgressSaving(true);
-    onSubmittingChange?.(true);
-    setProgressError(null);
-    try {
+  async function persistProgress(): Promise<SavedEditorDraft> {
       const tiers: NonNullable<EditorProgress["tiers"]> = {};
       for (const tier of ["drop_off", "buffet_setup", "full_service"] as const) {
         const value = offerDraft.serviceOptions[tier];
@@ -409,7 +422,7 @@ export function ProviderPackageForm({
           enabled: value.enabled,
           priceText: value.price,
           includedServices: parseInclusions(value.includedServicesText),
-          decorInclusions: [], furnitureInclusions: [], equipmentInclusions: [],
+          ...tierExtraInclusions(value),
         };
       }
       const progress: EditorProgress = {
@@ -417,10 +430,11 @@ export function ProviderPackageForm({
         occasion: {occasionSchemaVersion: 2, occasionScope,
           occasionIds: occasionScope === "all" ? [] : selectedOccasions},
         pricingModel, minimumGuestsText: minimumGuests, maximumGuestsText: maximumGuests,
-        tiers, foodInclusions, serviceInclusions: parseInclusions(serviceInclusionsText),
+        tiers, foodInclusions, ...(usesV2 ? {foodChoiceGroups} : {}),
+        serviceInclusions: parseInclusions(serviceInclusionsText),
         decorInclusions: parseInclusions(decorInclusionsText),
         furnitureInclusions: parseInclusions(furnitureInclusionsText),
-        equipmentInclusions: [],
+        equipmentInclusions: initialEditorProgress?.progress.equipmentInclusions ?? [],
         themes: offerDraft.themeOptions.map((theme) => ({
           editorThemeId: theme.id, name: theme.name,
           description: theme.description, assetIds: [],
@@ -444,12 +458,31 @@ export function ProviderPackageForm({
       pendingProgress.current = null;
       setSavedProgress(saved);
       onProgressSaved?.(saved);
+      return saved;
+  }
+
+  async function handleSaveProgress(): Promise<void> {
+    if (editing || submitting || progressSaving) return;
+    // The current server deliberately rejects unverified or unattached media.
+    // Do not create a misleading "saved" acknowledgement for media not recoverable.
+    if (images.length > 0 || offerDraft.themeOptions.some((theme) => theme.images.length > 0)) {
+      setProgressError("Remove or finish saving package/theme images first. Image uploads are not part of private progress yet.");
+      return;
+    }
+    setProgressSaving(true);
+    onSubmittingChange?.(true);
+    setProgressError(null);
+    let saved = false;
+    try {
+      await persistProgress();
+      saved = true;
     } catch (caught) {
       setProgressError(packageProgressError(caught));
     } finally {
       setProgressSaving(false);
       onSubmittingChange?.(false);
     }
+    if (saved) onProgressExit?.();
   }
 
   async function handleSubmit(
@@ -457,15 +490,32 @@ export function ProviderPackageForm({
   ) {
     event.preventDefault();
 
-    if (step !== 4 || submitting || occasionSaveGate || occasionError || validationError || depositError || foodError) {
+    if (step !== 4 || submitting || occasionSaveGate || occasionError || validationError || depositError || foodError ||
+      offerConfiguration.error) {
       return;
     }
+    // The final network mutation is an independent, explicit user decision.
+    // A fast second click on Next must not silently create a private package.
+    if (usesV2 && !window.confirm(editing ?
+      "Confirm saving these changes to your private package draft?" :
+      "Create this private package draft? It will not be published.")) return;
 
     setSubmitting(true);
     onSubmittingChange?.(true);
     setError(null);
 
     try {
+      if (usesV2 && savedProgress) {
+        if (images.length || offerDraft.themeOptions.some((theme) => theme.images.length)) {
+          throw new Error("PROGRESS_MEDIA_UNSUPPORTED");
+        }
+        const saved = await persistProgress();
+        await completeV2PackageProgress({editorDraftId:saved.editorDraftId, expectedRevision:saved.revision,
+          expectedPackageRevision:null, idempotencyKey:crypto.randomUUID()});
+        setDraftSaved(true);
+        await onSaved();
+        return;
+      }
       const uploaded = await uploadCatalogImages(images, (saved) => setImages((current) => current.map((image) => image.id === saved.id ? saved : image)));
       const uploadedThemes =
         await uploadProviderPackageThemeImages(
@@ -524,7 +574,24 @@ export function ProviderPackageForm({
           ),
       };
 
-      if (editing) {
+      if (usesV2) {
+        const {eventType: _eventType, ...fields} = input;
+        void _eventType;
+        const serviceOptions = Object.fromEntries(Object.entries(fields.serviceOptions).map(([tier, option]) => [tier, {
+          ...option,
+          ...tierExtraInclusions(offerDraft.serviceOptions[tier as keyof typeof offerDraft.serviceOptions]),
+        }]));
+        const v2: CreateProviderPackageV2Request = {...fields, serviceOptions,
+          equipmentInclusions: initialPackage?.v2?.equipmentInclusions ?? initialEditorProgress?.progress.equipmentInclusions ?? [],
+          ...(foodChoiceGroups.length ? {foodChoiceGroups: parseFoodChoiceGroupsV2(foodChoiceGroups)} : {}),
+          sharedContractVersion:2, offerSchemaVersion:2, occasionSchemaVersion:2,
+          occasionScope, occasionIds:occasionScope === "all" ? [] : selectedOccasions,
+          idempotencyKey:crypto.randomUUID()};
+        if (initialPackage?.v2) await updateV2PackageDraft({...v2, packageId:initialPackage.id,
+          expectedRevision:initialPackage.v2.revision});
+        else await createV2PackageDraft(v2);
+        setDraftSaved(true);
+      } else if (editing) {
         await updateProviderPackage(
           initialPackage.id,
           input,
@@ -537,7 +604,10 @@ export function ProviderPackageForm({
 
       await onSaved();
     } catch (caught) {
-      setError(providerPackageSaveError(caught));
+      setPendingV2(usesV2 && hasPendingV2Draft());
+      setError(caught instanceof Error && caught.message === "PROGRESS_MEDIA_UNSUPPORTED"
+        ? "Saved progress cannot attach images yet. Remove images before completing this progress draft."
+        : providerPackageSaveError(caught));
     } finally {
       setSubmitting(false);
       onSubmittingChange?.(false);
@@ -580,7 +650,7 @@ export function ProviderPackageForm({
       className={dialogLayout ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" : "min-w-0"}
     >
       <fieldset
-        disabled={submitting || progressSaving}
+        disabled={submitting || progressSaving || pendingV2 || draftSaved}
         className={
           dialogLayout
             ? "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
@@ -610,7 +680,7 @@ export function ProviderPackageForm({
             onChange={(event) =>
               setName(event.target.value)
             }
-            maxLength={120}
+            maxLength={usesV2 ? 80 : 120}
             autoComplete="off"
           />
         </FormField>
@@ -875,9 +945,16 @@ export function ProviderPackageForm({
       </section>
 
       </section>
-      <section hidden={step !== 2} className="space-y-4"><ProviderPackageFoodMenu value={foodInclusions} onChange={setFoodInclusions} /><p className="text-sm text-muted-foreground">All listed dishes are package inclusions. Customer-configurable category counts and substitutions are unavailable until booking support is verified.</p></section>
+      <section hidden={step !== 2} className="space-y-4">
+        <ProviderPackageFoodMenu value={foodInclusions} onChange={setFoodInclusions} />
+        {usesV2 ? <ProviderPackageFoodChoices value={foodChoiceGroups} onChange={setFoodChoiceGroups}
+          disabled={submitting || progressSaving} /> : null}
+        {foodError ? <p role="alert" className="text-sm text-destructive">{foodError}</p> : null}
+      </section>
       <section hidden={step !== 3} className="space-y-4">
       <ProviderPackageOfferBuilder section="themes" value={offerDraft} onChange={setOfferDraft} disabled={submitting} />
+      {usesV2 ? <ProviderPackageOfferBuilder section="tier-inclusions" value={offerDraft}
+        onChange={setOfferDraft} disabled={submitting} /> : null}
       <section aria-label="Images" className="grid gap-3 rounded-2xl border border-border bg-muted/20 p-4 sm:p-5"><h3 className="text-sm font-bold uppercase text-primary-strong">Package images</h3>
         <CatalogImageUploader images={images} onChange={setImages} disabled={submitting} />
       </section>
@@ -886,7 +963,7 @@ export function ProviderPackageForm({
 
       <section aria-label="Optional inclusions" className="grid gap-4 rounded-2xl border border-border bg-muted/20 p-4 sm:grid-cols-2 sm:p-5">
       <div className="sm:col-span-2"><h3 className="text-sm font-bold uppercase text-primary-strong">Optional inclusions</h3>
-      <p className="mt-1 text-sm text-muted-foreground">Optional — add inclusions to help customers understand what this package covers. Every inclusion field is optional. These shared inclusions apply across enabled tiers; separate tier decorations, furniture, and equipment are unavailable in this editor.</p></div>
+      <p className="mt-1 text-sm text-muted-foreground">Optional — add inclusions to help customers understand what this package covers. Every inclusion field is optional. These shared inclusions apply across enabled tiers. V2 tier-specific inclusions are configured above.</p></div>
 
       {capabilities.decorations ? <InclusionTextarea
         label="Decoration inclusions"
@@ -920,7 +997,7 @@ export function ProviderPackageForm({
         <ProviderPackageReview name={name} description={description} eventType={occasionScope === "all" ? "Fits All Occasions" : selectedOccasions.map(occasionLabel).join(", ")}
           serviceCategory={packageCategoryOptions.find((category) => category.code === serviceCategoryCode)?.name ?? ""}
           pricingModel={pricingModel} minimumGuests={minimumGuests} maximumGuests={maximumGuests}
-          serviceOptions={offerConfiguration.serviceOptions} food={foodInclusions} decor={decorInclusionsText}
+          serviceOptions={offerConfiguration.serviceOptions} food={foodInclusions} foodChoiceGroups={usesV2 ? foodChoiceGroups : []} decor={decorInclusionsText}
           furniture={furnitureInclusionsText} services={serviceInclusionsText} offerDraft={offerDraft}
           images={images} paymentPolicy={paymentPolicy} depositPercentage={depositPercentage}
           />
@@ -951,8 +1028,10 @@ export function ProviderPackageForm({
 
         {!editing && packageEditorProgressEnabled ? <Button type="button" variant="secondary"
           disabled={submitting || progressSaving} onClick={() => void handleSaveProgress()}>
-          {progressSaving ? "Saving progress..." : savedProgress ? "Update saved progress" : "Save progress"}
+          {progressSaving ? "Saving progress..." : onProgressExit ? "Save Progress & Exit" :
+            savedProgress ? "Update saved progress" : "Save progress"}
         </Button> : null}
+        {usesV2 ? <p className="text-xs text-muted-foreground">Save Progress keeps unfinished editor state. Save Package Draft creates a private package; it does not publish.</p> : null}
         {step > 0 ? <Button type="button" variant="secondary" onClick={() => goToStep(step - 1)}>Back</Button> : null}
         {step < 4 ? <Button type="button" onClick={() => {
           const fields = step === 0 ? ["name", "description", "eventType", "serviceCategoryCode"] : step === 1 ? ["price", "minimumGuests", "maximumGuests", "serviceOptions"] : step === 3 ? ["serviceOptions"] : [];
@@ -978,11 +1057,24 @@ export function ProviderPackageForm({
         >
           {editing
           ? "Save changes"
-          : "Create draft package"}
+          : usesV2 ? "Save Package Draft" : "Create draft package"}
         </Button>}
       </div>
       </div>
       </fieldset>
+      {pendingV2 ? <div role="alert" className="space-y-2 p-4">
+        <p>A previous save has no confirmed result. Retry that exact request before making another package.</p>
+        <Button type="button" disabled={submitting} onClick={async () => {
+          setSubmitting(true);
+          onSubmittingChange?.(true);
+          try { await retryPendingV2Draft(); setPendingV2(false); setDraftSaved(true); await onSaved(); }
+          catch (caught) { setPendingV2(hasPendingV2Draft()); setError(providerPackageSaveError(caught)); }
+          finally { setSubmitting(false); onSubmittingChange?.(false); }
+        }}>Retry pending save</Button>
+      </div> : null}
+      {draftSaved ? <div role="status" className="p-4">Private package draft saved successfully.
+        <Button type="button" onClick={() => void onSaved()}>Refresh saved packages</Button>
+      </div> : null}
     </form>
   );
 }

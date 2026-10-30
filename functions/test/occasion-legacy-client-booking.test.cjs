@@ -75,7 +75,7 @@ function harness({maintenance = {schemaVersion: 1, revision: 1, intake: false, p
 
 test('old mobile request without V2 metadata cannot book incompatible server package', async () => {
   for (const packagePatch of [{occasionSchemaVersion: 2}, {occasionIds: null},
-    {offerSchemaVersion: 2}, {offerSchemaVersion: null}, {pricingModel: 'per_pax'}]) {
+    {offerSchemaVersion: 2}, {offerSchemaVersion: null}, {pricingModel: 'per_pax'}, {foodChoiceGroups: null}, {foodChoiceGroups: []}]) {
     const h = harness({packagePatch});
     await assert.rejects(h.call(), (error) => error.code === 'failed-precondition' &&
       /package/i.test(error.message));
@@ -126,4 +126,20 @@ test('maintenance preserves owned existing booking replay', async () => {
   const h = harness({maintenance: null, existing: {customerId: 'customer_1', providerRequestIds: ['old']}});
   assert.equal((await h.call()).created, false);
   assert.equal(h.reads.includes('maintenanceControls/intake'), false);
+});
+
+
+test('orphan or malformed V2 package revision metadata rejects before transaction reads', async () => {
+ for (const patch of [{expectedPackageRevision: 1}, {sharedContractVersion: 2},
+   {sharedContractVersion: 2, expectedPackageRevision: 0},
+   {sharedContractVersion: 1, expectedPackageRevision: 1}]) {
+  const h=harness();await assert.rejects(h.call(patch), e=>e.code==='invalid-argument' && /package version/i.test(e.message));
+  assert.equal(h.reads.length,0);
+ }
+});
+test('custom menus cannot use V2 package metadata to widen their occasion contract', async () => {
+ const h=harness();await assert.rejects(h.call({cateringSelectionType:'custom_menu',packageId:undefined,
+  sharedContractVersion:2,expectedPackageRevision:1,eventType:'company_party',menuSelections:[]}),
+  e=>e.code==='invalid-argument' && /only valid for package bookings/i.test(e.message));
+ assert.equal(h.reads.length,0);
 });

@@ -9,7 +9,7 @@
  */
 const V2_OCCASION_FIELDS = [
   "occasionScope", "occasionIds", "occasionMatchIds", "occasionCatalogRevision",
-  "providerEligibilityRevision", "occasionEligibilityState",
+  "providerEligibilityRevision", "occasionEligibilityState", "foodChoiceGroups",
 ] as const;
 
 export function isLegacyOccasionPackage(

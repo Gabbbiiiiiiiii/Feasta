@@ -1,4 +1,5 @@
 import "server-only";
+import {verifiedPublicPackageV2} from "@/lib/customer/discovery/verified-package-v2";
 
 import {FIRESTORE_COLLECTIONS} from "@feasta/shared-types";
 
@@ -33,8 +34,11 @@ export async function getPublicPackageDetail(
     return null;
   }
 
-  const packageData =
+  let packageData =
     packageSnapshot.data() ?? {};
+  const v2 = packageData.occasionSchemaVersion === 2;
+  if (v2) { const verified = await verifiedPublicPackageV2(packageSnapshot.id);
+    if (!verified) return null; packageData = verified; }
 
   const providerId = safeDocumentId(
     packageData.providerId,
@@ -96,6 +100,7 @@ export async function getPublicPackageDetail(
       packageSnapshot.id,
       packageData,
       providerNames,
+      v2,
     );
 
   if (!packageRecord) {

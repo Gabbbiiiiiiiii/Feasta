@@ -15,7 +15,21 @@ test("Phase 1 definitions preserve the frozen contract's exact fields and unions
   const normalize = (node, file) => printer.printNode(ts.EmitHint.Unspecified, node, file)
     .replace(/^export\s+/, "").replace(/\s/g, "");
   const actual = parse(source);
-  const definitions = new Map(actual.statements.filter((s) => s.name).map((s) => [s.name.text, normalize(s, actual)]));
+  // F2 explicitly adds this optional field to the canonical interfaces. Keep
+  // every frozen member/union exact; permit only this reviewed additive shape.
+  const additiveInterfaces = new Set(["OfferV2", "PackageEditorProgressV2"]);
+  const definitions = new Map(actual.statements.filter((s) => s.name).map((statement) => {
+    let node = statement;
+    if (ts.isInterfaceDeclaration(statement) && additiveInterfaces.has(statement.name.text)) {
+      const additions = statement.members.filter((member) => member.name?.getText(actual) === "foodChoiceGroups");
+      assert.equal(additions.length, 1, `${statement.name.text}: one reviewed F2 field`);
+      assert.equal(normalize(additions[0], actual), "foodChoiceGroups?:FoodChoiceGroupV2[];");
+      node = ts.factory.updateInterfaceDeclaration(statement, statement.modifiers, statement.name,
+        statement.typeParameters, statement.heritageClauses,
+        statement.members.filter((member) => !additions.includes(member)));
+    }
+    return [statement.name.text, normalize(node, actual)];
+  }));
   for (const index of [0, 2, 3, 6, 7]) {
     const expected = parse(blocks[index]);
     for (const statement of expected.statements) {

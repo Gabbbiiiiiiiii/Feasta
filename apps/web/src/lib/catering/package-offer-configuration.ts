@@ -5,6 +5,9 @@ import {
 
 export type PackageServiceOption = {
   price: number;
+  decorInclusions?: readonly string[];
+  furnitureInclusions?: readonly string[];
+  equipmentInclusions?: readonly string[];
   includedServices: readonly string[];
 };
 
@@ -54,6 +57,8 @@ export function normalizePackageServiceOptions(
 
     result[tier] = {
       price,
+      ...Object.fromEntries(["decorInclusions", "furnitureInclusions", "equipmentInclusions"]
+        .filter(k => Object.hasOwn(option, k)).map(k => [k, safeTextList(option[k], 50, 160)])),
       includedServices: safeTextList(
         option.includedServices,
         50,

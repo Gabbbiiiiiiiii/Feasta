@@ -1,8 +1,10 @@
 import "server-only";
+import {customerV2DemoEnabled, verifiedPublicPackageV2} from "@/lib/customer/discovery/verified-package-v2";
 
 import {FIRESTORE_COLLECTIONS} from "@feasta/shared-types";
 import {
   FieldPath,
+  Filter,
   Timestamp,
   type DocumentData,
   type Query,
@@ -41,10 +43,14 @@ export async function getPublicPackagePage(
     .where("status", "==", "published")
     .where("isDeleted", "==", false);
 
-  if (filters.eventType !== "all") {
-    query = query.where("eventType", "==", filters.eventType);
-  }
 
+
+  if (filters.eventType !== "all") {
+    query = customerV2DemoEnabled() ?
+      query.where(Filter.or(Filter.where("eventType", "==", filters.eventType),
+        Filter.where("occasionMatchIds", "array-contains", filters.eventType))) :
+      query.where("eventType", "==", filters.eventType);
+  }
   query = query
     .orderBy("createdAt", "desc")
     .orderBy(FieldPath.documentId(), "desc");
@@ -66,7 +72,8 @@ export async function getPublicPackagePage(
   }
 
   const snapshot = await query.get();
-  const publicCandidates = await normalizePackageCandidates(snapshot.docs);
+  const publicCandidates = (await normalizePackageCandidates(snapshot.docs)).filter(({packageRecord: p}) =>
+    filters.eventType === "all" || (p.occasionMatchIds ?? [p.eventType]).includes(filters.eventType));
   const previousDirection = cursor?.direction === "previous";
   const selected = previousDirection
     ? publicCandidates.slice(-safePageSize)
@@ -147,14 +154,15 @@ async function normalizePackageCandidates(
     ([providerId, provider]) => [providerId, provider.businessName],
   ));
 
-  return documents.flatMap((document) => {
-    const packageRecord = normalizePublicPackage(
-      document.id,
-      document.data(),
-      providerNames,
-    );
+  const candidates = await Promise.all(documents.map(async (document) => {
+    const original = document.data();
+    const v2 = original.occasionSchemaVersion === 2;
+    const data = v2 ? await verifiedPublicPackageV2(document.id) : original;
+    if (!data) return [];
+    const packageRecord = normalizePublicPackage(document.id, data, providerNames, v2);
     return packageRecord ? [{document, packageRecord}] : [];
-  });
+  }));
+  return candidates.flat();
 }
 
 function encodePackageCursor(

@@ -1,3 +1,6 @@
+import {requireCustomerPackageV2} from "../packages/customer-package-v2.js";
+import {resolveOfferV2} from "../packages/offer-v2-validation.js";
+import {parseFoodChoiceSelections, resolveFoodChoiceSelections} from "./food-choice-selection.js";
 import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {readInitialPaymentRollout, initialPaymentEnrollment} from "../payments/initial-payment-rollout.js";
 import {loadBookingPaymentPolicySnapshot} from "./load-booking-payment-policy.js";
@@ -206,12 +209,21 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
       const input = asRecord(request.data);
       const selectionFields = new Set(["clientRequestId", "providerId", "packageId", "cateringSelectionType",
         "serviceTier", "packageThemeId", "eventType", "eventDate", "eventTime", "eventEndTime", "eventLocation", "eventAddress",
-        "guestCount", "selectedFoods", "selectedDecorations", "selectedFurniture", "menuSelections", "addonIds", "specialRequest",
+        "sharedContractVersion", "expectedPackageRevision", "guestCount", "foodChoiceSelections",
+        "selectedFoods", "selectedDecorations", "selectedFurniture", "menuSelections",
+        "addonIds", "specialRequest",
         "willArrangeOwnAddOns", "customerArrangedAddOnsNote", "policyAcknowledgements", "agreementAcknowledgements"]);
       if (Object.keys(input).some(field => !selectionFields.has(field))) {
         throw new HttpsError("invalid-argument", "Booking selection contains unsupported fields.");
       }
 
+      const hasV2Metadata = Object.hasOwn(input, "sharedContractVersion") ||
+        Object.hasOwn(input, "expectedPackageRevision");
+      if (hasV2Metadata && (input.sharedContractVersion !== 2 ||
+          !Number.isSafeInteger(input.expectedPackageRevision) ||
+          Number(input.expectedPackageRevision) < 1)) {
+        throw new HttpsError("invalid-argument", "Invalid package version.");
+      }
       rejectClientBookingFinancialAuthority(
         input,
       );
@@ -220,6 +232,10 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
         parseCateringSelectionType(
           input.cateringSelectionType,
         );
+
+      if (hasV2Metadata && cateringSelectionType !== "package") {
+        throw new HttpsError("invalid-argument", "V2 metadata is only valid for package bookings.");
+      }
 
       assertCateringSelectionShape(
         input,
@@ -324,6 +340,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
 
       const submissionTime = new Date();
 
+      const foodChoiceSelections = parseFoodChoiceSelections(input.foodChoiceSelections);
       const selectedFoods = cateringSelectionType === "package"
         ? requireStringList(
             input,
@@ -404,6 +421,9 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
           eventAddress,
           guestCount,
           selectedFoods,
+          ...(input.sharedContractVersion === 2 ? {sharedContractVersion: 2,
+            expectedPackageRevision: input.expectedPackageRevision} : {}),
+          ...(foodChoiceSelections.length ? {foodChoiceSelections} : {}),
           selectedDecorations,
           selectedFurniture,
           addonIds: [...addonIds].sort(),
@@ -626,6 +646,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
           }
 
           let packageData: UnknownRecord | null = null;
+          let foodChoiceSnapshot: ReturnType<typeof resolveFoodChoiceSelections> = [];
           let storedPackageName = "Custom menu";
           let packagePrice = 0;
           let resolvedMenuSelections:
@@ -653,7 +674,17 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
             packageData =
               packageSnapshot.data() ?? {};
 
-            if (!isLegacyOccasionPackage(packageData)) {
+            let verifiedV2 = false;
+            if (packageData.occasionSchemaVersion === 2 && input.sharedContractVersion === 2) {
+              await requireCustomerPackageV2(transaction, packageData, "booking");
+              if (packageData.revision !== input.expectedPackageRevision) {
+                throw new HttpsError("aborted", "Package changed. Reload your selections.",
+                  {reason: "REVISION_CONFLICT"});
+              }
+              verifiedV2 = true;
+            }
+            if (!verifiedV2 && (input.sharedContractVersion === 2 ||
+              !isLegacyOccasionPackage(packageData))) {
               throw new HttpsError(
                 "failed-precondition",
                 "This package needs verified occasion compatibility before booking.",
@@ -663,6 +694,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
             assertBookingPackageValid(
               validateBookingPackage({
                 packageData,
+                verifiedV2,
                 expectedProviderId:
                   cateringProviderId,
                 submittedEventType:
@@ -671,21 +703,28 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
               }),
             );
 
+            foodChoiceSnapshot = resolveFoodChoiceSelections(packageData, foodChoiceSelections);
+
             validatePackageSelections(
               selectedFoods,
               packageData.foodInclusions,
               "selectedFoods",
             );
 
+            const tierInclusions = verifiedV2 ? resolveOfferV2(Object.fromEntries(
+              ["offerSchemaVersion", "serviceOptions", "serviceInclusions", "decorInclusions",
+                "furnitureInclusions", "foodInclusions", "price", "equipmentInclusions",
+                "pricingModel", "foodChoiceGroups"].filter(k => Object.hasOwn(packageData!, k))
+                .map(k => [k, packageData![k]])), serviceTier) : null;
             validatePackageSelections(
               selectedDecorations,
-              packageData.decorInclusions,
+              tierInclusions?.decorInclusions ?? packageData.decorInclusions,
               "selectedDecorations",
             );
 
             validatePackageSelections(
               selectedFurniture,
-              packageData.furnitureInclusions,
+              tierInclusions?.furnitureInclusions ?? packageData.furnitureInclusions,
               "selectedFurniture",
             );
 
@@ -1212,6 +1251,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
                 null,
               selection: {cateringSelectionType, packageId, services: cateringServices,
                 offer: resolvedPackageOffer.selection, guestCount: resolvedGuestCount,
+                ...(foodChoiceSnapshot.length ? {foodChoiceSelections: foodChoiceSnapshot} : {}),
                 selectedFoods, selectedDecorations, selectedFurniture},
               eventStartAt: submissionEligibility.eventStartAt, eventEndTime,
               grossAmountInCentavos: Math.round(cateringSubtotal * 100),
@@ -1494,6 +1534,7 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
               eventAddress,
 
               selectedFoods,
+              ...(foodChoiceSnapshot.length ? {foodChoiceSelections: foodChoiceSnapshot} : {}),
               selectedDecorations,
               selectedFurniture,
               selectedAddOns,
@@ -1957,6 +1998,7 @@ function assertCateringSelectionShape(
   if (
     "packageId" in input ||
     "selectedFoods" in input ||
+    "foodChoiceSelections" in input ||
     "selectedDecorations" in input ||
     "selectedFurniture" in input ||
     "serviceTier" in input ||
@@ -2372,6 +2414,7 @@ function requireEventType(
   ).toLowerCase();
 
   if (
+    !(input.sharedContractVersion === 2 && /^[a-z][a-z0-9_]{1,63}$/.test(value)) &&
     !(
       PROVIDER_EVENT_TYPES as
         readonly string[]

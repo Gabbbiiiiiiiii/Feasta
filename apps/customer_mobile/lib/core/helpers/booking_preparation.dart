@@ -1,3 +1,4 @@
+import '../../shared/models/food_choice_v2.dart';
 import '../../shared/models/feasta_models.dart';
 import '../../shared/models/event_customization_data.dart';
 
@@ -57,10 +58,16 @@ double? preparationEstimate(
   PackageModel package,
   List<Map<String, dynamic>> addons, {
   String? serviceTier,
+  int? guests,
 }) {
   final base = preparationBasePrice(package, serviceTier: serviceTier);
   if (base == null) return null;
-  var total = base;
+  if (package.pricingModel == 'per_pax' && (guests == null || guests < preparationMinimumGuests(package) ||
+      (preparationMaximumGuests(package) != null && guests > preparationMaximumGuests(package)!))) {
+    return null;
+  }
+  var total = (base * 100).round() * (package.pricingModel == 'per_pax' ? guests! : 1) / 100;
+  if (total > 10000000) return null;
   for (final addon in addons) {
     final price = addon['price'];
     if (price is! num || !knownPreparationPrice(price)) return null;
@@ -92,7 +99,8 @@ String? validatePreparation({
   }
   if (eventType != null &&
       package.eventType.trim().isNotEmpty &&
-      eventType != package.eventType.trim()) {
+      !(package.sharedContractVersion == 2 ? package.occasionMatchIds.contains(eventType) :
+        eventType == package.eventType.trim())) {
     return 'This package supports ${package.eventType} events. Please choose the current event type.';
   }
   if (date == null) return 'Please select an event date.';
@@ -137,14 +145,14 @@ String? validatePreparation({
   bool allowed(List<String> chosen, List<String> options) =>
       chosen.toSet().length == chosen.length && chosen.every(options.contains);
   if (!allowed(foods, package.foodInclusions) ||
-      !allowed(decorations, package.decorInclusions) ||
-      !allowed(furniture, package.furnitureInclusions)) {
+      !allowed(decorations, preparationInclusions(package, 'decorInclusions', serviceTier)) ||
+      !allowed(furniture, preparationInclusions(package, 'furnitureInclusions', serviceTier))) {
     return 'Package options changed. Please select the current options again.';
   }
   if (!package.isCustomizable &&
       (foods.length != package.foodInclusions.length ||
-          decorations.length != package.decorInclusions.length ||
-          furniture.length != package.furnitureInclusions.length)) {
+          decorations.length != preparationInclusions(package, 'decorInclusions', serviceTier).length ||
+          furniture.length != preparationInclusions(package, 'furnitureInclusions', serviceTier).length)) {
     return 'This package has fixed inclusions.';
   }
   if (package.serviceOptions.isNotEmpty &&
@@ -197,6 +205,8 @@ final preparationDraftMemory = PreparationDraftMemory();
 
 EventCustomizationData snapshotCustomization(EventCustomizationData value) =>
     EventCustomizationData(
+      sharedContractVersion: value.sharedContractVersion,
+      expectedPackageRevision: value.expectedPackageRevision,
       eventType: value.eventType,
       eventDate: value.eventDate,
       eventTime: value.eventTime,
@@ -204,6 +214,14 @@ EventCustomizationData snapshotCustomization(EventCustomizationData value) =>
       guestCount: value.guestCount,
       eventLocation: value.eventLocation,
       eventAddress: value.eventAddress,
+      foodChoiceSelections: List.unmodifiable(
+        parseFoodChoiceSelections(value.foodChoiceSelections).map(
+          (s) => Map<String, dynamic>.unmodifiable({
+            ...s,
+            "optionIds": List<String>.unmodifiable(s["optionIds"] as List),
+          }),
+        ),
+      ),
       selectedFoods: List.unmodifiable(value.selectedFoods),
       selectedDecorations: List.unmodifiable(value.selectedDecorations),
       selectedFurniture: List.unmodifiable(value.selectedFurniture),
@@ -218,3 +236,11 @@ EventCustomizationData snapshotCustomization(EventCustomizationData value) =>
       serviceTier: value.serviceTier,
       packageThemeId: value.packageThemeId,
     );
+
+List<String> preparationInclusions(PackageModel package, String key, String? tier) {
+  final shared = key == 'decorInclusions' ? package.decorInclusions :
+    key == 'furnitureInclusions' ? package.furnitureInclusions :
+    key == 'equipmentInclusions' ? package.equipmentInclusions : package.serviceInclusions;
+  final extra = package.serviceOptions[tier]?[key == 'serviceInclusions' ? 'includedServices' : key];
+  return {...shared, ...stringListFromValue(extra)}.toList();
+}

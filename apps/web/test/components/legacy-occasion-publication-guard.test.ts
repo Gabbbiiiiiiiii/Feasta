@@ -6,7 +6,7 @@ const legacy = {providerId: "provider_1", name: "Birthday package", eventType: "
   status: "published", isPublished: true, providerPubliclyVisible: true,
   isActive: true, isDeleted: false};
 const v2Fields = ["occasionScope", "occasionIds", "occasionMatchIds",
-  "occasionCatalogRevision", "providerEligibilityRevision", "occasionEligibilityState"] as const;
+  "occasionCatalogRevision", "providerEligibilityRevision", "occasionEligibilityState", "foodChoiceGroups"] as const;
 
 describe("public package reader's V1/V2 boundary", () => {
   it("rejects unknown offer envelopes and present pricing fields without hiding V1", () => {

@@ -16,11 +16,11 @@ export type SavedEditorDraft = {
   providerId: string;
   packageId: null;
   basePackageRevision: null;
-  state: "incomplete";
+  state: "incomplete" | "completed";
   progress: EditorProgress;
   currentStep: 0 | 1 | 2 | 3 | 4;
-  completedPackageId: null;
-  completedPackageRevision: null;
+  completedPackageId: string | null;
+  completedPackageRevision: number | null;
   revision: number;
   createdAt: string;
   updatedAt: string;

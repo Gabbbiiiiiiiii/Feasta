@@ -15,6 +15,12 @@ const pnpmCli = process.env.npm_execpath;
 
 try {
   assert.ok(pnpmCli, "Run package preparation through pnpm.");
+  // Functions' V2 type-only path resolves canonical declarations, not the
+  // independently installed archive. Keep those declarations current even when
+  // Functions is built directly rather than through the monorepo verification.
+  execFileSync(process.execPath, [require.resolve("typescript/bin/tsc"),
+    "-p", path.join(sharedRoot, "tsconfig.json"),
+  ], {stdio: "inherit"});
   fs.mkdirSync(stagingRoot);
   const canonical = JSON.parse(fs.readFileSync(path.join(sharedRoot, "package.json"), "utf8"));
   const {name, version, private: privatePackage, type, main, types, exports, typesVersions} = canonical;

@@ -32,7 +32,7 @@ describe("package layout refinement", () => {
   });
 
   it("identifies the review cover and empty optional sections", () => {
-    render(<ProviderPackageReview name="Birthday" description="Catering" eventType="birthday" serviceCategory="Catering" pricingModel="per_pax" minimumGuests="10" maximumGuests="100" serviceOptions={{}} food={[]} decor="" furniture="" services="" offerDraft={createProviderPackageOfferDraft()} images={[{id: "cover", title: "", url: "https://example.com/photo.jpg"}]} paymentPolicy="full_payment" depositPercentage="50" />);
+    render(<ProviderPackageReview name="Birthday" description="Catering" eventType="birthday" serviceCategory="Catering" pricingModel="per_pax" minimumGuests="10" maximumGuests="100" serviceOptions={{}} food={[]} foodChoiceGroups={[]} decor="" furniture="" services="" offerDraft={createProviderPackageOfferDraft()} images={[{id: "cover", title: "", url: "https://example.com/photo.jpg"}]} paymentPolicy="full_payment" depositPercentage="50" />);
     expect(screen.getByText("Cover image")).toBeVisible();
     expect(screen.getByText("No service tiers enabled")).toBeVisible();
     expect(within(screen.getByRole("region", {name: "Package review"})).getByText("No dishes added")).toBeVisible();

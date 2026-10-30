@@ -29,6 +29,9 @@ type ServiceDraft = {
   price: string;
   inputError?: string;
   includedServicesText: string;
+  decorInclusionsText: string;
+  furnitureInclusionsText: string;
+  equipmentInclusionsText: string;
 };
 
 export type PackageThemeDraft = {
@@ -52,7 +55,13 @@ export type SerializedPackageOfferDraft = {
 
 export function createProviderPackageOfferDraft(
   initial?: {
-    serviceOptions?: PackageServiceOptions;
+    serviceOptions?: Partial<Record<CateringPackageServiceTier, {
+      price: number;
+      includedServices: readonly string[];
+      decorInclusions?: readonly string[];
+      furnitureInclusions?: readonly string[];
+      equipmentInclusions?: readonly string[];
+    }>>;
     themeOptions?: readonly PackageThemeOption[];
   },
 ): ProviderPackageOfferDraft {
@@ -67,6 +76,9 @@ export function createProviderPackageOfferDraft(
             price: existing ? String(existing.price) : "",
             includedServicesText:
               existing?.includedServices.join("\n") ?? "",
+            decorInclusionsText: existing?.decorInclusions?.join("\n") ?? "",
+            furnitureInclusionsText: existing?.furnitureInclusions?.join("\n") ?? "",
+            equipmentInclusionsText: existing?.equipmentInclusions?.join("\n") ?? "",
           },
         ];
       }),
@@ -116,6 +128,17 @@ export function serializeProviderPackageOfferDraft(
     }
 
     const includedServices = parseLines(draft.includedServicesText);
+    for (const [label, text] of [
+      ["decorations", draft.decorInclusionsText],
+      ["furniture", draft.furnitureInclusionsText],
+      ["equipment", draft.equipmentInclusionsText],
+    ]) {
+      const lines = parseLines(text);
+      if (lines.length > 50 || lines.some((item) => item.length > 160 ||
+          /[\p{Cc}\p{Cf}]/u.test(item))) {
+        return invalid(`${cateringPackageServiceTierLabel(tier)} ${label} must contain at most 50 entries, each up to 160 characters without control characters.`);
+      }
+    }
     if (
       includedServices.length > 50 ||
       includedServices.some((item) => item.length > 160)
@@ -245,7 +268,7 @@ export function ProviderPackageOfferBuilder({
   disabled?: boolean;
   error?: string;
   legacyNotice?: string;
-  section?: "all" | "pricing" | "themes";
+  section?: "all" | "pricing" | "themes" | "tier-inclusions";
   priceUnit?: string;
 }) {
   const supportsThemes =
@@ -271,7 +294,7 @@ export function ProviderPackageOfferBuilder({
 
   return (
     <div className="grid gap-6">
-      {section !== "themes" ? <section
+      {section !== "themes" && section !== "tier-inclusions" ? <section
         aria-labelledby="package-service-options-title"
         className="grid gap-4 rounded-2xl border border-border bg-muted/20 p-4 sm:p-5"
       >
@@ -364,9 +387,48 @@ export function ProviderPackageOfferBuilder({
         ) : null}
       </section> : null}
 
-      {section !== "pricing" ? <PackageThemeEditor value={value} onChange={onChange} disabled={disabled} supportsThemes={supportsThemes} /> : null}
+      {section === "tier-inclusions" ? <section aria-label="Tier-specific inclusions"
+        className="space-y-4 rounded-2xl border border-border bg-muted/20 p-4 sm:p-5">
+        <div>
+          <h3 className="text-sm font-bold uppercase text-primary-strong">Inclusions per service tier</h3>
+          <p className="text-sm text-muted-foreground">These decorations, furniture, and equipment are specific to each enabled tier. Shared inclusions below apply to all tiers.</p>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-3">
+          {CATERING_PACKAGE_SERVICE_TIERS.filter((tier) => value.serviceOptions[tier].enabled)
+            .map((tier) => {
+              const label = cateringPackageServiceTierLabel(tier);
+              const draft = value.serviceOptions[tier];
+              return <section key={tier} className="space-y-3 rounded-lg border bg-card p-3"
+                aria-label={`${label} inclusions`}>
+                <h4 className="font-semibold">{label}</h4>
+                {([
+                  ["Decoration", "decorInclusionsText"],
+                  ["Furniture", "furnitureInclusionsText"],
+                  ["Equipment", "equipmentInclusionsText"],
+                ] as const).map(([title, field]) => <label key={field}
+                  className="grid gap-2 text-sm font-medium">
+                  {`${title} inclusions for ${label}`}
+                  <Textarea rows={3} disabled={disabled} value={draft[field]}
+                    aria-label={`${title} inclusions for ${label}`}
+                    placeholder="One inclusion per line"
+                    onChange={(event) => updateService(tier, {[field]: event.currentTarget.value})} />
+                </label>)}
+              </section>;
+            })}
+        </div>
+      </section> : null}
+      {section !== "pricing" && section !== "tier-inclusions" ? <PackageThemeEditor value={value} onChange={onChange} disabled={disabled} supportsThemes={supportsThemes} /> : null}
     </div>
   );
+}
+
+export function tierExtraInclusions(draft: Pick<ServiceDraft,
+  "decorInclusionsText" | "furnitureInclusionsText" | "equipmentInclusionsText">) {
+  return {
+    decorInclusions: parseLines(draft.decorInclusionsText),
+    furnitureInclusions: parseLines(draft.furnitureInclusionsText),
+    equipmentInclusions: parseLines(draft.equipmentInclusionsText),
+  };
 }
 
 function parseLines(value: string): string[] {

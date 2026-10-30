@@ -12,6 +12,7 @@ const _v2OccasionFields = <String>{
   'occasionCatalogRevision',
   'providerEligibilityRevision',
   'occasionEligibilityState',
+  'foodChoiceGroups',
 };
 
 /// A legacy V1 display or preparation path may accept records with no occasion

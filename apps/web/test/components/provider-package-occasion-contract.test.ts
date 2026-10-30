@@ -12,7 +12,7 @@ it.each(["occasionSchemaVersion", "occasionScope", "occasionIds", "selectedOccas
 });
 it.each(["occasionSchemaVersion", "occasionScope", "occasionIds", "occasionMatchIds"])("refuses legacy editing of a stored %s record", async (field) => {
   mocks.getDocs.mockResolvedValue({docs: [{id: "package", data: () => ({[field]: []})}]});
-  await expect(listProviderPackages("provider")).rejects.toThrow("requires the V2 occasion editor");
+  await expect(listProviderPackages("provider")).rejects.toThrow("requires a compatible private V2 editor");
 });
 it("explains revision conflicts without treating them as save success", () => {
   expect(providerPackageSaveError({code: "functions/aborted", details: {reason: "REVISION_CONFLICT"}})).toContain("Reload current package and occasion choices");

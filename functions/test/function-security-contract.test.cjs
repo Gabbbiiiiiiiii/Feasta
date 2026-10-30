@@ -557,6 +557,16 @@ test("all deployed exports remain in the reviewed inventory", () => {
   assert.equal(names.has("getOccasionTransition"), false);
   assert.equal(names.has("prepareBlockedOccasionTransition"), false);
   assert.deepEqual([...names].sort(), [
+  "getCustomerPackageV2",
+  "inspectIntakeMaintenance",
+  "setIntakeMaintenance",
+  "saveProviderPackageEditorDraft",
+  "getProviderPackageEditorDraft",
+  "listProviderPackageEditorDrafts",
+  "discardProviderPackageEditorDraft",
+  "createProviderPackageV2",
+  "updateProviderPackageV2",
+  "completeProviderPackageEditorDraft",
   "checkAdminOccasionActivationReadiness",
   "checkAdminOccasionDeactivationReadiness",
   "activateAdminOccasion",
@@ -791,4 +801,13 @@ test("booking agreement disclosure is sanitized before callable response", () =>
     body,
     /agreements\s*:\s*agreements\.map\(\s*bookingPaymentAgreementDisclosure\s*,?\s*\)/su,
   );
+});
+
+test("V2 public gateway is bounded, transactional, gated and never returns raw documents", () => {
+ const body = source("packages/customer-package-v2.ts");
+ for (const marker of ["enforceCallableRateLimit", "appCheckCallableOptions", "db.runTransaction",
+   "requireCustomerPackageV2", "limit(1001)", "isProviderPubliclyEligible", "parseV2DraftWrite",
+   "providerEligibilityAuthorities/", "PACKAGE_V2_UNAVAILABLE", "FUNCTIONS_EMULATOR"]) {
+   assert.ok(body.includes(marker), marker);
+ }
 });

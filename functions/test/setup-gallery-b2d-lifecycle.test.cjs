@@ -12,6 +12,7 @@ const root = path.resolve(__dirname, "../src");
 
 function fixture(overrides = {}) {
   const docs = new Map(Object.entries({
+    "maintenanceControls/intake": {schemaVersion:1,revision:1,intake:false,publication:false},
     "users/admin": {role: "admin", accountStatus: "active", isActive: true, isBlocked: false},
     "users/owner": {role: "provider", providerId: "provider", accountStatus: "active",
       isActive: true, isBlocked: false},
@@ -54,7 +55,7 @@ function fixture(overrides = {}) {
     const s = read(target);
     return JSON.stringify(target.key ? s.data() : s.docs.map((d) => [d.id, d.data()]));
   };
-  const db = {collection, runTransaction: async (callback) => {
+  const db = {doc: ref, collection, runTransaction: async (callback) => {
     for (let attempt = 0; attempt < 5; attempt++) {
       state.attempts++;
       const reads = new Map();
@@ -114,7 +115,7 @@ function fixture(overrides = {}) {
         HttpsError: class extends Error {constructor(code, message) {super(message); this.code = code;}},
         onCall: (options, handler) => {assert.equal(options.enforceAppCheck, true); return handler;},
       };
-      if (name === "firebase-admin/firestore") return {Timestamp: {now: () => "NOW"}};
+      if (name === "firebase-admin/firestore") return {Timestamp: {now: () => "NOW"}, FieldValue: {serverTimestamp: () => "NOW"}};
       if (name.startsWith("node:")) return require(name);
       if (name.startsWith("@feasta/shared-types")) return require(name);
       if (name.startsWith(".")) return load(path.resolve(path.dirname(file), name.replace(/\.js$/, ".ts")));

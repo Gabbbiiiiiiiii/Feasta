@@ -2,6 +2,10 @@
 export function providerPackageSaveError(error: unknown): string {
   const record = error && typeof error === "object" ? error as {code?: unknown; message?: unknown; details?: {reason?: unknown}} : {};
   const code = typeof record.code === "string" ? record.code.replace(/^functions\//u, "") : "";
+  const reason = record.details?.reason;
+  if (reason === "FEATURE_DISABLED" || record.message === "FEATURE_DISABLED") return "Private V2 draft saving is not enabled in this environment.";
+  if (record.message === "PENDING_V2_SAVE") return "An earlier save is unconfirmed. Retry the pending request before making another package.";
+  if (reason === "EDITOR_DRAFT_COMPLETED") return "This progress already became a package draft. Refresh your package list to open it.";
   const message = typeof record.message === "string" ? record.message : "";
   if (code === "aborted" || record.details?.reason === "REVISION_CONFLICT") return "The package or occasion eligibility changed. Your entries are still here. Reload current package and occasion choices before retrying.";
   if (code === "invalid-argument" && /^Unsupported package fields:\s*pricingModel\.?$/iu.test(message)) {

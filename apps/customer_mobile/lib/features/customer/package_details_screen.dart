@@ -318,6 +318,11 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
                     items: eventPackage.serviceInclusions,
                   ),
                   const SizedBox(height: AppSpacing.md),
+                  for (final group in eventPackage.foodChoiceGroups)
+                    ListTile(title: Text('${group.title}: choose ${group.selectionCount}'),
+                      subtitle: Text(group.options.values.join(', '))),
+                  Text(eventPackage.priceUnitLabel),
+                  Text(eventPackage.occasionDisplayLabel),
                   _AvailableAddonsSection(
                     providerId: provider.id,
                     repository: _repository,
@@ -331,6 +336,7 @@ class _PackageDetailsScreenState extends State<PackageDetailsScreen> {
       ),
       bottomNavigationBar: _PackageBottomAction(
         price: eventPackage.price,
+        unitLabel: eventPackage.priceUnitLabel,
         onPressed: _checkingPackage ? null : _customizeEvent,
       ),
     );
@@ -717,7 +723,7 @@ class _PackageOverviewCard extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.xl),
               Text(
-                'Package price',
+                eventPackage.priceUnitLabel,
                 style: AppTypography.caption.copyWith(
                   color: AppColors.secondaryTextAccessible,
                   fontWeight: FontWeight.w700,
@@ -727,7 +733,7 @@ class _PackageOverviewCard extends StatelessWidget {
               FeastaPriceText(
                 amount: eventPackage.price,
                 decimalDigits: 0,
-                semanticLabel: 'Package price',
+                semanticLabel: eventPackage.priceUnitLabel,
                 style: AppTypography.pageTitle.copyWith(
                   color: AppColors.primaryStrong,
                   fontWeight: FontWeight.w900,
@@ -1093,9 +1099,10 @@ class _AddonRow extends StatelessWidget {
 }
 
 class _PackageBottomAction extends StatelessWidget {
-  const _PackageBottomAction({required this.price, required this.onPressed});
+  const _PackageBottomAction({required this.price, required this.onPressed, this.unitLabel = 'Package price'});
 
   final double price;
+  final String unitLabel;
   final VoidCallback? onPressed;
 
   @override
@@ -1123,7 +1130,7 @@ class _PackageBottomAction extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Package price',
+                    unitLabel,
                     style: AppTypography.caption.copyWith(
                       color: AppColors.secondaryTextAccessible,
                     ),
@@ -1132,7 +1139,7 @@ class _PackageBottomAction extends StatelessWidget {
                   FeastaPriceText(
                     amount: price,
                     decimalDigits: 0,
-                    semanticLabel: 'Package price',
+                    semanticLabel: unitLabel,
                     style: AppTypography.cardTitle.copyWith(
                       color: AppColors.primaryStrong,
                       fontWeight: FontWeight.w900,

@@ -1,3 +1,4 @@
+import '../../../../core/config/firebase_emulator_config.dart';
 import '../../../../core/domain/legacy_booking_payment_authority.dart';
 import 'customer_bookings_source.dart';
 import '../../../../shared/models/booking_refund_policy.dart';
@@ -220,7 +221,9 @@ class FeastaRepository {
         .where('isPublished', isEqualTo: true)
         .where('providerPubliclyVisible', isEqualTo: true)
         .where('status', isEqualTo: 'published')
-        .where('eventType', isEqualTo: eventType)
+        .where(FirebaseEmulatorConfig.v2DiscoveryEnabled
+          ? Filter.or(Filter('eventType', isEqualTo: eventType), Filter('occasionMatchIds', arrayContains: eventType))
+          : Filter('eventType', isEqualTo: eventType))
         .where('isDeleted', isEqualTo: false)
         .orderBy('createdAt', descending: true)
         .orderBy(FieldPath.documentId, descending: true)
@@ -228,9 +231,11 @@ class FeastaRepository {
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
         .asyncMap((snapshot) async {
-          final providerIds = snapshot.docs
-              .where((doc) => isLegacyOccasionPublicPackage(doc.data()))
-              .map((doc) => doc.data()['providerId'])
+          final verified = await Future.wait(snapshot.docs.map((doc) => _verifiedPublicPackage(doc.id, doc.data())));
+          final providerIds = verified.whereType<Map<String, dynamic>>()
+              .where((data) => data['occasionSchemaVersion'] == 2
+                ? (data['occasionMatchIds'] as List).contains(eventType) : data['eventType'] == eventType)
+              .map((data) => data['providerId'])
               .where((id) => id != null && id.toString().isNotEmpty)
               .map((id) => id.toString())
               .toSet()
@@ -363,6 +368,17 @@ class FeastaRepository {
     return ProviderModel.fromDoc(doc);
   }
 
+  Future<Map<String, dynamic>?> _verifiedPublicPackage(String id, Map<String, dynamic> data) async {
+    if (isLegacyOccasionPublicPackage(data)) return data;
+    if (data['occasionSchemaVersion'] != 2) return null;
+    try {
+      final result = await _functions.httpsCallable('getCustomerPackageV2').call({'packageId': id});
+      final response = Map<String, dynamic>.from(result.data as Map);
+      if (response['packageId'] != id || response['package'] is! Map) return null;
+      return Map<String, dynamic>.from(response['package'] as Map);
+    } on FirebaseFunctionsException { return null; }
+  }
+
   Stream<List<PackageModel>> packagesByProvider(String providerId) {
     return _db
         .collection(FirestoreCollections.packages)
@@ -377,11 +393,12 @@ class FeastaRepository {
         .limit(20)
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
-        .map((snapshot) {
-          return snapshot.docs
-              .where((doc) => isLegacyOccasionPublicPackage(doc.data()))
-              .map(PackageModel.fromDoc)
-              .toList();
+        .asyncMap((snapshot) async {
+          final packages = await Future.wait(snapshot.docs.map((doc) async {
+            final data = await _verifiedPublicPackage(doc.id, doc.data());
+            return data == null ? null : PackageModel.fromMap(doc.id, data);
+          }));
+          return packages.whereType<PackageModel>().toList();
         });
   }
 
@@ -428,8 +445,8 @@ class FeastaRepository {
         .doc(packageId)
         .get(const GetOptions(source: Source.server));
     if (!doc.exists) return null;
-    final data = doc.data()!;
-    if (!isLegacyOccasionPublicPackage(data)) return null;
+    final data = await _verifiedPublicPackage(doc.id, doc.data()!);
+    if (data == null) return null;
     if (data['providerId'] != providerId ||
         data['isActive'] != true ||
         data['isPublished'] != true ||
@@ -445,7 +462,7 @@ class FeastaRepository {
     if (!providerDoc.exists) return null;
     final provider = ProviderModel.fromDoc(providerDoc);
     if (!isDiscoverableProvider(provider)) return null;
-    return PackageModel.fromDoc(doc);
+    return PackageModel.fromMap(doc.id, data);
   }
 
   Future<PackageModel?> getPackageById(String packageId) async {
@@ -456,7 +473,8 @@ class FeastaRepository {
 
     if (!doc.exists) return null;
 
-    return PackageModel.fromDoc(doc);
+    final data = await _verifiedPublicPackage(doc.id, Map<String, dynamic>.from(doc.data()!));
+    return data == null ? null : PackageModel.fromMap(doc.id, data);
   }
 
   Stream<List<AddonRequestModel>> addonRequestsByBooking(String bookingId) {
@@ -816,6 +834,7 @@ class FeastaRepository {
     required int guestCount,
     required String eventLocation,
     required String eventAddress,
+    List<Map<String, dynamic>> foodChoiceSelections = const [],
     required List<String> selectedFoods,
     required List<String> selectedDecorations,
     required List<String> selectedFurniture,
@@ -832,6 +851,7 @@ class FeastaRepository {
       providerId: provider.id,
       packageId: package.id,
       customization: EventCustomizationData(
+        sharedContractVersion: package.sharedContractVersion, expectedPackageRevision: package.revision,
         eventType: eventType,
         eventDate: eventDate,
         eventTime: eventTime,
@@ -839,6 +859,7 @@ class FeastaRepository {
         guestCount: guestCount,
         eventLocation: eventLocation,
         eventAddress: eventAddress,
+        foodChoiceSelections: foodChoiceSelections,
         selectedFoods: selectedFoods,
         selectedDecorations: selectedDecorations,
         selectedFurniture: selectedFurniture,
@@ -2365,14 +2386,14 @@ class FeastaRepository {
     }
 
     categories.sort(
-      (a, b) =>
-          a.name.toLowerCase().compareTo(b.name.toLowerCase()) != 0
-              ? a.name.toLowerCase().compareTo(b.name.toLowerCase())
-              : a.code.compareTo(b.code),
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()) != 0
+          ? a.name.toLowerCase().compareTo(b.name.toLowerCase())
+          : a.code.compareTo(b.code),
     );
 
     return List<ServiceCategory>.unmodifiable(categories);
   }
+
   Future<List<ServiceCategory>> getServiceCategories({
     bool activeOnly = false,
     bool forceRefresh = false,
@@ -2384,8 +2405,7 @@ class FeastaRepository {
         _guestCategoryFuture = null;
       }
 
-      final pending =
-          _guestCategoryFuture ??= _loadGuestServiceCategories();
+      final pending = _guestCategoryFuture ??= _loadGuestServiceCategories();
 
       try {
         return await pending;

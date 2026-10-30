@@ -157,8 +157,16 @@ export function ProviderPackagesClient({
     setProgressListBusy(true);
     try {
       const fresh = await getSavedPackageProgress(draft.editorDraftId);
-      setEditingPackage(null);
-      setResumeProgress(fresh);
+      if (fresh.state === "completed" && fresh.completedPackageId) {
+        const current = await listProviderPackages(providerId);
+        const linked = current.find((item) => item.id === fresh.completedPackageId);
+        if (!linked) throw new Error("Completed package is unavailable");
+        setEditingPackage(linked);
+        setResumeProgress(null);
+      } else {
+        setEditingPackage(null);
+        setResumeProgress(fresh);
+      }
       setCreateOpen(true);
     } catch (caught) {
       setSavedProgressError(packageProgressError(caught));
@@ -395,6 +403,11 @@ export function ProviderPackagesClient({
           initialPackage={editingPackage ?? undefined}
           initialEditorProgress={resumeProgress}
           onProgressSaved={() => { void refreshSavedProgress(); }}
+          onProgressExit={() => {
+             setDiscardOpen(false);
+             setCreateOpen(false);
+             setResumeProgress(null);
+           }}
           dialogLayout
           providerServiceType={providerServiceType}
           serviceCategories={serviceCategories}
@@ -406,7 +419,7 @@ export function ProviderPackagesClient({
           paymentPolicyBounds={paymentPolicyBounds}
           onSubmittingChange={(busy) => { saveBusy.current = busy; setFormBusy(busy); }}
           onCancel={requestEditorClose}
-          onSaved={async () => { await loadPackages(); setDiscardOpen(false); setCreateOpen(false); setResumeProgress(null); }}
+          onSaved={async () => { await loadPackages(); if (packageEditorProgressEnabled) await refreshSavedProgress(); setDiscardOpen(false); setCreateOpen(false); setResumeProgress(null); }}
         />
         <ConfirmationDialog open={discardOpen} onOpenChange={(open) => {
           if (!saveBusy.current) setDiscardOpen(open);
@@ -662,9 +675,8 @@ export function ProviderPackagesClient({
           try {
             setActionError(null);
 
-            await publishProviderPackage(
-              publishPackage.id,
-            );
+            if (publishPackage.v2) await publishProviderPackage(publishPackage.id, publishPackage.v2);
+            else await publishProviderPackage(publishPackage.id);
 
             setPublishPackage(null);
 

@@ -198,7 +198,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
   }
 
   double get totalAmount {
-    return widget.eventPackage.price + addOnsTotal;
+    return (preparationEstimate(widget.eventPackage, const [], serviceTier: widget.customization.serviceTier, guests: widget.customization.guestCount) ?? double.nan) + addOnsTotal;
   }
 
   double get fullPaymentEstimate {
@@ -258,6 +258,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
         guestCount: widget.customization.guestCount,
         eventLocation: widget.customization.eventLocation,
         eventAddress: widget.customization.eventAddress,
+        foodChoiceSelections: widget.customization.foodChoiceSelections,
         selectedFoods: widget.customization.selectedFoods,
         selectedDecorations: widget.customization.selectedDecorations,
         selectedFurniture: widget.customization.selectedFurniture,
@@ -458,6 +459,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
             package: widget.eventPackage,
             addons: data.selectedAddOns,
             serviceTier: data.serviceTier,
+            guests: data.guestCount,
             hasUnconfirmedRequests:
                 data.willArrangeOwnAddOns ||
                 data.specialRequest.trim().isNotEmpty,
@@ -603,7 +605,20 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
             icon: Icons.restaurant_outlined,
             title: 'Selected foods',
             emptyText: 'No food selections.',
-            items: widget.customization.selectedFoods,
+            items: [
+              ...widget.customization.selectedFoods,
+              ...widget.eventPackage.foodChoiceGroups.expand((group) {
+                final rows = widget.customization.foodChoiceSelections.where(
+                  (s) => s['groupId'] == group.id,
+                );
+                final ids = rows.isEmpty
+                    ? const []
+                    : rows.single['optionIds'] as List;
+                return group.options.entries
+                    .where((o) => ids.contains(o.key))
+                    .map((o) => '${group.title}: ${o.value}');
+              }),
+            ],
           ),
 
           const SizedBox(height: AppSpacing.md),
@@ -687,7 +702,7 @@ class _BookingSummaryScreenState extends State<BookingSummaryScreen> {
             const SizedBox(height: AppSpacing.md),
 
             _PaymentSummaryCard(
-              packagePrice: widget.eventPackage.price,
+              packagePrice: totalAmount - addOnsTotal,
               addOnsTotal: addOnsTotal,
               totalAmount: totalAmount,
             ),

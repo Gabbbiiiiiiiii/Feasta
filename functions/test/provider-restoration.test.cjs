@@ -9,6 +9,7 @@ const {HttpsError} = require("firebase-functions/v2/https");
 function fixture(options = {}) {
   const status = options.status ?? "suspended";
   const records = new Map([
+    ["maintenanceControls/intake", {schemaVersion:1,revision:1,intake:false,publication:false}],
     ["providerVerifications/v", {providerId: "p", ownerId: options.wrongOwner ? "other" : "owner", status, suspensionReason: "old"}],
     ["providers/p", {ownerId: "owner", businessName: "Test", description: "Test", address: "Test", city: "Test", province: "Test", verificationStatus: status, businessRegistrationType: "individual", providerServiceType: "catering", serviceCategories: options.venue ? ["venue_provider"] : [], isActive: status === "approved", isSuspended: status === "suspended"}],
     ["users/owner", {role: "provider", providerId: "p", accountStatus: "active", isActive: true, isBlocked: false, ...options.owner}],
@@ -31,13 +32,14 @@ function fixture(options = {}) {
       }};
   }
   const audit = [], history = [], notifications = [], completed = new Map();
-  const db = {collection: ref, runTransaction: async (callback) => {
+  const db = {doc: ref, collection: ref, runTransaction: async (callback) => {
     const writes = [];
     const result = await callback({get: (reference) => reference.get(), update: (reference, data) => writes.push([reference.path, data])});
     for (const [path, data] of writes) records.set(path, {...records.get(path), ...data});
     return result;
   }};
   const mocks = {
+    "../shared/maintenance.js": require("../lib/shared/maintenance.js"),
     "@feasta/shared-types/documents": require("@feasta/shared-types/documents"),
     "firebase-functions/v2/https": {HttpsError, onCall: (_, handler) => handler},
     "firebase-admin/storage": {getStorage: () => ({bucket: () => ({file: () => ({getMetadata: async () => [{contentType: options.invalidStorage ? "text/plain" : "application/pdf", size: 100}]})})})},

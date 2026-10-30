@@ -19,12 +19,12 @@ const profile = {ownerId: 'owner', verificationStatus: 'approved', isActive: tru
   address: 'Original Street', city: 'Ormoc City', province: 'Leyte', publiclyVisible: true};
 
 function harness(authority, provider = profile) {
-  const records = {'providers/provider': structuredClone(provider),
+  const records = {'maintenanceControls/intake': {schemaVersion:1,revision:1,intake:false,publication:false}, 'providers/provider': structuredClone(provider),
     'users/owner': {role: 'provider', providerId: 'provider', accountStatus: 'active'},
     ...(authority === undefined ? {} : {'providerEligibilityAuthorities/provider': structuredClone(authority)})};
   const events = [];
   const snapshot = (ref) => ({exists: ref.path in records, data: () => structuredClone(records[ref.path])});
-  const db = {collection: (name) => ({doc: (id) => ({id, path: `${name}/${id}`, firestore: db,
+  const db = {doc: (path) => ({path}), collection: (name) => ({doc: (id) => ({id, path: `${name}/${id}`, firestore: db,
     get: async () => snapshot({path: `${name}/${id}`})})}),
   async runTransaction(work) {
     const pending = [];
@@ -122,8 +122,8 @@ test('profile visibility recalculation reads authority before provider and audit
     assert.deepEqual(h.records['providerEligibilityAuthorities/provider'], initial ?
       {...initial, revision: 5} : {revision: 1});
     assert.deepEqual(h.events, ['read:users/owner', 'read:providers/provider',
-      'read:providerPaymentAccounts/provider', 'read:providerEligibilityAuthorities/provider',
-      'write:providerEligibilityAuthorities/provider', 'write:providers/provider', 'write:audit/entry']);
+      'read:providerPaymentAccounts/provider', 'read:maintenanceControls/intake', 'read:providerEligibilityAuthorities/provider',
+      'write:providerEligibilityAuthorities/provider', 'write:maintenanceControls/intake', 'write:providers/provider', 'write:audit/entry']);
   }
 });
 

@@ -62,6 +62,8 @@ export function PackageDetail({
 
   const packageImages = packageRecord.imageUrls?.length ? packageRecord.imageUrls : packageRecord.imageUrl ? [packageRecord.imageUrl] : [];
   const inclusionGroups = [
+    ...(packageRecord.foodChoiceGroups ?? []).map(group => ({label: `${group.title}: choose ${group.selectionCount}`, items: group.options.map(option => option.name)})),
+    {label: "Equipment inclusions", items: packageRecord.equipmentInclusions ?? []},
     {label: "Food inclusions", items: detail.customization.foods},
     {label: "Decor inclusions", items: detail.customization.decorations},
     {label: "Furniture inclusions", items: detail.customization.furniture},
@@ -72,7 +74,7 @@ export function PackageDetail({
       (tier) => {
         const option =
           packageRecord.serviceOptions?.[tier];
-        return option ? [{tier, option}] : [];
+        return option ? [{tier, option: {...option, includedServices: [...new Set([...option.includedServices, ...(option.decorInclusions ?? []), ...(option.furnitureInclusions ?? []), ...(option.equipmentInclusions ?? [])])]}}] : [];
       },
     );
   const themeOptions =
@@ -283,6 +285,7 @@ export function PackageDetail({
                   amount={option.price}
                   className="mt-3 border-t border-feasta-divider pt-3"
                 />
+                {packageRecord.pricingModel ? <span className="text-xs">{packageRecord.pricingModel === "per_pax" ? "per guest" : "fixed bundle"}</span> : null}
                 {option.includedServices.length > 0 ? (
                   <ul className="mt-4 grid gap-2">
                     {option.includedServices.map((service) => (

@@ -44,6 +44,11 @@
       "types": "./dist/provider-package-v2.d.cts",
       "import": "./dist/provider-package-v2.cjs",
       "require": "./dist/provider-package-v2.cjs"
+    },
+    "./customer-package-v2": {
+      "types": "./dist/customer-package-v2.d.cts",
+      "import": "./dist/customer-package-v2.cjs",
+      "require": "./dist/customer-package-v2.cjs"
     }
   },
   "scripts": {
@@ -64,6 +69,9 @@
       ],
       "provider-package-v2": [
         "dist/provider-package-v2.d.cts"
+      ],
+      "customer-package-v2": [
+        "dist/customer-package-v2.d.cts"
       ]
     }
   }

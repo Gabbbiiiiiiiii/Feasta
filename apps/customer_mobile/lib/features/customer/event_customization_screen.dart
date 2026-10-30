@@ -1,3 +1,4 @@
+import '../../shared/models/food_choice_v2.dart';
 import 'dart:async';
 import 'dart:convert';
 import '../../app/router/customer_auth_navigation.dart';
@@ -192,11 +193,13 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
 
   late int guestCount;
 
+  List<Map<String, dynamic>> foodChoiceSelections = [];
   late List<String> selectedFoods;
   late List<String> selectedDecorations;
   late List<String> selectedFurniture;
 
   List<String> get _eventTypes {
+    if (_eventPackage.sharedContractVersion == 2) return _eventPackage.occasionMatchIds;
     final type = _eventPackage.eventType.trim();
     if (type.isNotEmpty) return [type];
     // The package contract currently publishes one scalar eventType. Provider
@@ -249,9 +252,9 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
 
     selectedFoods = List<String>.from(_eventPackage.foodInclusions);
 
-    selectedDecorations = List<String>.from(_eventPackage.decorInclusions);
+    selectedDecorations = List<String>.from(preparationInclusions(_eventPackage, 'decorInclusions', selectedServiceTier));
 
-    selectedFurniture = List<String>.from(_eventPackage.furnitureInclusions);
+    selectedFurniture = List<String>.from(preparationInclusions(_eventPackage, 'furnitureInclusions', selectedServiceTier));
     if (preparationServices(
       _eventPackage,
     ).containsKey(widget.initialServiceTier)) {
@@ -302,6 +305,8 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
     'eventAddress': _eventAddress,
     'notes': specialRequestController.text,
     'ownNotes': customerArrangedAddOnsController.text,
+    if (foodChoiceSelections.isNotEmpty)
+      'foodChoiceSelections': parseFoodChoiceSelections(foodChoiceSelections),
     'foods': List<String>.of(selectedFoods),
     'decorations': List<String>.of(selectedDecorations),
     'furniture': List<String>.of(selectedFurniture),
@@ -549,15 +554,22 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
     _eventAddress = saved['eventAddress'] as CustomerAddressModel?;
     specialRequestController.text = saved['notes'] as String;
     customerArrangedAddOnsController.text = saved['ownNotes'] as String;
+    foodChoiceSelections = parseFoodChoiceSelections(
+      saved['foodChoiceSelections'],
+    );
+    foodChoiceSelections = foodChoiceSelections.where((s) => _eventPackage.foodChoiceGroups.any((g) => g.id == s['groupId'])).map((s) {
+      final group = _eventPackage.foodChoiceGroups.firstWhere((g) => g.id == s['groupId']);
+      return <String,dynamic>{'groupId':group.id,'optionIds':(s['optionIds'] as List).where(group.options.containsKey).toList()};
+    }).toList();
     selectedFoods = List<String>.from(
       saved['foods'] as List,
     ).where(_eventPackage.foodInclusions.contains).toList();
     selectedDecorations = List<String>.from(
       saved['decorations'] as List,
-    ).where(_eventPackage.decorInclusions.contains).toList();
+    ).where(preparationInclusions(_eventPackage, 'decorInclusions', selectedServiceTier).contains).toList();
     selectedFurniture = List<String>.from(
       saved['furniture'] as List,
-    ).where(_eventPackage.furnitureInclusions.contains).toList();
+    ).where(preparationInclusions(_eventPackage, 'furnitureInclusions', selectedServiceTier).contains).toList();
     selectedAddOns.addAll(
       (saved['addons'] as List).map(
         (item) => Map<String, dynamic>.from(item as Map),
@@ -592,8 +604,8 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
     }
     if (!_eventPackage.isCustomizable) {
       selectedFoods = List.of(_eventPackage.foodInclusions);
-      selectedDecorations = List.of(_eventPackage.decorInclusions);
-      selectedFurniture = List.of(_eventPackage.furnitureInclusions);
+      selectedDecorations = List.of(preparationInclusions(_eventPackage, 'decorInclusions', selectedServiceTier));
+      selectedFurniture = List.of(preparationInclusions(_eventPackage, 'furnitureInclusions', selectedServiceTier));
     }
   }
 
@@ -882,6 +894,15 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
 
   Future<void> _continueToAvailability() async {
     if (_checking || !_canEditDraft || _exiting) return;
+    if (!validFoodChoiceSelections(
+      _eventPackage.foodChoiceGroups,
+      foodChoiceSelections,
+    )) {
+      _showMessage(
+        'Select exactly the required number of dishes in each food-choice group.',
+      );
+      return;
+    }
     final epoch = _draftActionEpoch;
     bool actionCurrent() =>
         _canPublish && !_exiting && epoch == _draftActionEpoch;
@@ -939,15 +960,15 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
       }
       final changedOptions =
           (fresh.eventType.trim().isNotEmpty &&
-              selectedEventType != fresh.eventType.trim()) ||
+              !(fresh.sharedContractVersion == 2 ? fresh.occasionMatchIds.contains(selectedEventType) : selectedEventType == fresh.eventType.trim())) ||
           (!fresh.isCustomizable &&
               (selectedFoods.length != fresh.foodInclusions.length ||
-                  selectedDecorations.length != fresh.decorInclusions.length ||
+                  selectedDecorations.length != preparationInclusions(fresh, 'decorInclusions', selectedServiceTier).length ||
                   selectedFurniture.length !=
-                      fresh.furnitureInclusions.length)) ||
+                      preparationInclusions(fresh, 'furnitureInclusions', selectedServiceTier).length)) ||
           !selectedFoods.every(fresh.foodInclusions.contains) ||
-          !selectedDecorations.every(fresh.decorInclusions.contains) ||
-          !selectedFurniture.every(fresh.furnitureInclusions.contains) ||
+          !selectedDecorations.every(preparationInclusions(fresh, 'decorInclusions', selectedServiceTier).contains) ||
+          !selectedFurniture.every(preparationInclusions(fresh, 'furnitureInclusions', selectedServiceTier).contains) ||
           (selectedServiceTier != null &&
               !preparationServices(fresh).containsKey(selectedServiceTier)) ||
           (selectedThemeId != null &&
@@ -961,17 +982,17 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
         }
         if (!fresh.isCustomizable) {
           selectedFoods = List.of(fresh.foodInclusions);
-          selectedDecorations = List.of(fresh.decorInclusions);
-          selectedFurniture = List.of(fresh.furnitureInclusions);
+          selectedDecorations = List.of(preparationInclusions(fresh, 'decorInclusions', selectedServiceTier));
+          selectedFurniture = List.of(preparationInclusions(fresh, 'furnitureInclusions', selectedServiceTier));
         }
         selectedFoods.removeWhere(
           (item) => !fresh.foodInclusions.contains(item),
         );
         selectedDecorations.removeWhere(
-          (item) => !fresh.decorInclusions.contains(item),
+          (item) => !preparationInclusions(fresh, 'decorInclusions', selectedServiceTier).contains(item),
         );
         selectedFurniture.removeWhere(
-          (item) => !fresh.furnitureInclusions.contains(item),
+          (item) => !preparationInclusions(fresh, 'furnitureInclusions', selectedServiceTier).contains(item),
         );
         if (!preparationServices(fresh).containsKey(selectedServiceTier)) {
           selectedServiceTier = null;
@@ -1054,8 +1075,19 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
             ),
           );
       });
+      if (!validFoodChoiceSelections(
+        fresh.foodChoiceGroups,
+        foodChoiceSelections,
+      )) {
+        _showMessage(
+          'Food choices changed. Review your dish selections again.',
+        );
+        return;
+      }
       final customization = snapshotCustomization(
         EventCustomizationData(
+          sharedContractVersion: _eventPackage.sharedContractVersion,
+          expectedPackageRevision: _eventPackage.revision,
           serviceTier: selectedServiceTier,
           packageThemeId: selectedThemeId,
           eventType: selectedEventType,
@@ -1065,6 +1097,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
           guestCount: guestCount,
           eventLocation: locationController.text.trim(),
           eventAddress: addressController.text.trim(),
+          foodChoiceSelections: foodChoiceSelections,
           selectedFoods: selectedFoods,
           selectedDecorations: selectedDecorations,
           selectedFurniture: selectedFurniture,
@@ -1198,9 +1231,10 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
         selectedServiceTier = null;
         selectedThemeId = null;
         themeChoice = null;
+        foodChoiceSelections = [];
         selectedFoods = List.of(_eventPackage.foodInclusions);
-        selectedDecorations = List.of(_eventPackage.decorInclusions);
-        selectedFurniture = List.of(_eventPackage.furnitureInclusions);
+        selectedDecorations = List.of(preparationInclusions(_eventPackage, 'decorInclusions', selectedServiceTier));
+        selectedFurniture = List.of(preparationInclusions(_eventPackage, 'furnitureInclusions', selectedServiceTier));
         selectedAddOns.clear();
         selectedMarketplaceAddOns.clear();
         willArrangeOwnAddOns = false;
@@ -1622,6 +1656,8 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
                 onSelected: (tier) {
                   setState(() {
                     selectedServiceTier = tier;
+                    selectedDecorations.removeWhere((item) => !preparationInclusions(_eventPackage, 'decorInclusions', tier).contains(item));
+                    selectedFurniture.removeWhere((item) => !preparationInclusions(_eventPackage, 'furnitureInclusions', tier).contains(item));
                     if (_canEditDraft) widget.onServiceChanged?.call(tier);
                     if (tier == 'drop_off') {
                       selectedThemeId = null;
@@ -1683,11 +1719,54 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
                 ),
               ],
             ],
+            ..._eventPackage.foodChoiceGroups.map((group) {
+              final current = foodChoiceSelections.where(
+                (s) => s['groupId'] == group.id,
+              );
+              final ids = current.isEmpty
+                  ? <String>[]
+                  : List<String>.from(current.single['optionIds'] as List);
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${group.title} ? choose exactly ${group.selectionCount}',
+                  ),
+                  ...group.options.entries.map(
+                    (option) => CheckboxListTile(
+                      title: Text(option.value),
+                      value: ids.contains(option.key),
+                      onChanged:
+                          !_canEditDraft ||
+                              (!ids.contains(option.key) &&
+                                  ids.length >= group.selectionCount)
+                          ? null
+                          : (checked) {
+                              setState(() {
+                                if (checked == true) {
+                                  ids.add(option.key);
+                                } else {
+                                  ids.remove(option.key);
+                                }
+                                foodChoiceSelections = [
+                                  ...foodChoiceSelections.where(
+                                    (s) => s['groupId'] != group.id,
+                                  ),
+                                  {'groupId': group.id, 'optionIds': ids},
+                                ];
+                              });
+                              _scheduleDraft();
+                            },
+                    ),
+                  ),
+                ],
+              );
+            }),
             if (!_eventPackage.isCustomizable)
               const Text('This package has fixed inclusions.'),
             if (_eventPackage.foodInclusions.isNotEmpty ||
-                _eventPackage.decorInclusions.isNotEmpty ||
-                _eventPackage.furnitureInclusions.isNotEmpty) ...[
+                preparationInclusions(_eventPackage, 'decorInclusions', selectedServiceTier).isNotEmpty ||
+                preparationInclusions(_eventPackage, 'furnitureInclusions', selectedServiceTier).isNotEmpty) ...[
               const SizedBox(height: AppSpacing.xl),
               const _SectionHeading(
                 title: 'Package selections',
@@ -1714,7 +1793,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
             ),
 
             if (_eventPackage.foodInclusions.isNotEmpty &&
-                _eventPackage.decorInclusions.isNotEmpty)
+                preparationInclusions(_eventPackage, 'decorInclusions', selectedServiceTier).isNotEmpty)
               const SizedBox(height: AppSpacing.md),
 
             IgnorePointer(
@@ -1722,7 +1801,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
               child: _ChecklistSection(
                 icon: Icons.auto_awesome_outlined,
                 title: 'Decoration options',
-                items: _eventPackage.decorInclusions,
+                items: preparationInclusions(_eventPackage, 'decorInclusions', selectedServiceTier),
                 selectedItems: selectedDecorations,
                 onChanged: (item, value) {
                   _toggleStringItem(
@@ -1734,8 +1813,8 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
               ),
             ),
 
-            if (_eventPackage.decorInclusions.isNotEmpty &&
-                _eventPackage.furnitureInclusions.isNotEmpty)
+            if (preparationInclusions(_eventPackage, 'decorInclusions', selectedServiceTier).isNotEmpty &&
+                preparationInclusions(_eventPackage, 'furnitureInclusions', selectedServiceTier).isNotEmpty)
               const SizedBox(height: AppSpacing.md),
 
             IgnorePointer(
@@ -1743,7 +1822,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
               child: _ChecklistSection(
                 icon: Icons.chair_outlined,
                 title: 'Tables & chairs',
-                items: _eventPackage.furnitureInclusions,
+                items: preparationInclusions(_eventPackage, 'furnitureInclusions', selectedServiceTier),
                 selectedItems: selectedFurniture,
                 onChanged: (item, value) {
                   _toggleStringItem(
@@ -1915,6 +1994,7 @@ class _EventCustomizationScreenState extends State<EventCustomizationScreen>
               package: _eventPackage,
               addons: selectedAddOns,
               serviceTier: selectedServiceTier,
+              guests: guestCount,
               onBack: _step > 0 ? () => _goToStep(_step - 1) : null,
               continueLabel: _step < 2 ? 'Continue' : 'Review Event',
               onContinue:
@@ -2800,6 +2880,7 @@ class _CustomizationBottomBar extends StatelessWidget {
     required this.package,
     required this.addons,
     this.serviceTier,
+    this.guests,
     required this.onContinue,
     required this.continueLabel,
     this.onBack,
@@ -2808,6 +2889,7 @@ class _CustomizationBottomBar extends StatelessWidget {
   final PackageModel package;
   final List<Map<String, dynamic>> addons;
   final String? serviceTier;
+  final int? guests;
   final String continueLabel;
   final VoidCallback? onBack;
   final VoidCallback? onContinue;
@@ -2821,6 +2903,7 @@ class _CustomizationBottomBar extends StatelessWidget {
       package,
       addons,
       serviceTier: serviceTier,
+      guests: guests,
     );
     return total == null ? 'Unavailable' : FeastaPriceFormatter.format(total);
   }

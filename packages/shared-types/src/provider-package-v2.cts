@@ -53,6 +53,11 @@ export interface ServiceOptionV2 {
   furnitureInclusions?: string[];
   equipmentInclusions?: string[];
 }
+/** Provider-defined meal choices; private draft metadata, not yet bookable. */
+export interface FoodChoiceOptionV2 {id:string; name:string}
+export interface FoodChoiceGroupV2 {
+  id:string; title:string; selectionCount:number; options:FoodChoiceOptionV2[];
+}
 export interface OfferV2 {
   offerSchemaVersion: 2;
   serviceOptions: Partial<Record<Tier, ServiceOptionV2>>;
@@ -61,6 +66,7 @@ export interface OfferV2 {
   furnitureInclusions: string[];
   equipmentInclusions?: string[]; // YES: optional shared equipment
   foodInclusions: string[]; // existing shared food rules retained
+  foodChoiceGroups?: FoodChoiceGroupV2[]; // private V2 drafts ONLY
   pricingModel?: 'per_pax' | 'per_bundle';
   price: number; // minimum enabled tier unit price, otherwise standalone legacy price
 }
@@ -159,7 +165,7 @@ export interface PackageEditorProgressV2 {
   tiers?: Partial<Record<Tier, {enabled:boolean; priceText:string;
     includedServices:string[]; decorInclusions:string[];
     furnitureInclusions:string[]; equipmentInclusions:string[]}>>;
-  foodInclusions?:string[]; serviceInclusions?:string[];
+  foodInclusions?:string[]; foodChoiceGroups?:FoodChoiceGroupV2[]; serviceInclusions?:string[];
   decorInclusions?:string[]; furnitureInclusions?:string[]; equipmentInclusions?:string[];
   themes?: {editorThemeId:string; name:string; description:string; assetIds:string[]}[];
   marketingAssetIds?:string[];
@@ -233,4 +239,16 @@ export interface SavePackageEditorDraftResponse {draft:PackageEditorDraftApiV2}
 export interface GetPackageEditorDraftResponse {draft:PackageEditorDraftApiV2}
 export interface CompletePackageEditorDraftResponse {
   editorDraftId:string; editorDraftRevision:number; packageId:string; packageRevision:number; status:'draft';
+}
+
+/** Stable customer selections; rules and display names remain server-owned. */
+export interface FoodChoiceSelectionV2 {
+  groupId: string;
+  optionIds: string[];
+}
+export interface FoodChoiceSnapshotV2 {
+  groupId: string;
+  title: string;
+  selectionCount: number;
+  options: FoodChoiceOptionV2[];
 }

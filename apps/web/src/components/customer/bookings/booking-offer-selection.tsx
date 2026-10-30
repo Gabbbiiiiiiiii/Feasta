@@ -11,7 +11,7 @@ import {
   cateringPackageServiceTierLabel,
   type CateringPackageServiceTier,
 } from "@/lib/catering/catering-service-tier";
-import type {PackageThemeOption} from "@/lib/catering/package-offer-configuration";
+import type {PackageServiceOptions, PackageThemeOption} from "@/lib/catering/package-offer-configuration";
 import type {BookingThemeInspiration} from "@/lib/customer/bookings/booking-customization-selection";
 import {
   PROVIDER_SETUP_EVENT_TYPE_LABELS,
@@ -21,6 +21,7 @@ import {
 export function BookingOfferSelection({
   availableTiers,
   serviceOptions,
+  pricingModel,
   themesApplicable,
   hasThemeOptions,
   serviceTier,
@@ -34,7 +35,8 @@ export function BookingOfferSelection({
   onThemeInspirationChange,
 }: {
   availableTiers: readonly CateringPackageServiceTier[];
-  serviceOptions: Partial<Record<CateringPackageServiceTier, {price: number; includedServices: readonly string[]}>> | undefined;
+  serviceOptions: PackageServiceOptions | undefined;
+  pricingModel?: "per_pax" | "per_bundle";
   themesApplicable: boolean;
   hasThemeOptions: boolean;
   serviceTier: CateringPackageServiceTier | null;
@@ -88,6 +90,7 @@ export function BookingOfferSelection({
               className="mt-3 grid grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))] gap-3">
               {availableTiers.map((tier) => {
                 const option = serviceOptions?.[tier];
+                const tierInclusions = [...new Set([...(option?.includedServices ?? []), ...(option?.decorInclusions ?? []), ...(option?.furnitureInclusions ?? []), ...(option?.equipmentInclusions ?? [])])];
                 const selected = serviceTier === tier;
                 const premium = premiumTier === tier;
                 const tierId = `${errorId}-${tier}`;
@@ -121,9 +124,10 @@ export function BookingOfferSelection({
                     {option ? <span id={`${tierId}-price`} className="mt-3 block border-t border-feasta-divider pt-3">
                       <PriceDisplay amount={option.price} />
                     </span> : null}
-                    {option && option.includedServices.length > 0 ? (
+                    {pricingModel ? <span className="text-xs">{pricingModel === "per_pax" ? "per guest" : "fixed bundle"}</span> : null}
+                    {tierInclusions.length > 0 ? (
                       <ul id={`${tierId}-inclusions`} className="mt-3 grid gap-1.5">
-                        {option.includedServices.map((service) => <li key={service} className="flex min-w-0 items-start gap-2 text-xs leading-5 text-feasta-text-secondary">
+                        {tierInclusions.map((service) => <li key={service} className="flex min-w-0 items-start gap-2 text-xs leading-5 text-feasta-text-secondary">
                           <Check aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-primary" />
                           <span>{service}</span>
                         </li>)}

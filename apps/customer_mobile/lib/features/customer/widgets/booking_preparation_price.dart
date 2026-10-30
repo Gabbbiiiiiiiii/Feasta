@@ -7,12 +7,13 @@ String preparationEstimateText(
   PackageModel package,
   List<Map<String, dynamic>> addons, {
   String? serviceTier,
+  int? guests,
 }) {
   final services = preparationServices(package);
   if (services.isNotEmpty && !services.containsKey(serviceTier)) {
     return 'Choose a service to see your estimate';
   }
-  final total = preparationEstimate(package, addons, serviceTier: serviceTier);
+  final total = preparationEstimate(package, addons, serviceTier: serviceTier, guests: guests);
   return total == null
       ? 'Estimate unavailable - published pricing needs confirmation'
       : 'Known estimate: ${FeastaPriceFormatter.format(total)}';
@@ -23,19 +24,19 @@ class BookingPreparationPrice extends StatelessWidget {
     required this.package,
     required this.addons,
     this.serviceTier,
+    this.guests,
     this.hasUnconfirmedRequests = false,
     super.key,
   });
   final PackageModel package;
   final List<Map<String, dynamic>> addons;
   final String? serviceTier;
+  final int? guests;
   final bool hasUnconfirmedRequests;
   @override
   Widget build(BuildContext context) {
     final services = preparationServices(package);
-    final base = services.isEmpty
-        ? package.price
-        : services[serviceTier]?['price'];
+    final base = preparationEstimate(package, const [], serviceTier: serviceTier, guests: guests);
     final needsSelection =
         services.isNotEmpty && !services.containsKey(serviceTier);
     String money(dynamic value) => value is num && knownPreparationPrice(value)
@@ -73,7 +74,7 @@ class BookingPreparationPrice extends StatelessWidget {
             ),
           const Divider(),
           Text(
-            preparationEstimateText(package, addons, serviceTier: serviceTier),
+            preparationEstimateText(package, addons, serviceTier: serviceTier, guests: guests),
           ),
           const SizedBox(height: 8),
           if (hasUnconfirmedRequests)

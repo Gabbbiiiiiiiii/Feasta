@@ -1,4 +1,5 @@
 import "server-only";
+import {verifiedPublicPackageV2} from "@/lib/customer/discovery/verified-package-v2";
 
 import {FIRESTORE_COLLECTIONS} from "@feasta/shared-types";
 
@@ -52,14 +53,15 @@ export async function getPublicProviderDetail(
     .limit(PROVIDER_DETAIL_PACKAGE_LIMIT)
     .get();
   const providerNames = new Map([[provider.id, provider.businessName]]);
-  const packages = packageSnapshot.docs.flatMap((document) => {
-    const packageRecord = normalizePublicPackage(
-      document.id,
-      document.data(),
-      providerNames,
-    );
+  const candidates = await Promise.all(packageSnapshot.docs.map(async (document) => {
+    const original = document.data();
+    const v2 = original.occasionSchemaVersion === 2;
+    const data = v2 ? await verifiedPublicPackageV2(document.id) : original;
+    if (!data) return [];
+    const packageRecord = normalizePublicPackage(document.id, data, providerNames, v2);
     return packageRecord ? [packageRecord] : [];
-  });
+  }));
+  const packages = candidates.flat();
 
   const capabilities = providerContentCapabilities(provider.serviceType, provider.categories);
   const menuSnapshot = capabilities.catering

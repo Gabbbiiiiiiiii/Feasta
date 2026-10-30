@@ -1,4 +1,9 @@
 "use client";
+import type {FoodChoiceSelectionV2} from "@feasta/shared-types/provider-package-v2";
+import {customerPackageEstimate} from "@feasta/shared-types/customer-package-v2";
+import {FoodChoiceSelector} from "./food-choice-selector";
+import {foodChoiceSelectionError, reconcileFoodChoiceSelections} from "@/lib/customer/bookings/food-choice-selection";
+
 
 import {formatEventTime} from "@/lib/presentation/event-time";
 
@@ -90,6 +95,7 @@ type EventCustomizationExperienceProps = {
 };
 
 type EventDetailsDraft = {
+  eventType?: string;
   eventDate: string;
   eventTime: string;
   eventEndTime: string;
@@ -104,6 +110,7 @@ type EventDetailsErrors = Partial<
 >;
 
 type PackageCustomizationDraft = {
+  foodChoiceSelections?: FoodChoiceSelectionV2[];
   selectedFoods: string[];
   selectedDecorations: string[];
   selectedFurniture: string[];
@@ -151,7 +158,7 @@ export function EventCustomizationExperience({
   const {
     packageRecord,
     provider,
-    customization,
+    customization: sharedCustomization,
   } = detail;
 
   const [step, setStep] = useState(1);
@@ -166,6 +173,7 @@ export function EventCustomizationExperience({
 
   const [draft, setDraft] =
     useState<EventDetailsDraft>({
+      eventType: packageRecord.eventType ?? "",
       eventDate: initialEventContext?.eventDate ?? "",
       eventTime: initialEventContext?.eventTime ?? "",
       eventEndTime: initialEventContext?.eventEndTime ?? "",
@@ -221,6 +229,12 @@ const submissionIdentityRef =
     emptyBookingThemeInspiration(),
   );
   const [offerSelectionError, setOfferSelectionError] = useState<string | null>(null);
+  const tierOption = serviceTier ? packageRecord.serviceOptions?.[serviceTier] : undefined;
+  const customization = {...sharedCustomization,
+    decorations: [...new Set([...sharedCustomization.decorations, ...(tierOption?.decorInclusions ?? [])])],
+    furniture: [...new Set([...sharedCustomization.furniture, ...(tierOption?.furnitureInclusions ?? [])])],
+    services: [...new Set([...sharedCustomization.services, ...(tierOption?.includedServices ?? []),
+      ...(packageRecord.equipmentInclusions ?? []), ...(tierOption?.equipmentInclusions ?? [])])]};
   const offerSelection = useMemo(() => reconcileBookingCustomization({
     packageSource: packageRecord,
     serviceTier,
@@ -243,11 +257,13 @@ const submissionIdentityRef =
         packageThemeId: saved.packageThemeId,
         themeInspiration: saved.themeInspiration,
       });
-      setDraft(saved.event);
+      setDraft({...saved.event, eventType: (packageRecord.occasionMatchIds ?? [packageRecord.eventType]).includes(saved.event.eventType ?? "")
+        ? saved.event.eventType : packageRecord.eventType ?? ""});
       setCustomizationDraft({
+        foodChoiceSelections: reconcileFoodChoiceSelections(packageRecord.foodChoiceGroups ?? [], saved.customization.foodChoiceSelections ?? []),
         selectedFoods: saved.customization.selectedFoods.filter((item) => customization.foods.includes(item)),
-        selectedDecorations: saved.customization.selectedDecorations.filter((item) => customization.decorations.includes(item)),
-        selectedFurniture: saved.customization.selectedFurniture.filter((item) => customization.furniture.includes(item)),
+        selectedDecorations: saved.customization.selectedDecorations.filter((item) => [...sharedCustomization.decorations, ...(restoredOffer.serviceTier ? packageRecord.serviceOptions?.[restoredOffer.serviceTier]?.decorInclusions ?? [] : [])].includes(item)),
+        selectedFurniture: saved.customization.selectedFurniture.filter((item) => [...sharedCustomization.furniture, ...(restoredOffer.serviceTier ? packageRecord.serviceOptions?.[restoredOffer.serviceTier]?.furnitureInclusions ?? [] : [])].includes(item)),
       });
       setSelectedEventServiceIds(saved.addonIds.filter((id) => eventServices.some((service) => service.id === id)));
       setServiceTier(restoredOffer.serviceTier);
@@ -473,9 +489,9 @@ const submissionIdentityRef =
       packageRecord.id,
     )}`;
 
-  const estimatedServicePrice = offerSelection.serviceTier
-    ? offerSelection.displayedServicePrice
-    : packageRecord.price;
+  const estimatedServicePrice = customerPackageEstimate(offerSelection.serviceTier
+    ? offerSelection.displayedServicePrice : packageRecord.price,
+  Number(draft.guestCount), packageRecord.pricingModel);
 
   // Tier cards already display these published inclusions.
   const additionalIncludedServices = customization.services.filter((service) =>
@@ -565,7 +581,7 @@ const submissionIdentityRef =
   }
 
   function toggleCustomization(
-    field: keyof PackageCustomizationDraft,
+    field: "selectedFoods" | "selectedDecorations" | "selectedFurniture",
     value: string,
   ) {
     setCustomizationDraft((current) => {
@@ -655,7 +671,7 @@ function buildSubmissionInput(
   policyAcknowledgements: SubmitPackageBookingRequestInput["policyAcknowledgements"],
 ): SubmitPackageBookingRequestInput {
   const eventType =
-    packageRecord.eventType?.trim();
+    (draft.eventType ?? packageRecord.eventType)?.trim();
 
   if (!eventType) {
     throw new Error(
@@ -685,6 +701,7 @@ function buildSubmissionInput(
 
     providerId: provider.id,
     packageId: packageRecord.id,
+    ...(packageRecord.sharedContractVersion === 2 ? {sharedContractVersion: 2 as const, expectedPackageRevision: packageRecord.revision} : {}),
 
     eventType,
     eventDate: draft.eventDate,
@@ -699,6 +716,7 @@ function buildSubmissionInput(
 
     guestCount,
 
+    ...(customizationDraft.foodChoiceSelections?.length ? {foodChoiceSelections: customizationDraft.foodChoiceSelections} : {}),
     selectedFoods:
       customizationDraft.selectedFoods,
 
@@ -737,7 +755,7 @@ function currentSubmissionDraftKey(): string {
     packageId: packageRecord.id,
 
     eventType:
-      packageRecord.eventType ?? "",
+      draft.eventType ?? packageRecord.eventType ?? "",
 
     eventDate: draft.eventDate,
     eventTime: draft.eventTime,
@@ -753,6 +771,7 @@ function currentSubmissionDraftKey(): string {
     guestCount:
       draft.guestCount,
 
+    ...(customizationDraft.foodChoiceSelections?.length ? {foodChoiceSelections: customizationDraft.foodChoiceSelections} : {}),
     selectedFoods:
       customizationDraft.selectedFoods,
 
@@ -831,6 +850,8 @@ function navigateToSubmittedBooking(
 }
 
 async function handleSubmitBooking() {
+  const choiceError = foodChoiceSelectionError(packageRecord.foodChoiceGroups ?? [], customizationDraft.foodChoiceSelections ?? []);
+  if (choiceError) {setSubmissionError(choiceError); setStep(2); return;}
   if (!planningOnly) {
     const notice = bookingSubmissionDeadlineNotice(draft);
 
@@ -1071,6 +1092,11 @@ async function handleSubmitBooking() {
       packageThemeId,
       themeInspiration,
     });
+    setCustomizationDraft(previous => ({...previous,
+      selectedDecorations: previous.selectedDecorations.filter(item => [...sharedCustomization.decorations,
+        ...(packageRecord.serviceOptions?.[nextTier]?.decorInclusions ?? [])].includes(item)),
+      selectedFurniture: previous.selectedFurniture.filter(item => [...sharedCustomization.furniture,
+        ...(packageRecord.serviceOptions?.[nextTier]?.furnitureInclusions ?? [])].includes(item))}));
     setServiceTier(next.serviceTier);
     setPackageThemeId(next.packageThemeId);
     setThemeInspiration(next.themeInspiration);
@@ -1089,6 +1115,8 @@ async function handleSubmitBooking() {
   }
 
   function continueFromCustomization() {
+    const choiceError = foodChoiceSelectionError(packageRecord.foodChoiceGroups ?? [], customizationDraft.foodChoiceSelections ?? []);
+    if (choiceError) {setOfferSelectionError(choiceError); return;}
     /*
      * Food, decor, and furniture selections stay optional because
      * submitBookingRequest currently permits empty customization arrays.
@@ -1344,7 +1372,10 @@ function discardAndLeave() {
                 <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
                   <span className="text-feasta-text-secondary">Event type</span>
                   <span className="font-bold text-foreground">
-                    {packageRecord.eventType ? humanizeProviderValue(packageRecord.eventType) : "Package event"}
+                    {(packageRecord.occasionMatchIds?.length ?? 0) > 1 ? <select aria-label="Event type"
+                      value={draft.eventType} onChange={e => updateDraft("eventType", e.currentTarget.value)}>
+                      {packageRecord.occasionMatchIds!.map(id => <option key={id} value={id}>{humanizeProviderValue(id)}</option>)}
+                    </select> : humanizeProviderValue(draft.eventType ?? packageRecord.eventType ?? "Package event")}
                   </span>
                 </p>
 
@@ -1600,6 +1631,7 @@ function discardAndLeave() {
                 <BookingOfferSelection
                   availableTiers={offerSelection.availableTiers}
                   serviceOptions={packageRecord.serviceOptions}
+                  pricingModel={packageRecord.pricingModel}
                   themesApplicable={offerSelection.themesApplicable}
                   hasThemeOptions={(packageRecord.themeOptions?.length ?? 0) > 0}
                   serviceTier={offerSelection.serviceTier}
@@ -1622,6 +1654,9 @@ function discardAndLeave() {
                   }}
                 />
 
+                <FoodChoiceSelector groups={packageRecord.foodChoiceGroups ?? []}
+                  value={customizationDraft.foodChoiceSelections ?? []}
+                  onChange={(foodChoiceSelections) => setCustomizationDraft((current) => ({...current, foodChoiceSelections}))}/>
                 <CustomizationGroup
                   title="Food selections"
                   description="Choose from the food options published with this package."
@@ -3045,7 +3080,7 @@ function BookingReview({
             <div className="min-w-0">
               <h4 className="break-words text-lg font-extrabold text-foreground">{packageRecord.name}</h4>
               <p className="mt-1 text-sm text-feasta-text-secondary">{providerName}</p>
-              {packageRecord.eventType ? <p className="mt-1 text-xs font-semibold text-feasta-text-secondary">{humanizeProviderValue(packageRecord.eventType)}</p> : null}
+              {packageRecord.eventType ? <p className="mt-1 text-xs font-semibold text-feasta-text-secondary">{humanizeProviderValue(eventDraft.eventType ?? packageRecord.eventType)}</p> : null}
             </div>
             <div className="rounded-xl bg-feasta-canvas px-3 py-2 sm:text-right">
               <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-feasta-text-tertiary">Estimated package price</p>
@@ -3061,6 +3096,8 @@ function BookingReview({
               {themeNotes ? <ReviewValue label="Visual notes" value={themeNotes} /> : null}
             </div>
           ) : null}
+          {(packageRecord.foodChoiceGroups ?? []).map((group) => <ReviewSelectionList key={group.id}
+            title={group.title} values={group.options.filter((option) => customizationDraft.foodChoiceSelections?.find((selection) => selection.groupId === group.id)?.optionIds.includes(option.id)).map((option) => option.name)} emptyText="No dishes selected"/>)}
           {customizationDraft.selectedFoods.length > 0 ||
           customizationDraft.selectedDecorations.length > 0 ||
           customizationDraft.selectedFurniture.length > 0 ||
