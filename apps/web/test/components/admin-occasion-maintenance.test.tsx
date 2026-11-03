@@ -218,7 +218,9 @@ describe("Admin occasion maintenance", () => {
     });
 
     expect(await within(dialog).findByText("Approved.")).toBeInTheDocument();
-    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "Activation is not available yet"
+    );
     expect(within(dialog).getByRole("button", {
       name: "Activate"
     })).toBeDisabled();
@@ -376,7 +378,9 @@ describe("Admin occasion maintenance", () => {
     }), true));
   });
   it("loads active and inactive records, filters by ID and status, and sorts names", async () => {
-    mount(); expect(screen.getByRole("status")).toHaveTextContent("Loading occasions"); await ready();
+    mount(); expect(
+      screen.getByRole("status", {name: "Loading occasions"})
+    ).toHaveAttribute("aria-busy", "true"); await ready();
     expect(screen.getByText("Inactive", {selector: "span"})).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Sort occasions"), {target: {value: "name"}});
     expect(screen.getAllByRole("article")[0]).toHaveTextContent("Birthday");
@@ -640,5 +644,89 @@ describe("Admin occasion maintenance", () => {
 
     expect(api.saveAdminOccasion).not.toHaveBeenCalled();
     expect(api.changeAdminOccasionState).not.toHaveBeenCalled();
+  });
+  it("shows clear activation fallback and collapsible verified checks", async () => {
+    api.inspectAdminOccasionAtomicReadiness.mockResolvedValue({
+      occasionId: "birthday",
+      action: "activate",
+      status: "BLOCKED",
+      lifecycleAvailable: false,
+      occasionRevision: 2,
+      catalogRevision: 7,
+      packageCount: 10,
+      galleryCount: 2,
+      affectedPackages: 0,
+      affectedGallerySetups: 0,
+      blockers: [],
+      checks: [
+        {
+          code: "APPROVED",
+          status: "SATISFIED",
+          message: "Approved occasion identity verified."
+        }
+      ]
+    });
+
+    mount();
+    await ready();
+    await openLifecycle("Birthday");
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Activate Event Type: Birthday"
+    });
+
+    expect(await within(dialog).findByText(
+      "Activation is not available yet"
+    )).toBeInTheDocument();
+
+    expect(within(dialog).getByText(
+      /The server has not confirmed activation readiness/
+    )).toBeInTheDocument();
+
+    expect(within(dialog).getByText(
+      "Packages scanned"
+    )).toBeInTheDocument();
+
+    const details = within(dialog).getByText(
+      /Verified for this check/
+    ).closest("details");
+
+    expect(details).not.toBeNull();
+    expect(details).not.toHaveAttribute("open");
+
+    await userEvent.click(
+      within(details!).getByText(/Verified for this check/)
+    );
+
+    expect(details).toHaveAttribute("open");
+
+    expect(within(details!).getByText(
+      "Approved occasion identity verified."
+    )).toBeInTheDocument();
+
+    expect(within(dialog).getByRole("button", {
+      name: "Activate"
+    })).toBeDisabled();
+
+    expect(api.changeAdminOccasionState).not.toHaveBeenCalled();
+  });
+  it("renders occasion skeleton cards while the catalog loads", async () => {
+    api.listAdminOccasions.mockImplementationOnce(
+      () => new Promise(() => {})
+    );
+
+    mount();
+
+    const loadingState = await screen.findByRole("status", {
+      name: "Loading occasions"
+    });
+
+    expect(loadingState).toHaveAttribute("aria-busy", "true");
+    expect(
+      within(loadingState).getAllByTestId("occasion-skeleton")
+    ).toHaveLength(6);
+
+    expect(screen.queryByText("Loading occasions..."))
+      .not.toBeInTheDocument();
   });
 });

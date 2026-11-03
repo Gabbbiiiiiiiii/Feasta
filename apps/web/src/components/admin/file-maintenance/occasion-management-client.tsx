@@ -327,7 +327,37 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
     </div>
 
     {error && <div role="alert">{error} <Button variant="secondary" onClick={() => void load()}>Retry catalog</Button></div>}
-    {loading ? <p role="status">Loading occasions…</p> : catalog && <>
+    {loading ? <div
+  role="status"
+  aria-label="Loading occasions"
+  aria-busy="true"
+  className="grid gap-3"
+>
+  {Array.from({length: 6}, (_, index) => (
+    <div
+      key={`occasion-skeleton-${index}`}
+      data-testid="occasion-skeleton"
+      aria-hidden="true"
+      className="rounded-[20px] border border-border bg-card px-4 py-4 sm:px-5"
+    >
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="h-5 w-32 animate-pulse rounded-md bg-muted" />
+            <div className="h-6 w-20 animate-pulse rounded-full bg-muted" />
+          </div>
+          <div className="h-3.5 w-48 max-w-full animate-pulse rounded bg-muted" />
+          <div className="h-3.5 w-64 max-w-full animate-pulse rounded bg-muted" />
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="h-10 w-20 animate-pulse rounded-full bg-muted" />
+          <div className="h-10 w-10 animate-pulse rounded-full bg-muted" />
+        </div>
+      </div>
+    </div>
+  ))}
+  <span className="sr-only">Loading event types and occasions</span>
+</div> : catalog && <>
       <div className="grid gap-3 sm:grid-cols-3" aria-label="Occasion overview">
         {[
           {label: "Total occasions", value: catalog.items.length},
@@ -482,10 +512,10 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
     <Dialog open={!!readinessItem} onOpenChange={(open) => {if (!open && !lifecycleBusy && !lifecycleConfirm) {
       readinessRequest.current++; setReadinessItem(undefined); setReadiness(undefined);
       setCheckingReadiness(false);
-    }}}><DialogContent className="max-h-[90dvh] overflow-y-auto">
+    }}}><DialogContent className="flex max-h-[90dvh] w-[calc(100vw-2rem)] max-w-2xl flex-col overflow-hidden p-5 sm:p-6">
       <DialogHeader><DialogTitle>{readinessItem?.active ? "Deactivate Event Type" : "Activate Event Type"}: {readinessItem?.label}</DialogTitle>
-        <DialogDescription>{readinessItem?.active ? "This event type will become unavailable for new bookings. Existing bookings and provider records will remain unchanged." : "This read-only check does not change the occasion or grant provider approval."}</DialogDescription>
-      </DialogHeader>
+        <DialogDescription>{readinessItem?.active ? "This event type will become unavailable for new bookings. Existing bookings and provider records will remain unchanged." : "This read-only check does not change the occasion or grant provider approval."}</DialogDescription>      </DialogHeader>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 text-sm">
       {!readinessItem?.active && <p>The read-only inventory check does not change occasion status. Execution repeats the authority and inventory checks atomically and may still reject concurrent changes.</p>}
       {checkingReadiness && <p role="status">Checking event type availability…</p>}
       {readinessError && <div role="alert">{readinessError}<p>Readiness could not be verified. No change was made.</p></div>}
@@ -523,17 +553,92 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
               </div>
             )}
         </div>
-      ) : <>
-        <p className="text-sm">Checked catalog revision {readiness.catalogRevision ?? "unavailable"}, occasion revision {readiness.occasionRevision ?? "unavailable"}. Results describe this check only.</p>
-        <p>Packages scanned: {readiness.packageCount ?? "not checked"} · Gallery documents scanned: {readiness.galleryCount ?? "not checked"}. Content potentially requiring review: {readiness.affectedPackages ?? "unknown"} packages, {readiness.affectedGallerySetups ?? "unknown"} setup entries.</p>
-        <h3 className="font-semibold">Verified for this check</h3>
-        <ul className="list-disc pl-5">{readiness.checks.filter((check) => check.status === "SATISFIED")
-          .map((check) => <li key={check.code}>{check.message}</li>)}</ul>
-        <h3 className="font-semibold">Safeguards still required</h3>
-        <ul className="list-disc pl-5">{readiness.checks.filter((check) => check.status === "BLOCKED")
-          .map((check) => <li key={check.code}>{check.message}</li>)}</ul>
-      </>)}
-      <Button variant="secondary" disabled={checkingReadiness || !readinessItem}
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Catalog revision {readiness.catalogRevision ?? "unavailable"} ·
+            Occasion revision {readiness.occasionRevision ?? "unavailable"}.
+            Read-only results; execution repeats all checks.
+          </p>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">Packages scanned</p>
+              <p className="text-xl font-semibold">
+                {readiness.packageCount ?? "—"}
+              </p>
+            </div>
+            <div className="rounded-lg border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground">Gallery documents</p>
+              <p className="text-xl font-semibold">
+                {readiness.galleryCount ?? "—"}
+              </p>
+            </div>
+          </div>
+
+          <p className="rounded-lg border p-3 text-sm">
+            Content requiring review:
+            {" "}{readiness.affectedPackages ?? "unknown"} packages,
+            {" "}{readiness.affectedGallerySetups ?? "unknown"} setup entries.
+          </p>
+
+          {readiness.lifecycleAvailable &&
+          readiness.status === "ELIGIBLE_FOR_TRANSACTION" ? (
+            <div role="status" className="rounded-lg border p-3">
+              <p className="font-semibold">Ready for activation</p>
+              <p className="mt-1 text-muted-foreground">
+                The preview checks passed. The server will recheck
+                everything before changing the event type.
+              </p>
+            </div>
+          ) : (
+            <div role="alert" className="rounded-lg border p-3">
+              <p className="font-semibold">Activation is not available yet</p>
+              {readiness.checks.some((check) =>
+                check.status === "BLOCKED") ? (
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {readiness.checks
+                      .filter((check) => check.status === "BLOCKED")
+                      .map((check) => (
+                        <li key={check.code}>{check.message}</li>
+                      ))}
+                  </ul>
+                ) : (readiness.blockers?.length ?? 0) > 0 ? (
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {readiness.blockers?.map((blocker) => (
+                      <li key={blocker}>{blocker}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-muted-foreground">
+                    The server has not confirmed activation readiness
+                    or provided a specific blocking reason.
+                    No change has been made.
+                  </p>
+                )}
+            </div>
+          )}
+
+          <details className="rounded-lg border p-3">
+            <summary className="cursor-pointer font-medium">
+              Verified for this check (
+              {readiness.checks.filter((check) =>
+                check.status === "SATISFIED").length})
+            </summary>
+            <ul className="mt-3 list-disc space-y-1 pl-5">
+              {readiness.checks
+                .filter((check) => check.status === "SATISFIED")
+                .map((check) => (
+                  <li key={check.code}>{check.message}</li>
+                ))}
+            </ul>
+          </details>
+        </div>
+      ))}
+      </div>
+      <div className="shrink-0 space-y-3 border-t pt-3">
+      <Button variant="secondary" className="w-full"
+        disabled={checkingReadiness || !readinessItem}
         onClick={() => {if (readinessItem) void checkReadiness(readinessItem);}}>Check again</Button>
       {readiness?.lifecycleAvailable && <label className="grid gap-1 text-sm">{readinessItem?.active ? "Reason for deactivation" : "Reason for activation"}
         <Input aria-label="Lifecycle reason" disabled={lifecycleBusy} value={lifecycleReason}
@@ -541,8 +646,11 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
       </label>}
       {lifecycleError && <p role="alert">{lifecycleError}</p>}
       <Button disabled={lifecycleBusy || !readiness?.lifecycleAvailable ||
-        readiness.status !== "ELIGIBLE_FOR_TRANSACTION" || lifecycleReason.trim().length < 10}
-        onClick={() => setLifecycleConfirm(true)}>{readinessItem?.active ? "Deactivate" : "Activate"}</Button>
+        readiness.status !== "ELIGIBLE_FOR_TRANSACTION" || lifecycleReason.trim().length < 10}        onClick={() => setLifecycleConfirm(true)}
+        className="w-full">
+        {readinessItem?.active ? "Deactivate" : "Activate"}
+      </Button>
+      </div>
       <ConfirmationDialog open={lifecycleConfirm} stopEscapePropagation
         onOpenChange={setLifecycleConfirm} title={`Confirm ${readinessItem?.active ? "deactivation" : "activation"}?`}
         description={readinessItem?.active ?
