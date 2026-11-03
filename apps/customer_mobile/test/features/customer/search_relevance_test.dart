@@ -1,4 +1,5 @@
 import 'package:feasta/core/helpers/provider_discovery.dart';
+import 'test_occasion_catalog_fixture.dart';
 import 'package:feasta/features/customer/customer_search_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 // ignore: depend_on_referenced_packages
@@ -113,6 +114,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: CustomerSearchScreen(
+            occasionLoader: testOccasionLoader,
             repository: repository,
             initialCategoryCode: 'catering_service',
             initialEventType: 'Wedding',

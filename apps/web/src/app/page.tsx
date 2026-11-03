@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { ProviderCard } from "@/components/customer/providers/provider-card";
+import {getActiveOccasionOptions} from "@/lib/customer/planning/active-occasion-options-service";
 import { LandingFooter } from "@/components/landing/landing-footer";
 import { LandingHeader } from "@/components/landing/landing-header";
 import { StartYourEventForm } from "@/components/landing/start-your-event-form";
@@ -56,7 +57,7 @@ const landingImages = {
   },
 } as const;
 
-const eventTypes = [
+const eventTypePresentation = [
   {
     label: "Birthday",
     value: "birthday",
@@ -101,6 +102,29 @@ const eventTypes = [
   },
 ] as const;
 
+async function getActiveEventTypes() {
+  const occasions = await getActiveOccasionOptions();
+
+  return occasions.map((occasion) => {
+    const presentation = eventTypePresentation.find(
+      (item) => item.value === occasion.id,
+    );
+
+    return {
+      label: occasion.label,
+      value: occasion.id,
+      description:
+        presentation?.description ??
+        "Discover event services for your celebration.",
+      image:
+        presentation?.image ??
+        landingImages.celebrations.other,
+      imageAlt:
+        presentation?.imageAlt ??
+        `${occasion.label} event celebration`,
+    };
+  });
+}
 const journeySteps = [
   {
     number: "01",
@@ -153,7 +177,10 @@ async function getFeaturedProviders() {
 }
 
 export default async function HomePage() {
-  const featuredProviders = await getFeaturedProviders();
+  const [featuredProviders, eventTypes] = await Promise.all([
+    getFeaturedProviders(),
+    getActiveEventTypes(),
+  ]);
 
   const featuredProviderGridClassName =
     featuredProviders.length === 1
@@ -170,7 +197,7 @@ export default async function HomePage() {
 
       <main className="min-h-screen overflow-hidden bg-background pt-[72px] text-foreground">
         {/* ==================================================================
-            PHASE 1A — EVENT-FIRST HERO
+            PHASE 1A â€” EVENT-FIRST HERO
            ================================================================== */}
 
         <section
@@ -363,7 +390,7 @@ export default async function HomePage() {
                     </p>
                   </div>
 
-                  <StartYourEventForm />
+                  <StartYourEventForm eventTypes={eventTypes} />
                 </div>
 
                 <p className="mt-4 text-xs leading-5 text-feasta-text-tertiary">
@@ -377,7 +404,7 @@ export default async function HomePage() {
         </section>
 
         {/* ==================================================================
-            PHASE 1B — CELEBRATION DISCOVERY
+            PHASE 1B â€” CELEBRATION DISCOVERY
           ================================================================== */}
 
         <section
@@ -456,7 +483,7 @@ export default async function HomePage() {
         </section>
 
         {/* ==================================================================
-            PHASE 1B — EVENT SERVICES
+            PHASE 1B â€” EVENT SERVICES
           ================================================================== */}
 
         {/* <section
@@ -557,7 +584,7 @@ export default async function HomePage() {
         </section> */}
 
         {/* ==================================================================
-            PHASE 1E — HOW FEASTA WORKS
+            PHASE 1E â€” HOW FEASTA WORKS
           ================================================================== */}
 
         <section
@@ -660,7 +687,7 @@ export default async function HomePage() {
         </section>
 
         {/* ==================================================================
-            PHASE 1C — RECOMMENDED LOCAL PROVIDERS
+            PHASE 1C â€” RECOMMENDED LOCAL PROVIDERS
           ================================================================== */}
 
         <section

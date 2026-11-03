@@ -19,7 +19,7 @@ vi.mock("@/lib/provider/provider-package-client", () => ({
 }));
 vi.mock("@/lib/provider/provider-media-client", () => ({uploadProviderServiceImage: mocks.upload}));
 
-const occasionCatalog = {options: [{id: "birthday", label: "Birthday", categoryCodes: ["food_catering", "catering_service"]}, {id: "wedding", label: "Wedding", categoryCodes: ["food_catering", "catering_service"]}], catalogRevision: 4, providerEligibilityRevision: 2, maxSpecificOccasions: 5};
+const occasionCatalog = {options: [{id: "birthday", label: "Birthday", categoryCodes: ["food_catering", "catering_service"]}, {id: "wedding", label: "Wedding", categoryCodes: ["food_catering", "catering_service"]}], catalogRevision: 4, eligibilityModel: "global_v1" as const, maxSpecificOccasions: 5};
 const props = {occasionCatalog, eventTypesSupported: ["birthday"], minGuestsPerEvent: 10, maxGuestsPerEvent: 200, packageCategoryOptions: [{code: "catering_service", name: "Catering Service"}]};
 const image = "https://res.cloudinary.com/feasta/image/upload/v1/feasta/providers/owner/services/asset/image.png";
 const record: ProviderPackage = {

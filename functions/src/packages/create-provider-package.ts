@@ -1,3 +1,6 @@
+import {requireLegacyPackageOccasionAuthority} from "./legacy-package-occasion-authority.js";
+import {occasionDependencyEntryPath} from "../admin/occasion-dependency-registry.js";
+import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {BALANCE_DUE_HOURS_BEFORE_EVENT} from "../payments/canonical-balance-timing.js";
 import {cloudinarySecrets} from "../shared/cloudinary.js";
 import {
@@ -120,6 +123,7 @@ export const createProviderPackage = onCall(
 
     return db.runTransaction(
       async (transaction) => {
+        await requireMaintenanceOpen(transaction, db, "intake");
         const [
           userSnapshot,
           paymentPolicySnapshot,
@@ -198,11 +202,33 @@ export const createProviderPackage = onCall(
           paymentPolicyBounds,
         );
 
+        await requireLegacyPackageOccasionAuthority(
+          transaction,
+          validated.eventType,
+          validated.serviceCategoryCode,
+        );
         await verifyPackageImages(validated, actor.uid);
 
         const packageReference = db
           .collection("packages")
           .doc();
+
+        // Register the occasion dependency in the same transaction as
+        // the new package. Historical coverage is not yet attested,
+        // so this entry alone cannot authorize deactivation.
+        const occasionDependencyEntry = {
+          schemaVersion: 1 as const,
+          kind: "package" as const,
+          occasionId: validated.eventType,
+          sourceId: packageReference.id,
+          sourcePath: packageReference.path,
+        };
+
+        recordMaintenanceAdmission(transaction, db);
+        transaction.create(
+          db.doc(occasionDependencyEntryPath(occasionDependencyEntry)),
+          occasionDependencyEntry,
+        );
 
         transaction.create(
           packageReference,

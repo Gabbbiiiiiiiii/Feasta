@@ -11,9 +11,12 @@
  * rewrite a booking or authorize publication of any V2 offer.
  */
 import {createHash} from "node:crypto";
+import {isRoutineOccasionTransitionValid} from "./occasion-routine-activation.js";
 import {FieldPath} from "firebase-admin/firestore";
 import type {DocumentReference, Transaction} from "firebase-admin/firestore";
 import {scanOccasionPackageInventory} from "../packages/occasion-transition-inventory-scan.js";
+import {assertNoOccasionPackageDependencies} from "./occasion-package-dependencies.js";
+import {assertNoOccasionBookingDependencies} from "./occasion-booking-dependencies.js";
 import {withdrawOccasionPackageBatchInTransaction,
   withdrawalBatchOperationId} from "../packages/occasion-withdrawal-batch.js";
 
@@ -175,7 +178,10 @@ export async function completeAtomicOccasionLifecycle(tx: Transaction,
     occasion.id !== input.occasionId ||
     occasion.moderationState !== "approved" ||
     !validRevision(occasion.revision) ||
-    occasion.active !== (input.action === "deactivate") ||
+    !isRoutineOccasionTransitionValid(
+      occasion as {id: string; moderationState: string;
+        active: boolean; revision: number},
+      input.action, input.expectedOccasionRevision) ||
     catalog.revision !== input.expectedCatalogRevision ||
     occasion.revision !== input.expectedOccasionRevision) {
     refuse("OCCASION_LIFECYCLE_REVISION_OR_STATE_CONFLICT");
@@ -205,7 +211,45 @@ export async function completeAtomicOccasionLifecycle(tx: Transaction,
     (i > 0 && packageRows[i - 1].id >= row.id))) {
     refuse("PACKAGE_INVENTORY_REQUIRES_REVIEW");
   }
-  const inventory = await scanOccasionPackageInventory({
+  // An occasion cannot be deactivated while a current package depends on it.
+  // Inspect the complete bounded package inventory, including private drafts.
+  if (input.action === "deactivate") {
+    assertNoOccasionPackageDependencies({
+      packageRows,
+      occasionId: input.occasionId,
+      codes: codes as string[],
+    });
+    // Booking dependency inventory and terminal-status rules have not yet
+    // been proven. Never deactivate based only on package evidence.
+    const firestore = input.catalogRef.firestore;
+    const MAX_BOOKINGS = 40;
+
+    // Read every relevant booking collection inside the lifecycle transaction.
+    // Bounded inventories are required; truncated results can never authorize
+    // a deactivation.
+    const [eventsSnap, requestsSnap] = await Promise.all([
+      tx.get(firestore.collection("mainEvents")
+        .orderBy(FieldPath.documentId()).limit(MAX_BOOKINGS + 1)),
+      tx.get(firestore.collection("providerRequests")
+        .orderBy(FieldPath.documentId()).limit(MAX_BOOKINGS + 1)),
+    ]);
+
+    if (eventsSnap.size > MAX_BOOKINGS ||
+        requestsSnap.size > MAX_BOOKINGS) {
+      refuse("OCCASION_BOOKING_INVENTORY_TOO_LARGE");
+    }
+
+    const events = new Map(eventsSnap.docs.map((doc) =>
+      [doc.id, doc.data() as Record<string, unknown>]));
+    const requests = new Map(requestsSnap.docs.map((doc) =>
+      [doc.id, doc.data() as Record<string, unknown>]));
+
+    assertNoOccasionBookingDependencies({
+      occasionId: input.occasionId,
+      events,
+      requests,
+    });
+  }  const inventory = await scanOccasionPackageInventory({
     action: input.action, occasionId: input.occasionId,
     applicableCategoryCodes: codes as string[],
     readPage: async (after, limit) => packageRows

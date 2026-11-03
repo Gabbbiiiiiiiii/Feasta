@@ -1,4 +1,5 @@
 import "server-only";
+import {loadActiveLegacyOccasionIds} from "@/lib/customer/discovery/active-legacy-occasion-guard";
 
 import {FIRESTORE_COLLECTIONS} from "@feasta/shared-types";
 
@@ -40,7 +41,12 @@ export async function getCustomerMarketplaceHome(): Promise<CustomerMarketplaceH
   const providerNames = new Map(
     providerPage.providers.map((provider) => [provider.id, provider.businessName]),
   );
+  const activeLegacyIds = await loadActiveLegacyOccasionIds(
+    packageSnapshot.docs.map((document) => document.data()),
+  );
+
   const packages = packageSnapshot.docs.flatMap((document) => {
+    if (!activeLegacyIds.has(String(document.data().eventType))) return [];
     const packageRecord = normalizePublicPackage(
       document.id,
       document.data(),

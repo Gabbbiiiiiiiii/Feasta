@@ -1,3 +1,4 @@
+import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {
   HttpsError,
   onCall,
@@ -75,6 +76,7 @@ export const archiveProviderPackage = onCall(
 
     return db.runTransaction(
       async (transaction) => {
+        await requireMaintenanceOpen(transaction, db, "intake");
         const userSnapshot =
           await transaction.get(
             userReference,
@@ -141,6 +143,7 @@ export const archiveProviderPackage = onCall(
           packageRecord,
         );
 
+        recordMaintenanceAdmission(transaction, db);
         transaction.update(
           packageReference,
           {

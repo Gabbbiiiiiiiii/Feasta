@@ -9,6 +9,24 @@ export interface Timestamp {
 export type CatalogTransitionState = 'preparing' | 'withdrawn' | 'committed' | 'rebuilding' | 'completed' | 'blocked';
 export type OccasionId = string;
 export type Tier = 'drop_off' | 'buffet_setup' | 'full_service';
+/**
+ * Global occasion selection contract.
+ * Additive definition only; does not activate a new write or publication API.
+ *
+ * Unlike OccasionV2, eligibility comes from the canonical occasion catalog,
+ * provider verification, and active service-category applicability.
+ */
+export interface GlobalPackageOccasionV1 {
+    occasionSchemaVersion: 2;
+    occasionScope: 'specific' | 'all';
+    occasionIds: OccasionId[];
+    eventType: OccasionId;
+    occasionMatchIds: OccasionId[];
+    occasionCatalogRevision: number;
+    occasionEligibilityModel: 'global_v1';
+    globalEligibilityContractVersion: 1;
+    occasionEligibilityState: 'valid';
+}
 export interface OccasionV2 {
     occasionSchemaVersion: 2;
     occasionScope: 'specific' | 'all';

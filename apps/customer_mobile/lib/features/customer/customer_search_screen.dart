@@ -2,6 +2,7 @@ import 'widgets/provider_brand_visual.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/helpers/provider_category_helper.dart';
+import '../../core/services/occasion_catalog_service.dart';
 import '../../core/helpers/provider_discovery.dart';
 import '../../core/theme/app_breakpoints.dart';
 import '../../core/theme/app_colors.dart';
@@ -30,11 +31,16 @@ class CustomerSearchScreen extends StatefulWidget {
     this.initialShowFilters = false,
     this.onBack,
     this.repository,
+    this.occasionLoader,
   });
 
   /// Optional provider/service keyword supplied by Home discovery.
   final String initialQuery;
   final FeastaRepository? repository;
+
+  /// Optional offline catalog loader for widget tests.
+  /// Production continues using the Firebase occasion catalog.
+  final Future<List<CatalogOccasion>> Function()? occasionLoader;
 
   /// Stable File Maintenance category code used by category navigation.
   final String? initialCategoryCode;
@@ -56,7 +62,7 @@ class CustomerSearchScreen extends StatefulWidget {
   State<CustomerSearchScreen> createState() => _CustomerSearchScreenState();
 }
 
-class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
+class _CustomerSearchScreenState extends State<CustomerSearchScreen> with WidgetsBindingObserver {
   late final FeastaRepository _repository;
   late final Stream<List<ProviderModel>> _discoveryProviders;
   late final Future<Map<String, String>> _serviceCategoryNames;
@@ -89,17 +95,76 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
     'Car Rental',
   ];
 
-  static const List<String> _eventTypes = [
+  final OccasionCatalogService _occasionService = OccasionCatalogService();
+
+  List<CatalogOccasion> _occasions = const <CatalogOccasion>[];
+  bool _loadingOccasions = true;
+  String? _occasionError;
+
+  List<String> get _eventTypes => <String>[
     'All',
-    'Birthday',
-    'Wedding',
-    'Anniversary',
-    'Reunion',
-    'Corporate',
-    'Baptism',
-    'Graduation',
-    'Other',
+    ..._occasions.map((occasion) => occasion.id),
   ];
+
+  Map<String, String> get _eventTypeLabels => <String, String>{
+    'All': 'All',
+    for (final occasion in _occasions) occasion.id: occasion.label,
+  };
+
+  Future<void> _loadOccasions() async {
+    if (!mounted) return;
+
+    setState(() {
+      _loadingOccasions = true;
+      _occasionError = null;
+    });
+
+    try {
+      final occasions =
+          await (widget.occasionLoader?.call() ??
+              _occasionService.listActiveOccasions());
+
+      if (!mounted) return;
+
+      final resolved = _occasionService.resolveActiveId(
+        widget.initialEventType,
+        occasions,
+      );
+
+      setState(() {
+        _occasions = occasions;
+        _loadingOccasions = false;
+
+        if (_selectedEventType != 'All' &&
+            !occasions.any((item) => item.id == _selectedEventType)) {
+          _selectedEventType = 'All';
+        }
+
+        if (resolved != null && !_occasionSelectionTouched) {
+          _selectedEventType = resolved;
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        _occasions = const <CatalogOccasion>[];
+        _selectedEventType = 'All';
+        _loadingOccasions = false;
+        _occasionError = 'Event types are temporarily unavailable.';
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      // Re-read the guest-accessible authoritative occasion catalog.
+      _loadOccasions();
+    }
+  }
+
+  bool _occasionSelectionTouched = false;
 
   String _selectedEventType = 'All';
   String? _selectedCategoryCode;
@@ -171,6 +236,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _selectedCategoryCode = widget.initialCategoryCode;
     _showFilters = widget.initialShowFilters;
@@ -183,6 +249,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
       maxBudget: null,
     );
     _serviceCategoryNames = _repository.getServiceCategoryNameMap();
+    _loadOccasions();
 
     final initialQuery = widget.initialQuery.trim();
 
@@ -194,9 +261,8 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
       );
     }
 
-    if (_eventTypes.contains(widget.initialEventType)) {
-      _selectedEventType = widget.initialEventType;
-    }
+    // The initial event type is resolved only after the active catalog
+    // loads. Legacy display labels are not used as active filter values.
 
     _locationController.text = widget.initialLocation;
 
@@ -228,6 +294,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     _locationController.dispose();
     _minBudgetController.dispose();
@@ -261,6 +328,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
       _exactThemeMatchesOnly = false;
       _matchesEventPlan = false;
       _selectedEventType = 'All';
+      _occasionSelectionTouched = true;
       _selectedCategoryCode = null;
     });
   }
@@ -276,6 +344,7 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
       _exactThemeMatchesOnly = false;
       _matchesEventPlan = false;
       _selectedEventType = 'All';
+      _occasionSelectionTouched = true;
       _selectedCategoryCode = null;
     });
   }
@@ -558,9 +627,14 @@ class _CustomerSearchScreenState extends State<CustomerSearchScreen> {
                           exactThemeMatchesOnly: _exactThemeMatchesOnly,
                           selectedEventType: _selectedEventType,
                           eventTypes: _eventTypes,
+                          eventTypeLabels: _eventTypeLabels,
+                          loadingOccasions: _loadingOccasions,
+                          occasionError: _occasionError,
+                          onRetryOccasions: _loadOccasions,
                           onSelectedEventType: (value) {
                             setState(() {
                               _selectedEventType = value;
+                              _occasionSelectionTouched = true;
                             });
                           },
                           onChanged: _refreshSearch,
@@ -704,6 +778,10 @@ class _SearchFilterPanel extends StatelessWidget {
     required this.exactThemeMatchesOnly,
     required this.selectedEventType,
     required this.eventTypes,
+    required this.eventTypeLabels,
+    required this.loadingOccasions,
+    required this.occasionError,
+    required this.onRetryOccasions,
     required this.onSelectedEventType,
     required this.onChanged,
     required this.onToggleThemeSection,
@@ -726,6 +804,10 @@ class _SearchFilterPanel extends StatelessWidget {
 
   final String selectedEventType;
   final List<String> eventTypes;
+  final Map<String, String> eventTypeLabels;
+  final bool loadingOccasions;
+  final String? occasionError;
+  final VoidCallback onRetryOccasions;
 
   final ValueChanged<String> onSelectedEventType;
   final VoidCallback onChanged;
@@ -772,8 +854,25 @@ class _SearchFilterPanel extends StatelessWidget {
               ],
             ),
             const SizedBox(height: AppSpacing.md),
+            if (loadingOccasions)
+              const LinearProgressIndicator()
+            else if (occasionError != null)
+              Row(
+                children: [
+                  Expanded(child: Text(occasionError!)),
+                  TextButton(
+                    onPressed: onRetryOccasions,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              )
+            else if (eventTypes.length == 1)
+              const Text('No active event types are available.'),
             DropdownButtonFormField<String>(
-              initialValue: selectedEventType,
+              key: ValueKey<String>(selectedEventType),
+              initialValue: eventTypes.contains(selectedEventType)
+                  ? selectedEventType
+                  : 'All',
               decoration: const InputDecoration(
                 labelText: 'Event type',
                 prefixIcon: Icon(Icons.celebration_outlined),
@@ -785,7 +884,10 @@ class _SearchFilterPanel extends StatelessWidget {
               ),
               items: eventTypes
                   .map(
-                    (type) => DropdownMenuItem(value: type, child: Text(type)),
+                    (type) => DropdownMenuItem(
+                      value: type,
+                      child: Text(eventTypeLabels[type] ?? type),
+                    ),
                   )
                   .toList(),
               onChanged: (value) {

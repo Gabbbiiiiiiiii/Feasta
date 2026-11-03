@@ -1,3 +1,6 @@
+import {requireLegacyPackageOccasionAuthority} from "./legacy-package-occasion-authority.js";
+import {occasionDependencyEntryPath, validOccasionDependencyEntry} from "../admin/occasion-dependency-registry.js";
+import {requireMaintenanceOpen, recordMaintenanceAdmission} from "../shared/maintenance.js";
 import {isLegacyPackageDraft} from "./legacy-occasion-publication-guard.js";
 import {BALANCE_DUE_HOURS_BEFORE_EVENT} from "../payments/canonical-balance-timing.js";
 import {cloudinarySecrets} from "../shared/cloudinary.js";
@@ -175,6 +178,7 @@ export const updateProviderPackage = onCall(
 
     return db.runTransaction(
       async (transaction) => {
+        await requireMaintenanceOpen(transaction, db, "intake");
         const userSnapshot =
           await transaction.get(
             userReference,
@@ -278,7 +282,78 @@ export const updateProviderPackage = onCall(
           paymentPolicyBounds,
         );
 
+        await requireLegacyPackageOccasionAuthority(
+          transaction,
+          validated.eventType,
+          validated.serviceCategoryCode,
+        );
         await verifyPackageImages(validated, actor.uid, packageRecord.packageData);
+
+        // Registry maintenance is provisional until complete historical
+        // coverage and all package writers are independently verified.
+        // Read every relevant registry document before any transaction write.
+        const previousOccasionId = packageRecord.packageData.eventType;
+
+        if (typeof previousOccasionId !== "string") {
+          throw new Error("OCCASION_PACKAGE_DEPENDENCY_REQUIRES_REVIEW");
+        }
+
+        const registryEntryFor = (occasionId: string) => ({
+          schemaVersion: 1 as const,
+          kind: "package" as const,
+          occasionId,
+          sourceId: packageReference.id,
+          sourcePath: packageReference.path,
+        });
+
+        const previousEntry = registryEntryFor(previousOccasionId);
+        const nextEntry = registryEntryFor(validated.eventType);
+
+        const previousRef = db.doc(
+          occasionDependencyEntryPath(previousEntry),
+        );
+
+        const nextRef = db.doc(
+          occasionDependencyEntryPath(nextEntry),
+        );
+
+        const changedOccasion =
+          previousOccasionId !== validated.eventType;
+
+        const previousSnapshot = await transaction.get(previousRef);
+
+        const nextSnapshot = changedOccasion ?
+          await transaction.get(nextRef) : previousSnapshot;
+
+        const requireMatchingEntry = (
+          data: unknown,
+          expected: typeof nextEntry,
+        ) => {
+          if (!validOccasionDependencyEntry(data) ||
+              data.kind !== expected.kind ||
+              data.occasionId !== expected.occasionId ||
+              data.sourceId !== expected.sourceId ||
+              data.sourcePath !== expected.sourcePath) {
+            throw new Error("OCCASION_DEPENDENCY_ENTRY_INVALID");
+          }
+        };
+
+        if (previousSnapshot.exists) {
+          requireMatchingEntry(previousSnapshot.data(), previousEntry);
+        }
+
+        if (nextSnapshot.exists) {
+          requireMatchingEntry(nextSnapshot.data(), nextEntry);
+        }
+
+        recordMaintenanceAdmission(transaction, db);
+        if (changedOccasion && previousSnapshot.exists) {
+          transaction.delete(previousRef);
+        }
+
+        if (!nextSnapshot.exists) {
+          transaction.create(nextRef, nextEntry);
+        }
 
         transaction.update(
           packageReference,

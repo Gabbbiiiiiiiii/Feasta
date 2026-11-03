@@ -26,12 +26,12 @@ import {Select} from "@/components/ui/select";
 import {useLiveSearch} from "@/lib/search/use-live-search";
 
 import {
-  CUSTOMER_PLANNING_EVENT_TYPES,
   MAX_EVENT_GUESTS,
   manilaDateValue,
   parseCustomerPlanningContext,
 } from "@/lib/customer/planning/event-planning-context";
 import type {ServiceCategoryOption} from "@/lib/service-categories/service-category-types";
+import type {ActiveOccasionOption} from "@/lib/customer/planning/active-occasion-options-service";
 import {
   parseProviderDiscoveryFilters,
   providerDiscoveryHref,
@@ -40,14 +40,6 @@ import {
 const controlClass =
   "h-12 min-h-12 min-w-0 w-full rounded-xl border-feasta-border-soft bg-feasta-canvas px-4 py-2 text-sm font-semibold focus-visible:ring-primary/20";
 
-const EVENT_TYPE_LABELS: Record<string, string> = {
-  birthday: "Birthday",
-  wedding: "Wedding",
-  debut: "Debut",
-  corporate: "Corporate event",
-  anniversary: "Anniversary",
-  other: "Other celebration",
-};
 
 function FinderSection({
   number,
@@ -111,10 +103,12 @@ export function EventFinder({
   query,
   onFind,
   serviceCategoryOptions = [],
+  occasionOptions = [],
 }: {
   query: string;
   onFind: () => void;
   serviceCategoryOptions?: readonly ServiceCategoryOption[];
+  occasionOptions?: readonly ActiveOccasionOption[];
 }) {
   const router = useRouter();
   const parameters = new URLSearchParams(query);
@@ -329,14 +323,14 @@ export function EventFinder({
             <Select
               id="event-finder-type"
               name="eventType"
-              defaultValue={planning?.eventType ?? ""}
+              defaultValue={occasionOptions.some((option) => option.id === planning?.eventType) ? planning!.eventType : ""}
               className={controlClass}
             >
               <option value="">Choose your occasion</option>
 
-              {CUSTOMER_PLANNING_EVENT_TYPES.map((value) => (
-                <option key={value} value={value}>
-                  {EVENT_TYPE_LABELS[value]}
+              {occasionOptions.map((occasion) => (
+                <option key={occasion.id} value={occasion.id}>
+                  {occasion.label}
                 </option>
               ))}
             </Select>
@@ -465,7 +459,7 @@ export function EventFinder({
               htmlFor="event-finder-budget-min"
               className="mb-2 block text-xs font-bold text-feasta-text-secondary"
             >
-              Starting budget (₱)
+              Starting budget (â‚±)
             </label>
 
             <input
@@ -486,7 +480,7 @@ export function EventFinder({
               htmlFor="event-finder-budget-max"
               className="mb-2 block text-xs font-bold text-feasta-text-secondary"
             >
-              Maximum budget (₱)
+              Maximum budget (â‚±)
             </label>
 
             <input

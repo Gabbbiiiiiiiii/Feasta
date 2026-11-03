@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/services/occasion_catalog_service.dart';
 import '../../core/theme/app_radius.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -27,16 +28,67 @@ class CustomerPlanScreen extends StatefulWidget {
 }
 
 class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
-  static const List<String> _eventTypes = [
-    'Birthday',
-    'Wedding',
-    'Anniversary',
-    'Reunion',
-    'Corporate',
-    'Baptism',
-    'Graduation',
-    'Other',
-  ];
+  final OccasionCatalogService _occasionService = OccasionCatalogService();
+
+  List<CatalogOccasion> _occasions = const <CatalogOccasion>[];
+  bool _loadingOccasions = true;
+  String? _occasionError;
+  String? _savedEventType;
+  bool _occasionSelectionTouched = false;
+
+  String get _selectedEventLabel {
+    for (final occasion in _occasions) {
+      if (occasion.id == _selectedEventType) {
+        return occasion.label;
+      }
+    }
+    return '';
+  }
+
+  void _resolveOccasionSelection() {
+    if (_occasions.isEmpty) {
+      _selectedEventType = '';
+      return;
+    }
+
+    final candidate = _occasionSelectionTouched
+        ? _selectedEventType
+        : (_savedEventType ?? _selectedEventType);
+
+    _selectedEventType =
+        _occasionService.resolveActiveId(candidate, _occasions) ??
+        _occasions.first.id;
+  }
+
+  Future<void> _loadOccasions() async {
+    if (!mounted) return;
+
+    setState(() {
+      _loadingOccasions = true;
+      _occasionError = null;
+    });
+
+    try {
+      final occasions = await _occasionService.listActiveOccasions();
+
+      if (!mounted) return;
+
+      setState(() {
+        _occasions = occasions;
+        _loadingOccasions = false;
+        _resolveOccasionSelection();
+      });
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        _occasions = const <CatalogOccasion>[];
+        _selectedEventType = '';
+        _loadingOccasions = false;
+        _occasionError = 'Event types are temporarily unavailable.';
+      });
+    }
+  }
 
   final CustomerAddressStorageService _addressStorage =
       CustomerAddressStorageService();
@@ -51,7 +103,7 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
   final EventPlanPreferencesService _planPreferencesService =
       EventPlanPreferencesService();
 
-  String _selectedEventType = 'Birthday';
+  String _selectedEventType = '';
   CustomerAddressModel _selectedAddress = CustomerAddressModel.defaultOrmoc;
 
   DateTime? _eventDate;
@@ -66,6 +118,7 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
   void initState() {
     super.initState();
     _loadSelectedAddress();
+    _loadOccasions();
     _loadPlanPreferences();
   }
 
@@ -106,9 +159,8 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
     }
 
     setState(() {
-      if (_eventTypes.contains(saved.eventType)) {
-        _selectedEventType = saved.eventType;
-      }
+      _savedEventType = saved.eventType;
+      _resolveOccasionSelection();
 
       _selectedThemes
         ..clear()
@@ -288,8 +340,12 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
   }
 
   String? _validatePlan() {
-    if (_selectedEventType.trim().isEmpty) {
-      return 'Choose an event type.';
+    if (_loadingOccasions || _occasionError != null || _occasions.isEmpty) {
+      return 'Active event types are not available. Please retry.';
+    }
+
+    if (!_occasions.any((item) => item.id == _selectedEventType)) {
+      return 'Choose an active event type.';
     }
 
     if (_guestCount == null) {
@@ -422,7 +478,21 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
             150 + bottomSafeArea,
           ),
           children: [
-            _PlanIntroCard(eventType: _selectedEventType),
+            _PlanIntroCard(eventType: _selectedEventLabel),
+            if (_loadingOccasions)
+              const LinearProgressIndicator()
+            else if (_occasionError != null)
+              ListTile(
+                title: Text(_occasionError!),
+                trailing: TextButton(
+                  onPressed: _loadOccasions,
+                  child: const Text('Retry'),
+                ),
+              )
+            else if (_occasions.isEmpty)
+              const ListTile(
+                title: Text('No active event types are available.'),
+              ),
             const SizedBox(height: AppSpacing.lg),
 
             Text(
@@ -444,12 +514,13 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
                 return Wrap(
                   spacing: gap,
                   runSpacing: gap,
-                  children: _eventTypes.map((eventType) {
+                  children: _occasions.map((occasion) {
+                    final eventType = occasion.id;
                     return SizedBox(
                       width: itemWidth,
                       height: 42,
                       child: _EventTypeTile(
-                        label: eventType,
+                        label: occasion.label,
                         selected: eventType == _selectedEventType,
                         onTap: () async {
                           if (_selectedEventType == eventType) {
@@ -458,6 +529,7 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
 
                           setState(() {
                             _selectedEventType = eventType;
+                            _occasionSelectionTouched = true;
                           });
 
                           await _savePlanPreferences();
@@ -510,7 +582,7 @@ class _CustomerPlanScreenState extends State<CustomerPlanScreen> {
               )
             else
               _DynamicThemeSuggestions(
-                eventType: _selectedEventType,
+                eventType: _selectedEventLabel,
                 selectedThemes: _selectedThemes,
                 onThemeTap: _toggleTheme,
               ),

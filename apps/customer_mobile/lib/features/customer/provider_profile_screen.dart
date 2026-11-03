@@ -30,7 +30,7 @@ class ProviderProfileScreen extends StatefulWidget {
   State<ProviderProfileScreen> createState() => _ProviderProfileScreenState();
 }
 
-class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
+class _ProviderProfileScreenState extends State<ProviderProfileScreen> with WidgetsBindingObserver {
   late final FeastaRepository _repository;
   late final Future<Map<String, String>> _serviceCategoryNames;
 
@@ -51,11 +51,26 @@ class _ProviderProfileScreenState extends State<ProviderProfileScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _repository = widget.repository ?? FeastaRepository();
     _serviceCategoryNames = _repository.getServiceCategoryNameMap();
 
     // View counts are server-owned; public browsing must not write providers.
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+
+    // Rebuild package StreamBuilder with a fresh verified package stream.
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   int _selectedTab = 0;

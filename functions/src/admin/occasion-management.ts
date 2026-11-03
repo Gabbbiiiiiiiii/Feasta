@@ -1,4 +1,5 @@
 import {Timestamp} from "firebase-admin/firestore";
+import {planOccasionApplicabilityChange} from "./occasion-applicability-change.js";
 import {onCall, type CallableRequest} from "firebase-functions/v2/https";
 import {requireAuth} from "../shared/auth.js";
 import {requireRole} from "../shared/authorization.js";
@@ -157,6 +158,96 @@ async function mutate(request: CallableRequest, create: boolean) {
 }
 export const createAdminOccasion = onCall(appCheckCallableOptions, (r) => mutate(r, true));
 export const updateAdminOccasion = onCall(appCheckCallableOptions, (r) => mutate(r, false));
+
+/**
+ * Narrow applicability edit: add categories to an INACTIVE occasion only.
+ * No removals or active-occasion edits: those require certified inventory,
+ * publisher fencing and customer compatibility evidence not available here.
+ * Activation still performs its full independent readiness checks.
+ */
+export const addAdminOccasionApplicableServices = onCall(appCheckCallableOptions, async (request) => {
+  const uid = await actor(request, "adminOccasions.applicability.add");
+  const v = exact(request.data, ["occasionId", "applicableServiceCategoryCodes",
+    "expectedOccasionRevision", "expectedCatalogRevision", "reason", "idempotencyKey"], [],
+  "INVALID_REVIEW_TARGET");
+  const id = occasionId(v.occasionId);
+  const expectedOccasionRevision = positiveRevision(v.expectedOccasionRevision, "INVALID_REVIEW_TARGET");
+  const expectedCatalogRevision = positiveRevision(v.expectedCatalogRevision, "INVALID_REVIEW_TARGET");
+  const reason = plainText(v.reason, 10, 500, "INVALID_REVIEW_REASON");
+  const key = mutationKey(v.idempotencyKey, "INVALID_REVIEW_TARGET");
+  if (!Array.isArray(v.applicableServiceCategoryCodes) ||
+      !v.applicableServiceCategoryCodes.every(isServiceCategoryCode)) {
+    fail("INVALID_SERVICE_CATEGORY", "invalid-argument");
+  }
+  const proposed = [...v.applicableServiceCategoryCodes] as string[];
+  // Run a complete syntax and cardinality check before any Firestore reads.
+  try {
+    planOccasionApplicabilityChange({before: [], after: proposed, activeCategoryCodes: proposed});
+  } catch {
+    fail("INVALID_SERVICE_CATEGORY", "invalid-argument");
+  }
+  const input = {id, proposed: [...proposed].sort(), expectedOccasionRevision,
+    expectedCatalogRevision, reason, key};
+  const op = db.collection("occasionMaintenanceOperations")
+    .doc(digest([uid, "applicability_add_inactive", key]));
+  const hash = digest(input);
+  return db.runTransaction(async (tx) => {
+    await admin(tx, uid);
+    const saved = (await tx.get(op)).data();
+    if (saved) {
+      if (saved.hash !== hash) fail("IDEMPOTENCY_CONFLICT", "already-exists");
+      return saved.result;
+    }
+    const revision = generation((await tx.get(catalog)).data());
+    const raw = (await tx.get(occasions.doc(id))).data();
+    if (!raw) fail("OCCASION_NOT_FOUND", "not-found");
+    const before = project(id, raw);
+    if (revision !== expectedCatalogRevision || before.revision !== expectedOccasionRevision) {
+      fail("REVISION_CONFLICT", "aborted");
+    }
+    if (revision >= Number.MAX_SAFE_INTEGER - 1 ||
+        before.revision >= Number.MAX_SAFE_INTEGER - 1) fail("CONFIG_UNAVAILABLE");
+    // This deliberately does not claim to authorize active or removal edits.
+    if (before.active) fail("OCCASION_APPLICABILITY_REQUIRES_RELEASE_EVIDENCE");
+    const activeCodes: string[] = [];
+    for (const code of proposed) {
+      const category = (await tx.get(db.collection("serviceCategories").doc(code))).data();
+      if (category?.code !== code || category.status !== "active" ||
+          !["catering", "addon"].includes(category.serviceType)) {
+        fail("INVALID_SERVICE_CATEGORY", "invalid-argument");
+      }
+      activeCodes.push(code);
+    }
+    let change;
+    try {
+      change = planOccasionApplicabilityChange({before: before.applicableServiceCategoryCodes,
+        after: proposed, activeCategoryCodes: activeCodes});
+    } catch {
+      fail("INVALID_SERVICE_CATEGORY", "invalid-argument");
+    }
+    if (change.removed.length || !change.added.length) {
+      fail("OCCASION_APPLICABILITY_REQUIRES_RELEASE_EVIDENCE");
+    }
+    const now = Timestamp.now();
+    const result = {occasionId: id, occasionRevision: before.revision + 1,
+      catalogRevision: revision + 1, operationId: op.id,
+      added: change.added, removed: [] as string[]};
+    tx.update(occasions.doc(id), {applicableServiceCategoryCodes: proposed,
+      revision: result.occasionRevision, updatedAt: now});
+    tx.update(catalog, {revision: result.catalogRevision, updatedAt: now});
+    tx.create(db.collection("occasionMaintenanceAudits").doc(op.id), {
+      actorUid: uid, correlationId: correlationIdFromCallable(request), reason,
+      action: "applicability_add_inactive", before,
+      after: {...before, applicableServiceCategoryCodes: proposed,
+        revision: result.occasionRevision},
+      addedServiceCategoryCodes: change.added, removedServiceCategoryCodes: [],
+      beforeCatalogRevision: revision, afterCatalogRevision: result.catalogRevision,
+      createdAt: now,
+    });
+    tx.create(op, {hash, result, actorUid: uid, createdAt: now});
+    return result;
+  });
+});
 
 /** Potential references only; this is never eligibility or release evidence. */
 function references(value: unknown, id: string): boolean {

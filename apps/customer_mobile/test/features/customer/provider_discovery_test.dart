@@ -1,4 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'test_occasion_catalog_fixture.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 // ignore: depend_on_referenced_packages
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
@@ -279,6 +280,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: CustomerHomeScreen(
+            occasionLoader: testOccasionLoader,
             repository: repository,
             addressStorage: HomeAddressStorage(),
             promotions: Stream.value(<PromotionModel>[]),
@@ -324,6 +326,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: CustomerHomeScreen(
+            occasionLoader: testOccasionLoader,
             repository: repository,
             addressStorage: HomeAddressStorage(),
             promotions: Stream.value(<PromotionModel>[]),
@@ -399,6 +402,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CustomerHomeScreen(
+          occasionLoader: testOccasionLoader,
           repository: DiscoveryRepository(providers: []),
           addressStorage: HomeAddressStorage(),
           promotions: Stream.value(<PromotionModel>[]),
@@ -429,6 +433,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CustomerHomeScreen(
+          occasionLoader: testOccasionLoader,
           repository: SignedHomeRepository(),
           addressStorage: HomeAddressStorage(),
           promotions: Stream.value(<PromotionModel>[]),
@@ -459,6 +464,7 @@ void main() {
             child: child!,
           ),
           home: CustomerHomeScreen(
+            occasionLoader: testOccasionLoader,
             repository: HomeStateRepository(updates.stream),
             addressStorage: HomeAddressStorage(),
             promotions: Stream.value(<PromotionModel>[]),
@@ -608,6 +614,7 @@ void main() {
         MaterialApp(
           navigatorObservers: [observer],
           home: CustomerSearchScreen(
+            occasionLoader: testOccasionLoader,
             repository: repository,
             initialQuery: 'Catering',
           ),
@@ -664,6 +671,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: CustomerSearchScreen(
+            occasionLoader: testOccasionLoader,
             repository: repository,
             initialCategoryCode: 'catering_service',
             initialQuery: 'L',
@@ -741,6 +749,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: CustomerSearchScreen(
+            occasionLoader: testOccasionLoader,
             repository: DiscoveryRepository(),
             initialCategoryCode: 'photographer',
           ),
@@ -787,7 +796,11 @@ void main() {
     final repository = DiscoveryRepository();
     await tester.pumpWidget(
       MaterialApp(
-        home: CustomerSearchScreen(repository: repository, initialQuery: 'Ana'),
+        home: CustomerSearchScreen(
+          occasionLoader: testOccasionLoader,
+          repository: repository,
+          initialQuery: 'Ana',
+        ),
       ),
     );
     await tester.pumpAndSettle();

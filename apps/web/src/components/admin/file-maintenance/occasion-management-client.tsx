@@ -8,7 +8,7 @@ import {Select} from "@/components/ui/select";
 import {Badge} from "@/components/ui/badge";
 import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle} from "@/components/ui/dialog";
 import {ConfirmationDialog} from "@/components/shared/confirmation-dialog";
-import {listAdminOccasions, saveAdminOccasion, previewAdminOccasionImpact,
+import {listAdminOccasions, saveAdminOccasion, addAdminOccasionApplicableServices, previewAdminOccasionImpact,
   listOccasionSuggestions, reviewOccasionSuggestion, inspectAdminOccasionAtomicReadiness, checkAdminOccasionActivationReadiness,
   changeAdminOccasionState,
   type AdminOccasion, type AdminOccasionCatalog, type OccasionImpact,
@@ -33,6 +33,7 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("order");
   const [status, setStatus] = useState("all");
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [editor, setEditor] = useState<"create" | AdminOccasion | null>(null);
   const [draft, setDraft] = useState(empty);
   const [idOverride, setIdOverride] = useState(false);
@@ -99,6 +100,31 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
     };
   }, [dirty, reviewReason, lifecycleReason, onDirtyChange]);
 
+  useEffect(() => {
+    if (!openMenuId) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element) ||
+          !target.closest("[data-occasion-menu]")) {
+        setOpenMenuId(null);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenMenuId(null);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openMenuId]);
   function open(item: "create" | AdminOccasion) {
     setIdOverride(false); setConfirm(false); setDiscard(false);
     const highest = Math.max(0, ...(catalog?.items ?? []).map((o) => o.sortOrder));
@@ -120,8 +146,30 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
     "Enter a valid permanent ID in Advanced options: 2-64 lowercase letters, numbers or underscores, starting with a letter." :
     catalog?.items.some((o) => o.id === draft.id) ?
     "This permanent ID already exists. Choose another name or a unique ID in Advanced options." : "" : "";
+  const originalApplicableCodes =
+    editor !== null && editor !== "create"
+      ? editor.applicableServiceCategoryCodes
+      : [];
+  const applicabilityChanged = editor !== null && editor !== "create" &&
+    (draft.applicableServiceCategoryCodes.length !== originalApplicableCodes.length ||
+      draft.applicableServiceCategoryCodes.some((code) => !originalApplicableCodes.includes(code)));
   function validate() {
     if (idError) return idError;
+    if (editor && editor !== "create" &&
+        (draft.applicableServiceCategoryCodes.length !== originalApplicableCodes.length ||
+          draft.applicableServiceCategoryCodes.some((code) => !originalApplicableCodes.includes(code)))) {
+      const added = draft.applicableServiceCategoryCodes
+        .filter((code) => !originalApplicableCodes.includes(code));
+      const removed = originalApplicableCodes
+        .filter((code) => !draft.applicableServiceCategoryCodes.includes(code));
+      if (editor.active || removed.length || added.length === 0) {
+        return "Only adding services to inactive occasions is supported. Active occasion edits and service removals require release safeguards.";
+      }
+      if (draft.label !== editor.label || draft.sortOrder !== editor.sortOrder ||
+          JSON.stringify(draft.aliases) !== JSON.stringify(editor.aliases)) {
+        return "Save name, aliases, or sort order separately before adding services. No changes were saved.";
+      }
+    }
     if (!Number.isSafeInteger(draft.sortOrder)) return "Sort order must be a safe integer.";
     if (!draft.applicableServiceCategoryCodes.length || draft.applicableServiceCategoryCodes.some((code) =>
       !categories.some((c) => c.code === code && c.status === "active"))) return "Choose at least one active service category.";
@@ -142,7 +190,18 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
     if (pending.current?.signature !== signature) pending.current = {signature,
       input: {...input, idempotencyKey: crypto.randomUUID()}};
     try {
-      await saveAdminOccasion(pending.current.input, editor === "create");
+      const applicabilityChanged = editor !== "create" &&
+        (draft.applicableServiceCategoryCodes.length !== originalApplicableCodes.length ||
+          draft.applicableServiceCategoryCodes.some((code) => !originalApplicableCodes.includes(code)));
+      if (applicabilityChanged) {
+        await addAdminOccasionApplicableServices({occasionId: editor.id,
+          applicableServiceCategoryCodes: draft.applicableServiceCategoryCodes,
+          expectedCatalogRevision: catalog.revision,
+          expectedOccasionRevision: editor.revision,
+          reason, idempotencyKey: pending.current.input.idempotencyKey});
+      } else {
+        await saveAdminOccasion(pending.current.input, editor === "create");
+      }
       resetEditor(); await load();
     } catch (e) {setFormError(message(e)); setConfirm(false);}
     finally {setBusy(false);}
@@ -266,53 +325,217 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
         <Button disabled={!catalog || loading || busy} onClick={() => open("create")}>Add Occasion</Button>
       </div>
     </div>
-    <p className="rounded-lg border border-warning p-4 text-sm">Inactive occasions cannot be published or selected for new V2 packages. Approval does not grant provider eligibility. Activation and deactivation use a bounded atomic transition: affected public packages and Setup Gallery entries are withdrawn, never automatically republished. Larger or invalid inventories are blocked. Applicability editing and V2 public publishing remain restricted.</p>
+
     {error && <div role="alert">{error} <Button variant="secondary" onClick={() => void load()}>Retry catalog</Button></div>}
     {loading ? <p role="status">Loading occasions…</p> : catalog && <>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Input aria-label="Search occasions" placeholder="Search name or canonical ID" value={search} onChange={(e) => setSearch(e.target.value)} />
-        <Select aria-label="Occasion status" value={status} onChange={(e) => setStatus(e.target.value)}><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></Select>
-        <Select aria-label="Sort occasions" value={sort} onChange={(e) => setSort(e.target.value)}><option value="order">Catalog order</option><option value="name">Name</option><option value="id">Canonical ID</option></Select>
+      <div className="grid gap-3 sm:grid-cols-3" aria-label="Occasion overview">
+        {[
+          {label: "Total occasions", value: catalog.items.length},
+          {label: "Active", value: catalog.items.filter((o) => o.active).length},
+          {label: "Inactive", value: catalog.items.filter((o) => !o.active).length},
+        ].map((stat) => (
+          <div key={stat.label} className="rounded-xl border bg-card p-4">
+            <p className="text-sm text-muted-foreground">{stat.label}</p>
+            <p className="mt-1 text-2xl font-semibold tabular-nums">{stat.value}</p>
+          </div>
+        ))}
       </div>
-      {catalog && <p className="text-sm text-muted-foreground">Catalog revision {catalog.revision}</p>}
-      {catalog && !items.length && <p>No occasions match this view.</p>}
-      <div className="grid gap-3">{items.map((o) => <article key={o.id} className="flex flex-wrap items-center justify-between gap-4 rounded-lg border bg-card p-4">
-        <div className="min-w-0 break-words"><h3 className="font-semibold">{o.label} <Badge>{o.active ? "Active" : "Inactive"}</Badge></h3>
-          <p className="text-sm text-muted-foreground">{o.id} · Order {o.sortOrder} · Revision {o.revision}</p>
-          <p className="text-sm">{o.applicableServiceCategoryCodes.join(", ")}</p>
-          {o.aliases.length > 0 && <p className="text-sm">Aliases: {o.aliases.join(", ")}</p>}</div>
-        <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={() => open(o)}>Edit {o.label}</Button>
-          <Button variant="secondary" onClick={() => {setPreviewItem(o); setPreviewOperation(o.active ? "deactivate" : "activate"); setProposedCategories(o.applicableServiceCategoryCodes); setImpact(undefined); setFormError("");}}>Impact preview for {o.label}</Button>
-          <Button variant="secondary" disabled={busy || checkingReadiness}
-            aria-label={`Check ${o.active ? "Deactivation" : "Activation"} Readiness for ${o.label}`}
-            onClick={() => void checkReadiness(o)}>Check {o.active ? "Deactivation" : "Activation"} Readiness</Button>
-          <Button variant="secondary" disabled={busy || checkingReadiness || lifecycleBusy}
-            onClick={() => void checkReadiness(o)}>{o.active ? "Deactivate" : "Activate"}</Button></div>
-      </article>)}</div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Input
+          aria-label="Search occasions"
+          placeholder="Search name or canonical ID"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <Select
+          aria-label="Occasion status"
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+        >
+          <option value="all">All statuses</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+        </Select>
+        <Select
+          aria-label="Sort occasions"
+          value={sort}
+          onChange={(e) => setSort(e.target.value)}
+        >
+          <option value="order">Catalog order</option>
+          <option value="name">Name</option>
+          <option value="id">Canonical ID</option>
+        </Select>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          Catalog revision {catalog.revision}
+        </p>
+        <p className="text-sm text-muted-foreground" role="status">
+          Showing {items.length} of {catalog.items.length} occasions
+        </p>
+      </div>
+
+      {!items.length && (
+        <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+          No occasions match this view.
+        </p>
+      )}
+
+      <div className="grid gap-2" aria-label="Occasion list">
+        {items.map((o) => (
+          <article
+            key={o.id}
+            className={`relative flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 ${
+              openMenuId === o.id ? "z-40" : "z-0"
+            }`}
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-semibold">{o.label}</h3>
+                <Badge>{o.active ? "Active" : "Inactive"}</Badge>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {o.id} · Order {o.sortOrder} · Revision {o.revision}
+              </p>
+              <p className="mt-1 break-words text-xs text-muted-foreground">
+                {o.applicableServiceCategoryCodes.join(", ") || "No service categories"}
+              </p>
+              {o.aliases.length > 0 && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Aliases: {o.aliases.join(", ")}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-10 min-h-10 gap-2 rounded-full px-4 text-sm"
+                disabled={busy || lifecycleBusy}
+                onClick={() => {
+                  setOpenMenuId(null);
+                  open(o);
+                }}
+              >
+                <svg
+                  aria-hidden="true"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+                Edit
+              </Button>
+              <div className="relative shrink-0" data-occasion-menu>
+                <button
+                  type="button"
+                  aria-label={`More actions for ${o.label}`}
+                  aria-expanded={openMenuId === o.id}
+                  aria-controls={`occasion-actions-${o.id}`}
+                  className="flex h-10 w-10 items-center justify-center rounded-lg border bg-background text-lg transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2"
+                  onClick={() => setOpenMenuId(
+                    openMenuId === o.id ? null : o.id
+                  )}
+                >
+                  <span aria-hidden="true">⋯</span>
+                </button>
+
+                {openMenuId === o.id && (
+                  <div
+                    id={`occasion-actions-${o.id}`}
+                    role="group"
+                    aria-label={`Actions for ${o.label}`}
+                    className="absolute right-0 top-full z-50 mt-2 grid w-64 max-w-[calc(100vw-3rem)] gap-1 rounded-xl border bg-popover p-2 shadow-lg"
+                  >
+
+                    <Button
+                      variant="secondary"
+                      disabled={busy || checkingReadiness || lifecycleBusy}
+                      onClick={() => {
+                        setOpenMenuId(null);
+                        void checkReadiness(o);
+                      }}
+                    >
+                      {o.active ? "Deactivate" : "Activate"} {o.label}
+                    </Button>
+
+
+                  </div>
+                )}
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
     </>}
     <Dialog open={!!readinessItem} onOpenChange={(open) => {if (!open && !lifecycleBusy && !lifecycleConfirm) {
       readinessRequest.current++; setReadinessItem(undefined); setReadiness(undefined);
       setCheckingReadiness(false);
     }}}><DialogContent className="max-h-[90dvh] overflow-y-auto">
-      <DialogHeader><DialogTitle>{readinessItem?.active ? "Deactivation" : "Activation"} readiness: {readinessItem?.label}</DialogTitle>
-        <DialogDescription>This read-only check does not change the occasion or grant provider approval.</DialogDescription>
+      <DialogHeader><DialogTitle>{readinessItem?.active ? "Deactivate Event Type" : "Activate Event Type"}: {readinessItem?.label}</DialogTitle>
+        <DialogDescription>{readinessItem?.active ? "This event type will become unavailable for new bookings. Existing bookings and provider records will remain unchanged." : "This read-only check does not change the occasion or grant provider approval."}</DialogDescription>
       </DialogHeader>
-      <p>The read-only inventory check does not change occasion status. Execution repeats the authority and inventory checks atomically and may still reject concurrent changes.</p>
-      {checkingReadiness && <p role="status">Checking lifecycle safeguards…</p>}
+      {!readinessItem?.active && <p>The read-only inventory check does not change occasion status. Execution repeats the authority and inventory checks atomically and may still reject concurrent changes.</p>}
+      {checkingReadiness && <p role="status">Checking event type availability…</p>}
       {readinessError && <div role="alert">{readinessError}<p>Readiness could not be verified. No change was made.</p></div>}
-      {readiness && <>
+      {readiness && (readinessItem?.active ? (
+        <div className="grid gap-3 text-sm">
+          <p>
+            Existing bookings and payments remain unchanged.
+            Provider packages and gallery records are not modified.
+          </p>
+          {readiness.lifecycleAvailable &&
+            readiness.status === "ELIGIBLE_FOR_TRANSACTION" ? (
+              <p role="status" className="font-medium text-foreground">
+                Safety checks passed. You can deactivate this event type.
+              </p>
+            ) : (
+              <div role="alert" className="rounded-lg border p-3">
+                <p className="font-medium">
+                  Deactivation is not available yet.
+                </p>
+                {readiness.checks.some((check) =>
+                  check.status === "BLOCKED") ? (
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      {readiness.checks
+                        .filter((check) => check.status === "BLOCKED")
+                        .map((check) => (
+                          <li key={check.code}>{check.message}</li>
+                        ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-2">
+                      {readiness.blockers.join(", ") ||
+                        "Safety verification is incomplete."}
+                    </p>
+                  )}
+              </div>
+            )}
+        </div>
+      ) : <>
         <p className="text-sm">Checked catalog revision {readiness.catalogRevision ?? "unavailable"}, occasion revision {readiness.occasionRevision ?? "unavailable"}. Results describe this check only.</p>
-        <p>Packages scanned: {readiness.packageCount ?? "not checked"} · Gallery documents scanned: {readiness.galleryCount ?? "not checked"}. Potential withdrawals: {readiness.affectedPackages ?? "unknown"} packages, {readiness.affectedGallerySetups ?? "unknown"} setup entries.</p>
+        <p>Packages scanned: {readiness.packageCount ?? "not checked"} · Gallery documents scanned: {readiness.galleryCount ?? "not checked"}. Content potentially requiring review: {readiness.affectedPackages ?? "unknown"} packages, {readiness.affectedGallerySetups ?? "unknown"} setup entries.</p>
         <h3 className="font-semibold">Verified for this check</h3>
         <ul className="list-disc pl-5">{readiness.checks.filter((check) => check.status === "SATISFIED")
           .map((check) => <li key={check.code}>{check.message}</li>)}</ul>
         <h3 className="font-semibold">Safeguards still required</h3>
         <ul className="list-disc pl-5">{readiness.checks.filter((check) => check.status === "BLOCKED")
           .map((check) => <li key={check.code}>{check.message}</li>)}</ul>
-      </>}
+      </>)}
       <Button variant="secondary" disabled={checkingReadiness || !readinessItem}
         onClick={() => {if (readinessItem) void checkReadiness(readinessItem);}}>Check again</Button>
-      {readiness?.lifecycleAvailable && <label className="grid gap-1 text-sm">Reason for lifecycle change
+      {readiness?.lifecycleAvailable && <label className="grid gap-1 text-sm">{readinessItem?.active ? "Reason for deactivation" : "Reason for activation"}
         <Input aria-label="Lifecycle reason" disabled={lifecycleBusy} value={lifecycleReason}
           minLength={10} maxLength={500} onChange={(e) => {setLifecycleReason(e.target.value); setLifecycleError("");}} />
       </label>}
@@ -322,7 +545,9 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
         onClick={() => setLifecycleConfirm(true)}>{readinessItem?.active ? "Deactivate" : "Activate"}</Button>
       <ConfirmationDialog open={lifecycleConfirm} stopEscapePropagation
         onOpenChange={setLifecycleConfirm} title={`Confirm ${readinessItem?.active ? "deactivation" : "activation"}?`}
-        description={`Affected public packages and gallery setups will become private. They will not automatically be restored. Existing bookings and payments remain unchanged. Reason: ${lifecycleReason}`}
+        description={readinessItem?.active ?
+          `This event type will become unavailable for new bookings. Existing bookings and payments remain unchanged. Provider content is not automatically withdrawn. Reason: ${lifecycleReason}` :
+          `This event type will become active. Existing provider content will not be automatically published or withdrawn. Reason: ${lifecycleReason}`}
         confirmLabel={readinessItem?.active ? "Deactivate occasion" : "Activate occasion"}
         loading={lifecycleBusy} onConfirm={() => void executeLifecycle()} />
     </DialogContent></Dialog>
@@ -343,10 +568,27 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
           <label className="grid gap-1">Event Type Name<Input ref={nameInput} required minLength={2} maxLength={80} placeholder="e.g., Birthday, Wedding, Graduation" value={draft.label} onChange={(e) => {setDraft({...draft, label: e.target.value, ...(editor === "create" && !idOverride ? {id: generateOccasionId(e.target.value)} : {})}); setDirty(true);}} /></label>
           {editor === "create" ? <p className="break-all text-xs text-muted-foreground" aria-live="polite">Permanent ID: <code>{draft.id || "Enter an event type name"}</code></p> : <label>Canonical ID<Input disabled value={draft.id} /></label>}
           {idError && draft.label && <p role="alert" className="text-sm text-destructive">{idError}</p>}
-          <fieldset disabled={editor !== "create" || busy} className="grid gap-2"><legend>Applicable Services</legend><p className="text-sm text-muted-foreground">Choose which services this event type applies to.</p>
-            {categories.filter((c) => c.status === "active" || (editor !== "create" && draft.applicableServiceCategoryCodes.includes(c.code))).map((c) => <label key={c.code} className="flex items-center gap-2"><input type="checkbox" checked={draft.applicableServiceCategoryCodes.includes(c.code)} disabled={c.status !== "active" || editor !== "create" || busy} onChange={(e) => {setDraft({...draft, applicableServiceCategoryCodes: e.target.checked ? [...draft.applicableServiceCategoryCodes, c.code] : draft.applicableServiceCategoryCodes.filter((v) => v !== c.code)}); setDirty(true);}} />{c.name}{c.status !== "active" ? " (inactive)" : ""}</label>)}
+          <fieldset disabled={busy} className="grid gap-2"><legend>Applicable Services</legend><p className="text-sm text-muted-foreground">Choose which services this event type applies to.</p>
+            {categories.filter((c) => c.status === "active" || (editor !== "create" && draft.applicableServiceCategoryCodes.includes(c.code))).map((c) => <label key={c.code} className="flex items-center gap-2"><input type="checkbox" checked={draft.applicableServiceCategoryCodes.includes(c.code)} disabled={c.status !== "active" || busy} onChange={(e) => {setDraft({...draft, applicableServiceCategoryCodes: e.target.checked ? [...draft.applicableServiceCategoryCodes, c.code] : draft.applicableServiceCategoryCodes.filter((v) => v !== c.code)}); setDirty(true);}} />{c.name}{c.status !== "active" ? " (inactive)" : ""}</label>)}
           </fieldset>
-          {editor !== "create" && <p className="text-sm">Applicability is read-only. Use Impact preview to inspect a proposed change.</p>}
+          {editor !== "create" && <div className="grid gap-1 text-sm" aria-live="polite">
+  <p className="text-muted-foreground">
+    Adding services to an inactive occasion can be saved after server validation.
+    Removing services or changing an active occasion requires separate release safeguards.
+  </p>
+  <p>
+    Added: {draft.applicableServiceCategoryCodes
+      .filter((code) => !originalApplicableCodes.includes(code))
+      .map((code) => categories.find((c) => c.code === code)?.name ?? code)
+      .join(", ") || "None"}
+  </p>
+  <p>
+    Removed: {originalApplicableCodes
+      .filter((code) => !draft.applicableServiceCategoryCodes.includes(code))
+      .map((code) => categories.find((c) => c.code === code)?.name ?? code)
+      .join(", ") || "None"}
+  </p>
+</div>}
           <label className="grid gap-1">{editor === "create" ? "Reason for adding" : "Reason for change"}<Input placeholder={editor === "create" ? "Explain why this occasion should be added to FEASTA." : "Explain the change."} required minLength={10} maxLength={500} value={reason} onChange={(e) => {setReason(e.target.value); setDirty(true);}} /></label>
           <details className="rounded-lg border p-3"><summary className="cursor-pointer font-medium">Advanced options</summary><div className="mt-4 grid gap-4">
           {editor === "create" && <label className="grid gap-1">Canonical ID override<Input aria-label="Canonical ID override" placeholder="Use generated ID" value={idOverride ? draft.id : ""} onChange={(e) => {setIdOverride(!!e.target.value); setDraft({...draft, id: e.target.value || generateOccasionId(draft.label)}); setDirty(true);}} /><span className="text-xs text-muted-foreground">Permanent IDs cannot be changed after creation.</span></label>}
@@ -358,7 +600,10 @@ export function OccasionManagementClient({categories, onDirtyChange}: {
         {formError && <p role="alert">{formError}</p>}
         </div><div className="flex shrink-0 justify-end gap-2 border-t bg-card p-4"><Button type="button" variant="secondary" disabled={busy} onClick={close}>Cancel</Button><Button type="submit" disabled={busy}>{editor === "create" ? "Review Occasion" : "Review changes"}</Button></div>
       </form>
-    <ConfirmationDialog open={confirm} stopEscapePropagation onCloseAutoFocus={(e) => {e.preventDefault(); nameInput.current?.focus();}} onOpenChange={setConfirm} title="Save occasion metadata?" description={`Save ${draft.label} (${draft.id}) at catalog revision ${catalog?.revision}. ${editor === "create" ? "It will remain inactive." : "Publication status and eligibility stay unchanged."}`} confirmLabel="Save occasion" loading={busy} onConfirm={save} />
+    <ConfirmationDialog open={confirm} stopEscapePropagation onCloseAutoFocus={(e) => {e.preventDefault(); nameInput.current?.focus();}} onOpenChange={setConfirm} title={applicabilityChanged ? "Add applicable services?" : "Save occasion metadata?"} description={applicabilityChanged ?
+      `Add ${draft.applicableServiceCategoryCodes.filter((code) => !originalApplicableCodes.includes(code))
+        .map((code) => categories.find((c) => c.code === code)?.name ?? code).join(", ")} to ${draft.label}. The occasion stays inactive. Reason: ${reason}` :
+      `Save ${draft.label} (${draft.id}) at catalog revision ${catalog?.revision}. ${editor === "create" ? "It will remain inactive." : "Publication status and eligibility stay unchanged."}`} confirmLabel="Save occasion" loading={busy} onConfirm={save} />
     <ConfirmationDialog open={discard} stopEscapePropagation onCloseAutoFocus={(e) => {e.preventDefault(); nameInput.current?.focus();}} cancelLabel="Keep Editing" onOpenChange={setDiscard} title="Discard unsaved changes?" description="Your occasion edits have not been saved." confirmLabel="Discard Changes" onConfirm={resetEditor} />
     </DialogContent></Dialog>
     <Dialog open={!!previewItem} onOpenChange={(open) => {if (!open && !busy) setPreviewItem(undefined);}}><DialogContent>

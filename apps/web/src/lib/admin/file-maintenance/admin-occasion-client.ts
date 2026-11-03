@@ -46,6 +46,7 @@ export function adminOccasionErrorMessage(error: unknown): string {
     CATALOG_NAME_CONFLICT: "This name or alias is already reserved. Choose another name.",
     OCCASION_ID_EXISTS: "This permanent ID already exists. Choose another ID.",
     INVALID_SERVICE_CATEGORY: "Select valid, active service categories.",
+    OCCASION_APPLICABILITY_REQUIRES_RELEASE_EVIDENCE: "Active occasion changes and service removals require additional release safeguards. No changes were saved.",
     OCCASION_LIFECYCLE_UNAVAILABLE: "Applicability changes are unavailable until release safeguards are verified.",
     OCCASION_LIFECYCLE_RELEASE_UNVERIFIED: "Occasion activation/deactivation remains disabled until required release safeguards are verified. No changes were made.",
     CONFIG_UNAVAILABLE: "The catalog is not initialized or is not stable, or contains invalid records. Contact support to verify the catalog before retrying. No changes were made.",
@@ -78,6 +79,12 @@ export const checkAdminOccasionDeactivationReadiness = (input: {occasionId: stri
 export const saveAdminOccasion = (input: OccasionMutation, create: boolean) =>
   call<{catalogRevision: number; occasionRevision: number}>(
     create ? "createAdminOccasion" : "updateAdminOccasion", input);
+export type OccasionApplicabilityAddInput = {occasionId: string;
+  applicableServiceCategoryCodes: string[]; expectedOccasionRevision: number;
+  expectedCatalogRevision: number; reason: string; idempotencyKey: string};
+export const addAdminOccasionApplicableServices = (input: OccasionApplicabilityAddInput) =>
+  call<{occasionId: string; occasionRevision: number; catalogRevision: number;
+    added: string[]; removed: string[]}>("addAdminOccasionApplicableServices", input);
 export const previewAdminOccasionImpact = (input: {occasionId: string;
   expectedOccasionRevision: number; expectedCatalogRevision: number;
   operation: "activate" | "deactivate" | "applicability"; applicableServiceCategoryCodes?: string[]}) =>

@@ -71,7 +71,7 @@ test('administrator lists active and inactive with explicit metadata projection'
   assert.equal(result.items[0].futureCompatibility,undefined);assert.equal(rateCalls,1);assert.equal(writes,0);
 });
 test('authentication, non-admin, disabled Auth and inactive profile are denied on every operation',async()=>{
-  for(const name of ['listAdminOccasions','createAdminOccasion','updateAdminOccasion','previewAdminOccasionImpact']){
+  for(const name of ['listAdminOccasions','createAdminOccasion','updateAdminOccasion','previewAdminOccasionImpact','addAdminOccasionApplicableServices']){
     await assert.rejects(call(name,{},null),{code:'unauthenticated'});
     role='provider';await assert.rejects(call(name),{code:'permission-denied'});
     role='admin';authDisabled=true;await assert.rejects(call(name),{code:'permission-denied'});authDisabled=false;
@@ -82,8 +82,8 @@ test('authentication, non-admin, disabled Auth and inactive profile are denied o
   }
   assert.equal(writes,0);
 });
-test('all four callables retain App Check and asia-southeast1 region',()=>{
-  for(const name of ['listAdminOccasions','createAdminOccasion','updateAdminOccasion','previewAdminOccasionImpact']){
+test('all five callables retain App Check and asia-southeast1 region',()=>{
+  for(const name of ['listAdminOccasions','createAdminOccasion','updateAdminOccasion','previewAdminOccasionImpact','addAdminOccasionApplicableServices']){
     assert.equal(api[name].testOptions.enforceAppCheck,true);assert.equal(api[name].testOptions.region,'asia-southeast1');
   }
 });
@@ -230,4 +230,52 @@ test('offline migration preview is deterministic, reports missing IDs/collisions
   assert.ok(result.collisions.length);assert.equal(result.incompatibleMappings.length,1);
   assert.equal(result.references.bookings[0].potentialReferenceCount,1);
   assert.equal(result.references.packages[1].potentialReferenceCount,1);assert.equal(result.lifecycleAllowed,false);
+});
+
+// Applicability additions are deliberately limited to inactive occasions.
+test('inactive occasion may add a validated active service with atomic audit', async () => {
+  store.set('serviceCategories/photography', {code:'photography',status:'active',serviceType:'addon'});
+  const request={occasionId:'garden_party',applicableServiceCategoryCodes:['catering_service','photography'],
+    expectedOccasionRevision:1,expectedCatalogRevision:1,reason:'Expand approved inactive scope',
+    idempotencyKey:'add_applicable_001'};
+  const result=await call('addAdminOccasionApplicableServices',request);
+  assert.deepEqual(result.added,['photography']);
+  assert.equal(store.get('occasions/garden_party').active,false);
+  assert.equal(store.get('occasions/garden_party').revision,2);
+  assert.equal(store.get('occasionCatalog/current').revision,2);
+  const count=writes;
+  assert.deepEqual(await call('addAdminOccasionApplicableServices',request),result);
+  assert.equal(writes,count);
+  await assert.rejects(call('addAdminOccasionApplicableServices',
+    {...request,reason:'Different and sufficient reason'}),reason('IDEMPOTENCY_CONFLICT'));
+  assert.equal([...store.keys()].filter(k=>k.startsWith('occasionMaintenanceAudits/')).length,1);
+});
+test('applicability mutation refuses active changes, removals, and combined unsafe operations',async()=>{
+  store.set('serviceCategories/photography',{code:'photography',status:'active',serviceType:'addon'});
+  const request={occasionId:'birthday',applicableServiceCategoryCodes:['catering_service','photography'],
+    expectedOccasionRevision:1,expectedCatalogRevision:1,reason:'Admin requested another service',
+    idempotencyKey:'add_applicable_002'};
+  await assert.rejects(call('addAdminOccasionApplicableServices',request),
+    reason('OCCASION_APPLICABILITY_REQUIRES_RELEASE_EVIDENCE'));
+  await assert.rejects(call('addAdminOccasionApplicableServices',
+    {...request,occasionId:'garden_party',applicableServiceCategoryCodes:['photography']}),
+    reason('OCCASION_APPLICABILITY_REQUIRES_RELEASE_EVIDENCE'));
+  await assert.rejects(call('addAdminOccasionApplicableServices',
+    {...request,occasionId:'garden_party',applicableServiceCategoryCodes:['catering_service']}),
+    reason('OCCASION_APPLICABILITY_REQUIRES_RELEASE_EVIDENCE'));
+  assert.equal(writes,0);
+});
+test('applicability fails closed on stale revisions, inactive categories, and commit failure',async()=>{
+  const request={occasionId:'garden_party',applicableServiceCategoryCodes:['catering_service','venue'],
+    expectedOccasionRevision:1,expectedCatalogRevision:1,reason:'Extend draft services safely',
+    idempotencyKey:'add_applicable_003'};
+  await assert.rejects(call('addAdminOccasionApplicableServices',request),reason('INVALID_SERVICE_CATEGORY'));
+  store.set('serviceCategories/venue',{code:'venue',status:'active',serviceType:'addon'});
+  await assert.rejects(call('addAdminOccasionApplicableServices',
+    {...request,expectedCatalogRevision:2}),reason('REVISION_CONFLICT'));
+  const prior=new Map(store);
+  failCommit=true;
+  await assert.rejects(call('addAdminOccasionApplicableServices',request),/atomic commit failure/);
+  assert.deepEqual(store,prior);
+  assert.equal(writes,0);
 });

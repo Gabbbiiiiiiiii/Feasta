@@ -564,6 +564,33 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+  final goldenPackage = preparationPackage({
+    'serviceOptions': {
+      'drop_off': {
+        'title': 'Published delivery',
+        'description': 'Delivered to your venue',
+        'price': 5000,
+        'includedServices': ['Delivery'],
+      },
+      'full_service': {
+        'title': 'Published staffed service',
+        'description': 'Prepared and served',
+        'price': 20000,
+        'includedServices': ['Wait staff', 'Cleanup'],
+      },
+    },
+    'themeOptions': [
+      {
+        'id': 'garden',
+        'name': 'Published garden',
+        'description': 'Green table setting',
+      },
+    ],
+    'serviceInclusions': <String>[],
+    'decorInclusions': <String>[],
+    'furnitureInclusions': <String>[],
+    'equipmentInclusions': <String>[],
+  });
   for (final scale in [1.0, 2.0]) {
     testWidgets(
       'published cards and theme fallback visual at text scale $scale',
@@ -588,12 +615,12 @@ void main() {
                       child: Column(
                         children: [
                           ServiceOptionCards(
-                            package: package,
+                            package: goldenPackage,
                             selected: 'full_service',
                             onSelected: (_) {},
                           ),
                           PackageThemeCards(
-                            package: package,
+                            package: goldenPackage,
                             selected: 'garden',
                             onSelected: (_) {},
                           ),

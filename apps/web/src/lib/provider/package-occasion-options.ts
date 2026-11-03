@@ -2,7 +2,7 @@ export type PackageOccasionOption = {id: string; label: string; categoryCodes: s
 export type PackageOccasionOptions = {
   options: PackageOccasionOption[];
   catalogRevision: number;
-  providerEligibilityRevision: number;
+  eligibilityModel: "global_v1";
   maxSpecificOccasions: number;
 };
 

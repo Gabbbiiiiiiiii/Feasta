@@ -26,7 +26,7 @@ const requiredSafeguards = [
   'DEPLOYMENT_SECURITY_GATES_UNVERIFIED',
 ];
 
-function fixture({completed = false} = {}) {
+function fixture({completed = false, packages = [], events = [], requests = []} = {}) {
   let atomicCalls = 0;
   let txWrites = 0;
   let transactionCalls = 0;
@@ -38,7 +38,15 @@ function fixture({completed = false} = {}) {
     expectedCatalogRevision: 3};
   const tx = {
     get: async ref => {
-      if (ref.kind === 'query') return {docs: []};
+      if (ref.kind === 'query') {
+         const records = ref.name === 'packages' ? packages :
+           ref.name === 'mainEvents' ? events :
+           ref.name === 'providerRequests' ? requests : [];
+         const docs = records.slice(0, ref.limit).map(([id, data]) => ({
+           id, data: () => data,
+         }));
+         return {docs, size: docs.length, empty: docs.length === 0};
+       }
       if (ref.path.startsWith('occasionLifecycleOperations/')) {
         return {data: () => completed ? {state: 'completed'} : undefined};
       }
@@ -51,7 +59,7 @@ function fixture({completed = false} = {}) {
   const db = {
     collection(name) {return {
       doc(id) {return ref(name,id);},
-      orderBy() {return {limit(){return {kind:'query'};}}},
+      orderBy() {return {limit(n){return {kind:'query',name,limit:n};}}},
     };},
     collectionGroup() {return {limit(){return {kind:'query'};}}},
     async runTransaction(fn) { transactionCalls++; return fn(tx); },
@@ -59,7 +67,11 @@ function fixture({completed = false} = {}) {
   const fail = (reason, code='failed-precondition') => {
     const error = new Error(reason); error.code=code; error.details={reason}; throw error;
   };
+  const packageChecks = require('../lib/admin/occasion-package-dependencies.js');
+  const bookingChecks = require('../lib/admin/occasion-booking-dependencies.js');
   const mocks = {
+    './occasion-package-dependencies.js': packageChecks,
+    './occasion-booking-dependencies.js': bookingChecks,
     'firebase-functions/v2/https': {onCall: (_opts, handler) => handler},
     'firebase-admin/firestore': {FieldPath:{documentId:()=> '__name__'}},
     '../shared/firestore.js': {db},
@@ -85,6 +97,14 @@ function fixture({completed = false} = {}) {
           checks, blockers: requiredSafeguards, occasionRevision: 2, catalogRevision: 3};
       },
     },
+    './occasion-routine-transaction.js': {
+      activateRoutineOccasion: async () => {
+        throw new Error('UNEXPECTED_ROUTINE_ACTIVATION');
+      },
+      inspectRoutineOccasionActivation: async () => {
+        throw new Error('UNEXPECTED_ROUTINE_PREVIEW');
+      },
+    },
     './occasion-lifecycle-atomic.js': {
       completeAtomicOccasionLifecycle: async () => {atomicCalls++; return {state:'completed'};},
       planOccasionGalleryWithdrawal: () => [],
@@ -92,7 +112,7 @@ function fixture({completed = false} = {}) {
     },
   };
   const exports={};
-  vm.runInNewContext(code, {exports, require:(name)=>{
+  vm.runInNewContext(code, {exports, Error, require:(name)=>{
     assert.ok(Object.prototype.hasOwnProperty.call(mocks,name), `Unexpected import: ${name}`);
     return mocks[name];
   }});
@@ -109,8 +129,8 @@ test('every originally required safeguard is retained in the backend readiness c
   assert.match(actionsSource,/const blockers = \[\.\.\.basic\.blockers\];/u);
 });
 
-test('Activate and Deactivate independently refuse missing release evidence before atomic writes',async()=>{
-  for(const action of ['activateAdminOccasion','deactivateAdminOccasion']){
+test('Deactivate refuses missing release evidence before atomic writes',async()=>{
+  for(const action of ['deactivateAdminOccasion']){
     const f=fixture();
     await assert.rejects(f.exports[action](f.request), error=>
       error.code === 'failed-precondition' &&
@@ -122,20 +142,154 @@ test('Activate and Deactivate independently refuse missing release evidence befo
 test('Admin preview includes ten unresolved release safeguards even with zero inventory',async()=>{
   const f=fixture();
   const preview=await f.exports.inspectAdminOccasionAtomicReadiness({data:{
-    occasionId:'birthday',action:'activate',expectedOccasionRevision:2,expectedCatalogRevision:3,
+    occasionId:'birthday',action:'deactivate',expectedOccasionRevision:2,expectedCatalogRevision:3,
   }});
   assert.equal(preview.status,'BLOCKED');
   assert.equal(preview.lifecycleAvailable,false);
   assert.equal(preview.checks.length,17);
-  assert.equal(preview.blockers.length,10);
+  assert.equal(preview.blockers.length,12);
   assert.equal(preview.packageCount,0);
   assert.equal(preview.galleryCount,0);
   for(const code of requiredSafeguards) assert.ok(preview.blockers.includes(code));
   assert.equal(f.counters().txWrites,0);
 });
 
- test('completed callable retries reach atomic actor, fingerprint and audit validation without stale readiness', async () => {
-  for (const action of ['activateAdminOccasion', 'deactivateAdminOccasion']) {
+ test('preview reports a live private package dependency', async () => {
+  const f = fixture({packages: [['private_draft', {
+    occasionSchemaVersion: 2,
+    occasionScope: 'specific',
+    occasionIds: ['birthday'],
+    occasionMatchIds: ['birthday'],
+    serviceCategoryCode: 'catering_service',
+    status: 'draft',
+    isDeleted: false,
+  }]]});
+
+  const preview = await f.exports.inspectAdminOccasionAtomicReadiness({
+    data: {
+      occasionId: 'birthday',
+      action: 'deactivate',
+      expectedOccasionRevision: 2,
+      expectedCatalogRevision: 3,
+    },
+  });
+
+  assert.ok(preview.blockers.includes('OCCASION_LIVE_PACKAGE_DEPENDENCY'));
+  assert.equal(preview.status, 'BLOCKED');
+  assert.equal(f.counters().txWrites, 0);
+});
+
+test('preview reports a live booking dependency', async () => {
+  const f = fixture({
+    events: [['event_001', {
+      eventType: 'birthday',
+      status: 'confirmed',
+      providerRequestIds: ['request_001'],
+      providerRequestCount: 1,
+    }]],
+    requests: [['request_001', {
+      mainEventId: 'event_001',
+      eventType: 'birthday',
+      status: 'confirmed',
+    }]],
+  });
+
+  const preview = await f.exports.inspectAdminOccasionAtomicReadiness({
+    data: {
+      occasionId: 'birthday',
+      action: 'deactivate',
+      expectedOccasionRevision: 2,
+      expectedCatalogRevision: 3,
+    },
+  });
+
+  assert.ok(preview.blockers.includes('OCCASION_LIVE_BOOKING_DEPENDENCY'));
+  assert.equal(preview.status, 'BLOCKED');
+  assert.equal(f.counters().txWrites, 0);
+});
+
+test('terminal booking history creates no live dependency blocker', async () => {
+  const f = fixture({
+    events: [['event_001', {
+      eventType: 'birthday',
+      status: 'completed',
+      providerRequestIds: ['request_001'],
+      providerRequestCount: 1,
+    }]],
+    requests: [['request_001', {
+      mainEventId: 'event_001',
+      eventType: 'birthday',
+      status: 'completed',
+    }]],
+  });
+
+  const preview = await f.exports.inspectAdminOccasionAtomicReadiness({
+    data: {
+      occasionId: 'birthday',
+      action: 'deactivate',
+      expectedOccasionRevision: 2,
+      expectedCatalogRevision: 3,
+    },
+  });
+
+  assert.ok(!preview.blockers.includes('OCCASION_LIVE_BOOKING_DEPENDENCY'));
+  assert.ok(preview.blockers.includes('OCCASION_BOOKING_DEPENDENCIES_UNVERIFIED'));
+  assert.equal(preview.status, 'BLOCKED');
+  assert.equal(f.counters().txWrites, 0);
+});
+
+test('missing booking relationship fails closed in preview', async () => {
+  const f = fixture({
+    events: [['event_001', {
+      eventType: 'birthday',
+      status: 'completed',
+      providerRequestIds: ['request_missing'],
+      providerRequestCount: 1,
+    }]],
+  });
+
+  const preview = await f.exports.inspectAdminOccasionAtomicReadiness({
+    data: {
+      occasionId: 'birthday',
+      action: 'deactivate',
+      expectedOccasionRevision: 2,
+      expectedCatalogRevision: 3,
+    },
+  });
+
+  assert.ok(preview.blockers.includes('OCCASION_BOOKING_DEPENDENCIES_UNVERIFIED'));
+  assert.equal(preview.status, 'BLOCKED');
+  assert.equal(f.counters().txWrites, 0);
+});
+
+test('oversized booking inventory blocks preview', async () => {
+  const events = Array.from({length: 41}, (_, i) => [
+    `event_${String(i).padStart(3, '0')}`,
+    {
+      eventType: 'wedding',
+      status: 'completed',
+      providerRequestIds: [],
+      providerRequestCount: 0,
+    },
+  ]);
+
+  const f = fixture({events});
+
+  const preview = await f.exports.inspectAdminOccasionAtomicReadiness({
+    data: {
+      occasionId: 'birthday',
+      action: 'deactivate',
+      expectedOccasionRevision: 2,
+      expectedCatalogRevision: 3,
+    },
+  });
+
+  assert.ok(preview.blockers.includes('OCCASION_BOOKING_INVENTORY_TOO_LARGE'));
+  assert.equal(preview.status, 'BLOCKED');
+  assert.equal(f.counters().txWrites, 0);
+});
+test('completed callable retries reach atomic actor, fingerprint and audit validation without stale readiness', async () => {
+  for (const action of ['deactivateAdminOccasion']) {
     const f = fixture({completed: true});
     const result = await f.exports[action](f.request);
     assert.equal(result.state, 'completed');

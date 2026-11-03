@@ -183,9 +183,9 @@ class RecoveryOffersScreen extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: primary.withOpacity(0.08),
+                  color: primary.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: primary.withOpacity(0.25)),
+                  border: Border.all(color: primary.withValues(alpha: 0.25)),
                 ),
                 child: const Text(
                   legacyBookingPaymentAuthorityMessage,
@@ -360,11 +360,11 @@ class _ProviderProfileCard extends StatelessWidget {
                 height: 150,
                 width: double.infinity,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) {
+                errorBuilder: (_, _, _) {
                   return Container(
                     height: 150,
                     width: double.infinity,
-                    color: primary.withOpacity(0.10),
+                    color: primary.withValues(alpha: 0.10),
                     child: const Icon(
                       Icons.storefront,
                       color: primary,
@@ -382,7 +382,7 @@ class _ProviderProfileCard extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 28,
-                backgroundColor: primary.withOpacity(0.12),
+                backgroundColor: primary.withValues(alpha: 0.12),
                 child: const Icon(Icons.storefront, color: primary),
               ),
               const SizedBox(width: 12),
@@ -457,7 +457,7 @@ class _ProviderProfileCard extends StatelessWidget {
               children: eventTypesSupported.map((type) {
                 return Chip(
                   label: Text(type),
-                  backgroundColor: primary.withOpacity(0.08),
+                  backgroundColor: primary.withValues(alpha: 0.08),
                 );
               }).toList(),
             ),
@@ -476,7 +476,7 @@ class _ProviderProfileCard extends StatelessWidget {
               children: serviceAreas.map((area) {
                 return Chip(
                   label: Text(area),
-                  backgroundColor: Colors.grey.withOpacity(0.10),
+                  backgroundColor: Colors.grey.withValues(alpha: 0.10),
                 );
               }).toList(),
             ),

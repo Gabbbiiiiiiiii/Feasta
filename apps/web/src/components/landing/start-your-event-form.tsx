@@ -5,7 +5,6 @@ import {useRouter} from "next/navigation";
 import {useEffect, useRef, useState, type FormEvent} from "react";
 
 import {
-  CUSTOMER_PLANNING_EVENT_TYPES,
   manilaDateValue,
   MAX_EVENT_GUESTS,
 } from "@/lib/customer/planning/event-planning-context";
@@ -15,16 +14,16 @@ import {EventVenueInput} from "./event-venue-input";
 import {parseProviderDiscoveryFilters, providerDiscoveryHref} from "@/lib/customer/providers/provider-query";
 import {PUBLIC_PROVIDER_MARKETPLACE_PATH} from "@/lib/customer/providers/provider-route-policy";
 
-const EVENT_TYPE_LABELS = {
-  birthday: "Birthday",
-  wedding: "Wedding",
-  debut: "Debut",
-  corporate: "Corporate",
-  anniversary: "Anniversary",
-  other: "Other",
-} satisfies Record<(typeof CUSTOMER_PLANNING_EVENT_TYPES)[number], string>;
+export type LandingOccasionOption = {
+  value: string;
+  label: string;
+};
 
-export function StartYourEventForm() {
+export function StartYourEventForm({
+  eventTypes,
+}: {
+  eventTypes: readonly LandingOccasionOption[];
+}) {
   const router = useRouter();
   const dateInput = useRef<HTMLInputElement>(null);
   const [guestError, setGuestError] = useState<string | null>(null);
@@ -90,9 +89,9 @@ export function StartYourEventForm() {
             ].join(" ")}
           >
             <option value="">Any occasion</option>
-            {CUSTOMER_PLANNING_EVENT_TYPES.map((eventType) => (
-              <option key={eventType} value={eventType}>
-                {EVENT_TYPE_LABELS[eventType]}
+            {eventTypes.map((eventType) => (
+              <option key={eventType.value} value={eventType.value}>
+                {eventType.label}
               </option>
             ))}
           </select>

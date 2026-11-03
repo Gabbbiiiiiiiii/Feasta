@@ -25,7 +25,7 @@ afterEach(() => vi.useRealTimers());
 
 describe("customer hydration boundaries", () => {
   it.each([
-    ["Start Your Event", <StartYourEventForm key="start" />],
+    ["Start Your Event", <StartYourEventForm key="start" eventTypes={[]} />],
     ["marketplace planning search", <MarketplaceSearch key="search" />],
     ["Event Finder", <EventFinder key="finder" query="eventDate=2026-09-05" onFind={() => {}} />],
   ] as const)("hydrates %s across Manila midnight before setting the date minimum", async (_name, tree) => {

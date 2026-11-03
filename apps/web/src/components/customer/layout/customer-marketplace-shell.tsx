@@ -4,6 +4,7 @@ import type {ReactNode} from "react";
 
 import {CustomerMarketplaceHeader} from "@/components/customer/layout/customer-marketplace-header";
 import type {ServiceCategoryOption} from "@/lib/service-categories/service-category-types";
+import type {ActiveOccasionOption} from "@/lib/customer/planning/active-occasion-options-service";
 import {MobileNavigation} from "@/components/layout/mobile-navigation";
 
 export function CustomerMarketplaceShell({
@@ -12,6 +13,7 @@ export function CustomerMarketplaceShell({
   accountLastName = "",
   accountEmail = "",
   serviceCategoryOptions = [],
+  occasionOptions = [],
   children,
 }: {
   accountLabel: string;
@@ -19,6 +21,7 @@ export function CustomerMarketplaceShell({
   accountLastName?: string;
   accountEmail?: string;
   serviceCategoryOptions?: readonly ServiceCategoryOption[];
+  occasionOptions?: readonly ActiveOccasionOption[];
   children: ReactNode;
 }) {
   return (
@@ -49,6 +52,7 @@ export function CustomerMarketplaceShell({
         accountLastName={accountLastName}
         accountEmail={accountEmail}
         serviceCategoryOptions={serviceCategoryOptions}
+        occasionOptions={occasionOptions}
       />
 
       <main

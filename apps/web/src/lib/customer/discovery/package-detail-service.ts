@@ -1,4 +1,5 @@
 import "server-only";
+import {loadActiveLegacyOccasionIds} from "@/lib/customer/discovery/active-legacy-occasion-guard";
 import {verifiedPublicPackageV2} from "@/lib/customer/discovery/verified-package-v2";
 
 import {FIRESTORE_COLLECTIONS} from "@feasta/shared-types";
@@ -39,6 +40,11 @@ export async function getPublicPackageDetail(
   const v2 = packageData.occasionSchemaVersion === 2;
   if (v2) { const verified = await verifiedPublicPackageV2(packageSnapshot.id);
     if (!verified) return null; packageData = verified; }
+
+  if (!v2) {
+    const activeLegacyIds = await loadActiveLegacyOccasionIds([packageData]);
+    if (!activeLegacyIds.has(String(packageData.eventType))) return null;
+  }
 
   const providerId = safeDocumentId(
     packageData.providerId,

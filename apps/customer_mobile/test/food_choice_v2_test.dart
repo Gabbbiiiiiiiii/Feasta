@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/shared/models/food_choice_v2.dart';
+import 'package:feasta/shared/models/food_choice_v2.dart';
 
 void main() {
   final rows = [

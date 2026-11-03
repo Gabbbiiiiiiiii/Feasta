@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import type {AdminOccasionCatalog} from "@/lib/admin/file-maintenance/admin-occasion-client";
 
-const api = vi.hoisted(() => ({listAdminOccasions: vi.fn(), saveAdminOccasion: vi.fn(),
+const api = vi.hoisted(() => ({listAdminOccasions: vi.fn(), saveAdminOccasion: vi.fn(), addAdminOccasionApplicableServices: vi.fn(),
   previewAdminOccasionImpact: vi.fn(), listOccasionSuggestions: vi.fn(), reviewOccasionSuggestion: vi.fn(),
   checkAdminOccasionActivationReadiness: vi.fn(), checkAdminOccasionDeactivationReadiness: vi.fn(),
   inspectAdminOccasionAtomicReadiness: vi.fn(), changeAdminOccasionState: vi.fn()}));
@@ -27,8 +27,19 @@ const catalog: AdminOccasionCatalog = {revision: 7, lifecycleAvailable: false, i
     moderationState: "approved", applicableServiceCategoryCodes: ["catering_service"], revision: 2, sortOrder: 2},
 ]};
 const dirty = vi.fn();
-function mount() {return render(<OccasionManagementClient categories={categories} onDirtyChange={dirty} />);}
-async function ready() {await screen.findByRole("button", {name: "Edit Wedding"});}
+function mount(availableCategories: Parameters<typeof OccasionManagementClient>[0]["categories"] = categories) {return render(<OccasionManagementClient categories={availableCategories} onDirtyChange={dirty} />);}
+async function ready() {
+  await screen.findByRole("button", {name: "More actions for Wedding"});
+}
+
+async function openLifecycle(label: "Wedding" | "Birthday") {
+  await userEvent.click(screen.getByRole("button", {
+    name: `More actions for ${label}`,
+  }));
+  await userEvent.click(screen.getByRole("button", {
+    name: `${label === "Wedding" ? "Deactivate" : "Activate"} ${label}`,
+  }));
+}
 async function fillCreate() {
   await userEvent.click(screen.getByRole("button", {name: "Add Occasion"}));
   const dialog = screen.getByRole("dialog", {name: "Add Occasion"});
@@ -44,43 +55,144 @@ beforeEach(() => {
       new Error("Atomic readiness endpoint unavailable"),
       {code: "functions/not-found"},
     ));
-  api.saveAdminOccasion.mockResolvedValue({catalogRevision: 8, occasionRevision: 1});
+  api.saveAdminOccasion.mockResolvedValue({catalogRevision: 8, occasionRevision: 1}); api.addAdminOccasionApplicableServices.mockResolvedValue({occasionId: "birthday", occasionRevision: 3, catalogRevision: 8, added: ["photography"], removed: []});
   api.listOccasionSuggestions.mockResolvedValue({items: [], nextCursor: null});
 });
 describe("Admin occasion maintenance", () => {
+  it("executes eligible routine deactivation after confirmation", async () => {
+    api.inspectAdminOccasionAtomicReadiness.mockResolvedValue({
+      occasionId: "wedding",
+      action: "deactivate",
+      status: "ELIGIBLE_FOR_TRANSACTION",
+      lifecycleAvailable: true,
+      occasionRevision: 3,
+      catalogRevision: 7,
+      blockers: [],
+      checks: [
+        {
+          code: "APPROVED_OCCASION",
+          status: "SATISFIED",
+          message: "Event type approved.",
+        },
+        {
+          code: "NO_LIVE_BOOKING_DEPENDENCIES",
+          status: "SATISFIED",
+          message: "No active booking dependencies were found.",
+        },
+      ],
+      packageCount: 1,
+      galleryCount: 0,
+      affectedPackages: 0,
+      affectedGallerySetups: 0,
+    });
+
+    api.changeAdminOccasionState.mockResolvedValue({
+      operationId: "routine_deactivation_op",
+      occasionId: "wedding",
+      action: "deactivate",
+      active: false,
+      occasionRevision: 4,
+      catalogRevision: 8,
+      withdrawnPackageIds: [],
+      withdrawnGallerySetupIds: [],
+      state: "completed",
+      idempotentReplay: false,
+    });
+
+    mount();
+    await ready();
+
+    await openLifecycle("Wedding");
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Deactivate Event Type: Wedding",
+    });
+
+    expect(
+      await within(dialog).findByText(
+        "Safety checks passed. You can deactivate this event type."
+      )
+    ).toBeInTheDocument();
+
+    expect(api.changeAdminOccasionState).not.toHaveBeenCalled();
+
+    fireEvent.change(
+      within(dialog).getByLabelText("Lifecycle reason"),
+      {
+        target: {
+          value: "Administrative deactivation after review",
+        },
+      }
+    );
+
+    await userEvent.click(
+      within(dialog).getByRole("button", {name: "Deactivate"})
+    );
+
+    expect(api.changeAdminOccasionState).not.toHaveBeenCalled();
+
+    await userEvent.click(
+      screen.getByRole("button", {name: "Deactivate occasion"})
+    );
+
+    await waitFor(() => {
+      expect(api.changeAdminOccasionState).toHaveBeenCalledTimes(1);
+    });
+
+    expect(api.changeAdminOccasionState).toHaveBeenCalledWith(
+      "deactivate",
+      expect.objectContaining({
+        occasionId: "wedding",
+        expectedOccasionRevision: 3,
+        expectedCatalogRevision: 7,
+        reason: "Administrative deactivation after review",
+        idempotencyKey: expect.any(String),
+      })
+    );
+
+    expect(api.inspectAdminOccasionAtomicReadiness)
+      .toHaveBeenCalledWith({
+        occasionId: "wedding",
+        action: "deactivate",
+        expectedOccasionRevision: 3,
+        expectedCatalogRevision: 7,
+      });
+  });
   it("checks deactivation with server authority and preserves its blockers", async () => {
     api.inspectAdminOccasionAtomicReadiness.mockResolvedValue({occasionId: "wedding", status: "BLOCKED",
-      lifecycleAvailable: false, occasionRevision: 3, catalogRevision: 7, blockers: ["WITHDRAWAL"],
-      checks: [{code: "WITHDRAWAL", status: "BLOCKED", message: "Withdrawal must be verified."}]});
+      lifecycleAvailable: false, occasionRevision: 3, catalogRevision: 7, blockers: ["BOOKING_DEPENDENCIES_REQUIRE_REVIEW"],
+      checks: [{code: "BOOKING_DEPENDENCIES_REQUIRE_REVIEW", status: "BLOCKED", message: "Booking dependencies require review before deactivation."}]});
     mount(); await ready();
-    await userEvent.click(screen.getByRole("button", {name: "Check Deactivation Readiness for Wedding"}));
-    const dialog = screen.getByRole("dialog", {name: "Deactivation readiness: Wedding"});
-    expect(await within(dialog).findByText("Withdrawal must be verified.")).toBeInTheDocument();
+    await openLifecycle("Wedding");
+    const dialog = screen.getByRole("dialog", {name: "Deactivate Event Type: Wedding"});
+    expect(await within(dialog).findByText("Booking dependencies require review before deactivation.")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", {name: "Deactivate"})).toBeDisabled();
     expect(api.inspectAdminOccasionAtomicReadiness).toHaveBeenCalledWith({occasionId: "wedding", action: "deactivate",
       expectedOccasionRevision: 3, expectedCatalogRevision: 7});
     expect(api.changeAdminOccasionState).not.toHaveBeenCalled();
   });
   it("shows server-verified checks and blockers without enabling activation", async () => {
-    api.checkAdminOccasionActivationReadiness.mockResolvedValue({occasionId: "birthday", status: "BLOCKED",
+    api.inspectAdminOccasionAtomicReadiness.mockResolvedValue({occasionId: "birthday", status: "BLOCKED",
       lifecycleAvailable: false, occasionRevision: 2, catalogRevision: 7, blockers: ["WITHDRAWAL"],
       checks: [{code: "IDENTITY", status: "SATISFIED", message: "Approved occasion identity verified."},
         {code: "WITHDRAWAL", status: "BLOCKED", message: "Customer withdrawal protection still required."}]});
     mount(); await ready();
-    await userEvent.click(screen.getByRole("button", {name: "Check Activation Readiness for Birthday"}));
-    const dialog = screen.getByRole("dialog", {name: "Activation readiness: Birthday"});
+    await openLifecycle("Birthday");
+    const dialog = screen.getByRole("dialog", {name: "Activate Event Type: Birthday"});
     expect(await within(dialog).findByText("Approved occasion identity verified.")).toBeInTheDocument();
     expect(within(dialog).getByText("Customer withdrawal protection still required.")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", {name: "Activate"})).toBeDisabled();
-    expect(api.checkAdminOccasionActivationReadiness).toHaveBeenCalledWith({occasionId: "birthday",
+    expect(api.inspectAdminOccasionAtomicReadiness).toHaveBeenCalledWith({
+      action: "activate", occasionId: "birthday",
       expectedOccasionRevision: 2, expectedCatalogRevision: 7});
+    expect(api.checkAdminOccasionActivationReadiness).not.toHaveBeenCalled();
     expect(api.saveAdminOccasion).not.toHaveBeenCalled();
   });
   it("keeps activation disabled when the readiness API is unavailable", async () => {
-    api.checkAdminOccasionActivationReadiness.mockRejectedValue(new Error("The occasion service is currently unavailable."));
+    api.inspectAdminOccasionAtomicReadiness.mockRejectedValue(new Error("The occasion service is currently unavailable."));
     mount(); await ready();
-    await userEvent.click(screen.getByRole("button", {name: "Check Activation Readiness for Birthday"}));
-    const dialog = screen.getByRole("dialog", {name: "Activation readiness: Birthday"});
+    await openLifecycle("Birthday");
+    const dialog = screen.getByRole("dialog", {name: "Activate Event Type: Birthday"});
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Readiness could not be verified");
     expect(within(dialog).getByRole("button", {name: "Activate"})).toBeDisabled();
     expect(api.saveAdminOccasion).not.toHaveBeenCalled();
@@ -93,23 +205,20 @@ describe("Admin occasion maintenance", () => {
       occasionRevision: 2,
       catalogRevision: 7,
       blockers: [],
-      checks: [
-        {code: "APPROVED_OCCASION", status: "SATISFIED", message: "Approved."}
-      ],
+      checks: [{code: "APPROVED_OCCASION",
+        status: "SATISFIED", message: "Approved."}],
     });
 
     mount();
     await ready();
-
-    await userEvent.click(screen.getByRole("button", {
-      name: "Check Activation Readiness for Birthday"
-    }));
+    await openLifecycle("Birthday");
 
     const dialog = screen.getByRole("dialog", {
-      name: "Activation readiness: Birthday"
+      name: "Activate Event Type: Birthday",
     });
 
     expect(await within(dialog).findByText("Approved.")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", {
       name: "Activate"
     })).toBeDisabled();
@@ -118,10 +227,18 @@ describe("Admin occasion maintenance", () => {
       "Lifecycle reason"
     )).not.toBeInTheDocument();
 
+    expect(api.checkAdminOccasionActivationReadiness).toHaveBeenCalledWith({
+      occasionId: "birthday",
+      expectedOccasionRevision: 2,
+      expectedCatalogRevision: 7,
+    });
     expect(api.changeAdminOccasionState).not.toHaveBeenCalled();
     expect(api.inspectAdminOccasionAtomicReadiness).toHaveBeenCalledWith({
-      action: "activate", occasionId: "birthday",
-      expectedOccasionRevision: 2, expectedCatalogRevision: 7});
+      action: "activate",
+      occasionId: "birthday",
+      expectedOccasionRevision: 2,
+      expectedCatalogRevision: 7,
+    });
   });
   it("executes eligible atomic activation only after atomic readiness", async () => {
     api.inspectAdminOccasionAtomicReadiness.mockResolvedValue({
@@ -144,12 +261,10 @@ describe("Admin occasion maintenance", () => {
     mount();
     await ready();
 
-    await userEvent.click(screen.getByRole("button", {
-      name: "Check Activation Readiness for Birthday"
-    }));
+    await openLifecycle("Birthday");
 
     const dialog = screen.getByRole("dialog", {
-      name: "Activation readiness: Birthday"
+      name: "Activate Event Type: Birthday"
     });
     expect(await within(dialog).findByText("Approved.")).toBeInTheDocument();
 
@@ -319,10 +434,10 @@ describe("Admin occasion maintenance", () => {
     expect(api.saveAdminOccasion.mock.calls[0][0]).toEqual(api.saveAdminOccasion.mock.calls[1][0]);
   });
   it("locks permanent ID and applicability when editing and preserves expected revision", async () => {
-    mount(); await ready(); await userEvent.click(screen.getByRole("button", {name: "Edit Birthday"}));
+    mount(); await ready(); await userEvent.click(within(screen.getByText("Birthday", {selector: "h3"}).closest("article")!).getByRole("button", {name: "Edit"}));
     const dialog = screen.getByRole("dialog", {name: "Edit Occasion"});
     expect(within(dialog).getByLabelText("Canonical ID")).toBeDisabled();
-    expect(within(dialog).getByLabelText("Catering Service")).toBeDisabled();
+    expect(within(dialog).getByLabelText("Catering Service")).toBeEnabled();
     fireEvent.change(within(dialog).getByLabelText("Event Type Name", {exact: true}), {target: {value: "Birthday Celebration"}});
     fireEvent.change(within(dialog).getByLabelText("Reason for change"), {target: {value: "Update occasion label"}});
     await userEvent.click(within(dialog).getByRole("button", {name: /Review Occasion|Review changes/}));
@@ -337,28 +452,79 @@ describe("Admin occasion maintenance", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", {name: "Add Occasion"})).not.toBeInTheDocument());
     expect(api.saveAdminOccasion).not.toHaveBeenCalled();
   });
-  it("keeps lifecycle controls disabled and displays read-only impact with truncation", async () => {
-    api.previewAdminOccasionImpact.mockResolvedValue({occasionId: "wedding", occasionRevision: 3,
-      catalogRevision: 7, operation: "deactivate", allowed: false, mappings: [],
-      usage: [{collection: "packages", potentialReferences: 5, scanned: 500, truncated: true}],
-      blockers: ["Withdrawal not verified"], disclaimer: "Potential references only"});
-    mount(); await ready(); expect(screen.getByRole("button", {name: "Deactivate"})).toBeEnabled();
-    expect(screen.getByRole("button", {name: "Activate"})).toBeEnabled();
-    await userEvent.click(screen.getByRole("button", {name: "Impact preview for Wedding"}));
-    await userEvent.click(screen.getByRole("button", {name: "Inspect impact"}));
-    expect(await screen.findByText(/5 potential references in 500 scanned records/)).toHaveTextContent("scan truncated");
-    expect(screen.getByRole("button", {name: /Apply lifecycle change/})).toBeDisabled();
+  it("keeps blocked deactivation unavailable without allowing metadata writes", async () => {
+    api.inspectAdminOccasionAtomicReadiness.mockResolvedValue({
+      occasionId: "wedding",
+      action: "deactivate",
+      status: "BLOCKED",
+      lifecycleAvailable: false,
+      occasionRevision: 3,
+      catalogRevision: 7,
+      blockers: ["PACKAGE_INVENTORY_TOO_LARGE"],
+      checks: [{
+        code: "PACKAGE_INVENTORY_TOO_LARGE",
+        status: "BLOCKED",
+        message: "Package inventory exceeds the verified limit.",
+      }],
+    });
+
+    mount();
+    await ready();
+    await openLifecycle("Wedding");
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Deactivate Event Type: Wedding",
+    });
+
+    expect(await within(dialog).findByText(
+      "Package inventory exceeds the verified limit."
+    )).toBeInTheDocument();
+
+    expect(within(dialog).getByRole("button", {
+      name: "Deactivate",
+    })).toBeDisabled();
+
+    expect(api.changeAdminOccasionState).not.toHaveBeenCalled();
     expect(api.saveAdminOccasion).not.toHaveBeenCalled();
+    expect(api.previewAdminOccasionImpact).not.toHaveBeenCalled();
   });
-  it("submits a proposed applicability preview without any metadata write", async () => {
-    api.previewAdminOccasionImpact.mockRejectedValue(new Error("Preview unavailable"));
-    mount(); await ready(); await userEvent.click(screen.getByRole("button", {name: "Impact preview for Wedding"}));
-    fireEvent.change(screen.getByLabelText("Proposed operation"), {target: {value: "applicability"}});
-    await userEvent.click(screen.getByRole("button", {name: "Inspect impact"}));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Preview unavailable");
-    expect(api.previewAdminOccasionImpact).toHaveBeenCalledWith({occasionId: "wedding", expectedOccasionRevision: 3,
-      expectedCatalogRevision: 7, operation: "applicability", applicableServiceCategoryCodes: ["catering_service"]});
+  it("blocks service removal from an active occasion without writing metadata", async () => {
+    mount();
+    await ready();
+
+    const weddingRow = screen.getByText("Wedding", {
+      selector: "h3",
+    }).closest("article");
+
+    expect(weddingRow).not.toBeNull();
+
+    await userEvent.click(within(weddingRow!).getByRole("button", {
+      name: "Edit",
+    }));
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Edit Occasion",
+    });
+
+    const checkbox = within(dialog).getByLabelText("Catering Service");
+    expect(checkbox).toBeEnabled();
+    await userEvent.click(checkbox);
+
+    fireEvent.change(within(dialog).getByLabelText("Reason for change"), {
+      target: {value: "Review requested service restriction"},
+    });
+
+    await userEvent.click(within(dialog).getByRole("button", {
+      name: "Review changes",
+    }));
+
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "Only adding services to inactive occasions is supported"
+    );
+
     expect(api.saveAdminOccasion).not.toHaveBeenCalled();
+    expect(api.changeAdminOccasionState).not.toHaveBeenCalled();
+    expect(api.previewAdminOccasionImpact).not.toHaveBeenCalled();
   });
   it("reuses pending suggestion paging and review with no catalog activation", async () => {
     api.listOccasionSuggestions.mockResolvedValueOnce({items: [{suggestionId: "s1", name: "Birthday idea", revision: 4}], nextCursor: "next"});
@@ -390,5 +556,89 @@ describe("Admin occasion maintenance", () => {
     await userEvent.click(screen.getByRole("tab", {name: "Service categories"}));
     expect(screen.getByText("Service categories content")).toBeInTheDocument();
     expect(screen.getAllByRole("tab")).toHaveLength(4);
+  });
+  it("saves inactive occasion service additions through the secured callable", async () => {
+    mount([
+      ...categories,
+      {
+        code: "photography",
+        name: "Photography",
+        status: "active" as const,
+        serviceType: "addon" as const,
+        sortName: "photography",
+      },
+    ]);
+    await ready();
+
+    const row = screen.getByText("Birthday", {
+      selector: "h3",
+    }).closest("article");
+
+    expect(row).not.toBeNull();
+
+    await userEvent.click(
+      within(row!).getByRole("button", {name: "Edit"})
+    );
+
+    const dialog = screen.getByRole("dialog", {
+      name: "Edit Occasion",
+    });
+
+    expect(within(dialog).getByLabelText("Canonical ID")).toBeDisabled();
+
+    const photography = within(dialog).getByLabelText("Photography");
+    expect(photography).toBeEnabled();
+
+    await userEvent.click(photography);
+
+    expect(within(dialog).getByText(/Added:/)).toHaveTextContent(
+      "Photography"
+    );
+
+    fireEvent.change(
+      within(dialog).getByLabelText("Reason for change"),
+      {
+        target: {
+          value: "Approved additional photography service",
+        },
+      }
+    );
+
+    await userEvent.click(
+      within(dialog).getByRole("button", {name: "Review changes"})
+    );
+
+    const confirmation = screen.getByRole("dialog", {
+      name: "Add applicable services?",
+    });
+
+    expect(confirmation).toHaveTextContent("Photography");
+
+    await userEvent.click(
+      within(confirmation).getByRole("button", {
+        name: "Save occasion",
+      })
+    );
+
+    await waitFor(() => {
+      expect(api.addAdminOccasionApplicableServices)
+        .toHaveBeenCalledTimes(1);
+    });
+
+    expect(api.addAdminOccasionApplicableServices)
+      .toHaveBeenCalledWith({
+        occasionId: "birthday",
+        applicableServiceCategoryCodes: [
+          "catering_service",
+          "photography",
+        ],
+        expectedOccasionRevision: 2,
+        expectedCatalogRevision: 7,
+        reason: "Approved additional photography service",
+        idempotencyKey: expect.any(String),
+      });
+
+    expect(api.saveAdminOccasion).not.toHaveBeenCalled();
+    expect(api.changeAdminOccasionState).not.toHaveBeenCalled();
   });
 });

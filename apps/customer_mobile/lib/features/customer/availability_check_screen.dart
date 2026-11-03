@@ -129,8 +129,8 @@ class _AvailabilityCheckScreenState extends State<AvailabilityCheckScreen> {
                     padding: const EdgeInsets.all(28),
                     decoration: BoxDecoration(
                       color: isAvailable
-                          ? Colors.green.withOpacity(0.08)
-                          : Colors.red.withOpacity(0.08),
+                          ? Colors.green.withValues(alpha: 0.08)
+                          : Colors.red.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(22),
                       border: Border.all(
                         color: isAvailable ? Colors.green : Colors.red,

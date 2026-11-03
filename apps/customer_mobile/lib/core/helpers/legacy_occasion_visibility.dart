@@ -1,3 +1,4 @@
+import '../services/occasion_catalog_service.dart';
 /// Phase 2C legacy-client safety filter.
 ///
 /// This is defense-in-depth, not an authorization boundary. Older installed
@@ -30,4 +31,25 @@ bool isLegacyOccasionPublicPackage(Map<String, dynamic> data) {
     return false;
   }
   return !_v2OccasionFields.any(data.containsKey);
+}
+
+/// Current active-catalog eligibility for a legacy customer package.
+/// The catalog must come from the authoritative listApprovedOccasions callable.
+bool isLegacyOccasionActiveInCatalog(
+  Map<String, dynamic> package,
+  List<CatalogOccasion> activeOccasions,
+) {
+  if (!isLegacyOccasionPublicPackage(package)) return false;
+
+  final eventType = package['eventType'];
+  if (eventType is! String) return false;
+
+  final value = eventType.trim().toLowerCase();
+  if (value.isEmpty) return false;
+
+  return activeOccasions.any(
+    (occasion) =>
+        occasion.id == value ||
+        occasion.label.toLowerCase() == value,
+  );
 }

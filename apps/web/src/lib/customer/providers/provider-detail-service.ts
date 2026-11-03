@@ -1,4 +1,5 @@
 import "server-only";
+import {loadActiveLegacyOccasionIds} from "@/lib/customer/discovery/active-legacy-occasion-guard";
 import {verifiedPublicPackageV2} from "@/lib/customer/discovery/verified-package-v2";
 
 import {FIRESTORE_COLLECTIONS} from "@feasta/shared-types";
@@ -52,12 +53,16 @@ export async function getPublicProviderDetail(
     .orderBy("createdAt", "desc")
     .limit(PROVIDER_DETAIL_PACKAGE_LIMIT)
     .get();
+  const activeLegacyIds = await loadActiveLegacyOccasionIds(
+    packageSnapshot.docs.map((document) => document.data()),
+  );
   const providerNames = new Map([[provider.id, provider.businessName]]);
   const candidates = await Promise.all(packageSnapshot.docs.map(async (document) => {
     const original = document.data();
     const v2 = original.occasionSchemaVersion === 2;
     const data = v2 ? await verifiedPublicPackageV2(document.id) : original;
-    if (!data) return [];
+    if (!data ||
+        (!v2 && !activeLegacyIds.has(String(data.eventType)))) return [];
     const packageRecord = normalizePublicPackage(document.id, data, providerNames, v2);
     return packageRecord ? [packageRecord] : [];
   }));

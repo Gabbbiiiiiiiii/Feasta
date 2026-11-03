@@ -32,6 +32,7 @@ import {
   isPublicMarketplaceReturnPath,
 } from "@/lib/customer/providers/provider-route-policy";
 import type {ServiceCategoryOption} from "@/lib/service-categories/service-category-types";
+import type {ActiveOccasionOption} from "@/lib/customer/planning/active-occasion-options-service";
 import {cn} from "@/lib/utils";
 
 import {useCustomerAuth} from "./customer-auth-provider";
@@ -53,6 +54,7 @@ export function CustomerMarketplaceHeader({
   accountEmail = "",
   authReturnTo = PUBLIC_PROVIDER_MARKETPLACE_PATH,
   serviceCategoryOptions = [],
+  occasionOptions = [],
 }: {
   accountLabel?: string | null;
   accountFirstName?: string;
@@ -60,6 +62,7 @@ export function CustomerMarketplaceHeader({
   accountEmail?: string;
   authReturnTo?: string;
   serviceCategoryOptions?: readonly ServiceCategoryOption[];
+  occasionOptions?: readonly ActiveOccasionOption[];
 }) {
   const pathname = usePathname();
   const searchParameters = useSearchParams();
@@ -148,6 +151,7 @@ export function CustomerMarketplaceHeader({
             <MarketplaceSectionNavigation
   pathname={pathname}
   serviceCategoryOptions={serviceCategoryOptions}
+  occasionOptions={occasionOptions}
 />
           </div>
         </div>
@@ -186,9 +190,11 @@ function MarketplaceBrand({pathname}: {pathname: string}) {
 function MarketplaceSectionNavigation({
   pathname,
   serviceCategoryOptions,
+  occasionOptions,
 }: {
   pathname: string;
   serviceCategoryOptions: readonly ServiceCategoryOption[];
+  occasionOptions: readonly ActiveOccasionOption[];
 }) {
   const parameters = useSearchParams();
   const query = parameters.toString();
@@ -200,6 +206,7 @@ function MarketplaceSectionNavigation({
       pathname={pathname}
       query={query}
       serviceCategoryOptions={serviceCategoryOptions}
+      occasionOptions={occasionOptions}
     />
   );
 }
@@ -208,12 +215,30 @@ function MarketplaceNavigationContent({
   pathname,
   query,
   serviceCategoryOptions,
+  occasionOptions,
 }: {
   pathname: string;
   query: string;
   serviceCategoryOptions: readonly ServiceCategoryOption[];
+  occasionOptions: readonly ActiveOccasionOption[];
 }) {
   const [open, setOpen] = useState(false);
+
+  // The compact event summary opens this shared editor.
+  useEffect(() => {
+    const openFromSummary = () => {
+      setOpen(true);
+      searchButton.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    };
+
+    window.addEventListener("feasta:open-event-finder", openFromSummary);
+    return () => {
+      window.removeEventListener("feasta:open-event-finder", openFromSummary);
+    };
+  }, []);
   const searchButton = useRef<HTMLButtonElement>(null);
   const items = [
     {label: "Event Services", href: PUBLIC_PROVIDER_MARKETPLACE_PATH},
@@ -302,6 +327,7 @@ function MarketplaceNavigationContent({
               query={query}
               onFind={close}
               serviceCategoryOptions={serviceCategoryOptions}
+              occasionOptions={occasionOptions}
             />
           </div>
         </div>

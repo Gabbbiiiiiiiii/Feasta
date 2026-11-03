@@ -10,6 +10,9 @@ const target=join(stage,'index');
 const {mkdirSync}=await import('node:fs');mkdirSync(target);
 for(const [name,path] of [
   ['occasion-lifecycle-atomic','admin/occasion-lifecycle-atomic.ts'],
+  ['occasion-package-dependencies','admin/occasion-package-dependencies.ts'],
+  ['occasion-booking-dependencies','admin/occasion-booking-dependencies.ts'],
+  ['occasion-routine-activation','admin/occasion-routine-activation.ts'],
   ['occasion-transition-inventory-scan','packages/occasion-transition-inventory-scan.ts'],
   ['occasion-withdrawal-batch','packages/occasion-withdrawal-batch.ts'],
 ]){
@@ -18,6 +21,14 @@ for(const [name,path] of [
   if(name==='occasion-lifecycle-atomic')code=code.replace(
     'import {FieldPath} from "firebase-admin/firestore";',
     'const FieldPath={documentId:()=>"__name__"};');
+  if(name==='occasion-booking-dependencies'){
+    const statusImport=/import\s*\{\s*parseMainEventStatus,\s*parseProviderRequestStatus,?\s*\}\s*from\s*"\.\.\/shared\/constants\.ts";/u;
+    assert.match(code,statusImport,'missing booking status import');
+    const compiledStatusURL=pathToFileURL(resolve('functions/lib/shared/constants.js')).href;
+    code=code.replace(statusImport,
+      `import bookingStatuses from ${JSON.stringify(compiledStatusURL)};\n`+
+      'const {parseMainEventStatus,parseProviderRequestStatus}=bookingStatuses;');
+  }
   writeFileSync(join(target,`${name}.ts`),code);
 }
 const mod=await import(pathToFileURL(join(target,'occasion-lifecycle-atomic.ts')).href);
@@ -61,7 +72,12 @@ function fixture({action='deactivate',packages=undefined,galleries=undefined}={}
       if(reference.kind){
         const rows=[...docs.entries()].filter(([path])=>reference.kind==='query'?path.startsWith(`${reference.name}/`)&&path.split('/').length===2:path.split('/').at(-2)===reference.name)
           .sort(([a],[b])=>a.localeCompare(b)).slice(0,reference.limit);
-        return {docs:rows.map(([path,value])=>({id:path.split('/').at(-1),ref:ref(path),data:()=>value}))};
+        const snapshots=rows.map(([path,value])=>({
+          id:path.split('/').at(-1),
+          ref:ref(path),
+          data:()=>value,
+        }));
+        return {docs:snapshots,size:snapshots.length,empty:snapshots.length===0};
       }
       const data=docs.get(reference.path);return {exists:data!==undefined,data:()=>data};
     },create(reference,data){writing=true;writes.push({kind:'create',path:reference.path,data});},
@@ -81,21 +97,16 @@ function setup(id,eventType,isPublished){return {id,eventType,isPublished,title:
 async function blocked(f,code){const tx=f.transaction();await assert.rejects(
   commitLifecycle(tx,f.input),(e)=>e.message===code);assert.equal(tx.writes.length,0);}
 
-test('deactivation atomically withdraws the relevant package and gallery entry',async()=>{
-  const f=fixture();const tx=f.transaction();const result=await commitLifecycle(tx,f.input);
-  assert.equal(result.state,'completed');assert.equal(result.active,false);
-  assert.deepEqual(result.withdrawnPackageIds,['affected']);
-  assert.deepEqual(result.withdrawnGallerySetupIds,['s1']);
-  assert.equal(f.docs.get('occasions/birthday').active,true,'not committed yet');
-  tx.commit();
-  assert.equal(f.docs.get('occasions/birthday').active,false);
-  assert.equal(f.docs.get('occasionCatalog/current').revision,4);
-  assert.equal(f.docs.get('packages/affected').status,'draft');
-  assert.equal(f.docs.get('packages/other').isPublished,true);
-  assert.equal(f.docs.get('providers/p1/catalog/setups').setups[0].isPublished,false);
-  assert.equal(f.docs.get('providers/p1/catalog/setups').setups[1].isPublished,true);
-  assert.equal(f.docs.get('occasionLifecycleAudits/'+result.operationId).restorationPerformed,false);
-  assert.equal(f.docs.get('bookings/historical'),undefined);
+test('deactivation refuses live packages without any mutation',async()=>{
+  const f=fixture();
+  const tx=f.transaction();
+  await assert.rejects(commitLifecycle(tx,f.input),
+    {message:'OCCASION_LIVE_PACKAGE_DEPENDENCY'});
+  assert.equal(tx.writes.length,0);
+  assert.equal(f.docs.get('occasions/birthday').active,true);
+  assert.equal(f.docs.get('occasionCatalog/current').revision,3);
+  assert.equal(f.docs.get('packages/affected').status,'published');
+  assert.equal(f.docs.get('providers/p1/catalog/setups').setups[0].isPublished,true);
 });
 test('activation with no package or gallery references completes without phantom batches',async()=>{
   const f=fixture({action:'activate',packages:[],galleries:[]});const tx=f.transaction();
@@ -114,19 +125,18 @@ test('41 packages rejects atomically',async()=>{
   await blocked(f,'PACKAGE_INVENTORY_TOO_LARGE');
 });
 test('41 galleries rejects atomically',async()=>{
-  const f=fixture({galleries:Array.from({length:41},(_,i)=>['p'+i,[setup('one','birthday',true)]])});
+  const f=fixture({packages:[],galleries:Array.from({length:41},(_,i)=>['p'+i,[setup('one','birthday',true)]])});
   await blocked(f,'GALLERY_INVENTORY_TOO_LARGE');
 });
 test('corrupt gallery prevents both publication withdrawal and catalog writes',async()=>{
-  const f=fixture({galleries:[['p1',[{id:'s1',isPublished:'yes',eventType:'birthday'}]]]});
+  const f=fixture({packages:[],galleries:[['p1',[{id:'s1',isPublished:'yes',eventType:'birthday'}]]]});
   await blocked(f,'GALLERY_INVENTORY_REQUIRES_REVIEW');
 });
-test('malformed public V2 package is withdrawn conservatively',async()=>{
+test('malformed public V2 package blocks deactivation without writes',async()=>{
   const f=fixture({packages:[['mixed',published({occasionSchemaVersion:2,
     occasionScope:'specific',occasionIds:'bad'})]],galleries:[]});
-  const tx=f.transaction();const r=await commitLifecycle(tx,f.input);tx.commit();
-  assert.deepEqual(r.withdrawnPackageIds,['mixed']);
-  assert.equal(f.docs.get('packages/mixed').isPublished,false);
+  await blocked(f,'OCCASION_PACKAGE_DEPENDENCY_REQUIRES_REVIEW');
+  assert.equal(f.docs.get('packages/mixed').isPublished,true);
 });
 test('replayed idempotency identity with altered reason is rejected',async()=>{
   const f=fixture({packages:[],galleries:[]});const tx=f.transaction();
@@ -147,7 +157,7 @@ test('40 packages and 40 galleries are within the explicit atomic bound',async()
   const packages=Array.from({length:40},(_,i)=>['p'+String(i).padStart(3,'0'),published()]);
   const galleries=Array.from({length:40},(_,i)=>['p'+String(i).padStart(3,'0'),
     [setup('g'+String(i).padStart(3,'0'),'birthday',true)]]);
-  const f=fixture({packages,galleries});const tx=f.transaction();
+  const f=fixture({action:'activate',packages,galleries});const tx=f.transaction();
   const result=await commitLifecycle(tx,f.input);
   assert.equal(result.withdrawnPackageIds.length,40);
   assert.equal(result.withdrawnGallerySetupIds.length,40);
@@ -172,12 +182,14 @@ test('non-stable catalog refuses without creating a transition lock',async()=>{
   const f=fixture();f.docs.get('occasionCatalog/current').activationState='transitioning';
   await blocked(f,'OCCASION_LIFECYCLE_REVISION_OR_STATE_CONFLICT');
 });
-test('failed gallery validation cannot partially withdraw a package',async()=>{
-  const f=fixture({galleries:[['p1',[{id:'invalid',isPublished:'yes',eventType:'birthday'}]]]});
+test('failed gallery validation cannot mutate occasion or catalog',async()=>{
+  const f=fixture({packages:[],galleries:[['p1',[{id:'invalid',isPublished:'yes',eventType:'birthday'}]]]});
   const tx=f.transaction();
   await assert.rejects(commitLifecycle(tx,f.input),{message:'GALLERY_INVENTORY_REQUIRES_REVIEW'});
   assert.equal(tx.writes.length,0);
-  assert.equal(f.docs.get('packages/affected').isPublished,true);
+  assert.equal(f.docs.get('occasions/birthday').active,true);
+  assert.equal(f.docs.get('occasionCatalog/current').revision,3);
+  assert.equal(f.docs.get('providers/p1/catalog/setups').setups[0].isPublished,'yes');
 });
 test('tampered operation audit does not allow a false successful replay',async()=>{
   const f=fixture({packages:[],galleries:[]});const tx=f.transaction();
@@ -186,6 +198,84 @@ test('tampered operation audit does not allow a false successful replay',async()
   await blocked(f,'IDEMPOTENCY_CONFLICT');
 });
 
+function addBooking(f,{
+  eventId='event_booking_001',
+  requestId='request_booking_001',
+  eventType='birthday',
+  parentStatus='pending_provider_approval',
+  requestStatus='pending',
+}={}){
+  f.docs.set(`mainEvents/${eventId}`,{
+    eventType,
+    status:parentStatus,
+    providerRequestIds:[requestId],
+    providerRequestCount:1,
+  });
+  f.docs.set(`providerRequests/${requestId}`,{
+    mainEventId:eventId,
+    eventType,
+    status:requestStatus,
+  });
+}
+
+test('live Birthday booking blocks deactivation without writes',async()=>{
+  const f=fixture({packages:[],galleries:[]});
+  addBooking(f);
+  await blocked(f,'OCCASION_LIVE_BOOKING_DEPENDENCY');
+  assert.equal(f.docs.get('occasions/birthday').active,true);
+  assert.equal(f.docs.get('occasionCatalog/current').revision,3);
+});
+
+test('terminal Birthday booking histories remain unchanged',async()=>{
+  for(const terminal of ['completed','cancelled','expired']){
+    const f=fixture({packages:[],galleries:[]});
+    addBooking(f,{parentStatus:terminal,requestStatus:terminal});
+    const beforeEvent=structuredClone(f.docs.get('mainEvents/event_booking_001'));
+    const beforeRequest=structuredClone(f.docs.get('providerRequests/request_booking_001'));
+    const tx=f.transaction();
+    const result=await commitLifecycle(tx,f.input);
+    assert.equal(result.active,false);
+    assert.equal(tx.writes.some(w=>w.path.startsWith('mainEvents/')),false);
+    assert.equal(tx.writes.some(w=>w.path.startsWith('providerRequests/')),false);
+    tx.commit();
+    assert.equal(f.docs.get('occasions/birthday').active,false);
+    assert.deepEqual(f.docs.get('mainEvents/event_booking_001'),beforeEvent);
+    assert.deepEqual(f.docs.get('providerRequests/request_booking_001'),beforeRequest);
+  }
+});
+
+test('terminal parent with active child blocks deactivation',async()=>{
+  const f=fixture({packages:[],galleries:[]});
+  addBooking(f,{parentStatus:'completed',requestStatus:'confirmed'});
+  await blocked(f,'OCCASION_LIVE_BOOKING_DEPENDENCY');
+});
+
+test('missing linked request fails closed without writes',async()=>{
+  const f=fixture({packages:[],galleries:[]});
+  addBooking(f,{parentStatus:'completed',requestStatus:'completed'});
+  f.docs.delete('providerRequests/request_booking_001');
+  await blocked(f,'OCCASION_BOOKING_DEPENDENCIES_UNVERIFIED');
+});
+
+test('mismatched request occasion fails closed without writes',async()=>{
+  const f=fixture({packages:[],galleries:[]});
+  addBooking(f,{parentStatus:'completed',requestStatus:'completed'});
+  f.docs.get('providerRequests/request_booking_001').eventType='wedding';
+  await blocked(f,'OCCASION_BOOKING_DEPENDENCIES_UNVERIFIED');
+});
+
+test('41 booking records block bounded deactivation',async()=>{
+  const f=fixture({packages:[],galleries:[]});
+  for(let i=0;i<41;i++){
+    addBooking(f,{
+      eventId:`event_booking_${String(i).padStart(3,'0')}`,
+      requestId:`request_booking_${String(i).padStart(3,'0')}`,
+      parentStatus:'completed',
+      requestStatus:'completed',
+    });
+  }
+  await blocked(f,'OCCASION_BOOKING_INVENTORY_TOO_LARGE');
+});
 test.after(()=>rmSync(stage,{recursive:true,force:true}));
 
 test('Birthday activation withdraws both legacy offers and preserves financial history', async () => {

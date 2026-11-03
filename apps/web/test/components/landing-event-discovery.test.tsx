@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   searchEventVenues: vi.fn(),
   getEventVenueDetails: vi.fn(),
+  catalogGet: vi.fn(),
+  occasionsGet: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -18,6 +20,17 @@ vi.mock("@/app/customer/favorites/actions", () => ({setProviderFavoriteAction: v
 vi.mock("@/lib/customer/planning/event-venue-client", () => ({
   searchEventVenues: mocks.searchEventVenues,
   getEventVenueDetails: mocks.getEventVenueDetails,
+}));
+
+vi.mock("@/lib/firebase/admin", () => ({
+  adminDb: {
+    doc: () => ({get: mocks.catalogGet}),
+    collection: () => ({
+      where: () => ({
+        limit: () => ({get: mocks.occasionsGet}),
+      }),
+    }),
+  },
 }));
 
 import {StartYourEventForm} from "@/components/landing/start-your-event-form";
@@ -40,9 +53,34 @@ const venueQuery = {
   eventVenueLng: "124.608",
 };
 
+const approvedOccasions = [
+  {value: "birthday", label: "Birthday"},
+  {value: "wedding", label: "Wedding"},
+  {value: "debut", label: "Debut"},
+  {value: "corporate", label: "Corporate"},
+  {value: "anniversary", label: "Anniversary"},
+  {value: "other", label: "Other"},
+  {value: "baby_shower", label: "Baby Shower"},
+] as const;
 describe("public landing event discovery", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.catalogGet.mockResolvedValue({
+      data: () => ({revision: 7, activationState: "stable"}),
+    });
+    mocks.occasionsGet.mockResolvedValue({
+      size: 1,
+      docs: [{
+        id: "birthday",
+        data: () => ({
+          id: "birthday",
+          label: "Birthday",
+          sortOrder: 1,
+          active: true,
+          moderationState: "approved",
+        }),
+      }],
+    });
     mocks.searchEventVenues.mockResolvedValue([{
       placeId: venueQuery.eventVenuePlaceId,
       mainText: venueQuery.eventVenueLabel,
@@ -59,14 +97,14 @@ describe("public landing event discovery", () => {
   });
 
   it("opens the general Provider marketplace when no filters are selected", () => {
-    render(<StartYourEventForm />);
+    render(<StartYourEventForm eventTypes={approvedOccasions} />);
     fireEvent.click(screen.getByRole("button", {name: "Book Now"}));
     expect(mocks.push).toHaveBeenCalledWith("/customer/providers");
     expect(screen.getByRole("button", {name: "Book Now"}).closest("form")).toHaveAttribute("action", "/customer/providers");
   });
 
   it("hands off only non-empty event type and guest context", () => {
-    render(<StartYourEventForm />);
+    render(<StartYourEventForm eventTypes={approvedOccasions} />);
     fireEvent.change(screen.getByLabelText("Event type"), {
       target: {value: "birthday"},
     });
@@ -80,7 +118,7 @@ describe("public landing event discovery", () => {
   });
 
   it("rejects a non-positive guest count without creating malformed URL state", () => {
-    render(<StartYourEventForm />);
+    render(<StartYourEventForm eventTypes={approvedOccasions} />);
     fireEvent.change(screen.getByLabelText("Guests"), {
       target: {value: "0"},
     });
@@ -92,7 +130,7 @@ describe("public landing event discovery", () => {
   });
 
   it("selects a real Places result and carries normalized event venue context", async () => {
-    render(<StartYourEventForm />);
+    render(<StartYourEventForm eventTypes={approvedOccasions} />);
     fireEvent.change(screen.getByLabelText("Event type"), {target: {value: "birthday"}});
     fireEvent.change(screen.getByLabelText("Date"), {target: {value: "2099-09-20"}});
     fireEvent.change(screen.getByLabelText("Guests"), {target: {value: "100"}});
@@ -121,7 +159,7 @@ describe("public landing event discovery", () => {
   });
 
   it("lets the Customer clear a selected venue before marketplace handoff", async () => {
-    render(<StartYourEventForm />);
+    render(<StartYourEventForm eventTypes={approvedOccasions} />);
     fireEvent.change(screen.getByLabelText("Location"), {
       target: {value: "Ormoc Superdome"},
     });
@@ -138,7 +176,7 @@ describe("public landing event discovery", () => {
     mocks.searchEventVenues.mockRejectedValueOnce(new Error(
       "Event venue search is temporarily unavailable. You can still explore without a location.",
     ));
-    render(<StartYourEventForm />);
+    render(<StartYourEventForm eventTypes={approvedOccasions} />);
     fireEvent.change(screen.getByLabelText("Event type"), {
       target: {value: "wedding"},
     });
@@ -181,9 +219,7 @@ describe("public landing event discovery", () => {
     expect(screen.getByText("Sep 20, 2099")).toBeVisible();
     expect(screen.getByText("100 guests")).toBeVisible();
     expect(screen.getByText(/Ormoc City Superdome, Ormoc City, Leyte/iu)).toBeVisible();
-    expect(screen.getByLabelText("Event venue")).toHaveValue(
-      venueQuery.eventVenueAddress,
-    );
+    expect(screen.getByRole("button", {name: /edit event/iu})).toBeVisible();
     expect(screen.getByRole("link", {name: "Clear event details"})).toBeVisible();
   });
 
@@ -209,5 +245,44 @@ describe("public landing event discovery", () => {
       expect(response.status, href).toBe(200);
       expect(response.headers.get("location"), href).toBeNull();
     }
+  });
+  it("shows an Admin-approved dynamic occasion in the landing selector", () => {
+    render(<StartYourEventForm eventTypes={approvedOccasions} />);
+
+    const selector = screen.getByRole("combobox", {name: "Event type"});
+
+    expect(selector).toHaveTextContent("Baby Shower");
+
+    fireEvent.change(selector, {target: {value: "baby_shower"}});
+    fireEvent.click(screen.getByRole("button", {name: "Book Now"}));
+
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/customer/providers?eventType=baby_shower",
+    );
+  });
+
+  it("does not restore hard-coded options when the catalog is empty", () => {
+    render(<StartYourEventForm eventTypes={[]} />);
+
+    const selector = screen.getByRole("combobox", {name: "Event type"});
+
+    expect(selector.querySelectorAll("option")).toHaveLength(1);
+    expect(selector).toHaveTextContent("Any occasion");
+    expect(selector).not.toHaveTextContent("Birthday");
+  });
+
+  it("does not display legacy occasion cards when the catalog is empty", async () => {
+    mocks.occasionsGet.mockResolvedValue({
+      size: 0,
+      docs: [],
+    });
+
+    render(await HomePage());
+
+    expect(screen.queryByRole("heading", {name: "Birthday"})).toBeNull();
+    expect(screen.queryByRole("heading", {name: "Wedding"})).toBeNull();
+
+    const selector = screen.getByRole("combobox", {name: "Event type"});
+    expect(selector.querySelectorAll("option")).toHaveLength(1);
   });
 });

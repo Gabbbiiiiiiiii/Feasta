@@ -100,10 +100,26 @@ export const updateProviderOccasionCapabilities = onCall(
         provider.isSuspended !== true && provider.isDeleted !== true &&
         resolveBackendAccountState({authDisabled: false, profile: owner,
           allowedRoles: ["provider"]}).kind === "active"});
-    // Transaction query fences new package creation as well as existing packages.
+    // A bounded transaction query includes archived history and fences changes
+    // to this provider's package inventory. Never infer privacy from status alone.
+    // Exceeding the verified inventory bound fails closed.
     const packages = await tx.get(db.collection("packages")
-      .where("providerId", "==", ref.id).limit(1));
-    if (!packages.empty) fail("GALLERY_REVALIDATION_REQUIRED");
+      .where("providerId", "==", ref.id).limit(41));
+    if (packages.size > 40 || !Array.isArray(packages.docs) ||
+      packages.docs.length !== packages.size) {
+      fail("GALLERY_REVALIDATION_REQUIRED");
+    }
+    for (const packageDoc of packages.docs) {
+      const packageData = packageDoc.data();
+      if (!packageData || packageData.providerId !== ref.id ||
+        packageData.status !== "archived" ||
+        packageData.isActive !== false ||
+        packageData.isPublished !== false ||
+        packageData.providerPubliclyVisible !== false ||
+        packageData.publishedAt !== null) {
+        fail("GALLERY_REVALIDATION_REQUIRED");
+      }
+    }
     const gallery = (await tx.get(ref.collection("catalog").doc("setups"))).data();
     if (gallery && (!Array.isArray(gallery.setups) || gallery.setups.some((s: unknown) => {
       if (!s || typeof s !== "object" || Array.isArray(s)) return true;
@@ -112,7 +128,8 @@ export const updateProviderOccasionCapabilities = onCall(
         "themeTags", "imageUrls", "isPublished", "setupOccasionSchemaVersion"].includes(k)) ||
         (row.setupOccasionSchemaVersion !== undefined && row.setupOccasionSchemaVersion !== 1) ||
         !["birthday", "wedding", "debut", "corporate", "anniversary", "other"].includes(
-          row.eventType as string) || typeof row.isPublished !== "boolean";
+          row.eventType as string) || typeof row.isPublished !== "boolean" ||
+        row.isPublished === true;
     }))) fail("GALLERY_REVALIDATION_REQUIRED");
     const approved = new Set([...held, ...input.approveOccasionIds]);
     input.revokeOccasionIds.forEach((id) => approved.delete(id));

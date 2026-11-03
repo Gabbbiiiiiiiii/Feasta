@@ -49,6 +49,12 @@ export interface OccasionAuthority {
   /** Current server-loaded catalog and explicitly approved provider capabilities. */
   catalog: readonly GlobalOccasion[];
   approvedOccasionIds: readonly string[];
+  /**
+   * Legacy mode requires explicit provider occasion grants.
+   * Global mode derives eligibility from active applicable occasions.
+   * Only trusted server callers may select global mode.
+   */
+  eligibilityMode?: "global";
   serviceCategoryCode: string;
   /** Validated active canonical provider category codes, from the server authority. */
   approvedActiveCategoryCodes: readonly string[];
@@ -74,7 +80,9 @@ export function resolveOccasionV2(
   const applicable = authority.catalog.filter((o) =>
     o.active === true && o.moderationState === "approved" &&
     o.applicableServiceCategoryCodes.includes(authority.serviceCategoryCode)).sort(catalogOrder);
-  const eligible = applicable.filter((o) => authority.approvedOccasionIds.includes(o.id));
+  const eligible = authority.eligibilityMode === "global" ?
+    applicable :
+    applicable.filter((o) => authority.approvedOccasionIds.includes(o.id));
   if (input.occasionScope === "specific") {
     for (const id of input.occasionIds) {
       const occasion = authority.catalog.find((o) => o.id === id);
@@ -83,7 +91,7 @@ export function resolveOccasionV2(
         return invalid("INVALID_OCCASION_SELECTION");
       }
       if (occasion.active !== true) return invalid("OCCASION_INACTIVE");
-      if (!authority.approvedOccasionIds.includes(id)) {
+      if (authority.eligibilityMode !== "global" && !authority.approvedOccasionIds.includes(id)) {
         return invalid("PROVIDER_OCCASION_INELIGIBLE");
       }
     }

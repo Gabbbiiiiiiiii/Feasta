@@ -1,4 +1,5 @@
 import type {Metadata} from "next";
+import {getActiveOccasionOptions} from "@/lib/customer/planning/active-occasion-options-service";
 import {headers} from "next/headers";
 import {
   CUSTOMER_PAYMENT_RETURN_HEADER,
@@ -39,9 +40,11 @@ export default async function CustomerLayout({
   const [
     requestHeaders,
     serviceCategoryOptions,
+    occasionOptions,
   ] = await Promise.all([
     headers(),
     getActiveServiceCategoryOptions(),
+    getActiveOccasionOptions(),
   ]);
 
   const publicMarketplaceRequest =
@@ -60,6 +63,7 @@ export default async function CustomerLayout({
         <CustomerMarketplaceShell
           accountLabel={account.email ?? account.uid}
           serviceCategoryOptions={serviceCategoryOptions}
+          occasionOptions={occasionOptions}
           {...identity}
         >
           {children}
@@ -71,6 +75,7 @@ export default async function CustomerLayout({
       <PublicProviderMarketplaceShell
         authReturnTo={marketplaceReturnTo}
         serviceCategoryOptions={serviceCategoryOptions}
+          occasionOptions={occasionOptions}
       >
         {children}
       </PublicProviderMarketplaceShell>
@@ -89,6 +94,7 @@ export default async function CustomerLayout({
     <CustomerMarketplaceShell
       accountLabel={user.email ?? user.uid}
       serviceCategoryOptions={serviceCategoryOptions}
+          occasionOptions={occasionOptions}
       {...identity}
     >
       {children}

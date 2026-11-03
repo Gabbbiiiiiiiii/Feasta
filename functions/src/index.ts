@@ -1174,7 +1174,7 @@ export {
 } from "./packages/provider-occasion-suggestions-v2.js";
 export {listPublicServiceCategories} from "./catalog/list-public-service-categories.js";
 export {listAdminOccasions, createAdminOccasion, updateAdminOccasion,
-  previewAdminOccasionImpact} from "./admin/occasion-management.js";
+  previewAdminOccasionImpact, addAdminOccasionApplicableServices} from "./admin/occasion-management.js";
 export {checkAdminOccasionActivationReadiness} from "./admin/occasion-activation-readiness.js";
 export {checkAdminOccasionDeactivationReadiness} from "./admin/occasion-activation-readiness.js";
 export {activateAdminOccasion, deactivateAdminOccasion,

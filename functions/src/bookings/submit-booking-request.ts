@@ -1,3 +1,4 @@
+import {occasionDependencyEntryPath} from "../admin/occasion-dependency-registry.js";
 import {requireCustomerPackageV2} from "../packages/customer-package-v2.js";
 import {resolveOfferV2} from "../packages/offer-v2-validation.js";
 import {parseFoodChoiceSelections, resolveFoodChoiceSelections} from "./food-choice-selection.js";
@@ -1468,6 +1469,24 @@ async function handleBookingSelection(request: CallableRequest, disclosureOnly: 
           assertBeforeSubmissionPaymentDeadline(submissionEligibility.eventStartAt);
 
           recordMaintenanceAdmission(transaction, db);
+
+          // Register the submitted booking under its occasion in the same
+          // transaction as the canonical mainEvent and providerRequests.
+          // This registry is not authoritative until historical coverage
+          // and all dependency writers have been independently verified.
+          const occasionDependencyEntry = {
+            schemaVersion: 1 as const,
+            kind: "submitted_booking" as const,
+            occasionId: eventType,
+            sourceId: bookingId,
+            sourcePath: bookingReference.path,
+          };
+
+          transaction.create(
+            db.doc(occasionDependencyEntryPath(occasionDependencyEntry)),
+            occasionDependencyEntry,
+          );
+
           transaction.create(
             bookingReference,
             {

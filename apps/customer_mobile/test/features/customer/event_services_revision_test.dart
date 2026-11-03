@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'test_occasion_catalog_fixture.dart';
 import 'package:feasta/core/domain/service_category.dart';
 import 'package:feasta/features/customer/customer_home_screen.dart';
 import 'package:feasta/features/customer/customer_search_screen.dart';
@@ -33,6 +34,7 @@ void main() {
   });
   Widget home(CategoryRepository repo) => MaterialApp(
     home: CustomerHomeScreen(
+      occasionLoader: testOccasionLoader,
       repository: repo,
       addressStorage: HomeAddressStorage(),
       promotions: Stream.value(<PromotionModel>[]),

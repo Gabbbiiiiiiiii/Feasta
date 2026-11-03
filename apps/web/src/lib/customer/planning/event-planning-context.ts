@@ -30,7 +30,8 @@ export type CustomerEventVenue = {
 };
 
 export type CustomerPlanningContext = {
-  eventType?: CustomerPlanningEventType;
+  // URL navigation accepts canonical dynamic IDs; server readers verify approval.
+  eventType?: string;
   eventDate?: string;
   guestCount?: number;
   budgetMin?: number;
@@ -69,10 +70,10 @@ export function parseCustomerPlanningContext(
   minimumDate = manilaDateValue(),
 ): CustomerPlanningContext | null {
   const eventTypeValue = first(parameters.eventType).trim();
-  const eventType = (
-    CUSTOMER_PLANNING_EVENT_TYPES as readonly string[]
-  ).includes(eventTypeValue)
-    ? eventTypeValue as CustomerPlanningEventType
+  // Preserve canonical IDs without treating URL input as approval evidence.
+  // Unknown, inactive or unapproved IDs must be rejected by trusted readers.
+  const eventType = /^[a-z][a-z0-9_]{1,63}$/u.test(eventTypeValue)
+    ? eventTypeValue
     : undefined;
   const eventDateValue = first(parameters.eventDate).trim();
   const eventDate = isCanonicalDate(eventDateValue) &&

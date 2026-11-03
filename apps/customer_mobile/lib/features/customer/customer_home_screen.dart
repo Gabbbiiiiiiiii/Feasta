@@ -8,6 +8,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../core/helpers/auth_guard.dart';
 import '../../core/helpers/provider_category_helper.dart';
 import '../../core/helpers/provider_discovery.dart';
+import '../../core/services/occasion_catalog_service.dart';
 import '../../core/widgets/badges/feasta_price_text.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_radius.dart';
@@ -33,6 +34,7 @@ class CustomerHomeScreen extends StatefulWidget {
     this.repository,
     this.addressStorage,
     this.promotions,
+    this.occasionLoader,
     this.onExploreProviders,
     this.onCloseExplore,
   });
@@ -42,6 +44,9 @@ class CustomerHomeScreen extends StatefulWidget {
   final FeastaRepository? repository;
   final CustomerAddressStorageService? addressStorage;
   final Stream<List<PromotionModel>>? promotions;
+
+  /// Optional catalog loader passed to the Search screen.
+  final Future<List<CatalogOccasion>> Function()? occasionLoader;
 
   @override
   State<CustomerHomeScreen> createState() => _CustomerHomeScreenState();
@@ -113,6 +118,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           initialQuery: initialQuery,
           initialCategoryCode: categoryCode,
           repository: _repository,
+          occasionLoader: widget.occasionLoader,
           initialShowFilters: showFilters,
           autofocusSearch: autofocus,
         ),

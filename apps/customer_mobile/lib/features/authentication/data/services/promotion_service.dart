@@ -1,13 +1,13 @@
 import 'dart:typed_data';
 
-import '../../../../core/constants/promotion_firestore_schema.dart';
 import '../../../../shared/models/promotion_model.dart';
 import '../repositories/promotion_repository.dart';
 import 'cloudinary_upload_helper.dart';
 
 class PromotionService {
-  PromotionService({PromotionRepository? repository})
-    : _repository = repository;
+  PromotionService({PromotionRepository? repository}) {
+    _repository = repository;
+  }
 
   PromotionRepository? _repository;
 

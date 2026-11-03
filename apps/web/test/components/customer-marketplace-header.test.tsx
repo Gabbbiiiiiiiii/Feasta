@@ -221,9 +221,9 @@ describe("customer marketplace header", () => {
     expect(within(finder).getByLabelText("Number of guests")).toHaveAttribute("type", "number");
     expect(within(finder).getByLabelText("Start time")).toHaveAttribute("type", "time");
     expect(within(finder).getByLabelText("End time")).toHaveAttribute("type", "time");
-    expect(within(finder).getByLabelText("Maximum budget (₱)")).toHaveAttribute("type", "number");
-    expect(within(finder).getByLabelText("Starting budget (₱)")).toHaveValue(null);
-    expect(within(finder).getByLabelText("Maximum budget (₱)")).toHaveValue(null);
+    expect(within(finder).getByLabelText(/^Maximum budget \(/u)).toHaveAttribute("type", "number");
+    expect(within(finder).getByLabelText(/^Starting budget \(/u)).toHaveValue(null);
+    expect(within(finder).getByLabelText(/^Maximum budget \(/u)).toHaveValue(null);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(within(finder).queryByLabelText("Service Type")).not.toBeInTheDocument();
     expect(within(finder).getByRole("checkbox", {name: "Select All"})).toBeChecked();
@@ -426,7 +426,12 @@ describe("customer marketplace header", () => {
   });
   it("submits canonical category and date state, preserves existing filters, and resets pagination", () => {
     query = new URLSearchParams("q=flowers&service=addon&cursor=old_page&eventType=wedding&guestCount=50");
-    render(<CustomerMarketplaceHeader serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS} />);
+    render(
+      <CustomerMarketplaceHeader
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+        occasionOptions={[{id: "wedding", label: "Wedding"}]}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
     fireEvent.change(screen.getByLabelText("Event Date"), {target: {value: "2099-09-10"}});
     fireEvent.click(screen.getByRole("checkbox", {name: "Select All"}));
@@ -705,5 +710,66 @@ describe("customer marketplace header", () => {
       rectSpy.mockRestore();
       vi.unstubAllGlobals();
     }
+  });
+  it("renders a newly approved occasion in Event Finder", () => {
+    render(
+      <CustomerMarketplaceHeader
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+        occasionOptions={[
+          {id: "birthday", label: "Birthday"},
+          {id: "baby_shower", label: "Baby Shower"},
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+
+    const selector = screen.getByRole("combobox", {name: "Event type"});
+
+    expect(within(selector).getByRole("option", {name: "Baby Shower"}))
+      .toHaveValue("baby_shower");
+
+    fireEvent.change(selector, {target: {value: "baby_shower"}});
+    fireEvent.click(screen.getByRole("button", {name: "Find Services"}));
+
+    const url = new URL(mocks.push.mock.calls[0][0], "https://feasta.test");
+    expect(url.searchParams.get("eventType")).toBe("baby_shower");
+  });
+
+  it("does not select an unknown occasion from the URL", () => {
+    query = new URLSearchParams("eventType=unapproved_occasion");
+
+    render(
+      <CustomerMarketplaceHeader
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+        occasionOptions={[{id: "birthday", label: "Birthday"}]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+
+    const selector = screen.getByRole("combobox", {name: "Event type"});
+
+    expect(selector).toHaveValue("");
+    expect(within(selector).queryByRole("option", {name: "Unapproved Occasion"}))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps the occasion selector empty when the verified catalog has no options", () => {
+    render(
+      <CustomerMarketplaceHeader
+        serviceCategoryOptions={TEST_SERVICE_CATEGORY_OPTIONS}
+        occasionOptions={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", {name: "Open Event Finder"}));
+
+    const selector = screen.getByRole("combobox", {name: "Event type"});
+
+    expect(selector).toHaveValue("");
+    expect(within(selector).getAllByRole("option")).toHaveLength(1);
+    expect(within(selector).getByRole("option", {name: "Choose your occasion"}))
+      .toHaveValue("");
   });
 });

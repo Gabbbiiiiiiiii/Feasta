@@ -1,7 +1,7 @@
 {
   "canonicalSource": "packages/shared-types",
   "archive": "feasta-shared-types-0.1.0.tgz",
-  "sha256": "6ed274513a320488a61628f64533079130a3291a5d15d35d8cb59e9c78eba2f2",
+  "sha256": "a0e9dd91fc4ba1b23c14debb7c7b259789ff687d3dd8ecf3bf7aacd6f1d69c7f",
   "files": [
     "dist/authentication.d.ts",
     "dist/authentication.js",
@@ -11,6 +11,8 @@
     "dist/cancellation.js",
     "dist/collections.d.ts",
     "dist/collections.js",
+    "dist/customer-package-v2.cjs",
+    "dist/customer-package-v2.d.cts",
     "dist/documents/agreement-summary.cjs",
     "dist/documents/agreement-summary.d.cts",
     "dist/documents/agreement-text.cjs",

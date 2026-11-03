@@ -12,6 +12,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../../../../core/constants/firestore_collections.dart';
 import '../../../../core/helpers/legacy_occasion_visibility.dart';
+import '../../../../core/services/occasion_catalog_service.dart';
 import '../../../../core/constants/status_constants.dart';
 import '../../../../core/firestore/query_builder.dart';
 import '../../../../shared/models/customer_payment_request.dart';
@@ -23,6 +24,7 @@ import '../../../../core/helpers/provider_discovery.dart';
 
 class FeastaRepository {
   List<ServiceCategory>? _serviceCategoryCache;
+  final OccasionCatalogService _occasionCatalog = OccasionCatalogService();
   final FirebaseFirestore _db = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFunctions _functions = FirebaseFunctions.instanceFor(
@@ -231,7 +233,21 @@ class FeastaRepository {
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
         .asyncMap((snapshot) async {
-          final verified = await Future.wait(snapshot.docs.map((doc) => _verifiedPublicPackage(doc.id, doc.data())));
+          final legacyCatalog = snapshot.docs.any(
+            (doc) => isLegacyOccasionPublicPackage(doc.data()),
+          )
+              ? _occasionCatalog.listActiveOccasions()
+              : null;
+
+          final verified = await Future.wait(
+            snapshot.docs.map(
+              (doc) => _verifiedPublicPackage(
+                doc.id,
+                doc.data(),
+                legacyCatalog: legacyCatalog,
+              ),
+            ),
+          );
           final providerIds = verified.whereType<Map<String, dynamic>>()
               .where((data) => data['occasionSchemaVersion'] == 2
                 ? (data['occasionMatchIds'] as List).contains(eventType) : data['eventType'] == eventType)
@@ -368,15 +384,45 @@ class FeastaRepository {
     return ProviderModel.fromDoc(doc);
   }
 
-  Future<Map<String, dynamic>?> _verifiedPublicPackage(String id, Map<String, dynamic> data) async {
-    if (isLegacyOccasionPublicPackage(data)) return data;
+  Future<Map<String, dynamic>?> _verifiedPublicPackage(
+    String id,
+    Map<String, dynamic> data, {
+    Future<List<CatalogOccasion>>? legacyCatalog,
+  }) async {
+    if (isLegacyOccasionPublicPackage(data)) {
+      try {
+        final occasions = await (
+          legacyCatalog ?? _occasionCatalog.listActiveOccasions()
+        );
+
+        if (!isLegacyOccasionActiveInCatalog(data, occasions)) {
+          return null;
+        }
+
+        return data;
+      } catch (_) {
+        // Never expose a legacy package without verified active authority.
+        return null;
+      }
+    }
+
     if (data['occasionSchemaVersion'] != 2) return null;
+
     try {
-      final result = await _functions.httpsCallable('getCustomerPackageV2').call({'packageId': id});
+      final result = await _functions
+          .httpsCallable('getCustomerPackageV2')
+          .call({'packageId': id});
+
       final response = Map<String, dynamic>.from(result.data as Map);
-      if (response['packageId'] != id || response['package'] is! Map) return null;
+
+      if (response['packageId'] != id || response['package'] is! Map) {
+        return null;
+      }
+
       return Map<String, dynamic>.from(response['package'] as Map);
-    } on FirebaseFunctionsException { return null; }
+    } on FirebaseFunctionsException {
+      return null;
+    }
   }
 
   Stream<List<PackageModel>> packagesByProvider(String providerId) {
@@ -394,8 +440,18 @@ class FeastaRepository {
         .snapshots(includeMetadataChanges: true)
         .where((snapshot) => !snapshot.metadata.isFromCache)
         .asyncMap((snapshot) async {
+          final legacyCatalog = snapshot.docs.any(
+            (doc) => isLegacyOccasionPublicPackage(doc.data()),
+          )
+              ? _occasionCatalog.listActiveOccasions()
+              : null;
+
           final packages = await Future.wait(snapshot.docs.map((doc) async {
-            final data = await _verifiedPublicPackage(doc.id, doc.data());
+            final data = await _verifiedPublicPackage(
+              doc.id,
+              doc.data(),
+              legacyCatalog: legacyCatalog,
+            );
             return data == null ? null : PackageModel.fromMap(doc.id, data);
           }));
           return packages.whereType<PackageModel>().toList();

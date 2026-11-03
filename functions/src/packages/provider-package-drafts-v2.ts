@@ -1,4 +1,7 @@
 import {isDeepStrictEqual} from "node:util";
+import {occasionDependencyEntryPath, validOccasionDependencyEntry} from "../admin/occasion-dependency-registry.js";
+import {planSpecificPackageMembership} from "../admin/occasion-package-membership-plan.js";
+import {occasionCategoryDependencyEntryPath, validOccasionCategoryDependencyEntry} from "../admin/occasion-category-dependency-registry.js";
 import {isProviderPubliclyEligible} from "../shared/constants.js";
 import {createHash} from "node:crypto";
 import {FieldValue, Timestamp} from "firebase-admin/firestore";
@@ -22,6 +25,8 @@ import {authorizeProviderForPackageManagement, authorizeOwnedPackage, assertDraf
 import {packagePaymentPolicyBoundsFromData} from "./package-payment-policy.js";
 import {parseOfferV2} from "./offer-v2-validation.js";
 import {occasionIds, resolveOccasionV2} from "./occasion-v2-validation.js";
+import {resolveGlobalOccasionSelection} from "./global-occasion-selection-v3.js";
+import {isGlobalPackageWriteVersion} from "./global-package-write-v3.js";
 import {projectPublicOccasionV2} from "./provider-package-v2-public-occasion-contract.js";
 import {exact, documentId, mutationKey, positiveRevision, plainText} from "./v2-validation.js";
 import {validatePackageEditorProgress,
@@ -44,11 +49,45 @@ function fail(reason: string,
 }
 function revision(v: unknown): number {return positiveRevision(v, "CONFIG_UNAVAILABLE");}
 
+/**
+ * Translate known global-selection validation failures into callable errors.
+ * Unexpected exceptions remain unexpected: do not disguise programming faults.
+ */
+function resolveGlobalOccasionForCallable(
+  ...args: Parameters<typeof resolveGlobalOccasionSelection>
+): ReturnType<typeof resolveGlobalOccasionSelection> {
+  try {
+    return resolveGlobalOccasionSelection(...args);
+  } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === "INVALID_OCCASION_SELECTION") {
+        fail("INVALID_OCCASION_SELECTION", "invalid-argument");
+      }
+      if (error.message === "PROVIDER_OCCASION_INELIGIBLE") {
+        fail("PROVIDER_OCCASION_INELIGIBLE", "failed-precondition");
+      }
+      if (error.message === "CONFIG_UNAVAILABLE") {
+        fail("CONFIG_UNAVAILABLE", "failed-precondition");
+      }
+    }
+    throw error;
+  }
+}
 /** Exact canonical envelope; every lifecycle, identity and discovery field is server-owned. */
 export function parseV2DraftWrite(value: unknown, update: boolean) {
+  // V3 shares canonical package field validation with V2.
+  // V3 write admission remains separately disabled.
+  if (value !== null && typeof value === "object" && !Array.isArray(value) &&
+      (value as Record<string, unknown>).sharedContractVersion === 3 &&
+      !isGlobalPackageWriteVersion(value)) {
+    fail("INVALID_OCCASION_SELECTION", "invalid-argument");
+  }
   const input = exact(value, [...baseFields, ...(update ? ["packageId", "expectedRevision"] : [])],
     optionalFields, "UNKNOWN_FIELD");
-  if (input.sharedContractVersion !== 2) fail("CLIENT_UPGRADE_REQUIRED");
+  if (input.sharedContractVersion !== 2 &&
+      input.sharedContractVersion !== 3) {
+    fail("CLIENT_UPGRADE_REQUIRED");
+  }
   mutationKey(input.idempotencyKey, "UNKNOWN_FIELD");
   if (update) {
     documentId(input.packageId, "UNKNOWN_FIELD");
@@ -172,6 +211,14 @@ function callable(mode: Mode) {
         process.env.GCP_PROJECT)) fail("CONFIG_UNAVAILABLE");
       revision(policy.revision);
       if (policy.featureGates?.packageDraftWrites !== true) fail("FEATURE_DISABLED");
+
+      // V3 private drafts require an additional explicit local demo opt-in.
+      // isolatedDemo() above independently rejects all production execution.
+      // The existing V2 feature gate cannot activate V3 on its own.
+      if (parsed?.input.sharedContractVersion === 3 &&
+          process.env.FEASTA_V3_PRIVATE_DRAFT_DEMO_ENABLED !== "true") {
+        fail("FEATURE_DISABLED");
+      }
       if (!Number.isSafeInteger(policy.maxSpecificOccasions) || policy.maxSpecificOccasions < 1 ||
           policy.maxSpecificOccasions > 100 || !Number.isSafeInteger(policy.maxThemeImages) ||
           policy.maxThemeImages < 1 || policy.maxThemeImages > 1000) fail("CONFIG_UNAVAILABLE");
@@ -243,46 +290,116 @@ function callable(mode: Mode) {
       if (old) {
         assertDraftPackage(old);
         const data = old.packageData;
-        if (data.sharedContractVersion !== 2 || data.occasionSchemaVersion !== 2 ||
-          data.offerSchemaVersion !== 2 ||
-            data.isDeleted !== false || data.isActive !== false || data.isPublished !== false ||
+        // Updates must retain the persisted occasion-contract version.
+        // No implicit V2/V3 migration is permitted.
+        if (data.sharedContractVersion !== input.sharedContractVersion ||
+            data.occasionSchemaVersion !== 2 ||
+            data.offerSchemaVersion !== 2 ||
+            data.isDeleted !== false || data.isActive !== false ||
+            data.isPublished !== false ||
             data.providerPubliclyVisible !== false ||
-              data.publishedAt !== null) fail("CLIENT_UPGRADE_REQUIRED");
+            data.publishedAt !== null) {
+          fail("CLIENT_UPGRADE_REQUIRED");
+        }
+        if (input.sharedContractVersion === 3) {
+          if (data.occasionEligibilityModel !== "global_v1" ||
+              data.globalEligibilityContractVersion !== 1 ||
+              Object.hasOwn(data, "providerEligibilityRevision")) {
+            fail("CLIENT_UPGRADE_REQUIRED");
+          }
+        } else if (data.occasionEligibilityModel === "global_v1" ||
+            Object.hasOwn(data, "globalEligibilityContractVersion")) {
+          fail("CLIENT_UPGRADE_REQUIRED");
+        }
         if (revision(data.revision) !== input.expectedRevision) fail("REVISION_CONFLICT",
           "aborted");
       }
       const catalog = (await tx.get(db.doc("occasionCatalog/current"))).data();
       if (catalog?.activationState !== "stable") fail("CONFIG_UNAVAILABLE");
-      const authority = (await tx.get(db.collection("providerEligibilityAuthorities")
-        .doc(providerId))).data();
-      const approved = occasionIds(authority?.approvedOccasionIds);
+
       const category = base.serviceCategoryCode!;
-      if (!Array.isArray(authority?.approvedCategoryCodes) ||
-        !authority.approvedCategoryCodes.includes(category)) fail("INVALID_SERVICE_CATEGORY");
-      await requireActiveServiceCategoryInTransaction(tx, category, "catering",
-        "serviceCategoryCode");
-      // A bounded full active-catalog read is required for Fits All completeness.
-      const rows = await tx.get(db.collection("occasions").where("active", "==", true).limit(1001));
-      if (rows.size > 1000) fail("CONFIG_UNAVAILABLE");
+      const isGlobal = input.sharedContractVersion === 3;
+
+      // Service-category authorization is required for both contracts.
+      await requireActiveServiceCategoryInTransaction(
+        tx, category, "catering", "serviceCategoryCode");
+
+      // Legacy V2 retains its existing provider-specific authority.
+      // Global V3 never requires individual occasion grants.
+      const authority = isGlobal ? null : (await tx.get(
+        db.collection("providerEligibilityAuthorities").doc(providerId)
+      )).data();
+
+      const approved = isGlobal ? [] : occasionIds(authority?.approvedOccasionIds);
+
+      if (!isGlobal &&
+          (!Array.isArray(authority?.approvedCategoryCodes) ||
+           !authority.approvedCategoryCodes.includes(category))) {
+        fail("INVALID_SERVICE_CATEGORY");
+      }
+
+      // Read the complete active catalog within the same transaction.
+      const catalogLimit = isGlobal ? 201 : 1001;
+      const maximum = isGlobal ? 200 : 1000;
+
+      const rows = await tx.get(
+        db.collection("occasions").where("active", "==", true).limit(catalogLimit)
+      );
+
+      if (rows.size > maximum) fail("CONFIG_UNAVAILABLE");
+
       const occasions = rows.docs.map((doc) => {
-        projectPublicOccasionV2(doc.id, doc.data());
-        return doc.data() as GlobalOccasion;
+        const data = doc.data();
+        projectPublicOccasionV2(doc.id, data);
+        if (data.id !== doc.id) fail("CONFIG_UNAVAILABLE");
+        return data as GlobalOccasion;
       });
-      const occasion = resolveOccasionV2({occasionSchemaVersion: input.occasionSchemaVersion,
-        occasionScope: input.occasionScope, occasionIds: input.occasionIds}, {
-        catalog: occasions, approvedOccasionIds: approved, serviceCategoryCode: category,
-        approvedActiveCategoryCodes: authority!.approvedCategoryCodes,
-        catalogRevision: revision(catalog!.revision),
+
+      const occasion = isGlobal ?
+        resolveGlobalOccasionForCallable({
+          occasionSchemaVersion: 2,
+          occasionScope: input.occasionScope as "specific" | "all",
+          occasionIds: input.occasionIds as string[],
+        }, {
+          catalog: occasions,
+          catalogRevision: revision(catalog!.revision),
+          provider: provider.providerData,
+          serviceCategoryCode: category,
+          maxSpecificOccasions: policy.maxSpecificOccasions,
+          activeServiceCategoryCodes: [category],
+        }, (publishing ?? old)?.packageData.eventType as string | undefined) :
+        resolveOccasionV2({
+          occasionSchemaVersion: input.occasionSchemaVersion,
+          occasionScope: input.occasionScope,
+          occasionIds: input.occasionIds,
+        }, {
+          catalog: occasions,
+          approvedOccasionIds: approved,
+          serviceCategoryCode: category,
+          approvedActiveCategoryCodes: authority!.approvedCategoryCodes,
+          catalogRevision: revision(catalog!.revision),
           providerEligibilityRevision: revision(authority!.revision),
-        maxSpecificOccasions: policy.maxSpecificOccasions},
-          (publishing ?? old)?.packageData.eventType as string | undefined);
-      // Legacy capacity/category checks remain authoritative; explicit V2 sidecar
-      // grants replace only the legacy scalar eventTypesSupported check.
-      assertPackageMatchesProviderCapabilities({...provider.providerData,
-        eventTypesSupported: approved}, {...base, eventType: occasion.eventType});
+          maxSpecificOccasions: policy.maxSpecificOccasions,
+        }, (publishing ?? old)?.packageData.eventType as string | undefined);
+
+      // Preserve legacy capacity/category checks. Global selections
+      // derive eligible event types from the verified catalog instead
+      // of a per-provider occasion grant.
+      assertPackageMatchesProviderCapabilities({
+        ...provider.providerData,
+        eventTypesSupported: isGlobal ? occasion.occasionMatchIds : approved,
+      }, {
+        ...base,
+        eventType: occasion.eventType,
+      });
       const payment = (await tx.get(db.doc("appSettings/platform"))).data();
       assertPackagePaymentTermsWithinPolicy(base, packagePaymentPolicyBoundsFromData(payment));
       if (publishing) {
+        // The existing publisher accepts legacy V2 authority only.
+        // Global V3 publication remains disabled.
+        if (isGlobal || !("providerEligibilityRevision" in occasion)) {
+          fail("FEATURE_DISABLED");
+        }
         for (const field of ["eventType", "occasionMatchIds", "occasionCatalogRevision",
           "providerEligibilityRevision", "occasionEligibilityState"] as const) {
           if (!isDeepStrictEqual(publishing.packageData[field], occasion[field])) {
@@ -296,19 +413,144 @@ function callable(mode: Mode) {
         !Number.isSafeInteger(editor.revision + 1))) fail("REVISION_CONFLICT", "aborted");
       if (admissionOnly) return {kind: "admitted" as const, base};
       if (publication && hash(base) !== admittedBaseHash) fail("REVISION_CONFLICT", "aborted");
+      // Provisional registry: never use it alone to authorize deactivation.
+      // Reads occur only during commit, before any transaction writes.
+      // Temporarily block scope/category transitions until registry
+      // reconciliation can update all affected dependency witnesses.
+      if (!publication && old &&
+          (old.packageData.occasionScope !== occasion.occasionScope ||
+           old.packageData.serviceCategoryCode !== category)) {
+        throw new Error("OCCASION_REGISTRY_TRANSITION_UNSUPPORTED");
+      }
+      const registryChanges: {
+        ref: FirebaseFirestore.DocumentReference;
+        action: "create" | "delete";
+        entry?: {
+          schemaVersion: 1;
+          kind: "package";
+          occasionId: string;
+          sourceId: string;
+          sourcePath: string;
+        };
+      }[] = [];
+
+      if (!publication &&
+          input.occasionScope === "specific" &&
+          (!old || old.packageData.occasionScope === "specific")) {
+        const membership = planSpecificPackageMembership({
+          previous: old ? old.packageData : null,
+          next: {
+            occasionSchemaVersion: occasion.occasionSchemaVersion,
+            occasionScope: occasion.occasionScope,
+            occasionIds: occasion.occasionIds,
+            occasionMatchIds: occasion.occasionMatchIds,
+            eventType: occasion.eventType,
+          },
+        });
+
+        const allIds = [...new Set([
+          ...membership.add,
+          ...membership.remove,
+          ...membership.retain,
+        ])].sort();
+
+        const snapshots = await Promise.all(allIds.map(async occasionId => {
+          const entry = {
+            schemaVersion: 1 as const,
+            kind: "package" as const,
+            occasionId,
+            sourceId: packageRef.id,
+            sourcePath: packageRef.path,
+          };
+          const ref = db.doc(occasionDependencyEntryPath(entry));
+          const snapshot = await tx.get(ref);
+          return {occasionId, entry, ref, snapshot};
+        }));
+
+        for (const {occasionId, entry, ref, snapshot} of snapshots) {
+          if (snapshot.exists) {
+            const data = snapshot.data();
+            if (!validOccasionDependencyEntry(data) ||
+                data.kind !== entry.kind ||
+                data.occasionId !== entry.occasionId ||
+                data.sourceId !== entry.sourceId ||
+                data.sourcePath !== entry.sourcePath) {
+              throw new Error("OCCASION_DEPENDENCY_ENTRY_INVALID");
+            }
+          }
+
+          if (membership.remove.includes(occasionId)) {
+            if (snapshot.exists) {
+              registryChanges.push({ref, action: "delete"});
+            }
+          } else if (!snapshot.exists) {
+            registryChanges.push({ref, action: "create", entry});
+          }
+        }
+      }
+
+      // Universal packages depend on their category, not only the
+      // occasion IDs currently listed in the discovery projection.
+      // Category registry remains provisional until historical
+      // completeness and Admin transition authority are verified.
+      const categoryRegistryChanges: {
+        ref: FirebaseFirestore.DocumentReference;
+        action: "create" | "delete";
+        entry?: {
+          schemaVersion: 1;
+          kind: "universal_package";
+          categoryCode: string;
+          sourceId: string;
+          sourcePath: string;
+        };
+      }[] = [];
+
+      if (!publication &&
+          occasion.occasionScope === "all" &&
+          (!old || old.packageData.occasionScope === "all")) {
+        const entry = {
+          schemaVersion: 1 as const,
+          kind: "universal_package" as const,
+          categoryCode: category,
+          sourceId: packageRef.id,
+          sourcePath: packageRef.path,
+        };
+        const ref = db.doc(occasionCategoryDependencyEntryPath(entry));
+        const snapshot = await tx.get(ref);
+
+        if (snapshot.exists) {
+          const data = snapshot.data();
+          if (!validOccasionCategoryDependencyEntry(data) ||
+              data.categoryCode !== entry.categoryCode ||
+              data.sourceId !== entry.sourceId ||
+              data.sourcePath !== entry.sourcePath) {
+            throw new Error("OCCASION_CATEGORY_DEPENDENCY_ENTRY_INVALID");
+          }
+        } else {
+          categoryRegistryChanges.push({ref, action: "create", entry});
+        }
+      }
+
       const now = Timestamp.now();
-      const stored = {...base, ...offer, ...occasion, sharedContractVersion: 2,
+      const stored = {...base, ...offer, ...occasion, sharedContractVersion: isGlobal ? 3 : 2,
         providerId, revision: next, paymentTermsSchemaVersion: 2,
         balanceDueHoursBeforeEvent: base.paymentPolicy === "deposit_then_balance" ?
           BALANCE_DUE_HOURS_BEFORE_EVENT : null,
         status: "draft", isActive: false, isPublished: false, providerPubliclyVisible: false,
         publishedAt: null, isDeleted: false, deletedAt: null, deletedBy: null, deletionReason: null,
         updatedAt: now, updatedBy: actor.uid};
-      const discoveryProjection = {eventType: occasion.eventType,
+      const discoveryProjection = {
+        eventType: occasion.eventType,
         occasionMatchIds: occasion.occasionMatchIds,
         occasionCatalogRevision: occasion.occasionCatalogRevision,
-          providerEligibilityRevision: occasion.providerEligibilityRevision,
-        occasionEligibilityState: occasion.occasionEligibilityState};
+        ...("providerEligibilityRevision" in occasion ?
+          {providerEligibilityRevision: occasion.providerEligibilityRevision} :
+          {
+            occasionEligibilityModel: "global_v1" as const,
+            globalEligibilityContractVersion: 1 as const,
+          }),
+        occasionEligibilityState: occasion.occasionEligibilityState,
+      };
       if (publication) {
         const result = {success: true, packageId: packageRef.id, packageRevision: next,
           sharedContractVersion: 2, status: "published"};
@@ -323,7 +565,27 @@ function callable(mode: Mode) {
         editorDraftRevision: editor!.revision + 1,
         packageId: packageRef.id, packageRevision: next, status: "draft"} :
         {success: true, packageId: packageRef.id, packageRevision: next, status: "draft",
-          sharedContractVersion: 2, discoveryProjection};
+          sharedContractVersion: isGlobal ? 3 : 2, discoveryProjection};
+      // Apply only the registry changes validated above.
+      // The registry remains non-authoritative until coverage is verified.
+      for (const change of registryChanges) {
+        if (change.action === "delete") {
+          tx.delete(change.ref);
+        } else {
+          tx.create(change.ref, change.entry!);
+        }
+      }
+
+      // Category-wide witnesses protect universal package dependencies.
+      // They do not independently authorize occasion deactivation.
+      for (const change of categoryRegistryChanges) {
+        if (change.action === "delete") {
+          tx.delete(change.ref);
+        } else {
+          tx.create(change.ref, change.entry!);
+        }
+      }
+
       if (old) tx.update(packageRef, {...stored,
         // Full replacement must clear optional fields omitted by this request.
         ...Object.fromEntries((["pricingModel", "equipmentInclusions", "foodChoiceGroups", "imageUrls"] as const)

@@ -1,11 +1,15 @@
 /** Admin-only atomic lifecycle endpoint; no browser-supplied release evidence. */
 import {onCall} from "firebase-functions/v2/https";
+import {activateRoutineOccasion, inspectRoutineOccasionActivation} from "./occasion-routine-transaction.js";
+import {deactivateRoutineOccasion, inspectRoutineOccasionDeactivation} from "./occasion-routine-deactivation.js";
 import {FieldPath} from "firebase-admin/firestore";
 import {db} from "../shared/firestore.js";
 import {appCheckCallableOptions} from "../shared/function-options.js";
 import {fail} from "../packages/occasion-suggestion-v2-core.js";
 import {occasionId} from "../packages/occasion-v2-validation.js";
 import {scanOccasionPackageInventory} from "../packages/occasion-transition-inventory-scan.js";
+import {assertNoOccasionPackageDependencies} from "./occasion-package-dependencies.js";
+import {assertNoOccasionBookingDependencies} from "./occasion-booking-dependencies.js";
 import {exact, mutationKey, plainText, positiveRevision}
   from "../packages/v2-validation.js";
 import {requireOccasionLifecycleActor, requireOccasionLifecycleAdmin,
@@ -31,6 +35,60 @@ async function execute(request: Parameters<typeof requireOccasionLifecycleActor>
   action: Action) {
   const actorUid = await requireOccasionLifecycleActor(request, `adminOccasions.${action}.execute`);
   const input = parseAdminLifecycleMutation(request.data);
+  if (action === "activate") {
+    try {
+      return await activateRoutineOccasion(actorUid, input);
+    } catch (error) {
+      if (error instanceof Error && [
+        "ADMIN_REQUIRED",
+        "IDEMPOTENCY_CONFLICT",
+        "ROUTINE_ACTIVATION_AUDIT_MISSING",
+        "OCCASION_LIFECYCLE_REVISION_OR_STATE_CONFLICT",
+        "OCCASION_LIFECYCLE_CATEGORY_INVALID",
+        "OCCASION_LIFECYCLE_CATEGORY_INACTIVE",
+        "PACKAGE_INVENTORY_TOO_LARGE",
+        "GALLERY_INVENTORY_TOO_LARGE",
+        "PACKAGE_INVENTORY_REQUIRES_REVIEW",
+        "GALLERY_INVENTORY_REQUIRES_REVIEW",
+        "INVALID_OCCASION_INVENTORY_PAGE",
+        "UNSORTED_OR_MALFORMED_OCCASION_INVENTORY",
+        "ROUTINE_ACTIVATION_PACKAGE_REVIEW_REQUIRED",
+        "ROUTINE_ACTIVATION_GALLERY_REVIEW_REQUIRED",
+      ].includes(error.message)) {
+        fail(error.message, error.message === "ADMIN_REQUIRED" ?
+          "permission-denied" : "failed-precondition");
+      }
+      throw error;
+    }
+  }
+  if (action === "deactivate") {
+    try {
+      return await deactivateRoutineOccasion(actorUid, input);
+    } catch (error) {
+      if (error instanceof Error && [
+        "ADMIN_REQUIRED",
+        "IDEMPOTENCY_CONFLICT",
+        "ROUTINE_DEACTIVATION_AUDIT_MISSING",
+        "OCCASION_LIFECYCLE_REVISION_OR_STATE_CONFLICT",
+        "OCCASION_LIFECYCLE_CATEGORY_INVALID",
+        "OCCASION_LIFECYCLE_CATEGORY_INACTIVE",
+        "PACKAGE_INVENTORY_TOO_LARGE",
+        "GALLERY_INVENTORY_TOO_LARGE",
+        "PACKAGE_INVENTORY_REQUIRES_REVIEW",
+        "GALLERY_INVENTORY_REQUIRES_REVIEW",
+        "INVALID_OCCASION_INVENTORY_PAGE",
+        "UNSORTED_OR_MALFORMED_OCCASION_INVENTORY",
+        "OCCASION_LIVE_PACKAGE_DEPENDENCY",
+        "OCCASION_PACKAGE_DEPENDENCY_REQUIRES_REVIEW",
+        "ROUTINE_DEACTIVATION_PACKAGE_REVIEW_REQUIRED",
+        "ROUTINE_DEACTIVATION_GALLERY_REVIEW_REQUIRED",
+      ].includes(error.message)) {
+        fail(error.message, error.message === "ADMIN_REQUIRED" ?
+          "permission-denied" : "failed-precondition");
+      }
+      throw error;
+    }
+  }
   const id = occasionLifecycleOperationId({actorUid, action,
     idempotencyKey: input.idempotencyKey});
   const complete: LifecycleInput = {...input, actorUid, action,
@@ -69,6 +127,11 @@ async function execute(request: Parameters<typeof requireOccasionLifecycleActor>
       "UNSORTED_OR_MALFORMED_OCCASION_INVENTORY", "WITHDRAWAL_AUTHORITY_UNAVAILABLE",
       "WITHDRAWAL_REVISION_CONFLICT", "WITHDRAWAL_PACKAGE_CHANGED",
       "UNRELATED_WITHDRAWAL_PACKAGE", "AMBIGUOUS_PRIVATE_PROJECTION",
+      "OCCASION_LIVE_PACKAGE_DEPENDENCY",
+      "OCCASION_PACKAGE_DEPENDENCY_REQUIRES_REVIEW",
+      "OCCASION_BOOKING_DEPENDENCIES_UNVERIFIED",
+      "OCCASION_BOOKING_INVENTORY_TOO_LARGE",
+      "OCCASION_LIVE_BOOKING_DEPENDENCY",
     ].includes(error.message)) {
       fail(error.message, error.message === "ADMIN_REQUIRED" ?
         "permission-denied" : "failed-precondition");
@@ -95,6 +158,12 @@ export const inspectAdminOccasionAtomicReadiness = onCall(appCheckCallableOption
     const input = parseOccasionReadinessInput({occasionId: data.occasionId,
       expectedOccasionRevision: data.expectedOccasionRevision,
       expectedCatalogRevision: data.expectedCatalogRevision});
+    if (data.action === "activate") {
+      return inspectRoutineOccasionActivation(uid, input);
+    }
+    if (data.action === "deactivate") {
+      return inspectRoutineOccasionDeactivation(uid, input);
+    }
     return db.runTransaction(async (tx) => {
       await requireOccasionLifecycleAdmin(tx, uid);
       const basic = await readOccasionReadiness(tx, input, data.action as Action);
@@ -103,6 +172,15 @@ export const inspectAdminOccasionAtomicReadiness = onCall(appCheckCallableOption
       // can be gathered; they do NOT authorize activation or deactivation.
       const checks = basic.checks;
       const blockers = [...basic.blockers];
+      // The advisory preview does not yet establish full private-package
+      // and booking dependency coverage. Never advertise deactivation as
+      // eligible on incomplete evidence.
+      if (data.action === "deactivate") {
+        blockers.push(
+          "OCCASION_PACKAGE_DEPENDENCIES_UNVERIFIED",
+          "OCCASION_BOOKING_DEPENDENCIES_UNVERIFIED",
+        );
+      }
       const canInspectInventory = checks.slice(0, 7)
         .every((check) => check.status === "SATISFIED");
       let packageCount: number | null = null;
@@ -125,7 +203,61 @@ export const inspectAdminOccasionAtomicReadiness = onCall(appCheckCallableOption
                 .filter((row) => after === null || row.id > after).slice(0, limit),
             });
             affectedPackages = inventory.candidatePackageIds.length;
-          } catch {blockers.push("PACKAGE_INVENTORY_REQUIRES_REVIEW");}
+
+            // Apply the same package dependency rules as atomic deactivation.
+            // This includes private drafts, not just public withdrawal candidates.
+            if (data.action === "deactivate") {
+              assertNoOccasionPackageDependencies({
+                packageRows: dataRows,
+                occasionId: input.occasionId,
+                codes: occasion?.applicableServiceCategoryCodes ?? [],
+              });
+            }
+          } catch (error) {
+            const reason = error instanceof Error ? error.message : "";
+            if (reason === "OCCASION_LIVE_PACKAGE_DEPENDENCY" ||
+                reason === "OCCASION_PACKAGE_DEPENDENCY_REQUIRES_REVIEW") {
+              blockers.push(reason);
+            } else {
+              blockers.push("PACKAGE_INVENTORY_REQUIRES_REVIEW");
+            }
+          }
+        }
+        // Advisory booking dependency inspection uses the same classifier
+        // and bounded evidence as the atomic deactivation transaction.
+        // Incomplete evidence must never authorize deactivation.
+        if (data.action === "deactivate") {
+          const [eventsSnap, requestsSnap] = await Promise.all([
+            tx.get(db.collection("mainEvents")
+              .orderBy(FieldPath.documentId()).limit(41)),
+            tx.get(db.collection("providerRequests")
+              .orderBy(FieldPath.documentId()).limit(41)),
+          ]);
+
+          if (eventsSnap.size > 40 || requestsSnap.size > 40) {
+            blockers.push("OCCASION_BOOKING_INVENTORY_TOO_LARGE");
+          } else {
+            try {
+              const events = new Map(eventsSnap.docs.map((doc) =>
+                [doc.id, doc.data() as Record<string, unknown>]));
+              const requests = new Map(requestsSnap.docs.map((doc) =>
+                [doc.id, doc.data() as Record<string, unknown>]));
+
+              assertNoOccasionBookingDependencies({
+                occasionId: input.occasionId,
+                events,
+                requests,
+              });
+            } catch (error) {
+              const reason = error instanceof Error ? error.message : "";
+              if (reason === "OCCASION_LIVE_BOOKING_DEPENDENCY" ||
+                  reason === "OCCASION_BOOKING_DEPENDENCIES_UNVERIFIED") {
+                blockers.push(reason);
+              } else {
+                blockers.push("OCCASION_BOOKING_DEPENDENCIES_UNVERIFIED");
+              }
+            }
+          }
         }
         const galleries = await tx.get(db.collectionGroup("catalog").limit(41));
         galleryCount = galleries.docs.length;
@@ -148,6 +280,6 @@ export const inspectAdminOccasionAtomicReadiness = onCall(appCheckCallableOption
         catalogRevision: basic.catalogRevision, checks,
         blockers, packageCount, galleryCount, affectedPackages, affectedGallerySetups,
         disclaimer: "Read-only advisory. Final transaction repeats all checks. " +
-          "Affected public content is withdrawn, not automatically restored."};
+          "Deactivation remains blocked until all package and booking dependencies are verified."};
     });
   });

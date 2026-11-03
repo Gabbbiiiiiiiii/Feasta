@@ -81,6 +81,130 @@ beforeEach(async () => {
     await doc.ref.delete();
   }
 });
+test('V3 creates and updates global private drafts without provider grants', async () => {
+  const previous = process.env.FEASTA_V3_PRIVATE_DRAFT_DEMO_ENABLED;
+  process.env.FEASTA_V3_PRIVATE_DRAFT_DEMO_ENABLED = 'true';
+
+  const authorityRef = db.doc('providerEligibilityAuthorities/' + providerId);
+  const originalAuthority = (await authorityRef.get()).data();
+
+  try {
+    await authorityRef.delete();
+
+    const data = input({
+      sharedContractVersion: 3,
+      occasionScope: 'specific',
+      occasionIds: ['birthday'],
+    });
+
+    const created = await create(data);
+    assert.equal(created.sharedContractVersion, 3);
+
+    const ref = db.doc('packages/' + created.packageId);
+    const stored = (await ref.get()).data();
+
+    assert.equal(stored.sharedContractVersion, 3);
+    assert.equal(stored.occasionEligibilityModel, 'global_v1');
+    assert.equal(stored.globalEligibilityContractVersion, 1);
+    assert.deepEqual(stored.occasionMatchIds, ['birthday']);
+    assert.equal(Object.hasOwn(stored, 'providerEligibilityRevision'), false);
+    assert.equal(stored.status, 'draft');
+    assert.equal(stored.isActive, false);
+    assert.equal(stored.isPublished, false);
+    assert.equal(stored.providerPubliclyVisible, false);
+
+    const updated = await update({
+      ...data,
+      idempotencyKey: key(),
+      packageId: created.packageId,
+      expectedRevision: 1,
+      name: 'Updated global birthday package',
+    });
+
+    assert.equal(updated.packageRevision, 2);
+
+    const saved = (await ref.get()).data();
+    assert.equal(saved.name, 'Updated global birthday package');
+    assert.equal(saved.sharedContractVersion, 3);
+
+    await reason(update({
+      ...data,
+      idempotencyKey: key(),
+      packageId: created.packageId,
+      expectedRevision: 1,
+    }), 'REVISION_CONFLICT');
+
+    await reason(update({
+      ...data,
+      idempotencyKey: key(),
+      sharedContractVersion: 2,
+      packageId: created.packageId,
+      expectedRevision: 2,
+    }), 'CLIENT_UPGRADE_REQUIRED');
+
+    await code(update({
+      ...data,
+      idempotencyKey: key(),
+      packageId: created.packageId,
+      expectedRevision: 2,
+    }, other), 'permission-denied');
+  } finally {
+    if (originalAuthority) await authorityRef.set(originalAuthority);
+    else await authorityRef.delete();
+
+    if (previous === undefined) {
+      delete process.env.FEASTA_V3_PRIVATE_DRAFT_DEMO_ENABLED;
+    } else {
+      process.env.FEASTA_V3_PRIVATE_DRAFT_DEMO_ENABLED = previous;
+    }
+  }
+});
+test('V3 admission rejects private package creation without an operation record', async () => {
+  const data = input({
+    sharedContractVersion: 3,
+    occasionIds: ['birthday'],
+  });
+
+  const {createHash} = require('node:crypto');
+  const operationId = createHash('sha256')
+    .update(JSON.stringify([
+      uid,
+      'create',
+      data.idempotencyKey,
+    ]))
+    .digest('hex');
+
+  const operationRef = db.doc(
+    'providerPackageV2Operations/' + operationId
+  );
+
+  assert.equal((await operationRef.get()).exists, false);
+
+  await reason(create(data), 'FEATURE_DISABLED');
+
+  assert.equal(
+    (await operationRef.get()).exists,
+    false,
+    'Rejected V3 request must not create an operation record'
+  );
+});
+
+test('V3 rejects client-supplied eligibility metadata', async () => {
+  await reason(create(input({
+    sharedContractVersion: 3,
+    occasionIds: ['birthday'],
+    occasionEligibilityModel: 'global_v1',
+    providerEligibilityRevision: 1,
+  })), 'INVALID_OCCASION_SELECTION');
+});
+
+test('V3 rejects invalid global occasion selections', async () => {
+  await reason(create(input({
+    sharedContractVersion: 3,
+    occasionScope: 'specific',
+    occasionIds: ['birthday', 'birthday'],
+  })), 'INVALID_OCCASION_SELECTION');
+});
 test('create/replay writes one actual private package with authoritative V2 fields', async () => {
   const data = input(); first = await create(data);
   assert.deepEqual(await create(data), first);

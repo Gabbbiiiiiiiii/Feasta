@@ -2,15 +2,18 @@ import type {ReactNode} from "react";
 
 import {CustomerMarketplaceHeader} from "@/components/customer/layout/customer-marketplace-header";
 import type {ServiceCategoryOption} from "@/lib/service-categories/service-category-types";
+import type {ActiveOccasionOption} from "@/lib/customer/planning/active-occasion-options-service";
 import {CustomerAuthProvider} from "./customer-auth-provider";
 
 export function PublicProviderMarketplaceShell({
   authReturnTo,
   serviceCategoryOptions = [],
+  occasionOptions = [],
   children,
 }: {
   authReturnTo: string;
   serviceCategoryOptions?: readonly ServiceCategoryOption[];
+  occasionOptions?: readonly ActiveOccasionOption[];
   children: ReactNode;
 }) {
   return (
@@ -29,6 +32,7 @@ export function PublicProviderMarketplaceShell({
       <CustomerMarketplaceHeader
         authReturnTo={authReturnTo}
         serviceCategoryOptions={serviceCategoryOptions}
+        occasionOptions={occasionOptions}
       />
 
       <main

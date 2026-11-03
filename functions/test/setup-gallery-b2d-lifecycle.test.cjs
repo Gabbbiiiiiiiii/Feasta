@@ -240,6 +240,159 @@ test("concurrent package or V2 gallery creation fences capability changes on ret
   }
 });
 
+const archivedPackage = (extra = {}) => ({
+  providerId: "provider",
+  status: "archived",
+  isActive: false,
+  isPublished: false,
+  providerPubliclyVisible: false,
+  publishedAt: null,
+  ...extra,
+});
+
+test("verified archived packages permit approval without changing history", async () => {
+  const {capability, state} = fixture({
+    "packages/archived_one": archivedPackage({eventType: "wedding", historicalBookingCount: 4}),
+    "packages/archived_two": archivedPackage({eventType: "birthday"}),
+    "packages/another_provider": archivedPackage({providerId: "another_provider"}),
+  });
+
+  const historical = structuredClone(state.docs.get("packages/archived_one"));
+  const unrelated = structuredClone(state.docs.get("packages/another_provider"));
+
+  const result = await capability(request(input()));
+
+  assert.equal(result.providerEligibilityRevision, 4);
+  assert.deepEqual(
+    state.docs.get("providerEligibilityAuthorities/provider").approvedOccasionIds,
+    ["occasion_one"],
+  );
+  assert.deepEqual(state.docs.get("packages/archived_one"), historical);
+  assert.deepEqual(state.docs.get("packages/another_provider"), unrelated);
+  assert.equal(state.commits.some(([, key]) => key.startsWith("packages/")), false);
+});
+
+test("published draft and malformed provider packages fail closed", async () => {
+  const invalid = [
+    archivedPackage({status: "published", isPublished: true, isActive: true,
+      providerPubliclyVisible: true, publishedAt: "BEFORE"}),
+    archivedPackage({status: "draft"}),
+    archivedPackage({isPublished: true}),
+    archivedPackage({isActive: true}),
+    archivedPackage({providerPubliclyVisible: true}),
+    archivedPackage({publishedAt: "BEFORE"}),
+    archivedPackage({publishedAt: undefined}),
+    {providerId: "provider", status: "archived"},
+  ];
+
+  for (const record of invalid) {
+    const {capability, state} = fixture({"packages/bad": record});
+    await assert.rejects(capability(request(input())), /GALLERY_REVALIDATION_REQUIRED/);
+    assert.equal(state.commits.length, 0);
+    assert.equal(state.docs.get("providerEligibilityAuthorities/provider").revision, 3);
+  }
+});
+
+test("mixed archived and exposed packages block approval", async () => {
+  const {capability, state} = fixture({
+    "packages/archived": archivedPackage(),
+    "packages/published": archivedPackage({
+      status: "published",
+      isPublished: true,
+      isActive: true,
+      providerPubliclyVisible: true,
+      publishedAt: "BEFORE",
+    }),
+  });
+
+  await assert.rejects(capability(request(input())), /GALLERY_REVALIDATION_REQUIRED/);
+  assert.equal(state.commits.length, 0);
+  assert.deepEqual(
+    state.docs.get("providerEligibilityAuthorities/provider").approvedOccasionIds,
+    [],
+  );
+});
+
+test("archived package inventory enforces the 40-document limit", async () => {
+  for (const count of [40, 41]) {
+    const records = Object.fromEntries(
+      Array.from({length: count}, (_, index) => [
+        `packages/archived_${String(index).padStart(3, "0")}`,
+        archivedPackage(),
+      ]),
+    );
+
+    const {capability, state} = fixture(records);
+
+    if (count === 40) {
+      await capability(request(input()));
+      assert.equal(state.docs.get("providerEligibilityAuthorities/provider").revision, 4);
+      assert.equal(state.commits.some(([, key]) => key.startsWith("packages/")), false);
+    } else {
+      await assert.rejects(capability(request(input())), /GALLERY_REVALIDATION_REQUIRED/);
+      assert.equal(state.commits.length, 0);
+      assert.equal(state.docs.get("providerEligibilityAuthorities/provider").revision, 3);
+    }
+  }
+});
+
+test("concurrent archived package publication retries and blocks approval", async () => {
+  const {capability, state} = fixture({
+    "packages/archived": archivedPackage(),
+  });
+
+  state.beforeCommit = (attempt) => {
+    if (attempt === 0) {
+      state.docs.set("packages/archived", archivedPackage({
+        status: "published",
+        isPublished: true,
+        isActive: true,
+        providerPubliclyVisible: true,
+        publishedAt: "CONCURRENT",
+      }));
+    }
+  };
+
+  await assert.rejects(capability(request(input())), /GALLERY_REVALIDATION_REQUIRED/);
+  assert.equal(state.attempts, 2);
+  assert.equal(state.commits.length, 0);
+  assert.equal(state.docs.get("providerEligibilityAuthorities/provider").revision, 3);
+});
+test("published V1 setup gallery blocks capability changes", async () => {
+  const published = {
+    id: "legacy_setup",
+    title: "Existing Setup",
+    eventType: "birthday",
+    isPublished: true,
+    setupOccasionSchemaVersion: 1,
+  };
+
+  const {capability, state} = fixture({
+    "providers/provider/catalog/setups": {
+      setups: [published],
+    },
+  });
+
+  const before = structuredClone(
+    state.docs.get("providers/provider/catalog/setups"),
+  );
+
+  await assert.rejects(
+    capability(request(input())),
+    /GALLERY_REVALIDATION_REQUIRED/,
+  );
+
+  assert.deepEqual(
+    state.docs.get("providers/provider/catalog/setups"),
+    before,
+  );
+
+  assert.equal(state.commits.length, 0);
+  assert.equal(
+    state.docs.get("providerEligibilityAuthorities/provider").revision,
+    3,
+  );
+});
 test("concurrent capability requests cannot lose a generation", async () => {
   const {capability, state} = fixture();
   const results = await Promise.allSettled([capability(request(input())), capability(request(input({

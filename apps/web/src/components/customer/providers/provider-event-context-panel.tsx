@@ -8,26 +8,13 @@ import {
   UsersRound,
 } from "lucide-react";
 
-import {PhilippineDateInput} from "@/components/forms/philippine-date-input";
-import {EventVenueInput} from "@/components/landing/event-venue-input";
 import {
-  CUSTOMER_PLANNING_EVENT_TYPES,
   formatCustomerEventDate,
   formatCustomerEventTime,
-  manilaDateValue,
-  MAX_EVENT_GUESTS,
 } from "@/lib/customer/planning/event-planning-context";
 import {providerDiscoveryHref} from "@/lib/customer/providers/provider-query";
 import type {ProviderDiscoveryFilters} from "@/lib/customer/providers/provider-types";
-
-const EVENT_TYPE_LABELS = {
-  birthday: "Birthday",
-  wedding: "Wedding",
-  debut: "Debut",
-  corporate: "Corporate",
-  anniversary: "Anniversary",
-  other: "Other",
-} satisfies Record<(typeof CUSTOMER_PLANNING_EVENT_TYPES)[number], string>;
+import {EditEventFinderButton} from "./edit-event-finder-button";
 
 export function ProviderEventContextPanel({
   filters,
@@ -36,12 +23,33 @@ export function ProviderEventContextPanel({
 }) {
   const availability = filters.eventContext;
   const planning = filters.planningContext;
+
   if (!availability && !planning) return null;
 
   const eventDate = availability?.eventDate ?? planning?.eventDate;
   const guestCount = availability?.guestCount ?? planning?.guestCount;
   const eventType = planning?.eventType;
   const eventVenue = planning?.eventVenue;
+
+  const occasionLabel = eventType
+    ? eventType.replaceAll("_", " ").replace(/\b\w/gu, (letter) =>
+        letter.toUpperCase())
+    : null;
+
+  const budgetMin = planning?.budgetMin;
+  const budgetMax = planning?.budgetMax;
+  const peso = (value: number) =>
+    `₱${value.toLocaleString("en-PH")}`;
+
+  const budgetLabel =
+    budgetMin !== undefined && budgetMax !== undefined
+      ? `${peso(budgetMin)} – ${peso(budgetMax)}`
+      : budgetMin !== undefined
+        ? `${peso(budgetMin)} and above`
+        : budgetMax !== undefined
+          ? `Up to ${peso(budgetMax)}`
+          : null;
+
   const clearHref = providerDiscoveryHref({
     ...filters,
     cursor: null,
@@ -54,169 +62,84 @@ export function ProviderEventContextPanel({
       aria-labelledby="marketplace-event-context-title"
       className="rounded-[22px] border border-primary/15 bg-secondary/70 p-4 shadow-[0_5px_20px_rgb(0_75_59/0.03)] sm:p-5"
     >
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <p className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-primary-strong">
-              Planning services for
-            </p>
-            <h2
-              id="marketplace-event-context-title"
-              className="mt-1 text-lg font-extrabold tracking-[-0.02em] text-foreground"
-            >
-              Your event
-            </h2>
-            <dl className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-sm font-bold text-foreground">
-              {eventType ? (
-                <ContextItem icon={PartyPopper} label="Event type">
-                  {EVENT_TYPE_LABELS[eventType]}
-                </ContextItem>
-              ) : null}
-              {eventDate ? (
-                <ContextItem icon={CalendarDays} label="Date">
-                  {formatCustomerEventDate(eventDate)}
-                </ContextItem>
-              ) : null}
-              {availability ? (
-                <ContextItem icon={Clock3} label="Time">
-                  {formatCustomerEventTime(availability.eventTime)}–{formatCustomerEventTime(availability.eventEndTime)}
-                </ContextItem>
-              ) : null}
-              {guestCount ? (
-                <ContextItem icon={UsersRound} label="Guests">
-                  {guestCount.toLocaleString("en-PH")} guests
-                </ContextItem>
-              ) : null}
-              {(planning?.budgetMin !== undefined ||
-                planning?.budgetMax !== undefined) ? (
-                <ContextItem icon={Wallet} label="Planning budget">
-                  Planning budget: {planning?.budgetMin !== undefined
-                    ? `₱${planning.budgetMin.toLocaleString("en-PH")}`
-                    : "Up to"}
-                  {planning?.budgetMin !== undefined && planning?.budgetMax !== undefined ? " – " : " "}
-                  {planning?.budgetMax !== undefined
-                    ? `₱${planning.budgetMax.toLocaleString("en-PH")}`
-                    : "and above"}
-                </ContextItem>
-              ) : null}
-              {eventVenue ? (
-                <ContextItem icon={MapPin} label="Event venue">
-                  <span className="break-words">
-                    {eventVenue.label}
-                    {eventVenue.city ? `, ${eventVenue.city}` : ""}
-                    {eventVenue.province ? `, ${eventVenue.province}` : ""}
-                  </span>
-                </ContextItem>
-              ) : null}
-            </dl>
-            {!availability && (eventDate || guestCount) ? (
-              <p className="mt-2 text-xs leading-5 text-feasta-text-secondary">
-                Add a date, start and end time, and guests to check Provider availability after signing in.
-              </p>
-            ) : null}
-          </div>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-[11px] font-extrabold uppercase tracking-[0.13em] text-primary-strong">
+            Planning services for
+          </p>
+          <h2
+            id="marketplace-event-context-title"
+            className="mt-1 text-lg font-extrabold tracking-[-0.02em] text-foreground"
+          >
+            Your Event
+          </h2>
+        </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+          <EditEventFinderButton />
           <Link
             href={clearHref}
-            className="inline-flex min-h-10 shrink-0 items-center justify-center self-start rounded-full px-3 text-xs font-bold text-primary-strong transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+            className="inline-flex min-h-10 items-center rounded-xl px-3 text-xs font-bold text-primary-strong hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             Clear event details
           </Link>
         </div>
-
-        <form
-          action="/customer/providers"
-          method="get"
-          className="grid gap-3 border-t border-primary/10 pt-4 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_0.72fr_0.72fr_0.75fr_1.55fr_auto] xl:items-start"
-        >
-          {filters.search ? <input type="hidden" name="q" value={filters.search} /> : null}
-          {filters.serviceType !== "all" ? <input type="hidden" name="service" value={filters.serviceType} /> : null}
-          {filters.category !== "all"
-            ? <input type="hidden" name="category" value={filters.category} />
-            : null}
-          {filters.categories && filters.categories.length > 1
-            ? <input type="hidden" name="categories" value={filters.categories.join(",")} />
-            : null}
-
-          <EventControl label="Event type">
-            <select name="eventType" defaultValue={eventType ?? ""} className={controlClass}>
-              <option value="">Any occasion</option>
-              {CUSTOMER_PLANNING_EVENT_TYPES.map((value) => (
-                <option key={value} value={value}>{EVENT_TYPE_LABELS[value]}</option>
-              ))}
-            </select>
-          </EventControl>
-          <EventControl label="Date">
-            <PhilippineDateInput
-              plain
-              name="eventDate"
-              min={manilaDateValue()}
-              defaultValue={eventDate ?? ""}
-              displayClassName="left-2.5 right-8 text-xs font-semibold"
-              className={controlClass}
-            />
-          </EventControl>
-          <EventControl label="Start">
-            <input name="eventTime" type="time" defaultValue={availability?.eventTime ?? ""} className={controlClass} />
-          </EventControl>
-          <EventControl label="End">
-            <input name="eventEndTime" type="time" defaultValue={availability?.eventEndTime ?? ""} className={controlClass} />
-          </EventControl>
-          <EventControl label="Guests">
-            <input
-              name="guestCount"
-              type="number"
-              min={1}
-              max={MAX_EVENT_GUESTS}
-              step={1}
-              defaultValue={guestCount ?? ""}
-              className={controlClass}
-            />
-          </EventControl>
-          <EventVenueInput
-            key={eventVenue?.placeId ?? "no-event-venue"}
-            initialVenue={eventVenue}
-            label="Event venue"
-          />
-          <div className="grid min-w-0 gap-2 sm:col-span-2 sm:grid-cols-2 xl:col-span-7">
-            <EventControl label="Starting budget (₱) — optional">
-              <input
-                name="budgetMin"
-                type="number"
-                min={0}
-                max={100000000}
-                step={1}
-                defaultValue={planning?.budgetMin ?? ""}
-                placeholder="Minimum amount"
-                className={controlClass}
-              />
-            </EventControl>
-            <EventControl label="Maximum budget (₱) — optional">
-              <input
-                name="budgetMax"
-                type="number"
-                min={0}
-                max={100000000}
-                step={1}
-                defaultValue={planning?.budgetMax ?? ""}
-                placeholder="No upper limit"
-                className={controlClass}
-              />
-            </EventControl>
-            <p className="text-xs text-feasta-text-secondary sm:col-span-2">
-              Total planning budget across all selected services.
-              Planning reference only. Provider prices are not filtered
-              by this budget.
-            </p>
-          </div>
-          <button
-            type="submit"
-            className="inline-flex min-h-10 items-center justify-center self-end rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground shadow-brand-soft outline-none transition-colors hover:bg-primary-hover focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 xl:mb-0.5"
-          >
-            Update details
-          </button>
-        </form>
       </div>
+
+      <dl className="mt-4 grid gap-x-6 gap-y-3 border-t border-primary/10 pt-4 sm:grid-cols-2 lg:grid-cols-3">
+        {occasionLabel ? (
+          <ContextItem icon={PartyPopper} label="Occasion">
+            {occasionLabel}
+          </ContextItem>
+        ) : null}
+
+        {eventDate ? (
+          <ContextItem icon={CalendarDays} label="Event date">
+            {formatCustomerEventDate(eventDate)}
+          </ContextItem>
+        ) : null}
+
+        {availability ? (
+          <ContextItem icon={Clock3} label="Event time">
+            {formatCustomerEventTime(availability.eventTime)}
+            {" – "}
+            {formatCustomerEventTime(availability.eventEndTime)}
+          </ContextItem>
+        ) : null}
+
+        {guestCount ? (
+          <ContextItem icon={UsersRound} label="Guests">
+            {guestCount.toLocaleString("en-PH")} guests
+          </ContextItem>
+        ) : null}
+
+        {budgetLabel ? (
+          <ContextItem icon={Wallet} label="Planning budget">
+            {budgetLabel}
+          </ContextItem>
+        ) : null}
+
+        {eventVenue ? (
+          <ContextItem icon={MapPin} label="Event venue">
+            <span className="break-words">
+              {eventVenue.label}
+              {eventVenue.city && eventVenue.city !== eventVenue.label
+                ? `, ${eventVenue.city}`
+                : ""}
+              {eventVenue.province
+                ? `, ${eventVenue.province}`
+                : ""}
+            </span>
+          </ContextItem>
+        ) : null}
+      </dl>
+
+      {!availability && (eventDate || guestCount) ? (
+        <p className="mt-3 text-xs leading-5 text-feasta-text-secondary">
+          Add a valid date, start and end time, and guest count
+          in Event Finder to check provider availability.
+        </p>
+      ) : null}
     </section>
   );
 }
@@ -231,21 +154,16 @@ function ContextItem({
   children: React.ReactNode;
 }) {
   return (
-    <div className="inline-flex min-w-0 items-center gap-2">
-      <Icon aria-hidden="true" className="size-4 shrink-0 text-primary" />
-      <dt className="sr-only">{label}</dt>
-      <dd className="min-w-0">{children}</dd>
+    <div className="flex min-w-0 items-start gap-2">
+      <Icon aria-hidden="true" className="mt-1 size-4 shrink-0 text-primary" />
+      <div className="min-w-0">
+        <dt className="text-[11px] font-semibold text-feasta-text-secondary">
+          {label}
+        </dt>
+        <dd className="mt-0.5 text-sm font-bold text-foreground">
+          {children}
+        </dd>
+      </div>
     </div>
   );
 }
-
-function EventControl({label, children}: {label: string; children: React.ReactNode}) {
-  return (
-    <label className="grid min-w-0 gap-1 text-[11px] font-bold text-feasta-text-secondary">
-      {label}
-      {children}
-    </label>
-  );
-}
-
-const controlClass = "h-12 min-w-0 rounded-xl border border-feasta-border-soft bg-white px-2.5 text-xs font-semibold text-foreground outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15";
