@@ -260,7 +260,15 @@ void main() {
           );
           final load = tester.getSemantics(find.bySemanticsLabel('Load More'));
           expect(load.getSemanticsData().hasAction(SemanticsAction.tap), true);
-          await tester.tap(find.text('Load More'));
+          await tester.ensureVisible(
+            find.widgetWithText(OutlinedButton, 'Load More'),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            find.widgetWithText(OutlinedButton, 'Load More').hitTestable(),
+            findsOneWidget,
+          );
+          await tester.tap(find.widgetWithText(OutlinedButton, 'Load More'));
           await tester.pump();
           final loading = find.bySemanticsLabel('Loading more bookings.');
           expect(loading, findsOneWidget);
@@ -583,7 +591,15 @@ void main() {
         (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
       ),
     );
-    await tester.tap(find.text('Load More'));
+    await tester.ensureVisible(
+      find.widgetWithText(OutlinedButton, 'Load More'),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.widgetWithText(OutlinedButton, 'Load More').hitTestable(),
+      findsOneWidget,
+    );
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Load More'));
     await tester.pump();
     expect(source.requests.length, 2);
     source.requests[1].addError(StateError('offline'));

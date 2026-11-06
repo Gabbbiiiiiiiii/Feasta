@@ -143,7 +143,10 @@ void main() {
         '20000',
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byTooltip('Filter providers'));
+      await tester.ensureVisible(
+        find.widgetWithText(FilledButton, 'Show results'),
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Show results'));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('provider-venue')), findsNothing);
       expect(find.byKey(const ValueKey('provider-expensive')), findsNothing);
@@ -220,16 +223,28 @@ void main() {
       await tester.pumpAndSettle();
       expect(nav, findsOneWidget);
       expect(tester.getBottomLeft(nav).dy, bottom);
+      expect(
+        find.ancestor(
+          of: find.byTooltip('Close'),
+          matching: find.byWidgetPredicate(
+            (w) => w is ExcludeSemantics && w.excluding,
+          ),
+        ),
+        findsOneWidget,
+      );
       await tester.tap(
         find.byWidgetPredicate(
-          (widget) =>
-              widget is Image &&
-              widget.image is AssetImage &&
-              (widget.image as AssetImage).assetName ==
-                  'assets/images/plan.png',
+          (w) => w is Semantics && w.properties.label == 'Plan an event',
         ),
       );
-      await tester.pumpAndSettle();
+      // The visible Plan catalog is loading; advance its entrance animation
+      // without waiting for the deliberately unconnected Firestore stream.
+      await tester.pump(const Duration(milliseconds: 90));
+      await tester.pump(const Duration(milliseconds: 90));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('Plan your event'), findsOneWidget);
+      expect(find.byTooltip('Close').hitTestable(), findsOneWidget);
       await tester.binding.handlePopRoute();
       await tester.pumpAndSettle();
       expect(find.byType(CustomerProviderCollectionScreen), findsOneWidget);

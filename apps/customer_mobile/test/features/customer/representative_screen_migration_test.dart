@@ -77,7 +77,10 @@ void main() {
 
     expect(find.text('Confirmed'), findsOneWidget);
     expect(find.widgetWithText(OutlinedButton, 'View details'), findsOneWidget);
-    expect(find.widgetWithText(ElevatedButton, 'Chat'), findsOneWidget);
+    expect(
+      find.widgetWithText(ElevatedButton, 'Message provider'),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 

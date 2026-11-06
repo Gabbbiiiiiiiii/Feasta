@@ -381,9 +381,15 @@ class _CustomerMainScreenState extends State<CustomerMainScreen>
             Positioned.fill(
               child: IgnorePointer(
                 ignoring: !_showPlanLayer || !_isPlanOpen,
-                child: _PlanOverlaySheet(
-                  visible: _showPlanLayer && _isPlanOpen,
-                  onClose: _closePlan,
+                child: TickerMode(
+                  enabled: _showPlanLayer,
+                  child: ExcludeSemantics(
+                    excluding: !_showPlanLayer,
+                    child: _PlanOverlaySheet(
+                      visible: _showPlanLayer && _isPlanOpen,
+                      onClose: _closePlan,
+                    ),
+                  ),
                 ),
               ),
             ),

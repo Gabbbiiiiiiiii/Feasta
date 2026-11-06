@@ -10,6 +10,7 @@ import 'package:firebase_core_platform_interface/test.dart';
 // ignore: depend_on_referenced_packages
 import 'package:firebase_auth_platform_interface/firebase_auth_platform_interface.dart';
 import 'package:flutter/material.dart';
+import 'dart:ui' show Tristate;
 import 'package:flutter_test/flutter_test.dart';
 import 'provider_discovery_test.dart'
     show DiscoveryRepository, HomeAddressStorage, GuestAuth;
@@ -47,8 +48,10 @@ void main() {
     status: 'active',
   );
   testWidgets(
-    'Home loads canonical reader, refreshes changes and navigates by code',
+    'Home loads canonical reader, filters by code and refreshes changes',
     (tester) async {
+      final semantics = tester.ensureSemantics();
+
       final repo = CategoryRepository();
       final pending = Completer<List<ServiceCategory>>();
       repo.next = pending.future;
@@ -61,14 +64,15 @@ void main() {
       await tester.ensureVisible(find.text(category.name).first);
       await tester.tap(find.text(category.name).first);
       await tester.pumpAndSettle();
+      expect(find.byType(CustomerSearchScreen), findsNothing);
       expect(
         tester
-            .widget<CustomerSearchScreen>(find.byType(CustomerSearchScreen))
-            .initialCategoryCode,
-        category.code,
+            .getSemantics(find.bySemanticsLabel(category.name).first)
+            .flagsCollection
+            .isSelected,
+        Tristate.isTrue,
       );
-      tester.state<NavigatorState>(find.byType(Navigator).first).pop();
-      await tester.pumpAndSettle();
+      expect(find.text('No providers available yet.'), findsOneWidget);
       repo.next = Future.value([]);
       final refresh = tester
           .widget<RefreshIndicator>(find.byType(RefreshIndicator))
@@ -83,15 +87,18 @@ void main() {
         findsOneWidget,
       );
       expect(tester.takeException(), isNull);
+      semantics.dispose();
     },
   );
   testWidgets(
-    'web chips scroll at narrow width and All services preserves guest navigation',
+    'chips scroll at narrow width and All services restores provider groups',
     (tester) async {
       tester.view.physicalSize = const Size(320, 850);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
+      final semantics = tester.ensureSemantics();
+
       final repo = CategoryRepository()
         ..next = Future.value(const [
           ServiceCategory(
@@ -121,24 +128,29 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Videography').first);
       await tester.pumpAndSettle();
+      expect(find.byType(CustomerSearchScreen), findsNothing);
       expect(
         tester
-            .widget<CustomerSearchScreen>(find.byType(CustomerSearchScreen))
-            .initialCategoryCode,
-        'videography',
+            .getSemantics(find.bySemanticsLabel('Videography').first)
+            .flagsCollection
+            .isSelected,
+        Tristate.isTrue,
       );
-      tester.state<NavigatorState>(find.byType(Navigator).first).pop();
-      await tester.pumpAndSettle();
+      expect(find.text('No providers available yet.'), findsOneWidget);
       await tester.ensureVisible(find.text('All services').first);
       await tester.tap(find.text('All services').first);
       await tester.pumpAndSettle();
+      expect(find.byType(CustomerSearchScreen), findsNothing);
       expect(
         tester
-            .widget<CustomerSearchScreen>(find.byType(CustomerSearchScreen))
-            .initialCategoryCode,
-        isNull,
+            .getSemantics(find.bySemanticsLabel('All services'))
+            .flagsCollection
+            .isSelected,
+        Tristate.isTrue,
       );
+      expect(find.text('No providers available yet.'), findsNothing);
       expect(tester.takeException(), isNull);
+      semantics.dispose();
     },
   );
   testWidgets('failure offers retry without invented or stale categories', (
